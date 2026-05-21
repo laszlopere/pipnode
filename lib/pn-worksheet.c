@@ -25,6 +25,7 @@
 #include "pn-node-store.h"
 #include "pn-wire.h"
 #include "pn-wire-store.h"
+#include "pn-message.h"
 #include "pn-inject.h"
 #include "pn-switch.h"
 #include "pn-knob.h"
@@ -45,6 +46,11 @@ enum {
     PN_WS_DND_INFO_PALETTE = 0,
     PN_WS_DND_INFO_URI     = 1,
 };
+
+/* Depth range over which the message-flow animation is staggered hop by
+ * hop; matches the node dispatch-loop guard.  Deeper hops are clamped
+ * (a cosmetic detail only). */
+#define PN_WORKSHEET_WIRE_PULSE_DEPTH 256
 
 /* ------------------------------------------------------------------ */
 /*  PnWorksheet                                                        */
@@ -222,6 +228,37 @@ struct _PnWorksheet
      *  the widget that would need invalidating beyond the redraw. */
     gulong   prefs_grid_type_handler;
     gulong   prefs_grid_color_handler;
+    gulong   prefs_bg_handler;
+    gulong   prefs_anim_handler;
+    gulong   prefs_anim_interval_handler;
+
+    /** Wire message-flow animation.  When the
+     *  "animate-messages-on-wires" preference is on, each message that
+     *  crosses a wire spawns a #PnWirePulse: a light that runs along the
+     *  wire's curve.  @wire_pulses holds the live pulses (each owning a
+     *  strong ref to its #PnWire, released by the array's clear func);
+     *  @wire_pulse_timer_id is the GLib timeout that advances them at a
+     *  coarse rate (see PN_WORKSHEET_WIRE_PULSE_STEP_MS), or 0 when none
+     *  are in flight. */
+    GArray  *wire_pulses;
+    guint    wire_pulse_timer_id;
+
+    /** Widget-space bounding box invalidated for the lights on the last
+     *  repaint; unioned with the current box each frame so the previous
+     *  position is erased without repainting the whole canvas.  Valid
+     *  only while #wire_pulse_dirty_valid is set. */
+    double   wire_pulse_dirty_x0, wire_pulse_dirty_y0;
+    double   wire_pulse_dirty_x1, wire_pulse_dirty_y1;
+    gboolean wire_pulse_dirty_valid;
+
+    /** Per-hop accumulated start offsets (microseconds), indexed by the
+     *  message-dispatch depth, used to stagger a single message's
+     *  animation along its path: each hop's light starts only when the
+     *  previous hop's light has arrived.  Because delivery is a
+     *  synchronous depth-first cascade, a parent hop always writes its
+     *  slot before its child hop reads it, so no per-cascade reset is
+     *  needed.  See on_message_passed / wire_pulse_spawn. */
+    gint64   wire_hop_end[PN_WORKSHEET_WIRE_PULSE_DEPTH];
 
 };
 
@@ -230,6 +267,14 @@ typedef struct {
     double  ax;
     double  ay;
 } PnDragAnchor;
+
+/* One in-flight light running along a wire as a message crosses it. */
+typedef struct {
+    PnWire *wire;        /* strong ref; released by the array clear func */
+    gint64  start_us;    /* frame-clock stamp at spawn */
+    gint64  duration_us; /* constant-speed travel time */
+    double  hue;         /* 0..1 from the message id; < 0 = neutral */
+} PnWirePulse;
 
 G_DEFINE_TYPE (PnWorksheet, pn_worksheet, GTK_TYPE_DRAWING_AREA)
 
@@ -265,6 +310,17 @@ wire_on_sheet (PnWorksheet *self, PnWire *wire)
     if (src == NULL || dst == NULL)
         return FALSE;
     return node_on_sheet (self, src) && node_on_sheet (self, dst);
+}
+
+/* Axis-aligned rectangle overlap test (inclusive).  Used by the painter
+ * to skip wires and nodes that fall outside the current cairo clip, so a
+ * small partial redraw (e.g. just around a moving message-flow light)
+ * does not pay to lay out and paint the whole sheet. */
+static inline gboolean
+rects_overlap (double ax0, double ay0, double ax1, double ay1,
+               double bx0, double by0, double bx1, double by1)
+{
+    return ax0 <= bx1 && ax1 >= bx0 && ay0 <= by1 && ay1 >= by0;
 }
 
 /* Forward declarations for helpers used by the painter. */
@@ -1141,6 +1197,686 @@ on_pulse_tick (
     return G_SOURCE_CONTINUE;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Wire message-flow animation                                       */
+/*                                                                    */
+/*  When the "animate-messages-on-wires" preference is on, each       */
+/*  message crossing a wire spawns a short-lived light that runs      */
+/*  along the wire's curve from source to target.  The light's hue    */
+/*  is derived from the message id, so one message keeps the same     */
+/*  colour at every hop and can be followed across the whole graph.   */
+/* ------------------------------------------------------------------ */
+
+/* The light's travel speed (worksheet units per second) is configurable
+ * via the "wire-pulse-speed" preference; it scales with zoom like the
+ * wires themselves.  Short wires are clamped to a minimum duration so
+ * they do not flash by in a single frame. */
+#define PN_WORKSHEET_WIRE_PULSE_MIN_US      (120 * 1000)
+
+/* Backstops against a high-frequency source flooding the array: at most
+ * this many concurrent lights per wire, and a global ceiling.  When a cap
+ * is hit the NEW spawn is dropped — lights already travelling are left
+ * alone so they always reach their target. */
+#define PN_WORKSHEET_WIRE_PULSE_PER_WIRE    16
+#define PN_WORKSHEET_WIRE_PULSE_MAX         1024
+
+/* The animation is driven by a plain timeout rather than a frame-clock
+ * tick callback, so the widget wakes only a few times a second while a
+ * light is travelling instead of at the full display rate (60–144 Hz).
+ * The interval (milliseconds) is the "wire-pulse-interval" preference —
+ * larger is cheaper and chunkier — so the CPU/smoothness tradeoff can be
+ * tuned live. */
+
+/* The light advances in discrete jumps of this many worksheet units
+ * rather than moving continuously, so a redraw only happens once the
+ * position has actually changed — fewer, coarser steps, less CPU. */
+#define PN_WORKSHEET_WIRE_PULSE_STEP_PX     6.0
+
+/* GArray clear func: release the strong ref each pulse holds. */
+static void
+wire_pulse_clear (gpointer data)
+{
+    PnWirePulse *p = data;
+    g_clear_object (&p->wire);
+}
+
+/* Resolve a wire's on-canvas endpoints, matching the static wire
+ * painter exactly so a light tracks the curve pixel-for-pixel.
+ * Returns %FALSE for wires that are off this sheet or have a missing
+ * endpoint (a wire removed mid-flight nulls its endpoints), which the
+ * callers treat as "skip / expire". */
+static gboolean
+wire_endpoints (
+        PnWorksheet *self,
+        PnWire      *wire,
+        double      *x1,
+        double      *y1,
+        double      *x2,
+        double      *y2)
+{
+    PnNode        *src;
+    PnNode        *dst;
+    const PnPoint *ps;
+    const PnPoint *pt;
+    double         sw, sh, shh;
+
+    if (!wire_on_sheet (self, wire))
+        return FALSE;
+
+    src = pn_wire_get_source (wire);
+    dst = pn_wire_get_target (wire);   /* both non-NULL per wire_on_sheet */
+
+    ps  = pn_node_get_position (src);
+    pt  = pn_node_get_position (dst);
+    pn_node_get_size (src, &sw, &sh);
+    shh = pn_node_get_header_height (src);
+    (void) sh;
+
+    *x1 = ps->x + sw;
+    *y1 = ps->y + shh / 2.0;
+    *x2 = pt->x;
+    *y2 = input_port_y (dst, pn_wire_get_target_input (wire));
+    return TRUE;
+}
+
+/* Like wire_endpoints(), but the target is the centre of the destination
+ * node's header rather than its input tab, so the message-flow light
+ * flies past the edge and lands in the middle of the node (it is painted
+ * on top of the nodes). */
+
+/* The full path a message-flow light travels, in three segments:
+ *   A: straight from the source node's centre out to the wire start;
+ *   B: the wire's own cubic bezier (identical to the painted wire);
+ *   C: straight from the wire end into the target node's centre.
+ * Segment lengths are kept so the light moves at a constant speed across
+ * the whole path. */
+typedef struct {
+    double sx, sy;        /* source node centre   (A start) */
+    double x1, y1;        /* wire start           (A end / B start) */
+    double x2, y2;        /* wire end / input tab (B end / C start) */
+    double tx, ty;        /* target node centre   (C end) */
+    double la, lb, lc;    /* segment lengths */
+    double total;
+} PnPulsePath;
+
+/* Build the travel path for @wire's light.  Returns FALSE for wires off
+ * this sheet or with a missing endpoint.  The bezier (segment B) uses the
+ * real wire endpoints, so the light tracks the painted wire exactly; only
+ * the straight lead-in/lead-out segments reach the node centres. */
+static gboolean
+wire_pulse_path (
+        PnWorksheet *self,
+        PnWire      *wire,
+        PnPulsePath *pp)
+{
+    PnNode        *src, *dst;
+    const PnPoint *ps, *pt;
+    double         sw, sh, shh, dw, dh, dhh, dx;
+    double         c1x, c2x;
+
+    if (!wire_endpoints (self, wire, &pp->x1, &pp->y1, &pp->x2, &pp->y2))
+        return FALSE;
+
+    src = pn_wire_get_source (wire);
+    dst = pn_wire_get_target (wire);
+    ps  = pn_node_get_position (src);
+    pt  = pn_node_get_position (dst);
+    pn_node_get_size (src, &sw, &sh);
+    pn_node_get_size (dst, &dw, &dh);
+    shh = pn_node_get_header_height (src);
+    dhh = pn_node_get_header_height (dst);
+    (void) sh; (void) dh;
+
+    /* Node centres (header centre, matching the wire's vertical anchor). */
+    pp->sx = ps->x + sw / 2.0;
+    pp->sy = ps->y + shh / 2.0;
+    pp->tx = pt->x + dw / 2.0;
+    pp->ty = pt->y + dhh / 2.0;
+
+    pp->la = hypot (pp->x1 - pp->sx, pp->y1 - pp->sy);
+    pp->lc = hypot (pp->tx - pp->x2, pp->ty - pp->y2);
+
+    /* Approximate the bezier length by its control polygon (cheap, and a
+     * little long, which only makes the curved middle a touch slower).
+     * Same offset rule as wire_point_at, including the no-overshoot cap. */
+    dx  = fabs (pp->x2 - pp->x1) * 0.5;
+    if (dx < 30.0) dx = 30.0;
+    {
+        double half = 0.5 * hypot (pp->x2 - pp->x1, pp->y2 - pp->y1);
+        if (dx > half) dx = half;
+    }
+    c1x = pp->x1 + dx;
+    c2x = pp->x2 - dx;
+    pp->lb = hypot (c1x - pp->x1, 0.0)
+           + hypot (c2x - c1x, pp->y2 - pp->y1)
+           + hypot (pp->x2 - c2x, 0.0);
+
+    pp->total = pp->la + pp->lb + pp->lc;
+    if (pp->total < 1.0)
+        pp->total = 1.0;
+    return TRUE;
+}
+
+/* Point at parameter @t in [0,1] along the cubic bezier the light rides.
+ * Same control-point rule as draw_wire (offset 30 px minimum), EXCEPT the
+ * offset is capped at half the endpoint distance so the control points
+ * never overshoot the ends.  Without that cap a wire shorter than the
+ * offset folds back on itself, which the static stroke hides but a moving
+ * light exposes as a forward-back-forward stutter.  The cap only changes
+ * very short wires (where the drawn fold is invisible anyway); on long or
+ * vertical wires it leaves the curve identical to the painted wire. */
+static void
+wire_point_at (
+        double  x1,
+        double  y1,
+        double  x2,
+        double  y2,
+        double  t,
+        double *ox,
+        double *oy)
+{
+    double dx   = fabs (x2 - x1) * 0.5;
+    double half = 0.5 * hypot (x2 - x1, y2 - y1);
+    double u, uu, tt, b0, b1, b2, b3;
+
+    if (dx < 30.0)
+        dx = 30.0;
+    if (dx > half)
+        dx = half;
+
+    u  = 1.0 - t;
+    uu = u * u;
+    tt = t * t;
+    b0 = uu * u;
+    b1 = 3.0 * uu * t;
+    b2 = 3.0 * u  * tt;
+    b3 = tt * t;
+
+    *ox = b0 * x1 + b1 * (x1 + dx) + b2 * (x2 - dx) + b3 * x2;
+    *oy = b0 * y1 + b1 *  y1       + b2 *  y2        + b3 * y2;
+}
+
+/* Point at fraction @frac in [0,1] along the three-segment pulse path.
+ * @step quantises the travelled distance so the light advances in
+ * discrete jumps (worksheet units; 0 disables) — chunky on purpose, to
+ * keep the redraw count down. */
+static void
+wire_pulse_path_point (
+        const PnPulsePath *pp,
+        double             frac,
+        double             step,
+        double            *ox,
+        double            *oy)
+{
+    double d = frac * pp->total;
+    double t;
+
+    if (step > 0.0)
+        d = floor (d / step + 0.5) * step;
+    if (d < 0.0)        d = 0.0;
+    if (d > pp->total)  d = pp->total;
+
+    if (d <= pp->la)                       /* segment A: centre → wire start */
+    {
+        t   = pp->la > 0.0 ? d / pp->la : 1.0;
+        *ox = pp->sx + (pp->x1 - pp->sx) * t;
+        *oy = pp->sy + (pp->y1 - pp->sy) * t;
+    }
+    else if (d <= pp->la + pp->lb)         /* segment B: the wire bezier */
+    {
+        t = pp->lb > 0.0 ? (d - pp->la) / pp->lb : 1.0;
+        wire_point_at (pp->x1, pp->y1, pp->x2, pp->y2, t, ox, oy);
+    }
+    else                                   /* segment C: wire end → centre */
+    {
+        t   = pp->lc > 0.0 ? (d - pp->la - pp->lb) / pp->lc : 1.0;
+        *ox = pp->x2 + (pp->tx - pp->x2) * t;
+        *oy = pp->y2 + (pp->ty - pp->y2) * t;
+    }
+}
+
+/* Plain-double HSV→RGB (h, s, v and outputs all in [0,1]); GTK offers
+ * no helper for bare doubles.  @h wraps, so any real hue is valid. */
+static void
+hsv_to_rgb (
+        double  h,
+        double  s,
+        double  v,
+        double *r,
+        double *g,
+        double *b)
+{
+    double hh = (h - floor (h)) * 6.0;
+    int    i  = (int) hh;
+    double f  = hh - i;
+    double p  = v * (1.0 - s);
+    double q  = v * (1.0 - s * f);
+    double t  = v * (1.0 - s * (1.0 - f));
+
+    switch (i)
+    {
+    case 0:  *r = v; *g = t; *b = p; break;
+    case 1:  *r = q; *g = v; *b = p; break;
+    case 2:  *r = p; *g = v; *b = t; break;
+    case 3:  *r = p; *g = q; *b = v; break;
+    case 4:  *r = t; *g = p; *b = v; break;
+    default: *r = v; *g = p; *b = q; break;
+    }
+}
+
+/* Map a message id to a stable hue in [0,1) via FNV-1a.  Returns -1 as
+ * a "no id → neutral colour" sentinel. */
+static double
+hue_from_id (const gchar *id)
+{
+    guint32 h = 2166136261u;
+
+    if (id == NULL || *id == '\0')
+        return -1.0;
+
+    for (; *id != '\0'; id++)
+    {
+        h ^= (guchar) *id;
+        h *= 16777619u;
+    }
+    return (double) (h % 3600u) / 3600.0;
+}
+
+static gboolean on_wire_pulse_timeout (gpointer user_data);
+
+/* Bounding box, in widget (canvas) coords, of every light currently
+ * visible, padded by the glow + diffraction-spike reach.  Returns FALSE
+ * when nothing is visible.  Mirrors draw_wire_pulses' visibility test. */
+static gboolean
+wire_pulses_bbox (
+        PnWorksheet *self,
+        gint64       now_us,
+        double      *ox0,
+        double      *oy0,
+        double      *ox1,
+        double      *oy1)
+{
+    const double pad = 13.0 * 3.0 + 3.0;   /* r_spike + margin (model) */
+    gboolean     any = FALSE;
+    double       x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    guint        i;
+
+    if (self->wire_pulses == NULL)
+        return FALSE;
+
+    for (i = 0; i < self->wire_pulses->len; i++)
+    {
+        PnWirePulse *p = &g_array_index (self->wire_pulses, PnWirePulse, i);
+        PnPulsePath  pp;
+        double       px, py, frac;
+
+        frac = (double) (now_us - p->start_us) / (double) p->duration_us;
+        if (frac < 0.0 || frac > 1.0)
+            continue;
+        if (!wire_pulse_path (self, p->wire, &pp))
+            continue;
+        wire_pulse_path_point (&pp, frac,
+                               PN_WORKSHEET_WIRE_PULSE_STEP_PX / self->zoom,
+                               &px, &py);
+
+        if (!any)
+        {
+            x0 = x1 = px;
+            y0 = y1 = py;
+            any = TRUE;
+        }
+        else
+        {
+            if (px < x0) x0 = px;
+            if (px > x1) x1 = px;
+            if (py < y0) y0 = py;
+            if (py > y1) y1 = py;
+        }
+    }
+    if (!any)
+        return FALSE;
+
+    *ox0 = (x0 - pad) * self->zoom;
+    *oy0 = (y0 - pad) * self->zoom;
+    *ox1 = (x1 + pad) * self->zoom;
+    *oy1 = (y1 + pad) * self->zoom;
+    return TRUE;
+}
+
+/* Invalidate just the region around the lights — the union of where they
+ * are now and where they were on the last repaint — instead of the whole
+ * widget, so the partial-redraw culling in pn_worksheet_draw applies. */
+static void
+wire_pulses_invalidate (
+        PnWorksheet *self,
+        gint64       now_us)
+{
+    double   cx0, cy0, cx1, cy1;
+    double   ux0, uy0, ux1, uy1;
+    gboolean have_cur  = wire_pulses_bbox (self, now_us,
+                                           &cx0, &cy0, &cx1, &cy1);
+    gboolean have_prev = self->wire_pulse_dirty_valid;
+
+    if (!have_cur && !have_prev)
+        return;
+
+    /* If the (quantised) positions have not moved since the last repaint,
+     * there is nothing new to show — skip the redraw entirely.  This is
+     * what turns the step size into a CPU saving: between step boundaries
+     * the timer fires but does no work. */
+    if (have_cur && have_prev
+        && fabs (cx0 - self->wire_pulse_dirty_x0) < 0.5
+        && fabs (cy0 - self->wire_pulse_dirty_y0) < 0.5
+        && fabs (cx1 - self->wire_pulse_dirty_x1) < 0.5
+        && fabs (cy1 - self->wire_pulse_dirty_y1) < 0.5)
+        return;
+
+    if (have_cur && have_prev)
+    {
+        ux0 = MIN (cx0, self->wire_pulse_dirty_x0);
+        uy0 = MIN (cy0, self->wire_pulse_dirty_y0);
+        ux1 = MAX (cx1, self->wire_pulse_dirty_x1);
+        uy1 = MAX (cy1, self->wire_pulse_dirty_y1);
+    }
+    else if (have_cur)
+    {
+        ux0 = cx0; uy0 = cy0; ux1 = cx1; uy1 = cy1;
+    }
+    else
+    {
+        ux0 = self->wire_pulse_dirty_x0; uy0 = self->wire_pulse_dirty_y0;
+        ux1 = self->wire_pulse_dirty_x1; uy1 = self->wire_pulse_dirty_y1;
+    }
+
+    gtk_widget_queue_draw_area (GTK_WIDGET (self),
+                                (int) floor (ux0), (int) floor (uy0),
+                                (int) ceil (ux1 - ux0) + 1,
+                                (int) ceil (uy1 - uy0) + 1);
+
+    if (have_cur)
+    {
+        self->wire_pulse_dirty_x0 = cx0; self->wire_pulse_dirty_y0 = cy0;
+        self->wire_pulse_dirty_x1 = cx1; self->wire_pulse_dirty_y1 = cy1;
+        self->wire_pulse_dirty_valid = TRUE;
+    }
+    else
+        self->wire_pulse_dirty_valid = FALSE;
+}
+
+/* Spawn a light on @wire for @message, enforcing the capacity caps and
+ * (re)arming the per-frame tick.  @depth is the message-dispatch hop
+ * index of this crossing (0 for the first hop): it staggers the light's
+ * start by the accumulated travel time of the preceding hops so a single
+ * message animates one wire at a time along its path instead of lighting
+ * every wire at once.  Sibling hops (a fan-out) share a depth and so
+ * start together, which is what we want. */
+static void
+wire_pulse_spawn (
+        PnWorksheet *self,
+        PnWire      *wire,
+        PnMessage   *message,
+        gint         depth)
+{
+    gint64         now_us, start_us, start_delay = 0;
+    double         speed;
+    gint64         duration_us;
+    guint          i, same = 0;
+    double         hue;
+    PnPulsePath    pp;
+    PnWirePulse    pulse;
+
+    if (self->wire_pulses == NULL)
+        return;
+    if (!wire_pulse_path (self, wire, &pp))
+        return;
+
+    speed = (double) pn_preferences_get_wire_pulse_speed (
+            pn_preferences_get_default ());
+    if (speed < 1.0)
+        speed = 1.0;
+
+    /* Duration covers the whole path (lead-in + wire + lead-out). */
+    duration_us = (gint64) (pp.total / speed * 1e6);
+    if (duration_us < PN_WORKSHEET_WIRE_PULSE_MIN_US)
+        duration_us = PN_WORKSHEET_WIRE_PULSE_MIN_US;
+
+    /* Monotonic time throughout (the timer and painter use the same),
+     * so positions are consistent without the frame clock. */
+    now_us = g_get_monotonic_time ();
+    hue    = hue_from_id (pn_message_get_id (message));
+
+    /* Stagger: this hop begins when the previous one finished.  The
+     * parent hop wrote wire_hop_end[depth-1] earlier in the same
+     * synchronous cascade (delivery is depth-first, emission pre-order),
+     * so it is the time, relative to now, at which the message reaches
+     * this wire's source. */
+    if (depth < 0)
+        depth = 0;
+    else if (depth >= PN_WORKSHEET_WIRE_PULSE_DEPTH)
+        depth = PN_WORKSHEET_WIRE_PULSE_DEPTH - 1;
+    if (depth > 0)
+        start_delay = self->wire_hop_end[depth - 1];
+    self->wire_hop_end[depth] = start_delay + duration_us;
+    start_us = now_us + start_delay;
+
+    /* Capacity caps drop the NEW spawn rather than touching pulses already
+     * in flight, so every light that appears is guaranteed to reach its
+     * target (never dropped or reset half-way).  Under heavy traffic some
+     * messages simply do not get a light — a bounded, complete train. */
+    for (i = 0; i < self->wire_pulses->len; i++)
+    {
+        PnWirePulse *p = &g_array_index (self->wire_pulses, PnWirePulse, i);
+        if (p->wire == wire)
+            same++;
+    }
+    if (same >= PN_WORKSHEET_WIRE_PULSE_PER_WIRE)
+        return;
+    if (self->wire_pulses->len >= PN_WORKSHEET_WIRE_PULSE_MAX)
+        return;
+
+    pulse.wire        = g_object_ref (wire);
+    pulse.start_us    = start_us;
+    pulse.duration_us = duration_us;
+    pulse.hue         = hue;
+    g_array_append_val (self->wire_pulses, pulse);
+
+    if (self->wire_pulse_timer_id == 0)
+        self->wire_pulse_timer_id = g_timeout_add (
+                pn_preferences_get_wire_pulse_interval (
+                        pn_preferences_get_default ()),
+                on_wire_pulse_timeout, self);
+
+    /* No immediate redraw here: the timer repaints at its own coarse rate,
+     * so a burst of messages cannot drive the redraw rate (and the CPU)
+     * up.  A freshly spawned light shows within one timer step. */
+}
+
+/* Per-frame tick: prune finished lights (and any whose wire vanished),
+ * repaint at the throttled rate, and tear itself down once none remain. */
+static gboolean
+on_wire_pulse_timeout (
+        gpointer user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+    gint64       now_us;
+    guint        i;
+
+    now_us = g_get_monotonic_time ();
+
+    for (i = self->wire_pulses->len; i > 0; i--)
+    {
+        PnWirePulse *p = &g_array_index (self->wire_pulses, PnWirePulse, i - 1);
+        PnPulsePath  pp;
+        gboolean     dead = (now_us - p->start_us) >= p->duration_us;
+
+        if (!dead && !wire_pulse_path (self, p->wire, &pp))
+            dead = TRUE;
+        if (dead)
+            g_array_remove_index (self->wire_pulses, i - 1);
+    }
+
+    /* Repaint just the lights' region (erasing where they were). */
+    wire_pulses_invalidate (self, now_us);
+
+    if (self->wire_pulses->len == 0)
+    {
+        self->wire_pulse_timer_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/* Drop every in-flight light and stop the timer.  Used when the feature
+ * is switched off mid-flight so the lights vanish at once. */
+static void
+wire_pulses_clear (PnWorksheet *self)
+{
+    if (self->wire_pulses != NULL && self->wire_pulses->len > 0)
+        g_array_set_size (self->wire_pulses, 0);
+    if (self->wire_pulse_timer_id != 0)
+    {
+        g_source_remove (self->wire_pulse_timer_id);
+        self->wire_pulse_timer_id = 0;
+    }
+    /* Caller follows up with a full queue_draw to erase, so the stale
+     * dirty box is no longer needed. */
+    self->wire_pulse_dirty_valid = FALSE;
+}
+
+/* React to the "animate-messages-on-wires" preference flipping: when it
+ * goes off, clear any lights mid-flight so they vanish at once. */
+static void
+on_prefs_anim_changed (
+        GObject    *prefs,
+        GParamSpec *pspec,
+        gpointer    user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+    (void) pspec;
+
+    if (!pn_preferences_get_animate_wire_messages (PN_PREFERENCES (prefs)))
+        wire_pulses_clear (self);
+
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* React to the redraw-interval preference changing: if the animation is
+ * running, re-arm the timer at the new interval so the change takes
+ * effect immediately (rather than only on the next animation). */
+static void
+on_prefs_anim_interval_changed (
+        GObject    *prefs,
+        GParamSpec *pspec,
+        gpointer    user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+    (void) pspec;
+
+    if (self->wire_pulse_timer_id != 0)
+    {
+        g_source_remove (self->wire_pulse_timer_id);
+        self->wire_pulse_timer_id = g_timeout_add (
+                pn_preferences_get_wire_pulse_interval (
+                        PN_PREFERENCES (prefs)),
+                on_wire_pulse_timeout, self);
+    }
+}
+
+/* Paint every live light, inside the worksheet (zoom/pan) transform. */
+static void
+draw_wire_pulses (
+        PnWorksheet *self,
+        cairo_t     *cr)
+{
+    gint64 now_us;
+    guint  i;
+
+    if (self->wire_pulses == NULL || self->wire_pulses->len == 0)
+        return;
+
+    /* Same monotonic clock the spawn and timer use, so the painted
+     * position matches the invalidated region. */
+    now_us = g_get_monotonic_time ();
+
+    for (i = 0; i < self->wire_pulses->len; i++)
+    {
+        PnWirePulse     *p = &g_array_index (self->wire_pulses, PnWirePulse, i);
+        PnPulsePath      pp;
+        double           px, py;
+        double           frac, alpha;
+        double           r = 1.0, g = 0.97, b = 0.85;   /* neutral default */
+        cairo_pattern_t *halo;
+
+        frac = (double) (now_us - p->start_us) / (double) p->duration_us;
+        if (frac < 0.0)
+            continue;   /* staggered start still in the future */
+        if (frac > 1.0)
+            continue;   /* finished; pruned on the next tick */
+
+        if (!wire_pulse_path (self, p->wire, &pp))
+            continue;
+
+        wire_pulse_path_point (&pp, frac,
+                               PN_WORKSHEET_WIRE_PULSE_STEP_PX / self->zoom,
+                               &px, &py);
+
+        if (p->hue >= 0.0)
+            hsv_to_rgb (p->hue, 0.85, 1.0, &r, &g, &b);
+
+        /* No fade: the light is on screen only briefly, so a constant
+         * full brightness reads better than an ease in/out that would
+         * mostly hide it. */
+        alpha = 1.0;
+
+        {
+            const double r_halo  = 13.0;  /* soft glow radius            */
+            const double r_core  =  3.4;  /* bright centre               */
+            const double r_spike = r_halo * 3.0;  /* diffraction reach    */
+            static const double dir[4][2] =
+                { { 1.0, 0.0 }, { -1.0, 0.0 }, { 0.0, 1.0 }, { 0.0, -1.0 } };
+            int k;
+
+            /* Soft halo. */
+            halo = cairo_pattern_create_radial (px, py, 0.0, px, py, r_halo);
+            cairo_pattern_add_color_stop_rgba (halo, 0.0,  r, g, b, 0.85 * alpha);
+            cairo_pattern_add_color_stop_rgba (halo, 0.35, r, g, b, 0.40 * alpha);
+            cairo_pattern_add_color_stop_rgba (halo, 1.0,  r, g, b, 0.0);
+            cairo_set_source (cr, halo);
+            cairo_arc (cr, px, py, r_halo, 0.0, 2.0 * G_PI);
+            cairo_fill (cr);
+            cairo_pattern_destroy (halo);
+
+            /* Diffraction spikes: four thin rays that fade out, giving
+             * the light the look of a bright star seen through a
+             * telescope. */
+            cairo_set_line_width (cr, 1.1);
+            cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
+            for (k = 0; k < 4; k++)
+            {
+                double           ex = px + dir[k][0] * r_spike;
+                double           ey = py + dir[k][1] * r_spike;
+                cairo_pattern_t *sp =
+                        cairo_pattern_create_linear (px, py, ex, ey);
+
+                cairo_pattern_add_color_stop_rgba (sp, 0.0, r, g, b,
+                                                   0.55 * alpha);
+                cairo_pattern_add_color_stop_rgba (sp, 1.0, r, g, b, 0.0);
+                cairo_set_source (cr, sp);
+                cairo_move_to (cr, px, py);
+                cairo_line_to (cr, ex, ey);
+                cairo_stroke (cr);
+                cairo_pattern_destroy (sp);
+            }
+
+            /* Pure-white core; the colour is left to the halo and the
+             * diffraction spikes to hint at. */
+            cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, alpha);
+            cairo_arc (cr, px, py, r_core, 0.0, 2.0 * G_PI);
+            cairo_fill (cr);
+        }
+    }
+}
+
 /** Center @node in the enclosing #GtkScrolledWindow's viewport, when
  *  one exists.  Worksheets are always packed inside a scrolled
  *  window today; the NULL guard is purely defensive so this stays
@@ -1481,10 +2217,26 @@ pn_worksheet_draw (
     GdkRGBA      grid_color;
     double x;
     double y;
+    double dmg_x0, dmg_y0, dmg_x1, dmg_y1;
 
-    /* Solid background. */
-    cairo_set_source_rgb (cr, 0.97, 0.97, 0.97);
-    cairo_rectangle (cr, 0, 0, width, height);
+    /* Damaged region in widget coords (cairo's current clip).  The whole
+     * background+grid is restricted to it so a small partial redraw — e.g.
+     * the rectangle around a moving message-flow light — does not repaint
+     * the entire grid, which (especially "dots") is the dominant cost of
+     * a frame and was making the animation expensive. */
+    cairo_clip_extents (cr, &dmg_x0, &dmg_y0, &dmg_x1, &dmg_y1);
+    dmg_x0 = MAX (dmg_x0, 0.0);
+    dmg_y0 = MAX (dmg_y0, 0.0);
+    dmg_x1 = MIN (dmg_x1, (double) width);
+    dmg_y1 = MIN (dmg_y1, (double) height);
+
+    /* Solid background, colour from preferences. */
+    {
+        GdkRGBA bg;
+        pn_preferences_get_background_color (prefs, &bg);
+        cairo_set_source_rgba (cr, bg.red, bg.green, bg.blue, bg.alpha);
+    }
+    cairo_rectangle (cr, dmg_x0, dmg_y0, dmg_x1 - dmg_x0, dmg_y1 - dmg_y0);
     cairo_fill (cr);
 
     /* Reference grid.  Phase the grid by the pan offset so the
@@ -1492,7 +2244,8 @@ pn_worksheet_draw (
      * the viewport.  The grid kind and colour come from the
      * preferences singleton; "none" is the early-out, "dots"
      * paints a 2-px round dab at each intersection and "lines"
-     * keeps the historical cross-hatched look. */
+     * keeps the historical cross-hatched look.  Only the intersections
+     * inside the damaged region are emitted. */
     pn_preferences_get_grid_color (prefs, &grid_color);
     cairo_set_source_rgba (cr,
                            grid_color.red,
@@ -1501,27 +2254,31 @@ pn_worksheet_draw (
                            grid_color.alpha);
     cairo_set_line_width (cr, 1.0);
 
-    if (grid_kind != PN_GRID_TYPE_NONE && grid_step > 2.0)
+    if (grid_kind != PN_GRID_TYPE_NONE && grid_step > 2.0
+        && dmg_x1 > dmg_x0 && dmg_y1 > dmg_y0)
     {
+        const double gx0 = floor (dmg_x0 / grid_step) * grid_step;
+        const double gy0 = floor (dmg_y0 / grid_step) * grid_step;
+
         if (grid_kind == PN_GRID_TYPE_LINES)
         {
-            for (x = 0.0; x < width; x += grid_step)
+            for (x = gx0; x < dmg_x1; x += grid_step)
             {
-                cairo_move_to (cr, x + 0.5, 0);
-                cairo_line_to (cr, x + 0.5, height);
+                cairo_move_to (cr, x + 0.5, dmg_y0);
+                cairo_line_to (cr, x + 0.5, dmg_y1);
             }
-            for (y = 0.0; y < height; y += grid_step)
+            for (y = gy0; y < dmg_y1; y += grid_step)
             {
-                cairo_move_to (cr, 0,     y + 0.5);
-                cairo_line_to (cr, width, y + 0.5);
+                cairo_move_to (cr, dmg_x0, y + 0.5);
+                cairo_line_to (cr, dmg_x1, y + 0.5);
             }
             cairo_stroke (cr);
         }
         else /* PN_GRID_TYPE_DOTS */
         {
-            for (x = 0.0; x < width; x += grid_step)
+            for (x = gx0; x < dmg_x1; x += grid_step)
             {
-                for (y = 0.0; y < height; y += grid_step)
+                for (y = gy0; y < dmg_y1; y += grid_step)
                 {
                     cairo_arc (cr, x + 0.5, y + 0.5,
                                1.0, 0.0, 2.0 * G_PI);
@@ -1547,35 +2304,41 @@ pn_worksheet_draw (
         const guint node_count = pn_node_store_get_length (self->nodes);
         guint       i;
 
+        /* Clip bounds in worksheet coords (the CTM is already scaled),
+         * so wires and nodes outside the damaged region — e.g. when only
+         * the small rectangle around a moving light was invalidated — are
+         * skipped instead of laid out and painted under the clip. */
+        double clip_x0, clip_y0, clip_x1, clip_y1;
+        cairo_clip_extents (cr, &clip_x0, &clip_y0, &clip_x1, &clip_y1);
+
         /* Wires.  Drawn before bodies so the port tabs cover their
          * endpoints.  Skip wires whose endpoints are not both set, or
          * which connect nodes on a different sheet from this one. */
         for (i = 0; i < wire_count; i++)
         {
-            PnWire        *wire = pn_wire_store_get_wire (self->wires, i);
-            PnNode        *src  = pn_wire_get_source (wire);
-            PnNode        *dst  = pn_wire_get_target (wire);
-            const PnPoint *ps;
-            const PnPoint *pt;
+            PnWire *wire = pn_wire_store_get_wire (self->wires, i);
+            double  x1, y1, x2, y2, dx, wx0, wy0, wx1, wy1;
 
-            if (src == NULL || dst == NULL)
+            /* wire_endpoints() skips wires off this sheet or with a
+             * missing endpoint and lands the wire on the exact input
+             * tab it feeds (so a wire to a multi-input node's second
+             * port draws to that port).  The pulse renderer uses the
+             * same helper, so lights track the painted curve exactly. */
+            if (!wire_endpoints (self, wire, &x1, &y1, &x2, &y2))
                 continue;
-            if (!wire_on_sheet (self, wire))
+
+            /* Cull against the clip using the bezier's control hull. */
+            dx  = fabs (x2 - x1) * 0.5;
+            if (dx < 30.0) dx = 30.0;
+            wx0 = MIN (MIN (x1, x2), MIN (x1 + dx, x2 - dx)) - 2.0;
+            wx1 = MAX (MAX (x1, x2), MAX (x1 + dx, x2 - dx)) + 2.0;
+            wy0 = MIN (y1, y2) - 2.0;
+            wy1 = MAX (y1, y2) + 2.0;
+            if (!rects_overlap (wx0, wy0, wx1, wy1,
+                                clip_x0, clip_y0, clip_x1, clip_y1))
                 continue;
 
-            double         sw, sh;
-            const double   shh = pn_node_get_header_height (src);
-
-            ps = pn_node_get_position (src);
-            pt = pn_node_get_position (dst);
-            pn_node_get_size (src, &sw, &sh);
-            (void) sh;
-
-            /* Land the wire on the exact input tab it feeds, so a wire
-             * to a multi-input node's second port draws to that port. */
-            draw_wire (cr,
-                       ps->x + sw,    ps->y + shh / 2.0,
-                       pt->x,         input_port_y (dst, pn_wire_get_target_input (wire)));
+            draw_wire (cr, x1, y1, x2, y2);
         }
 
         /* In-progress wire being dragged from an output port toward
@@ -1595,12 +2358,26 @@ pn_worksheet_draw (
         }
 
         /* Bodies.  Skip nodes that live on another sheet — invisible
-         * here, painted by the per-sheet widget that owns them. */
+         * here, painted by the per-sheet widget that owns them — and
+         * nodes outside the clip (their Pango layout is the dominant
+         * paint cost, so skipping them is what makes a small partial
+         * redraw cheap). */
         for (i = 0; i < node_count; i++)
         {
-            PnNode *node = pn_node_store_get_node (self->nodes, i);
+            PnNode        *node = pn_node_store_get_node (self->nodes, i);
+            const PnPoint *p;
+            double         nw, nh;
+
             if (!node_on_sheet (self, node))
                 continue;
+
+            p = pn_node_get_position (node);
+            pn_node_get_size (node, &nw, &nh);
+            if (!rects_overlap (p->x - 6.0, p->y - 6.0,
+                                p->x + nw + 6.0, p->y + nh + 6.0,
+                                clip_x0, clip_y0, clip_x1, clip_y1))
+                continue;
+
             draw_node (cr, node, self);
         }
 
@@ -1638,6 +2415,11 @@ pn_worksheet_draw (
                 }
             }
         }
+
+        /* Message-flow lights, painted last so they sit on top of the
+         * node bodies and fly into the centre of the target node.  No-op
+         * unless the feature is on and pulses are in flight. */
+        draw_wire_pulses (self, cr);
     }
 
     /* Focus pulse: a fading bright outline around the node referenced
@@ -1756,17 +2538,51 @@ on_node_repaint_needed (
         PnNode  *node,
         gpointer user_data)
 {
-    (void) node;
+    PnWorksheet   *self = PN_WORKSHEET (user_data);
+    const PnPoint *p;
+    double         w, h;
+    double        *last;
+    double         x0, y0, x1, y1;
 
-    /* queue_resize (not just queue_draw) because a node is allowed to
-     * change its footprint as part of a repaint — the File Drop node
-     * grows / shrinks its drop area to the dropped image's aspect
-     * ratio — and compute_content_extent() must re-walk the new
-     * pn_node_get_size() so the scroll extent tracks it.  queue_resize
-     * implies an invalidate, so the redraw still happens; the extra
-     * cost is one cheap extent walk, the same one a node drag already
-     * triggers on every motion event via notify::position. */
-    gtk_widget_queue_resize (GTK_WIDGET (user_data));
+    /* Only the worksheet that actually shows this node need react. */
+    if (!node_on_sheet (self, node))
+        return;
+
+    pn_node_get_size (node, &w, &h);
+
+    /* If the node's footprint changed, fall back to queue_resize so the
+     * scroll extent re-tracks it — the File Drop node grows / shrinks its
+     * drop area to a dropped image's aspect ratio.  The last-seen size is
+     * cached on the node so the common case (an animated node — Dial,
+     * meter, graph — repainting in place at up to 60 Hz) takes the cheap
+     * path below instead of invalidating and re-measuring the whole
+     * canvas every frame, which was redrawing every wire light too. */
+    last = g_object_get_data (G_OBJECT (node), "pn-ws-last-size");
+    if (last == NULL || last[0] != w || last[1] != h)
+    {
+        if (last == NULL)
+        {
+            last = g_new (double, 2);
+            g_object_set_data_full (G_OBJECT (node), "pn-ws-last-size",
+                                    last, g_free);
+        }
+        last[0] = w;
+        last[1] = h;
+        gtk_widget_queue_resize (GTK_WIDGET (self));
+        return;
+    }
+
+    /* Same footprint: repaint just the node's own rectangle (widget
+     * coords = model * zoom), padded a little for borders/halos. */
+    p  = pn_node_get_position (node);
+    x0 = (p->x - 6.0) * self->zoom;
+    y0 = (p->y - 6.0) * self->zoom;
+    x1 = (p->x + w + 6.0) * self->zoom;
+    y1 = (p->y + h + 6.0) * self->zoom;
+    gtk_widget_queue_draw_area (GTK_WIDGET (self),
+                                (int) floor (x0), (int) floor (y0),
+                                (int) ceil (x1 - x0) + 1,
+                                (int) ceil (y1 - y0) + 1);
 }
 
 /** Forward the flow's modified flag transitions out as a worksheet
@@ -1949,19 +2765,77 @@ on_node_removed_from_store (
     }
 }
 
-/** Repaint whenever the wire store changes. */
+/** A message just crossed @wire: animate a light along it, unless the
+ *  feature is off (cheap pref read) or the wire is off this sheet
+ *  (wire_pulse_spawn skips it via wire_endpoints). */
 static void
-on_wires_changed (
+on_message_passed (
+        PnWire    *wire,
+        PnMessage *message,
+        gpointer   user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+
+    if (!pn_preferences_get_animate_wire_messages (
+                pn_preferences_get_default ()))
+        return;
+
+    /* The dispatch depth at this point is the hop index of this wire on
+     * the message's path — read it synchronously here, while the cascade
+     * is still on the stack, to stagger the animation hop by hop. */
+    wire_pulse_spawn (self, wire, message, pn_node_get_dispatch_depth ());
+}
+
+/** A wire was added to the store: repaint and arm its "message-passed"
+ *  hook so future messages crossing it animate. */
+static void
+on_wire_added (
         PnWireStore *store,
         PnWire      *wire,
         guint        index,
         gpointer     user_data)
 {
+    PnWorksheet *self = PN_WORKSHEET (user_data);
     (void) store;
-    (void) wire;
     (void) index;
 
-    gtk_widget_queue_draw  (GTK_WIDGET (user_data));
+    if (wire != NULL)
+        g_signal_connect (wire, "message-passed",
+                          G_CALLBACK (on_message_passed), self);
+
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/** A wire was removed: repaint, drop its hook, and discard any lights
+ *  still in flight on it. */
+static void
+on_wire_removed (
+        PnWireStore *store,
+        PnWire      *wire,
+        guint        index,
+        gpointer     user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+    (void) store;
+    (void) index;
+
+    if (wire != NULL)
+        g_signal_handlers_disconnect_by_func (
+                wire, G_CALLBACK (on_message_passed), self);
+
+    if (self->wire_pulses != NULL)
+    {
+        guint i;
+        for (i = self->wire_pulses->len; i > 0; i--)
+        {
+            PnWirePulse *p = &g_array_index (self->wire_pulses,
+                                             PnWirePulse, i - 1);
+            if (p->wire == wire)
+                g_array_remove_index (self->wire_pulses, i - 1);
+        }
+    }
+
+    gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 /* ------------------------------------------------------------------ */
@@ -3919,7 +4793,16 @@ pn_worksheet_dispose (GObject *object)
         g_signal_handlers_disconnect_by_data (self->nodes, self);
     }
     if (self->wires != NULL)
+    {
+        const guint n = pn_wire_store_get_length (self->wires);
+        for (guint i = 0; i < n; i++)
+        {
+            PnWire *wire = pn_wire_store_get_wire (self->wires, i);
+            if (wire != NULL)
+                g_signal_handlers_disconnect_by_data (wire, self);
+        }
         g_signal_handlers_disconnect_by_data (self->wires, self);
+    }
     if (self->flow != NULL)
         g_signal_handlers_disconnect_by_data (self->flow, self);
 
@@ -3939,6 +4822,24 @@ pn_worksheet_dispose (GObject *object)
             g_signal_handler_disconnect (prefs,
                                          self->prefs_grid_color_handler);
             self->prefs_grid_color_handler = 0;
+        }
+        if (self->prefs_bg_handler != 0)
+        {
+            g_signal_handler_disconnect (prefs,
+                                         self->prefs_bg_handler);
+            self->prefs_bg_handler = 0;
+        }
+        if (self->prefs_anim_handler != 0)
+        {
+            g_signal_handler_disconnect (prefs,
+                                         self->prefs_anim_handler);
+            self->prefs_anim_handler = 0;
+        }
+        if (self->prefs_anim_interval_handler != 0)
+        {
+            g_signal_handler_disconnect (prefs,
+                                         self->prefs_anim_interval_handler);
+            self->prefs_anim_interval_handler = 0;
         }
     }
 
@@ -3974,6 +4875,13 @@ pn_worksheet_finalize (GObject *object)
                                          self->zoom_label_tick_id);
         self->zoom_label_tick_id = 0;
     }
+    if (self->wire_pulse_timer_id != 0)
+    {
+        g_source_remove (self->wire_pulse_timer_id);
+        self->wire_pulse_timer_id = 0;
+    }
+    /* Clear func unrefs each pulse's wire. */
+    g_clear_pointer (&self->wire_pulses, g_array_unref);
     self->pulse_node = NULL;
     /* The chat keyboard-focus pointer is borrowed too — drop it so a
      * dispose mid-typing-session can't leave a stale pointer for the
@@ -4232,9 +5140,9 @@ worksheet_attach_flow (
     g_signal_connect (self->nodes, "node-removed",
                       G_CALLBACK (on_node_removed_from_store), self);
     g_signal_connect (self->wires, "wire-added",
-                      G_CALLBACK (on_wires_changed), self);
+                      G_CALLBACK (on_wire_added), self);
     g_signal_connect (self->wires, "wire-removed",
-                      G_CALLBACK (on_wires_changed), self);
+                      G_CALLBACK (on_wire_removed), self);
 
     /* Re-emit the flow's status-message and debug-message text so
      * existing widget-side subscribers (PnWindow) keep working
@@ -4261,6 +5169,17 @@ worksheet_attach_flow (
                                     pn_node_store_get_node (self->nodes, i),
                                     i, self);
     }
+
+    /* Likewise arm the "message-passed" hook on wires that already
+     * exist on a borrowed flow — wire-added will not fire for them. */
+    {
+        const guint n = pn_wire_store_get_length (self->wires);
+        guint       i;
+        for (i = 0; i < n; i++)
+            on_wire_added (self->wires,
+                           pn_wire_store_get_wire (self->wires, i),
+                           i, self);
+    }
 }
 
 static void
@@ -4268,6 +5187,10 @@ pn_worksheet_init (PnWorksheet *self)
 {
     self->selection = g_hash_table_new_full (
             g_direct_hash, g_direct_equal, g_object_unref, NULL);
+
+    self->wire_pulses = g_array_new (FALSE, FALSE, sizeof (PnWirePulse));
+    g_array_set_clear_func (self->wire_pulses,
+                            (GDestroyNotify) wire_pulse_clear);
 
     self->zoom = 1.0;
 
@@ -4337,6 +5260,17 @@ pn_worksheet_init (PnWorksheet *self)
         self->prefs_grid_color_handler = g_signal_connect_swapped (
                 prefs, "notify::grid-color",
                 G_CALLBACK (gtk_widget_queue_draw), self);
+        self->prefs_bg_handler = g_signal_connect_swapped (
+                prefs, "notify::background-color",
+                G_CALLBACK (gtk_widget_queue_draw), self);
+        /* Not _swapped: turning the feature off has to drop in-flight
+         * lights, so it needs the real handler, not a bare queue_draw. */
+        self->prefs_anim_handler = g_signal_connect (
+                prefs, "notify::animate-messages-on-wires",
+                G_CALLBACK (on_prefs_anim_changed), self);
+        self->prefs_anim_interval_handler = g_signal_connect (
+                prefs, "notify::wire-pulse-interval",
+                G_CALLBACK (on_prefs_anim_interval_changed), self);
     }
 }
 
