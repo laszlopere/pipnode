@@ -47,14 +47,27 @@ typedef struct
     /* Worker thread driving the timer.  Joined in dispose. */
     GThread *thread;
 
-    /* Mutex/cond pair: protects @period, @stop, @due, @first and lets
-     * the setter wake a sleeping worker so a shorter period (or the
-     * stop signal, or a one-shot kick) takes effect immediately. */
+    /* Mutex/cond pair: protects @period, @stop, @due, @first,
+     * @deliver_sync and lets the setter wake a sleeping worker so a
+     * shorter period (or the stop signal, or a one-shot kick) takes
+     * effect immediately. */
     GMutex   mutex;
     GCond    cond;
     gboolean stop;
     gboolean due;          /* one-shot trigger requested via kick() */
     gboolean first;        /* TRUE until the first deadline is set */
+
+    /* Construct-only: when FALSE the worker thread is never spawned, so
+     * the instance stays quiescent and a caller drives a single tick
+     * by hand via pn_auto_trigger_run_once_sync().  Always TRUE in
+     * normal use; FALSE is the test seam. */
+    gboolean autostart;
+
+    /* Set only for the duration of pn_auto_trigger_run_once_sync():
+     * makes pn_auto_trigger_emit_on_main() deliver on the calling
+     * thread instead of bouncing through the main loop, so the emitted
+     * #PnMessage can be observed synchronously. */
+    gboolean deliver_sync;
 } PnAutoTriggerPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnAutoTrigger, pn_auto_trigger, PN_TYPE_NODE)
@@ -62,6 +75,7 @@ G_DEFINE_TYPE_WITH_PRIVATE (PnAutoTrigger, pn_auto_trigger, PN_TYPE_NODE)
 enum {
     PROP_0,
     PROP_PERIOD,
+    PROP_AUTOSTART,
     N_PROPS,
 };
 
@@ -180,10 +194,29 @@ pn_auto_trigger_emit_on_main (
         PnAutoTrigger *self,
         PnMessage     *message)
 {
-    PnEmitClosure *c;
+    PnAutoTriggerPrivate *priv;
+    PnEmitClosure        *c;
+    gboolean              sync;
 
     g_return_if_fail (PN_IS_AUTO_TRIGGER (self));
     g_return_if_fail (PN_IS_MESSAGE (message));
+
+    priv = pn_auto_trigger_get_instance_private (self);
+
+    g_mutex_lock (&priv->mutex);
+    sync = priv->deliver_sync;
+    g_mutex_unlock (&priv->mutex);
+
+    /* Synchronous one-shot path (pn_auto_trigger_run_once_sync): emit
+     * straight away on the calling thread so a test sees the "message"
+     * signal without running a main loop.  We hold transfer-full
+     * ownership, and pn_node_emit_message only borrows, so unref after. */
+    if (sync)
+    {
+        pn_node_emit_message (PN_NODE (self), message);
+        g_object_unref (message);
+        return;
+    }
 
     c = g_new0 (PnEmitClosure, 1);
     c->node    = g_object_ref (PN_NODE (self));
@@ -207,12 +240,16 @@ pn_auto_trigger_get_property (
         GValue     *value,
         GParamSpec *pspec)
 {
-    PnAutoTrigger *self = PN_AUTO_TRIGGER (object);
+    PnAutoTrigger        *self = PN_AUTO_TRIGGER (object);
+    PnAutoTriggerPrivate *priv = pn_auto_trigger_get_instance_private (self);
 
     switch (prop_id)
     {
     case PROP_PERIOD:
         g_value_set_uint (value, pn_auto_trigger_get_period (self));
+        break;
+    case PROP_AUTOSTART:
+        g_value_set_boolean (value, priv->autostart);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -226,12 +263,17 @@ pn_auto_trigger_set_property (
         const GValue *value,
         GParamSpec   *pspec)
 {
-    PnAutoTrigger *self = PN_AUTO_TRIGGER (object);
+    PnAutoTrigger        *self = PN_AUTO_TRIGGER (object);
+    PnAutoTriggerPrivate *priv = pn_auto_trigger_get_instance_private (self);
 
     switch (prop_id)
     {
     case PROP_PERIOD:
         pn_auto_trigger_set_period (self, g_value_get_uint (value));
+        break;
+    case PROP_AUTOSTART:
+        /* Construct-only: stored now, acted on in constructed(). */
+        priv->autostart = g_value_get_boolean (value);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -241,6 +283,27 @@ pn_auto_trigger_set_property (
 /* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
+
+static void
+pn_auto_trigger_constructed (GObject *object)
+{
+    PnAutoTrigger        *self = PN_AUTO_TRIGGER (object);
+    PnAutoTriggerPrivate *priv = pn_auto_trigger_get_instance_private (self);
+
+    G_OBJECT_CLASS (pn_auto_trigger_parent_class)->constructed (object);
+
+    /* Spawn the worker here rather than in init() so the construct-only
+     * :autostart property has already been applied: a test creating the
+     * node with "autostart" = FALSE gets a quiescent instance with no
+     * background thread and drives a single tick via
+     * pn_auto_trigger_run_once_sync().  The default (TRUE) reproduces the
+     * historical behaviour exactly.  The thread holds a borrowed pointer
+     * to @self and is joined in dispose before chain-up. */
+    if (priv->autostart)
+        priv->thread = g_thread_new ("pn-auto-trigger",
+                                     pn_auto_trigger_worker,
+                                     self);
+}
 
 static void
 pn_auto_trigger_dispose (GObject *object)
@@ -287,6 +350,7 @@ pn_auto_trigger_class_init (PnAutoTriggerClass *klass)
 
     object_class->get_property = pn_auto_trigger_get_property;
     object_class->set_property = pn_auto_trigger_set_property;
+    object_class->constructed  = pn_auto_trigger_constructed;
     object_class->dispose      = pn_auto_trigger_dispose;
     object_class->finalize     = pn_auto_trigger_finalize;
 
@@ -298,6 +362,16 @@ pn_auto_trigger_class_init (PnAutoTriggerClass *klass)
             PN_AUTO_TRIGGER_PERIOD_DEF,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_AUTOSTART] = g_param_spec_boolean (
+            "autostart", "Autostart",
+            "Whether the periodic worker thread is spawned at "
+            "construction.  Always TRUE in normal use; tests pass FALSE "
+            "to obtain a quiescent instance and drive a single tick via "
+            "pn_auto_trigger_run_once_sync().",
+            TRUE,
+            G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
+            G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -306,19 +380,15 @@ pn_auto_trigger_init (PnAutoTrigger *self)
 {
     PnAutoTriggerPrivate *priv = pn_auto_trigger_get_instance_private (self);
 
-    priv->period = PN_AUTO_TRIGGER_PERIOD_DEF;
-    priv->stop   = FALSE;
-    priv->first  = TRUE;
+    priv->period       = PN_AUTO_TRIGGER_PERIOD_DEF;
+    priv->stop         = FALSE;
+    priv->first        = TRUE;
+    priv->autostart    = TRUE;   /* overridden by the construct property */
+    priv->deliver_sync = FALSE;
     g_mutex_init (&priv->mutex);
     g_cond_init  (&priv->cond);
 
-    /* Spawning the worker last means the thread observes a fully
-     * initialised priv struct.  The thread holds a borrowed
-     * pointer to @self; it is joined before dispose chains up so
-     * the object outlives the worker. */
-    priv->thread = g_thread_new ("pn-auto-trigger",
-                                 pn_auto_trigger_worker,
-                                 self);
+    /* The worker is spawned in constructed(), once :autostart is known. */
 }
 
 /* ------------------------------------------------------------------ */
@@ -385,5 +455,31 @@ pn_auto_trigger_kick (PnAutoTrigger *self)
     g_mutex_lock (&priv->mutex);
     priv->due = TRUE;
     g_cond_broadcast (&priv->cond);
+    g_mutex_unlock (&priv->mutex);
+}
+
+void
+pn_auto_trigger_run_once_sync (PnAutoTrigger *self)
+{
+    PnAutoTriggerPrivate *priv;
+    PnAutoTriggerClass   *klass;
+
+    g_return_if_fail (PN_IS_AUTO_TRIGGER (self));
+
+    priv  = pn_auto_trigger_get_instance_private (self);
+    klass = PN_AUTO_TRIGGER_GET_CLASS (self);
+
+    /* Flip emit_on_main into synchronous delivery, run one trigger on
+     * this thread, then restore.  Intended for instances created with
+     * "autostart" = FALSE so no worker thread runs concurrently. */
+    g_mutex_lock (&priv->mutex);
+    priv->deliver_sync = TRUE;
+    g_mutex_unlock (&priv->mutex);
+
+    if (klass->trigger != NULL)
+        klass->trigger (self);
+
+    g_mutex_lock (&priv->mutex);
+    priv->deliver_sync = FALSE;
     g_mutex_unlock (&priv->mutex);
 }

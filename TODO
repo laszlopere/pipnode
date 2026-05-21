@@ -130,3 +130,16 @@ GTK/GDK/cairo, replace GdkRGBA with our own color type+parser); (2) whether
 visual nodes' logic must remain loadable headless or they become GUI-only;
 (3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
 in the same pass.
+
+(24) PnAutoTrigger now has a synchronous test seam: a construct-only
+"autostart" property (default TRUE; pass FALSE to skip the worker thread) and
+pn_auto_trigger_run_once_sync(), which runs the trigger() vfunc once on the
+calling thread and makes pn_auto_trigger_emit_on_main() deliver synchronously,
+so a test can capture the emitted message without a main loop (see
+tests/unit/test-pn-auto-trigger.c). Follow-up: export the pure
+parsers/aggregators currently buried as static helpers in the auto-trigger IO
+nodes (Temp parse_remote_lines/aggregate, Http, Tts, Weather, the rest of
+Net-IO) -- declare them non-static in their headers, per the pn-disk-io /
+pn-net-io precedent -- and add full-node tests driven by run_once_sync. Ties
+into #23 (the headless/GTK split): the same nodes are the ones whose logic
+should remain loadable and testable headless.

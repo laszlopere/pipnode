@@ -99,6 +99,25 @@ void  pn_auto_trigger_kick       (PnAutoTrigger *self);
  */
 void  pn_auto_trigger_emit_on_main (PnAutoTrigger *self, PnMessage *message);
 
+/**
+ * pn_auto_trigger_run_once_sync:
+ * @self: the auto-trigger instance
+ *
+ * Runs the subclass #PnAutoTriggerClass.trigger vfunc exactly once on
+ * the **calling thread** and, for the duration of that call, makes
+ * pn_auto_trigger_emit_on_main() deliver synchronously via
+ * pn_node_emit_message() instead of bouncing through the GLib main
+ * loop.  The emitted #PnMessage therefore reaches "message" signal
+ * handlers before this function returns, with no main loop running.
+ *
+ * This is a test seam: create the node with the construct-only
+ * "autostart" property set to %FALSE so the periodic worker thread is
+ * never spawned, then call this to drive one deterministic tick and
+ * assert on what the node emits.  In normal use @self autostarts and
+ * this function is not needed.
+ */
+void  pn_auto_trigger_run_once_sync (PnAutoTrigger *self);
+
 G_END_DECLS
 
 #endif /* PN_AUTO_TRIGGER_H */
