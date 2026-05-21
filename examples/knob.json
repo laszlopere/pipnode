@@ -19,7 +19,7 @@
         "end-angle" : 120.0,
         "major-ticks" : 13,
         "minor-ticks-per-major" : 5,
-        "label" : "",
+        "label" : "f(x)",
         "unit" : "",
         "green-start" : 0.0,
         "green-end" : 60.0,
@@ -47,21 +47,21 @@
       },
       "properties" : {
         "min" : 0.0,
-        "max" : 120.0,
-        "value" : 120.0
+        "max" : 6.0,
+        "value" : 3.5
       }
     },
     {
       "type" : "PnExpression",
       "uuid" : "92fe9c57-9476-4fb7-944e-1c93ea989d06",
-      "name" : "Expression 1",
+      "name" : "sin()",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 240.0,
         "y" : 40.0
       },
       "properties" : {
-        "expression" : "log(value) * 10"
+        "expression" : "60 * sin(value) + 60 "
       }
     },
     {
@@ -81,7 +81,7 @@
         "end-angle" : 120.0,
         "major-ticks" : 13,
         "minor-ticks-per-major" : 5,
-        "label" : "",
+        "label" : "f(x)",
         "unit" : "",
         "green-start" : 0.0,
         "green-end" : 60.0,
@@ -131,7 +131,7 @@
     {
       "type" : "PnExpression2",
       "uuid" : "6a9d6db0-bc27-4b96-b927-5f786a313ca9",
-      "name" : "Expression 2 1",
+      "name" : "avg()",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 240.0,
