@@ -113,8 +113,11 @@ hostname_is_local (const gchar *hostname)
 /*  with LC_NUMERIC=de_DE would otherwise silently fail on the dot.    */
 /* ------------------------------------------------------------------ */
 
-static gboolean
-parse_loadavg (
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-load.c.
+ * Kept out of the public header to keep the library surface clean; the
+ * test declares a matching extern prototype. */
+gboolean
+pn_load_parse_loadavg (
         const gchar *text,
         gdouble     *out_l1,
         gdouble     *out_l5,
@@ -236,7 +239,7 @@ pn_load_trigger (PnAutoTrigger *trigger)
     }
 
     if (success)
-        success = parse_loadavg (raw, &l1, &l5, &l15);
+        success = pn_load_parse_loadavg (raw, &l1, &l5, &l15);
 
     msg = pn_message_new (node, NULL);
     pn_message_set_string  (msg, "host",    display);

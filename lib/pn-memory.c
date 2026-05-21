@@ -232,8 +232,11 @@ line_pull_kib (
     return TRUE;
 }
 
-static gboolean
-parse_meminfo (
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-memory.c.
+ * Kept out of the public header to keep the library surface clean; the
+ * test declares a matching extern prototype. */
+gboolean
+pn_memory_parse_meminfo (
         const gchar  *text,
         guint64      *out_total_bytes,
         guint64      *out_available_bytes,
@@ -378,7 +381,7 @@ pn_memory_trigger (PnAutoTrigger *trigger)
     }
 
     if (success)
-        success = parse_meminfo (raw, &total_b, &available_b, &free_b);
+        success = pn_memory_parse_meminfo (raw, &total_b, &available_b, &free_b);
 
     if (success && total_b > 0)
     {

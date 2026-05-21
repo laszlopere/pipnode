@@ -268,8 +268,11 @@ is_loopback (const gchar *name)
     return strcmp (name, "lo") == 0;
 }
 
-static gboolean
-parse_net_dev (
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-net-io.c.
+ * Kept out of the public header to keep the library surface clean; the
+ * test declares a matching extern prototype. */
+gboolean
+pn_net_io_parse_net_dev (
         const gchar  *text,
         const gchar  *want,
         guint64      *out_rx,
@@ -494,8 +497,8 @@ pn_net_io_trigger (PnAutoTrigger *trigger)
     }
 
     if (success)
-        success = parse_net_dev (raw, interface,
-                                 &bytes_rx, &bytes_tx, &matched);
+        success = pn_net_io_parse_net_dev (raw, interface,
+                                           &bytes_rx, &bytes_tx, &matched);
 
     now_us = g_get_monotonic_time ();
 

@@ -173,8 +173,11 @@ hostname_is_local (const gchar *hostname)
 /*  absolute jiffy resolution drops out of the math.                   */
 /* ------------------------------------------------------------------ */
 
-static gboolean
-parse_proc_stat (
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-cpu.c.
+ * Kept out of the public header to keep the library surface clean; the
+ * test declares a matching extern prototype. */
+gboolean
+pn_cpu_parse_proc_stat (
         const gchar  *text,
         const gchar  *want_core,
         guint64      *out_busy,
@@ -357,8 +360,8 @@ pn_cpu_trigger (PnAutoTrigger *trigger)
     }
 
     if (success)
-        success = parse_proc_stat (raw, core,
-                                   &busy, &idle, &iowait, &total, &matched);
+        success = pn_cpu_parse_proc_stat (raw, core,
+                                          &busy, &idle, &iowait, &total, &matched);
 
     now_us = g_get_monotonic_time ();
 

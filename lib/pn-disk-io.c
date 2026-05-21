@@ -350,8 +350,11 @@ is_partition (const gchar *name)
  * locale-independent and to avoid the well-known sscanf %llu portability
  * pitfalls on 32-bit hosts.
  */
-static gboolean
-parse_diskstats (
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-disk-io.c.
+ * Kept out of the public header to keep the library surface clean; the
+ * test declares a matching extern prototype. */
+gboolean
+pn_disk_io_parse_diskstats (
         const gchar  *text,
         const gchar  *want,
         guint64      *out_sectors_read,
@@ -578,8 +581,8 @@ pn_disk_io_trigger (PnAutoTrigger *trigger)
     }
 
     if (success)
-        success = parse_diskstats (raw, device,
-                                   &sectors_r, &sectors_w, &matched);
+        success = pn_disk_io_parse_diskstats (raw, device,
+                                              &sectors_r, &sectors_w, &matched);
 
     now_us = g_get_monotonic_time ();
 
