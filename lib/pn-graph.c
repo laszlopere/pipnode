@@ -20,6 +20,7 @@
 #include "pn-graph.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-node-dialog-helpers.h"
 
 #include <math.h>
 #include <plplot/plplot.h>
@@ -181,7 +182,8 @@ struct _PnGraph
 
     gchar             *key;          /* JSON path to the value */
     PnGraphResolution  resolution;   /* X-axis time span */
-    PnGraphMode        mode;         /* line vs histogram */
+    PnGraphView        view;         /* time-series vs distribution */
+    PnGraphStyle       style;        /* points / lines / bars */
 
     /* Appearance — these only affect how the plot is drawn; flipping
      * any of them schedules a repaint but never touches the rings. */
@@ -191,6 +193,7 @@ struct _PnGraph
     guint      line_width;
     gboolean   show_grid;
     gboolean   log_y;
+    gboolean   y_from_zero;
 
     /* topic (gchar *) -> PnGraphSeries *.  Owns both keys and values
      * (the hashtable's value-destroy frees the series struct).  The
@@ -225,13 +228,16 @@ enum {
     PROP_0,
     PROP_KEY,
     PROP_RESOLUTION,
-    PROP_MODE,
+    PROP_DATA_VIEW,
+    PROP_DRAW_STYLE,
     PROP_LINE_COLOR,
     PROP_LINE_WIDTH,
     PROP_AXIS_COLOR,
     PROP_BACKGROUND_COLOR,
     PROP_SHOW_GRID,
     PROP_LOG_Y,
+    PROP_Y_FROM_ZERO,
+    PROP_MODE,          /* legacy, write-only — see PnGraphMode */
     N_PROPS,
 };
 
@@ -258,6 +264,47 @@ pn_graph_resolution_get_type (void)
         };
 
         GType type = g_enum_register_static ("PnGraphResolution", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
+
+GType
+pn_graph_view_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_GRAPH_VIEW_TIME_SERIES,  "PN_GRAPH_VIEW_TIME_SERIES",  "Time series"  },
+            { PN_GRAPH_VIEW_DISTRIBUTION, "PN_GRAPH_VIEW_DISTRIBUTION", "Distribution" },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnGraphView", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
+
+GType
+pn_graph_style_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_GRAPH_STYLE_POINTS, "PN_GRAPH_STYLE_POINTS", "Points" },
+            { PN_GRAPH_STYLE_LINES,  "PN_GRAPH_STYLE_LINES",  "Lines"  },
+            { PN_GRAPH_STYLE_BARS,   "PN_GRAPH_STYLE_BARS",   "Bars"   },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnGraphStyle", values);
         g_once_init_leave (&id, type);
     }
 
@@ -522,7 +569,8 @@ format_inline_scientific (
 }
 
 /** PLplot tick-label formatter.  Branches on @axis and the active
- *  mode: line-mode X carries seconds-before-now, presented as a
+ *  data view: in the time-series view the X axis carries
+ *  seconds-before-now, presented as a
  *  positive duration with the unit natural to the active resolution
  *  ("60s" for the minute window, "60m" for the hour, "24h" for the
  *  day, "7d" for the week).  Every other value-bearing axis goes
@@ -543,7 +591,7 @@ graph_label_format (
 {
     PnGraph *self = user;
 
-    if (axis == PL_X_AXIS && self->mode == PN_GRAPH_MODE_LINE)
+    if (axis == PL_X_AXIS && self->view == PN_GRAPH_VIEW_TIME_SERIES)
     {
         gdouble secs = fabs ((gdouble) value);
 
@@ -1162,11 +1210,71 @@ collect_line_points (
     return n;
 }
 
-/** 2D line painter — single-series version of paint_line.  Used when
- *  only one topic has ever been seen; matches the pre-multi-topic
- *  rendering byte-for-byte. */
+/* PLplot plpoin glyph used for the Points draw-style: a filled
+ * circle, the most legible marker on the small plot rectangle. */
+#define PN_GRAPH_POINT_SYMBOL  17
+
+/** Draw @n (@xs, @ys) points into the current 2D plot window using the
+ *  active draw-style.  cmap0 index 1 is the data colour and index 2 the
+ *  axis/outline colour (both pinned by paint_setup_page).  For the Bars
+ *  style each point becomes a filled rectangle of half-width @bar_hw
+ *  rising from @baseline; Points draws one marker per point; Lines a
+ *  single polyline.  @baseline / @bar_hw are ignored by the non-bar
+ *  styles. */
 static void
-paint_line_2d (
+draw_series_2d (
+        PnGraph *self,
+        guint    n,
+        PLFLT   *xs,
+        PLFLT   *ys,
+        PLFLT    baseline,
+        PLFLT    bar_hw)
+{
+    guint i;
+
+    switch (self->style)
+    {
+    case PN_GRAPH_STYLE_POINTS:
+        plcol0 (1);
+        plssym (0.0, 1.5 + 0.5 * (gdouble) (self->line_width - 1));
+        plpoin ((PLINT) n, xs, ys, PN_GRAPH_POINT_SYMBOL);
+        break;
+
+    case PN_GRAPH_STYLE_BARS:
+        for (i = 0; i < n; i++)
+        {
+            PLFLT fx[4] = { xs[i] - bar_hw, xs[i] + bar_hw,
+                            xs[i] + bar_hw, xs[i] - bar_hw };
+            PLFLT fy[4] = { baseline, baseline, ys[i], ys[i] };
+
+            plcol0 (1);
+            plfill (4, fx, fy);
+
+            plcol0  (2);
+            plwidth (1);
+            {
+                PLFLT ox[5] = { fx[0], fx[1], fx[2], fx[3], fx[0] };
+                PLFLT oy[5] = { fy[0], fy[1], fy[2], fy[3], fy[0] };
+                plline (5, ox, oy);
+            }
+        }
+        break;
+
+    case PN_GRAPH_STYLE_LINES:
+    default:
+        plcol0  (1);
+        plwidth ((PLINT) self->line_width);
+        plline  ((PLINT) n, xs, ys);
+        break;
+    }
+}
+
+/** 2D time-series painter — single-series fast path.  Used when only
+ *  one topic has ever been seen; with the Lines draw-style it matches
+ *  the pre-multi-topic rendering byte-for-byte.  Points and Bars draw
+ *  the same (seconds-ago, value) samples as markers / columns. */
+static void
+paint_timeseries_2d (
         PnGraph             *self,
         cairo_t             *cr,
         double               w,
@@ -1201,6 +1309,16 @@ paint_line_2d (
         ymax += pad;
     }
 
+    /* Anchor the axis at zero when asked.  Done after padding so the
+     * baseline lands exactly on 0 rather than a padded-below value;
+     * the data-side bound keeps its headroom.  For a series that
+     * straddles zero this is a no-op (0 is already inside the range). */
+    if (self->y_from_zero)
+    {
+        if (ymin > 0.0) ymin = 0.0;
+        if (ymax < 0.0) ymax = 0.0;
+    }
+
     paint_setup_page (self, cr, w, h);
 
     plvpor (0.10, 0.97, 0.18, 0.93);
@@ -1219,9 +1337,18 @@ paint_line_2d (
     }
     plslabelfunc (NULL, NULL);
 
-    plcol0  (1);
-    plwidth ((PLINT) self->line_width);
-    plline ((PLINT) n, xs, ys);
+    /* Bars rise from zero when zero is on screen, otherwise from the
+     * bottom of the (auto-ranged) window so they stay visible; columns
+     * are centred on each evenly-spaced time bin and given most of the
+     * bin width. */
+    {
+        const PLFLT baseline = (ymin <= 0.0 && 0.0 <= ymax)
+                             ? 0.0f : (PLFLT) ymin;
+        const PLFLT bar_hw   = (PLFLT) ((gdouble) width
+                                        / (gdouble) G_TIME_SPAN_SECOND
+                                        * 0.40);
+        draw_series_2d (self, n, xs, ys, baseline, bar_hw);
+    }
 
     pleop  ();
     plend1 ();
@@ -1417,11 +1544,14 @@ collect_window_values (
     return n;
 }
 
-/** 2D histogram painter — single-series fast path.  Matches the
- *  pre-multi-topic rendering byte-for-byte (same bins, same log-y
- *  treatment, same axis options). */
+/** 2D distribution painter — single-series fast path.  Bins the
+ *  in-window samples by value (same bins, same log-y treatment, same
+ *  axis options as before) and draws them with the active draw-style:
+ *  Bars matches the old histogram byte-for-byte, Lines draws a
+ *  frequency polygon through the bin centres, Points marks each
+ *  non-empty bin. */
 static void
-paint_histogram_2d (
+paint_distribution_2d (
         PnGraph             *self,
         cairo_t             *cr,
         double               w,
@@ -1495,34 +1625,73 @@ paint_histogram_2d (
         }
         plslabelfunc (NULL, NULL);
 
-        for (i = 0; i < PN_GRAPH_HIST_BINS; i++)
+        if (self->style == PN_GRAPH_STYLE_BARS)
         {
-            PLFLT xl, xr, yt;
-            PLFLT xs[4], ys[4];
-
-            if (counts[i] == 0)
-                continue;
-
-            xl = (PLFLT) (vmin + (gdouble) i * bin_w);
-            xr = (PLFLT) (vmin + (gdouble) (i + 1) * bin_w);
-            yt = self->log_y
-               ? (PLFLT) log10 ((gdouble) counts[i])
-               : (PLFLT) counts[i];
-
-            xs[0] = xl; ys[0] = ybot;
-            xs[1] = xr; ys[1] = ybot;
-            xs[2] = xr; ys[2] = yt;
-            xs[3] = xl; ys[3] = yt;
-
-            plcol0  (1);
-            plfill  (4, xs, ys);
-
-            plcol0  (2);
-            plwidth (1);
+            for (i = 0; i < PN_GRAPH_HIST_BINS; i++)
             {
-                PLFLT ox[5] = { xl, xr, xr, xl, xl };
-                PLFLT oy[5] = { ybot, ybot, yt, yt, ybot };
-                plline (5, ox, oy);
+                PLFLT xl, xr, yt;
+                PLFLT xs[4], ys[4];
+
+                if (counts[i] == 0)
+                    continue;
+
+                xl = (PLFLT) (vmin + (gdouble) i * bin_w);
+                xr = (PLFLT) (vmin + (gdouble) (i + 1) * bin_w);
+                yt = self->log_y
+                   ? (PLFLT) log10 ((gdouble) counts[i])
+                   : (PLFLT) counts[i];
+
+                xs[0] = xl; ys[0] = ybot;
+                xs[1] = xr; ys[1] = ybot;
+                xs[2] = xr; ys[2] = yt;
+                xs[3] = xl; ys[3] = yt;
+
+                plcol0  (1);
+                plfill  (4, xs, ys);
+
+                plcol0  (2);
+                plwidth (1);
+                {
+                    PLFLT ox[5] = { xl, xr, xr, xl, xl };
+                    PLFLT oy[5] = { ybot, ybot, yt, yt, ybot };
+                    plline (5, ox, oy);
+                }
+            }
+        }
+        else
+        {
+            /* Points / Lines: one (bin-centre, height) sample per bin.
+             * The frequency polygon (Lines) keeps the empty bins at the
+             * floor so the curve dips between clusters; Points skips
+             * them so only occupied bins get a marker. */
+            PLFLT  cx[PN_GRAPH_HIST_BINS];
+            PLFLT  cy[PN_GRAPH_HIST_BINS];
+            guint  m = 0;
+
+            for (i = 0; i < PN_GRAPH_HIST_BINS; i++)
+            {
+                if (self->style == PN_GRAPH_STYLE_POINTS && counts[i] == 0)
+                    continue;
+
+                cx[m] = (PLFLT) (vmin + ((gdouble) i + 0.5) * bin_w);
+                cy[m] = (counts[i] > 0)
+                      ? (self->log_y ? (PLFLT) log10 ((gdouble) counts[i])
+                                     : (PLFLT) counts[i])
+                      : ybot;
+                m += 1;
+            }
+
+            if (self->style == PN_GRAPH_STYLE_POINTS)
+            {
+                plcol0 (1);
+                plssym (0.0, 1.5 + 0.5 * (gdouble) (self->line_width - 1));
+                plpoin ((PLINT) m, cx, cy, PN_GRAPH_POINT_SYMBOL);
+            }
+            else
+            {
+                plcol0  (1);
+                plwidth ((PLINT) self->line_width);
+                plline  ((PLINT) m, cx, cy);
             }
         }
     }
@@ -1888,18 +2057,18 @@ pn_graph_paint_plot (
     cairo_clip (cr);
     cairo_translate (cr, x, y);
 
-    switch (self->mode)
+    switch (self->view)
     {
-    case PN_GRAPH_MODE_HISTOGRAM:
+    case PN_GRAPH_VIEW_DISTRIBUTION:
         if (nseries == 1)
-            paint_histogram_2d (self, cr, w, h, views[0].series);
+            paint_distribution_2d (self, cr, w, h, views[0].series);
         else
             paint_histogram_3d (self, cr, w, h, views, nseries);
         break;
-    case PN_GRAPH_MODE_LINE:
+    case PN_GRAPH_VIEW_TIME_SERIES:
     default:
         if (nseries == 1)
-            paint_line_2d (self, cr, w, h, views[0].series);
+            paint_timeseries_2d (self, cr, w, h, views[0].series);
         else
             paint_line_3d (self, cr, w, h, views, nseries);
         break;
@@ -1953,8 +2122,11 @@ pn_graph_get_property (
     case PROP_RESOLUTION:
         g_value_set_enum (value, self->resolution);
         break;
-    case PROP_MODE:
-        g_value_set_enum (value, self->mode);
+    case PROP_DATA_VIEW:
+        g_value_set_enum (value, self->view);
+        break;
+    case PROP_DRAW_STYLE:
+        g_value_set_enum (value, self->style);
         break;
     case PROP_LINE_COLOR:
         g_value_set_boxed (value, &self->line_color);
@@ -1973,6 +2145,9 @@ pn_graph_get_property (
         break;
     case PROP_LOG_Y:
         g_value_set_boolean (value, self->log_y);
+        break;
+    case PROP_Y_FROM_ZERO:
+        g_value_set_boolean (value, self->y_from_zero);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2018,16 +2193,47 @@ pn_graph_set_property (
             }
         }
         break;
-    case PROP_MODE:
+    case PROP_DATA_VIEW:
         {
-            PnGraphMode m = g_value_get_enum (value);
-            if (self->mode != m)
+            PnGraphView v = g_value_get_enum (value);
+            if (self->view != v)
             {
-                self->mode = m;
-                g_object_notify_by_pspec (object, props[PROP_MODE]);
+                self->view = v;
+                g_object_notify_by_pspec (object, props[PROP_DATA_VIEW]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
+        break;
+    case PROP_DRAW_STYLE:
+        {
+            PnGraphStyle st = g_value_get_enum (value);
+            if (self->style != st)
+            {
+                self->style = st;
+                g_object_notify_by_pspec (object, props[PROP_DRAW_STYLE]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_MODE:
+        /* Legacy load path: translate the old single "mode" into the
+         * equivalent view + style pair (line = time series drawn as a
+         * polyline; histogram = distribution drawn as bars). */
+        switch (g_value_get_enum (value))
+        {
+        case PN_GRAPH_MODE_HISTOGRAM:
+            self->view  = PN_GRAPH_VIEW_DISTRIBUTION;
+            self->style = PN_GRAPH_STYLE_BARS;
+            break;
+        case PN_GRAPH_MODE_LINE:
+        default:
+            self->view  = PN_GRAPH_VIEW_TIME_SERIES;
+            self->style = PN_GRAPH_STYLE_LINES;
+            break;
+        }
+        g_object_notify_by_pspec (object, props[PROP_DATA_VIEW]);
+        g_object_notify_by_pspec (object, props[PROP_DRAW_STYLE]);
+        pn_node_request_repaint (PN_NODE (self));
         break;
     case PROP_LINE_COLOR:
         {
@@ -2096,6 +2302,17 @@ pn_graph_set_property (
             }
         }
         break;
+    case PROP_Y_FROM_ZERO:
+        {
+            gboolean z = g_value_get_boolean (value);
+            if (self->y_from_zero != z)
+            {
+                self->y_from_zero = z;
+                g_object_notify_by_pspec (object, props[PROP_Y_FROM_ZERO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -2129,6 +2346,72 @@ pn_graph_finalize (GObject *object)
     G_OBJECT_CLASS (pn_graph_parent_class)->finalize (object);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Settings dialog: two themed pages instead of one tall tab          */
+/* ------------------------------------------------------------------ */
+
+/* Build one property grid from a NULL-terminated list of property
+ * names, skipping any that are missing or read-only.  Mirrors the
+ * per-page helper used by the other multi-page nodes (e.g. PnDial). */
+static GtkWidget *
+build_graph_page (GObject *target, const gchar *const *names)
+{
+    GtkWidget    *grid  = pn_node_dialog_new_property_grid ();
+    GObjectClass *klass = G_OBJECT_GET_CLASS (target);
+    guint         row   = 0;
+    guint         i;
+
+    for (i = 0; names[i] != NULL; i++)
+    {
+        GParamSpec  *pspec = g_object_class_find_property (klass, names[i]);
+        GtkWidget   *editor;
+        const gchar *nick;
+
+        if (pspec == NULL || (pspec->flags & G_PARAM_WRITABLE) == 0)
+            continue;
+
+        editor = pn_node_dialog_default_editor (target, pspec);
+        nick   = g_param_spec_get_nick (pspec);
+        pn_node_dialog_attach_row (GTK_GRID (grid), row,
+                                   nick != NULL ? nick : names[i],
+                                   editor);
+        row += 1;
+    }
+
+    return grid;
+}
+
+static void
+pn_graph_build_class_tabs (
+        PnNode      *self,
+        GtkNotebook *notebook,
+        GtkWindow   *parent G_GNUC_UNUSED)
+{
+    GObject *target = G_OBJECT (self);
+
+    /* How the plot is drawn. */
+    static const gchar *const appearance_props[] = {
+        "draw-style",
+        "line-color", "line-width",
+        "axis-color", "background-color",
+        "show-grid",
+        NULL
+    };
+    /* What is plotted and how the value axis is framed. */
+    static const gchar *const data_props[] = {
+        "key", "resolution", "data-view",
+        "log-y", "y-from-zero",
+        NULL
+    };
+
+    pn_node_dialog_append_page (notebook,
+                                build_graph_page (target, appearance_props),
+                                "Appearance");
+    pn_node_dialog_append_page (notebook,
+                                build_graph_page (target, data_props),
+                                "Data");
+}
+
 static void
 pn_graph_class_init (PnGraphClass *klass)
 {
@@ -2143,6 +2426,7 @@ pn_graph_class_init (PnGraphClass *klass)
     node_class->get_size          = pn_graph_get_size;
     node_class->get_header_height = pn_graph_get_header_height;
     node_class->paint_plot        = pn_graph_paint_plot;
+    node_class->build_class_tabs  = pn_graph_build_class_tabs;
 
     node_class->class_name        = "Graph";
     node_class->icon              = "\xef\x87\xbe";  /* fa-area-chart U+F1FE */
@@ -2167,15 +2451,30 @@ pn_graph_class_init (PnGraphClass *klass)
             PN_GRAPH_RES_MINUTE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
-    props[PROP_MODE] = g_param_spec_enum (
-            "mode", "Mode",
-            "Line draws a sliding time-series; histogram bins the "
-            "in-window samples by value to show where they cluster.  "
-            "Both modes auto-switch to a 3D projection when messages "
-            "from more than one topic arrive, with each topic stacked "
-            "along the Z axis as a separate series.",
-            PN_TYPE_GRAPH_MODE,
-            PN_GRAPH_MODE_LINE,
+    props[PROP_DATA_VIEW] = g_param_spec_enum (
+            "data-view", "Data view",
+            "What the plot represents.  Time series plots each value "
+            "against time (X axis is time, most recent on the right); "
+            "Distribution bins the in-window samples by value and plots "
+            "how often each value occurs (X axis is value, Y axis is "
+            "the count) to show where they cluster.  Both views "
+            "auto-switch to a 3D projection when messages from more "
+            "than one topic arrive, with each topic stacked along the "
+            "Z axis as a separate series.",
+            PN_TYPE_GRAPH_VIEW,
+            PN_GRAPH_VIEW_TIME_SERIES,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_DRAW_STYLE] = g_param_spec_enum (
+            "draw-style", "Draw as",
+            "How the data view is drawn: Points (a discrete marker per "
+            "sample), Lines (a polyline through the samples), or Bars (a "
+            "filled bar rising from the baseline).  Honoured for "
+            "single-topic plots; multi-topic 3D plots fall back to the "
+            "polyline form for the time-series view and to bars for the "
+            "distribution view.",
+            PN_TYPE_GRAPH_STYLE,
+            PN_GRAPH_STYLE_LINES,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_LINE_COLOR] = g_param_spec_boxed (
@@ -2220,6 +2519,31 @@ pn_graph_class_init (PnGraphClass *klass)
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_Y_FROM_ZERO] = g_param_spec_boolean (
+            "y-from-zero", "Y starts from 0",
+            "Anchor the Y axis at zero instead of auto-fitting it "
+            "tightly around the data.  Without this, a series of large "
+            "values that wobbles only slightly fills the whole height, "
+            "exaggerating tiny changes; anchoring at zero keeps the "
+            "movement in proportion to the absolute value.  Honoured "
+            "in line mode (linear Y only — it does not apply on a "
+            "logarithmic axis).",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Legacy migration shim.  Worksheets saved before the view/style
+     * split persisted a single "mode" enum; accept it on load and map
+     * it onto data-view + draw-style.  Write-only on purpose: being
+     * unreadable keeps it out of node_to_json (which only serialises
+     * read+write properties), so re-saving a migrated worksheet drops
+     * "mode" and writes the new pair instead.  No nick/blurb because it
+     * never surfaces in the settings dialog. */
+    props[PROP_MODE] = g_param_spec_enum (
+            "mode", NULL, NULL,
+            PN_TYPE_GRAPH_MODE,
+            PN_GRAPH_MODE_LINE,
+            G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -2231,7 +2555,8 @@ pn_graph_init (PnGraph *self)
 
     self->key        = g_strdup ("data/value");
     self->resolution = PN_GRAPH_RES_MINUTE;
-    self->mode       = PN_GRAPH_MODE_LINE;
+    self->view       = PN_GRAPH_VIEW_TIME_SERIES;
+    self->style      = PN_GRAPH_STYLE_LINES;
     self->last_repaint_us    = 0;
     self->pending_repaint_id = 0;
 
@@ -2244,6 +2569,7 @@ pn_graph_init (PnGraph *self)
     self->line_width       = 2;
     self->show_grid        = FALSE;
     self->log_y            = FALSE;
+    self->y_from_zero      = FALSE;
 
     self->series = g_hash_table_new_full (g_str_hash, g_str_equal,
                                           g_free, series_free);

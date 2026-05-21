@@ -25,15 +25,15 @@ like request latencies or per-message byte counts.
 Plotting is done with PLplot.
 </p>
 <p>
-Two parallel rings are kept per node, <em>per topic</em>. Line
-mode reads from a ring of 200 fixed-width time buckets that
-store running totals only (about 8&thinsp;KB), so it summarises
+Two parallel rings are kept per node, <em>per topic</em>. The
+time-series view reads from a ring of 200 fixed-width time buckets
+that store running totals only (about 8&thinsp;KB), so it summarises
 arbitrary arrival rates over arbitrary windows without growing.
-Histogram mode reads from a ring of 2048 raw samples (about
-32&thinsp;KB); in long-window modes (1 day, 1 week) at high
+The distribution view reads from a ring of 2048 raw samples (about
+32&thinsp;KB); in long-window resolutions (1 day, 1 week) at high
 arrival rates the ring shows the most recent 2048 samples that
 fell inside the window, not every sample seen. Both rings are
-fed unconditionally, so toggling the mode never starts from an
+fed unconditionally, so switching the view never starts from an
 empty plot.
 </p>
 <h5>Multi-topic 3D mode</h5>
@@ -42,11 +42,11 @@ Every distinct <code>msg.topic</code> on the input wire is tracked
 as a separate data series with its own pair of rings. As long as
 only one topic has been seen (the common case, including feeds
 that never set a topic at all), the plot is the familiar 2D one.
-Once a second topic arrives, both modes auto-switch to a 3D
+Once a second topic arrives, both views auto-switch to a 3D
 projection: each series gets its own slot along the Z axis in
 arrival order &mdash; the first-seen topic sits closest to the
-viewer &mdash; with time (line mode) or value (histogram mode)
-running along X and the value or sample count rising along the
+viewer &mdash; with time (time-series view) or value (distribution
+view) running along X and the value or sample count rising along the
 vertical Z axis. Series colours are derived from
 <code>line-color</code> by walking the HLS hue wheel in
 golden-angle steps so adjacent series read distinctly without
@@ -78,36 +78,50 @@ memory without bound.
       <td>Total time span summarised by the plot: <em>1 minute</em>,
           <em>15 minutes</em>, <em>1 hour</em>, <em>1 day</em>, or
           <em>1 week</em>. In
-          line mode it sets the X-axis time span; in histogram
-          mode it acts as the rolling cutoff that decides which
-          samples are binned (samples older than the window are
-          ignored, so 1&thinsp;minute mode shows the distribution
+          the time-series view it sets the X-axis time span; in the
+          distribution view it acts as the rolling cutoff that decides
+          which samples are binned (samples older than the window are
+          ignored, so a 1&thinsp;minute window shows the distribution
           of the last minute's traffic, 1&thinsp;hour the last
           hour's, and so on). Switching mid-stream takes effect on
-          the next paint; existing line-mode samples whose bucket
+          the next paint; existing time-series samples whose bucket
           maps onto a stale slot under the new window are discarded
           lazily.</td></tr>
-  <tr><td><code>mode</code></td>
-      <td><em>Line</em> (default) draws a sliding time-series
-          polyline with the most recent sample on the right.
-          <em>Histogram</em> bins the in-window samples by value
-          into 40 fixed-width bars whose height is the sample
-          count &mdash; the resulting shape reads as a discrete
-          probability density of where the values are clustered.
-          Bin edges auto-range over the live <code>[min, max]</code>
-          of the in-window data. In multi-topic 3D mode every
-          series is binned against the same shared
-          <code>[vmin, vmax]</code> so bars at the same value
-          line up across ribbons.</td></tr>
+  <tr><td><code>data-view</code></td>
+      <td>What the plot represents. <em>Time series</em> (default)
+          plots each value against time, most recent sample on the
+          right (X axis is time). <em>Distribution</em> bins the
+          in-window samples by value into 40 fixed-width bins and
+          plots how often each value occurs (X axis is value, Y axis
+          is the count) &mdash; the resulting shape reads as a
+          discrete picture of where the values cluster. Bin edges
+          auto-range over the live <code>[min, max]</code> of the
+          in-window data. In multi-topic 3D mode every series is
+          binned against the same shared <code>[vmin, vmax]</code>
+          so bars at the same value line up across ribbons.</td></tr>
+  <tr><td><code>draw-style</code></td>
+      <td>How the chosen <code>data-view</code> is drawn (the
+          &ldquo;Draw as&rdquo; setting): <em>Points</em> marks each
+          data point with a filled circle, <em>Lines</em> (default)
+          connects them with a polyline, and <em>Bars</em> draws each
+          as a filled bar from the baseline. The two settings are
+          independent, so e.g. a time series can be shown as points
+          (a scatter) or bars (a column chart), and a distribution as
+          a line (a frequency polygon) instead of bars (the classic
+          histogram). Honoured for single-topic plots; multi-topic
+          3D plots fall back to the polyline form for the time-series
+          view and to bars for the distribution view.</td></tr>
   <tr><td><code>line-color</code></td>
-      <td>Colour of the data polyline. Defaults to a dark blue
-          that reads well against a white background. In
-          multi-topic 3D mode it is the colour of the first
-          (front-most) series; subsequent series walk the hue
+      <td>Colour of the plotted data &mdash; the polyline, the point
+          markers, or the bar fill, depending on <code>draw-style</code>.
+          Defaults to a dark blue that reads well against a white
+          background. In multi-topic 3D mode it is the colour of the
+          first (front-most) series; subsequent series walk the hue
           wheel in golden-angle steps from this base.</td></tr>
   <tr><td><code>line-width</code></td>
       <td>Stroke width of the data polyline, in pixels (1&ndash;8,
-          default 2).</td></tr>
+          default 2). Also scales the marker size of the
+          <em>Points</em> draw-style.</td></tr>
   <tr><td><code>axis-color</code></td>
       <td>Colour of the plot frame, ticks, and tick labels. The
           same colour is used for the thin frame painted around
@@ -121,15 +135,37 @@ memory without bound.
   <tr><td><code>log-y</code></td>
       <td>Plots the Y axis on a base-10 logarithmic scale, with
           tick labels printed as decade powers (10⁰, 10¹, 10², …).
-          Currently honoured only in histogram mode, where it is
-          useful for long-tailed distributions &mdash; e.g.
+          Currently honoured only in the distribution view, where it
+          is useful for long-tailed distributions &mdash; e.g.
           network byte counts that cluster around a few hundred
           bytes but pick up an occasional billion-byte outlier &mdash;
           whose tallest bars would otherwise crush the smaller
           ones flat. Single-occurrence bins still draw with a
           visible height because the log floor is set to
           log<sub>10</sub>(0.5) rather than &minus;∞.</td></tr>
+  <tr><td><code>y-from-zero</code></td>
+      <td>Anchors the Y axis at zero instead of auto-fitting it
+          tightly around the data. By default the axis hugs the live
+          <code>[min, max]</code> with a little headroom, so a series
+          of large values that wobbles only slightly fills the whole
+          height and exaggerates tiny changes; enabling this pins the
+          baseline to 0 so movement stays in proportion to the
+          absolute value. A series that already straddles zero is
+          unaffected (zero is in range either way). Honoured in the
+          time-series view on a linear axis &mdash; it has no effect
+          on a logarithmic Y axis, which cannot reach zero.</td></tr>
 </table>
+
+<p>
+In the node's settings dialog these properties are split across two
+tabs: <strong>Appearance</strong> collects how the plot is drawn
+(<code>draw-style</code>, <code>line-color</code>,
+<code>line-width</code>, <code>axis-color</code>,
+<code>background-color</code>, <code>show-grid</code>), while
+<strong>Data</strong> collects what is plotted and how the value axis
+is framed (<code>key</code>, <code>resolution</code>,
+<code>data-view</code>, <code>log-y</code>, <code>y-from-zero</code>).
+</p>
 
 </body>
 </html>

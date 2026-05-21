@@ -60,13 +60,56 @@ typedef enum
 GType pn_graph_resolution_get_type (void) G_GNUC_CONST;
 
 /**
+ * PnGraphView:
+ * @PN_GRAPH_VIEW_TIME_SERIES:  Plot each value against time, most recent on
+ *                              the right (X axis is time).
+ * @PN_GRAPH_VIEW_DISTRIBUTION: Bin the in-window samples by value and plot
+ *                              how often each value occurs (X axis is value,
+ *                              Y axis is the count) — the shape reads as the
+ *                              distribution of where the values cluster.
+ *
+ * Selects *what* the plot represents.  Orthogonal to #PnGraphStyle, which
+ * selects *how* the chosen view is drawn.
+ */
+typedef enum
+{
+    PN_GRAPH_VIEW_TIME_SERIES,
+    PN_GRAPH_VIEW_DISTRIBUTION,
+} PnGraphView;
+
+#define PN_TYPE_GRAPH_VIEW (pn_graph_view_get_type ())
+GType pn_graph_view_get_type (void) G_GNUC_CONST;
+
+/**
+ * PnGraphStyle:
+ * @PN_GRAPH_STYLE_POINTS: Draw each data point as a discrete marker.
+ * @PN_GRAPH_STYLE_LINES:  Connect the data points with a polyline.
+ * @PN_GRAPH_STYLE_BARS:   Draw each data point as a filled bar rising from
+ *                         the baseline.
+ *
+ * Selects *how* the active #PnGraphView is drawn.  Honoured for single-topic
+ * (2D) plots; multi-topic 3D plots fall back to the polyline form for the
+ * time-series view and to bars for the distribution view.
+ */
+typedef enum
+{
+    PN_GRAPH_STYLE_POINTS,
+    PN_GRAPH_STYLE_LINES,
+    PN_GRAPH_STYLE_BARS,
+} PnGraphStyle;
+
+#define PN_TYPE_GRAPH_STYLE (pn_graph_style_get_type ())
+GType pn_graph_style_get_type (void) G_GNUC_CONST;
+
+/**
  * PnGraphMode:
- * @PN_GRAPH_MODE_LINE:      Time-series polyline (most recent on the right).
- * @PN_GRAPH_MODE_HISTOGRAM: Frequency distribution over the current window —
- *                           in-window samples are binned by value and shown
- *                           as filled bars, so the shape of the bars reads
- *                           as a probability density of where the values
- *                           are clustered.
+ * @PN_GRAPH_MODE_LINE:      Legacy: time-series view drawn as a polyline.
+ * @PN_GRAPH_MODE_HISTOGRAM: Legacy: distribution view drawn as bars.
+ *
+ * Retained only so worksheets saved before the view/style split (which
+ * persisted a single "mode" property) still load: the write-only "mode"
+ * property maps each legacy value onto the matching #PnGraphView +
+ * #PnGraphStyle pair.  New code should use #PnGraphView and #PnGraphStyle.
  */
 typedef enum
 {
