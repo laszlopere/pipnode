@@ -23,6 +23,7 @@
 #include <pango/pangocairo.h>
 #include <json-glib/json-glib.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
@@ -247,6 +248,36 @@ short_time (const gchar *iso)
     return g_strndup (t + 1, 5);
 }
 
+/* Format the date carried by an ISO-8601-ish timestamp
+ * ("2026-05-21T14:00") as a long human label, e.g.
+ * "Wednesday, 21 May 2026".  Falls back to the current local date when
+ * the stamp is missing or unparseable.  Caller frees with g_free(). */
+static gchar *
+format_long_date (const gchar *iso)
+{
+    gint       y = 0, m = 0, d = 0;
+    GDateTime *dt = NULL;
+    gchar     *weekday, *month, *out;
+
+    if (iso != NULL && sscanf (iso, "%d-%d-%d", &y, &m, &d) == 3)
+        dt = g_date_time_new_utc (y, m, d, 12, 0, 0);
+    if (dt == NULL)
+        dt = g_date_time_new_now_local ();
+    if (dt == NULL)
+        return NULL;
+
+    weekday = g_date_time_format (dt, "%A");
+    month   = g_date_time_format (dt, "%B");
+    out = g_strdup_printf ("%s, %d %s %d",
+                           weekday, g_date_time_get_day_of_month (dt),
+                           month, g_date_time_get_year (dt));
+
+    g_free (weekday);
+    g_free (month);
+    g_date_time_unref (dt);
+    return out;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Cairo / Pango drawing primitives                                  */
 /* ------------------------------------------------------------------ */
@@ -300,18 +331,6 @@ draw_text_centered (cairo_t *cr, double cx, double y, const gchar *font,
 
     measure (cr, font, size, text, &w, NULL);
     draw_text (cr, cx - w / 2.0, y, font, size, text, r, g, b);
-}
-
-/* Draw @text right-aligned so it ends at @xr, top at @y. */
-static void
-draw_text_right (cairo_t *cr, double xr, double y, const gchar *font,
-                 double size, const gchar *text,
-                 double r, double g, double b)
-{
-    double w;
-
-    measure (cr, font, size, text, &w, NULL);
-    draw_text (cr, xr - w, y, font, size, text, r, g, b);
 }
 
 /* A small compass arrow pointing where the wind is *going* (i.e. the
@@ -461,23 +480,24 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
     gint     code        = obj_num (data, "weather_code", &code_d)
                            ? (gint) code_d : -1;
     gboolean is_day      = obj_bool (cur, "is_day", TRUE);
-    gchar   *obstime     = short_time (obj_str (cur, "time"));
+    const gchar *iso_time = obj_str (cur, "time");
+    gchar   *obstime     = short_time (iso_time);
 
     const double padx = w * 0.05;
     const double ml   = padx;
     const double mr   = w - padx;
 
     double loc_bottom;
-    double tiles_top = 0.0, tile_h = 0.0, divider_y;
+    double tiles_top = 0.0, tile_h = 0.0;
 
-    /* --- 1. Location row: marker + place on the left, obs time on the
-     *        right.  The place gets the slack between the two so a long
-     *        "Reykjavík, Iceland" ellipsizes rather than colliding with
-     *        the clock. ---------------------------------------------- */
+    /* --- 1. Location row: marker + place name spanning the full width.
+     *        The obs time has moved down into the left-hand date/time
+     *        panel, so a long "Reykjavík, Iceland" now has the whole row
+     *        to ellipsize into. ------------------------------------- */
     {
         const double y       = h * 0.06;
-        const double mk_sz   = h * 0.062;
-        const double city_sz = h * 0.075;
+        const double mk_sz   = h * 0.066;
+        const double city_sz = h * 0.08;
         double       mk_w, mk_h, city_h;
         gchar       *place;
 
@@ -493,26 +513,14 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
 
         loc_bottom = y + MAX (mk_h, city_h);
 
-        /* Obs time (right). */
-        if (obstime != NULL)
-        {
-            gchar  *clk = g_strdup_printf (ICON_CLOCK "  %s", obstime);
-            double  cw;
-            measure (cr, FONT_SANS, h * 0.05, clk, &cw, NULL);
-            draw_text_right (cr, mr, y + (MAX (mk_h, city_h) - h * 0.05) / 2.0,
-                             FONT_SANS, h * 0.05, clk, MUT_R, MUT_G, MUT_B);
-            (void) cw;
-        }
-
         draw_text (cr, ml, y + (MAX (mk_h, city_h) - mk_h) / 2.0,
                    FONT_FA, mk_sz, ICON_MARKER, INK_R, INK_G, INK_B);
 
-        /* Ellipsize the place name into the remaining width. */
+        /* Ellipsize the place name into the rest of the row. */
         {
             PangoLayout          *l = pango_cairo_create_layout (cr);
             PangoFontDescription *d = pango_font_description_from_string (FONT_BOLD);
-            double                avail = mr - (ml + mk_w + w * 0.025)
-                                          - (obstime ? w * 0.20 : 0.0);
+            double                avail = mr - (ml + mk_w + w * 0.03);
 
             pango_font_description_set_absolute_size (d, city_sz * PANGO_SCALE);
             pango_layout_set_font_description (l, d);
@@ -522,7 +530,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             pango_layout_set_ellipsize (l, PANGO_ELLIPSIZE_END);
 
             cairo_set_source_rgb (cr, INK_R, INK_G, INK_B);
-            cairo_move_to (cr, ml + mk_w + w * 0.025,
+            cairo_move_to (cr, ml + mk_w + w * 0.03,
                            y + (MAX (mk_h, city_h) - city_h) / 2.0);
             pango_cairo_show_layout (cr, l);
             g_object_unref (l);
@@ -532,20 +540,13 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
     }
 
     /* --- 3. Detail tiles, anchored to the bottom so the hero band is
-     *        whatever vertical space is left in the middle. ---------- */
+     *        whatever vertical space is left in the middle.  The grey
+     *        divider above them is drawn later, once the hero knows
+     *        where its date line ends. ----------------------------- */
     if (self->show_details)
     {
-        tile_h    = h * 0.26;
+        tile_h    = h * 0.235;
         tiles_top = h - h * 0.06 - tile_h;
-        divider_y = tiles_top - h * 0.045;
-
-        cairo_save (cr);
-        cairo_set_source_rgb (cr, LINE_R, LINE_G, LINE_B);
-        cairo_set_line_width (cr, 1.0);
-        cairo_move_to (cr, ml, divider_y + 0.5);
-        cairo_line_to (cr, mr, divider_y + 0.5);
-        cairo_stroke (cr);
-        cairo_restore (cr);
 
         {
             const double span  = mr - ml;
@@ -594,32 +595,44 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             g_free (s);
         }
     }
-    else
-    {
-        divider_y = h - h * 0.06;
-    }
 
-    /* --- 2. Hero band: big condition glyph on the left, temperature +
-     *        description + feels-like stacked on the right.  The whole
-     *        block is vertically centred in the space between the
-     *        location row and the divider. ------------------------- */
+    /* --- 2. Hero: the conditions fill the left — the weather glyph next
+     *        to the temperature, with the description and feels-like
+     *        beneath it — and a date/time panel sits on the right: the
+     *        big black time over the long date, both flush to the right
+     *        edge.  The grey divider then drops into the gap above the
+     *        tiles. ---------------------------------------------------- */
     {
-        const double band_top = loc_bottom + h * 0.03;
-        const double band_bot = divider_y - h * 0.03;
-        const double band_h   = MAX (band_bot - band_top, h * 0.2);
+        const double right_w  = (mr - ml) * 0.36;
 
-        const double icon_sz  = h * 0.27;
-        const double num_sz   = h * 0.21;
-        const double unit_sz  = h * 0.085;
-        const double desc_sz  = h * 0.068;
-        const double sub_sz   = h * 0.055;
+        const double time_sz  = h * 0.135;
+        const double date_sz  = h * 0.052;
+        const double icon_sz  = h * 0.20;
+        const double num_sz   = h * 0.19;
+        const double unit_sz  = h * 0.082;
+        const double desc_sz  = h * 0.066;
+        const double sub_sz   = h * 0.052;
 
         const gchar *glyph = condition_glyph (code, is_day);
         gchar       *numbuf;
         gchar       *subbuf;
+        gchar       *datebuf = format_long_date (iso_time);
+        gchar       *timebuf;
 
-        double icon_w, icon_h, num_w, num_h, unit_h, desc_h, sub_h;
-        double right_x, col_top, block_h, icon_y;
+        double icon_w, icon_h, num_w, num_h, unit_h, time_w, time_h, desc_h, sub_h;
+        double hero_top, numx, ly, ry, left_bottom, right_bottom, content_bottom;
+
+        /* Observation time, falling back to the local wall clock. */
+        if (obstime != NULL)
+            timebuf = g_strdup (obstime);
+        else
+        {
+            GDateTime *now = g_date_time_new_now_local ();
+            timebuf = now != NULL ? g_date_time_format (now, "%H:%M")
+                                  : g_strdup ("--:--");
+            if (now != NULL)
+                g_date_time_unref (now);
+        }
 
         numbuf = have_temp ? g_strdup_printf ("%.0f" GLYPH_DEGREE, temp)
                            : g_strdup (GLYPH_EMDASH);
@@ -636,57 +649,98 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         else
             subbuf = NULL;
 
-        measure (cr, FONT_FA,   icon_sz, glyph,  &icon_w, &icon_h);
-        measure (cr, FONT_SANS, num_sz,  numbuf, &num_w,  &num_h);
+        measure (cr, FONT_FA,   icon_sz, glyph,   &icon_w, &icon_h);
+        measure (cr, FONT_SANS, num_sz,  numbuf,  &num_w,  &num_h);
         measure (cr, FONT_SANS, unit_sz, "C", NULL, &unit_h);
+        measure (cr, FONT_BOLD, time_sz, timebuf, &time_w, &time_h);
         measure (cr, FONT_BOLD, desc_sz, desc ? desc : "", NULL, &desc_h);
         if (subbuf != NULL)
             measure (cr, FONT_SANS, sub_sz, subbuf, NULL, &sub_h);
         else
             sub_h = 0.0;
 
-        /* Right-hand text column height. */
-        col_top = band_top;
-        block_h = num_h
-                + (desc && *desc ? h * 0.005 + desc_h : 0.0)
-                + (subbuf ? h * 0.02 + sub_h : 0.0);
-        block_h = MAX (block_h, icon_h);
-        col_top = band_top + MAX (0.0, (band_h - block_h) / 2.0);
+        hero_top = loc_bottom + h * 0.03;
 
-        right_x = ml + icon_w + w * 0.05;
+        /* LEFT column: glyph + temperature on one row, then the
+         * description and feels-like beneath them. */
+        ly   = hero_top;
+        numx = ml + icon_w + w * 0.02;
 
-        /* Condition glyph, vertically centred against the text column. */
-        icon_y = col_top + MAX (0.0, (block_h - icon_h) / 2.0);
-        draw_text (cr, ml, icon_y, FONT_FA, icon_sz, glyph,
-                   INK_R, INK_G, INK_B);
-
-        /* Temperature, with a smaller "C" set just after the degree. */
-        draw_text (cr, right_x, col_top, FONT_SANS, num_sz, numbuf,
+        draw_text (cr, ml, ly + MAX (0.0, (num_h - icon_h) / 2.0),
+                   FONT_FA, icon_sz, glyph, INK_R, INK_G, INK_B);
+        draw_text (cr, numx, ly, FONT_SANS, num_sz, numbuf,
                    INK_R, INK_G, INK_B);
         if (have_temp)
-            draw_text (cr, right_x + num_w + w * 0.008,
-                       col_top + (num_h - unit_h) * 0.42,
+            draw_text (cr, numx + num_w + w * 0.008,
+                       ly + (num_h - unit_h) * 0.42,
                        FONT_SANS, unit_sz, "C", INK_R, INK_G, INK_B);
 
+        ly += num_h;
+        if (desc != NULL && *desc != '\0')
         {
-            double y = col_top + num_h;
-            if (desc != NULL && *desc != '\0')
-            {
-                y += h * 0.005;
-                draw_text (cr, right_x, y, FONT_BOLD, desc_sz, desc,
-                           INK_R, INK_G, INK_B);
-                y += desc_h;
-            }
-            if (subbuf != NULL)
-            {
-                y += h * 0.02;
-                draw_text (cr, right_x, y, FONT_SANS, sub_sz, subbuf,
-                           MUT_R, MUT_G, MUT_B);
-            }
+            ly += h * 0.004;
+            draw_text (cr, ml, ly, FONT_BOLD, desc_sz, desc,
+                       INK_R, INK_G, INK_B);
+            ly += desc_h;
+        }
+        if (subbuf != NULL)
+        {
+            ly += h * 0.006;
+            draw_text (cr, ml, ly, FONT_SANS, sub_sz, subbuf,
+                       MUT_R, MUT_G, MUT_B);
+            ly += sub_h;
+        }
+        left_bottom = ly;
+
+        /* RIGHT column: big black time, then the long date wrapped and
+         * right-aligned beneath it, both flush to the card's right edge. */
+        ry = hero_top;
+        draw_text (cr, mr - time_w, ry, FONT_BOLD, time_sz, timebuf,
+                   INK_R, INK_G, INK_B);
+        ry += time_h + h * 0.012;
+        if (datebuf != NULL)
+        {
+            PangoLayout *l = build_layout (cr, FONT_SANS, date_sz, datebuf);
+            int          pw, ph;
+
+            pango_layout_set_width (l, (int) (right_w * PANGO_SCALE));
+            pango_layout_set_wrap (l, PANGO_WRAP_WORD);
+            pango_layout_set_alignment (l, PANGO_ALIGN_RIGHT);
+            pango_layout_get_pixel_size (l, &pw, &ph);
+
+            cairo_set_source_rgb (cr, MUT_R, MUT_G, MUT_B);
+            cairo_move_to (cr, mr - right_w, ry);
+            pango_cairo_show_layout (cr, l);
+            g_object_unref (l);
+            ry += ph;
+        }
+        right_bottom = ry;
+
+        content_bottom = MAX (left_bottom, right_bottom);
+
+        /* Grey divider — kept clear of the tile icons by a fixed gap
+         * above the tiles, and a touch thicker than a hairline. */
+        if (self->show_details && tiles_top > content_bottom)
+        {
+            double dy = tiles_top - h * 0.06;
+            double lw = CLAMP (h * 0.011, 1.5, 4.0);
+
+            if (dy < content_bottom + h * 0.02)
+                dy = content_bottom + h * 0.02;
+
+            cairo_save (cr);
+            cairo_set_source_rgb (cr, LINE_R, LINE_G, LINE_B);
+            cairo_set_line_width (cr, lw);
+            cairo_move_to (cr, ml, dy);
+            cairo_line_to (cr, mr, dy);
+            cairo_stroke (cr);
+            cairo_restore (cr);
         }
 
         g_free (numbuf);
         g_free (subbuf);
+        g_free (datebuf);
+        g_free (timebuf);
     }
 
     g_free (obstime);
