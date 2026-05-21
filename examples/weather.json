@@ -75,7 +75,10 @@
         "y" : 240.0
       },
       "properties" : {
-        "show-details" : true
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa"
       }
     }
   ],
