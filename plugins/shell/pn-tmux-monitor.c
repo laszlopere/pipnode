@@ -124,6 +124,11 @@ apply_visual_state (PnTmuxMonitor *self,
  * actually uses it. */
 static void tm_reset_prev_output (PnTmuxMonitor *self);
 
+/* Forward declaration — the host setter clears the session selection
+ * on a host change (the session belongs to the old host); the setter
+ * itself is defined just below. */
+static void tm_set_session (PnTmuxMonitor *self, const gchar *session);
+
 /* ------------------------------------------------------------------ */
 /*  Thread-safe accessors                                              */
 /* ------------------------------------------------------------------ */
@@ -512,6 +517,19 @@ tm_set_host (PnTmuxMonitor *self, const gchar *host)
     g_mutex_unlock (&self->mutex);
 
     g_free (old);
+
+    /* The configured session belongs to the host it was discovered on;
+     * a different host almost certainly does not have it, so drop the
+     * selection on a host change rather than leaving a stale session
+     * active in the combo.  Done before notify::host fires so the
+     * combobox repopulate handler already sees the empty selection.
+     * (On worksheet load `host` is deserialised before `tmux-session`,
+     * so the saved session is restored by the following property
+     * write; and tm_set_session is a no-op when the session is already
+     * empty, so this is harmless on a brand-new node.) */
+    if (host_changed)
+        tm_set_session (self, "");
+
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HOST]);
 
     /* Skip the enumerator restart when the property write was a no-op

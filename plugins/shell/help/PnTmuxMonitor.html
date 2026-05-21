@@ -105,7 +105,9 @@ worker still wakes, it just has no target to capture from).
   <tr><td><code>tmux-session</code></td>
       <td>Name of the session to capture from.  Picked from the
           combobox the enumerator fills; an empty value puts the
-          node in the warning state and stops its triggers.</td></tr>
+          node in the warning state and stops its triggers.
+          Changing <code>host</code> clears the selection, since a
+          session on one host does not carry over to another.</td></tr>
   <tr><td><code>line-limit</code></td>
       <td>Maximum number of trailing lines to capture per tick,
           passed straight to <code>tmux capture-pane</code> as
