@@ -17,7 +17,9 @@
 Auto-triggered runner that captures the visible characters of a
 named tmux session every <code>period</code> seconds and emits them
 on its output port.  The capture is performed by spawning
-<code>tmux&nbsp;capture-pane&nbsp;-p&nbsp;-S&nbsp;-&lt;line-limit&gt;&nbsp;-t&nbsp;&lt;session&gt;</code>
+<code>tmux&nbsp;capture-pane&nbsp;-p&nbsp;-T&nbsp;-S&nbsp;-&lt;line-limit&gt;&nbsp;-t&nbsp;&lt;session&gt;</code>
+(<code>-T</code> drops trailing blank positions so lines are not
+padded out to the pane width)
 on a worker thread, so the GUI never blocks even when the
 configured host is slow to respond over ssh.
 </p>

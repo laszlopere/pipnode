@@ -692,7 +692,7 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     gboolean         spawned;
     gboolean         success     = FALSE;
     gchar           *start_arg;
-    const gchar     *base_argv[8];
+    const gchar     *base_argv[9];
     gchar          **argv;
 
     /* Without a session selected the trigger has nothing meaningful
@@ -706,20 +706,25 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     }
 
     /* tmux capture-pane -p          → stdout instead of a buffer
+     *                  -T           → drop trailing positions in each
+     *                                 line that hold no character, so
+     *                                 the capture isn't padded out to
+     *                                 the pane width with blanks (which
+     *                                 would otherwise defeat the delta
+     *                                 diff and bloat every message)
      *                  -S -<N>      → start N lines back into history
-     *                  -E -         → end at the bottom of the visible
-     *                                 area
      *                  -t <session> → target the session by name */
     start_arg = g_strdup_printf ("-%u", line_limit);
 
     base_argv[0] = "tmux";
     base_argv[1] = "capture-pane";
     base_argv[2] = "-p";
-    base_argv[3] = "-S";
-    base_argv[4] = start_arg;
-    base_argv[5] = "-t";
-    base_argv[6] = session;
-    base_argv[7] = NULL;
+    base_argv[3] = "-T";
+    base_argv[4] = "-S";
+    base_argv[5] = start_arg;
+    base_argv[6] = "-t";
+    base_argv[7] = session;
+    base_argv[8] = NULL;
 
     argv = tm_build_argv (host, base_argv);
 
