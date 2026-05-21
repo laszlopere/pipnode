@@ -64,7 +64,7 @@
       },
       "properties" : {
         "period" : 5,
-        "host" : "localhost"
+        "host" : ""
       }
     },
     {
@@ -78,7 +78,7 @@
       },
       "properties" : {
         "period" : 5,
-        "host" : "localhost"
+        "host" : ""
       }
     },
     {
@@ -92,7 +92,7 @@
       },
       "properties" : {
         "period" : 5,
-        "host" : "eth4"
+        "host" : ""
       }
     },
     {
