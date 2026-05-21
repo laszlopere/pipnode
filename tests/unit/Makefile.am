@@ -28,12 +28,32 @@ check_PROGRAMS = \
 	test-pn-format \
 	test-pn-dedup \
 	test-pn-throttle \
-	test-pn-query
+	test-pn-query \
+	test-pn-edge \
+	test-pn-switch \
+	test-pn-set \
+	test-pn-filter \
+	test-pn-rewrite \
+	test-pn-expression2 \
+	test-pn-stats \
+	test-pn-inject \
+	test-pn-knob \
+	test-pn-table-model
 
-test_pn_expression_SOURCES = test-pn-expression.c pntest.c pntest.h
-test_pn_format_SOURCES     = test-pn-format.c     pntest.c pntest.h
-test_pn_dedup_SOURCES      = test-pn-dedup.c      pntest.c pntest.h
-test_pn_throttle_SOURCES   = test-pn-throttle.c   pntest.c pntest.h
-test_pn_query_SOURCES      = test-pn-query.c      pntest.c pntest.h
+test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
+test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
+test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
+test_pn_throttle_SOURCES     = test-pn-throttle.c     pntest.c pntest.h
+test_pn_query_SOURCES        = test-pn-query.c        pntest.c pntest.h
+test_pn_edge_SOURCES         = test-pn-edge.c         pntest.c pntest.h
+test_pn_switch_SOURCES       = test-pn-switch.c       pntest.c pntest.h
+test_pn_set_SOURCES          = test-pn-set.c          pntest.c pntest.h
+test_pn_filter_SOURCES       = test-pn-filter.c       pntest.c pntest.h
+test_pn_rewrite_SOURCES      = test-pn-rewrite.c      pntest.c pntest.h
+test_pn_expression2_SOURCES  = test-pn-expression2.c  pntest.c pntest.h
+test_pn_stats_SOURCES        = test-pn-stats.c        pntest.c pntest.h
+test_pn_inject_SOURCES       = test-pn-inject.c       pntest.c pntest.h
+test_pn_knob_SOURCES         = test-pn-knob.c         pntest.c pntest.h
+test_pn_table_model_SOURCES  = test-pn-table-model.c  pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
