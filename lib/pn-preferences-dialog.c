@@ -50,6 +50,10 @@ struct _PnPreferencesDialog
     GtkWidget    *grid_snap_check;
     GtkWidget    *grid_type_combo;
     GtkWidget    *grid_color_button;
+    GtkWidget    *bg_color_button;
+    GtkWidget    *anim_wire_check;
+    GtkWidget    *speed_spin;
+    GtkWidget    *interval_spin;
 
     /* Re-entrancy guard: TRUE while a notify:: handler is pushing a
      * fresh value into a widget.  Without this the widget's own
@@ -66,6 +70,10 @@ struct _PnPreferencesDialog
     gulong        notify_snap_id;
     gulong        notify_type_id;
     gulong        notify_color_id;
+    gulong        notify_bg_id;
+    gulong        notify_anim_id;
+    gulong        notify_speed_id;
+    gulong        notify_interval_id;
 };
 
 G_DEFINE_TYPE (PnPreferencesDialog, pn_preferences_dialog, GTK_TYPE_WINDOW)
@@ -77,6 +85,7 @@ enum {
 };
 
 #define PAGE_ID_GRID        "grid"
+#define PAGE_ID_MSGFLOW     "msgflow"     /* background + message-flow lights */
 #define PAGE_ID_WORKSHEET   "worksheet"   /* group node: no per-page settings */
 #define PAGE_ID_PLUGINS     "plugins"
 
@@ -103,6 +112,22 @@ sync_widgets_from_prefs (PnPreferencesDialog *self)
     pn_preferences_get_grid_color (prefs, &color);
     gtk_color_chooser_set_rgba (
             GTK_COLOR_CHOOSER (self->grid_color_button), &color);
+
+    pn_preferences_get_background_color (prefs, &color);
+    gtk_color_chooser_set_rgba (
+            GTK_COLOR_CHOOSER (self->bg_color_button), &color);
+
+    gtk_toggle_button_set_active (
+            GTK_TOGGLE_BUTTON (self->anim_wire_check),
+            pn_preferences_get_animate_wire_messages (prefs));
+
+    gtk_spin_button_set_value (
+            GTK_SPIN_BUTTON (self->speed_spin),
+            (gdouble) pn_preferences_get_wire_pulse_speed (prefs));
+
+    gtk_spin_button_set_value (
+            GTK_SPIN_BUTTON (self->interval_spin),
+            (gdouble) pn_preferences_get_wire_pulse_interval (prefs));
 
     self->updating = FALSE;
 }
@@ -131,6 +156,51 @@ on_snap_toggled (GtkToggleButton *button, gpointer user_data)
     pn_preferences_set_snap_to_grid (
             pn_preferences_get_default (),
             gtk_toggle_button_get_active (button));
+}
+
+static void
+on_anim_wire_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    PnPreferencesDialog *self = PN_PREFERENCES_DIALOG (user_data);
+    if (self->updating)
+        return;
+    pn_preferences_set_animate_wire_messages (
+            pn_preferences_get_default (),
+            gtk_toggle_button_get_active (button));
+}
+
+static void
+on_bg_color_set (GtkColorButton *button, gpointer user_data)
+{
+    PnPreferencesDialog *self = PN_PREFERENCES_DIALOG (user_data);
+    GdkRGBA              color;
+
+    if (self->updating)
+        return;
+    gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (button), &color);
+    pn_preferences_set_background_color (pn_preferences_get_default (), &color);
+}
+
+static void
+on_speed_changed (GtkSpinButton *spin, gpointer user_data)
+{
+    PnPreferencesDialog *self = PN_PREFERENCES_DIALOG (user_data);
+    if (self->updating)
+        return;
+    pn_preferences_set_wire_pulse_speed (
+            pn_preferences_get_default (),
+            (guint) gtk_spin_button_get_value_as_int (spin));
+}
+
+static void
+on_interval_changed (GtkSpinButton *spin, gpointer user_data)
+{
+    PnPreferencesDialog *self = PN_PREFERENCES_DIALOG (user_data);
+    if (self->updating)
+        return;
+    pn_preferences_set_wire_pulse_interval (
+            pn_preferences_get_default (),
+            (guint) gtk_spin_button_get_value_as_int (spin));
 }
 
 static void
@@ -192,7 +262,7 @@ on_category_selection_changed (
 static void
 build_category_tree (PnPreferencesDialog *self)
 {
-    GtkTreeIter        worksheet_iter, grid_iter, plugins_iter;
+    GtkTreeIter        worksheet_iter, grid_iter, msgflow_iter, plugins_iter;
     GtkCellRenderer   *renderer;
     GtkTreeViewColumn *column;
     GtkTreeSelection  *selection;
@@ -212,6 +282,13 @@ build_category_tree (PnPreferencesDialog *self)
     gtk_tree_store_set (self->category_store, &grid_iter,
                         COL_LABEL,   "Grid",
                         COL_PAGE_ID, PAGE_ID_GRID,
+                        -1);
+
+    gtk_tree_store_append (self->category_store, &msgflow_iter,
+                           &worksheet_iter);
+    gtk_tree_store_set (self->category_store, &msgflow_iter,
+                        COL_LABEL,   "Message Flow",
+                        COL_PAGE_ID, PAGE_ID_MSGFLOW,
                         -1);
 
     /* Plugins: top-level entry so it sits next to "Worksheet Editor"
@@ -256,22 +333,12 @@ build_category_tree (PnPreferencesDialog *self)
 /*  Page builders                                                      */
 /* ------------------------------------------------------------------ */
 
-/* Group-node placeholder.  The "Worksheet Editor" parent in the
- * category tree is itself selectable; clicking it should show a tidy
- * "pick a subcategory" hint instead of leaving the right pane blank. */
+/* Helper: a bold, large page heading used by every settings page. */
 static GtkWidget *
-build_placeholder_page (const gchar *title, const gchar *blurb)
+make_page_heading (const gchar *title)
 {
-    GtkWidget *box;
-    GtkWidget *heading;
-    GtkWidget *body;
+    GtkWidget     *heading;
     PangoAttrList *attrs;
-
-    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-    g_object_set (box,
-                  "margin-start", 16, "margin-end", 16,
-                  "margin-top",   16, "margin-bottom", 16,
-                  NULL);
 
     heading = gtk_label_new (title);
     attrs   = pango_attr_list_new ();
@@ -280,14 +347,7 @@ build_placeholder_page (const gchar *title, const gchar *blurb)
     gtk_label_set_attributes (GTK_LABEL (heading), attrs);
     pango_attr_list_unref (attrs);
     gtk_widget_set_halign (heading, GTK_ALIGN_START);
-    gtk_box_pack_start (GTK_BOX (box), heading, FALSE, FALSE, 0);
-
-    body = gtk_label_new (blurb);
-    gtk_label_set_line_wrap (GTK_LABEL (body), TRUE);
-    gtk_label_set_xalign (GTK_LABEL (body), 0.0);
-    gtk_box_pack_start (GTK_BOX (box), body, FALSE, FALSE, 0);
-
-    return box;
+    return heading;
 }
 
 /* Helper: attach a "Label: <editor>" row at the next free row of @grid.
@@ -372,6 +432,106 @@ build_grid_page (PnPreferencesDialog *self)
                       G_CALLBACK (on_grid_color_set), self);
     attach_labelled_row (GTK_GRID (grid), 2,
                          "Grid color:", self->grid_color_button);
+
+    return box;
+}
+
+/* "Worksheet Editor" is a grouping node only; clicking it shows a hint
+ * to pick a subcategory rather than leaving the right pane blank. */
+static GtkWidget *
+build_worksheet_placeholder_page (void)
+{
+    GtkWidget *box;
+    GtkWidget *body;
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+    g_object_set (box,
+                  "margin-start", 16, "margin-end", 16,
+                  "margin-top",   16, "margin-bottom", 16,
+                  NULL);
+
+    gtk_box_pack_start (GTK_BOX (box),
+                        make_page_heading ("Worksheet Editor"),
+                        FALSE, FALSE, 0);
+
+    body = gtk_label_new (
+            "Select a subcategory on the left to edit worksheet-editor "
+            "settings.");
+    gtk_label_set_line_wrap (GTK_LABEL (body), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (body), 0.0);
+    gtk_box_pack_start (GTK_BOX (box), body, FALSE, FALSE, 0);
+
+    return box;
+}
+
+/* "Message Flow" subcategory: the worksheet background colour and the
+ * message-flow animation (toggle + light speed). */
+static GtkWidget *
+build_msgflow_page (PnPreferencesDialog *self)
+{
+    GtkWidget *box;
+    GtkWidget *grid;
+    GtkWidget *blurb;
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    g_object_set (box,
+                  "margin-start", 16, "margin-end", 16,
+                  "margin-top",   16, "margin-bottom", 16,
+                  NULL);
+
+    gtk_box_pack_start (GTK_BOX (box),
+                        make_page_heading ("Message Flow"),
+                        FALSE, FALSE, 0);
+
+    grid = gtk_grid_new ();
+    gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
+    gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
+    gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
+
+    /* Background colour. */
+    self->bg_color_button = gtk_color_button_new ();
+    gtk_color_chooser_set_use_alpha (
+            GTK_COLOR_CHOOSER (self->bg_color_button), TRUE);
+    gtk_color_button_set_title (
+            GTK_COLOR_BUTTON (self->bg_color_button), "Background Color");
+    g_signal_connect (self->bg_color_button, "color-set",
+                      G_CALLBACK (on_bg_color_set), self);
+    attach_labelled_row (GTK_GRID (grid), 0,
+                         "Background color:", self->bg_color_button);
+
+    /* Animate messages on wires. */
+    self->anim_wire_check = gtk_check_button_new_with_label (
+            "Animate messages travelling along wires");
+    g_signal_connect (self->anim_wire_check, "toggled",
+                      G_CALLBACK (on_anim_wire_toggled), self);
+    attach_labelled_row (GTK_GRID (grid), 1,
+                         "Wire animation:", self->anim_wire_check);
+
+    /* Light travel speed (worksheet units per second). */
+    self->speed_spin = gtk_spin_button_new_with_range (100, 5000, 50);
+    gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->speed_spin), 0);
+    g_signal_connect (self->speed_spin, "value-changed",
+                      G_CALLBACK (on_speed_changed), self);
+    attach_labelled_row (GTK_GRID (grid), 2,
+                         "Light speed (px/s):", self->speed_spin);
+
+    /* Redraw interval — the CPU/smoothness dial. */
+    self->interval_spin = gtk_spin_button_new_with_range (16, 1000, 10);
+    gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->interval_spin), 0);
+    g_signal_connect (self->interval_spin, "value-changed",
+                      G_CALLBACK (on_interval_changed), self);
+    attach_labelled_row (GTK_GRID (grid), 3,
+                         "Animation interval (ms):", self->interval_spin);
+
+    blurb = gtk_label_new (
+            "Shows each message as a fast-moving light running along the "
+            "wire it crosses.  A diagnostic aid — leave it off for serious "
+            "work.");
+    gtk_label_set_line_wrap (GTK_LABEL (blurb), TRUE);
+    gtk_label_set_xalign    (GTK_LABEL (blurb), 0.0);
+    gtk_label_set_max_width_chars (GTK_LABEL (blurb), 50);
+    gtk_widget_set_sensitive (blurb, FALSE);
+    gtk_box_pack_start (GTK_BOX (box), blurb, FALSE, FALSE, 0);
 
     return box;
 }
@@ -567,6 +727,26 @@ pn_preferences_dialog_dispose (GObject *object)
         g_signal_handler_disconnect (prefs, self->notify_color_id);
         self->notify_color_id = 0;
     }
+    if (self->notify_bg_id != 0)
+    {
+        g_signal_handler_disconnect (prefs, self->notify_bg_id);
+        self->notify_bg_id = 0;
+    }
+    if (self->notify_anim_id != 0)
+    {
+        g_signal_handler_disconnect (prefs, self->notify_anim_id);
+        self->notify_anim_id = 0;
+    }
+    if (self->notify_speed_id != 0)
+    {
+        g_signal_handler_disconnect (prefs, self->notify_speed_id);
+        self->notify_speed_id = 0;
+    }
+    if (self->notify_interval_id != 0)
+    {
+        g_signal_handler_disconnect (prefs, self->notify_interval_id);
+        self->notify_interval_id = 0;
+    }
 
     G_OBJECT_CLASS (pn_preferences_dialog_parent_class)->dispose (object);
 }
@@ -590,6 +770,7 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
     GtkWidget     *close_button;
     GtkWidget     *worksheet_page;
     GtkWidget     *grid_page;
+    GtkWidget     *msgflow_page;
     GtkWidget     *plugins_page;
     PnPreferences *prefs;
 
@@ -629,14 +810,14 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
     gtk_stack_set_hhomogeneous (self->stack, FALSE);
     gtk_stack_set_vhomogeneous (self->stack, FALSE);
 
-    worksheet_page = build_placeholder_page (
-            "Worksheet Editor",
-            "Select a subcategory on the left to edit "
-            "worksheet-editor settings.");
+    worksheet_page = build_worksheet_placeholder_page ();
     gtk_stack_add_named (self->stack, worksheet_page, PAGE_ID_WORKSHEET);
 
     grid_page = build_grid_page (self);
     gtk_stack_add_named (self->stack, grid_page, PAGE_ID_GRID);
+
+    msgflow_page = build_msgflow_page (self);
+    gtk_stack_add_named (self->stack, msgflow_page, PAGE_ID_MSGFLOW);
 
     plugins_page = build_plugins_page (self);
     gtk_stack_add_named (self->stack, plugins_page, PAGE_ID_PLUGINS);
@@ -679,6 +860,18 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
             G_CALLBACK (on_pref_notify), self);
     self->notify_color_id = g_signal_connect (
             prefs, "notify::grid-color",
+            G_CALLBACK (on_pref_notify), self);
+    self->notify_bg_id = g_signal_connect (
+            prefs, "notify::background-color",
+            G_CALLBACK (on_pref_notify), self);
+    self->notify_anim_id = g_signal_connect (
+            prefs, "notify::animate-messages-on-wires",
+            G_CALLBACK (on_pref_notify), self);
+    self->notify_speed_id = g_signal_connect (
+            prefs, "notify::wire-pulse-speed",
+            G_CALLBACK (on_pref_notify), self);
+    self->notify_interval_id = g_signal_connect (
+            prefs, "notify::wire-pulse-interval",
             G_CALLBACK (on_pref_notify), self);
 }
 

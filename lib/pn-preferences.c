@@ -33,6 +33,18 @@ struct _PnPreferences
     gboolean   snap_to_grid;
     PnGridType grid_type;
     GdkRGBA    grid_color;
+    GdkRGBA    background_color;
+
+    /* When set, the worksheet animates a light running along each wire
+     * as a message crosses it.  Off by default — it is a diagnostic aid,
+     * not something you want active during serious work. */
+    gboolean   animate_wire_messages;
+
+    /* Travel speed of those lights, in worksheet units per second. */
+    guint      wire_pulse_speed;
+
+    /* Redraw interval of the animation, in milliseconds. */
+    guint      wire_pulse_interval;
 
     /* Restored UI geometry: debug-pane open state + width, and the
      * main window size.  See the header for how the window code keeps
@@ -70,6 +82,10 @@ enum {
     PROP_SNAP_TO_GRID,
     PROP_GRID_TYPE,
     PROP_GRID_COLOR,
+    PROP_BACKGROUND_COLOR,
+    PROP_ANIMATE_WIRE_MESSAGES,
+    PROP_WIRE_PULSE_SPEED,
+    PROP_WIRE_PULSE_INTERVAL,
     PROP_DEBUG_VIEW_OPEN,
     PROP_DEBUG_VIEW_WIDTH,
     PROP_WINDOW_WIDTH,
@@ -167,6 +183,20 @@ pn_preferences_save_now (PnPreferences *self)
     json_builder_set_member_name (b, "grid_color");
     json_builder_add_string_value (b, color_str);
     g_free (color_str);
+
+    color_str = gdk_rgba_to_string (&self->background_color);
+    json_builder_set_member_name (b, "background_color");
+    json_builder_add_string_value (b, color_str);
+    g_free (color_str);
+
+    json_builder_set_member_name (b, "animate_wire_messages");
+    json_builder_add_boolean_value (b, self->animate_wire_messages);
+
+    json_builder_set_member_name (b, "wire_pulse_speed");
+    json_builder_add_int_value (b, self->wire_pulse_speed);
+
+    json_builder_set_member_name (b, "wire_pulse_interval");
+    json_builder_add_int_value (b, self->wire_pulse_interval);
 
     json_builder_set_member_name (b, "debug_view_open");
     json_builder_add_boolean_value (b, self->debug_view_open);
@@ -298,6 +328,32 @@ pn_preferences_load (PnPreferences *self)
             pn_preferences_set_grid_color (self, &rgba);
     }
 
+    if (json_object_has_member (obj, "background_color"))
+    {
+        const gchar *cstr =
+                json_object_get_string_member (obj, "background_color");
+        GdkRGBA      rgba;
+        if (cstr != NULL && gdk_rgba_parse (&rgba, cstr))
+            pn_preferences_set_background_color (self, &rgba);
+    }
+
+    if (json_object_has_member (obj, "animate_wire_messages"))
+        pn_preferences_set_animate_wire_messages (
+                self,
+                json_object_get_boolean_member (obj,
+                                                "animate_wire_messages"));
+
+    if (json_object_has_member (obj, "wire_pulse_speed"))
+        pn_preferences_set_wire_pulse_speed (
+                self,
+                (guint) json_object_get_int_member (obj, "wire_pulse_speed"));
+
+    if (json_object_has_member (obj, "wire_pulse_interval"))
+        pn_preferences_set_wire_pulse_interval (
+                self,
+                (guint) json_object_get_int_member (obj,
+                                                    "wire_pulse_interval"));
+
     if (json_object_has_member (obj, "debug_view_open"))
         pn_preferences_set_debug_view_open (
                 self,
@@ -365,6 +421,18 @@ pn_preferences_get_property (
     case PROP_GRID_COLOR:
         g_value_set_boxed (value, &self->grid_color);
         break;
+    case PROP_BACKGROUND_COLOR:
+        g_value_set_boxed (value, &self->background_color);
+        break;
+    case PROP_ANIMATE_WIRE_MESSAGES:
+        g_value_set_boolean (value, self->animate_wire_messages);
+        break;
+    case PROP_WIRE_PULSE_SPEED:
+        g_value_set_uint (value, self->wire_pulse_speed);
+        break;
+    case PROP_WIRE_PULSE_INTERVAL:
+        g_value_set_uint (value, self->wire_pulse_interval);
+        break;
     case PROP_DEBUG_VIEW_OPEN:
         g_value_set_boolean (value, self->debug_view_open);
         break;
@@ -401,6 +469,20 @@ pn_preferences_set_property (
         break;
     case PROP_GRID_COLOR:
         pn_preferences_set_grid_color (self, g_value_get_boxed (value));
+        break;
+    case PROP_BACKGROUND_COLOR:
+        pn_preferences_set_background_color (self, g_value_get_boxed (value));
+        break;
+    case PROP_ANIMATE_WIRE_MESSAGES:
+        pn_preferences_set_animate_wire_messages (
+                self, g_value_get_boolean (value));
+        break;
+    case PROP_WIRE_PULSE_SPEED:
+        pn_preferences_set_wire_pulse_speed (self, g_value_get_uint (value));
+        break;
+    case PROP_WIRE_PULSE_INTERVAL:
+        pn_preferences_set_wire_pulse_interval (self,
+                                                g_value_get_uint (value));
         break;
     case PROP_DEBUG_VIEW_OPEN:
         pn_preferences_set_debug_view_open (self,
@@ -467,6 +549,33 @@ pn_preferences_class_init (PnPreferencesClass *klass)
             GDK_TYPE_RGBA,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    properties[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
+            "background-color", "Background Color",
+            "RGBA colour used to paint the worksheet background.",
+            GDK_TYPE_RGBA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    properties[PROP_ANIMATE_WIRE_MESSAGES] = g_param_spec_boolean (
+            "animate-messages-on-wires", "Animate Messages on Wires",
+            "Whether the worksheet animates a light running along each "
+            "wire as a message crosses it.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    properties[PROP_WIRE_PULSE_SPEED] = g_param_spec_uint (
+            "wire-pulse-speed", "Wire Pulse Speed",
+            "Travel speed of the message-flow lights, in worksheet "
+            "units per second.",
+            100, 5000, 600,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    properties[PROP_WIRE_PULSE_INTERVAL] = g_param_spec_uint (
+            "wire-pulse-interval", "Wire Pulse Interval",
+            "Redraw interval of the message-flow animation, in "
+            "milliseconds; larger is cheaper but chunkier.",
+            16, 1000, 100,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     properties[PROP_DEBUG_VIEW_OPEN] = g_param_spec_boolean (
             "debug-view-open", "Debug View Open",
             "Whether the debug pane is shown on launch.",
@@ -506,6 +615,14 @@ pn_preferences_init (PnPreferences *self)
     self->grid_color.green = 0.85;
     self->grid_color.blue  = 0.88;
     self->grid_color.alpha = 1.0;
+    /* Default background matches the painter's historical solid grey. */
+    self->background_color.red   = 0.97;
+    self->background_color.green = 0.97;
+    self->background_color.blue  = 0.97;
+    self->background_color.alpha = 1.0;
+    self->animate_wire_messages = FALSE;
+    self->wire_pulse_speed = 600;
+    self->wire_pulse_interval = 100;
     self->debug_view_open  = FALSE;
     /* 0 = "no width recorded yet": the window then reveals the pane at
      * its historical 25 %-of-window default until the user sizes it. */
@@ -592,6 +709,99 @@ pn_preferences_set_grid_color (PnPreferences *self, const GdkRGBA *color)
         return;
     self->grid_color = *color;
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_GRID_COLOR]);
+    pn_preferences_schedule_save (self);
+}
+
+void
+pn_preferences_get_background_color (PnPreferences *self, GdkRGBA *out_color)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+    g_return_if_fail (out_color != NULL);
+
+    *out_color = self->background_color;
+}
+
+void
+pn_preferences_set_background_color (PnPreferences *self, const GdkRGBA *color)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+    g_return_if_fail (color != NULL);
+
+    if (gdk_rgba_equal (&self->background_color, color))
+        return;
+    self->background_color = *color;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_BACKGROUND_COLOR]);
+    pn_preferences_schedule_save (self);
+}
+
+gboolean
+pn_preferences_get_animate_wire_messages (PnPreferences *self)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), FALSE);
+    return self->animate_wire_messages;
+}
+
+void
+pn_preferences_set_animate_wire_messages (PnPreferences *self,
+                                          gboolean       animate)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+
+    animate = animate ? TRUE : FALSE;
+    if (self->animate_wire_messages == animate)
+        return;
+    self->animate_wire_messages = animate;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_ANIMATE_WIRE_MESSAGES]);
+    pn_preferences_schedule_save (self);
+}
+
+guint
+pn_preferences_get_wire_pulse_speed (PnPreferences *self)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), 600);
+    return self->wire_pulse_speed;
+}
+
+void
+pn_preferences_set_wire_pulse_speed (PnPreferences *self, guint speed)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+
+    if (speed < 100)
+        speed = 100;
+    else if (speed > 5000)
+        speed = 5000;
+    if (self->wire_pulse_speed == speed)
+        return;
+    self->wire_pulse_speed = speed;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_WIRE_PULSE_SPEED]);
+    pn_preferences_schedule_save (self);
+}
+
+guint
+pn_preferences_get_wire_pulse_interval (PnPreferences *self)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), 100);
+    return self->wire_pulse_interval;
+}
+
+void
+pn_preferences_set_wire_pulse_interval (PnPreferences *self, guint interval_ms)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+
+    if (interval_ms < 16)
+        interval_ms = 16;
+    else if (interval_ms > 1000)
+        interval_ms = 1000;
+    if (self->wire_pulse_interval == interval_ms)
+        return;
+    self->wire_pulse_interval = interval_ms;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_WIRE_PULSE_INTERVAL]);
     pn_preferences_schedule_save (self);
 }
 

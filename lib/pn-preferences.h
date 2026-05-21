@@ -80,6 +80,29 @@ void        pn_preferences_get_grid_color   (PnPreferences *self,
 void        pn_preferences_set_grid_color   (PnPreferences *self,
                                              const GdkRGBA *color);
 
+void        pn_preferences_get_background_color (PnPreferences *self,
+                                             GdkRGBA       *out_color);
+void        pn_preferences_set_background_color (PnPreferences *self,
+                                             const GdkRGBA *color);
+
+gboolean    pn_preferences_get_animate_wire_messages (PnPreferences *self);
+void        pn_preferences_set_animate_wire_messages (PnPreferences *self,
+                                                     gboolean       animate);
+
+/* Travel speed of the message-flow lights, in worksheet units per
+ * second (higher is faster).  Read at spawn time, so a change takes
+ * effect on the next message. */
+guint       pn_preferences_get_wire_pulse_speed (PnPreferences *self);
+void        pn_preferences_set_wire_pulse_speed (PnPreferences *self,
+                                                 guint          speed);
+
+/* Redraw interval of the message-flow animation, in milliseconds: the
+ * lights are repainted this often while travelling.  Larger is cheaper
+ * (and chunkier).  Read when the animation timer is (re)armed. */
+guint       pn_preferences_get_wire_pulse_interval (PnPreferences *self);
+void        pn_preferences_set_wire_pulse_interval (PnPreferences *self,
+                                                    guint          interval_ms);
+
 /* --- Window / debug-pane geometry ----------------------------------
  *
  * Persisted UI geometry restored on the next launch: whether the
