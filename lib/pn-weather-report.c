@@ -85,6 +85,182 @@
 #define LINE_G  0.86
 #define LINE_B  0.86
 
+/* ------------------------------------------------------------------ */
+/*  Display-unit enums                                                 */
+/*                                                                     */
+/*  The Weather node always reports metric (temperature in °C, wind in */
+/*  km/h, pressure in hPa); these let the card convert to the unit the */
+/*  user prefers.  Each is a registered enum so the node-settings       */
+/*  dialog renders it as a combobox, and so it serialises by nick.     */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_WR_TEMP_CELSIUS,
+    PN_WR_TEMP_FAHRENHEIT,
+    PN_WR_TEMP_KELVIN,
+} PnWrTempUnit;
+
+typedef enum
+{
+    PN_WR_WIND_KMH,
+    PN_WR_WIND_MS,
+    PN_WR_WIND_MPH,
+    PN_WR_WIND_KNOTS,
+} PnWrWindUnit;
+
+typedef enum
+{
+    PN_WR_PRESS_HPA,
+    PN_WR_PRESS_KPA,
+    PN_WR_PRESS_INHG,
+    PN_WR_PRESS_MMHG,
+} PnWrPressUnit;
+
+#define PN_TYPE_WR_TEMP_UNIT  (pn_wr_temp_unit_get_type ())
+#define PN_TYPE_WR_WIND_UNIT  (pn_wr_wind_unit_get_type ())
+#define PN_TYPE_WR_PRESS_UNIT (pn_wr_press_unit_get_type ())
+
+static GType
+pn_wr_temp_unit_get_type (void)
+{
+    static gsize id = 0;
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_WR_TEMP_CELSIUS,    "PN_WR_TEMP_CELSIUS",    "Celsius (\xc2\xb0""C)"    },
+            { PN_WR_TEMP_FAHRENHEIT, "PN_WR_TEMP_FAHRENHEIT", "Fahrenheit (\xc2\xb0""F)" },
+            { PN_WR_TEMP_KELVIN,     "PN_WR_TEMP_KELVIN",     "Kelvin (K)"               },
+            { 0, NULL, NULL }
+        };
+        GType t = g_enum_register_static ("PnWrTempUnit", values);
+        g_once_init_leave (&id, t);
+    }
+    return id;
+}
+
+static GType
+pn_wr_wind_unit_get_type (void)
+{
+    static gsize id = 0;
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_WR_WIND_KMH,   "PN_WR_WIND_KMH",   "km/h"   },
+            { PN_WR_WIND_MS,    "PN_WR_WIND_MS",    "m/s"    },
+            { PN_WR_WIND_MPH,   "PN_WR_WIND_MPH",   "mph"    },
+            { PN_WR_WIND_KNOTS, "PN_WR_WIND_KNOTS", "knots"  },
+            { 0, NULL, NULL }
+        };
+        GType t = g_enum_register_static ("PnWrWindUnit", values);
+        g_once_init_leave (&id, t);
+    }
+    return id;
+}
+
+static GType
+pn_wr_press_unit_get_type (void)
+{
+    static gsize id = 0;
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_WR_PRESS_HPA,  "PN_WR_PRESS_HPA",  "hPa"  },
+            { PN_WR_PRESS_KPA,  "PN_WR_PRESS_KPA",  "kPa"  },
+            { PN_WR_PRESS_INHG, "PN_WR_PRESS_INHG", "inHg" },
+            { PN_WR_PRESS_MMHG, "PN_WR_PRESS_MMHG", "mmHg" },
+            { 0, NULL, NULL }
+        };
+        GType t = g_enum_register_static ("PnWrPressUnit", values);
+        g_once_init_leave (&id, t);
+    }
+    return id;
+}
+
+/* Convert from the metric base unit the Weather node emits to the
+ * user-chosen display unit, and the short label to print alongside. */
+static gdouble
+convert_temp (gdouble celsius, PnWrTempUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_TEMP_FAHRENHEIT: return celsius * 9.0 / 5.0 + 32.0;
+    case PN_WR_TEMP_KELVIN:     return celsius + 273.15;
+    default:                    return celsius;
+    }
+}
+
+static const gchar *
+temp_unit_label (PnWrTempUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_TEMP_FAHRENHEIT: return GLYPH_DEGREE "F";
+    case PN_WR_TEMP_KELVIN:     return "K";
+    default:                    return GLYPH_DEGREE "C";
+    }
+}
+
+static gdouble
+convert_wind (gdouble kmh, PnWrWindUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_WIND_MS:    return kmh / 3.6;
+    case PN_WR_WIND_MPH:   return kmh / 1.609344;
+    case PN_WR_WIND_KNOTS: return kmh / 1.852;
+    default:               return kmh;
+    }
+}
+
+static const gchar *
+wind_unit_label (PnWrWindUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_WIND_MS:    return "m/s";
+    case PN_WR_WIND_MPH:   return "mph";
+    case PN_WR_WIND_KNOTS: return "kn";
+    default:               return "km/h";
+    }
+}
+
+static gdouble
+convert_press (gdouble hpa, PnWrPressUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_PRESS_KPA:  return hpa / 10.0;
+    case PN_WR_PRESS_INHG: return hpa * 0.029529983071445;
+    case PN_WR_PRESS_MMHG: return hpa * 0.750061682704;
+    default:               return hpa;
+    }
+}
+
+static const gchar *
+press_unit_label (PnWrPressUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_PRESS_KPA:  return "kPa";
+    case PN_WR_PRESS_INHG: return "inHg";
+    case PN_WR_PRESS_MMHG: return "mmHg";
+    default:               return "hPa";
+    }
+}
+
+/* %g-style precision suited to each pressure unit's typical magnitude. */
+static gchar *
+format_press (gdouble v, PnWrPressUnit u)
+{
+    switch (u)
+    {
+    case PN_WR_PRESS_KPA:  return g_strdup_printf ("%.1f", v);
+    case PN_WR_PRESS_INHG: return g_strdup_printf ("%.2f", v);
+    default:               return g_strdup_printf ("%.0f", v);  /* hPa, mmHg */
+    }
+}
+
 struct _PnWeatherReport
 {
     PnNode parent_instance;
@@ -98,6 +274,11 @@ struct _PnWeatherReport
      * pressure, cloud) is hidden, leaving just the place + headline
      * conditions. */
     gboolean    show_details;
+
+    /* Display units the card converts the (metric) reading into. */
+    PnWrTempUnit  temp_unit;
+    PnWrWindUnit  wind_unit;
+    PnWrPressUnit press_unit;
 };
 
 G_DEFINE_TYPE (PnWeatherReport, pn_weather_report, PN_TYPE_NODE)
@@ -105,6 +286,9 @@ G_DEFINE_TYPE (PnWeatherReport, pn_weather_report, PN_TYPE_NODE)
 enum {
     PROP_0,
     PROP_SHOW_DETAILS,
+    PROP_TEMP_UNIT,
+    PROP_WIND_UNIT,
+    PROP_PRESS_UNIT,
     N_PROPS,
 };
 
@@ -561,13 +745,22 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             g_free (s);
 
             /* Wind — a compass arrow drawn to the bearing when we have
-             * a direction, otherwise a static compass glyph. */
+             * a direction, otherwise a static compass glyph.  The speed
+             * is converted to the chosen unit and carries it inline. */
             {
                 WindArrowCtx ctx = { have_wdir ? wdir : 0.0 };
+                const gchar *wu  = wind_unit_label (self->wind_unit);
                 gchar       *cap;
 
-                s   = have_wind ? g_strdup_printf ("%.0f km/h", wind)
-                                : g_strdup (GLYPH_EMDASH);
+                if (!have_wind)
+                    s = g_strdup (GLYPH_EMDASH);
+                else
+                {
+                    gdouble v = convert_wind (wind, self->wind_unit);
+                    s = self->wind_unit == PN_WR_WIND_MS
+                            ? g_strdup_printf ("%.1f %s", v, wu)
+                            : g_strdup_printf ("%.0f %s", v, wu);
+                }
                 cap = have_wdir ? g_strdup_printf ("WIND %s", cardinal (wdir))
                                 : g_strdup ("WIND");
                 if (have_wdir)
@@ -580,11 +773,15 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
                 g_free (cap);
             }
 
-            /* Pressure. */
-            s = have_press ? g_strdup_printf ("%.0f", press)
-                           : g_strdup (GLYPH_EMDASH);
+            /* Pressure — converted to the chosen unit, which becomes the
+             * tile's caption. */
+            s = have_press
+                    ? format_press (convert_press (press, self->press_unit),
+                                    self->press_unit)
+                    : g_strdup (GLYPH_EMDASH);
             paint_tile (cr, ml + tw * 2.5, tiles_top, h,
-                        ICON_GAUGE, NULL, NULL, s, "hPa");
+                        ICON_GAUGE, NULL, NULL, s,
+                        press_unit_label (self->press_unit));
             g_free (s);
 
             /* Cloud cover. */
@@ -609,7 +806,6 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         const double date_sz  = h * 0.052;
         const double icon_sz  = h * 0.20;
         const double num_sz   = h * 0.19;
-        const double unit_sz  = h * 0.082;
         const double desc_sz  = h * 0.066;
         const double sub_sz   = h * 0.052;
 
@@ -619,7 +815,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         gchar       *datebuf = format_long_date (iso_time);
         gchar       *timebuf;
 
-        double icon_w, icon_h, num_w, num_h, unit_h, time_w, time_h, desc_h, sub_h;
+        double icon_w, icon_h, num_h, time_w, time_h, desc_h, sub_h;
         double hero_top, numx, ly, ry, left_bottom, right_bottom, content_bottom;
 
         /* Observation time, falling back to the local wall clock. */
@@ -634,24 +830,47 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
                 g_date_time_unref (now);
         }
 
-        numbuf = have_temp ? g_strdup_printf ("%.0f" GLYPH_DEGREE, temp)
-                           : g_strdup (GLYPH_EMDASH);
+        /* Temperature, converted to the chosen unit and carrying its
+         * unit at the full number size (Kelvin takes a space and no
+         * degree sign; °C / °F append the degree-prefixed label). */
+        if (!have_temp)
+            numbuf = g_strdup (GLYPH_EMDASH);
+        else
+        {
+            gdouble t = convert_temp (temp, self->temp_unit);
+            numbuf = self->temp_unit == PN_WR_TEMP_KELVIN
+                    ? g_strdup_printf ("%.0f %s", t, temp_unit_label (self->temp_unit))
+                    : g_strdup_printf ("%.0f%s",  t, temp_unit_label (self->temp_unit));
+        }
 
         /* Sub-line under the description: feels-like, plus precipitation
          * only when there is some — a dry day shouldn't carry a "0 mm". */
-        if (have_app && have_precip && precip > 0.05)
-            subbuf = g_strdup_printf ("Feels like %.0f" GLYPH_DEGREE
-                                      GLYPH_MIDDOT "%.1f mm", app, precip);
-        else if (have_app)
-            subbuf = g_strdup_printf ("Feels like %.0f" GLYPH_DEGREE, app);
-        else if (have_precip && precip > 0.05)
-            subbuf = g_strdup_printf ("%.1f mm precipitation", precip);
-        else
-            subbuf = NULL;
+        {
+            gchar *afmt = NULL;
+
+            if (have_app)
+            {
+                gdouble a = convert_temp (app, self->temp_unit);
+                afmt = self->temp_unit == PN_WR_TEMP_KELVIN
+                        ? g_strdup_printf ("%.0f K", a)
+                        : g_strdup_printf ("%.0f" GLYPH_DEGREE, a);
+            }
+
+            if (afmt != NULL && have_precip && precip > 0.05)
+                subbuf = g_strdup_printf ("Feels like %s" GLYPH_MIDDOT
+                                          "%.1f mm", afmt, precip);
+            else if (afmt != NULL)
+                subbuf = g_strdup_printf ("Feels like %s", afmt);
+            else if (have_precip && precip > 0.05)
+                subbuf = g_strdup_printf ("%.1f mm precipitation", precip);
+            else
+                subbuf = NULL;
+
+            g_free (afmt);
+        }
 
         measure (cr, FONT_FA,   icon_sz, glyph,   &icon_w, &icon_h);
-        measure (cr, FONT_SANS, num_sz,  numbuf,  &num_w,  &num_h);
-        measure (cr, FONT_SANS, unit_sz, "C", NULL, &unit_h);
+        measure (cr, FONT_SANS, num_sz,  numbuf,  NULL,    &num_h);
         measure (cr, FONT_BOLD, time_sz, timebuf, &time_w, &time_h);
         measure (cr, FONT_BOLD, desc_sz, desc ? desc : "", NULL, &desc_h);
         if (subbuf != NULL)
@@ -670,10 +889,6 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
                    FONT_FA, icon_sz, glyph, INK_R, INK_G, INK_B);
         draw_text (cr, numx, ly, FONT_SANS, num_sz, numbuf,
                    INK_R, INK_G, INK_B);
-        if (have_temp)
-            draw_text (cr, numx + num_w + w * 0.008,
-                       ly + (num_h - unit_h) * 0.42,
-                       FONT_SANS, unit_sz, "C", INK_R, INK_G, INK_B);
 
         ly += num_h;
         if (desc != NULL && *desc != '\0')
@@ -871,6 +1086,15 @@ pn_weather_report_get_property (GObject    *object,
     case PROP_SHOW_DETAILS:
         g_value_set_boolean (value, self->show_details);
         break;
+    case PROP_TEMP_UNIT:
+        g_value_set_enum (value, self->temp_unit);
+        break;
+    case PROP_WIND_UNIT:
+        g_value_set_enum (value, self->wind_unit);
+        break;
+    case PROP_PRESS_UNIT:
+        g_value_set_enum (value, self->press_unit);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -893,6 +1117,39 @@ pn_weather_report_set_property (GObject      *object,
             {
                 self->show_details = v;
                 g_object_notify_by_pspec (object, props[PROP_SHOW_DETAILS]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_TEMP_UNIT:
+        {
+            PnWrTempUnit v = g_value_get_enum (value);
+            if (self->temp_unit != v)
+            {
+                self->temp_unit = v;
+                g_object_notify_by_pspec (object, props[PROP_TEMP_UNIT]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_WIND_UNIT:
+        {
+            PnWrWindUnit v = g_value_get_enum (value);
+            if (self->wind_unit != v)
+            {
+                self->wind_unit = v;
+                g_object_notify_by_pspec (object, props[PROP_WIND_UNIT]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_PRESS_UNIT:
+        {
+            PnWrPressUnit v = g_value_get_enum (value);
+            if (self->press_unit != v)
+            {
+                self->press_unit = v;
+                g_object_notify_by_pspec (object, props[PROP_PRESS_UNIT]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -950,6 +1207,27 @@ pn_weather_report_class_init (PnWeatherReportClass *klass)
             TRUE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_TEMP_UNIT] = g_param_spec_enum (
+            "temperature-unit", "Temperature unit",
+            "Unit the temperature and feels-like values are shown in; the "
+            "card converts from the Celsius the Weather node reports",
+            PN_TYPE_WR_TEMP_UNIT, PN_WR_TEMP_CELSIUS,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_WIND_UNIT] = g_param_spec_enum (
+            "wind-unit", "Wind speed unit",
+            "Unit the wind speed is shown in; the card converts from the "
+            "km/h the Weather node reports",
+            PN_TYPE_WR_WIND_UNIT, PN_WR_WIND_KMH,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_PRESS_UNIT] = g_param_spec_enum (
+            "pressure-unit", "Air pressure unit",
+            "Unit the air pressure is shown in; the card converts from the "
+            "hPa the Weather node reports",
+            PN_TYPE_WR_PRESS_UNIT, PN_WR_PRESS_HPA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -961,6 +1239,9 @@ pn_weather_report_init (PnWeatherReport *self)
 
     self->data         = NULL;
     self->show_details = TRUE;
+    self->temp_unit    = PN_WR_TEMP_CELSIUS;
+    self->wind_unit    = PN_WR_WIND_KMH;
+    self->press_unit   = PN_WR_PRESS_HPA;
 
     pn_node_set_class_name (node, "Weather Report");
     pn_node_set_icon       (node, PN_WR_ICON);
