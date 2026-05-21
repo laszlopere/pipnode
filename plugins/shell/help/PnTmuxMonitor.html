@@ -42,6 +42,9 @@ The emitted message (topic <code>tmux</code>) carries:
       cleared the screen, the session was switched in tmux, etc.)
       the full new capture is emitted instead, so a downstream
       consumer never has to re-derive the missing history itself.
+      When the buffer is unchanged since the previous tick the new
+      tail is empty and the node stays silent &mdash; no message is
+      emitted while the monitored screen sits idle.
       Multi-line text survives the JSON envelope unchanged
       (embedded newlines escape as <code>\n</code> on the wire).
       A failed capture (spawn refused, ssh down, tmux exited

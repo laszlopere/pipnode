@@ -50,6 +50,10 @@ G_BEGIN_DECLS
 /*      succeeded, populated with the failure reason otherwise (no     */
 /*      tmux server, ssh down, tmux not installed on the remote, …).   */
 /*                                                                     */
+/*  A successful tick whose buffer is unchanged since the previous     */
+/*  one (empty delta) emits nothing — the node stays silent while the  */
+/*  monitored screen is idle.  Failures are always emitted.            */
+/*                                                                     */
 /*  Emitted message (topic `tmux`):                                    */
 /*    data.success - whether capture-pane exited with status 0,        */
 /*    data.output  - the captured characters verbatim (the visible     */

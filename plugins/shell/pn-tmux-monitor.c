@@ -758,31 +758,42 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
      * good one rather than against the error message we synthesised
      * into `combined`. */
     {
-        gchar *delta;
+        gchar    *delta;
+        gboolean  emit = TRUE;
 
         if (success)
         {
             gchar *prev = tm_swap_prev_output (self, g_strdup (combined));
             delta = tm_compute_delta (prev, combined);
             g_free (prev);
+
+            /* Unchanged buffer → empty delta → nothing new to report.
+             * Stay quiet rather than emitting an empty message on every
+             * tick while the monitored screen sits idle.  Failures
+             * still fall through below so the user sees them. */
+            if (delta == NULL || *delta == '\0')
+                emit = FALSE;
         }
         else
         {
             delta = g_strdup (combined);
         }
 
-        /* An empty host means "local machine"; report its real name in
-         * the message rather than an empty string, matching the local
-         * monitoring nodes (PnCpu, PnMemory, …). */
-        msg = pn_message_new (node, NULL);
-        pn_message_set_boolean (msg, "success", success);
-        pn_message_set_string  (msg, "output",  delta);
-        pn_message_set_string  (msg, "host",
-                                pn_shell_host_is_local (host)
-                                ? g_get_host_name () : host);
-        pn_message_set_string  (msg, "session", session);
+        if (emit)
+        {
+            /* An empty host means "local machine"; report its real name
+             * in the message rather than an empty string, matching the
+             * local monitoring nodes (PnCpu, PnMemory, …). */
+            msg = pn_message_new (node, NULL);
+            pn_message_set_boolean (msg, "success", success);
+            pn_message_set_string  (msg, "output",  delta);
+            pn_message_set_string  (msg, "host",
+                                    pn_shell_host_is_local (host)
+                                    ? g_get_host_name () : host);
+            pn_message_set_string  (msg, "session", session);
 
-        pn_auto_trigger_emit_on_main (trigger, msg);
+            pn_auto_trigger_emit_on_main (trigger, msg);
+        }
 
         g_free (delta);
     }
