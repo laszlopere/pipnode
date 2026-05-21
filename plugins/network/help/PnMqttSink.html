@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MQTT Sink (PnMqttSink) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnMqttSink">MQTT Sink</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnMqttSink</code>.
+</p>
+<p>
+Input-only counterpart of <em>MQTT Source</em>. Holds a libmosquitto
+client open against a configured broker and PUBLISHes one MQTT
+message per incoming <code>PnMessage</code>. Closes the loop on a
+<em>Source &rarr; filter &rarr; Sink</em> flow without having to spawn
+a helper process or shell out through a command node.
+</p>
+
+<h5>Connection</h5>
+<p>
+The <code>url</code> property is the broker address; same syntax as
+<em>MQTT Source</em> &mdash; <code>tcp://host[:port]</code>,
+<code>ssl://host[:port]</code> / <code>mqtts://host[:port]</code>, or
+a bare <code>host[:port]</code> treated as plain TCP. Defaults to
+<code>tcp://mqtt.homelab.local:1883</code> so a paired
+<em>Source + Sink</em> dropped onto a fresh worksheet talk to the
+same broker without configuration.
+</p>
+<p>
+Connect is asynchronous; the body flips from red &ldquo;configuration
+required&rdquo; to green once the broker answers with a CONNACK. A
+transient outage triggers libmosquitto's built-in 1&nbsp;s to
+30&nbsp;s exponential back-off reconnect &mdash; the visual state
+follows.
+</p>
+
+<h5>Publish topic</h5>
+<p>
+The publish topic is taken from each inbound message's
+<code>topic</code> envelope field &mdash; the sink itself carries no
+topic property. Per-message routing is the upstream's concern: drop
+a <em>Rewrite</em> in front of the sink to stamp the topic you want,
+e.g. <code>topic = cmnd/${data/device}/POWER</code> for Tasmota relay
+control, and every message flows through with its own destination.
+</p>
+<p>
+When the inbound topic begins with the literal prefix
+<code>mqtt/</code> (the namespace <em>MQTT Source</em> prepends to
+every message it emits so a downstream <em>Filter</em> can route on a
+single envelope field) the prefix is stripped before the publish.
+That means a straight <em>MQTT Source &rarr; MQTT Sink</em> bridge
+between two brokers republishes <code>stat/sonoff19/POWER</code> as
+<code>stat/sonoff19/POWER</code>, not <code>mqtt/stat/sonoff19/POWER</code>.
+Topics that do not carry the prefix are published as-is, so a
+synthesised <code>cmnd/sonoff19/POWER</code> from a <em>Rewrite</em>
+lands exactly as the user wrote it.
+</p>
+<p>
+Messages without an envelope topic are dropped silently &mdash;
+there is no fallback topic, and MQTT wildcards (<code>+</code>,
+<code>#</code>) are never valid in a publish topic anyway.
+</p>
+
+<h5>Payload</h5>
+<p>
+The <code>payload</code> property is an optional template:
+</p>
+<ul>
+  <li>Empty &mdash; publish the inbound <code>data.payload</code>
+      verbatim. String members go out as raw bytes; structured
+      members (object, array, number, boolean) are serialised back to
+      JSON so a Source &rarr; Sink relay between two brokers
+      round-trips the original JSON shape.</li>
+  <li>Non-empty &mdash; expand the template against the message
+      (same <code>${path/to/field}</code> syntax as the topic) and
+      publish its UTF-8 bytes. <code>${data/value}</code> publishes a
+      stringified number, <code>ON</code> / <code>OFF</code>
+      publishes a fixed literal, and a JSON-shaped template
+      publishes a synthetic JSON document.</li>
+</ul>
+
+<h5>Other knobs</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>retain</code></td>
+      <td>Mark the publish as retained &mdash; the broker remembers
+          the last retained value per topic and delivers it to every
+          late subscriber on connect. Used for device state
+          (Tasmota's own POWER publishes are retained for exactly
+          this reason); leave off for transient events.</td></tr>
+  <tr><td><code>qos</code></td>
+      <td>MQTT QoS for outgoing publishes (0 / 1 / 2). 0 is the
+          right choice for high-rate telemetry, 1 for state changes
+          you want acknowledged, 2 only when exactly-once matters and
+          the broker / network can keep up.</td></tr>
+  <tr><td><code>username</code> / <code>password</code></td>
+      <td>Optional MQTT auth, sent on the first CONNECT after they
+          are set.</td></tr>
+  <tr><td><code>client-id</code></td>
+      <td>MQTT client identifier. Empty asks libmosquitto to generate
+          a random one. <em>Use a different id from any paired</em>
+          <em>MQTT Source on the same broker</em> &mdash; two clients
+          with the same id kick each other off.</td></tr>
+</table>
+
+<h5>Wiring example &mdash; Tasmota relay control</h5>
+<pre>Switch (slide)
+    &rarr; Rewrite
+            topic   = cmnd/sonoff19/POWER
+            data    = { "payload": "${data/value &gt; 0 ? 'ON' : 'OFF'}" }
+    &rarr; MQTT Sink
+            url     = tcp://mqtt.homelab.local:1883
+            retain  = false</pre>
+<p>
+The <em>Rewrite</em> step both stamps the destination topic on the
+envelope and reshapes the payload into the literal string the relay
+expects; the sink then publishes wherever the envelope points.
+</p>
+
+<h5>What gets dropped</h5>
+<p>
+Messages are silently dropped (without warning) when:
+</p>
+<ul>
+  <li>The broker session is down (the visual state is already red
+      &mdash; the message is not queued, since pipnode has no bounded
+      backlog and queuing during an outage would grow memory without
+      a limit).</li>
+  <li>The inbound message has no envelope topic, or its topic is the
+      bare prefix <code>mqtt/</code> (nothing to publish to once the
+      prefix is stripped).</li>
+  <li>No usable payload could be derived (no template set <em>and</em>
+      no inbound <code>data.payload</code>).</li>
+</ul>
+
+</body>
+</html>

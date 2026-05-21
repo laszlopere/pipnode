@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Network Ping (PnPing) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPing">Network Ping</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnPing</code>.
+</p>
+<p>
+Auto-triggered probe that sends one ICMP echo to the configured
+host every <code>period</code> seconds and emits the result on its
+output port. The actual probe spawns the system <code>ping</code>
+utility on a worker thread, so the GUI never blocks on slow or
+unreachable targets.
+</p>
+<p>
+The emitted message carries <code>data.success</code> (whether a
+reply was received) and <code>data.output</code> (a one-line
+summary). While <code>host</code> is empty the node turns red,
+shows a warning glyph, and skips its triggers entirely.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>host</code></td>
+      <td>Hostname or IP to probe. Required.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between probes.</td></tr>
+</table>
+
+</body>
+</html>

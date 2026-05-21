@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dial (PnDial) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDial">Dial</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnDial</code>.
+</p>
+<p>
+A round analogue dial &mdash; metallic bezel, glassy face, thin tick marks
+with engraved digits, a 3D-shaded needle on a metallic centre pivot, and
+an optional green / yellow / red zone arc &mdash; that reads the latest
+numeric value plucked from every incoming message via a JSON path
+(<code>key</code>) the same way the <em>Graph</em> sink does.  When the
+key cannot be resolved or the resolved value is not finite the needle
+stays where it was; out-of-range readings clamp to the nearest scale
+endpoint instead of swinging past the ticks.
+</p>
+<p>
+The dial face is square (220&nbsp;&times;&nbsp;220&nbsp;px) and sits
+below the standard Node-RED-style header.  Clicking the face lifts the
+dial into the centred zoom overlay the same way it does for the graph
+and table sinks, so a worksheet that wires several dials in a row can
+zoom into one for a closer reading without rearranging the canvas.
+</p>
+
+<h5>Scale geometry</h5>
+<p>
+The scale runs from <code>min-value</code> to <code>max-value</code>
+along an arc.  Angles are measured in degrees, clockwise from
+12&nbsp;o'clock, so <code>start-angle = -120</code> /
+<code>end-angle = +120</code> puts the low end at 7&nbsp;o'clock, the
+high end at 5&nbsp;o'clock, and leaves the bottom wedge clear for the
+configurable label.  A 360&deg; sweep is allowed (set <code>start-angle</code>
+to <code>-180</code> and <code>end-angle</code> to <code>+180</code>) for
+clock-face-style indicators.
+</p>
+<p>
+Major tick marks are placed at &ldquo;nice&rdquo; value positions
+(<code>{1, 2, 5} &times; 10<sup>n</sup></code> apart, the same heuristic
+matplotlib / gnuplot use for axis labels) derived from the
+<code>major-ticks</code> property, which acts as an <em>upper bound</em>
+on the tick count rather than as a hard count.  Worked example: a 0-16
+scale with <code>major-ticks = 13</code> picks a step of 2 (raw
+1.333 rounded up to the next nice number) and draws ticks at
+<code>0, 2, 4, &hellip;, 16</code> &mdash; nine ticks, all at clean
+integer positions.  A 0-120 scale with the same target picks step 10
+and hits the target exactly (<code>0, 10, &hellip;, 120</code>).
+Between every pair of consecutive major ticks the painter inserts
+<code>minor-ticks-per-major - 1</code> minor ticks; set the property to
+1 to suppress them.  Each major tick carries a digit label rendered in
+the configurable <code>scale-color</code> &mdash; integer when the step
+is an integer (the common case), one or two decimals otherwise.
+</p>
+<p>
+The nice-step choice is what makes zone bounds intuitive: a zone
+entered as &ldquo;9 to 11&rdquo; on the 0-16 scale above lands at the
+exact angles of value 9 and value 11, halfway between the visible
+&ldquo;8&rdquo; / &ldquo;10&rdquo; and &ldquo;10&rdquo; / &ldquo;12&rdquo;
+tick pairs &mdash; rather than at the fractional positions an evenly-
+subdivided 13-tick arc would have placed values 9 and 11 at.
+</p>
+
+<h5>Zone arcs</h5>
+<p>
+Three coloured arcs (green / yellow / red, the traditional gauge
+palette) sit just inside the tick band.  Each one is bounded by
+<code>{color}-start</code> and <code>{color}-end</code> properties in
+value units; when the start is greater than or equal to the end the
+arc is treated as empty and is not drawn, so a worksheet that needs
+only one zone can leave the other two unset (defaults to a "0&hellip;60
+green, 60&hellip;90 yellow, 90&hellip;120 red" split that matches the
+default 0&hellip;120 scale).  The arc colours themselves are
+configurable for users who want to swap the palette &mdash; e.g. a
+"safe" deep green / amber / crimson on a dark face.
+</p>
+
+<h5>Painted vs metallic colours</h5>
+<p>
+The metallic-looking parts of the dial &mdash; the outer bezel and the
+centre pivot &mdash; are <em>not</em> configurable.  They use fixed
+silver / grey gradients tuned to read as polished steel against any
+face colour the user picks.  Every <em>painted</em> colour
+(face, tick marks, digits, needle, label, the three zone arcs) is
+exposed as a <code>GdkRGBA</code> property so the dial can be themed to
+match the rest of the worksheet.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>key</code></td>
+      <td>JSON path (<code>"/"</code>-separated) to the numeric value the
+          needle reads from every incoming message.  Default
+          <code>data/value</code>.</td></tr>
+  <tr><td><code>min-value</code> / <code>max-value</code></td>
+      <td>Values at the low and high ends of the scale.</td></tr>
+  <tr><td><code>start-angle</code> / <code>end-angle</code></td>
+      <td>Angles (degrees, clockwise from 12&nbsp;o'clock) at which the
+          low and high ends of the scale sit.  Defaults
+          <code>-120</code> / <code>+120</code> give the classic 240&deg;
+          gauge sweep.</td></tr>
+  <tr><td><code>major-ticks</code></td>
+      <td>Number of major tick marks (including both endpoints).  Each
+          carries a digit label.</td></tr>
+  <tr><td><code>minor-ticks-per-major</code></td>
+      <td>Number of subdivisions between consecutive major ticks; set
+          to 1 to suppress minor ticks.</td></tr>
+  <tr><td><code>label</code></td>
+      <td>Descriptive line drawn at the lower centre of the face (in
+          the wedge below the centre pivot) in a medium font.
+          Typically the name of the quantity (&ldquo;speed&rdquo;,
+          &ldquo;tank A&rdquo;).  Empty to suppress.</td></tr>
+  <tr><td><code>unit</code></td>
+      <td>Short suffix drawn below <code>label</code> in a much
+          bigger font.  Typically one or two characters
+          (&ldquo;L&rdquo;, &ldquo;&deg;C&rdquo;) so it reads as the
+          dominant identifier for the value on a single-glance
+          read.  Empty to suppress.</td></tr>
+  <tr><td><code>green-start</code>, <code>green-end</code>,
+          <code>yellow-start</code>, <code>yellow-end</code>,
+          <code>red-start</code>, <code>red-end</code></td>
+      <td>Value-unit bounds of the three optional zone arcs.  An arc is
+          omitted when its start &ge; its end.</td></tr>
+  <tr><td><code>face-color</code></td>
+      <td>Base fill of the dial face.  The centre is automatically
+          brightened slightly so the glass highlight has something to
+          sit on.</td></tr>
+  <tr><td><code>scale-color</code></td>
+      <td>Colour of the tick marks and digit labels.</td></tr>
+  <tr><td><code>needle-color</code></td>
+      <td>Fill of the needle body.  A black shadow pass and a white
+          highlight stroke (both fixed) give the needle its 3D
+          read.</td></tr>
+  <tr><td><code>label-color</code></td>
+      <td>Colour of the lower-centre label text.</td></tr>
+  <tr><td><code>green-color</code>, <code>yellow-color</code>,
+          <code>red-color</code></td>
+      <td>Stroke colours of the three zone arcs.</td></tr>
+</table>
+
+</body>
+</html>

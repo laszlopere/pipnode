@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Memory (PnMemory) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnMemory">Memory</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnMemory</code>.
+</p>
+<p>
+Auto-triggered probe that samples <code>/proc/meminfo</code> every
+<code>period</code> seconds and emits the memory-used figure as
+<code>data.value</code> &mdash; either a percentage (the default) or
+an absolute byte count in the chosen unit. "Used" is computed as
+<code>MemTotal&nbsp;&minus;&nbsp;MemAvailable</code>: the kernel-
+authoritative "actually unavailable" number, available since Linux
+3.14, which accounts for reclaimable caches and slab the way
+<code>free -h</code> and <code>htop</code> already do. Subtracting
+<code>MemFree</code> alone (the naive approach pre-3.14 tools took)
+overstates usage by treating reclaimable page cache as "used" memory,
+which is why old monitoring dashboards perennially showed every
+Linux host at "98% memory used" even when idle.
+</p>
+<p>
+Unlike the I/O nodes, the figure is an instantaneous snapshot rather
+than a per-second delta, so there is no "warming up" first tick: the
+very first sample emits a real reading.
+</p>
+<p>
+The sample comes from <code>/proc/meminfo</code> directly when
+<code>hostname</code> is empty or <code>"localhost"</code>; any
+other value is treated as a remote host and the file is fetched over
+passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname cat /proc/meminfo</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+<strong>Binary multiples.</strong> When <code>unit</code> is
+<code>KByte</code>/<code>MByte</code>/<code>GByte</code>, the
+divisor is the <em>binary</em> one (1&nbsp;KByte = 1024 bytes, 1&nbsp;MByte = 1024<sup>2</sup>,
+1&nbsp;GByte = 1024<sup>3</sup>). This is the convention RAM vendors
+and tools like <code>free</code> / <code>htop</code> follow: a "32&nbsp;GB"
+DIMM is universally understood as 32&nbsp;GiB (2<sup>35</sup>&nbsp;bytes),
+not 32 &times; 10<sup>9</sup>&nbsp;bytes. This is a deliberate
+divergence from <em>Disk I/O</em> and <em>Network I/O</em>, which
+use decimal (1000-based) multiples to match the disk/network
+throughput convention.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (used memory in
+the configured unit, or used % when <code>unit</code> is
+<code>%</code>), <code>data.used</code>, <code>data.total</code>,
+<code>data.available</code>, <code>data.free</code> (all in the
+configured unit -- in <code>%</code> mode these are also expressed
+as percentages so a downstream consumer can read them without
+special-casing the unit), <code>data.percent</code> (the percentage
+of MemTotal that is currently used &mdash; <em>always</em> a
+percentage regardless of the configured unit, so a downstream filter
+that wants the saturation curve does not have to special-case
+<code>%</code>), <code>data.unit</code> (the short string matching
+the chosen <code>unit</code>), <code>data.host</code>,
+<code>data.success</code>, and <code>data.output</code> (a one-line
+human summary). When the SSH probe fails the remote stderr or the
+spawn error message is folded into <code>data.output</code> so a
+downstream <em>Debug Print</em> shows the user what went wrong.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose <code>/proc/meminfo</code> to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password).</td></tr>
+  <tr><td><code>unit</code></td>
+      <td>Output unit for <code>data.value</code>: <code>%</code>
+          (the default &mdash; percentage of <code>MemTotal</code>
+          currently in use), or one of <code>B</code> /
+          <code>KByte</code> / <code>MByte</code> / <code>GByte</code>
+          for the absolute used-byte count in binary multiples
+          (1&nbsp;KByte = 1024 bytes). The chosen short string is
+          also emitted on <code>data.unit</code> so a downstream
+          <em>Graph</em> axis label can pick it up verbatim.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default of 2&nbsp;s feels
+          responsive in a downstream <em>Graph</em> without
+          pointlessly hammering an SSH target with a near-static
+          counter (memory pressure typically evolves on a multi-
+          second timescale).</td></tr>
+</table>
+
+</body>
+</html>

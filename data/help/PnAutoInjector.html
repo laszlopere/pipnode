@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AutoInjector (PnAutoInjector) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAutoInjector">AutoInjector</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnAutoInjector</code>.
+</p>
+<p>
+Auto-triggered cousin of <em>Injector</em>: emits the same configured
+payload every <code>period</code> seconds without any external
+prodding. Useful as a heartbeat for downstream nodes that need a
+steady signal &mdash; driving a <em>Graph</em> with a constant
+baseline, feeding a <em>Watchdog</em> with the &ldquo;alive&rdquo;
+pulse it expects, or wiring up a stub source while a real probe is
+still being built. The <em>Injector</em>'s click-to-fire button is
+absent; if you want a manual one-shot, use <em>Injector</em>
+instead.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (the configured
+number), <code>data.output</code> (the configured text) and
+<code>data.success</code> (the configured boolean) &mdash; the same
+canonical members downstream <em>Graph</em>, <em>Format</em>,
+<em>Filter</em> and <em>Edge</em> nodes already gate on, so an
+AutoInjector slots straight into the same wiring an upstream probe
+would use.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>output</code></td>
+      <td>String emitted as <code>data.output</code> on every
+          tick.</td></tr>
+  <tr><td><code>value</code></td>
+      <td>Number emitted as <code>data.value</code> on every
+          tick.</td></tr>
+  <tr><td><code>success</code></td>
+      <td>Boolean emitted as <code>data.success</code> on every
+          tick &mdash; lets the node feed an <em>Edge</em> detector
+          or a boolean-aware <em>Filter</em> with a synthetic
+          success/failure pulse.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between emissions.</td></tr>
+</table>
+
+</body>
+</html>

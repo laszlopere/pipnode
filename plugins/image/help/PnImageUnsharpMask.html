@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Unsharp Mask (PnImageUnsharpMask) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageUnsharpMask">Unsharp Mask</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Sharpen. <em>Type:</em> <code>PnImageUnsharpMask</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It sharpens the incoming image using the classic unsharp
+mask technique: a blurred copy of the image (the &ldquo;mask&rdquo;) is
+subtracted from the original to isolate the edges, and a scaled version of
+that difference is added back, so edges and fine detail are accentuated.
+The <code>amount</code> property controls how strongly the edges are
+boosted and <code>radius</code> sets how wide the blurred mask is. Results
+are clamped to [0, 255] and any alpha channel is preserved. The result is
+emitted as a new <code>PnImageMessage</code>.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>amount</code></td>
+      <td>How strongly edges are accentuated, 0.0&ndash;5.0 (default 1.0).
+          0 leaves the image unchanged; larger values sharpen harder.</td></tr>
+  <tr><td><code>radius</code></td>
+      <td>Blur radius of the mask, 1&ndash;15 (default 3). A larger radius
+          softens a wider halo around edges.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Unsharp Mask (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

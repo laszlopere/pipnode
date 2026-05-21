@@ -1,0 +1,29 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+datarootdir=@datarootdir@
+datadir=@datadir@
+
+# Directory the host scans at start-up for plugin .so files.  Plugin
+# Makefile.am rules should install into ${plugindir} so the default
+# search path picks them up without the user setting
+# PIPNODE_PLUGIN_PATH.
+plugindir=${libdir}/pipnode/plugins
+
+# Flat directory where the host's help browser resolves
+# <TypeName>.html files.  Plugin Makefile.am rules that ship per-node
+# HTML help install into ${helpdir}.
+helpdir=${datadir}/pipnode/help
+
+# Autoconf macro directory.  Plugin projects whose own configure.ac
+# uses PIPNODE_PLUGIN_CHECK pick up the macro from here via
+# ACLOCAL_AMFLAGS = -I `pkg-config --variable=aclocaldir pipnode`.
+aclocaldir=${datadir}/aclocal
+
+Name: pipnode
+Description: Visual flow editor host library for plugin developers
+Version: @VERSION@
+Requires: gtk+-3.0 >= 3.22 json-glib-1.0 >= 1.0 gmodule-2.0 >= 2.40
+Libs: -L${libdir} -lpipnode
+Cflags: -I${includedir} -I${includedir}/pipnode

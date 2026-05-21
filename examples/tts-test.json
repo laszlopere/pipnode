@@ -1,0 +1,121 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnTts",
+      "uuid" : "5947d827-cf2f-461b-9c6e-ad9732e17286",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-amy-medium.onnx",
+        "speed" : 1.3,
+        "sink" : ""
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "text" : "This is a test for the text to speech node.",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnRewrite",
+      "uuid" : "9d29e6e4-52bd-41ae-933f-de3ef728863a",
+      "name" : "Rewrite 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "template" : "{\n  \"topic\": \"${topic}\",\n  \"data\": {\n    \"value\":  ${data/value},\n    \"source\": \"${topic}\",\n    \"id\":     \"${id}\",\n    \"output\": \"This is the new output.\"\n  }\n}\n"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "30122097-458d-4a22-9e7b-305128438348",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnRewrite",
+      "uuid" : "d045bb94-31e8-4f6c-ba96-f3989ae760b1",
+      "name" : "Rewrite 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "template" : "{\n  \"topic\": \"${topic}\",\n  \"data\": {\n    \"value\":  ${data/value},\n    \"output\": \"${data/output} The text is modified.\",\n    \"source\": \"${topic}\",\n    \"id\":     \"${id}\"\n  }\n}\n"
+      }
+    },
+    {
+      "type" : "PnNotify",
+      "uuid" : "9f31998f-ea07-433f-9c14-e03620aaca0e",
+      "name" : "Notify 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "summary" : "${topic}",
+        "body" : "${data/output}",
+        "icon" : "dialog-information",
+        "app-name" : "pipnode",
+        "urgency" : "normal",
+        "timeout-ms" : 3,
+        "replace" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
+      "target_id" : "9d29e6e4-52bd-41ae-933f-de3ef728863a"
+    },
+    {
+      "source_id" : "d045bb94-31e8-4f6c-ba96-f3989ae760b1",
+      "target_id" : "5947d827-cf2f-461b-9c6e-ad9732e17286"
+    },
+    {
+      "source_id" : "d045bb94-31e8-4f6c-ba96-f3989ae760b1",
+      "target_id" : "30122097-458d-4a22-9e7b-305128438348"
+    },
+    {
+      "source_id" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
+      "target_id" : "d045bb94-31e8-4f6c-ba96-f3989ae760b1"
+    },
+    {
+      "source_id" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
+      "target_id" : "9f31998f-ea07-433f-9c14-e03620aaca0e"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

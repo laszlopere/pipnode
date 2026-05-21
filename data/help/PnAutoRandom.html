@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AutoRandom (PnAutoRandom) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAutoRandom">AutoRandom</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnAutoRandom</code>.
+</p>
+<p>
+Auto-triggered sibling of <em>AutoInjector</em> that fills
+<code>data.value</code> with a freshly-sampled random number every
+<code>period</code> seconds instead of a fixed configured one. The
+sample range and the shape of the draw are configurable, so a
+freshly-dropped AutoRandom is ready to feed a <em>Graph</em> with a
+synthetic noisy signal, drive a <em>Filter</em> stress test with
+a known distribution, or stand in for a yet-to-be-built probe whose
+expected dynamic range is already known. Each instance carries its
+own seeded RNG so two AutoRandoms placed on the same worksheet
+produce independent streams.
+</p>
+<p>
+Every draw is clamped to <code>[min, max]</code> regardless of the
+distribution chosen, so downstream rules can rely on the emitted
+value sitting inside the configured range. The emitted message
+carries <code>data.value</code> (the sampled number),
+<code>data.output</code> (the configured text) and
+<code>data.success</code> (the configured boolean) &mdash; the same
+canonical members <em>AutoInjector</em> uses, so the two are
+interchangeable for filters and sinks downstream.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>min</code></td>
+      <td>Lower bound of the sampled range.</td></tr>
+  <tr><td><code>max</code></td>
+      <td>Upper bound of the sampled range. If <code>min</code> is
+          accidentally larger than <code>max</code> the bounds are
+          swapped silently rather than refusing to draw.</td></tr>
+  <tr><td><code>distribution</code></td>
+      <td>Shape of the draw on <code>[min, max]</code>:
+        <ul>
+          <li><code>uniform</code> &mdash; mass spread evenly across
+              the range. Default.</li>
+          <li><code>normal</code> &mdash; Gaussian centred on the
+              midpoint with <code>stddev = (max - min) / 6</code>, so
+              ~99.7% of draws fall inside the range before the
+              boundary clamp catches the tails.</li>
+          <li><code>triangular</code> &mdash; symmetric, peaks at the
+              midpoint and falls linearly to zero at both bounds. The
+              pdf is naturally bounded so the clamp is effectively a
+              no-op.</li>
+          <li><code>exponential</code> &mdash; heavily biased toward
+              <code>min</code>, with <code>lambda = 3 / (max - min)</code>
+              so the mean lands at <code>min + (max - min) / 3</code>
+              and ~95% of mass falls below <code>max</code>; the tail
+              is clamped at <code>max</code>.</li>
+        </ul></td></tr>
+  <tr><td><code>output</code></td>
+      <td>String emitted as <code>data.output</code> on every
+          tick.</td></tr>
+  <tr><td><code>success</code></td>
+      <td>Boolean emitted as <code>data.success</code> on every
+          tick.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between draws.</td></tr>
+</table>
+
+</body>
+</html>

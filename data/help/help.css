@@ -1,0 +1,73 @@
+/* Shared stylesheet for the per-node help pages.  The host's
+ * help-index.html and every <ClassName>.html file emitted by
+ * libpipnode and its plugins reference this file via a relative
+ * <link rel="stylesheet" href="help.css">; the resolver places all
+ * three sources (the host, the bundled network plugin, and any
+ * third-party plugin's help dir) into the
+ * same flat $pkgdatadir/help/ directory at install time, so a single
+ * stylesheet covers them all.  Mirrors the inline <style> block
+ * help-index.html shipped before per-node help was split out. */
+
+body {
+    font-family: sans-serif;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    max-width: 48em;
+    line-height: 1.5;
+    color: #222;
+}
+h1 { color: #336; }
+h2 {
+    color: #336;
+    border-bottom: 1px solid #ccd;
+    padding-bottom: 0.2em;
+    margin-top: 1.5em;
+}
+h3 {
+    color: #225;
+    margin-top: 1.4em;
+}
+h4 {
+    color: #114;
+    margin-top: 1.2em;
+    margin-bottom: 0.2em;
+}
+code {
+    background: #eef;
+    padding: 0 0.25em;
+    border-radius: 3px;
+    font-family: monospace;
+}
+pre {
+    background: #f4f4fb;
+    padding: 0.6em 0.8em;
+    border-left: 3px solid #99c;
+    overflow-x: auto;
+}
+table {
+    border-collapse: collapse;
+    margin: 0.6em 0 1em 0;
+    width: 100%;
+}
+th, td {
+    text-align: left;
+    padding: 0.35em 0.6em;
+    border-bottom: 1px solid #dde;
+    vertical-align: top;
+}
+th {
+    background: #eef;
+}
+.toc {
+    background: #f8f8fc;
+    border: 1px solid #dde;
+    padding: 0.8em 1.2em;
+    border-radius: 4px;
+}
+.toc ul { margin: 0.3em 0; padding-left: 1.4em; }
+.note {
+    background: #fff8e1;
+    border-left: 3px solid #e6c200;
+    padding: 0.5em 0.8em;
+    margin: 0.8em 0;
+}

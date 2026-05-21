@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HTTPS Tunnel Sender (PnHttpsTunnelSender) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnHttpsTunnelSender">HTTPS Tunnel Sender</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnHttpsTunnelSender</code>.
+</p>
+<p>
+Sink-only node that POSTs every <code>PnMessage</code> arriving on
+its input port to a configured HTTPS URL as a JSON envelope.
+Designed as the sender side of a pipnode-to-pipnode link: wire any
+source into this node, point it at a peer pipnode running an
+<em>HTTPS Tunnel Receiver</em>, and every message the source emits lands on
+the peer's <em>HTTPS Tunnel Receiver</em> output port.
+</p>
+
+<h5>Wire format</h5>
+<p>
+The body posted to the target is the same envelope the
+<em>HTTPS Tunnel Receiver</em> expects:
+</p>
+<pre>{
+  "topic"   : "...",
+  "id"      : "...",
+  "created" : "...",
+  "data"    : { ... }
+}</pre>
+<p>
+The <code>topic</code>, <code>id</code> and <code>created</code>
+fields are taken straight from the inbound <code>PnMessage</code>
+envelope; <code>data</code> is the message's data bag verbatim.
+Optional fields are omitted when the inbound message does not
+carry them. The receiver rebuilds the same shape on the other
+side, so a chain of
+<em>Source &rarr; HTTPS Tunnel Sender &rarr; (network) &rarr;
+HTTPS Tunnel Receiver &rarr; Sink</em> is structurally indistinguishable from
+the same source wired straight into the same sink locally.
+</p>
+
+<h5>Authentication</h5>
+<p>
+Optional HTTP Basic auth: when both <code>username</code> and
+<code>password</code> are non-empty the node sends an
+<code>Authorization: Basic ...</code> header on every request
+(preemptive auth, no 401-then-retry round-trip), matching what
+the <em>HTTPS Tunnel Receiver</em>'s basic auth domain expects. Either
+field empty disables auth.
+</p>
+
+<h5>TLS</h5>
+<p>
+When <code>verify-tls</code> is <code>FALSE</code> (the default)
+the node accepts any peer certificate, including the self-signed
+one the <em>HTTPS Tunnel Receiver</em> mints out of the box &mdash; so
+dropping a <em>Client</em> and a <em>Server</em> onto two
+worksheets and wiring them together works without any external
+PKI. Flip <code>verify-tls</code> to <code>TRUE</code> when
+targeting a real cert (e.g. a Let's Encrypt certificate on the
+peer); the connection then validates against the system trust
+store and refuses on any error.
+</p>
+
+<h5>Failure handling</h5>
+<p>
+The POST is fire-and-forget: there is no output port, the response
+body is drained and discarded, and a transport failure or non-2xx
+status is logged through <code>g_warning</code> rather than
+propagated downstream. While the URL is unset the node is marked
+red with a warning glyph and silently drops every incoming
+message.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>url</code></td>
+      <td>Target URL. Defaults to
+      <code>https://127.0.0.1:8443/</code> so the node pairs with an
+      <em>HTTPS Tunnel Receiver</em> running on its default port on the same
+      machine out of the box; override with the peer's address (e.g.
+      <code>https://peer.example:8443/</code>) once the topology
+      grows past loopback.</td></tr>
+  <tr><td><code>username</code></td>
+      <td>HTTP Basic auth username; empty disables auth.</td></tr>
+  <tr><td><code>password</code></td>
+      <td>HTTP Basic auth password; empty disables auth.</td></tr>
+  <tr><td><code>verify-tls</code></td>
+      <td>Validate the peer's certificate? Defaults to
+      <code>FALSE</code> for the self-signed-server pairing.</td></tr>
+</table>
+
+</body>
+</html>

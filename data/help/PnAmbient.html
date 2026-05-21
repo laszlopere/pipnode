@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ambient Temperature (PnAmbient) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAmbient">Ambient Temperature</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnAmbient</code>.
+</p>
+<p>
+Auto-triggered probe that samples a host's ambient (chassis,
+motherboard, chipset) temperature sensors every <code>period</code>
+seconds and emits a single aggregated value (in degrees Celsius) as
+<code>data.value</code>.  Sibling of
+<a href="PnTemp.html"><em>CPU Temperature</em></a> &mdash; same
+property shape, same emitted envelope, same aggregation semantics.
+The difference is the set of sensors picked up off the host: this
+node targets the <em>ambient</em> readings rather than the silicon
+package readings, so a worksheet can graph room/chassis warmth on
+its own axis without having to filter CPU sensors out.
+</p>
+<p>
+Sources scanned (in order of preference):
+</p>
+<ol>
+  <li><code>/sys/class/hwmon/hwmonN/</code> directories whose
+      <code>name</code> is <code>acpitz</code> &mdash; the ACPI
+      Thermal Zone, which on most consumer hardware is the
+      motherboard sensor.</li>
+  <li>Fallback: <code>/sys/class/thermal/thermal_zoneN/</code>
+      directories whose <code>type</code> is <code>acpitz</code>,
+      has the <code>pch_</code> prefix (Platform Controller Hub
+      &mdash; chipset, which on a passively-cooled board tracks
+      ambient closely), matches <code>INT340N Thermal</code>
+      (Intel DPTF participant sensors, often skin temperature),
+      or is one of <code>gen_thermal</code>, <code>TZ00</code>,
+      <code>TZ01</code> (vendor zones seen on some laptops).
+      The thermal-zone fallback is only consulted when the hwmon
+      scan turned up nothing, so the same physical sensor is not
+      double-counted through both interfaces.</li>
+</ol>
+<p>
+When <code>hostname</code> is empty or <code>"localhost"</code>
+the sensor files are read off the local filesystem directly; any
+other value is treated as a remote host and the sample is fetched
+over passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname sh -c &lt;snippet&gt;</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (aggregated
+ambient temperature in <code>&deg;C</code>),
+<code>data.average</code>, <code>data.min</code>,
+<code>data.max</code>, <code>data.count</code> (number of sensors
+that contributed), <code>data.unit</code> (always
+<code>"&deg;C"</code>), <code>data.hot</code> (label of the
+warmest sensor &mdash; useful when running with
+<code>aggregation = "average"</code> and you still want to know
+which zone is the outlier), <code>data.aggregation</code> (the
+active mode as the string <code>"average"</code> or
+<code>"maximum"</code>), <code>data.readings</code> (a JSON array
+of <code>{label, value}</code> objects, one per sensor),
+<code>data.host</code> (normalised to <code>"localhost"</code>
+for the local path), <code>data.success</code>, and
+<code>data.output</code> (a one-line summary &mdash; either the
+aggregated reading with sensor count, or the failure reason).
+</p>
+<p>
+A successful sample with zero matching sensors is treated as a
+failure (<code>data.success = false</code>,
+<code>data.output</code> = <em>"no ambient temperature sensors
+found"</em>) rather than silently emitting 0.0.  This typically
+means the host has neither an <code>acpitz</code> hwmon entry nor
+a matching thermal zone &mdash; common on minimalist ARM SoCs and
+on some hypervisor guests; on bare-metal x86 the
+<code>acpitz</code> zone is almost always present.
+</p>
+<p>
+Superio chips (Nuvoton <code>nct67xx</code>, ITE <code>it87</code>,
+Winbond <code>w83</code>, Fintek <code>f71</code>) also expose
+chassis sensors, but they mix them with CPU- and fan-tach-derived
+readings under per-chip labels, so picking them up by hwmon
+<code>name</code> alone would pollute the aggregation.  Users on
+such boards are better served by the thermal-zone fallback, or
+should add their specific chip to the matched-name list once they
+have confirmed which <code>tempN_input</code> on it is the
+chassis sensor.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose ambient sensors to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password).</td></tr>
+  <tr><td><code>aggregation</code></td>
+      <td>How the per-zone ambient readings are collapsed into the
+          single number on <code>data.value</code>:
+          <code>"average"</code> reports the arithmetic mean across
+          every matched sensor, <code>"maximum"</code> reports the
+          hottest single sensor (handy for spotting a blocked vent
+          or a sunlit panel).  In either mode the unaggregated
+          <code>data.average</code>, <code>data.min</code>,
+          <code>data.max</code> and <code>data.readings</code>
+          members are always populated, so a downstream filter can
+          consult the other view without reconfiguring this
+          node.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default is 5 s &mdash;
+          ambient temperatures only move on the order of minutes
+          (thermal mass of the chassis and the room itself), so
+          polling faster mostly buys repeated identical readings.
+          5 s matches the other host-monitoring nodes so they can
+          all share a downstream graph without periods drifting
+          against each other.</td></tr>
+</table>
+
+</body>
+</html>

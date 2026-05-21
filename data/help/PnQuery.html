@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query (PnQuery) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnQuery">Query</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnQuery</code>.
+</p>
+<p>
+Runs every received message through a configurable
+<a href="https://jmespath.org/">JMESPath</a> expression and writes
+the result back onto the message before forwarding it. The output is
+always well formed: a parse error, a type error, or a query that
+matches nothing still emits a message — failures surface as a
+<code>data.error</code> string and a JSON-null result, never as a
+dropped message.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>expression</code></td>
+      <td>The JMESPath query. Empty produces a JSON-null result.</td></tr>
+  <tr><td><code>result-field</code></td>
+      <td>Where to put the result. A non-empty name (default
+          <code>result</code>) writes to that member of the data bag,
+          leaving the surrounding members in place. The empty string
+          or the literal <code>data</code> mean the result <em>is</em>
+          the new data bag — existing members are dropped, and a
+          non-object result is wrapped under a <code>value</code>
+          key so the bag stays well formed.</td></tr>
+  <tr><td><code>source-field</code></td>
+      <td>Slash-separated path into the incoming message that the
+          query runs against. Empty (the default) queries the whole
+          message root, where <code>topic</code>, <code>id</code>,
+          <code>created</code>, and <code>data</code> are visible as
+          top-level members.</td></tr>
+</table>
+<p>
+The supported JMESPath subset covers identifier paths
+(<code>a.b.c</code>, <code>"quoted-id"</code>), index and slice
+(<code>[0]</code>, <code>[-1]</code>, <code>[1:5:2]</code>),
+projections (<code>[*]</code>, <code>.*</code>, <code>[?expr]</code>,
+<code>[]</code>), multi-select (<code>{k: a, k2: b}</code>,
+<code>[a, b]</code>), pipes (<code>|</code>), comparisons
+(<code>== != &lt; &lt;= &gt; &gt;=</code>), boolean logic
+(<code>&amp;&amp; || !</code>), expression references
+(<code>&amp;expr</code>), raw literals
+(<code>`null`</code>, <code>`true`</code>, <code>`123`</code>,
+<code>`"str"</code>`), single-quoted string literals
+(<code>'str'</code>), and the current-node operator (<code>@</code>).
+</p>
+<p>
+Built-in functions: <code>length</code>, <code>type</code>,
+<code>keys</code>, <code>values</code>, <code>contains</code>,
+<code>starts_with</code>, <code>ends_with</code>,
+<code>to_string</code>, <code>to_number</code>, <code>to_array</code>,
+<code>abs</code>, <code>ceil</code>, <code>floor</code>,
+<code>sum</code>, <code>avg</code>, <code>max</code>,
+<code>min</code>, <code>max_by</code>, <code>min_by</code>,
+<code>sort</code>, <code>sort_by</code>, <code>reverse</code>,
+<code>not_null</code>, <code>merge</code>, <code>join</code>,
+<code>map</code>.
+</p>
+<pre>expression:    data.transactions[?value != `"0x0"`].hash
+result-field:  hashes
+
+expression:    {block: data.number, count: length(data.transactions)}
+result-field:  summary
+
+expression:    sort_by(data.logs, &amp;blockNumber) | [-1]
+result-field:  latest_log</pre>
+
+</body>
+</html>

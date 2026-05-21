@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Solarize (PnImageSolarize) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageSolarize">Solarize</h4>
+<p>
+<em>Group:</em> Image. <em>Type:</em> <code>PnImageSolarize</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It reproduces the Sabattier effect: each colour channel
+at or above the <code>threshold</code> is inverted
+(<code>255 &minus; c</code>) while darker values pass through, so
+highlights flip and the picture takes on the surreal tone-reversed look
+of an over-exposed print. The result is emitted as a new
+<code>PnImageMessage</code>. Any alpha channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>threshold</code></td>
+      <td>Per-channel value at/above which the channel is inverted,
+          0&ndash;255 (default 128). Lower flips more of the image.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Solarize (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

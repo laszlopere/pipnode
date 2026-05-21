@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filter (PnFilter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFilter">Filter</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnFilter</code>.
+</p>
+<p>
+General-purpose gate. Forwards a message iff every configured rule
+matches the corresponding member of the message's <code>data</code>
+bag. Rules are ANDed; an empty rule list is vacuously true and lets
+every message through. The properties dialog lays the rule list out
+as one row of widgets per rule, with an <em>Add rule</em> button below.
+</p>
+<p>
+Each rule is a triple of <em>(path, operator, literal)</em>. The path
+selects which member of <code>data</code> to read; common members are
+preloaded in a combobox (<code>value</code>, <code>success</code>,
+<code>output</code>, <code>endpoint</code>) and a <em>Custom…</em>
+entry lets the user reach any other key (e.g. <code>tcp4</code>) or a
+nested path with dots (e.g. <code>foo.bar</code>). A path that starts
+with <code>/</code> addresses the message envelope rather than the
+data bag &mdash; <code>/topic</code> is preloaded in the same combobox
+so a Tasmota / MQTT pipeline can route on the upstream topic
+(<code>/topic contains "tele/"</code>, <code>/topic ==
+"mqtt/stat/tasmota13/STATUS5"</code>) without dropping a Filter rule
+on the data side. The literal's type combo (<em>number</em> /
+<em>string</em> / <em>boolean</em>) drives which operators are valid
+and how the comparison is performed.
+</p>
+<table>
+  <tr><th>Literal type</th><th>Operators</th></tr>
+  <tr><td>number</td>
+      <td><code>&lt;</code> <code>&lt;=</code> <code>==</code>
+          <code>!=</code> <code>&gt;=</code> <code>&gt;</code></td></tr>
+  <tr><td>boolean</td>
+      <td><code>==</code> <code>!=</code> (literal picked from a
+          true/false combo)</td></tr>
+  <tr><td>string</td>
+      <td><code>==</code> <code>!=</code> <code>contains</code></td></tr>
+</table>
+<p>
+For string <code>==</code> and <code>!=</code> rules, a literal that
+contains a <code>*</code> or <code>?</code> is treated as a
+filename-style glob pattern: <code>*</code> matches any run of
+characters, <code>?</code> matches a single character. So
+<code>/topic == "mqtt/stat/sonoff19/*"</code> lets through every
+message whose topic starts with <code>mqtt/stat/sonoff19/</code>,
+and <code>/topic == "mqtt/+/+/STATUS?"</code> matches the numbered
+STATUS replies (<code>STATUS0</code> &hellip; <code>STATUS9</code>).
+A literal without wildcards keeps doing byte-exact comparison, so
+existing rules round-trip unchanged.
+<p>
+A rule whose path is missing on the incoming message — or whose
+data-bag value's type does not match the literal's type — fails, and
+the message is dropped.
+</p>
+<p>
+The rule list is persisted as a single string property
+(<code>rules</code>) holding the JSON array form so it round-trips
+through the worksheet save/load path unchanged.
+</p>
+
+</body>
+</html>

@@ -1,0 +1,44 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnSciFiSound",
+      "uuid" : "01804991-dfa5-43fa-9b6a-43c034386939",
+      "name" : "SciFi Sound 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "clip" : "Tricorder/tos_tricoder_alert.mp3",
+        "dead-period" : 0
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "67b5de21-4d69-4f07-a57a-0871675f8a34",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "success" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "67b5de21-4d69-4f07-a57a-0871675f8a34",
+      "target_id" : "01804991-dfa5-43fa-9b6a-43c034386939"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

@@ -1,0 +1,100 @@
+Pipnode runtime dependencies
+============================
+
+Node icons are drawn with Pango and rely on fontconfig finding the
+FontAwesome face -- glyphs in the U+F000..U+F8FF Private Use Area
+have no fallback in standard system fonts and would otherwise render
+as tofu.  On Debian/Ubuntu install:
+
+    sudo apt install fonts-font-awesome
+
+This ships /usr/share/fonts/truetype/font-awesome/fontawesome-webfont.ttf
+under the family name "FontAwesome" (the v4 webfont), which is what
+the worksheet's Pango font description matches against.
+
+The text-to-speech (TTS) sink node shells out to two external tools:
+
+  * piper  -- neural TTS engine; not packaged in standard Ubuntu
+              repositories, install from upstream releases.
+  * aplay  -- ALSA playback front-end; ships with the alsa-utils
+              package on Debian/Ubuntu (`sudo apt install alsa-utils`).
+
+
+Installing Piper
+----------------
+
+1. Grab the latest pre-built release for your architecture from
+       https://github.com/rhasspy/piper/releases
+   The Linux build is shipped as `piper_linux_<arch>.tar.gz` and
+   bundles its own libonnxruntime, libespeak-ng and voice phonemiser
+   data; nothing else needs to be on the system.
+
+2. Extract the bundle somewhere stable -- the binary uses an
+   $ORIGIN-relative RUNPATH, so the surrounding files must travel
+   with it:
+
+       mkdir -p ~/.local/share
+       tar -xzf piper_linux_x86_64.tar.gz -C ~/.local/share
+       # this creates ~/.local/share/piper/
+
+3. Put the launcher on PATH:
+
+       ln -s ~/.local/share/piper/piper ~/.local/bin/piper
+
+   Make sure ~/.local/bin is in $PATH (it is by default on most
+   Ubuntu installs).
+
+
+Installing a voice
+------------------
+
+Piper voices are downloaded separately from the Hugging Face
+collection at https://huggingface.co/rhasspy/piper-voices.  The TTS
+node defaults to the Lessac English voice; install it with:
+
+    mkdir -p ~/.local/share/piper/voices
+    cd ~/.local/share/piper/voices
+    base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium
+    curl -fsSL -O $base/en_US-lessac-medium.onnx
+    curl -fsSL -O $base/en_US-lessac-medium.onnx.json
+
+Both files (the .onnx model and its .onnx.json sidecar) must sit next
+to each other.  Other voices follow the same layout under their own
+language/speaker/quality directory in the upstream repo.
+
+
+Adding more voices
+------------------
+
+Every .onnx file present in ~/.local/share/piper/voices/ shows up in
+the TTS node's model dropdown automatically (labelled by its
+"speaker-quality" suffix), so installing a new voice is just a matter
+of dropping its two files in beside the existing ones.  The four
+English voices Pipnode is most often demoed with are:
+
+    base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US
+    cd ~/.local/share/piper/voices
+    for path in amy/medium/en_US-amy-medium \
+                lessac/medium/en_US-lessac-medium \
+                libritts_r/medium/en_US-libritts_r-medium \
+                ryan/medium/en_US-ryan-medium; do
+        curl -fsSL -O "$base/$path.onnx"
+        curl -fsSL -O "$base/$path.onnx.json"
+    done
+
+Voices for other languages live under sibling locale directories
+(e.g. de/de_DE, fr/fr_FR, ...) using the same naming scheme.  Browse
+https://huggingface.co/rhasspy/piper-voices/tree/main for the full
+catalogue.
+
+
+Verifying
+---------
+
+A round-trip smoke test:
+
+    echo "Pipnode is talking." \
+        | piper -m ~/.local/share/piper/voices/en_US-lessac-medium.onnx -q -f - \
+        | aplay -q -
+
+If you hear the sentence, the TTS node is ready to use.

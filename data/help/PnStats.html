@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats (PnStats) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnStats">Stats</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnStats</code>.
+</p>
+<p>
+Counts incoming messages and tracks the time between consecutive
+arrivals over a rolling window. The original message is consumed;
+for every receive the node emits a brand-new message with topic
+<code>stats</code> whose data bag carries the tallies aggregated
+across the last <code>window</code> seconds. Internally the window
+is split into <code>bins</code> equal-sized buckets, each storing
+only summary tallies — individual messages and timestamps are
+never retained, so memory is O(bins) regardless of arrival rate or
+payload size. The window slides one bin at a time rather than one
+message at a time.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>window</code></td>
+      <td>Length of the rolling window in seconds. Defaults to 60,
+          range 1&ndash;86400.</td></tr>
+  <tr><td><code>bins</code></td>
+      <td>Number of buckets the window is split into. Defaults to
+          60, range 1&ndash;3600. Higher values trade memory for a
+          finer slide step.</td></tr>
+</table>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>data.count</code></td>
+      <td>Messages observed within the rolling window.</td></tr>
+  <tr><td><code>data.min_seconds</code></td>
+      <td>Smallest inter-arrival gap whose ending arrival landed in
+          the window, in seconds.</td></tr>
+  <tr><td><code>data.max_seconds</code></td>
+      <td>Largest such gap, in seconds. Includes gaps that exceed
+          the window itself when the next arrival eventually
+          lands.</td></tr>
+  <tr><td><code>data.average_seconds</code></td>
+      <td>Mean of the inter-arrival gaps in the window.</td></tr>
+  <tr><td><code>data.per_minute</code></td>
+      <td>Throughput as messages per minute, computed as
+          <code>count / window</code>. Reads as a "messages in the
+          last N seconds" curve when graphed.</td></tr>
+  <tr><td><code>data.per_hour</code></td>
+      <td>Throughput as messages per hour.</td></tr>
+  <tr><td><code>data.per_day</code></td>
+      <td>Throughput as messages per day.</td></tr>
+</table>
+
+</body>
+</html>

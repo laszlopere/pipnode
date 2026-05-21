@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Current (PnTasmotaCurrent) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaCurrent">Tasmota Current</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaCurrent</code>.
+Inherits from <em>Analog Meter</em>.
+</p>
+<p>
+Sink node that paints a classic AC ammeter: same panel-meter
+silhouette as <em>Tasmota Voltage</em> but with an &ldquo;A&rdquo;
+unit glyph above the AC sine-wave symbol and a default 0&nbsp;A ..
+16&nbsp;A scale matching the rated current of the typical Sonoff
+Pow / Pow R2 relay. The needle reads <code>ENERGY.Current</code> off
+every Tasmota <code>tele/&lt;device&gt;/SENSOR</code> publish from
+the configured device.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name the meter listens for &mdash; see
+          <em>Tasmota Voltage</em> for the matching rule.</td></tr>
+  <tr><td><code>min-value</code> / <code>max-value</code></td>
+      <td>Defaults to 0&nbsp;A .. 16&nbsp;A. Raise the upper bound for
+          a three-phase contactor or for an industrial meter wired
+          through a current transformer.</td></tr>
+</table>
+
+</body>
+</html>

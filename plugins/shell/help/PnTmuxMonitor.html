@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tmux Monitor (PnTmuxMonitor) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTmuxMonitor">Tmux Monitor</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnTmuxMonitor</code>.
+</p>
+<p>
+Auto-triggered runner that captures the visible characters of a
+named tmux session every <code>period</code> seconds and emits them
+on its output port.  The capture is performed by spawning
+<code>tmux&nbsp;capture-pane&nbsp;-p&nbsp;-S&nbsp;-&lt;line-limit&gt;&nbsp;-t&nbsp;&lt;session&gt;</code>
+on a worker thread, so the GUI never blocks even when the
+configured host is slow to respond over ssh.
+</p>
+<p>
+The emitted message (topic <code>tmux</code>) carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when
+      <code>tmux&nbsp;capture-pane</code> exited with
+      status&nbsp;0, <code>false</code> otherwise (e.g. the session
+      no longer exists, the tmux server stopped, the ssh hop
+      failed).</li>
+  <li><code>data.output</code> &mdash; only the <em>new</em> lines
+      since the previous successful capture.  <code>tmux
+      capture-pane</code> re-emits the whole visible pane on every
+      run, so the node keeps the previous tick's text and computes
+      the longest line-wise overlap between the two; whatever lies
+      past that overlap is the genuine new tail and is what the
+      message carries.  When the panes share no overlap (the user
+      cleared the screen, the session was switched in tmux, etc.)
+      the full new capture is emitted instead, so a downstream
+      consumer never has to re-derive the missing history itself.
+      Multi-line text survives the JSON envelope unchanged
+      (embedded newlines escape as <code>\n</code> on the wire).
+      A failed capture (spawn refused, ssh down, tmux exited
+      non-zero) is emitted verbatim and does not overwrite the
+      baseline, so the next successful capture diffs against the
+      last good one.</li>
+  <li><code>data.host</code> &mdash; the host the capture ran on
+      (<code>localhost</code> for the local synonyms).</li>
+  <li><code>data.session</code> &mdash; the session name the
+      capture targeted.</li>
+</ul>
+<p>
+The settings dialog populates the <em>Session</em> row as a
+combobox.  The list is refreshed by a one-shot enumerator thread
+that runs <code>tmux&nbsp;list-sessions&nbsp;-F&nbsp;'#S'</code>
+against the configured host whenever <code>host</code> changes
+(and once at node construction time, so the combo arrives already
+populated for a fresh node on the local machine).  While the
+enumerator is in flight the host overlays its standard "busy"
+spinner on top of the form and locks editing &mdash; the same
+overlay that #PnMeshtastic uses while it opens a serial device.
+A red status row below the form surfaces the failure reason when
+the most recent enumeration did not succeed:
+</p>
+<ul>
+  <li><em>Cannot run tmux on <code>host</code>: …</em> &mdash; the
+      spawn itself failed (ssh refused the connection, the binary
+      is not on <code>PATH</code>, etc.).</li>
+  <li><em><code>host</code>: no server running on
+      /tmp/tmux-N/default</em> &mdash; tmux is installed but no
+      server is currently active on the host.</li>
+  <li><em>No tmux sessions on <code>host</code>.</em> &mdash;
+      tmux exited cleanly but the server has no sessions.</li>
+</ul>
+<p>
+While <code>tmux-session</code> is empty the node turns red, shows
+a warning glyph, and skips its triggers entirely (the periodic
+worker still wakes, it just has no target to capture from).
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run the tmux commands.  Default
+          <code>localhost</code> (and the synonyms
+          <code>127.0.0.1</code>, <code>::1</code>, empty string)
+          runs locally.  Any other value (a hostname or
+          <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>tmux-session</code></td>
+      <td>Name of the session to capture from.  Picked from the
+          combobox the enumerator fills; an empty value puts the
+          node in the warning state and stops its triggers.</td></tr>
+  <tr><td><code>line-limit</code></td>
+      <td>Maximum number of trailing lines to capture per tick,
+          passed straight to <code>tmux capture-pane</code> as
+          <code>-S -&lt;N&gt;</code>.  Default 50.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between captures.</td></tr>
+</table>
+
+</body>
+</html>

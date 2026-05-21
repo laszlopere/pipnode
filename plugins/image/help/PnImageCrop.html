@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crop (PnImageCrop) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageCrop">Crop</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Geometry. <em>Type:</em>
+<code>PnImageCrop</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Geometry node. It cuts out the rectangle given by the <code>x</code>,
+<code>y</code>, <code>width</code> and <code>height</code> properties and
+emits that region as a new, smaller <code>PnImageMessage</code>. The origin
+is clamped inside the source and the size is trimmed to whatever remains, so
+the rectangle can never run off the edge; if nothing is left to crop the
+image passes through unchanged. The output dimensions are the cropped
+rectangle, not the input size. Any alpha channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>x</code></td>
+      <td>Left edge of the crop rectangle in pixels, 0&ndash;100000 (default 0).</td></tr>
+  <tr><td><code>y</code></td>
+      <td>Top edge of the crop rectangle in pixels, 0&ndash;100000 (default 0).</td></tr>
+  <tr><td><code>width</code></td>
+      <td>Width of the crop rectangle in pixels, 1&ndash;100000 (default 256).</td></tr>
+  <tr><td><code>height</code></td>
+      <td>Height of the crop rectangle in pixels, 1&ndash;100000 (default 256).</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (the cropped rectangle).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Crop (256×256)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

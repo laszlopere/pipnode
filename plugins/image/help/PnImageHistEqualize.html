@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Histogram Equalize (PnImageHistEqualize) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageHistEqualize">Histogram Equalize</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Adjust. <em>Type:</em> <code>PnImageHistEqualize</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It spreads the image's luma across the full tonal range so
+a flat, low-contrast picture gains contrast, and emits the result as a new
+<code>PnImageMessage</code>. A luma histogram is built over every pixel,
+its cumulative distribution is mapped onto [0, 255], and each pixel is
+scaled by the ratio of its new luma to its old one &mdash; which equalizes
+brightness while keeping hue. Any alpha channel is preserved. The node has
+no properties.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<p>None.</p>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Histogram Equalize (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

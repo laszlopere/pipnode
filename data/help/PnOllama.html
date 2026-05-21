@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ollama (PnOllama) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnOllama">Ollama</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnOllama</code>.
+</p>
+<p>
+Submits the incoming message's <code>data.output</code> string to an
+<a href="https://ollama.com">Ollama</a> server's
+<code>POST /api/generate</code> endpoint, awaits the (non-streaming)
+JSON reply, and emits a new message with <code>data.output</code>
+replaced by the model's response. All other envelope fields
+(<code>topic</code>, <code>id</code>, source back-reference, every
+other member of the <code>data</code> bag) are preserved, so the
+node slots in next to <code>PnFormat</code> /
+<code>PnRewrite</code> / any other transformer that reads or writes
+the same field.
+</p>
+
+<p>
+The HTTP call goes through libsoup-3 on the GTK main loop and is
+fully asynchronous &mdash; the worksheet stays responsive while the
+model is generating, even when the reply takes seconds (long
+prompts) or minutes (cold-start of a large model). A request never
+overlaps itself per message: the outgoing emit happens from the
+async reply callback, after the model has finished.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Hostname or IP of the Ollama server. Defaults to
+          <code>localhost</code>. Use the LAN name of a GPU host
+          (e.g. <code>gpu.lan</code>) to offload inference.</td></tr>
+  <tr><td><code>port</code></td>
+      <td>TCP port of the Ollama HTTP API. Defaults to
+          <code>11434</code> &mdash; the upstream default.</td></tr>
+  <tr><td><code>model</code></td>
+      <td>Ollama model id (e.g. <code>llama3.2:latest</code>,
+          <code>mistral:7b</code>). The settings dialog populates
+          this from the server's <code>GET /api/tags</code> listing;
+          a refresh button next to the combo re-queries on demand
+          (the list also re-queries automatically when
+          <code>hostname</code> or <code>port</code> changes).
+          Whatever value is currently saved stays selectable even
+          when the server is unreachable.</td></tr>
+  <tr><td><code>keep-alive</code></td>
+      <td>How long Ollama keeps the model resident in memory between
+          requests. Forwarded verbatim to the API's
+          <code>keep_alive</code> field. Accepts:
+          <ul>
+            <li>a duration like <code>5m</code> (the default),
+                <code>30s</code>, <code>1h</code> &mdash; the
+                "session" window the user asked about: the model
+                stays warm for that long after the last call;</li>
+            <li><code>0</code> &mdash; unload the model immediately
+                after each request (cold start every time, lowest
+                idle memory);</li>
+            <li><code>-1</code> &mdash; keep the model resident
+                forever (fastest repeat calls, never reclaims VRAM
+                on its own).</li>
+          </ul></td></tr>
+  <tr><td><code>prefix</code></td>
+      <td>Text prepended to the incoming <code>data.output</code>
+          before the combined string is sent. The place to put
+          system / role framing (e.g.
+          <code>"Translate the following to French:\n\n"</code>).</td></tr>
+  <tr><td><code>suffix</code></td>
+      <td>Text appended after the incoming
+          <code>data.output</code>. Useful for trailing instructions
+          like <code>"\n\nRespond in one sentence."</code></td></tr>
+</table>
+
+<p>
+The node renders red with a <code>&#x2757;</code> icon when either
+<code>hostname</code> is empty or <code>model</code> is unset, so a
+half-configured node is visually obvious at a glance. A failed HTTP
+call (host unreachable, HTTP &ge; 400, malformed JSON,
+<code>{"error": ...}</code> body) logs a warning to stderr and
+drops the message &mdash; no emit happens, so downstream nodes do
+not see a half-formed response.
+</p>
+
+<div class="note">
+This node depends on a reachable Ollama server speaking the standard
+HTTP API at <code>http://&lt;hostname&gt;:&lt;port&gt;/api/{tags,generate}</code>.
+Install Ollama from <a href="https://ollama.com">ollama.com</a>,
+pull a model (<code>ollama pull llama3.2</code>), and the running
+daemon will answer on port 11434 by default.
+</div>
+
+</body>
+</html>

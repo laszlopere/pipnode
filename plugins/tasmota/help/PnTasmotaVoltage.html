@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Voltage (PnTasmotaVoltage) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaVoltage">Tasmota Voltage</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaVoltage</code>.
+Inherits from <em>Analog Meter</em>.
+</p>
+<p>
+Sink node that paints a classic AC voltmeter: a square plastic case
+with an inset paper-white face, a diagonal arc of black ticks running
+from 0 V at the lower-left up to the configured full-scale value at
+the upper-right, a long black needle pivoted at the lower-right and a
+&ldquo;V&rdquo; unit glyph stacked over the IEC AC sine-wave symbol in
+the upper-left corner. The needle reads <code>ENERGY.Voltage</code>
+off every Tasmota <code>tele/&lt;device&gt;/SENSOR</code> publish from
+the configured device.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name the meter listens for. Matched against
+          the second-to-last segment of each incoming topic, so
+          <code>sonoff37</code> accepts publishes on
+          <code>mqtt/tele/sonoff37/SENSOR</code> and silently drops
+          everything else. An empty field rejects every message and
+          the needle stays parked.</td></tr>
+  <tr><td><code>min-value</code> / <code>max-value</code></td>
+      <td>Defaults to 0&nbsp;V .. 240&nbsp;V, the typical scale on a
+          domestic single-phase mains voltmeter.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = tele/+/SENSOR)
+    &rarr; Tasmota Voltage (switch-name = sonoff37)</pre>
+
+<p>
+Drop one <em>Tasmota Voltage</em> per device and fan the same MQTT
+source into each &mdash; the per-meter <code>switch-name</code> field
+handles the demultiplexing without needing a separate <em>Filter</em>
+rule. The meter accepts every other <em>Analog Meter</em> property
+(scale colours, accuracy class, tick density) so a worksheet can
+customise the look without subclassing.
+</p>
+
+</body>
+</html>

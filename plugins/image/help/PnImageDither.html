@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dither (PnImageDither) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageDither">Dither</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Stylize. <em>Type:</em> <code>PnImageDither</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It reduces the incoming image to pure black and white
+using Floyd&ndash;Steinberg error diffusion on luma, and emits the result
+as a new <code>PnImageMessage</code>. Each pixel is rounded to black or
+white at the 128 midpoint, and the rounding error is spread to the
+neighbouring pixels that have not yet been processed, so the 1-bit result
+still reads as continuous tone. Any alpha channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<p>None.</p>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Dither (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

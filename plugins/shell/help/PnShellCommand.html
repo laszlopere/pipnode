@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shell Command (PnShellCommand) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnShellCommand">Shell Command</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnShellCommand</code>.
+</p>
+<p>
+Auto-triggered runner that executes the configured one-line shell
+command every <code>period</code> seconds and emits one message per
+run on its output port. The command is spawned via
+<code>/bin/sh -c</code> on a worker thread so the GUI never blocks
+on slow commands; pipes, redirections, and shell variable expansion
+all work as they would on the terminal.
+</p>
+<p>
+The emitted message carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when the
+      command exited with status&nbsp;0, <code>false</code>
+      otherwise.</li>
+  <li><code>data.output</code> &mdash; the combined stdout and
+      stderr of the run, verbatim. JSON serialisation of the message
+      escapes embedded newlines as the standard <code>\n</code>
+      sequence on its own, so the value survives transport as one
+      logical string; downstream <em>Debug Print</em> nodes in
+      <em>text</em> mode render the raw bytes (i.e. multi-line
+      output prints across multiple lines).</li>
+</ul>
+<p>
+While <code>shell-command</code> is empty the node turns red, shows
+a warning glyph, and skips its triggers entirely.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>shell-command</code></td>
+      <td>One-line shell command to execute. Required.</td></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run the command.  Default <code>localhost</code>
+          (and the synonyms <code>127.0.0.1</code>, <code>::1</code>,
+          empty string) runs locally.  Any other value (a hostname
+          or <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between executions.</td></tr>
+</table>
+
+</body>
+</html>

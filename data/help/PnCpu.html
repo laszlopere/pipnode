@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CPU (PnCpu) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnCpu">CPU</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnCpu</code>.
+</p>
+<p>
+Auto-triggered probe that samples <code>/proc/stat</code> every
+<code>period</code> seconds and emits the CPU busy percentage as
+<code>data.value</code> (0&ndash;100), computed as the per-tick delta
+of the kernel's cumulative jiffy counters between two consecutive
+samples. Unlike <em>System Load</em> &mdash; which reports the
+run-queue-length load average, a proxy that does not distinguish
+"100% of one core" from "saturated 16 cores" &mdash; this node
+reports the actual fraction of wall-clock time the CPU spent in
+non-idle states.
+</p>
+<p>
+The percentage is built from the conventional accounting buckets:
+<code>busy&nbsp;=&nbsp;user&nbsp;+&nbsp;nice&nbsp;+&nbsp;system&nbsp;+&nbsp;irq&nbsp;+&nbsp;softirq&nbsp;+&nbsp;steal</code>,
+<code>idle&nbsp;=&nbsp;idle&nbsp;+&nbsp;iowait</code>,
+<code>total&nbsp;=&nbsp;busy&nbsp;+&nbsp;idle</code>, with the
+<code>guest</code> / <code>guest_nice</code> columns the kernel
+exposes since 2.6.24/2.6.33 intentionally not double-counted (they
+are already included in <code>user</code> / <code>nice</code>, and
+<code>top</code>/<code>htop</code> follow the same rule).
+<code>iowait</code> is also emitted separately on
+<code>data.iowait</code> so a worksheet can graph it as its own
+series.
+</p>
+<p>
+The first sample after construction (or after a hostname / core
+change) carries <code>value&nbsp;=&nbsp;0</code> and a "warming up"
+note in <code>data.output</code>: a real reading needs two samples.
+</p>
+<p>
+The sample comes from <code>/proc/stat</code> directly when
+<code>hostname</code> is empty or <code>"localhost"</code>; any
+other value is treated as a remote host and the file is fetched over
+passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname cat /proc/stat</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+<code>core</code> picks which row to measure. An empty string (the
+default) reads the aggregate <code>"cpu"</code> line &mdash; a sum
+across every core that the kernel maintains for us, so
+<code>data.value</code> represents the whole machine. A numeric
+value (<code>"0"</code>, <code>"1"</code>, &hellip;) selects the
+matching per-core row (<code>"cpu0"</code>, <code>"cpu1"</code>,
+&hellip;) so a worksheet can graph a single core in isolation.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (busy
+percentage), <code>data.idle</code>, <code>data.iowait</code> (the
+two non-busy buckets), <code>data.unit</code>
+(<code>"%"</code>), <code>data.core</code> (the row that was read:
+<code>"cpu"</code> for the aggregate, <code>"cpu0"</code> /
+<code>"cpu1"</code> / &hellip; for a single core),
+<code>data.host</code>, <code>data.success</code>, and
+<code>data.output</code> (a one-line human summary). When the SSH
+probe fails the remote stderr or the spawn error message is folded
+into <code>data.output</code>; when the file was read but no row
+matched the configured <code>core</code>, <code>data.output</code>
+explains that explicitly.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose <code>/proc/stat</code> to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password). Changing this property mid-flight
+          discards the previous sample so the next emitted
+          <code>value</code> is the "warming up" zero rather than a
+          spurious cross-host delta.</td></tr>
+  <tr><td><code>core</code></td>
+      <td>Which <code>/proc/stat</code> row to measure. Empty
+          string (the default) reads the aggregate <code>"cpu"</code>
+          line; a numeric value (<code>"0"</code>, <code>"1"</code>,
+          &hellip;) selects the matching per-core row. Changing
+          this property mid-flight discards the previous sample
+          (same reason as for <code>hostname</code>).</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default of 2&nbsp;s keeps the
+          per-tick delta well above the jiffy-resolution noise floor
+          while still feeling responsive in a downstream <em>Graph</em>.</td></tr>
+</table>
+
+</body>
+</html>

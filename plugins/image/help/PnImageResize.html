@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Resize (PnImageResize) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageResize">Resize</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Geometry. <em>Type:</em>
+<code>PnImageResize</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Geometry node. It scales the incoming image to the exact
+<code>width</code> × <code>height</code> given by the properties, using
+bilinear interpolation, and emits the result as a new
+<code>PnImageMessage</code>. The aspect ratio is not preserved unless the
+requested size already matches it. The output dimensions are the requested
+size, not the input size. Any alpha channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>width</code></td>
+      <td>Target width of the scaled image in pixels, 1&ndash;100000 (default 256).</td></tr>
+  <tr><td><code>height</code></td>
+      <td>Target height of the scaled image in pixels, 1&ndash;100000 (default 256).</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (the requested size).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Resize (256×256)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

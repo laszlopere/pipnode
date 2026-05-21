@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File Viewer (PnFileViewer) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFileViewer">File Viewer</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnFileViewer</code>.
+</p>
+<p>
+Display sink that shows whatever arrives on its input. It paints a view
+rectangle below its header (the same way the <em>Graph</em> node paints
+its plot area, and the <em>File Drop</em> source paints its drop area) and
+draws the incoming picture inside it.
+</p>
+<p>
+When the incoming message is a <code>PnImageMessage</code> &mdash; the
+specialised message the <em>File Drop</em> source emits, which carries the
+decoded image by pointer &mdash; the node takes a reference on that same
+image and resizes its view area to the image's own aspect ratio (at a
+fixed width, clamped to sane bounds), so the picture fills the rectangle
+edge-to-edge with no white margin. The render is identical to the one the
+<em>File Drop</em> produces, so wiring a <em>File Drop</em>'s output to a
+<em>File Viewer</em>'s input shows the very same image twice, both straight
+from the message &mdash; no file is re-read and the pixels are never copied,
+just ref-shared.
+</p>
+<p>
+Any other message clears the preview and falls back to a hint &mdash; the
+file name from the message's <code>data.filename</code> when present,
+otherwise <em>&ldquo;Nothing to show&rdquo;</em>.
+</p>
+
+<h5>Message <code>data</code> members</h5>
+<p>
+The viewer only reads input; it emits nothing. It looks at one optional
+member of the incoming message:
+</p>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.filename</code></td>
+      <td>Base name shown as the hint when no image is on display
+          (e.g. after a non-image message). Optional.</td></tr>
+</table>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>area-color</code></td>
+      <td>Fill colour of the view-area rectangle (white by default,
+          shown only while the area is empty).</td></tr>
+  <tr><td><code>border-color</code></td>
+      <td>Colour of the 1&nbsp;px frame around the view area.</td></tr>
+</table>
+
+</body>
+</html>

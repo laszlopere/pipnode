@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sound (PnSound) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSound">Sound</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnSound</code>.
+</p>
+<p>
+Plays a short clip whenever a message arrives. Playback is handed
+to <code>paplay</code>; bare sound-theme ids are resolved to
+<code>/usr/share/sounds/freedesktop/stereo/&lt;id&gt;.oga</code>. Two
+clips never overlap: messages that arrive while a previous clip is
+still playing are dropped, as are messages that arrive within the
+configured dead period after a clip ends. Incoming message contents
+are ignored — the trigger fact alone is what plays the sound.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>sound</code></td>
+      <td>The clip to play, set either by picking an entry from the
+          combobox of system sound ids or by browsing to an audio
+          file. Empty means "not configured" and paints the node
+          red.</td></tr>
+  <tr><td><code>dead-period</code></td>
+      <td>Seconds of mandatory silence after each playback. While
+          this window is active incoming messages are dropped, which
+          is useful when an upstream node fires faster than the clip
+          should retrigger.</td></tr>
+</table>
+<div class="note">
+This node depends on <code>paplay</code> (PulseAudio) being
+installed; system sound ids additionally require the freedesktop
+sound theme under <code>/usr/share/sounds/freedesktop</code>.
+</div>
+
+</body>
+</html>

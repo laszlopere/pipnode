@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Find Edges (PnImageFindEdges) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageFindEdges">Find Edges</h4>
+<p>
+<em>Group:</em> Image. <em>Type:</em> <code>PnImageFindEdges</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It runs the eight-neighbour Laplacian outline kernel
+(centre 8, every neighbour &minus;1) on the image's luma, so flat regions
+go black and every intensity transition lights up, and emits the result
+as a new <code>PnImageMessage</code>. The eight-neighbour kernel gives a
+thicker, more closed outline than the four-neighbour
+<code>Laplacian Edge</code> node. Any alpha channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Find Edges (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

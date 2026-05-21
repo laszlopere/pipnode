@@ -1,0 +1,106 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnLoad",
+      "uuid" : "56ea6dc0-2ac7-4c5d-ac88-9da24f65c10a",
+      "name" : "eth4 load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth4"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "6a4585cf-4fe0-44b8-b6ff-98c819380313",
+      "name" : "Load (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "8ee7df7d-11d4-4f43-bfdd-6ee9490d96d1",
+      "name" : "eth5 load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth5"
+      }
+    },
+    {
+      "type" : "PnCpu",
+      "uuid" : "5ff475fe-ab9c-44d3-af9c-7d7ed2e91fbd",
+      "name" : "CPU 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "localhost",
+        "core" : ""
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "6e222676-ce16-4a9d-a5a3-28d97c20dbd2",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "56ea6dc0-2ac7-4c5d-ac88-9da24f65c10a",
+      "target_id" : "6a4585cf-4fe0-44b8-b6ff-98c819380313"
+    },
+    {
+      "source_id" : "8ee7df7d-11d4-4f43-bfdd-6ee9490d96d1",
+      "target_id" : "6a4585cf-4fe0-44b8-b6ff-98c819380313"
+    },
+    {
+      "source_id" : "5ff475fe-ab9c-44d3-af9c-7d7ed2e91fbd",
+      "target_id" : "6a4585cf-4fe0-44b8-b6ff-98c819380313"
+    },
+    {
+      "source_id" : "5ff475fe-ab9c-44d3-af9c-7d7ed2e91fbd",
+      "target_id" : "6e222676-ce16-4a9d-a5a3-28d97c20dbd2"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

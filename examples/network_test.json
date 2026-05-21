@@ -1,0 +1,315 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnPing",
+      "uuid" : "fff6de38-2927-4db3-8956-aa3c828a7997",
+      "name" : "Ping pulse01",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "period" : 15,
+        "host" : "pulse01"
+      }
+    },
+    {
+      "type" : "PnFilter",
+      "uuid" : "14d7d153-322e-49aa-9ed8-06823170f785",
+      "name" : "OnlySuccess",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"success\",\"op\":\"==\",\"literal\":true}]"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "849ed6c2-f603-4035-a070-001d9ddbb139",
+      "name" : "Debug Print 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 680.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnWatchdog",
+      "uuid" : "de578ef4-560e-47fc-9ef9-e736dc4747b8",
+      "name" : "Watchdog",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "period" : 30,
+        "output-text" : "Pulse 01 is not reachable."
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "e2029f57-7a58-4633-be88-d102abbb9ae1",
+      "name" : "Male voice",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 800.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-lessac-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnThrottle",
+      "uuid" : "7d72704b-faf7-4668-826f-a88cd16e8ab0",
+      "name" : "Throttle",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "interval" : 15
+      }
+    },
+    {
+      "type" : "PnDns",
+      "uuid" : "cedb1690-f7e9-4333-8ec5-21537b578bde",
+      "name" : "DNS Check 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "period" : 5,
+        "server" : "",
+        "names" : "eth4,eth5"
+      }
+    },
+    {
+      "type" : "PnFilter",
+      "uuid" : "64c3d8af-69a0-493e-9e23-aa710220a8b8",
+      "name" : "OnlyFail",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"success\",\"op\":\"==\",\"literal\":false}]"
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "928ed25c-a144-4053-a3c3-9cc85a0fe2a4",
+      "name" : "Ping Sound",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "sound" : "complete",
+        "dead-period" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "45ab5cc4-318e-4f42-a0f7-e8cec1234731",
+      "name" : "Debug Print 3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnPing",
+      "uuid" : "26ec7098-01dd-4b36-87b1-4708f3ba6fc9",
+      "name" : "Ping pulse02",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "period" : 15,
+        "host" : "pulse02"
+      }
+    },
+    {
+      "type" : "PnPing",
+      "uuid" : "384b748a-0371-4cc1-97ba-fa684ea21c9c",
+      "name" : "Ping pulse03",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "period" : 15,
+        "host" : "pulse03"
+      }
+    },
+    {
+      "type" : "PnPing",
+      "uuid" : "500f0e32-69cb-4f69-9033-af95353cd5ea",
+      "name" : "Ping index.hu",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "period" : 60,
+        "host" : "index.hu"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "64750a9f-2c74-4c6d-ab8a-0002e122e6e9",
+      "name" : "Ping delay for index.hu",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "mode" : "line",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "6d751581-e815-489d-8e82-ffd3c8c491ea",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "color" : "rgb(51,217,77)",
+        "hold-ms" : 250
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "14d7d153-322e-49aa-9ed8-06823170f785",
+      "target_id" : "de578ef4-560e-47fc-9ef9-e736dc4747b8"
+    },
+    {
+      "source_id" : "de578ef4-560e-47fc-9ef9-e736dc4747b8",
+      "target_id" : "849ed6c2-f603-4035-a070-001d9ddbb139"
+    },
+    {
+      "source_id" : "de578ef4-560e-47fc-9ef9-e736dc4747b8",
+      "target_id" : "7d72704b-faf7-4668-826f-a88cd16e8ab0"
+    },
+    {
+      "source_id" : "7d72704b-faf7-4668-826f-a88cd16e8ab0",
+      "target_id" : "e2029f57-7a58-4633-be88-d102abbb9ae1"
+    },
+    {
+      "source_id" : "cedb1690-f7e9-4333-8ec5-21537b578bde",
+      "target_id" : "64c3d8af-69a0-493e-9e23-aa710220a8b8"
+    },
+    {
+      "source_id" : "64c3d8af-69a0-493e-9e23-aa710220a8b8",
+      "target_id" : "7d72704b-faf7-4668-826f-a88cd16e8ab0"
+    },
+    {
+      "source_id" : "fff6de38-2927-4db3-8956-aa3c828a7997",
+      "target_id" : "928ed25c-a144-4053-a3c3-9cc85a0fe2a4"
+    },
+    {
+      "source_id" : "fff6de38-2927-4db3-8956-aa3c828a7997",
+      "target_id" : "45ab5cc4-318e-4f42-a0f7-e8cec1234731"
+    },
+    {
+      "source_id" : "26ec7098-01dd-4b36-87b1-4708f3ba6fc9",
+      "target_id" : "45ab5cc4-318e-4f42-a0f7-e8cec1234731"
+    },
+    {
+      "source_id" : "26ec7098-01dd-4b36-87b1-4708f3ba6fc9",
+      "target_id" : "928ed25c-a144-4053-a3c3-9cc85a0fe2a4"
+    },
+    {
+      "source_id" : "384b748a-0371-4cc1-97ba-fa684ea21c9c",
+      "target_id" : "45ab5cc4-318e-4f42-a0f7-e8cec1234731"
+    },
+    {
+      "source_id" : "384b748a-0371-4cc1-97ba-fa684ea21c9c",
+      "target_id" : "928ed25c-a144-4053-a3c3-9cc85a0fe2a4"
+    },
+    {
+      "source_id" : "500f0e32-69cb-4f69-9033-af95353cd5ea",
+      "target_id" : "45ab5cc4-318e-4f42-a0f7-e8cec1234731"
+    },
+    {
+      "source_id" : "500f0e32-69cb-4f69-9033-af95353cd5ea",
+      "target_id" : "928ed25c-a144-4053-a3c3-9cc85a0fe2a4"
+    },
+    {
+      "source_id" : "64c3d8af-69a0-493e-9e23-aa710220a8b8",
+      "target_id" : "849ed6c2-f603-4035-a070-001d9ddbb139"
+    },
+    {
+      "source_id" : "500f0e32-69cb-4f69-9033-af95353cd5ea",
+      "target_id" : "64750a9f-2c74-4c6d-ab8a-0002e122e6e9"
+    },
+    {
+      "source_id" : "fff6de38-2927-4db3-8956-aa3c828a7997",
+      "target_id" : "14d7d153-322e-49aa-9ed8-06823170f785"
+    },
+    {
+      "source_id" : "fff6de38-2927-4db3-8956-aa3c828a7997",
+      "target_id" : "6d751581-e815-489d-8e82-ffd3c8c491ea"
+    },
+    {
+      "source_id" : "500f0e32-69cb-4f69-9033-af95353cd5ea",
+      "target_id" : "6d751581-e815-489d-8e82-ffd3c8c491ea"
+    },
+    {
+      "source_id" : "26ec7098-01dd-4b36-87b1-4708f3ba6fc9",
+      "target_id" : "6d751581-e815-489d-8e82-ffd3c8c491ea"
+    },
+    {
+      "source_id" : "384b748a-0371-4cc1-97ba-fa684ea21c9c",
+      "target_id" : "6d751581-e815-489d-8e82-ffd3c8c491ea"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

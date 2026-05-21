@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edge (PnEdge) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnEdge">Edge</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnEdge</code>.
+</p>
+<p>
+Edge detector. Forwards a message only when its
+<code>data.success</code> boolean differs from the previous one's.
+Messages whose <code>success</code> is missing or not a boolean
+are dropped without updating state, and the very first observed
+message is never forwarded. Use it to convert a polling stream
+(many same-value messages) into an event stream (one message per
+state change).
+</p>
+
+</body>
+</html>

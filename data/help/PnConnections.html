@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Net Connections (PnConnections) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnConnections">Net Connections</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnConnections</code>.
+</p>
+<p>
+Auto-triggered probe that counts the host's <em>established</em>
+TCP connections every <code>period</code> seconds and emits the
+total as <code>data.value</code>. Only sockets in TCP state
+<code>ESTABLISHED</code> are counted &mdash; <code>TIME_WAIT</code>,
+<code>CLOSE_WAIT</code>, <code>LISTEN</code> and the various
+half-closed / transient states are excluded, so the figure tracks
+connections that are actually <em>alive</em> rather than the wider
+universe of every entry in the kernel's TCP table.
+</p>
+<p>
+The count covers every network namespace the probing user can see
+&mdash; LXC / Docker / podman containers each have their own netns,
+so a naive read of <code>/proc/net/tcp</code> would see only the
+host's namespace and miss the containers entirely; this node
+deduplicates processes by the inode of
+<code>/proc/&lt;pid&gt;/ns/net</code> (via <code>stat&nbsp;-L</code>)
+and walks each unique namespace's
+<code>/proc/&lt;pid&gt;/net/tcp{,6}</code> instead, summing rows
+whose state column equals <code>01</code> (the kernel's hex code
+for <code>ESTABLISHED</code>). To pick up the containers, the probe
+must run as a user that can read other namespaces'
+<code>/proc</code> entries &mdash; in practice, root over SSH.
+</p>
+<p>
+When <code>hostname</code> is empty or <code>"localhost"</code>
+the script runs locally. Any other value is treated as a remote
+host and the same script is run in one SSH round trip on a worker
+thread, so an unreachable target cannot freeze the GUI.
+Passwordless authentication is required
+(<code>BatchMode=yes</code>), and <code>ConnectTimeout</code> is
+derived from the period so a dead host can never stall a tick.
+The cost on the probed host is a fixed handful of forks
+(<code>ls</code>, <code>stat</code>, <code>sort</code>,
+<code>cut</code>, <code>awk</code>) regardless of process count, so
+the probe scales cleanly to a busy server.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose TCP socket count to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples.</td></tr>
+</table>
+
+</body>
+</html>

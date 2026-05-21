@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text View (PnTextView) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTextView">Text View</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnTextView</code>.
+</p>
+<p>
+Sink-with-passthrough that renders the latest <code>data.output</code>
+string of an incoming message as a read-only multi-line text block in
+a monospace font &mdash; the "terminal pane" complement to
+<em>Table View</em>'s structured rendering of <code>data.table</code>.
+A wiring like <em>Shell Command</em> &rarr; <em>Text View</em> shows
+the latest run's stdout/stderr verbatim on the canvas.
+</p>
+<p>
+Defaults are a classic green-on-black terminal scheme; every visual
+property is exposed so the inspector can repaint a node to e.g.
+amber-on-black or white-on-blue without code changes.
+</p>
+<p>
+Each received message <strong>replaces</strong> the displayed text
+(the latest snapshot wins, just like <em>Table View</em>); the node
+does not maintain a scroll-back history.  A message that carries no
+string <code>data.output</code> clears the view to its empty
+"waiting for output" state &mdash; useful for spotting that the
+upstream producer has stopped emitting parsable text rather than
+being left with a stale render.
+</p>
+<p>
+The node carries an output port and re-emits every received message
+verbatim, so it can sit mid-pipeline as an inline inspector without
+breaking a downstream consumer.  Mouse-wheel scroll over the body
+moves through long output one line at a time.
+</p>
+<p>
+Visually the node mirrors <em>Table View</em> exactly
+(280&nbsp;px wide header, 173&nbsp;px body) so a row of mixed view
+sinks lines up on the worksheet.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill behind the rendered text.  Default: black.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the rendered text.  Default: green.</td></tr>
+  <tr><td><code>font-size</code></td>
+      <td>Monospace font size in pixels (6&ndash;48).
+          Default: 12.</td></tr>
+</table>
+
+</body>
+</html>

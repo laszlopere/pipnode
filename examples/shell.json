@@ -1,0 +1,196 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnDebug",
+      "uuid" : "adcf2284-b803-40ad-b2fd-913d9d2fabfe",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 200.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnTableView",
+      "uuid" : "502c5647-b3d4-4846-9fec-2dc141c27f17",
+      "name" : "Table View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "background-color" : "rgb(255,255,255)",
+        "header-background-color" : "rgb(26,95,180)",
+        "grid-color" : "rgb(119,118,123)",
+        "text-color" : "rgb(26,26,26)",
+        "header-text-color" : "rgb(255,255,255)",
+        "alternate-row-background" : true
+      }
+    },
+    {
+      "type" : "PnTableView",
+      "uuid" : "c362cf42-1bfc-4d86-ae96-21bb2aeaa57c",
+      "name" : "Table View 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "background-color" : "rgb(255,255,255)",
+        "header-background-color" : "rgb(26,95,180)",
+        "grid-color" : "rgb(119,118,123)",
+        "text-color" : "rgb(26,26,26)",
+        "header-text-color" : "rgb(255,255,255)",
+        "alternate-row-background" : true
+      }
+    },
+    {
+      "type" : "PnFreeCommand",
+      "uuid" : "dbac0338-ac3e-4b26-8d9c-fbfc7ba85bcb",
+      "name" : "Free Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "period" : 5,
+        "host" : "localhost"
+      }
+    },
+    {
+      "type" : "PnDfCommand",
+      "uuid" : "a36664e6-7bf7-455c-8b68-c5da54d86e8c",
+      "name" : "Df Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 5,
+        "host" : "localhost"
+      }
+    },
+    {
+      "type" : "PnLxcLsCommand",
+      "uuid" : "32fcf796-e6aa-4284-88b0-a3e9bfeac223",
+      "name" : "Lxc Ls Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "period" : 5,
+        "host" : "eth4"
+      }
+    },
+    {
+      "type" : "PnTableView",
+      "uuid" : "26bf862f-f16f-45c3-8dd8-735f0e9a14ea",
+      "name" : "Containers",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "background-color" : "rgb(255,255,255)",
+        "header-background-color" : "rgb(26,95,180)",
+        "grid-color" : "rgb(119,118,123)",
+        "text-color" : "rgb(26,26,26)",
+        "header-text-color" : "rgb(255,255,255)",
+        "alternate-row-background" : true
+      }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "8aec1945-3317-4766-bc46-46bc6dbbb7e4",
+      "name" : "Text View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "f0c6316d-0064-4556-8395-df83451a9fb1",
+      "name" : "Text View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "c6eb6d20-47ec-4aed-b2d8-c35e799de70d",
+      "name" : "Text View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "a36664e6-7bf7-455c-8b68-c5da54d86e8c",
+      "target_id" : "adcf2284-b803-40ad-b2fd-913d9d2fabfe"
+    },
+    {
+      "source_id" : "dbac0338-ac3e-4b26-8d9c-fbfc7ba85bcb",
+      "target_id" : "8aec1945-3317-4766-bc46-46bc6dbbb7e4"
+    },
+    {
+      "source_id" : "8aec1945-3317-4766-bc46-46bc6dbbb7e4",
+      "target_id" : "c362cf42-1bfc-4d86-ae96-21bb2aeaa57c"
+    },
+    {
+      "source_id" : "32fcf796-e6aa-4284-88b0-a3e9bfeac223",
+      "target_id" : "c6eb6d20-47ec-4aed-b2d8-c35e799de70d"
+    },
+    {
+      "source_id" : "c6eb6d20-47ec-4aed-b2d8-c35e799de70d",
+      "target_id" : "26bf862f-f16f-45c3-8dd8-735f0e9a14ea"
+    },
+    {
+      "source_id" : "a36664e6-7bf7-455c-8b68-c5da54d86e8c",
+      "target_id" : "f0c6316d-0064-4556-8395-df83451a9fb1"
+    },
+    {
+      "source_id" : "f0c6316d-0064-4556-8395-df83451a9fb1",
+      "target_id" : "502c5647-b3d4-4846-9fec-2dc141c27f17"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

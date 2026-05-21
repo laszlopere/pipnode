@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Switch (PnSwitch) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSwitch">Switch</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnSwitch</code>.
+</p>
+<p>
+Two-position slide switch.  Clicking the slider toggles the latched
+state and emits a single message whose <code>data.value</code> is
+<code>1.0</code> in the &ldquo;on&rdquo; position or <code>0.0</code>
+in the &ldquo;off&rdquo; position; <code>data.success</code> mirrors
+the same state as a boolean so a downstream edge filter can react to
+the transition directly.
+</p>
+<p>
+Incoming messages drive the latch like an upstream remote: when the
+inbound <code>data.value</code> crosses zero
+(positive&nbsp;&rarr;&nbsp;on, zero or negative&nbsp;&rarr;&nbsp;off)
+the switch flips to match and the message is forwarded, so another
+switch &mdash; or any node emitting a 0&nbsp;/&nbsp;1 value &mdash;
+can drive this one without manual clicks.
+</p>
+<p>
+A message whose <code>data.value</code> matches the latch's current
+position is <em>dropped on the floor</em>: the switch acts as a
+single stable-state representative, and forwarding the no-op edge
+would close feedback loops like
+<em>physical relay &rarr; MQTT Source &rarr; Tasmota Relay Status &rarr;
+Switch &rarr; Tasmota Relay Command &rarr; MQTT Sink &rarr;
+physical relay</em> into endless message storms (we turn off the
+light, which tells us the light is off, which we publish to turn the
+light off, &hellip;). The user can read the current state off the
+slider and does not need a stream of confirmations to know nothing
+changed.
+</p>
+<p>
+Messages without a numeric <code>value</code> cannot drive that
+cycle and may carry annotations the user expects to flow through, so
+they pass through unchanged with the latch left alone.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>on</code></td>
+      <td>Current latched position.  Writing the property flips the
+          visual state without emitting a message; use the worksheet
+          click (or the public <code>pn_switch_toggle()</code> API)
+          to flip and emit in one step.</td></tr>
+</table>
+
+</body>
+</html>

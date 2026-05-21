@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<h1>Pipnode</h1>
+
+<p>
+Pipnode is a desktop visual flow editor inspired by
+<em>Node-RED</em>. You build wiring diagrams of data-processing
+nodes on the worksheet, save them as JSON files, and run them
+locally. Each node is a small object that produces, transforms or
+consumes <strong>messages</strong>; wires carry messages from one
+node's output to another node's input.
+</p>
+
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+  <li><a href="#interface">Interface overview</a></li>
+  <li><a href="#worksheets">Worksheets and sheet tabs</a></li>
+  <li><a href="#messages">Messages and data flow</a>
+    <ul>
+      <li><a href="#messages-envelope">Envelope properties</a></li>
+      <li><a href="#messages-data">Standard <code>data</code>-bag members</a></li>
+    </ul>
+  </li>
+  <li><a href="#plugins">Plugins</a></li>
+  <li><a href="#tips">Tips and troubleshooting</a></li>
+</ul>
+</div>
+
+<h2 id="interface">Interface overview</h2>
+
+<p>
+The main window is divided into three areas:
+</p>
+
+<ul>
+  <li><strong>Palette</strong> (left sidebar) &mdash; a tree of every
+      available node type, grouped by role. Drag a leaf onto the
+      worksheet to create a node of that type. Right-click the
+      palette header to open this help page.</li>
+  <li><strong>Worksheet</strong> (centre) &mdash; the canvas where
+      you arrange nodes and wire them together. Drag from a node's
+      output port to another node's input port to create a wire.
+      Double-click a node to edit its properties.</li>
+  <li><strong>Debug pane</strong> (collapsible, bottom) &mdash; shows
+      messages routed to <em>Debug View</em> by Debug nodes. Toggle
+      it from <em>View &rarr; Debug View</em>.</li>
+</ul>
+
+<p>
+Worksheets are saved as JSON via the <em>File</em> menu's
+<em>New</em>, <em>Open</em>, <em>Save</em> and
+<em>Save As&hellip;</em> entries. Loading a JSON worksheet
+recreates every node with its properties and reconnects the wires.
+The <em>Save</em> toolbar button and matching <em>File &rarr; Save</em>
+menu item are insensitive while the in-memory worksheet still
+matches its on-disk copy and ungate as soon as you make any
+edit (add or remove a node or wire, drag, toggle <em>Disabled</em>,
+or change a property in the Configure dialog); a successful save
+flips them back to insensitive. <em>Save As&hellip;</em> is always
+available so you can fork the same canvas under a new name without
+making a token edit first.
+</p>
+
+<p>
+Any node can be temporarily switched off via the <em>Disabled</em>
+checkbox in its Configure dialog or the <em>Enable</em>/<em>Disable</em>
+entry in its right-click menu. Disabled nodes are drawn in grey, do
+not emit messages, ignore messages arriving on their input, and skip
+any periodic action (HTTP requests, ping probes, watchdog ticks).
+The state is persisted with the worksheet.
+</p>
+
+<h2 id="worksheets">Worksheets and sheet tabs</h2>
+
+<p>
+A single <code>.json</code> file can carry several spreadsheet-style
+sheets, each rendering its own subset of nodes on its own tab.
+Sheets are organisational, not isolated execution units: every node
+on every sheet still runs in the same shared message-dispatch loop,
+so a Debug Print on <em>Sheet&nbsp;3</em> still receives ticks from
+an Auto Random on <em>Sheet&nbsp;1</em> as long as a wire connects
+them &mdash; with one important constraint, see below.
+</p>
+
+<ul>
+  <li><strong>Tab strip.</strong> Sits across the top of the editor.
+      Click a tab to switch sheets; click the trailing <em>+</em>
+      button to add a fresh one (the dialog pre-fills the next free
+      <em>Sheet&nbsp;N</em> name, so accepting with Enter is the
+      common path). Drag a tab sideways to reorder it.</li>
+  <li><strong>Right-click a tab</strong> for a context menu of
+      <em>Rename&hellip;</em>, <em>Move Left</em>, <em>Move Right</em>,
+      and <em>Delete</em>. Renaming a sheet rewrites the
+      <code>worksheet</code> property of every node on it, so the
+      tag stays consistent with the tab label after a save.
+      Deleting a sheet removes every node it contains
+      (and any wires touching them); the tab strip always carries
+      at least one sheet, so the last one cannot be deleted.</li>
+  <li><strong>New nodes</strong> dropped from the palette inherit the
+      active sheet's name automatically. <strong>Pasting</strong>
+      from the clipboard re-tags the pasted nodes onto the active
+      sheet too, so you can move a subgraph between sheets with
+      Cut&nbsp;+&nbsp;Paste.</li>
+  <li><strong>Wires only connect nodes on the same sheet.</strong>
+      The wire-drag handler refuses cross-sheet drops at creation
+      time, and the file loader drops any cross-sheet wires it
+      finds in a hand-edited save with a warning. Use a value-only
+      <em>Set</em> stage on each side, plus a shared <em>Format</em>
+      template, when you need to bridge sheets through a contract
+      both halves agree on.</li>
+  <li><strong>Save / Open / New</strong> operate on the whole file:
+      one save writes every sheet at once, one load replaces every
+      sheet, <em>File&nbsp;&rarr;&nbsp;New</em> resets the strip to
+      a single empty sheet named <em>Worksheet</em>. The Save
+      sensitivity tracks the modified flag for the file as a whole,
+      not per sheet.</li>
+  <li><strong>Headless runs.</strong> The <code>pipnode-run</code>
+      binary loads every sheet's nodes together, exactly the way the
+      GUI does &mdash; sheet tags are inert at runtime.</li>
+</ul>
+
+<p>
+Files saved before the multi-sheet feature shipped load as a single
+sheet named <em>Worksheet</em>; the next save back-fills the new
+top-level <code>"sheets"</code> array next to the existing
+<code>"nodes"</code> and <code>"connections"</code> lists.
+</p>
+
+<h2 id="messages">Messages and data flow</h2>
+
+<p>
+Every wire carries a <code>PnMessage</code>. The envelope
+properties are <code>topic</code>, <code>id</code>,
+<code>created</code>, plus a back-reference to the source node;
+the <code>data</code> bag is a JSON object the producer fills in
+with whatever payload it has to share. Both halves are nominally
+schemaless &mdash; any node may stash any keys it likes &mdash; but
+a small set of names has hardened into a de-facto contract that
+lets nodes mix and match without explicit configuration. A
+<em>Graph</em> fed from a <em>Temp</em> just works because
+both sides agree the canonical numeric reading lives at
+<code>data.value</code>; a <em>Debug Print</em> placed after a
+<em>Format</em> just works because both sides agree the
+human-readable summary lives at <code>data.output</code>.
+</p>
+
+<p>
+The easiest way to see what a message looks like in practice is to
+wire one into a <em>Debug Print</em> set to JSON format &mdash; it
+renders the envelope and the data bag together as one indented
+object:
+</p>
+
+<pre>{
+  "from"    : "CPU Temperature",
+  "from_id" : "5e2d1e17-1b06-4f3b-8d7a-2a05a8a93f0d",
+  "topic"   : "/pnode/Temp/CPU Temperature",
+  "id"      : "2405b0f6-f995-482e-888a-e42e540e1647",
+  "created" : "2026-05-08T13:52:34.345410+02",
+  "data"    : {
+      "endpoint" : "thermal_zone0",
+      "success"  : true,
+      "value"    : 47.3,
+      "output"   : "CPU temperature is 47.3 °C.",
+      ...
+  }
+}</pre>
+
+<p>
+The <code>from</code> and <code>from_id</code> fields at the top are
+not properties of the message itself &mdash; they are synthesised by
+<em>Debug Print</em> at render time. <code>from</code> is the source
+node's display name (so a reader of the log immediately sees which
+node produced the line); <code>from_id</code> is the source node's
+stable, persistent UUID, suitable for unambiguous lookup when two
+nodes share a display name. The debug pane uses
+<code>from_id</code> to focus the originating node when its label is
+clicked. No other node ever sees these fields on a wire.
+</p>
+
+<p>
+When a node's output has several wires hanging off it, each wire
+delivers its target an independent deep-copy of the emitted message
+rather than a shared pointer. A filter that mutates its received
+message in place (<em>Table Model</em> attaching
+<code>data.table</code>, <em>Set</em> rewriting members,
+<em>Format</em> rewriting <code>data.output</code>, …) therefore
+cannot contaminate a sibling branch &mdash; a <em>Debug Print</em>
+attached to the same source still sees what was emitted, not what a
+downstream filter rewrote it to. The <code>id</code> is preserved
+across the fork so the per-branch copies remain correlatable back to
+the original emission.
+</p>
+
+<p>
+New nodes should honour these names when the concept applies and
+reach for a more specific name only when it genuinely does not. A
+node reporting a numeric reading puts the magnitude in
+<code>value</code>; the <em>Rate</em> node downstream multiplies
+that <code>value</code> in place rather than introducing a parallel
+<code>converted_value</code>, which is exactly why the <em>Graph</em>
+sitting after either of them needs no reconfiguration.
+</p>
+
+<h3 id="messages-envelope">Envelope properties</h3>
+
+<table>
+<tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+
+<tr><td><code>topic</code></td><td>string</td><td>
+  Routing tag every node stamps onto the messages it emits.
+  Configured per node from the <em>Node</em> tab of the settings
+  dialog as a template; the template is resolved at emit time and
+  the substituted form is what the envelope carries. The default
+  template is
+  <code>/pnode/${nodeclass}/${nodename}</code> &mdash; or, for
+  nodes that carry a <code>hostname</code> setting (every
+  <em>CPU</em> / <em>Memory</em> / <em>Load</em> /
+  <em>Net I/O</em> / <em>Disk I/O</em> / <em>Connections</em>
+  probe and every shell / SSH-flavoured command),
+  <code>/pnode/${nodeclass}/${nodename}/${hostname}</code> so the
+  executing host appears in the topic.
+  <p>Placeholders:</p>
+  <ul>
+    <li><code>${nodeclass}</code> &mdash; the node type's display
+        label (e.g. <code>CPU</code>, <code>Clock</code>).</li>
+    <li><code>${nodename}</code> &mdash; the per-instance name the
+        user typed in the <em>Name</em> field; falls back to the
+        class label when the user has not named the node.</li>
+    <li><code>${hostname}</code> &mdash; the node's configured
+        hostname when it has one, or the executing machine's own
+        hostname when the configured value is empty or
+        <code>"localhost"</code>. The substitution happens at the
+        moment the message is created, so the same worksheet file
+        carried between hosts produces topics that name the host
+        the worksheet is running on.</li>
+  </ul>
+  The template itself is editable in place; an empty entry restores
+  the built-in default. Topics not produced by a regular node
+  resolution path stay in their original literal form:
+  <em>MQTT Source</em> carries the broker-supplied topic
+  (<code>mqtt/&lt;mqtt-topic&gt;</code>), and the <em>HTTPS Tunnel
+  Receiver</em> replays the topic that arrived on the wire.
+  <p>
+  Filter / transformer nodes (<em>Format</em>, <em>Filter</em>,
+  <em>Rate</em>, <em>Dedup</em>, <em>Edge</em>, <em>Throttle</em>,
+  <em>Query</em>, <em>Table Model</em>) forward the message they
+  received without rewriting the topic, so a <em>Rate</em> placed
+  after a <em>Temp</em> carries the
+  <em>Temp</em>'s topic downstream.
+  </p>
+</td></tr>
+
+<tr><td><code>id</code></td><td>string</td><td>
+  Unique identifier of the message, e.g.
+  <code>"2405b0f6-f995-482e-888a-e42e540e1647"</code>. Lasts for
+  the lifetime of the message and never changes.
+</td></tr>
+
+<tr><td><code>created</code></td><td>string</td><td>
+  Timestamp marking when the message was created, in ISO-8601
+  format (e.g. <code>"2026-05-08T13:52:34.345410+02"</code>).
+</td></tr>
+
+<tr><td><code>from</code></td><td>string</td><td>
+  Display name of the node that produced the message, e.g.
+  <code>"Pulse Balance"</code>.
+</td></tr>
+
+<tr><td><code>from_id</code></td><td>string</td><td>
+  Stable per-node UUID of the producer, minted when the node was
+  first created and preserved across save/load (and replaced with a
+  fresh value on copy/paste so a clone never shares its origin's
+  identity). Use this rather than <code>from</code> when you need an
+  unambiguous reference &mdash; the debug pane drives its
+  click-to-highlight on this field.
+</td></tr>
+</table>
+
+<h3 id="messages-data">Standard <code>data</code>-bag members</h3>
+
+<p>
+Three members are universal and should be the first names a new
+producer reaches for whenever the concept applies:
+</p>
+
+<table>
+<tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+
+<tr><td><code>data.value</code></td><td>number</td><td>
+  The headline numeric reading the message is about &mdash;
+  whatever single number best summarises what the producer just
+  observed. May be a JSON number, or a numeric string when the
+  producer needs more range than a double provides (e.g. a
+  hex-encoded JSON-RPC quantity, or an arbitrary-precision
+  integer).
+</td></tr>
+
+<tr><td><code>data.output</code></td><td>string</td><td>
+  A short, human-readable one-line summary of the message,
+  suitable for showing in a log, a notification, or on screen.
+</td></tr>
+
+<tr><td><code>data.success</code></td><td>boolean</td><td>
+  Whether the producing operation completed normally.
+</td></tr>
+</table>
+
+<p>
+Beyond those three, several members are conventional within a
+family of nodes rather than universal across all of them:
+</p>
+
+<table>
+<tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+
+<tr><td><code>data.endpoint</code></td><td>string</td><td>
+  URL or address of the remote service the message came from.
+</td></tr>
+
+<tr><td><code>data.status</code></td><td>int</td><td>
+  HTTP status code of the response.
+</td></tr>
+
+<tr><td><code>data.count</code>, <code>data.total</code></td><td>int</td><td>
+  How many items the operation handled successfully and how many
+  it attempted.
+</td></tr>
+
+<tr><td><code>data.error</code></td><td>string</td><td>
+  Human-readable diagnostic accompanying a failure.
+</td></tr>
+
+<tr><td><code>data.rate</code>, <code>data.currency</code></td><td>double, string</td><td>
+  Conversion rate that was applied to <code>value</code> and the
+  unit it is now expressed in.
+</td></tr>
+
+<tr><td><code>data.unit</code></td><td>string</td><td>
+  Unit of measure that <code>data.value</code> is expressed in
+  (e.g. <code>"C"</code>, <code>"F"</code>, <code>"%"</code>). Used
+  by sensor-style producers (<em>Tasmota Temperature</em>,
+  <em>Tasmota Humidity</em>) so a downstream <em>Format</em>
+  template or graph axis label does not have to hard-code the unit.
+</td></tr>
+
+<tr><td><code>data.device</code></td><td>string</td><td>
+  Stable identifier of the physical device the reading came from
+  (e.g. <code>"tasmota13"</code>). Used by sensor producers that
+  receive readings from many devices over a single bus / broker so
+  a downstream <em>Filter</em> can route per device without parsing
+  the envelope topic.
+</td></tr>
+
+<tr><td><code>data.table</code></td><td>object</td><td>
+  Structured table parsed out of a free-text payload (typically the
+  ASCII-aligned <code>data.output</code> of a shell command). Shape
+  is <code>{ "header": { "cells": [ { "text": "..." }, ... ] },
+  "rows": [ { "cells": [ { "text": "..." }, ... ] }, ... ] }</code>;
+  the <code>header</code> member is omitted when the producer was
+  told not to interpret a header. Each cell is a JSON object rather
+  than a bare string so a future filter can decorate it with per-cell
+  properties (colour, alignment, ...) without breaking the schema.
+  Filled by the <em>Table Model</em> filter; downstream nodes (e.g.
+  <em>Set</em>, <em>Format</em>) can index a row's cell by its
+  column position and pull the cell's <code>text</code> member.
+</td></tr>
+</table>
+
+<p>
+Producers are free to add any other members they need; consumers
+should ignore members they don't understand.
+</p>
+
+<h2 id="plugins">Plugins</h2>
+
+<p>
+Pipnode can load extra node types from third-party shared objects at
+startup, so you can ship your own nodes without forking the source
+tree. A plugin is a single <code>.so</code> (or <code>.dylib</code>
+/ <code>.dll</code> on macOS / Windows) that exports one C symbol —
+<code>pn_plugin_init</code> — which the host calls to register
+its <code>#PnNode</code> subclasses with the process-wide node
+factory.
+</p>
+
+<h3 id="plugins-search-path">Where pipnode looks for plugins</h3>
+
+<p>
+At startup both <code>pipnode</code> and <code>pipnode-run</code>
+scan, in order:
+</p>
+
+<ol>
+  <li>Every directory listed in <code>PIPNODE_PLUGIN_PATH</code>
+      (colon-separated, front-most takes precedence — useful while
+      developing a plugin against an installed pipnode).</li>
+  <li><code>$XDG_DATA_HOME/pipnode/plugins/</code> (falling back to
+      <code>~/.local/share/pipnode/plugins/</code>) — drop a
+      <code>.so</code> here for a per-user install.</li>
+  <li>The system plugin directory baked in at build time
+      (<code>$pkglibdir/plugins/</code>, typically
+      <code>/usr/lib/pipnode/plugins/</code>) — used by distribution
+      packages.</li>
+</ol>
+
+<p>
+A missing directory is silently treated as "no plugins here". A
+plugin found through two overlapping search paths is loaded only
+once.
+</p>
+
+<h3 id="plugins-writing">Writing a plugin</h3>
+
+<p>
+Build against the <code>pipnode</code> headers and link the result
+as a loadable module (libtool's <code>-module -avoid-version</code>
+or its CMake / Meson equivalent).  The minimal plugin is roughly:
+</p>
+
+<pre>#include &lt;gmodule.h&gt;
+#include &lt;pipnode/pn-node.h&gt;
+#include &lt;pipnode/pn-message.h&gt;
+#include &lt;pipnode/pn-node-factory.h&gt;
+#include &lt;pipnode/pn-plugin.h&gt;
+
+#define MY_TYPE_ECHO (my_echo_get_type ())
+G_DECLARE_FINAL_TYPE (MyEcho, my_echo, MY, ECHO, PnNode)
+
+struct _MyEcho { PnNode parent_instance; };
+G_DEFINE_TYPE (MyEcho, my_echo, PN_TYPE_NODE)
+
+static void my_echo_receive (PnNode *n, PnMessage *m)
+{
+    pn_node_emit_message (n, m);   /* pass through */
+}
+
+static void
+my_echo_class_init (MyEchoClass *klass)
+{
+    PnNodeClass *nc = PN_NODE_CLASS (klass);
+    nc-&gt;receive    = my_echo_receive;
+    nc-&gt;class_name = "Echo";
+    nc-&gt;icon       = "\xef\x81\xa4"; /* fa-share */
+    nc-&gt;color      = (GdkRGBA){0.55, 0.65, 0.95, 1.0};
+    nc-&gt;category   = "Filters";
+    nc-&gt;has_input  = TRUE;
+    nc-&gt;has_output = TRUE;
+}
+
+static void my_echo_init (MyEcho *self) { (void) self; }
+
+G_MODULE_EXPORT const PnPluginInfo *
+pn_plugin_init (PnNodeFactory *factory)
+{
+    static const PnPluginInfo info = {
+        .abi_version = PN_PLUGIN_ABI_VERSION,
+        .name        = "EchoPlugin",
+        .version     = "1.0.0",
+        .description = "Pass-through demo node",
+    };
+    pn_node_factory_register (factory, MY_TYPE_ECHO);
+    return &amp;info;
+}</pre>
+
+<p>
+The <code>category</code> field decides the palette group your node
+joins; the standard values are <em>Sources</em>, <em>Network</em>,
+<em>Filters</em> and <em>Sinks</em> but a plugin
+is free to introduce its own group name — pipnode renders any
+category it sees in registration order.
+</p>
+
+<h3 id="plugins-abi">ABI versioning</h3>
+
+<p>
+Every plugin declares a <code>PN_PLUGIN_ABI_VERSION</code> in its
+<code>PnPluginInfo</code>. The host refuses to load a plugin whose
+declared version does not match the value baked into the running
+pipnode, so a stale plugin sitting in the user's plugin directory
+cannot crash the process with a silent layout mismatch — pipnode
+logs a warning and skips it.
+</p>
+
+<p>
+The version is bumped whenever an incompatible change to
+<code>PnNode</code> / <code>PnNodeClass</code>, the factory
+registration contract, or the plugin entry-point signature ships
+in a release.  Plugins are recompiled and redistributed against the
+new ABI; an out-of-tree plugin that targets the previous ABI keeps
+working with the previous pipnode release without needing a
+patch from us.
+</p>
+
+<h3 id="plugins-attribution">Attribution and inspection</h3>
+
+<p>
+Each plugin's <code>PnPluginInfo.name</code> is recorded against
+every node type it registers. The inspector shows it as the node's
+<em>provenance</em>; built-in nodes report
+<code>"Internal"</code>. There is no unload path — once a plugin is
+loaded its <code>.so</code> is pinned in memory for the lifetime of
+the process, since GTypes registered by the plugin cannot be
+unregistered. Reloading a plugin during development requires
+restarting pipnode.
+</p>
+
+<h3 id="plugins-dialog">Extending the node settings dialog</h3>
+
+<p>
+The dialog the user sees when double-clicking a node auto-generates
+one editor row per writable GObject property the node's class chain
+declares — a <code>GtkEntry</code> for strings, a check button for
+booleans, a combo for enums, and so on. Plugin-shipped node types
+get this for free and need no extra <code>_class_init</code>
+plumbing for the common case.
+</p>
+
+<p>
+ABI version 2 adds three optional vfunc slots on
+<code>PnNodeClass</code> for the cases the auto-generated tab
+cannot cover on its own: a property whose right widget is not the
+default (a serial-port path that should pick from a sysfs walk, a
+file path that should open a file chooser, a value with reactive
+dependencies on a sibling property), structured configuration that
+is not naturally a flat property form (a list of rules, a route
+table — the in-tree Filter and Set rule editors are the worked
+examples), and configuration that needs more than one notebook tab
+(a Diagnostics page, a Logs tail, a "Scan for devices" button).
+</p>
+
+<ul>
+  <li><code>build_property_editor</code> — return a custom
+      #GtkWidget for one specific property and let the host fill
+      the other rows. Returning %NULL falls back to the host
+      default.</li>
+  <li><code>build_class_tab</code> — return a fully custom widget
+      that replaces the auto-generated property tab for this class.
+      Returning %NULL falls back to the introspection-driven
+      default.</li>
+  <li><code>build_extra_pages</code> — append additional notebook
+      pages beyond the property tab using
+      <code>pn_node_dialog_append_page()</code>.</li>
+</ul>
+
+<p>
+Helpers exposed from
+<code>&lt;pipnode/pn-node-dialog-helpers.h&gt;</code>
+(<code>pn_node_dialog_new_property_grid</code>,
+<code>pn_node_dialog_attach_row</code>,
+<code>pn_node_dialog_default_editor</code>,
+<code>pn_node_dialog_append_page</code>) let a partially-custom tab
+match the host's grid spacing / margins and delegate the rows it
+does not want to take over back to the host. Worker-thread async
+operations that should lock the dialog while running can install a
+read-only boolean property named <code>busy</code>; the host
+automatically watches it and centres a "Initializing device…"
+spinner over the notebook while the property is <code>TRUE</code>.
+The full reference, with worked examples copied from the in-tree
+PnMeshtastic and PnFilter migrations, lives in the
+<code>PLUGINS</code> file at the top of the source tree under
+section 15 (Extending the node settings dialog).
+</p>
+
+<h2 id="tips">Tips and troubleshooting</h2>
+
+<ul>
+  <li><strong>Red node body, warning glyph.</strong> The node is
+      missing required configuration (an empty URL, host or text).
+      Double-click the node to open its property dialog and fill
+      the missing field; the node returns to its normal colour and
+      resumes triggering automatically.</li>
+  <li><strong>Polling vs. events.</strong> Auto-triggered nodes
+      (Clock, Ping, HTTP, Temp, Watchdog) emit on every
+      tick. To turn that into an event stream wire them through an
+      <em>Edge</em> filter so only state changes propagate.</li>
+  <li><strong>Inspecting a flow.</strong> Drop a Debug node with
+      <em>target = debug view</em> and <em>format = oneliner</em>
+      onto any wire to see what is actually flowing. Switch to
+      <em>JSON</em> when you need to feed the trace into another
+      tool.</li>
+  <li><strong>Saving and sharing.</strong> Worksheets are plain
+      JSON files: copy them, diff them, version-control them. The
+      file lists each node's class, properties and the wires
+      between them.</li>
+  <li><strong>Running headless.</strong> The companion
+      <code>pipnode-run</code> binary loads a saved worksheet and
+      runs the same message dispatch as the GUI without opening a
+      window — handy for cron, systemd, or any pipeline that just
+      wants the Debug-node lines on stdout. The file is opened
+      read-only, so a scheduled run cannot rewrite it. Pass
+      <code>--timeout=N</code> to stop gracefully after N seconds
+      (otherwise it runs until SIGINT / SIGTERM).</li>
+</ul>
+
+</body>
+</html>

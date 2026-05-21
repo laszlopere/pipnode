@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Relay Command (PnTasmotaRelayCommand) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaRelayCommand">Tasmota Relay Command</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaRelayCommand</code>.
+</p>
+<p>
+Inverse of <em>Tasmota Relay Status</em>. Reads <code>data.value</code>
+off each inbound message, turns it into the Tasmota relay-control
+message a downstream <em>MQTT Sink</em> can publish, and forwards.
+Closes the loop on a flow like
+<em>Switch &rarr; Tasmota Relay Command &rarr; MQTT Sink</em>
+without intervening <em>Format</em> or <em>Rewrite</em> nodes &mdash;
+the Tasmota-specific topic + payload shape is baked in.
+</p>
+
+<h5>Conversion</h5>
+<table>
+  <tr><th>Inbound <code>data.value</code></th><th>Outbound</th></tr>
+  <tr><td><code>&gt; 0.5</code> (e.g. 1.0)</td>
+      <td><code>data.payload = "ON"</code>, <code>data.value = 1.0</code></td></tr>
+  <tr><td><code>&le; 0.5</code> (e.g. 0.0)</td>
+      <td><code>data.payload = "OFF"</code>, <code>data.value = 0.0</code></td></tr>
+</table>
+<p>
+The envelope topic is rewritten to
+<code>cmnd/&lt;switch-name&gt;/POWER</code> so the downstream
+<em>MQTT Sink</em> &mdash; which takes the publish topic from the
+envelope &mdash; publishes straight to the right Tasmota command
+endpoint. Messages without a usable numeric <code>data.value</code>
+leave the relay alone (same rule the read-side
+<em>Tasmota Relay Status</em> uses), so the pair stays internally
+consistent.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name to command. Stamped into the outgoing
+          envelope topic as <code>cmnd/&lt;switch-name&gt;/POWER</code>
+          and copied to <code>data.device</code>. <strong>Mandatory
+          by design</strong> &mdash; there is no default, since
+          silently defaulting would risk flipping the wrong physical
+          relay. An empty field puts the node in the red
+          &ldquo;configuration required&rdquo; state and rejects every
+          message until the user fills it in.</td></tr>
+</table>
+
+<h5>Output shape</h5>
+<p>
+The inbound envelope is rewritten and the data bag overwritten in
+place; downstream sees:
+</p>
+<table>
+  <tr><th>Member</th><th>Value</th></tr>
+  <tr><td>envelope <code>topic</code></td>
+      <td><code>cmnd/&lt;switch-name&gt;/POWER</code></td></tr>
+  <tr><td><code>data.payload</code></td>
+      <td>String <code>"ON"</code> or <code>"OFF"</code> &mdash;
+          exactly what Tasmota's command parser expects, and the
+          shape <em>MQTT Sink</em>'s default payload path publishes
+          as raw bytes without quoting.</td></tr>
+  <tr><td><code>data.value</code></td>
+      <td>Normalised <code>1.0</code> / <code>0.0</code> mirror of
+          the on/off decision, so a parallel branch (an LED indicator
+          wired off the same point) can shadow the state without
+          parsing the payload string.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>true</code> on every forwarded message.</td></tr>
+  <tr><td><code>data.device</code></td>
+      <td>The configured <code>switch-name</code>, suitable for
+          downstream per-device routing or logging.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g.
+          <code>sonoff19: command power on</code>.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>Switch (slide)
+    &rarr; Tasmota Relay Command (switch-name = sonoff19)
+        &rarr; MQTT Sink (url = tcp://mqtt.homelab.local:1883,
+                          retain = false)</pre>
+<p>
+Click the slider on <em>Switch</em>; the value flips between
+<code>1.0</code> and <code>0.0</code>; <em>Tasmota Relay Command</em>
+turns that into <code>cmnd/sonoff19/POWER</code> +
+<code>"ON"</code>/<code>"OFF"</code>; <em>MQTT Sink</em> publishes,
+and the physical relay clicks. Closing the loop with a parallel
+<em>MQTT Source &rarr; Tasmota Relay Status &rarr; Switch</em> branch
+gives the canvas switch a way to follow state changes commanded from
+elsewhere (the Tasmota app, the wall button, another flow).
+</p>
+
+</body>
+</html>

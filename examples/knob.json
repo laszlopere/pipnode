@@ -1,0 +1,172 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnDial",
+      "uuid" : "0c1f30a0-7a2a-42e5-b7be-fc82d1739227",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "5c49505b-4ce5-46a2-bc75-b9097e46c69c",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 120.0,
+        "value" : 120.0
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "92fe9c57-9476-4fb7-944e-1c93ea989d06",
+      "name" : "Expression 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "expression" : "log(value) * 10"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "2e440d42-d519-4f1c-8b7e-a0568ef9f56e",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "b04865f2-e9e8-4b77-ad64-5c6a6dea4f5b",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 120.0,
+        "value" : 60.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "4dece59c-ba0a-4ec9-a37f-0abe7b13b1a3",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 120.0,
+        "value" : 60.0
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "6a9d6db0-bc27-4b96-b927-5f786a313ca9",
+      "name" : "Expression 2 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "expression" : "(value1 + value2) / 2"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "5c49505b-4ce5-46a2-bc75-b9097e46c69c",
+      "target_id" : "92fe9c57-9476-4fb7-944e-1c93ea989d06"
+    },
+    {
+      "source_id" : "92fe9c57-9476-4fb7-944e-1c93ea989d06",
+      "target_id" : "0c1f30a0-7a2a-42e5-b7be-fc82d1739227"
+    },
+    {
+      "source_id" : "b04865f2-e9e8-4b77-ad64-5c6a6dea4f5b",
+      "target_id" : "6a9d6db0-bc27-4b96-b927-5f786a313ca9"
+    },
+    {
+      "source_id" : "4dece59c-ba0a-4ec9-a37f-0abe7b13b1a3",
+      "target_id" : "6a9d6db0-bc27-4b96-b927-5f786a313ca9",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "6a9d6db0-bc27-4b96-b927-5f786a313ca9",
+      "target_id" : "2e440d42-d519-4f1c-8b7e-a0568ef9f56e"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

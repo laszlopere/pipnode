@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Set (PnSet) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSet">Set</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnSet</code>.
+</p>
+<p>
+The complement of <em>Filter</em>. Forwards every incoming message
+unchanged except that, before forwarding, it sets (or adds) a
+configured list of members on the message's <code>data</code> bag.
+Useful for tagging messages with a <code>topic</code>-like marker
+the next stage can branch on, for stamping a constant
+<code>endpoint</code> on a synthetic source whose payload would
+otherwise be missing the field, or for forcing a known
+<code>success</code>/<code>value</code> through a downstream
+<em>Format</em> template during a worksheet test.
+</p>
+<p>
+The properties dialog lays the assignment list out as one row of
+widgets per assignment, with an <em>Add property</em> button below
+&mdash; the same dynamic-list pattern the <em>Filter</em> editor
+uses, minus the operator combo (<em>Set</em> assigns rather than
+compares). Each row is a triple of <em>(path, type, value)</em>:
+the path picks the data-bag member to write, with the same
+<code>value</code> / <code>success</code> / <code>output</code> /
+<code>endpoint</code> shortcuts as <em>Filter</em> plus a
+<em>Custom&hellip;</em> entry for any other key, including dotted
+paths (e.g. <code>foo.bar</code>) which the node materialises by
+creating intermediate <code>JsonObject</code>s on demand. The
+type combo (<em>number</em> / <em>string</em> / <em>boolean</em>)
+drives how the literal is encoded in JSON when the message is
+forwarded.
+</p>
+<p>
+An empty assignment list is a no-op pass-through. Existing data-bag
+members are overwritten; missing ones are added. The list is
+persisted as a single string property (<code>props</code>) holding
+the JSON array form so it round-trips through the worksheet
+save/load path unchanged.
+</p>
+
+</body>
+</html>

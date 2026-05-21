@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HTTPS Tunnel Receiver (PnHttpsTunnelReceiver) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnHttpsTunnelReceiver">HTTPS Tunnel Receiver</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnHttpsTunnelReceiver</code>.
+</p>
+<p>
+Source-only node that listens on a TCP port and emits one
+<code>PnMessage</code> for every JSON document POSTed to it. Designed
+as the receiver side of a pipnode-to-pipnode link: a peer pipnode
+(or any HTTPS client &mdash; <code>curl</code>, a script, another
+service) sends a JSON envelope to <code>https://&lt;host&gt;:&lt;port&gt;/</code>,
+the node parses it, rebuilds the message, and forwards it on its
+output port to whatever is wired downstream.
+</p>
+
+<h5>TLS</h5>
+<p>
+The node always serves HTTPS. Out of the box, with no configuration,
+it generates a self-signed RSA 2048 certificate (CN=<code>pipnode</code>,
+~10 year validity) and stores it under
+<code>$XDG_DATA_HOME/pipnode/</code> (typically
+<code>~/.local/share/pipnode/default-cert.pem</code> and
+<code>default-key.pem</code>, with the key file
+<code>chmod 0600</code>) on first start. Subsequent starts pick the
+same files back up so the server's identity is stable across
+restarts &mdash; dropping the node onto a worksheet and wiring it
+up is enough; no external setup needed. Clients connecting to a
+self-signed endpoint must pin the certificate or skip verification
+(<code>curl -k</code>, etc.).
+</p>
+<p>
+When you want a real certificate (a Let's Encrypt cert, a private
+PKI cert, ...), point <code>cert-path</code> and <code>key-path</code>
+at the PEM files instead of the auto-generated defaults; the
+supplied pair is used as-is and the auto-generation step is
+skipped. Clearing both fields falls back to an ephemeral,
+in-memory self-signed cert that does not survive a restart.
+</p>
+
+<h5>Authentication</h5>
+<p>
+Optional HTTP Basic auth: when both <code>username</code> and
+<code>password</code> are non-empty the server rejects unauthenticated
+requests with <code>401</code>; either field empty leaves the
+endpoint open. The credentials travel inside the TLS tunnel, never
+in clear.
+</p>
+
+<h5>Wire format</h5>
+<p>
+A request body of <code>{"topic": "...", "data": { ... }}</code>
+rebuilds a message with that <code>topic</code> and that
+<code>data</code> bag verbatim. Optional <code>id</code> and
+<code>created</code> string fields are also restored onto the
+envelope. When the body has no <code>data</code> wrapper the whole
+top-level object becomes the data bag, so a flat
+<code>{"foo": 1}</code> from an ad-hoc client lands as
+<code>data.foo = 1</code>.
+</p>
+<p>
+A successful POST returns <code>200 OK</code> with a one-line
+<code>{"ok":true}</code> body. Malformed JSON or a non-object root
+returns <code>400</code>. <code>GET /</code> returns a plain-text
+banner so an operator can probe liveness without constructing a
+JSON body.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>port</code></td>
+      <td>TCP port to listen on; <code>0</code> disables the
+      server. Defaults to <code>8443</code>. Pipnode runs
+      unprivileged, so binding the standard <code>443</code> requires
+      either running as root or setting
+      <code>CAP_NET_BIND_SERVICE</code> on the binary.</td></tr>
+  <tr><td><code>username</code></td>
+      <td>HTTP Basic auth username; empty leaves the endpoint
+      open.</td></tr>
+  <tr><td><code>password</code></td>
+      <td>HTTP Basic auth password; empty leaves the endpoint
+      open.</td></tr>
+  <tr><td><code>cert-path</code></td>
+      <td>Path to a PEM-encoded TLS certificate. Defaults to
+      <code>$XDG_DATA_HOME/pipnode/default-cert.pem</code>; the
+      file is minted lazily on the first start and reused on every
+      run after that. Point at a different file to swap in a real
+      cert. Clearing both this and <code>key-path</code> falls back
+      to an ephemeral, in-memory self-signed cert.</td></tr>
+  <tr><td><code>key-path</code></td>
+      <td>Path to the PEM-encoded private key matching
+      <code>cert-path</code>. Defaults to
+      <code>$XDG_DATA_HOME/pipnode/default-key.pem</code>, generated
+      together with the certificate and stored
+      <code>chmod 0600</code>.</td></tr>
+</table>
+
+<h5>Quick test</h5>
+<pre>
+curl -k -X POST https://localhost:8443/ \
+     -H 'Content-Type: application/json' \
+     -d '{"topic": "demo", "data": {"hello": "world"}}'
+</pre>
+<p>
+If the node is configured with credentials, add
+<code>-u user:pass</code>.
+</p>
+
+</body>
+</html>

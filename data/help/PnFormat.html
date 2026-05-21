@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Format (PnFormat) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFormat">Format</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnFormat</code>.
+</p>
+<p>
+Rewrites <code>data.output</code> from one of two templates,
+selected by <code>data.success</code>. Each template may embed
+<code>${path/to/field}</code> placeholders that resolve against the
+incoming message JSON: the root carries <code>topic</code>,
+<code>id</code>, and <code>data</code> (the payload bag), so for
+example <code>${data/value}</code> resolves to the data bag's
+<code>value</code> member.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>success-text</code></td>
+      <td>Template used when <code>data.success</code> is true.</td></tr>
+  <tr><td><code>failure-text</code></td>
+      <td>Template used when <code>data.success</code> is false or missing.</td></tr>
+</table>
+<pre>success-text: "${topic} OK &mdash; ${data/output}"
+failure-text: "${topic} DOWN at ${data/host}"</pre>
+
+</body>
+</html>

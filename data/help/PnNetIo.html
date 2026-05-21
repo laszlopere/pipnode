@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Network I/O (PnNetIo) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnNetIo">Network I/O</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnNetIo</code>.
+</p>
+<p>
+Auto-triggered probe that samples <code>/proc/net/dev</code> every
+<code>period</code> seconds and emits the live network-traffic
+<em>volume</em> (RX + TX bytes per second &mdash; not packet count)
+as <code>data.value</code> in the byte multiple chosen by the
+<code>unit</code> property &mdash; one of <code>B/sec</code>,
+<code>KByte/sec</code>, <code>MByte/sec</code>, or
+<code>GByte/sec</code> (decimal, 1&nbsp;KByte&nbsp;=&nbsp;1000&nbsp;bytes).
+The default is <code>MByte/sec</code> &mdash; gigabit ethernet
+saturates around 125&nbsp;MByte/sec, so the figure lands in a
+readable 0.x &mdash; 100.x range without truncating to all-zeros the
+way <code>GByte/sec</code> would on a 1&nbsp;GbE host or overflowing
+the field the way <code>KByte/sec</code> would on a real workload.
+The figure is computed as the per-second delta of the kernel's
+cumulative byte counters between two consecutive ticks, so the first
+sample after construction (or after a hostname / interface change)
+carries <code>value&nbsp;=&nbsp;0</code> and a "warming up" note in
+<code>data.output</code>: a real reading needs two samples.
+</p>
+<p>
+Note that network throughput is conventionally reported in <em>bits</em>
+per second (Mbps, Gbps) by switches and link-layer tools, while
+host-side tools that read <code>/proc/net/dev</code> report
+<em>bytes</em> per second. This node follows the byte convention to
+stay symmetric with <em>Disk I/O</em> and to match the underlying
+kernel counter; a downstream filter that prefers the bits-per-second
+convention can multiply by 8.
+</p>
+<p>
+The sample comes from <code>/proc/net/dev</code> directly when
+<code>hostname</code> is empty or <code>"localhost"</code>; any
+other value is treated as a remote host and the file is fetched over
+passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname cat /proc/net/dev</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+<code>interface</code> picks which row to measure. An empty string
+(the default) sums across every non-loopback interface in the file
+&mdash; the <code>lo</code> row is always skipped on the
+all-interfaces path so localhost-loop traffic does not inflate the
+figure. A concrete value (<code>"eth0"</code>, <code>"wlan0"</code>,
+<code>"enp86s0"</code>, <code>"docker0"</code>, &hellip;) restricts
+the reading to that one interface.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (RX + TX
+throughput in the configured unit), <code>data.rx</code>,
+<code>data.tx</code> (the two halves of the sum, same unit),
+<code>data.unit</code> (the short string matching the chosen
+<code>unit</code> property), <code>data.interface</code> (the
+interface(s) that contributed: a single name, an empty string when
+no non-loopback row was found, or a <code>"+"</code>-joined list
+when the all-interfaces path summed several), <code>data.host</code>,
+<code>data.success</code>, and <code>data.output</code> (a one-line
+human summary &mdash; either the throughput figure broken into its
+rx/tx halves or the failure reason). When the SSH probe fails the
+remote stderr or the spawn error message is folded into
+<code>data.output</code> so a downstream <em>Debug Print</em> shows
+the user what went wrong; when the file was read but no row matched
+the configured <code>interface</code>, <code>data.output</code>
+explains that explicitly.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose <code>/proc/net/dev</code> to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password). Changing this property mid-flight
+          discards the previous sample so the next emitted
+          <code>value</code> is the "warming up" zero rather than a
+          spurious cross-host delta.</td></tr>
+  <tr><td><code>interface</code></td>
+      <td>Network-interface name to measure
+          (<code>"eth0"</code>, <code>"wlan0"</code>,
+          <code>"enp86s0"</code>, <code>"docker0"</code>, &hellip;).
+          An empty string (the default) sums across every
+          non-loopback row of <code>/proc/net/dev</code>; the
+          loopback row (<code>"lo"</code>) is always skipped on the
+          all-interfaces path. Changing this property mid-flight
+          discards the previous sample (same reason as for
+          <code>hostname</code>).</td></tr>
+  <tr><td><code>unit</code></td>
+      <td>Output unit for <code>data.value</code>:
+          <code>B/sec</code>, <code>KByte/sec</code>,
+          <code>MByte/sec</code>, or <code>GByte/sec</code> (decimal
+          multiples). The default is <code>MByte/sec</code>. The
+          chosen short string is also emitted on
+          <code>data.unit</code> so a downstream <em>Graph</em>
+          axis label can pick it up verbatim. Changing this property
+          does <em>not</em> invalidate the previous sample &mdash;
+          the bytes/sec computation is the same, only the divisor
+          differs.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default of 2&nbsp;s keeps the
+          per-tick delta well above any rounding noise while still
+          feeling responsive in a downstream <em>Graph</em>.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,380 @@
+/*
+ * Copyright (C) 2024-2026 Laszlo Pere
+ *
+ * This file is part of Pipnode.  Pipnode is free software: you can
+ * redistribute it and/or modify it under the terms of the GNU General
+ * Public License version 3, with the additional permission described in
+ * LICENSE.PLUGIN-EXCEPTION, as published by the Free Software Foundation.
+ *
+ * Pipnode is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; see the GNU General Public License for more details.  You
+ * should have received a copy of the license in the file COPYING.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "pn-shell-command.h"
+#include "pn-message.h"
+#include "pn-shell-host.h"
+
+/* Visual states.  The icon panel renders in white, so the body colour
+ * carries the alert for the warning state. */
+#define PN_SHELL_COMMAND_NORMAL_ICON  "\xef\x84\xa0"   /* fa-terminal U+F120 */
+#define PN_SHELL_COMMAND_WARNING_ICON "\xe2\x9d\x97"   /* ❗ U+2757 */
+
+#define PN_SHELL_COMMAND_DEFAULT_PERIOD 5u
+
+struct _PnShellCommand
+{
+    PnAutoTrigger parent_instance;
+
+    /* The worker thread reads @shell_command and @host while the main
+     * thread may overwrite either via a property setter, so accesses
+     * are serialised through @mutex.  Both strings are owned by the
+     * node and freed in finalize. */
+    GMutex  mutex;
+    gchar  *shell_command;
+    gchar  *host;
+};
+
+G_DEFINE_TYPE (PnShellCommand, pn_shell_command, PN_TYPE_AUTO_TRIGGER)
+
+enum {
+    PROP_0,
+    PROP_SHELL_COMMAND,
+    PROP_HOST,
+    N_PROPS,
+};
+
+static GParamSpec *props[N_PROPS];
+
+/* ------------------------------------------------------------------ */
+/*  Visual state                                                       */
+/* ------------------------------------------------------------------ */
+
+static void
+apply_visual_state (
+        PnShellCommand *self,
+        gboolean        configured)
+{
+    PnNode *node = PN_NODE (self);
+
+    if (configured)
+    {
+        GdkRGBA blue = { 0.42, 0.62, 0.86, 1.0 };
+        pn_node_set_color (node, &blue);
+        pn_node_set_icon  (node, PN_SHELL_COMMAND_NORMAL_ICON);
+    }
+    else
+    {
+        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        pn_node_set_color (node, &red);
+        pn_node_set_icon  (node, PN_SHELL_COMMAND_WARNING_ICON);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Command accessor (thread-safe)                                     */
+/* ------------------------------------------------------------------ */
+
+static gchar *
+shell_dup_command_locked (PnShellCommand *self)
+{
+    gchar *copy;
+
+    g_mutex_lock (&self->mutex);
+    copy = g_strdup (self->shell_command);
+    g_mutex_unlock (&self->mutex);
+
+    return copy;
+}
+
+static void
+shell_set_command (
+        PnShellCommand *self,
+        const gchar    *command)
+{
+    gchar    *old;
+    gchar    *replacement;
+    gboolean  configured;
+
+    replacement = (command != NULL) ? g_strdup (command) : NULL;
+    configured  = (command != NULL && *command != '\0');
+
+    g_mutex_lock (&self->mutex);
+    old = self->shell_command;
+    self->shell_command = replacement;
+    g_mutex_unlock (&self->mutex);
+
+    g_free (old);
+
+    apply_visual_state (self, configured);
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SHELL_COMMAND]);
+}
+
+static gchar *
+shell_dup_host_locked (PnShellCommand *self)
+{
+    gchar *copy;
+
+    g_mutex_lock (&self->mutex);
+    copy = g_strdup (self->host);
+    g_mutex_unlock (&self->mutex);
+
+    return copy;
+}
+
+static void
+shell_set_host (
+        PnShellCommand *self,
+        const gchar    *host)
+{
+    gchar *old;
+    gchar *replacement;
+
+    replacement = g_strdup ((host != NULL && *host != '\0')
+                            ? host : PN_SHELL_HOST_DEFAULT);
+
+    g_mutex_lock (&self->mutex);
+    old = self->host;
+    self->host = replacement;
+    g_mutex_unlock (&self->mutex);
+
+    g_free (old);
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HOST]);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Trigger                                                            */
+/*                                                                     */
+/*  Runs on the worker thread inherited from #PnAutoTrigger.  Spawn   */
+/*  /bin/sh -c <command> so the user's one-liner can use pipes,       */
+/*  redirections, variable expansion, etc., without us having to      */
+/*  tokenise it ourselves.                                             */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_shell_command_trigger (PnAutoTrigger *trigger)
+{
+    PnShellCommand     *self        = PN_SHELL_COMMAND (trigger);
+    PnNode             *node        = PN_NODE (self);
+    gchar              *command     = shell_dup_command_locked (self);
+    gchar              *host        = shell_dup_host_locked (self);
+    gchar              *stdout_text = NULL;
+    gchar              *stderr_text = NULL;
+    gchar              *combined;
+    gint                exit_status = 0;
+    GError             *error       = NULL;
+    PnMessage          *msg;
+    gboolean            spawned;
+    gboolean            success     = FALSE;
+    GSpawnFlags         spawn_flags;
+    const gchar        *base_argv[4];
+    gchar             **argv;
+
+    /* Skip work entirely while the node is in its "configuration
+     * required" state.  The visual marker on the canvas already tells
+     * the user; emitting nothing keeps downstream nodes idle. */
+    if (command == NULL || *command == '\0')
+    {
+        g_free (command);
+        g_free (host);
+        return;
+    }
+
+    /* Local: spawn /bin/sh -c <command> directly so pipes, redirections
+     * and variable expansion work without us tokenising the one-liner
+     * ourselves.  Remote: hand the command string to ssh as a single
+     * argv element so the remote login shell (not us) does the
+     * interpretation, and so embedded spaces survive sshd's
+     * argv-join-with-spaces behaviour intact. */
+    if (pn_shell_host_is_local (host))
+    {
+        base_argv[0] = "/bin/sh";
+        base_argv[1] = "-c";
+        base_argv[2] = command;
+        base_argv[3] = NULL;
+        spawn_flags  = G_SPAWN_DEFAULT;
+    }
+    else
+    {
+        base_argv[0] = command;
+        base_argv[1] = NULL;
+        spawn_flags  = G_SPAWN_SEARCH_PATH;
+    }
+
+    argv = pn_shell_wrap_argv (host, base_argv);
+
+    spawned = g_spawn_sync (NULL,
+                            argv,
+                            NULL,
+                            spawn_flags,
+                            NULL, NULL,
+                            &stdout_text,
+                            &stderr_text,
+                            &exit_status,
+                            &error);
+
+    if (!spawned)
+    {
+        combined = g_strdup (error ? error->message : "spawn failed");
+        g_clear_error (&error);
+    }
+    else
+    {
+        success  = g_spawn_check_wait_status (exit_status, NULL);
+        combined = g_strconcat (stdout_text ? stdout_text : "",
+                                stderr_text ? stderr_text : "",
+                                NULL);
+    }
+
+    msg = pn_message_new (node, NULL);
+    pn_message_set_boolean (msg, "success", success);
+    pn_message_set_string  (msg, "output",  combined);
+
+    pn_auto_trigger_emit_on_main (trigger, msg);
+
+    g_free (combined);
+    g_free (stdout_text);
+    g_free (stderr_text);
+    g_free (command);
+    g_free (host);
+    g_strfreev (argv);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Property plumbing                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_shell_command_get_property (
+        GObject    *object,
+        guint       prop_id,
+        GValue     *value,
+        GParamSpec *pspec)
+{
+    PnShellCommand *self = PN_SHELL_COMMAND (object);
+
+    switch (prop_id)
+    {
+    case PROP_SHELL_COMMAND:
+        g_value_take_string (value, shell_dup_command_locked (self));
+        break;
+    case PROP_HOST:
+        g_value_take_string (value, shell_dup_host_locked (self));
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void
+pn_shell_command_set_property (
+        GObject      *object,
+        guint         prop_id,
+        const GValue *value,
+        GParamSpec   *pspec)
+{
+    PnShellCommand *self = PN_SHELL_COMMAND (object);
+
+    switch (prop_id)
+    {
+    case PROP_SHELL_COMMAND:
+        shell_set_command (self, g_value_get_string (value));
+        break;
+    case PROP_HOST:
+        shell_set_host (self, g_value_get_string (value));
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  GObject lifecycle                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_shell_command_finalize (GObject *object)
+{
+    PnShellCommand *self = PN_SHELL_COMMAND (object);
+
+    g_clear_pointer (&self->shell_command, g_free);
+    g_clear_pointer (&self->host,          g_free);
+    g_mutex_clear (&self->mutex);
+
+    G_OBJECT_CLASS (pn_shell_command_parent_class)->finalize (object);
+}
+
+static void
+pn_shell_command_class_init (PnShellCommandClass *klass)
+{
+    GObjectClass       *object_class  = G_OBJECT_CLASS (klass);
+    PnNodeClass        *node_class    = PN_NODE_CLASS (klass);
+    PnAutoTriggerClass *trigger_class = PN_AUTO_TRIGGER_CLASS (klass);
+
+    object_class->get_property = pn_shell_command_get_property;
+    object_class->set_property = pn_shell_command_set_property;
+    object_class->finalize     = pn_shell_command_finalize;
+    trigger_class->trigger     = pn_shell_command_trigger;
+
+    node_class->palette_icon   = PN_SHELL_COMMAND_NORMAL_ICON;
+    node_class->class_name     = "Shell Command";
+    node_class->icon           = PN_SHELL_COMMAND_NORMAL_ICON;
+    node_class->color          = (GdkRGBA){ 0.42, 0.62, 0.86, 1.0 };
+    node_class->category       = "Shell";
+    node_class->has_input      = FALSE;
+    node_class->has_output     = TRUE;
+
+    props[PROP_SHELL_COMMAND] = g_param_spec_string (
+            "shell-command", "Shell Command",
+            "One-line shell command to execute periodically; while "
+            "empty the node is marked as needing configuration and "
+            "emits nothing",
+            NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_HOST] = g_param_spec_string (
+            "host", "Host",
+            "Hostname (or user@host) to run the command on.  "
+            "\"localhost\" (the default) runs locally; any other "
+            "value routes the command through passwordless ssh "
+            "(BatchMode=yes — a pre-installed key is required).",
+            PN_SHELL_HOST_DEFAULT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    g_object_class_install_properties (object_class, N_PROPS, props);
+}
+
+static void
+pn_shell_command_init (PnShellCommand *self)
+{
+    PnNode *node = PN_NODE (self);
+
+    g_mutex_init (&self->mutex);
+    self->shell_command = NULL;
+    self->host          = g_strdup (PN_SHELL_HOST_DEFAULT);
+
+    pn_node_set_class_name (node, "Shell Command");
+    pn_node_set_has_input  (node, FALSE);
+    pn_node_set_has_output (node, TRUE);
+
+    pn_auto_trigger_set_period (PN_AUTO_TRIGGER (self),
+                                PN_SHELL_COMMAND_DEFAULT_PERIOD);
+
+    apply_visual_state (self, FALSE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public API                                                         */
+/* ------------------------------------------------------------------ */
+
+PnShellCommand *
+pn_shell_command_new (void)
+{
+    return g_object_new (PN_TYPE_SHELL_COMMAND, NULL);
+}

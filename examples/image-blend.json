@@ -1,0 +1,75 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFileDrop",
+      "uuid" : "10000000-0000-4000-8000-000000000001",
+      "name" : "Drop an image",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 60.0, "y" : 200.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+
+    {
+      "type" : "PnImageGrayscale",
+      "uuid" : "20000000-0000-4000-8000-000000000001",
+      "name" : "Grayscale",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 80.0 },
+      "properties" : {}
+    },
+    {
+      "type" : "PnImageSepia",
+      "uuid" : "20000000-0000-4000-8000-000000000002",
+      "name" : "Sepia",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 360.0 },
+      "properties" : {}
+    },
+
+    {
+      "type" : "PnImageBlend",
+      "uuid" : "20000000-0000-4000-8000-000000000003",
+      "name" : "Blend",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 620.0, "y" : 220.0 },
+      "properties" : { "opacity" : 0.5 }
+    },
+
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "30000000-0000-4000-8000-000000000001",
+      "name" : "Blended out",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 900.0, "y" : 220.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    }
+  ],
+  "connections" : [
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000001" },
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000002" },
+
+    { "source_id" : "20000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000003",
+      "target_input" : 0 },
+    { "source_id" : "20000000-0000-4000-8000-000000000002",
+      "target_id" : "20000000-0000-4000-8000-000000000003",
+      "target_input" : 1 },
+
+    { "source_id" : "20000000-0000-4000-8000-000000000003",
+      "target_id" : "30000000-0000-4000-8000-000000000001" }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

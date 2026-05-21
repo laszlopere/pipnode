@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overlay (PnImageOverlay) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageOverlay">Overlay</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Composite. <em>Type:</em>
+<code>PnImageOverlay</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Two-input compositor with <strong>two input ports</strong> (input&nbsp;0,
+the upper tab, and input&nbsp;1, the lower tab). Wire an image source to
+each. Once both ports hold an image the node combines them per colour
+channel and emits a new <code>PnImageMessage</code>:
+</p>
+<pre>    combined = base &lt; 128 ? 2 &times; base &times; over / 255
+                          : 255 - 2 &times; (255 - base) &times; (255 - over) / 255
+    out      = base &times; (1 - opacity) + combined &times; opacity</pre>
+<p>
+Overlay <a href="PnImageMultiply.html">multiplies</a> where the base is dark
+and <a href="PnImageScreen.html">screens</a> where it is light, so the
+base's own midtones decide the mix: contrast is lifted while shadows and
+highlights stay anchored. Because the mode is asymmetric, the
+<strong>bigger</strong> image &mdash; the canvas &mdash; is treated as the
+base.
+</p>
+<p>
+The output keeps the geometry of the bigger image (a tie keeps
+input&nbsp;0); the smaller image is combined into the upper-left corner and
+the rest of the canvas keeps the bigger image unchanged &mdash; no scaling.
+Only the colour channels are combined; the bigger image's alpha is
+preserved.
+</p>
+<p>
+The pixels are processed in plain C on a worker thread, so a large image
+never freezes the editor; no external program is run. A non-image message
+passes straight through without disturbing the latched inputs.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>opacity</code></td>
+      <td>Mix factor, 0.0&ndash;1.0 (default 1.0). 0 keeps only the base
+          image; 1 shows the overlay at full strength.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (those of the bigger input).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Overlay (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on success.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the most recent incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

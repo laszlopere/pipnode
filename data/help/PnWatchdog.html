@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watchdog (PnWatchdog) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnWatchdog">Watchdog</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnWatchdog</code>.
+</p>
+<p>
+Auto-triggered silence detector. Incoming messages are consumed
+&mdash; they are never forwarded &mdash; and only set an internal
+&ldquo;saw a message since the last tick&rdquo; flag. On every tick
+the flag is read and cleared: if no message arrived during the
+previous interval the watchdog emits a fresh message with
+<code>data.success = false</code> and
+<code>data.output = output-text</code>. Wire it after a flaky
+upstream stream and into a Debug or TTS sink to be told when the
+stream goes quiet.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>period</code></td>
+      <td>Tick interval in seconds; the maximum tolerated silence.</td></tr>
+  <tr><td><code>output-text</code></td>
+      <td>Text placed in <code>data.output</code> on alarm.</td></tr>
+</table>
+
+</body>
+</html>

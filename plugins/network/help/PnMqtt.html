@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MQTT Source (PnMqtt) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnMqtt">MQTT Source</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnMqtt</code>.
+</p>
+<p>
+Source-only node that connects to an MQTT broker, subscribes to a
+topic filter, and emits one <code>PnMessage</code> for every PUBLISH
+the broker delivers. Designed to drop onto a worksheet, point at a
+broker, and start feeding pub/sub data into the rest of the pipeline
+&mdash; no input port; the output port carries the rebuilt message.
+</p>
+
+<h5>Connection</h5>
+<p>
+The <code>url</code> property is the broker address. Three URL
+shapes are accepted:
+</p>
+<ul>
+  <li><code>tcp://host[:port]</code> &mdash; plain MQTT, default port
+      <code>1883</code>.</li>
+  <li><code>ssl://host[:port]</code> or
+      <code>mqtts://host[:port]</code> &mdash; MQTT over TLS, default
+      port <code>8883</code>. The broker's certificate is verified
+      against the system trust store; install your CA in the OS trust
+      store when using a private PKI.</li>
+  <li>A bare <code>host[:port]</code> with no scheme, treated as
+      plain TCP.</li>
+</ul>
+<p>
+The default URL is <code>tcp://mqtt.homelab.local:1883</code>. The
+node connects asynchronously, retries on failure with a 1&nbsp;s to
+30&nbsp;s exponential back-off, and re-subscribes on every reconnect
+&mdash; so a transient broker outage recovers without operator
+intervention.
+</p>
+
+<h5>Subscription</h5>
+<p>
+The <code>topic</code> property is the MQTT topic filter. Standard
+MQTT wildcards apply: <code>+</code> matches a single level,
+<code>#</code> matches the remainder. Defaults to <code>#</code> so
+the node produces output as soon as it connects. The
+<code>qos</code> property selects the requested QoS level
+(<code>0</code>, <code>1</code> or <code>2</code>); the broker may
+downgrade.
+</p>
+
+<h5>Authentication</h5>
+<p>
+Set <code>username</code> (and optionally <code>password</code>) when
+the broker enforces auth. With <code>username</code> empty the node
+connects anonymously. <code>client-id</code> is normally left empty
+and libmosquitto generates a random id; pin a fixed id when the
+broker enforces an ACL by client id.
+</p>
+
+<h5>Emitted message</h5>
+<p>
+Each PUBLISH lands as a message whose envelope <code>topic</code> is
+<code>mqtt/<em>&lt;mqtt-topic&gt;</em></code> &mdash; e.g. an MQTT
+publish on <code>tele/sonoff37/SENSOR</code> arrives with
+<code>topic = "mqtt/tele/sonoff37/SENSOR"</code>, so a downstream
+<em>Filter</em> can route on the envelope alone (match
+<code>mqtt/tele/+/SENSOR</code>, <code>mqtt/home/#</code>, etc.)
+without having to dig into the data bag. The <code>data</code>
+bag carries:
+</p>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+  <tr><td><code>data.payload</code></td><td>varies</td>
+      <td>Parsed JSON value when the payload is valid JSON
+          (object, array, number, string, bool, null) &mdash; so a
+          Tasmota-style
+          <code>{"AM2301":{"Temperature":22.6,...}}</code> lands as a
+          proper nested object the downstream Filter / Format nodes
+          can pluck values out of with a path like
+          <code>payload.AM2301.Temperature</code>. Falls back to the
+          raw UTF-8 string when the payload is not valid JSON. Empty
+          string when the payload is binary, non-UTF-8, or
+          empty.</td></tr>
+  <tr><td><code>data.value</code></td><td>number</td>
+      <td>Numeric coercion of the payload, present only when the
+          payload parses as a single number (so a Graph downstream
+          works without an extra Format/Filter pair). Covers both
+          bare-text <code>23.5</code> and JSON-number
+          <code>23.5</code>.</td></tr>
+  <tr><td><code>data.output</code></td><td>string</td>
+      <td>Short "<code>MQTT message on <em>topic</em></code>"
+          summary for log views. The payload itself is not inlined
+          (it can be megabytes &mdash; image base64, firmware blobs,
+          batched telemetry); a reader who wants it can drop the
+          Debug node into JSON mode or wire a Format template.</td></tr>
+  <tr><td><code>data.success</code></td><td>boolean</td>
+      <td>Always <code>true</code>; presence of the message itself
+          implies a successful round-trip.</td></tr>
+  <tr><td><code>data.qos</code></td><td>int</td>
+      <td>QoS the publish arrived at.</td></tr>
+  <tr><td><code>data.retained</code></td><td>boolean</td>
+      <td>Whether the broker delivered this from its retained-message
+          store rather than as a fresh publish.</td></tr>
+</table>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>url</code></td>
+      <td>Broker URL. Defaults to
+          <code>tcp://mqtt.homelab.local:1883</code>.</td></tr>
+  <tr><td><code>topic</code></td>
+      <td>MQTT topic filter to subscribe to. Defaults to
+          <code>#</code>.</td></tr>
+  <tr><td><code>username</code></td>
+      <td>MQTT username; empty means anonymous.</td></tr>
+  <tr><td><code>password</code></td>
+      <td>MQTT password; only sent when <code>username</code> is
+          set.</td></tr>
+  <tr><td><code>client-id</code></td>
+      <td>MQTT client identifier; empty asks libmosquitto to
+          generate a random one.</td></tr>
+  <tr><td><code>qos</code></td>
+      <td>Subscription QoS level (<code>0</code>..<code>2</code>);
+          defaults to <code>0</code>.</td></tr>
+</table>
+
+<h5>Quick test</h5>
+<pre>
+mosquitto_pub -h mqtt.homelab.local -t test/hello -m '23.5'
+mosquitto_pub -h mqtt.homelab.local -t test/sensor -m '{"t":22.6,"h":41.2}'
+</pre>
+<p>
+With the default subscription <code>topic = "#"</code> the first
+publish lands as <code>PnMessage{ topic="mqtt/test/hello",
+data.payload=23.5, data.value=23.5, data.output="MQTT message on
+test/hello" }</code>; the second as
+<code>PnMessage{ topic="mqtt/test/sensor", data.payload={t:22.6,
+h:41.2}, data.output="MQTT message on test/sensor" }</code> &mdash;
+note the <code>payload</code> is a real nested object, not an
+escaped JSON string, so a downstream <code>Format</code> can read
+<code>payload.t</code> directly.
+</p>
+
+</body>
+</html>

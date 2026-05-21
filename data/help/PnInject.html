@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Injector (PnInject) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnInject">Injector</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnInject</code>.
+</p>
+<p>
+Manual source. Emits a single message carrying the configured text
+in <code>data.output</code> whenever it is fired (typically by
+clicking the node's fire button on the worksheet). While the text
+is empty the node enters a red &ldquo;configuration required&rdquo;
+state and firing is a no-op.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>text</code></td>
+      <td>The string injected as <code>data.output</code>.</td></tr>
+  <tr><td><code>success</code></td>
+      <td>Boolean placed in <code>data.success</code> so downstream
+          filters can react to either branch.</td></tr>
+</table>
+
+</body>
+</html>

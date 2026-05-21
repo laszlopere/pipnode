@@ -1,0 +1,266 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnInject",
+      "uuid" : "054b933b-43dd-447e-8caa-34f44e49afbe",
+      "name" : "Hello",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 40.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "text" : "Hello",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnMeshtastic",
+      "uuid" : "0479becd-231f-491e-843e-60372ddb5218",
+      "name" : "Heltec V3",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 240.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "device" : "/dev/ttyUSB0",
+        "channel" : "ft_pip_mesh"
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "d7ec9056-d2cf-4009-8e91-47f0e8ebe4bf",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 420.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-amy-medium.onnx"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "a7027451-d50f-4348-ab56-c0bbe10dff0c",
+      "name" : "Debug Print 2",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 420.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnMeshtastic",
+      "uuid" : "07cf234b-36f9-4d23-80db-392531cff610",
+      "name" : "Tracker T1000",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 240.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "device" : "/dev/ttyACM0",
+        "channel" : "ft_pip_mesh"
+      }
+    },
+    {
+      "type" : "PnChat",
+      "uuid" : "520f7458-a2e4-433c-baa2-96bef1aea539",
+      "name" : "Chat 1",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 220.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "text-path" : "data/output",
+        "sender-path" : "data/from_long_name",
+        "topic" : "chat",
+        "me-name" : "Me",
+        "limit" : 200,
+        "background-color" : "rgb(247,247,252)",
+        "border-color" : "rgb(140,140,153)",
+        "text-color" : "rgb(26,26,26)",
+        "me-color" : "rgb(189,219,252)",
+        "input-background-color" : "rgb(255,255,255)",
+        "send-button-color" : "rgb(69,140,217)"
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "146c4923-e4c7-4ebe-bd1b-51a8740a9d24",
+      "name" : "Sound 1",
+      "worksheet" : "Meshtastic",
+      "position" : {
+        "x" : 240.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "sound" : "message",
+        "dead-period" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "f9c94933-b7ec-4a13-b5e6-b679027fe5e6",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet 1",
+      "disabled" : true,
+      "position" : {
+        "x" : 400.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnMqtt",
+      "uuid" : "5b4b34b7-ec3c-46a4-a8c9-d9e117dfa9d4",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaStatus",
+      "uuid" : "958b57f2-7da3-4370-898a-23fa5f7d5760",
+      "name" : "Tasmota Status 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 220.0,
+        "y" : 40.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnFilter",
+      "uuid" : "33f5d605-ed77-43a1-ba61-d728d531f619",
+      "name" : "Filter 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 220.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/stat/sonoff19/*\"}]"
+      }
+    },
+    {
+      "type" : "PnRtc",
+      "uuid" : "24fb4c8d-9694-4c92-a3e6-81c34b8025f3",
+      "name" : "Clock 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 40.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnHttpsTunnelReceiver",
+      "uuid" : "a3b994c2-d471-41f1-bf9f-0a7e6961d0cd",
+      "name" : "HTTPS Tunnel Receiver 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 220.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "port" : 8443,
+        "username" : "",
+        "password" : "",
+        "cert-path" : "/home/pipas/.local/share/pipnode/default-cert.pem",
+        "key-path" : "/home/pipas/.local/share/pipnode/default-key.pem"
+      }
+    },
+    {
+      "type" : "PnHttpsTunnelSender",
+      "uuid" : "a188aa4c-f75d-43a9-9072-4b4f6cb2bccb",
+      "name" : "HTTPS Tunnel Sender 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 220.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "url" : "https://127.0.0.1:8443/",
+        "username" : "",
+        "password" : "",
+        "verify-tls" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "07cf234b-36f9-4d23-80db-392531cff610",
+      "target_id" : "a7027451-d50f-4348-ab56-c0bbe10dff0c"
+    },
+    {
+      "source_id" : "07cf234b-36f9-4d23-80db-392531cff610",
+      "target_id" : "520f7458-a2e4-433c-baa2-96bef1aea539"
+    },
+    {
+      "source_id" : "520f7458-a2e4-433c-baa2-96bef1aea539",
+      "target_id" : "07cf234b-36f9-4d23-80db-392531cff610"
+    },
+    {
+      "source_id" : "054b933b-43dd-447e-8caa-34f44e49afbe",
+      "target_id" : "07cf234b-36f9-4d23-80db-392531cff610"
+    },
+    {
+      "source_id" : "054b933b-43dd-447e-8caa-34f44e49afbe",
+      "target_id" : "520f7458-a2e4-433c-baa2-96bef1aea539"
+    },
+    {
+      "source_id" : "0479becd-231f-491e-843e-60372ddb5218",
+      "target_id" : "d7ec9056-d2cf-4009-8e91-47f0e8ebe4bf"
+    },
+    {
+      "source_id" : "054b933b-43dd-447e-8caa-34f44e49afbe",
+      "target_id" : "146c4923-e4c7-4ebe-bd1b-51a8740a9d24"
+    },
+    {
+      "source_id" : "5b4b34b7-ec3c-46a4-a8c9-d9e117dfa9d4",
+      "target_id" : "958b57f2-7da3-4370-898a-23fa5f7d5760"
+    },
+    {
+      "source_id" : "5b4b34b7-ec3c-46a4-a8c9-d9e117dfa9d4",
+      "target_id" : "33f5d605-ed77-43a1-ba61-d728d531f619"
+    },
+    {
+      "source_id" : "24fb4c8d-9694-4c92-a3e6-81c34b8025f3",
+      "target_id" : "a188aa4c-f75d-43a9-9072-4b4f6cb2bccb"
+    },
+    {
+      "source_id" : "a3b994c2-d471-41f1-bf9f-0a7e6961d0cd",
+      "target_id" : "f9c94933-b7ec-4a13-b5e6-b679027fe5e6"
+    }
+  ],
+  "sheets" : [
+    "Worksheet 1",
+    "Meshtastic"
+  ],
+  "active_sheet" : "Meshtastic"
+}

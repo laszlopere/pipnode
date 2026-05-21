@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Switch (PnTasmotaSwitch) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaSwitch">Tasmota Switch</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaSwitch</code>.
+</p>
+<p>
+Bidirectional device node for a single Tasmota relay. Merges the
+on-canvas slide switch (<em>Switch</em>), the read-side POWER status
+decoder (<em>Tasmota Relay Status</em>) and the write-side POWER
+command encoder (<em>Tasmota Relay Command</em>) into one node so the
+canonical &ldquo;show the relay state, let the user flip it&rdquo;
+worksheet collapses from a five-node chain to three:
+</p>
+<pre>MQTT Source &rarr; Tasmota Switch (switch-name = sonoff19) &rarr; MQTT Sink</pre>
+<p>
+The factored trio (<em>Switch</em> + <em>Tasmota Relay Status</em> +
+<em>Tasmota Relay Command</em>) is still available for users who want
+the explicit pipeline shape &mdash; this node is the device-flavoured
+shorthand for the common case.
+</p>
+
+<h5>Direction split</h5>
+<table>
+  <tr><th>Direction</th><th>Behaviour</th></tr>
+  <tr><td>Inbound (MQTT &rarr; latch)</td>
+      <td>A message whose envelope topic matches
+          <code>&lt;prefix&gt;/stat/&lt;switch-name&gt;/POWER</code>
+          (or any <code>POWER1</code>..<code>POWER8</code> multi-relay
+          variant) and whose <code>data.payload</code> is the string
+          <code>ON</code> or <code>OFF</code> syncs the latch
+          <strong>silently</strong> &mdash; the slider position
+          updates but <em>nothing is emitted downstream</em>.  The
+          inbound is an authoritative status observation, not a
+          transit message that should fan out; forwarding it would
+          either leak raw MQTT bytes into observer nodes or close a
+          loop back through the sink.</td></tr>
+  <tr><td>User click (latch &rarr; MQTT)</td>
+      <td>Clicking the slider flips the latch and emits a fresh
+          Tasmota command message: envelope topic
+          <code>cmnd/&lt;switch-name&gt;/POWER</code>, with the
+          standard <code>data.payload</code> /
+          <code>data.value</code> / <code>data.success</code> /
+          <code>data.device</code> / <code>data.output</code> shape so
+          a downstream <em>MQTT Sink</em> publishes the literal Tasmota
+          expects, and a parallel observer (LED, Debug, Graph) sees
+          the same value form it would have from the factored
+          chain.</td></tr>
+</table>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name (e.g. <code>sonoff19</code>) the node
+          binds to.  Inbound: matched against the second-to-last
+          segment of each incoming topic.  Outbound: stamped into
+          <code>cmnd/&lt;switch-name&gt;/POWER</code>.
+          <strong>Mandatory by design</strong> &mdash; an empty value
+          puts the node in the red &ldquo;configuration required&rdquo;
+          state, rejects every inbound message, and refuses to emit
+          on user-click, since silently defaulting would risk reading
+          or flipping the wrong physical relay.</td></tr>
+  <tr><td><code>on</code></td>
+      <td>Inherited from <em>Switch</em>.  Current latch position
+          (persisted in the worksheet so the slider parks back the
+          way the user left it on reload).</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (url = tcp://mqtt.homelab.local:1883, topic = #)
+    &rarr; Tasmota Switch (switch-name = sonoff19)
+        &rarr; MQTT Sink (url = tcp://mqtt.homelab.local:1883)</pre>
+<p>
+Click the slider on the canvas; the node emits
+<code>cmnd/sonoff19/POWER</code> with payload <code>ON</code> or
+<code>OFF</code>; <em>MQTT Sink</em> publishes; the physical relay
+clicks; the broker echoes <code>stat/sonoff19/POWER</code> back; the
+<em>MQTT Source</em> forwards it; <em>Tasmota Switch</em>'s inbound
+path sees its own state confirmed and silently moves on (no echo
+storm).  Flipping the relay externally (Tasmota app, wall button,
+another flow) follows the same return path and the slider tracks the
+new state.
+</p>
+<p>
+<strong>Observing external changes.</strong> Because the inbound path
+syncs the latch <em>silently</em>, a node wired downstream of the
+output only sees user-driven changes.  If you want an LED to flash on
+external state changes too, wire it through a parallel
+<em>Tasmota Relay Status</em> filter off the same <em>MQTT Source</em>:
+</p>
+<pre>MQTT Source
+    &rarr; Tasmota Switch (switch-name = sonoff19) &rarr; MQTT Sink
+    &rarr; Tasmota Relay Status (switch-name = sonoff19) &rarr; LED</pre>
+
+<h5>Relationship to the factored nodes</h5>
+<p>
+This node is a subclass of <em>Switch</em>, so the worksheet's
+slider-click routing, hit-testing and painting all come from the same
+implementation &mdash; the latch behaviour is shared, only the encode
+/ decode shape is Tasmota-specific.  See
+<a href="PnTasmotaRelayStatus.html"><em>Tasmota Relay Status</em></a>
+and
+<a href="PnTasmotaRelayCommand.html"><em>Tasmota Relay Command</em></a>
+for the standalone read / write filters that this node bundles
+inline.
+</p>
+
+</body>
+</html>

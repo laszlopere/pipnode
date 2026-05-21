@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rotate 90° CCW (PnImageRotate270) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageRotate270">Rotate 90° CCW</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Geometry. <em>Type:</em>
+<code>PnImageRotate270</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Geometry node. It turns the incoming image a quarter-turn counter-clockwise
+and emits the result as a new <code>PnImageMessage</code>. Because the
+picture is turned on its side, the output dimensions are the input's width
+and height swapped (a 640×480 image becomes 480×640). Any alpha channel is
+preserved. Wire it between a <em>File Drop</em> and a <em>File Viewer</em>
+to see the effect.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<p>None.</p>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (width and height are swapped).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Rotate 90° CCW (480×640)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

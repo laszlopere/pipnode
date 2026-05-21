@@ -1,0 +1,108 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFileDrop",
+      "uuid" : "d58a1488-05bd-49fe-946a-370511bc7f38",
+      "name" : "FileDrop 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 40.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnImageGrayscale",
+      "uuid" : "648aa8b1-c336-4e0e-b568-6b98fe357d19",
+      "name" : "Grayscale 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 260.0,
+        "y" : 160.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnImageGaussianBlur",
+      "uuid" : "13151d27-87b2-4c2b-9873-17937bc29e7d",
+      "name" : "Gaussian Blur 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 480.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "radius" : 2.0
+      }
+    },
+    {
+      "type" : "PnImageSobel",
+      "uuid" : "1b41e9f5-76da-4aea-a722-e99d0545505c",
+      "name" : "Sobel 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 700.0,
+        "y" : 160.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnImageThreshold",
+      "uuid" : "2e00477d-20b2-4e2f-bebe-a070905ea6ca",
+      "name" : "Threshold 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 920.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "level" : 60
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "5d5ad725-14c3-40f5-99a2-dc5244e1df38",
+      "name" : "FileViewer 1",
+      "worksheet" : "Canny Edges",
+      "position" : {
+        "x" : 1140.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "d58a1488-05bd-49fe-946a-370511bc7f38",
+      "target_id" : "648aa8b1-c336-4e0e-b568-6b98fe357d19"
+    },
+    {
+      "source_id" : "648aa8b1-c336-4e0e-b568-6b98fe357d19",
+      "target_id" : "13151d27-87b2-4c2b-9873-17937bc29e7d"
+    },
+    {
+      "source_id" : "13151d27-87b2-4c2b-9873-17937bc29e7d",
+      "target_id" : "1b41e9f5-76da-4aea-a722-e99d0545505c"
+    },
+    {
+      "source_id" : "1b41e9f5-76da-4aea-a722-e99d0545505c",
+      "target_id" : "2e00477d-20b2-4e2f-bebe-a070905ea6ca"
+    },
+    {
+      "source_id" : "2e00477d-20b2-4e2f-bebe-a070905ea6ca",
+      "target_id" : "5d5ad725-14c3-40f5-99a2-dc5244e1df38"
+    }
+  ],
+  "sheets" : [
+    "Canny Edges"
+  ],
+  "active_sheet" : "Canny Edges"
+}

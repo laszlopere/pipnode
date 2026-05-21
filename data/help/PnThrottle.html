@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Throttle (PnThrottle) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnThrottle">Throttle</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnThrottle</code>.
+</p>
+<p>
+Rate limiter. Forwards a message only when at least
+<code>interval</code> seconds have passed since the previous
+forwarded one. The first message is always passed through so a
+quiet stream is never silenced. Dropped messages are discarded;
+there is no queue.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>interval</code></td>
+      <td>Minimum seconds between forwarded messages.</td></tr>
+</table>
+
+</body>
+</html>

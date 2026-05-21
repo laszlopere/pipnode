@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rate (PnRate) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRate">Rate</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnRate</code>
+(subclass of <code>PnHttp</code>).
+</p>
+<p>
+Crypto/fiat exchange-rate converter. For every received message
+the node multiplies <code>data.value</code> by its cached
+conversion factor (from &rarr; to) and forwards the message with
+the converted amount, the factor itself in
+<code>data.rate</code> and the destination currency code in
+<code>data.currency</code>. Non-numeric or missing
+<code>data.value</code> fields are left untouched so the message
+still passes through.
+</p>
+<p>
+The rate is fetched periodically by the inherited auto-trigger,
+defaults to <a href="https://www.coingecko.com/">CoinGecko</a>'s
+<code>simple/price</code> endpoint, and pivots through USD so a
+single request covers any pair the node supports. The fetched
+rate <em>and</em> the timestamp of the last successful fetch
+round-trip through the worksheet on save/load &mdash; so re-
+opening a flow does <strong>not</strong> fire a fresh request and
+the previously-saved rate is used until the next periodic tick,
+keeping repeated workspace reopens out of the upstream provider's
+rate-limit log.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>url</code></td>
+      <td>Endpoint base URL. The node appends
+          <code>?ids=&hellip;&amp;vs_currencies=usd</code> at
+          request time. Defaults to CoinGecko's free
+          <code>simple/price</code>.</td></tr>
+  <tr><td><code>from</code></td>
+      <td>Source currency. Pick from a 23-entry alphabetical list:
+          <code>ADA</code>, <code>ATOM</code>, <code>AVAX</code>,
+          <code>BCH</code>, <code>BNB</code>, <code>BTC</code>,
+          <code>CRO</code>, <code>DOGE</code>, <code>DOT</code>,
+          <code>ETH</code>, <code>LINK</code>, <code>LTC</code>,
+          <code>MATIC</code>, <code>PLS</code> (Pulse Chain),
+          <code>SOL</code>, <code>TRX</code>, <code>UNI</code>,
+          <code>USD</code> (the pivot used to quote every pair),
+          <code>USDC</code>, <code>USDT</code>, <code>XLM</code>,
+          <code>XMR</code>, and <code>XRP</code>. The settings
+          dialog renders each entry next to its bundled icon so
+          the picker reads at a glance.</td></tr>
+  <tr><td><code>to</code></td>
+      <td>Destination currency. Same set as <code>from</code>;
+          when <code>from</code> equals <code>to</code> the node
+          is marked as needing configuration and skips its
+          fetches.</td></tr>
+  <tr><td><code>rate</code></td>
+      <td>Cached conversion factor (1 unit of <code>from</code>
+          equals <em>rate</em> units of <code>to</code>).
+          Defaults to 1 and is overwritten on every successful
+          fetch; persisted with the worksheet.</td></tr>
+  <tr><td><code>last-update</code></td>
+      <td>ISO-8601 timestamp of the last successful fetch.
+          Persisted with the worksheet alongside
+          <code>rate</code>.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between rate refreshes. Floor is 600 (10
+          minutes); attempts to set a smaller value &mdash; from
+          the dialog or by hand-editing a saved worksheet
+          &mdash; are silently rounded back up.</td></tr>
+</table>
+<p>
+Wire one in after any node that emits a numeric
+<code>data.value</code> with
+<code>from = ETH</code>, <code>to = USD</code> to convert that
+value into dollars before it reaches a Debug or Graph
+sink.
+</p>
+
+</body>
+</html>

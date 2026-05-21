@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graph (PnGraph) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnGraph">Graph</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnGraph</code>.
+</p>
+<p>
+Sink that summarises a numeric value plucked from each incoming
+message. The header is rendered at twice the canonical width;
+below it (with a small gap) a plot rectangle shows the data over
+the configured time window. Two presentation modes are
+available: a sliding line graph of the value over time, or a
+frequency histogram that bins the in-window samples by value to
+reveal where they are clustered &mdash; useful for distributions
+like request latencies or per-message byte counts.
+Plotting is done with PLplot.
+</p>
+<p>
+Two parallel rings are kept per node, <em>per topic</em>. Line
+mode reads from a ring of 200 fixed-width time buckets that
+store running totals only (about 8&thinsp;KB), so it summarises
+arbitrary arrival rates over arbitrary windows without growing.
+Histogram mode reads from a ring of 2048 raw samples (about
+32&thinsp;KB); in long-window modes (1 day, 1 week) at high
+arrival rates the ring shows the most recent 2048 samples that
+fell inside the window, not every sample seen. Both rings are
+fed unconditionally, so toggling the mode never starts from an
+empty plot.
+</p>
+<h5>Multi-topic 3D mode</h5>
+<p>
+Every distinct <code>msg.topic</code> on the input wire is tracked
+as a separate data series with its own pair of rings. As long as
+only one topic has been seen (the common case, including feeds
+that never set a topic at all), the plot is the familiar 2D one.
+Once a second topic arrives, both modes auto-switch to a 3D
+projection: each series gets its own slot along the Z axis in
+arrival order &mdash; the first-seen topic sits closest to the
+viewer &mdash; with time (line mode) or value (histogram mode)
+running along X and the value or sample count rising along the
+vertical Z axis. Series colours are derived from
+<code>line-color</code> by walking the HLS hue wheel in
+golden-angle steps so adjacent series read distinctly without
+the user having to pick a palette. The first series keeps the
+<code>line-color</code> exactly so single-topic worksheets look
+unchanged. Up to 12 distinct topics are tracked; messages
+introducing a 13th topic are dropped silently so a pathological
+feed that synthesises a new topic per message cannot grow
+memory without bound.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>key</code></td>
+      <td>JSON path (&ldquo;/&rdquo;-separated, e.g.
+          <code>data/value</code>) to the value plotted on
+          the Y axis. Resolves against the same root used by
+          <em>Format</em>'s placeholders. Numbers are accepted
+          directly; strings are parsed too &mdash; either as
+          base-10 (with optional sign and fractional part) or
+          as a hex literal with a <code>0x</code>/<code>0X</code>
+          prefix, so hex-encoded quantities such as a byte count
+          or a <code>value</code> field can be
+          plotted as-is. Values are coerced to a 64-bit double
+          (≈16 decimal digits exact); precision loss past that
+          point is well below pixel resolution. Missing,
+          unparsable, or non-finite values are silently
+          dropped.</td></tr>
+  <tr><td><code>resolution</code></td>
+      <td>Total time span summarised by the plot: <em>1 minute</em>,
+          <em>15 minutes</em>, <em>1 hour</em>, <em>1 day</em>, or
+          <em>1 week</em>. In
+          line mode it sets the X-axis time span; in histogram
+          mode it acts as the rolling cutoff that decides which
+          samples are binned (samples older than the window are
+          ignored, so 1&thinsp;minute mode shows the distribution
+          of the last minute's traffic, 1&thinsp;hour the last
+          hour's, and so on). Switching mid-stream takes effect on
+          the next paint; existing line-mode samples whose bucket
+          maps onto a stale slot under the new window are discarded
+          lazily.</td></tr>
+  <tr><td><code>mode</code></td>
+      <td><em>Line</em> (default) draws a sliding time-series
+          polyline with the most recent sample on the right.
+          <em>Histogram</em> bins the in-window samples by value
+          into 40 fixed-width bars whose height is the sample
+          count &mdash; the resulting shape reads as a discrete
+          probability density of where the values are clustered.
+          Bin edges auto-range over the live <code>[min, max]</code>
+          of the in-window data. In multi-topic 3D mode every
+          series is binned against the same shared
+          <code>[vmin, vmax]</code> so bars at the same value
+          line up across ribbons.</td></tr>
+  <tr><td><code>line-color</code></td>
+      <td>Colour of the data polyline. Defaults to a dark blue
+          that reads well against a white background. In
+          multi-topic 3D mode it is the colour of the first
+          (front-most) series; subsequent series walk the hue
+          wheel in golden-angle steps from this base.</td></tr>
+  <tr><td><code>line-width</code></td>
+      <td>Stroke width of the data polyline, in pixels (1&ndash;8,
+          default 2).</td></tr>
+  <tr><td><code>axis-color</code></td>
+      <td>Colour of the plot frame, ticks, and tick labels. The
+          same colour is used for the thin frame painted around
+          the plot rectangle.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the plot rectangle behind the polyline.
+          Defaults to white.</td></tr>
+  <tr><td><code>show-grid</code></td>
+      <td>When enabled, draws a thin grid through every major
+          tick on both axes for easier reading of values.</td></tr>
+  <tr><td><code>log-y</code></td>
+      <td>Plots the Y axis on a base-10 logarithmic scale, with
+          tick labels printed as decade powers (10⁰, 10¹, 10², …).
+          Currently honoured only in histogram mode, where it is
+          useful for long-tailed distributions &mdash; e.g.
+          network byte counts that cluster around a few hundred
+          bytes but pick up an occasional billion-byte outlier &mdash;
+          whose tallest bars would otherwise crush the smaller
+          ones flat. Single-occurrence bins still draw with a
+          visible height because the log floor is set to
+          log<sub>10</sub>(0.5) rather than &minus;∞.</td></tr>
+</table>
+
+</body>
+</html>

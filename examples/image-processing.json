@@ -1,0 +1,118 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFileDrop",
+      "uuid" : "10000000-0000-4000-8000-000000000001",
+      "name" : "Drop an image",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 60.0, "y" : 360.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+
+    {
+      "type" : "PnImageGrayscale",
+      "uuid" : "20000000-0000-4000-8000-000000000001",
+      "name" : "Grayscale",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 40.0 },
+      "properties" : {}
+    },
+    {
+      "type" : "PnImageSepia",
+      "uuid" : "20000000-0000-4000-8000-000000000002",
+      "name" : "Sepia",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 300.0 },
+      "properties" : {}
+    },
+    {
+      "type" : "PnImageGaussianBlur",
+      "uuid" : "20000000-0000-4000-8000-000000000003",
+      "name" : "Gaussian Blur",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 560.0 },
+      "properties" : { "radius" : 4.0 }
+    },
+    {
+      "type" : "PnImageSobel",
+      "uuid" : "20000000-0000-4000-8000-000000000004",
+      "name" : "Sobel Edge",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 340.0, "y" : 820.0 },
+      "properties" : {}
+    },
+
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "30000000-0000-4000-8000-000000000001",
+      "name" : "Grayscale out",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 620.0, "y" : 40.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "30000000-0000-4000-8000-000000000002",
+      "name" : "Sepia out",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 620.0, "y" : 300.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "30000000-0000-4000-8000-000000000003",
+      "name" : "Blur out",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 620.0, "y" : 560.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "30000000-0000-4000-8000-000000000004",
+      "name" : "Edges out",
+      "worksheet" : "Worksheet",
+      "position" : { "x" : 620.0, "y" : 820.0 },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    }
+  ],
+  "connections" : [
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000001" },
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000002" },
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000003" },
+    { "source_id" : "10000000-0000-4000-8000-000000000001",
+      "target_id" : "20000000-0000-4000-8000-000000000004" },
+
+    { "source_id" : "20000000-0000-4000-8000-000000000001",
+      "target_id" : "30000000-0000-4000-8000-000000000001" },
+    { "source_id" : "20000000-0000-4000-8000-000000000002",
+      "target_id" : "30000000-0000-4000-8000-000000000002" },
+    { "source_id" : "20000000-0000-4000-8000-000000000003",
+      "target_id" : "30000000-0000-4000-8000-000000000003" },
+    { "source_id" : "20000000-0000-4000-8000-000000000004",
+      "target_id" : "30000000-0000-4000-8000-000000000004" }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

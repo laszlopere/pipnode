@@ -1,0 +1,200 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnLoad",
+      "uuid" : "47bf7256-103e-4e3f-b140-92dbbd33a3ef",
+      "name" : "Load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "eth4"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "19c18bb0-76cf-4442-acd9-64b83bf36f2e",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "line",
+        "line-color" : "rgb(129,61,156)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "b6c25f8f-3c51-44c9-a34b-addb51386f0a",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(220,138,221)",
+        "line-width" : 2,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "004af386-283c-41be-b08d-b412cc9a7233",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 800.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "9c17a636-9e90-4068-a6d1-72b4e5465ac1",
+      "name" : "CPU temp",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "CPU Temp.",
+        "unit" : "°C",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(0,0,0)",
+        "needle-color" : "rgb(224,27,36)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnTemp",
+      "uuid" : "c49f1509-2126-4d26-930c-e990a19cfe14",
+      "name" : "CPU Temp.",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "",
+        "aggregation" : "maximum"
+      }
+    },
+    {
+      "type" : "PnAmbient",
+      "uuid" : "acff7b03-8dc3-4dc7-b569-2ce932348863",
+      "name" : "Ambient Temperature 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 600.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "",
+        "aggregation" : "average"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "e4ceac82-52de-4aa9-92d3-e917c89b9a6e",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 780.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "CPU Temp.",
+        "unit" : "°C",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(0,0,0)",
+        "needle-color" : "rgb(224,27,36)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "47bf7256-103e-4e3f-b140-92dbbd33a3ef",
+      "target_id" : "19c18bb0-76cf-4442-acd9-64b83bf36f2e"
+    },
+    {
+      "source_id" : "47bf7256-103e-4e3f-b140-92dbbd33a3ef",
+      "target_id" : "b6c25f8f-3c51-44c9-a34b-addb51386f0a"
+    },
+    {
+      "source_id" : "c49f1509-2126-4d26-930c-e990a19cfe14",
+      "target_id" : "9c17a636-9e90-4068-a6d1-72b4e5465ac1"
+    },
+    {
+      "source_id" : "acff7b03-8dc3-4dc7-b569-2ce932348863",
+      "target_id" : "e4ceac82-52de-4aa9-92d3-e917c89b9a6e"
+    },
+    {
+      "source_id" : "acff7b03-8dc3-4dc7-b569-2ce932348863",
+      "target_id" : "004af386-283c-41be-b08d-b412cc9a7233"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

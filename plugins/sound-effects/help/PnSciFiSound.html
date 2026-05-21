@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sci-Fi Sound (PnSciFiSound) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSciFiSound">Sci-Fi Sound</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnSciFiSound</code>.
+</p>
+<p>
+Sink node that plays a sci-fi sound effect every time a message
+arrives on its input port.  No audio clip is bundled with the
+plugin &mdash; the settings dialog ships a <strong>Sound packs</strong>
+tab that lists a few dozen curated Star Trek sound packs (Romulan,
+Xindi, Klingon, TNG Computer, DS9 Ambience, Doors, Weapons, ...) and
+lets the user opt into one or more before clicking
+<strong>Download selected</strong>.  Clips are sourced at runtime
+from a public fan-site mirror and land under
+<code>$XDG_DATA_HOME/pipnode/sound-effects/startrek/&lt;Pack&gt;/</code>.
+</p>
+<p>
+On the <strong>Playback</strong> tab the user first picks a pack
+from a combo (only packs with files on disk show up) and then
+chooses an individual clip from a second combo &mdash; the
+<code>clip</code> property is stored as <code>Pack/basename.mp3</code>
+so a worksheet round-trips across machines whose
+<code>$XDG_DATA_HOME</code> differs.  A <strong>Preview</strong>
+button auditions the chosen clip on the spot.
+</p>
+<p>
+On the <strong>Sound packs</strong> tab the same checkbox grid
+that drives downloads also feeds <strong>Delete selected</strong>,
+which recursively removes the picked packs from disk after a
+confirmation prompt.  A small per-row indicator shows how many
+clips of each pack are currently on disk so the user can tell at
+a glance what is already cached.
+</p>
+<p>
+Playback is dispatched to the first available external player on
+<code>PATH</code> &mdash; <code>mpv</code>, <code>ffplay</code>,
+<code>gst-play-1.0</code>, <code>mpg123</code>, or
+<code>paplay</code> (in that order) &mdash; so the node handles both
+<code>.mp3</code> and <code>.wav</code> clips without the plugin
+needing to link any audio backend itself.  Overlapping messages
+are dropped while a clip is still playing; a configurable
+<code>dead-period</code> enforces a minimum gap between two
+consecutive playbacks even after a clip has finished.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>clip</code></td>
+      <td>Relative path of the clip in the cache directory, of the
+          form <code>Pack/basename.mp3</code>.  Empty leaves the
+          node unconfigured and paints it with a warning glyph.</td></tr>
+  <tr><td><code>dead-period</code></td>
+      <td>Seconds of silence enforced after each playback.</td></tr>
+</table>
+
+</body>
+</html>

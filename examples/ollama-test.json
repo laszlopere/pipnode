@@ -1,0 +1,86 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnChat",
+      "uuid" : "757b6a82-2887-4f51-948f-dd37262b5b82",
+      "name" : "Chat 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "text-path" : "data/output",
+        "sender-path" : "data/from_long_name",
+        "me-name" : "Me",
+        "limit" : 200,
+        "background-color" : "rgb(247,247,252)",
+        "border-color" : "rgb(140,140,153)",
+        "text-color" : "rgb(26,26,26)",
+        "me-color" : "rgb(189,219,252)",
+        "input-background-color" : "rgb(255,255,255)",
+        "send-button-color" : "rgb(69,140,217)"
+      }
+    },
+    {
+      "type" : "PnOllama",
+      "uuid" : "ab6185b9-62d8-4b0e-9095-9283c320cd9a",
+      "name" : "Ollama",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "hostname" : "localhost",
+        "port" : 11434,
+        "model" : "qwen3:0.6b",
+        "keep-alive" : "5m",
+        "prefix" : "",
+        "suffix" : "Reply with 1 or 2 short sentences. Do not number the sentences."
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "32466a51-7938-4281-9bac-5f64c7d5c70a",
+      "name" : "Text to Speech",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 360.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-lessac-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "757b6a82-2887-4f51-948f-dd37262b5b82",
+      "target_id" : "ab6185b9-62d8-4b0e-9095-9283c320cd9a"
+    },
+    {
+      "source_id" : "ab6185b9-62d8-4b0e-9095-9283c320cd9a",
+      "target_id" : "757b6a82-2887-4f51-948f-dd37262b5b82"
+    },
+    {
+      "source_id" : "ab6185b9-62d8-4b0e-9095-9283c320cd9a",
+      "target_id" : "32466a51-7938-4281-9bac-5f64c7d5c70a"
+    },
+    {
+      "source_id" : "757b6a82-2887-4f51-948f-dd37262b5b82",
+      "target_id" : "32466a51-7938-4281-9bac-5f64c7d5c70a"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

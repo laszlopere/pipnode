@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lxc Ls Command (PnLxcLsCommand) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnLxcLsCommand">Lxc Ls Command</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnLxcLsCommand</code>.
+</p>
+<p>
+Auto-triggered runner that executes <code>sudo lxc-ls -f</code> every
+<code>period</code> seconds and emits one message per run on its
+output port.  <code>sudo</code> and <code>lxc-ls</code> are looked up
+on <code>PATH</code>; the command is spawned on a worker thread so
+the GUI never blocks.
+</p>
+<p>
+<strong>Setup:</strong> the host user must have passwordless sudo
+configured for <code>lxc-ls</code> &mdash; the spawn happens with no
+controlling tty, so a password prompt would just fail.  A typical
+<code>/etc/sudoers.d/pipnode-lxc-ls</code> drop-in looks like
+<code>youruser ALL=(root) NOPASSWD: /usr/bin/lxc-ls</code>.  When sudo
+fails the emitted message still arrives, but with
+<code>data.success&nbsp;=&nbsp;false</code> and
+<code>data.output</code> carrying sudo's diagnostic.
+</p>
+<p>
+Like <em>Df Command</em> and <em>Free Command</em>, the emitted
+message carries the parsed table inline so a downstream <em>Table
+View</em> can render it without an intermediate <em>Table Model</em>
+filter.  <code>lxc-ls -f</code>'s default output has single-token
+headers (<code>NAME</code>, <code>STATE</code>, <code>AUTOSTART</code>,
+<code>GROUPS</code>, <code>IPV4</code>, <code>IPV6</code>,
+<code>UNPRIVILEGED</code>) and fixed-width whitespace-padded data
+rows, so the parser is a plain whitespace split per line with the
+column count derived dynamically from the header (a future
+<code>lxc-ls</code> release that adds or removes a column needs no
+code change).  Trailing tokens past the last header column are folded
+into the last cell so a wider-than-expected last column doesn't spawn
+a phantom extra column.
+</p>
+<p>
+The emitted message carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when
+      <code>sudo lxc-ls -f</code> exited with status&nbsp;0,
+      <code>false</code> otherwise.</li>
+  <li><code>data.output</code> &mdash; the combined stdout and stderr
+      of the run, verbatim.</li>
+  <li><code>data.table</code> &mdash; the parsed table in the standard
+      <code>{ "header": { "cells": [...] },
+      "rows": [ { "cells": [...] }, ... ] }</code> shape.  Each cell
+      is a JSON object with at minimum
+      <code>{ "text": "...", "name": "..." }</code>; the
+      <em>Table View</em> sink reads only <code>text</code> and
+      ignores unknown members, so the extra <code>name</code> is
+      transparent to it.</li>
+</ul>
+<p>
+Cell <code>name</code>s follow the shape
+<code>&lt;row&gt;.&lt;column&gt;</code>.  The column id comes from
+the sanitised header word
+(<code>"NAME"</code>&nbsp;&rarr;&nbsp;<code>name</code>,
+<code>"IPV4"</code>&nbsp;&rarr;&nbsp;<code>ipv4</code>,
+<code>"UNPRIVILEGED"</code>&nbsp;&rarr;&nbsp;<code>unprivileged</code>);
+the row id comes from the sanitised first-column value (the
+container <code>NAME</code>:
+<code>"dns2"</code>&nbsp;&rarr;&nbsp;<code>dns2</code>), with leading
+and trailing underscores stripped.  The header row's row id is the
+literal <code>header</code>.
+</p>
+<p>
+<strong>Caveat:</strong> a container with multiple comma+space
+separated IPs in the <code>IPV4</code> or <code>IPV6</code> column
+(e.g. <code>"192.168.1.1, 10.0.0.1"</code>) tokenises as two tokens
+under whitespace splitting and shifts subsequent columns one slot
+right.  The default single-IP case &mdash; the most common one
+&mdash; parses cleanly.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run <code>sudo lxc-ls -f</code>.  Default
+          <code>localhost</code> (and the synonyms
+          <code>127.0.0.1</code>, <code>::1</code>, empty string)
+          runs locally.  Any other value (a hostname or
+          <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.  The
+          passwordless-sudo requirement still applies on the remote
+          machine.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between executions.</td></tr>
+</table>
+
+</body>
+</html>

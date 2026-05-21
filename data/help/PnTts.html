@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text to Speech (PnTts) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTts">Text to Speech</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnTts</code>.
+</p>
+<p>
+Speaks each incoming <code>data.output</code> string by piping it
+through a Linux text-to-speech program into the system audio output.
+Messages whose <code>output</code> member is missing or non-string
+are silently ignored.
+</p>
+<p>
+The node supports several engines (Piper, eSpeak NG, eSpeak,
+Festival, Flite). When a new node is created, the first engine whose
+binary is found on <code>$PATH</code> is selected automatically. All
+engines remain selectable in the combo regardless of whether they
+are installed — picking an uninstalled one turns the node red with a
+warning icon and surfaces the missing-binary message in the
+&ldquo;Status&rdquo; row of the settings dialog.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>engine</code></td>
+      <td>Which TTS program to drive. One of <code>piper</code>,
+          <code>espeak-ng</code>, <code>espeak</code>,
+          <code>festival</code>, or <code>flite</code>. Defaults to
+          the first one installed on the host.</td></tr>
+  <tr><td><code>model</code></td>
+      <td>Voice used by the selected engine. Labelled
+          &ldquo;Voice&rdquo; in the dialog. For Piper this is a
+          path to an <code>.onnx</code> file under
+          <code>~/.local/share/piper/voices</code>; for the eSpeak
+          family and Flite it is an engine-specific voice name; for
+          engines with no voice selector (Festival) the dialog shows
+          a single &ldquo;Default&rdquo; entry.</td></tr>
+  <tr><td><code>speed</code></td>
+      <td>Playback rate multiplier in the range 0.5&ndash;2.0
+          (1.0&nbsp;= engine default, &gt;1 faster, &lt;1 slower).
+          Mapped to <code>--length-scale</code> for Piper,
+          <code>-s&nbsp;WPM</code> for the eSpeak family, and
+          <code>--setf&nbsp;duration_stretch</code> for Flite.
+          Festival has no clean CLI rate knob and ignores the
+          value.</td></tr>
+  <tr><td><code>sink</code></td>
+      <td>PulseAudio output sink the speech is routed to. Labelled
+          &ldquo;Output&rdquo; in the dialog. The combo lists every
+          sink reported by <code>pactl list sinks</code>; the
+          &ldquo;Default&rdquo; entry leaves PulseAudio's normal
+          routing alone. For Piper this becomes a
+          <code>paplay&nbsp;-d</code> argument; for every other
+          engine it is delivered through the <code>PULSE_SINK</code>
+          environment variable. Hosts without <code>pactl</code> /
+          <code>paplay</code> behave as if &ldquo;Default&rdquo; was
+          selected.</td></tr>
+  <tr><td><code>max-queue</code></td>
+      <td>Maximum number of utterances allowed to wait while one is
+          already being spoken. <code>0</code> drops new messages
+          while the engine is busy (the original behaviour, useful
+          when only the latest reading matters); <code>-1</code>
+          queues without limit (never drops, at the risk of a
+          chatty upstream growing the backlog without bound); any
+          positive value caps the backlog at that many items and
+          drops anything arriving beyond, with a warning logged
+          for each overflow. Defaults to <code>16</code>, which is
+          enough headroom for typical chat-shaped flows where a
+          long LLM reply is still being read aloud when the next
+          message lands. Pending utterances are spoken in
+          arrival order; the per-source voice override (if any)
+          is captured when the message is queued, so renaming the
+          source while a clip is queued does not change the voice
+          used for it.</td></tr>
+  <tr><td><code>per-source-voice</code></td>
+      <td>When on (the default), the receive path hashes the
+          incoming message's source-node name (the same string that
+          ends up in the envelope's <code>from</code> field) and
+          uses that hash modulo the engine's voice-list length to
+          pick a voice automatically. Two different upstream nodes
+          end up in two different voices &mdash; useful when a
+          single TTS sink is fed by several speakers (e.g. an
+          <code>PnOllama</code> reply on one wire and a
+          <code>PnMeshtastic</code> message on another). The
+          selection is deterministic, so the same speaker always
+          gets the same voice across runs. Turn the switch off to
+          force every utterance through the configured
+          <code>model</code>. Engines without an enumerable voice
+          list (Festival) and messages with no source fall back to
+          <code>model</code> regardless of the switch state.</td></tr>
+</table>
+<div class="note">
+At least one of the supported TTS programs must be installed for
+this node to produce audio. Piper additionally requires
+<code>paplay</code> (from <code>pulseaudio-utils</code>) for
+playback; the other engines speak straight to PulseAudio
+themselves. See <code>INSTALL</code> for installation hints.
+</div>
+
+</body>
+</html>

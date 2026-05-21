@@ -1,0 +1,48 @@
+Pipnode Plugin Exception
+========================
+
+Additional permission under GNU GPL version 3 section 7
+
+Copyright (C) 2024-2026 Laszlo Pere
+
+Pipnode is licensed under the GNU General Public License, version 3 or
+later ("the GPL"), a copy of which is distributed in the file COPYING. As
+an additional permission under section 7 of the GPL, the copyright holder
+of Pipnode grants you the following additional permissions:
+
+  1. Combination through the plugin interface.
+     You may combine Pipnode with a separate program (a "Plugin") that is
+     loaded at run time through the Pipnode plugin interface, and you may
+     convey the resulting combination.
+
+     The "Pipnode plugin interface" means the plugin entry-point symbol
+     `pn_plugin_init` together with the host data types and functions that
+     the file PLUGINS distributes as the public plugin API -- whatever the
+     Plugin extends, including node types, worksheet storage and
+     serialization back-ends, export formats, and any future extension
+     points documented in PLUGINS. The relevant public headers include,
+     without limitation, pn-plugin.h, pn-node.h, pn-node-factory.h and
+     pn-message.h.
+
+  2. Conveying a Plugin under terms of your choice.
+     You may convey a Plugin under terms of your choosing, including terms
+     that are proprietary or otherwise incompatible with the GPL, provided
+     that:
+
+       (a) the Plugin interacts with Pipnode solely through the Pipnode
+           plugin interface described in paragraph 1; and
+
+       (b) you do not, by doing so, convey a modified version of the
+           Pipnode core itself except under the terms of the GPL.
+
+  3. Linking with depended-upon libraries.
+     You may link the Pipnode core and the plugins distributed with Pipnode
+     against the library libmosquitto (which is licensed under the Eclipse
+     Public License) and against the other system libraries on which
+     Pipnode depends, and you may convey the resulting work.
+
+This exception does not invalidate any other reasons why a Plugin might be
+covered by the GPL. If you modify Pipnode, you may extend this exception to
+your version of the code, but you are not obligated to do so. If you do not
+wish to grant this exception for your modified version, you may delete this
+file and remove the reference to it from the source files in your version.

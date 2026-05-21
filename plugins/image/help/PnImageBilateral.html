@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bilateral (PnImageBilateral) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageBilateral">Bilateral</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Blur. <em>Type:</em> <code>PnImageBilateral</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It applies an edge-preserving bilateral filter to the
+incoming image. Each output pixel is a weighted average of its
+neighbourhood, where a neighbour's weight falls off both with its spatial
+distance (a Gaussian tied to the window <code>radius</code>) and with how
+different its colour is from the centre pixel (a Gaussian governed by
+<code>sigma</code>). Because neighbours across a strong colour edge get
+tiny weights, flat regions are smoothed while edges stay crisp. Results
+are clamped to [0, 255] and any alpha channel is preserved. The result is
+emitted as a new <code>PnImageMessage</code>.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>radius</code></td>
+      <td>Spatial window radius, 1&ndash;7 (default 3). Sets the size of
+          the neighbourhood averaged at each pixel; larger smooths more
+          but costs more.</td></tr>
+  <tr><td><code>sigma</code></td>
+      <td>Colour sigma, 1.0&ndash;150.0 (default 30.0). Larger values
+          blend across bigger colour differences (less
+          edge-preserving).</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Bilateral (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,1063 @@
+                          PIPNODE PLUGINS
+                          ===============
+
+This file is a step-by-step guide to writing, building, installing,
+and shipping plugins for pipnode.  It is aimed at programmers who
+are comfortable in C but who have not necessarily worked with
+pipnode, GObject, or dynamically loaded libraries before.
+
+Read it top-to-bottom on a first pass; later sections assume the
+vocabulary the earlier ones introduce.
+
+
+CONTENTS
+--------
+
+  1.  What is a pipnode plugin?
+  2.  How dynamic loading works (background)
+  3.  The plugin ABI in one page
+  4.  Writing a minimal plugin
+  5.  Building the plugin: standalone Makefile
+  6.  Building the plugin: autotools (the bundled approach)
+  7.  Where pipnode looks for plugins
+  8.  How a plugin is loaded at run time
+  9.  Deduplication: what stops a plugin from loading twice
+  10. ABI versioning
+  11. Inspector attribution
+  12. Limitations and gotchas
+  13. Debugging a plugin that does not load
+  14. Shipping per-node help pages
+  15. Extending the node settings dialog (ABI v2)
+  16. Reference plugins in the tree
+  17. Quick checklist
+  18. Plugin licensing and the Plugin Exception
+
+
+1. WHAT IS A PIPNODE PLUGIN?
+----------------------------
+
+Pipnode is a desktop visual flow editor: the user drags "nodes"
+onto a worksheet and wires their outputs to the inputs of other
+nodes to build a data-processing graph.  Each node type is a C
+class derived from `PnNode` (a `GObject` subclass) and registered
+with the process-wide `PnNodeFactory` so that the palette, the
+JSON load path, and the worksheet renderer can find it by name.
+
+A plugin is a shared object (`.so` on Linux, `.dylib` on macOS,
+`.dll` on Windows) that contains one or more `PnNode` subclasses
+and registers them with the factory at start-up.  From the user's
+point of view a plugin-shipped node is indistinguishable from a
+built-in: it appears in the palette, can be saved into a worksheet
+JSON file, and round-trips through load and save just like every
+other node.
+
+Plugins exist so that:
+
+  - third parties can ship node types without forking pipnode;
+  - the project itself can deliver node types in separately
+    versioned shared objects (the bundled `pipnode-network` plugin
+    that ships Ping and DNS Check is exactly this);
+  - downstream packagers can choose which optional node types to
+    install on a given machine.
+
+
+2. HOW DYNAMIC LOADING WORKS (BACKGROUND)
+-----------------------------------------
+
+If you have never written a dynamically loaded library, here is
+the short version.
+
+A regular executable is linked at build time against a fixed list
+of shared libraries.  The list is recorded in the ELF header and
+the dynamic linker (`/lib64/ld-linux-x86-64.so.2`) resolves them
+when the program starts.  After that, no more code can join the
+process unless the program explicitly asks for it.
+
+The POSIX `dlopen(3)` family of calls is how a program asks for
+more code at run time:
+
+  - `dlopen("path/to/lib.so", RTLD_NOW)`         opens the file
+  - `dlsym(handle, "symbol_name")`               looks up a symbol
+  - `dlclose(handle)`                            unmaps the file
+
+Pipnode does not call `dlopen` directly.  Instead it uses GLib's
+portable wrapper, `GModule`, which speaks `dlopen` on POSIX,
+`LoadLibrary` on Windows, and `NSAddImage` on older macOS -- same
+contract, three backends.  The relevant calls are:
+
+  - `g_module_open(path, flags)`        wraps `dlopen`
+  - `g_module_symbol(mod, name, &fn)`   wraps `dlsym`
+  - `g_module_make_resident(mod)`       pins the module for the
+                                        rest of the process's life
+                                        so it cannot be unloaded
+  - `g_module_close(mod)`               wraps `dlclose`
+
+The "make resident" step matters because pipnode registers
+`GType` instances inside the plugin's `pn_plugin_init`, and GLib
+does not support unregistering a `GType`.  If the plugin's `.so`
+were ever unmapped while a node it registered was still in use,
+the next call into the type's vtable would jump into freed
+memory and crash the process.  Plugins are therefore a one-way
+door: once loaded they stay loaded until the process exits.
+
+
+3. THE PLUGIN ABI IN ONE PAGE
+-----------------------------
+
+The contract between pipnode and a plugin is defined in the
+public header `<pipnode/pn-plugin.h>`, which itself pulls in
+`<pipnode/pn-node-factory.h>` so the entry point can register
+types with the factory.  There are exactly three pieces.
+
+  (a) A constant, the ABI version:
+
+        #define PN_PLUGIN_ABI_VERSION 1
+
+      Bumped whenever an incompatible change to `PnNode`,
+      `PnNodeClass`, the factory registration contract, or the
+      entry-point signature ships in a release.  Plugins stamp
+      this value into the `PnPluginInfo` they return; the host
+      refuses to load a plugin whose declared version differs.
+
+  (b) An identity struct that the plugin returns:
+
+        typedef struct
+        {
+            int          abi_version;
+            const gchar *name;
+            const gchar *version;
+            const gchar *description;
+        } PnPluginInfo;
+
+      `name` is required and shows up in the inspector as the
+      provenance string for every type the plugin registers.
+      `version` is required and free-form ("1.0.0", "2025-04-12").
+      `description` is optional.  All three string fields must
+      have static lifetime: typically they are string literals
+      inside a static const struct.
+
+  (c) An entry-point function that the plugin must export under
+      the symbol name "pn_plugin_init":
+
+        typedef const PnPluginInfo *
+        (*PnPluginInitFunc) (PnNodeFactory *factory);
+
+      The host calls this once with the process-wide
+      `PnNodeFactory`.  The plugin calls
+      `pn_node_factory_register(factory, MY_TYPE_FOO)` for each
+      `PnNode` subclass it provides and returns a borrowed
+      pointer to a static `PnPluginInfo`.  Returning NULL is
+      treated as a failed load.
+
+That is the entire contract.  No vtable, no init/fini pair, no
+context object -- one symbol, one struct, one constant.
+
+
+4. WRITING A MINIMAL PLUGIN
+---------------------------
+
+A complete, working plugin fits in roughly fifty lines of C.
+The file `tests/plugins/echo/pn-echo.c` in the source tree is
+exactly such a plugin and is the easiest place to start reading.
+A condensed version, with explanatory comments, follows.
+
+    /*  my-echo.c  ---  pass-through demo node  */
+
+    #include <gmodule.h>
+
+    #include <pipnode/pn-node.h>
+    #include <pipnode/pn-message.h>
+    #include <pipnode/pn-node-factory.h>
+    #include <pipnode/pn-plugin.h>
+
+    /*  --- 1.  Declare the GType. --- */
+
+    #define MY_TYPE_ECHO (my_echo_get_type ())
+
+    G_DECLARE_FINAL_TYPE (MyEcho, my_echo, MY, ECHO, PnNode)
+
+    struct _MyEcho
+    {
+        PnNode parent_instance;
+    };
+
+    G_DEFINE_TYPE (MyEcho, my_echo, PN_TYPE_NODE)
+
+    /*  --- 2.  Override the receive vfunc. --- */
+
+    static void
+    my_echo_receive (PnNode *node, PnMessage *message)
+    {
+        /* Forward every incoming message unchanged. */
+        pn_node_emit_message (node, message);
+    }
+
+    /*  --- 3.  Pin class-level metadata. --- */
+
+    static void
+    my_echo_class_init (MyEchoClass *klass)
+    {
+        PnNodeClass *nc = PN_NODE_CLASS (klass);
+
+        nc->receive    = my_echo_receive;
+        nc->class_name = "Echo";              /* palette label   */
+        nc->icon       = "\xef\x81\xa4";      /* fa-share glyph  */
+        nc->color      = (GdkRGBA){0.55, 0.65, 0.95, 1.0};
+        nc->category   = "Filters";           /* palette group   */
+        nc->has_input  = TRUE;
+        nc->has_output = TRUE;
+    }
+
+    static void
+    my_echo_init (MyEcho *self)
+    {
+        (void) self;   /* nothing to initialise per instance */
+    }
+
+    /*  --- 4.  Export the plugin entry point. --- */
+
+    G_MODULE_EXPORT const PnPluginInfo *
+    pn_plugin_init (PnNodeFactory *factory)
+    {
+        static const PnPluginInfo info = {
+            .abi_version = PN_PLUGIN_ABI_VERSION,
+            .name        = "EchoPlugin",
+            .version     = "1.0.0",
+            .description = "Pass-through demo node.",
+        };
+
+        pn_node_factory_register (factory, MY_TYPE_ECHO);
+        return &info;
+    }
+
+A few notes on the four blocks above.
+
+(1) The `G_DECLARE_FINAL_TYPE` macro from GLib produces all the
+    boilerplate for a non-derivable GObject subclass: the
+    `MyEcho` instance struct, the `MyEchoClass` class struct, the
+    `my_echo_get_type ()` accessor, the `MY_ECHO ()` /
+    `MY_IS_ECHO ()` casts, and so on.  Use `G_DECLARE_DERIVABLE_TYPE`
+    instead if your node type is meant to be subclassed.
+
+(2) `receive` is the only `PnNodeClass` virtual method most node
+    types need to override.  It runs whenever a wire delivers a
+    message to this node's input port.  To emit a message on the
+    output port (for downstream nodes to receive), call
+    `pn_node_emit_message (node, message)`.
+
+(3) The `class_name`, `icon`, `color`, `category`, `has_input`,
+    and `has_output` fields are read by the palette and the
+    worksheet renderer to draw your node.  They live on the
+    class struct rather than the instance because every instance
+    of `MyEcho` looks the same; pinning them once during
+    `_class_init` saves an allocation per node.
+
+(4) `G_MODULE_EXPORT` annotates the function so the linker keeps
+    the symbol visible to `dlsym`.  On most ELF toolchains this
+    is a no-op (symbols default to public), but on Windows it
+    expands to `__declspec(dllexport)` and is therefore required
+    for portability.  The function name must be exactly
+    `pn_plugin_init` -- that is the symbol the host looks up, and
+    the macro `PN_PLUGIN_INIT_SYMBOL` in `<pn-plugin.h>` is the
+    single source of truth.
+
+A plugin can register more than one type from a single
+`pn_plugin_init`; the bundled network plugin registers `PnPing`
+and `PnDns` from one entry point, for example.
+
+
+4a. NODES WITH MORE THAN ONE INPUT
+----------------------------------
+
+Most nodes have a single input port, which the `has_input`
+boolean turns on.  A node can instead expose several input ports
+by calling `pn_node_set_n_inputs (node, N)` in its `_init` (this
+also turns `has_input` on).  The worksheet then draws N input
+tabs stacked down the node's left edge, and each tab can be wired
+independently.
+
+Because there is still one `receive` vfunc, a multi-input node
+tells its ports apart by asking which one the current message
+arrived on:
+
+    static void
+    my_blend_receive (PnNode *node, PnMessage *message)
+    {
+        gint input = pn_node_current_input ();   /* 0 .. N-1 */
+        /* ... store/act on the message for that port ... */
+    }
+
+`pn_node_current_input ()` is valid only for the duration of the
+`receive` call.  A node that must combine its inputs (rather than
+react to each independently) typically latches the most recent
+message per port and only acts once every port has one; the
+bundled image plugin's `pn_image_node_process2 ()` helper does
+exactly this for its two-input `Blend` node.
+
+Connections to a specific input survive save/load: a wire to a
+port other than 0 stores a `target_input` integer in the
+`connections` array (omitted, and assumed 0, for the ordinary
+single-input case).  Wires created in C address a port with
+`pn_wire_new_full (source, target, target_input)`;
+`pn_wire_new (source, target)` is the `target_input == 0` shortcut.
+
+
+5. BUILDING THE PLUGIN: STANDALONE MAKEFILE
+-------------------------------------------
+
+The simplest possible out-of-tree build needs `pkg-config` to
+locate pipnode's headers and link line, plus the standard
+`-fPIC -shared` toolchain flags for a position-independent
+shared object.  A minimal Makefile:
+
+    CC          = cc
+    CFLAGS     := -Wall -O2 -fPIC \
+                  $(shell pkg-config --cflags gtk+-3.0 \
+                                              json-glib-1.0 \
+                                              gmodule-2.0 \
+                                              pipnode 2>/dev/null)
+    LDLIBS     := $(shell pkg-config --libs gtk+-3.0 \
+                                            json-glib-1.0 \
+                                            gmodule-2.0 \
+                                            pipnode 2>/dev/null)
+
+    my_echo.so: my-echo.c
+            $(CC) $(CFLAGS) -shared -o $@ $< $(LDLIBS)
+
+    install: my_echo.so
+            install -D -m 0644 my_echo.so \
+                    $(DESTDIR)$(HOME)/.local/share/pipnode/plugins/my_echo.so
+
+The `pkg-config --cflags pipnode` invocation resolves once
+pipnode has been `make install`-ed: the host's top-level
+`Makefile.am` installs `pipnode.pc` into
+`$(libdir)/pkgconfig/`, and `pkg-config` picks it up from there
+without any further configuration.  In addition to the usual
+`Cflags:` / `Libs:` / `Requires:` fields, the .pc file exposes
+two pkg-config variables a plugin's build system can query to
+avoid hard-coding install paths:
+
+  - `plugindir` -- the directory the host scans for plugin .so
+    files (typically `$libdir/pipnode/plugins`).  Plugin
+    Makefile.am rules should install into this directory so the
+    default plugin search path (section 7) picks them up.
+
+  - `helpdir`   -- the flat directory the host's help browser
+    resolves `<TypeName>.html` files from (typically
+    `$pkgdatadir/help`).  Plugin Makefile.am rules that ship
+    per-node HTML help files install into this directory.
+
+Both variables come out of `pkg-config --variable=plugindir
+pipnode` and `pkg-config --variable=helpdir pipnode`
+respectively.
+
+Three filename conventions are worth knowing:
+
+  - The shared object's basename is what the user sees in error
+    messages and what pipnode uses for filename-based dedup
+    (section 9).  Pick something readable, e.g. `my_echo.so`,
+    `acme_crypto.so`.
+
+  - There is no `lib` prefix.  Plugins are loadable modules,
+    not libraries you link against, so the `lib` prefix that
+    `gcc -shared` uses by default would only confuse readers.
+    With autotools, `-module -avoid-version` produces the right
+    name; with a hand-written Makefile, just call your output
+    file `my_echo.so` directly.
+
+  - Avoid SONAME version suffixes (`.so.0.0.0` and friends).
+    `g_module_open` will only find `my_echo.so`, not
+    `my_echo.so.0`.
+
+
+6. BUILDING THE PLUGIN: AUTOTOOLS (THE BUNDLED APPROACH)
+--------------------------------------------------------
+
+The bundled `plugins/network/` plugin in this source tree is
+built with autotools and libtool.  The relevant excerpts from
+`plugins/network/Makefile.am`, suitable as a template for any
+new bundled plugin or for an out-of-tree autotools project:
+
+    plugindir = $(pkglibdir)/plugins
+
+    plugin_LTLIBRARIES = my_echo.la
+
+    my_echo_la_SOURCES = my-echo.c
+
+    my_echo_la_CFLAGS  = $(GTK_CFLAGS) \
+                         $(JSON_GLIB_CFLAGS) \
+                         $(GMODULE_CFLAGS) \
+                         -I$(top_srcdir)/lib
+
+    my_echo_la_LDFLAGS = -module -avoid-version -shared
+
+    my_echo_la_LIBADD  = $(top_builddir)/lib/libpipnode.la \
+                         $(GTK_LIBS) \
+                         $(JSON_GLIB_LIBS) \
+                         $(GMODULE_LIBS)
+
+What each piece is doing:
+
+  - `plugindir = $(pkglibdir)/plugins` declares the install
+    directory.  `pkglibdir` is `$prefix/lib/pipnode` by default,
+    so the plugin lands at `/usr/local/lib/pipnode/plugins/` on
+    a typical install.  This is exactly the directory pipnode
+    scans at start-up (section 7).
+
+  - `plugin_LTLIBRARIES` (rather than `lib_LTLIBRARIES`) tells
+    automake to install into `$plugindir`.
+
+  - `-module` tells libtool that the result is a loadable module
+    (no `lib` prefix, no requirement that every symbol be
+    resolvable at link time).
+
+  - `-avoid-version` drops the SONAME `.0.0.0` suffix so the
+    installed file is a plain `my_echo.so`.
+
+  - `-shared` forces the shared form even on platforms where
+    libtool would otherwise also emit a static archive.
+
+  - `LIBADD` against `libpipnode.la` makes the plugin link
+    against the host library so symbols like
+    `pn_node_factory_register` and `pn_node_emit_message`
+    resolve at run time against pipnode itself rather than
+    being inlined into the .so.
+
+For a plugin that lives outside this source tree, replace
+`-I$(top_srcdir)/lib` with `$(PIPNODE_CFLAGS)` and the libtool
+`LIBADD` line with `$(PIPNODE_LIBS)`, both produced by
+`PKG_CHECK_MODULES([PIPNODE], [pipnode])` in your own
+`configure.ac`.
+
+A small autoconf helper, `PIPNODE_PLUGIN_CHECK`, is installed
+alongside `pipnode.pc` (into `$(datadir)/aclocal/`) so an
+out-of-tree plugin's `configure.ac` can do the whole probe in
+one line:
+
+    PIPNODE_PLUGIN_CHECK([0.1.0])  dnl minimum pipnode version
+
+In addition to running the equivalent `PKG_CHECK_MODULES` and
+`AC_SUBST`-ing `PIPNODE_CFLAGS` / `PIPNODE_LIBS`, the macro also
+pulls `plugindir` and `helpdir` out of `pipnode.pc` and exposes
+them as `PIPNODE_PLUGINDIR` and `PIPNODE_HELPDIR` so the
+plugin's `Makefile.am` can install into the directories the
+host actually scans at run-time without hard-coding
+`$(libdir)/pipnode/plugins` or `$(datadir)/pipnode/help`:
+
+    plugindir   = $(PIPNODE_PLUGINDIR)
+    plugin_LTLIBRARIES = my_echo.la
+    ...
+
+    pnhelpdir   = $(PIPNODE_HELPDIR)
+    pnhelp_DATA = help/MyEcho.html
+
+The macro requires that the system pipnode install is recent
+enough to ship `pipnode.pc` -- the macro errors out with a
+clear message if the .pc file is present but does not expose a
+`plugindir` variable, which would mean pipnode predates the
+helper-file work.
+
+
+7. WHERE PIPNODE LOOKS FOR PLUGINS
+-----------------------------------
+
+At start-up both `pipnode` (the GUI) and `pipnode-run` (the
+headless runner) call `pn_node_factory_load_plugins_default()`,
+which scans the following directories in order.  The first
+plugin to claim a given basename wins (section 9), so paths
+listed earlier override paths listed later.
+
+  1. Every directory in the `PIPNODE_PLUGIN_PATH` environment
+     variable.  Colon-separated on POSIX; pipnode honours the
+     platform's native search-path separator
+     (`G_SEARCHPATH_SEPARATOR_S`).
+
+         PIPNODE_PLUGIN_PATH=/path/one:/path/two pipnode
+
+     Useful for testing an in-development plugin against an
+     installed pipnode without overwriting the installed copy.
+
+  2. `$XDG_DATA_HOME/pipnode/plugins/`, with the canonical
+     XDG fallback to `$HOME/.local/share/pipnode/plugins/`.
+     The right place for a per-user install: drop a `.so` in
+     here and the next pipnode start-up picks it up.
+
+  3. `$pkglibdir/plugins/`, baked into pipnode at compile time
+     via the `-DPKGLIBDIR=` macro.  Typically
+     `/usr/local/lib/pipnode/plugins/` for a `./configure` with
+     no `--prefix` override, or
+     `/usr/lib/pipnode/plugins/` for a distribution package.
+     This is where `make install` lands plugins built with the
+     bundled-approach autotools rules from section 6.
+
+  4. `<top_builddir>/plugins/*/.libs/`, a build-tree fallback
+     used during development.  When pipnode is run straight
+     from the source tree (without `make install`), this is
+     how the bundled `pipnode-network` plugin becomes visible
+     to `src/pipnode` and `src/pipnode-run` without anyone
+     having to set `PIPNODE_PLUGIN_PATH`.  An installed
+     pipnode also has this directory baked into the binary,
+     but the path almost certainly does not exist on the
+     target machine, so the loader silently skips it.
+
+A directory that does not exist (or that cannot be opened) is
+treated as "no plugins here" and produces no warning.  An
+unreadable plugin file inside an existing directory does
+produce a warning but does not abort the rest of the scan.
+
+
+8. HOW A PLUGIN IS LOADED AT RUN TIME
+-------------------------------------
+
+For each candidate `.so` file found in the search path, the
+loader does the following in `pn_node_factory_load_plugin()`:
+
+  1.  Canonicalises the path with `g_canonicalize_filename`
+      (resolves symlinks and `..` segments) so two paths that
+      reach the same file dedupe against each other.
+
+  2.  Checks that neither the canonical path nor the file's
+      basename has been seen before; if it has, returns success
+      silently without re-opening the file.
+
+  3.  Calls `g_module_open(path, G_MODULE_BIND_LAZY |
+      G_MODULE_BIND_LOCAL)`.  Lazy binding means symbols inside
+      the plugin are resolved on first use rather than on load,
+      which is faster.  Local binding keeps the plugin's
+      symbols out of the global symbol table -- two plugins can
+      both define a static helper called `read_byte` without
+      the second one's call accidentally jumping into the first
+      one's copy.
+
+  4.  Calls `g_module_symbol(mod, "pn_plugin_init", &fn)`.
+      A missing symbol fails the load with
+      `PN_NODE_FACTORY_PLUGIN_ERROR_NO_ENTRY`.
+
+  5.  Calls `fn(factory)`.  This is where the plugin runs its
+      `G_DEFINE_TYPE`-generated `_get_type` accessors and its
+      `pn_node_factory_register` calls.
+
+  6.  Validates the returned `PnPluginInfo`: a NULL return is a
+      failed load; an `abi_version` mismatch is a failed load
+      and the types the plugin already registered are popped
+      back off the factory; an empty `name` is a failed load.
+
+  7.  Backfills `PnPluginInfo.name` onto every type the plugin
+      registered whose `PnNodeClass.plugin_name` still reads
+      the inherited `"Internal"` default.  This is how the
+      inspector ends up showing your plugin's identifier as
+      the provenance for nodes that did not bother overriding
+      `plugin_name` themselves.
+
+  8.  Calls `g_module_make_resident` so the .so cannot be
+      unmapped, and adds both the canonical path and the
+      basename to the dedup tables.
+
+  9.  Logs `pipnode: loaded plugin "<name>" <version> from
+      <path>` at the GLib `INFO` level.
+
+
+9. DEDUPLICATION: WHAT STOPS A PLUGIN FROM LOADING TWICE
+--------------------------------------------------------
+
+The loader maintains two hash sets, both keyed by string:
+
+  - `loaded_paths`     -- canonical `g_canonicalize_filename`
+                         paths.  Catches the same physical file
+                         reached through two overlapping search
+                         directories (e.g. a symlink farm or
+                         two directories listed in
+                         `PIPNODE_PLUGIN_PATH`).
+
+  - `loaded_basenames` -- `g_path_get_basename` of the same
+                         paths.  Catches the case where two
+                         physically distinct files ship the
+                         same `GType` set: typically the
+                         system-installed
+                         `/usr/local/lib/pipnode/plugins/foo.so`
+                         and the build-tree-fallback
+                         `<top_builddir>/plugins/foo/.libs/foo.so`
+                         are different inodes but register
+                         identical types.
+
+Without basename dedup the second registration would crash
+with `cannot register existing type` because `GType` is a
+process-global namespace.  Whichever directory was scanned
+first wins; the search order above (env var, user, system,
+build tree) is therefore also the precedence order for
+overlapping plugins of the same name.
+
+
+10. ABI VERSIONING
+------------------
+
+`PN_PLUGIN_ABI_VERSION` is a single integer in
+`<pn-plugin.h>`.  It is bumped whenever an incompatible change
+to `PnNode`, `PnNodeClass`, the factory registration contract,
+or the plugin entry-point signature ships in a release.
+
+A plugin built against ABI version N exposes "N" in its
+`PnPluginInfo.abi_version`.  The host compares this to its own
+`PN_PLUGIN_ABI_VERSION` and refuses to load on mismatch -- it
+logs a warning and skips the plugin instead of letting a stale
+.so in the user's plugin directory crash the process with a
+silent layout mismatch.
+
+What this means in practice:
+
+  - Plugins are recompiled and redistributed against the new
+    ABI when pipnode bumps it.  There is no compatibility
+    shim layer.
+
+  - A plugin that only ever needs to ship one node type and
+    that uses no internal pipnode APIs is unlikely to be
+    affected by ABI bumps in practice; the contract surface
+    that the version protects is small.
+
+  - If you maintain a plugin out-of-tree, treat the ABI
+    version as a fast-failing match against pipnode's release
+    notes: bump your plugin's version, recompile against the
+    new headers, and ship.
+
+
+11. INSPECTOR ATTRIBUTION
+-------------------------
+
+Every `PnNode` carries a `plugin_name` field on its class
+struct, default `"Internal"`.  The factory shows this string
+in the inspector pane and in the palette tooltip so the user
+can tell where a given node type came from.
+
+You can pin the value yourself in `_class_init`:
+
+    nc->plugin_name = "EchoPlugin";
+
+but you do not have to.  The loader backfills the value from
+your `PnPluginInfo.name` for every type whose
+`plugin_name` still equals the inherited `"Internal"` default,
+so the common case (one plugin, several types, all attributed
+to the same plugin) does not require a per-class override.
+
+
+12. LIMITATIONS AND GOTCHAS
+---------------------------
+
+- *No unload.*  Once loaded, a plugin's .so stays mapped until
+  the process exits.  Reloading a plugin during development
+  requires restarting pipnode.
+
+- *No partial loads.*  If your `pn_plugin_init` calls
+  `pn_node_factory_register` ten times and then returns NULL,
+  the loader pops the ten registrations off the factory but
+  the underlying `GType` registrations stay in place -- they
+  cannot be undone.  In practice this means you should validate
+  whatever conditions your plugin needs (configuration files,
+  external libraries) before the first
+  `pn_node_factory_register`, not after.
+
+- *GType names must be globally unique.*  Two plugins that both
+  define a `MyEcho` GType cannot coexist in the same process;
+  the second one's `g_type_register_static` will fail at the
+  GLib level with `cannot register existing type`.  Pick a
+  prefix that is unlikely to collide (e.g. your project's name
+  or a registered DNS-style identifier).
+
+- *Threading.*  Pipnode runs the GTK main loop on a single
+  thread; node `receive` callbacks run on that thread.  If
+  your plugin does anything blocking (network I/O, file
+  system, `usleep`) it must do so from a worker thread and
+  marshal results back to the main loop with
+  `g_main_context_invoke`.  Look at how `PnPing` uses the
+  worker-thread idiom for an idiomatic pattern.
+
+- *Headless safety.*  `pipnode-run` does not link or
+  initialise GTK widgets, but it does link `libpipnode` (which
+  in turn is built against GTK).  Your plugin can safely call
+  any GLib / GObject / GIO API in its node implementation; it
+  must not call into `gtk_*` from inside `receive` or any
+  other code path that runs under `pipnode-run`, since no GTK
+  display has been opened.  Settings dialogs and other UI
+  hooks must be guarded so they only run inside the GUI host.
+
+
+13. DEBUGGING A PLUGIN THAT DOES NOT LOAD
+-----------------------------------------
+
+Start the binary with `G_MESSAGES_DEBUG=all` to see every
+message the loader emits:
+
+    G_MESSAGES_DEBUG=all pipnode
+
+Then read the output for one of the four common failures.
+
+(a) "failed to open plugin ...":
+    `g_module_open` returned NULL.  The reason follows the
+    colon -- usually a missing symbol from a transitive
+    dependency.  Check with `ldd my_plugin.so` that every
+    NEEDED entry resolves on the target system.
+
+(b) "plugin ... does not export pn_plugin_init":
+    The .so loaded but the entry-point symbol is absent or
+    not visible.  Either you forgot the function, you spelled
+    it wrong, or you forgot `G_MODULE_EXPORT` on a non-ELF
+    toolchain.  `nm -D my_plugin.so | grep pn_plugin_init`
+    should show a `T` entry; if it shows nothing or a `t` the
+    symbol is private.
+
+(c) "ABI version N does not match host ABI M":
+    The .so was built against a different pipnode release.
+    Recompile against the running pipnode's headers.
+
+(d) Silent skip with no message:
+    The directory the plugin lives in is not on the search
+    path.  Confirm with `pn_node_factory_load_plugin` called
+    explicitly (e.g. through `PIPNODE_PLUGIN_PATH=$PWD`) that
+    the file is loadable in isolation.
+
+If `pn_plugin_init` runs but no node appears in the palette,
+double-check that:
+
+  - your `_class_init` set both `category` and `class_name`
+    (a NULL `class_name` is what makes the palette skip a
+    type), and
+  - your `pn_node_factory_register` call succeeded -- the
+    function returns FALSE if the type is not a `PnNode`
+    descendant or has already been registered.
+
+
+14. SHIPPING PER-NODE HELP PAGES
+--------------------------------
+
+Pipnode's help browser opens a per-node HTML file when the user
+right-clicks a palette entry and picks "Help".  The file is named
+after the GType name -- for example `PnRtc.html` -- and lives in
+the same flat $pkgdatadir/help/ directory whether it ships from the
+host (libpipnode) or from a plugin.  The host's
+resolver searches several directories in order:
+
+  1. $PIPNODE_HELP_PATH                 (colon-separated dev override)
+  2. $XDG_DATA_HOME/pipnode/help/       (per-user installs)
+  3. $SRCDIR/data/help/                 (in-tree, host's own files)
+  4. $SRCDIR/plugins/<x>/help/          (in-tree, bundled plugins)
+  5. $PKGDATADIR/help/                  (system install)
+
+To ship a help file with your plugin:
+
+  - Drop one HTML file per node into your plugin's `help/`
+    directory; name each file exactly `<TypeName>.html` (the
+    GType name, including the `Pn` prefix).
+
+  - Reference the shared stylesheet with a sibling href --
+    `<link rel="stylesheet" href="help.css">` -- so the file
+    inherits the host's typography without carrying its own
+    copy.  The host installs `help.css` into the same
+    directory as your file at install time.
+
+  - Optionally cross-link back to the host index with
+    `<a href="help-index.html">` so the user can jump up to
+    the table of contents.
+
+  - In your plugin's Makefile.am, ship the files with:
+
+        pnhelpdir = $(pkgdatadir)/help
+        pnhelp_DATA = \
+            help/<TypeNameA>.html \
+            help/<TypeNameB>.html
+        EXTRA_DIST = $(pnhelp_DATA)
+
+    and they install alongside the host's help directory.
+
+  - For dev / test runs against the build tree, no extra
+    plumbing is needed: the in-tree fallback walks every
+    `plugins/<x>/help/` so `make` followed by `src/pipnode`
+    finds your help files without `make install`.
+
+A plugin that omits the help file falls back gracefully: the
+right-click "Help" entry opens the host's help-index.html
+instead of leaving the menu item silent.
+
+The bundled `plugins/network/help/` (PnPing, PnDns) is a worked
+example of the shape your own plugin's help/ directory should
+take.
+
+
+15. EXTENDING THE NODE SETTINGS DIALOG (ABI v2)
+-----------------------------------------------
+
+The auto-generated property tab the dialog draws for every class in
+the node's GObject type chain is enough for any node that is fully
+described by plain GObject properties: a string editor for strings,
+a check button for booleans, an enum combo for enums, and so on.
+Plugin-shipped node types get this for free -- no extra work in the
+plugin's `_class_init` is required.
+
+Three things, however, the auto-generated tab cannot do on its own,
+and they are the reason for the dialog-extension hooks introduced
+in ABI v2:
+
+  - The right widget for one of your properties is not the default.
+    Examples: a serial-port path that should pick from a sysfs walk
+    instead of accepting any string; a file path that should open a
+    file chooser; a numeric field whose valid range depends on
+    another property; a read-only label for a value the node writes
+    itself (a fetched rate, a last-update timestamp).
+
+  - Your configuration is structured rather than scalar -- a list
+    of rules, an array of {key, value} pairs, a route table.  The
+    auto-generated tab would render the underlying JSON-string
+    property as a single giant entry, which is unusable.
+
+  - Configuration needs more than one tab -- a Diagnostics page
+    showing live state, a Logs tail, a one-shot "Scan for devices"
+    button.
+
+Three optional vfunc slots on `PnNodeClass` cover these.  All three
+default to `NULL`; assigning any one of them is opt-in.  The dialog
+calls them once per dialog open with the node instance, the
+specific GParamSpec (for `build_property_editor`), and the
+PnNodeDialog GtkWindow (suitable as the `transient-for` of any
+child dialog you spawn).
+
+Helpers exposed for the rows / pages you do NOT want to write from
+scratch live in `<pipnode/pn-node-dialog-helpers.h>`:
+
+```c
+GtkWidget *pn_node_dialog_new_property_grid (void);
+void       pn_node_dialog_attach_row        (GtkGrid *grid, guint row,
+                                             const gchar *label,
+                                             GtkWidget *editor);
+GtkWidget *pn_node_dialog_default_editor    (GObject *target,
+                                             GParamSpec *pspec);
+void       pn_node_dialog_append_page       (GtkNotebook *notebook,
+                                             GtkWidget *page,
+                                             const gchar *title);
+```
+
+`pn_node_dialog_default_editor` is the same builder the auto-
+generated tab uses; calling it from your override delegates one
+property back to the host without recursing into your override
+again.
+
+15.1 build_property_editor: take over one row
+---------------------------------------------
+
+```c
+GtkWidget *(*build_property_editor) (PnNode      *self,
+                                     GParamSpec  *pspec,
+                                     GObject     *target,
+                                     GtkWindow   *dialog_parent);
+```
+
+Called once for every writable property the dialog renders for
+this class.  Return a #GtkWidget bound to @target via the standard
+GObject machinery (`g_object_bind_property`,
+`g_signal_connect_object`) to take the row over; return %NULL to
+let the host's default editor build the row.  Use
+`g_signal_connect_object (target, "notify::other_prop", cb, your_widget, 0)`
+when the editor needs to react to changes on a sibling property
+-- the handler auto-disconnects when the dialog closes and your
+widget is destroyed.
+
+Worked example -- a serial-port combo populated from a live
+sysfs walk:
+
+```c
+static GtkWidget *
+my_node_build_property_editor (PnNode      *self,
+                               GParamSpec  *pspec,
+                               GObject     *target,
+                               GtkWindow   *parent)
+{
+    if (g_strcmp0 (pspec->name, "device") != 0)
+        return NULL;                                /* host default */
+
+    GtkWidget *combo = gtk_combo_box_text_new ();
+    gchar **devices = my_node_list_devices ();      /* sysfs walk */
+
+    gtk_combo_box_text_append (GTK_COMBO_BOX_TEXT (combo),
+                               "", "No Device");
+    for (gchar **p = devices; p && *p; p++)
+        gtk_combo_box_text_append (GTK_COMBO_BOX_TEXT (combo),
+                                   *p, *p);
+    g_strfreev (devices);
+
+    gtk_widget_set_hexpand (combo, TRUE);
+    g_object_bind_property (target, "device", combo, "active-id",
+                            G_BINDING_SYNC_CREATE
+                            | G_BINDING_BIDIRECTIONAL);
+    return combo;
+}
+```
+
+Wire it up in `_class_init`:
+
+```c
+node_class->build_property_editor = my_node_build_property_editor;
+```
+
+15.2 build_class_tab: replace the whole property tab
+----------------------------------------------------
+
+```c
+GtkWidget *(*build_class_tab) (PnNode    *self,
+                               GtkWindow *dialog_parent);
+```
+
+Called once instead of the introspection-driven default.  Return
+the #GtkWidget that should sit in this class's notebook tab;
+return %NULL to fall back to the default.  Use this when the
+configuration is a list / table / graph editor that does not
+naturally decompose into one widget per GObject property -- the
+in-tree #PnFilter and #PnSet rule editors are the worked
+examples.  When you want the host's grid layout for some rows
+and your own widget for others, build a
+`pn_node_dialog_new_property_grid()` and attach via
+`pn_node_dialog_attach_row()` so your tab matches the look of
+its siblings.
+
+15.3 build_extra_pages: append additional notebook pages
+--------------------------------------------------------
+
+```c
+void (*build_extra_pages) (PnNode      *self,
+                           GtkNotebook *notebook,
+                           GtkWindow   *dialog_parent);
+```
+
+Called once after the per-class property tabs are populated,
+walked in chain order so the leaf class's pages land last.
+Implementations call `pn_node_dialog_append_page (notebook, page,
+"Title")` for each extra page.  Use for content that is not
+naturally a property form: a Diagnostics page showing live signal
+strength, a Logs tail, a "Scan for devices" button.
+
+15.4 The free `busy` overlay
+----------------------------
+
+If your node exposes a read-only boolean property named `busy`,
+the dialog will automatically:
+
+  - watch it via `notify::busy`;
+  - centre a spinner with the label "Initializing device…" over
+    the entire notebook while the property is `TRUE`;
+  - lock every page in the notebook from interaction during that
+    window.
+
+This is implemented in the host with `g_object_class_find_property
+(klass, "busy")` -- no opt-in vfunc, no helper to call.  Plugin
+node types that need to lock their settings dialog while a worker
+thread runs an async device handshake just need to install the
+property; everything else falls into place.
+
+15.5 ABI version requirement
+----------------------------
+
+Using any of the three vfuncs requires `PN_PLUGIN_ABI_VERSION = 2`.
+A plugin built against ABI v1 can keep loading against an ABI v2
+host (the host's loader matches on the version field), but the
+v1 plugin's `PnNodeClass` struct does not carry the new vfunc
+slots so the dialog falls back to the host default for every
+property -- exactly the v1 behaviour.  Plugins compiled against
+ABI v2 refuse to load against an ABI v1 host (the version check
+catches the mismatch up-front and surfaces a clear `GError`).
+
+
+16. REFERENCE PLUGINS IN THE TREE
+--------------------------------
+
+The source tree carries a handful of plugins you can read for
+worked examples; they all build out of the box from a fresh
+`./configure && make`.  Two are worth pointing out here.
+
+  - `tests/plugins/echo/`
+        A minimal `noinst` plugin used by
+        `tests/test_plugin_load.py` to verify the loader path
+        end-to-end.  Defines a single `PnEcho` pass-through
+        node and exports `pn_plugin_init`.  Read this first
+        if you are writing your first plugin.
+
+  - `plugins/network/`
+        The bundled "pipnode-network" plugin.  Installed by
+        `make install` into `$pkglibdir/plugins/`, contains
+        the `PnPing` and `PnDns` node types, and exists in
+        large part to dogfood the plugin ABI on the project's
+        own first-party node types.  Read this when you need
+        a worked example of a plugin that registers more than
+        one type, links into autotools, and is meant to ship
+        as part of the install.
+
+
+17. QUICK CHECKLIST
+-------------------
+
+Before publishing a plugin, walk through this list:
+
+  [ ] One C file (or several, your call) defining your
+      `PnNode` subclasses with `G_DEFINE_TYPE`.
+  [ ] `_class_init` sets `class_name`, `icon`, `color`,
+      `category`, `has_input`, `has_output`, and `receive`.
+  [ ] One translation unit exporting `pn_plugin_init` with
+      `G_MODULE_EXPORT`.
+  [ ] `PnPluginInfo` has `abi_version = PN_PLUGIN_ABI_VERSION`
+      and a non-empty `name` and `version`.
+  [ ] Each node type your plugin provides is registered with
+      `pn_node_factory_register` from `pn_plugin_init`.
+  [ ] Built as a `.so` (no `lib` prefix, no version suffix)
+      that resolves with `ldd` and exposes `pn_plugin_init`
+      under `nm -D`.
+  [ ] Installed into one of the directories from section 7,
+      typically `~/.local/share/pipnode/plugins/` for an
+      end-user install.
+  [ ] Verified with `G_MESSAGES_DEBUG=all pipnode` that the
+      loader logs `loaded plugin "<name>" <version>`.
+  [ ] Verified that the new node appears in the palette and
+      can be saved into a worksheet, closed, and reloaded.
+  [ ] One `help/<TypeName>.html` file per registered node type,
+      installed via your Makefile.am into `$(pkgdatadir)/help/`
+      (see section 14).  Optional but strongly recommended:
+      without it the palette's right-click Help falls back to
+      the host index.
+
+If every box is ticked, you are done.
+
+
+18. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
+
+The pipnode core (the `src/` application and the `lib/` host library)
+is licensed under the GNU GPL version 3 or later.  Because a plugin
+links against `libpipnode` and uses pipnode's types and functions, a
+plugin would normally be a derivative work of the core and would
+therefore have to be GPL as well.
+
+Pipnode grants an explicit exception so that this is NOT the case.
+The file `LICENSE.PLUGIN-EXCEPTION` (an additional permission under
+GPL v3 section 7) allows any plugin that talks to pipnode only through
+the documented plugin interface to be released under ANY license,
+including a proprietary one.  In short:
+
+  - You may publish your plugin under any terms you like -- GPL,
+    MIT, a commercial EULA, or no public license at all (a private
+    binary).  This applies to everyone, not just the pipnode author.
+
+  - The exception covers whatever your plugin extends: node types,
+    and any future plugin kinds documented here (for example
+    worksheet storage / serialization back-ends or export formats).
+
+  - The condition is that the plugin interacts with pipnode SOLELY
+    through the plugin interface described in this file -- the
+    `pn_plugin_init` entry point and the public functions and types
+    in the installed pipnode headers (`pn-plugin.h`, `pn-node.h`,
+    `pn-node-factory.h`, `pn-message.h`, and the others).  Do not
+    reach into private struct internals to stay clearly within the
+    exception.
+
+  - If instead you MODIFY the pipnode core itself (anything in
+    `src/` or `lib/`), those modifications are still governed by the
+    GPL.  Adding a new host-side extension point is a core change and
+    is therefore GPL; the plugin that uses it can still be
+    proprietary.
+
+This is why the project can ship some plugins as paid, sponsor-only
+binaries while keeping the core fully open, and why you are free to do
+the same with your own plugins.  See the top-level `LICENSE`,
+`COPYING`, and `LICENSE.PLUGIN-EXCEPTION` for the exact terms.

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Status (PnTasmotaStatus) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaStatus">Tasmota Status</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaStatus</code>.
+</p>
+<p>
+Pass-only filter that lets a message through when its envelope topic
+identifies a Tasmota STATUS reply, and drops everything else. Use it
+to split a single broker subscription into a STATUS-handling branch
+and a telemetry branch without writing a custom <em>Filter</em>
+predicate.
+</p>
+
+<h5>What gets through</h5>
+<p>
+A message is forwarded when the last segment of its
+<code>topic</code> starts with the literal text <code>STATUS</code>.
+That covers both the bare omnibus reply (<code>stat/&lt;device&gt;/STATUS</code>,
+emitted in response to <code>cmnd/&lt;device&gt;/Status</code>) and
+every numeric variant Tasmota produces:
+</p>
+<ul>
+  <li><code>stat/&lt;device&gt;/STATUS</code> &mdash; firmware/version dump</li>
+  <li><code>stat/&lt;device&gt;/STATUS5</code> &mdash; network info (IP, hostname, MAC)</li>
+  <li><code>stat/&lt;device&gt;/STATUS11</code> &mdash; current state</li>
+  <li>&hellip; and the rest of the <code>STATUS0</code>..<code>STATUS13</code> family</li>
+</ul>
+<p>
+The leading family prefix the upstream <em>MQTT Source</em> may have
+added (e.g. <code>mqtt/</code>) does not interfere with the match
+&mdash; only the last topic segment is inspected.
+</p>
+
+<h5>Output shape</h5>
+<p>
+Forwarded messages are emitted unchanged: the envelope topic, id and
+data bag survive the filter byte-for-byte, so a downstream node sees
+exactly what the upstream producer (typically <em>MQTT Source</em>
+parsing the JSON STATUS payload) emitted.
+</p>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = stat/+/STATUS+ ; or just stat/#)
+    &rarr; Tasmota Status
+        &rarr; Debug View                 (inspect the STATUS reply)
+        &rarr; Format / Filter / Graph    (further per-field handling)</pre>
+
+</body>
+</html>

@@ -1,0 +1,113 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFileDrop",
+      "uuid" : "dcab36f5-2215-4a58-947a-7335d3ec2158",
+      "name" : "FileDrop 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 40.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnImageGrayscale",
+      "uuid" : "003bc7e4-8f91-478b-bbd4-996bdb9d1e7a",
+      "name" : "Grayscale 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 260.0,
+        "y" : 220.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnImageInvert",
+      "uuid" : "e82d66f0-c7ff-4545-81c2-de868ce1691f",
+      "name" : "Invert 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 480.0,
+        "y" : 80.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnImageGaussianBlur",
+      "uuid" : "96bbed25-285f-435b-be49-2a5206fdad7c",
+      "name" : "Gaussian Blur 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 700.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "radius" : 12.0
+      }
+    },
+    {
+      "type" : "PnImageColorDodge",
+      "uuid" : "cebf33b6-97e7-454f-b48a-84a0f3feb339",
+      "name" : "Color Dodge 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 920.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "opacity" : 1.0
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "21a7d424-3b92-44de-aa8d-ca9ad0888bf0",
+      "name" : "FileViewer 1",
+      "worksheet" : "Pencil Sketch",
+      "position" : {
+        "x" : 1140.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "dcab36f5-2215-4a58-947a-7335d3ec2158",
+      "target_id" : "003bc7e4-8f91-478b-bbd4-996bdb9d1e7a"
+    },
+    {
+      "source_id" : "003bc7e4-8f91-478b-bbd4-996bdb9d1e7a",
+      "target_id" : "cebf33b6-97e7-454f-b48a-84a0f3feb339"
+    },
+    {
+      "source_id" : "003bc7e4-8f91-478b-bbd4-996bdb9d1e7a",
+      "target_id" : "e82d66f0-c7ff-4545-81c2-de868ce1691f"
+    },
+    {
+      "source_id" : "e82d66f0-c7ff-4545-81c2-de868ce1691f",
+      "target_id" : "96bbed25-285f-435b-be49-2a5206fdad7c"
+    },
+    {
+      "source_id" : "96bbed25-285f-435b-be49-2a5206fdad7c",
+      "target_id" : "cebf33b6-97e7-454f-b48a-84a0f3feb339",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "cebf33b6-97e7-454f-b48a-84a0f3feb339",
+      "target_id" : "21a7d424-3b92-44de-aa8d-ca9ad0888bf0"
+    }
+  ],
+  "sheets" : [
+    "Pencil Sketch"
+  ],
+  "active_sheet" : "Pencil Sketch"
+}

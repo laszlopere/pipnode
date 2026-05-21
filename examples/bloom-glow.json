@@ -1,0 +1,102 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFileDrop",
+      "uuid" : "8404d9eb-4dcf-42ee-920d-c88ac151d565",
+      "name" : "FileDrop 1",
+      "worksheet" : "Bloom Glow",
+      "position" : {
+        "x" : 40.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnImageLevels",
+      "uuid" : "8a8c760a-3faa-44ff-808e-123075e34ba0",
+      "name" : "Levels 1",
+      "worksheet" : "Bloom Glow",
+      "position" : {
+        "x" : 280.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "black" : 180,
+        "white" : 255,
+        "gamma" : 1.0
+      }
+    },
+    {
+      "type" : "PnImageGaussianBlur",
+      "uuid" : "46f57fac-8d8d-4495-b5a8-502a1c759cff",
+      "name" : "Gaussian Blur 1",
+      "worksheet" : "Bloom Glow",
+      "position" : {
+        "x" : 520.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "radius" : 24.0
+      }
+    },
+    {
+      "type" : "PnImageScreen",
+      "uuid" : "9b1baf25-61cd-4431-9634-1569f530e992",
+      "name" : "Screen 1",
+      "worksheet" : "Bloom Glow",
+      "position" : {
+        "x" : 760.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "opacity" : 1.0
+      }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "949fadf8-7672-44ba-b45d-46cb9efebba4",
+      "name" : "FileViewer 1",
+      "worksheet" : "Bloom Glow",
+      "position" : {
+        "x" : 1000.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "8404d9eb-4dcf-42ee-920d-c88ac151d565",
+      "target_id" : "9b1baf25-61cd-4431-9634-1569f530e992"
+    },
+    {
+      "source_id" : "8404d9eb-4dcf-42ee-920d-c88ac151d565",
+      "target_id" : "8a8c760a-3faa-44ff-808e-123075e34ba0"
+    },
+    {
+      "source_id" : "8a8c760a-3faa-44ff-808e-123075e34ba0",
+      "target_id" : "46f57fac-8d8d-4495-b5a8-502a1c759cff"
+    },
+    {
+      "source_id" : "46f57fac-8d8d-4495-b5a8-502a1c759cff",
+      "target_id" : "9b1baf25-61cd-4431-9634-1569f530e992",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "9b1baf25-61cd-4431-9634-1569f530e992",
+      "target_id" : "949fadf8-7672-44ba-b45d-46cb9efebba4"
+    }
+  ],
+  "sheets" : [
+    "Bloom Glow"
+  ],
+  "active_sheet" : "Bloom Glow"
+}

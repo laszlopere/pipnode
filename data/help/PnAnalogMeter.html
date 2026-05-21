@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Analog Meter (PnAnalogMeter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAnalogMeter">Analog Meter</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnAnalogMeter</code>.
+</p>
+<p>
+A flat panel-meter sink &mdash; a square white plastic case with a
+moulded bezel, an inset paper-white face, a diagonal arc of black
+tick marks with engraved digits running from the lower-left corner
+up through the top of the face to the upper-right corner, a long
+thin black needle whose pivot bearing sits in the lower-right corner
+(a small dark disc with a single light slot across the head, which
+is the moving-coil pivot the needle swings around) and an accuracy-
+class digit at the lower-left &mdash; the classic AC voltmeter /
+ammeter look you find on every old electrical panel.  It reads the latest numeric value plucked from every incoming
+message via a JSON path (<code>key</code>) the same way the
+<a href="PnDial.html"><em>Dial</em></a> sink does, and animates the
+needle to its new position through the same damped-spring integrator
+so a step input swings the needle past the target and settles back on
+it the way a real moving-coil meter does.  When the
+<code>key</code> cannot be resolved or the resolved value is not
+finite the needle stays where it was; out-of-range readings clamp to
+the nearest scale endpoint instead of swinging past the ticks.
+</p>
+<p>
+The case is square (220&nbsp;&times;&nbsp;220&nbsp;px) and sits below
+the standard Node-RED-style header.  Clicking the face lifts the
+meter into the centred zoom overlay the same way it does for the
+<em>Dial</em> and the other large sinks, so a worksheet that wires
+several meters in a row can zoom into one for a closer reading
+without rearranging the canvas.
+</p>
+
+<h5>Choosing between the Analog Meter and the Dial</h5>
+<p>
+Both sinks read a single numeric value off the message and drive a
+needle.  Use the <em>Analog Meter</em> when you want the look of an
+old panel-mount meter -- a square plastic housing, a diagonal arc
+scale that fills the upper-left triangle of the face with the pivot
+in the lower-right corner, and a stark monochrome readout
+appropriate for a meter that names its quantity by the unit glyph in
+the empty upper-left corner rather than by a colour-coded zone band.
+Use the <em>Dial</em> when you want a round bezelled gauge with
+optional green / yellow / red warning zones, a metallic centre pivot
+and a glassy face reflection -- the look of a process-control
+dashboard rather than an electrician's lab bench.
+</p>
+
+<h5>Scale geometry</h5>
+<p>
+The scale runs from <code>min-value</code> to <code>max-value</code>
+along an arc.  Angles are measured in degrees, clockwise from
+12&nbsp;o'clock; the pivot lives at the lower-right corner of the
+face, so the default <code>start-angle = -90</code> /
+<code>end-angle = 0</code> sweeps a 90&deg; diagonal arc -- the low
+end of the scale sits at the lower-left corner of the face (the
+needle pointing horizontally to the left) and the high end at the
+upper-right corner (the needle pointing straight up).  The arc
+radius is sized automatically from the actual sweep, so a narrower
+or wider sweep grows / shrinks the radius to fit the case without
+needing the user to adjust any other property.
+</p>
+<p>
+Major tick marks are placed at &ldquo;nice&rdquo; value positions
+(<code>{1, 2, 5} &times; 10<sup>n</sup></code> apart, the same
+heuristic <em>matplotlib</em> and <em>gnuplot</em> use for axis
+labels) derived from the <code>major-ticks</code> property, which
+acts as an <em>upper bound</em> on the tick count rather than as a
+hard count.  Minor tick marks subdivide each major-tick segment
+evenly; the default 10 minor-ticks-per-major matches the typical
+electrical meter where every 10&nbsp;V (or 10&nbsp;mA) gets its own
+short tick between the labelled 100&nbsp;V boundaries.
+</p>
+
+<h5>Cosmetic text</h5>
+<p>
+The <code>unit</code> property is the dominant glyph printed in
+the upper-left corner of the face -- opposite the pivot, which is
+the only generously-sized empty region on a diagonal-scale meter --
+typically a single letter (&ldquo;V&rdquo;, &ldquo;A&rdquo;,
+&ldquo;mA&rdquo;) so it reads as the unit the meter measures at a
+single glance.  When
+<code>ac-mode</code> is <code>TRUE</code> (the default) a small
+sine-wave &ldquo;~&rdquo; glyph is painted above the unit, the
+international symbol for an AC-only instrument; flip it to
+<code>FALSE</code> for the look of a DC meter.  The
+<code>accuracy-class</code> property is a small string printed at
+the lower-left corner of the face (typically the IEC accuracy class
+-- &ldquo;2.5&rdquo;, &ldquo;1.5&rdquo;, &ldquo;0.5&rdquo;);
+cosmetic only, the value does not affect any readings.
+</p>
+
+<h5>Properties</h5>
+
+<h6>Data</h6>
+<ul>
+<li><code>key</code> &mdash; JSON path (&ldquo;/&rdquo;-separated, e.g.
+<code>data/value</code>) to the numeric value the needle points at.
+Default <code>data/value</code>.</li>
+<li><code>unit</code> &mdash; Dominant unit glyph drawn at the top
+centre of the face.  Default <code>V</code>.</li>
+<li><code>mode</code> &mdash; picks which IEC current-type symbol is
+painted directly below the unit.  <code>AC</code> paints the sine
+wave &ldquo;~&rdquo; (IEC 60417-5032); <code>DC</code> paints a solid
+line above three short dashes (IEC 60417-5031); <code>None</code>
+leaves the slot empty, for meters whose unit ("Hz", "&deg;C") has no
+AC/DC sense.  Default <code>AC</code>.</li>
+<li><code>accuracy-class</code> &mdash; Small string at the lower-left
+corner of the face.  Default <code>2.5</code>.</li>
+</ul>
+
+<h6>Scale</h6>
+<ul>
+<li><code>min-value</code> / <code>max-value</code> &mdash; numeric
+range of the scale.  Defaults <code>0</code> / <code>300</code>.</li>
+<li><code>start-angle</code> / <code>end-angle</code> &mdash; angles
+(degrees, clockwise from 12&nbsp;o'clock) of the needle at the scale
+endpoints.  Defaults <code>-90</code> / <code>0</code> (the diagonal
+lower-left&nbsp;&rarr;&nbsp;upper-right sweep around the lower-right
+pivot).</li>
+<li><code>major-ticks</code> &mdash; upper bound on the number of
+major tick marks.  Default <code>4</code> (so the default
+<code>0 .. 300</code> range gets ticks at <code>0, 100, 200, 300</code>).</li>
+<li><code>minor-ticks-per-major</code> &mdash; subdivisions between
+two consecutive major ticks.  Default <code>10</code>.</li>
+</ul>
+
+<h6>Colours</h6>
+<ul>
+<li><code>face-color</code> &mdash; fill colour of the inset dial
+face.  Default near-white.</li>
+<li><code>scale-color</code> &mdash; colour of the tick marks, the
+scale arc and the digit labels.  Default near-black.</li>
+<li><code>needle-color</code> &mdash; fill colour of the needle.
+Default near-black.</li>
+<li><code>label-color</code> &mdash; colour of the unit glyph, the
+AC &ldquo;~&rdquo; wave and the accuracy-class string.  Default
+near-black.</li>
+</ul>
+
+<h5>Message contract</h5>
+<p>
+See the <a href="help-index.html#messages">Messages</a> section of
+the help index for the full message envelope and the standard
+data-bag members.  This sink ignores everything except the value at
+<code>key</code>, which it coerces to a finite <code>double</code>
+(<code>int</code>, <code>double</code> and numeric-string JSON
+values are all accepted).
+</p>
+
+</body>
+</html>

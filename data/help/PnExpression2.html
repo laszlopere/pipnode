@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Expression 2 (PnExpression2) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnExpression2">Expression 2</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnExpression2</code>.
+</p>
+<p>
+Two-input variant of the <a href="PnExpression.html">Expression</a>
+node. It evaluates an algebraic expression that can combine values
+from <strong>both</strong> input ports, e.g. <code>value1 + value2</code>
+or <code>(value1 - value2) / value2 * 100</code>.
+</p>
+<p>
+Each numeric member of the latest message on an input is bound as a
+variable named after the member with the input number appended:
+<strong>input&nbsp;1</strong> contributes <code>value1</code> (and a
+sibling <code>data.temp</code> as <code>temp1</code>),
+<strong>input&nbsp;2</strong> contributes <code>value2</code>,
+<code>temp2</code>, and so on. The node keeps the most recent values
+seen on each input and recomputes on <em>every</em> incoming message,
+writing the result to <code>data.value</code> of the message it just
+received before forwarding it.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>expression</code></td>
+      <td>The expression to evaluate. Defaults to
+          <code>value1 + value2</code>.</td></tr>
+</table>
+
+<h5>Language</h5>
+<ul>
+  <li><strong>Numbers:</strong> <code>12</code>, <code>12.3</code>,
+      <code>.5</code>.</li>
+  <li><strong>Variables:</strong> any numeric data-bag member of either
+      input, suffixed by the input number, e.g. <code>value1</code>,
+      <code>value2</code>, <code>offset1</code>.</li>
+  <li><strong>Operators:</strong> <code>+</code> <code>-</code>
+      <code>*</code> <code>/</code> with the usual precedence,
+      parentheses for grouping, and unary minus.</li>
+  <li><strong>Functions</strong> (one argument):
+      <code>sin</code>, <code>cos</code>, <code>tan</code>,
+      <code>log</code> (natural log), <code>log10</code>,
+      <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
+      <code>floor</code>, <code>ceil</code>.</li>
+</ul>
+
+<pre>expression: value1 + value2
+expression: (value1 - value2) / value2 * 100
+expression: sqrt(value1 * value1 + value2 * value2)</pre>
+
+<h5>Output</h5>
+<p>
+On success the node sets <code>data.value</code> to the computed
+number, <code>data.success</code> to true, and <code>data.output</code>
+to the formatted result. If the expression cannot be parsed, or it
+references an input that has not produced a message yet (so e.g.
+<code>value2</code> is still unknown), the message is still forwarded
+but flagged: <code>data.success</code> is set to false and the reason
+is placed in <code>data.error</code> and <code>data.output</code>, with
+<code>data.value</code> left unchanged.
+</p>
+
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Disk I/O (PnDiskIo) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDiskIo">Disk I/O</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnDiskIo</code>.
+</p>
+<p>
+Auto-triggered probe that samples <code>/proc/diskstats</code> every
+<code>period</code> seconds and emits the live disk-I/O throughput as
+<code>data.value</code> in the byte multiple chosen by the
+<code>unit</code> property &mdash; one of <code>B/sec</code>,
+<code>KByte/sec</code>, <code>MByte/sec</code>, or <code>GByte/sec</code>
+(decimal, 1&nbsp;KByte&nbsp;=&nbsp;1000&nbsp;bytes, matching the
+convention disk vendors and tools like <code>iostat</code>/<code>dd</code>
+use). The default is <code>GByte/sec</code>. The figure is computed
+as the per-second delta of the kernel's cumulative 512-byte sector
+counters between two consecutive ticks, so the first sample after
+construction (or after a hostname / device change) carries
+<code>value&nbsp;=&nbsp;0</code> and a "warming up" note in
+<code>data.output</code>: a real reading needs two samples.
+</p>
+<p>
+The sample comes from <code>/proc/diskstats</code> directly when
+<code>hostname</code> is empty or <code>"localhost"</code>; any
+other value is treated as a remote host and the file is fetched over
+passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname cat /proc/diskstats</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+<code>device</code> picks which row to measure. An empty string
+(the default) sums across every whole-disk row in the file:
+partition rows (<code>sda1</code>, <code>nvme0n1p1</code>,
+<code>mmcblk0p1</code>, &hellip;) and pseudo-devices
+(<code>loop*</code>, <code>ram*</code>, <code>zram*</code>,
+<code>sr*</code>, <code>fd*</code>) are skipped so a parent disk is
+not double-counted through its partitions. A concrete value
+(<code>"sda"</code>, <code>"nvme0n1"</code>, <code>"dm-0"</code>,
+&hellip;) restricts the reading to that row.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (read + write
+throughput in the configured unit), <code>data.read</code>,
+<code>data.write</code> (the two halves of the sum, same unit),
+<code>data.unit</code> (the short string matching the chosen
+<code>unit</code> property &mdash; <code>"B/sec"</code>,
+<code>"KByte/sec"</code>, <code>"MByte/sec"</code> or
+<code>"GByte/sec"</code>), <code>data.device</code>
+(the device(s) that contributed: a single name, an empty string when
+no whole-disk row was found, or a <code>"+"</code>-joined list when
+the all-disks path summed several), <code>data.host</code>,
+<code>data.success</code>, and <code>data.output</code> (a one-line
+summary &mdash; either the GByte/sec figure broken into its
+read/write halves or the failure reason). When the SSH probe fails
+the remote stderr or the spawn error message is folded into
+<code>data.output</code> so a downstream <em>Debug Print</em> shows
+the user what went wrong; when the file was read but no row matched
+the configured <code>device</code>, <code>data.output</code>
+explains that explicitly.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose <code>/proc/diskstats</code> to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password). Changing this property mid-flight
+          discards the previous sample so the next emitted
+          <code>value</code> is the "warming up" zero rather than a
+          spurious cross-host delta.</td></tr>
+  <tr><td><code>device</code></td>
+      <td>Block-device name to measure (<code>"sda"</code>,
+          <code>"nvme0n1"</code>, <code>"mmcblk0"</code>,
+          <code>"dm-0"</code>, &hellip;). An empty string (the
+          default) sums across every whole-disk row of
+          <code>/proc/diskstats</code>. Partition rows and the
+          <code>loop</code>/<code>ram</code>/<code>zram</code>/<code>sr</code>/<code>fd</code>
+          pseudo-devices are skipped on the all-disks path so a
+          parent disk is not counted twice. Changing this property
+          mid-flight discards the previous sample (same reason as
+          for <code>hostname</code>).</td></tr>
+  <tr><td><code>unit</code></td>
+      <td>Output unit for <code>data.value</code>:
+          <code>B/sec</code>, <code>KByte/sec</code>,
+          <code>MByte/sec</code>, or <code>GByte/sec</code> (decimal
+          multiples, 1&nbsp;KByte&nbsp;=&nbsp;1000&nbsp;bytes). The
+          default is <code>GByte/sec</code>. The chosen short string
+          is also emitted on <code>data.unit</code> so a downstream
+          <em>Graph</em> axis label can pick it up verbatim. Changing
+          this property does <em>not</em> invalidate the previous
+          sample &mdash; the bytes/sec computation is the same, only
+          the divisor differs, so the next emitted reading is a real
+          number rather than another "warming up" zero.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default of 2&nbsp;s keeps the
+          per-tick delta well above the noise floor the kernel's
+          sector-counter rounding introduces while still feeling
+          responsive in a downstream <em>Graph</em>.</td></tr>
+</table>
+
+</body>
+</html>

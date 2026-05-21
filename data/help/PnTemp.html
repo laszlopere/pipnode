@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CPU Temperature (PnTemp) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTemp">CPU Temperature</h4>
+<p>
+<em>Group:</em> Host monitoring. <em>Type:</em> <code>PnTemp</code>.
+</p>
+<p>
+Auto-triggered probe that samples a host's CPU temperature sensors
+every <code>period</code> seconds and emits a single aggregated
+value (in degrees Celsius) as <code>data.value</code>.  Sources
+are collected from <code>/sys/class/hwmon/hwmon*/</code> entries
+whose <code>name</code> matches a known CPU driver
+(<code>coretemp</code>, <code>k10temp</code>, <code>k8temp</code>,
+<code>zenpower</code>, <code>cpu_thermal</code>) and every
+<code>tempN_input</code> file inside those directories contributes
+one reading; if no hwmon source is present the node falls back to
+<code>/sys/class/thermal/thermal_zone*/</code> entries whose
+<code>type</code> looks like a CPU thermal zone
+(<code>x86_pkg_temp</code>, <code>cpu-thermal</code>,
+<code>coretemp</code>, ...).  The
+<code>aggregation</code> property picks whether
+<code>data.value</code> is the arithmetic mean or the maximum of
+those readings.
+</p>
+<p>
+When <code>hostname</code> is empty or <code>"localhost"</code>
+the sensor files are read off the local filesystem directly; any
+other value is treated as a remote host and the sample is fetched
+over passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname sh -c &lt;snippet&gt;</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (aggregated
+temperature in <code>&deg;C</code>), <code>data.average</code>,
+<code>data.min</code>, <code>data.max</code>,
+<code>data.count</code> (number of sensors that contributed),
+<code>data.unit</code> (always <code>"&deg;C"</code>),
+<code>data.hot</code> (label of the hottest sensor &mdash; useful
+when running with <code>aggregation = "average"</code> and you
+still want to know which core is the outlier),
+<code>data.aggregation</code> (the active mode, as the string
+<code>"average"</code> or <code>"maximum"</code>),
+<code>data.readings</code> (a JSON array of
+<code>{label, value}</code> objects, one per sensor, for
+downstream nodes that want the raw breakdown),
+<code>data.host</code> (normalised to <code>"localhost"</code>
+for the local path), <code>data.success</code>, and
+<code>data.output</code> (a one-line summary &mdash; either the
+aggregated reading with sensor count, or the failure reason).
+When the SSH probe fails the remote stderr or the spawn error
+message is folded into <code>data.output</code> so a downstream
+<em>Debug Print</em> shows the user what went wrong.
+</p>
+<p>
+A successful sample with zero matching sensors is treated as a
+failure (<code>data.success = false</code>,
+<code>data.output</code> = <em>"no CPU temperature sensors
+found"</em>) rather than silently emitting 0.0 &mdash; the
+diagnostic is more useful than a misleading number on the wire.
+This typically means the host either uses an unusual sensor
+driver not in the matched list, or the kernel was built without
+the appropriate hwmon module.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose CPU temperature to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password).</td></tr>
+  <tr><td><code>aggregation</code></td>
+      <td>How the per-sensor readings collected from the host are
+          collapsed into the single number on
+          <code>data.value</code>:
+          <code>"average"</code> reports the arithmetic mean
+          across every CPU package and every core (good for a
+          whole-system feel), <code>"maximum"</code> reports the
+          hottest single reading (better for spotting a runaway
+          core or a stuck fan).  In either mode the unaggregated
+          <code>data.average</code>, <code>data.min</code>,
+          <code>data.max</code> and <code>data.readings</code>
+          members are always populated, so a downstream filter can
+          consult the other view without reconfiguring this
+          node.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples. The default is 5 s &mdash; CPU
+          temperatures only move on the order of seconds (thermal
+          mass of the silicon plus heatsink), so polling faster
+          mostly buys repeated identical readings.</td></tr>
+</table>
+
+</body>
+</html>

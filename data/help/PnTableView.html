@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table View (PnTableView) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTableView">Table View</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnTableView</code>.
+</p>
+<p>
+Sink that renders the latest structured table carried on
+<code>data.table</code> of an incoming message. Designed to live
+downstream of a <em>Table Model</em> filter, so a wiring like
+<em>Shell Command</em> &rarr; <em>Table Model</em> &rarr;
+<em>Table View</em> shows the most recent run of e.g.
+<code>df -h</code> as a live, column-aligned table view on the
+canvas.
+</p>
+<p>
+The expected payload shape is the one <em>Table Model</em> produces:
+</p>
+<pre>{
+  "header": { "cells": [ { "text": "..." }, ... ] },          // optional
+  "rows":   [ { "cells": [ { "text": "..." }, ... ] }, ... ]
+}</pre>
+<p>
+Each cell is a JSON object; the view renders the cell's
+<code>text</code> member and ignores anything else, leaving room
+for future per-cell decorations (colour, alignment, ...) to ride
+alongside without breaking the renderer. A hand-built payload that
+puts a bare string, number, or boolean where a cell object is
+expected is stringified directly so a producer that has not been
+updated to the object form still draws something sensible.
+</p>
+<p>
+Each received message <strong>replaces</strong> the displayed table
+(unlike <em>Table</em>, which appends one row per message). A
+message that carries no <code>data.table</code> object clears the
+view to its empty "waiting for table" state &mdash; useful for
+spotting that the upstream producer has stopped emitting parsable
+tables rather than being left with a stale render.
+</p>
+<p>
+Visually the node matches <em>Table</em> exactly (280&nbsp;px wide
+header, 173&nbsp;px body) so a row of mixed table sinks lines up
+on the worksheet. Clicking the body lifts the table into the
+shared zoom overlay where the mouse wheel scrolls through rows.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill behind the rows.</td></tr>
+  <tr><td><code>header-background-color</code></td>
+      <td>Fill of the header band; reused at 30% alpha for the
+          alternating row stripe.</td></tr>
+  <tr><td><code>grid-color</code></td>
+      <td>Frame, column separators, header underline.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Body cell text.</td></tr>
+  <tr><td><code>header-text-color</code></td>
+      <td>Header band text.</td></tr>
+  <tr><td><code>alternate-row-background</code></td>
+      <td>When <em>true</em>, tints every second row.</td></tr>
+</table>
+
+</body>
+</html>

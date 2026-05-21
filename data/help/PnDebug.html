@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Debug Print (PnDebug) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDebug">Debug Print</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnDebug</code>.
+</p>
+<p>
+Sink that prints every received message to a chosen destination in
+a chosen format. Indispensable for inspecting a flow.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>target</code></td>
+      <td>Where output goes:
+        <em>stderr</em>, <em>stdout</em>, <em>status bar</em>
+        (the main window's footer) or <em>debug view</em> (the
+        collapsible pane toggled from
+        <em>View &rarr; Debug View</em>).</td></tr>
+  <tr><td><code>format</code></td>
+      <td>How each message is rendered:
+        <em>text</em> (just <code>data.output</code>),
+        <em>oneliner</em> (a compact human trace including topic,
+        id and payload), or <em>JSON</em> (one JSON object per
+        line wrapping source/topic/id/data &mdash; friendly for
+        piping through <code>jq</code>).</td></tr>
+</table>
+
+</body>
+</html>

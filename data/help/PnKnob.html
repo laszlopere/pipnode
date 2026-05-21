@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knob (PnKnob) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnKnob">Knob</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnKnob</code>.
+</p>
+<p>
+Rotary knob source.  A dial sits on the right of the node header;
+spin the mouse wheel while the pointer is over the knob to turn it.
+Wheel&nbsp;up turns the knob toward <code>max</code>, wheel&nbsp;down
+toward <code>min</code>, and every notch emits a single message whose
+<code>data.value</code> carries the knob's current position mapped
+onto the <code>[min,&nbsp;max]</code> range.
+</p>
+<p>
+The pointer sweeps 270&deg; with the dead zone at the bottom: fully
+left (7-o'clock) is <code>min</code>, fully right (5-o'clock) is
+<code>max</code>, and the midpoint points straight up.  One full
+sweep takes 24 wheel notches, so each notch moves the value by
+<code>(max&nbsp;&minus;&nbsp;min)&nbsp;/&nbsp;24</code>; the value is
+clamped at both end stops.
+</p>
+<p>
+The two bounds default to <code>0.0</code> and <code>1.0</code>, so
+out of the box the knob emits a normalised <code>0&hellip;1</code>
+value.  Writing the <code>min</code>, <code>max</code> or
+<code>value</code> properties turns the dial without emitting a
+message &mdash; only a wheel rotation emits.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>min</code></td>
+      <td>Value emitted when the knob is turned fully left
+          (default <code>0.0</code>).</td></tr>
+  <tr><td><code>max</code></td>
+      <td>Value emitted when the knob is turned fully right
+          (default <code>1.0</code>).</td></tr>
+  <tr><td><code>value</code></td>
+      <td>Current knob position, in <code>[min,&nbsp;max]</code>.
+          Writing it turns the dial without emitting; spin the wheel
+          over the knob to turn it and emit in one step.</td></tr>
+</table>
+
+</body>
+</html>

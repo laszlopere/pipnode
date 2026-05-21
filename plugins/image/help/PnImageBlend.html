@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blend (PnImageBlend) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageBlend">Blend</h4>
+<p>
+<em>Group:</em> Image. <em>Type:</em> <code>PnImageBlend</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Two-input transform node. Unlike every other node in this plugin it has
+<strong>two input ports</strong> on its left edge: input&nbsp;0 (the upper
+tab) and input&nbsp;1 (the lower tab). Wire an image source to each. The
+node waits until it holds an image on <em>both</em> ports, then mixes them
+and emits the result as a new <code>PnImageMessage</code>:
+</p>
+<pre>    out = base &times; (1 - opacity) + overlay &times; opacity</pre>
+<p>
+The output keeps the geometry of the <strong>bigger</strong> image (the one
+with the greater pixel area; a tie keeps input&nbsp;0). The smaller image is
+mixed into the upper-left corner, and wherever it has run out the bigger
+image's pixels are copied through unchanged &mdash; the images are never
+scaled. Only the colour channels are mixed; the bigger image's alpha
+channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer on a worker
+thread, so a large image never freezes the editor; no external program is
+run. A message that is not an image passes straight through without
+disturbing the latched inputs.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>opacity</code></td>
+      <td>Mix factor, 0.0&ndash;1.0 (default 0.5). 0 keeps only the base
+          image; 1 shows only the overlay.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (those of the bigger input).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Blend (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful blend.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the most recent incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>System Load (PnLoad) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnLoad">System Load</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnLoad</code>.
+</p>
+<p>
+Auto-triggered probe that samples the system load average every
+<code>period</code> seconds and emits the 1-minute figure as
+<code>data.value</code> alongside its 5- and 15-minute siblings.
+The sample comes from <code>/proc/loadavg</code> directly when
+<code>hostname</code> is empty or <code>"localhost"</code>; any
+other value is treated as a remote host and the sample is fetched
+over passwordless SSH (<code>ssh -o BatchMode=yes &hellip;
+hostname cat /proc/loadavg</code>) on a worker thread, so an
+unreachable target cannot freeze the GUI.
+</p>
+<p>
+The emitted message carries <code>data.value</code> (1-minute
+average), <code>data.load5</code>, <code>data.load15</code>,
+<code>data.host</code> (the host that was sampled, normalised to
+<code>"localhost"</code> for the local path), <code>data.success</code>,
+and <code>data.output</code> (a one-line summary &mdash; either the
+three readings or the failure reason). When the SSH probe fails the
+remote stderr or the spawn error message is folded into
+<code>data.output</code> so a downstream <em>Debug Print</em>
+shows the user what went wrong.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hostname</code></td>
+      <td>Host whose load to read. Defaults to
+          <code>"localhost"</code>; an empty string is treated the
+          same. Any other value is used as the SSH target &mdash;
+          passwordless authentication must already be set up
+          (<code>BatchMode=yes</code> is forced so the probe never
+          prompts for a password).</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between samples.</td></tr>
+</table>
+
+</body>
+</html>

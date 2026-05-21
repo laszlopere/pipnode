@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table Model (PnTableModel) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTableModel">Table Model</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnTableModel</code>.
+</p>
+<p>
+Filter that parses an ASCII / fixed-width text table out of the
+incoming message's <code>data.output</code> string and attaches the
+result to the same message as <code>data.table</code> before
+forwarding it on the output port. Designed for the output of
+column-aligned Unix tools (<code>df</code>, <code>ps</code>,
+<code>ls -l</code>, <code>free</code>, <code>uptime</code>, ...) so a
+downstream node can index a row's cell by column position rather
+than re-parse the text.
+</p>
+<p>
+The emitted <code>data.table</code> has the shape:
+</p>
+<pre>{
+  "header": { "cells": [ { "text": "..." }, ... ] },    // optional
+  "rows": [
+    { "cells": [ { "text": "..." }, ... ] },
+    ...
+  ]
+}</pre>
+<p>
+Each cell is a JSON object rather than a bare string so a future
+filter can decorate it with per-cell properties (colour, alignment,
+units, ...) without breaking the schema. The current
+<em>Table Model</em> only fills <code>text</code>; downstream
+consumers should ignore unknown cell members.
+</p>
+<p>
+Column boundaries are detected in two passes. First, the first
+non-empty line is scanned for every byte offset at which a
+non-space character follows a space (or starts the line). Then
+each non-zero boundary is shifted left past any position where some
+data row carries a non-space character immediately before it, until
+the position just before the boundary is whitespace (or past end of
+line) in <em>every</em> row. That second pass keeps a right-aligned
+numeric column whose values are wider than the header label
+&mdash; e.g. <code>df --output=source,fstype,size</code>'s
+<code>1K-blocks</code> header with an 11-digit value below it
+&mdash; from bleeding into the previous column. All rows are then
+sliced at the adjusted offsets and each cell is whitespace-trimmed;
+lines shorter than the detected column count produce empty trailing
+cells so every row reports the same width.
+</p>
+<p>
+The message is forwarded unchanged apart from the new
+<code>data.table</code> member: <code>data.output</code>, the
+envelope topic and id, and every other payload field survive
+intact, so chaining a <em>Format</em> or <em>Debug Print</em> after
+a <em>Table Model</em> still sees the original payload alongside
+the parsed table.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>parse-header</code></td>
+      <td>When <em>true</em> (default), the first non-empty line is
+          emitted as <code>data.table.header.cells</code> and the
+          remaining lines become <code>data.table.rows</code>. When
+          <em>false</em>, the first line is still used to detect
+          column positions but is emitted as the first row and no
+          <code>header</code> member is produced.</td></tr>
+</table>
+
+</body>
+</html>

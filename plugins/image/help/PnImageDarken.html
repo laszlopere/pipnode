@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Darken (PnImageDarken) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageDarken">Darken</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Composite. <em>Type:</em>
+<code>PnImageDarken</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Two-input compositor with <strong>two input ports</strong> (input&nbsp;0,
+the upper tab, and input&nbsp;1, the lower tab). Wire an image source to
+each. Once both ports hold an image the node combines them per colour
+channel and emits a new <code>PnImageMessage</code>:
+</p>
+<pre>    combined = min(base, over)
+    out      = base &times; (1 - opacity) + combined &times; opacity</pre>
+<p>
+Each output channel is the <strong>darker</strong> of the two images. It is
+the mirror of <a href="PnImageLighten.html">Lighten</a>.
+</p>
+<p>
+The output keeps the geometry of the <strong>bigger</strong> image (a tie
+keeps input&nbsp;0); the smaller image is combined into the upper-left
+corner and the rest of the canvas keeps the bigger image unchanged &mdash;
+no scaling. Only the colour channels are combined; the bigger image's alpha
+is preserved.
+</p>
+<p>
+The pixels are processed in plain C on a worker thread, so a large image
+never freezes the editor; no external program is run. A non-image message
+passes straight through without disturbing the latched inputs.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>opacity</code></td>
+      <td>Mix factor, 0.0&ndash;1.0 (default 1.0). 0 keeps only the base
+          image; 1 shows the darken at full strength.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (those of the bigger input).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Darken (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on success.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the most recent incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

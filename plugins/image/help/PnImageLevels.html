@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Levels (PnImageLevels) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageLevels">Levels</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Adjust. <em>Type:</em> <code>PnImageLevels</code>.
+<em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Transform node. It remaps the tonal range of the incoming image and emits
+the result as a new <code>PnImageMessage</code>. Input values at or below
+the <code>black</code> point map to 0 and at or above the <code>white</code>
+point map to 255; the span between is stretched and reshaped by the
+<code>gamma</code> midtone curve. The mapping is built once into a
+256-entry lookup table and applied to each colour channel. Any alpha
+channel is preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>black</code></td>
+      <td>Input black point, 0&ndash;254 (default 0). Values at or below it
+          map to 0.</td></tr>
+  <tr><td><code>white</code></td>
+      <td>Input white point, 1&ndash;255 (default 255). Values at or above
+          it map to 255.</td></tr>
+  <tr><td><code>gamma</code></td>
+      <td>Midtone power curve across the remapped span, 0.1&ndash;5.0
+          (default 1.0). Below 1 darkens, above 1 lightens.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Levels (640×480)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

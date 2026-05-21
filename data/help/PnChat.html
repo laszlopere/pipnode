@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat (PnChat) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnChat">Chat</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnChat</code>.
+</p>
+<p>
+Sink and source. Displays a scrolling list of chat bubbles in
+its body, with a single-line entry strip and an inline Send
+button along the bottom edge. Geometry mirrors <em>Graph</em>
+and <em>Table</em>: a 280&thinsp;px standard header sits on
+top, and a separately-painted body of the same width hangs
+below it, so a row of mixed Graph / Table / Chat sinks lines
+up cleanly on the worksheet.
+</p>
+<p>
+Each incoming message becomes one bubble. The bubble's text is
+read from the message's <code>data</code> bag at the
+configurable <code>text-path</code> (default
+<code>data/output</code>) and the sender label is read from
+<code>sender-path</code> (default
+<code>data/from_long_name</code>) &mdash; the defaults match
+the envelope <em>Meshtastic</em> emits, so wiring a Meshtastic
+node into a Chat works out of the box. The sender label is
+shown above its bubble and hashed into the bubble's pastel
+fill colour, so two messages from the same sender always
+paint the same colour. Bubbles whose source is the chat node
+itself (sent locally) are right-aligned in the configurable
+<code>me-color</code>.
+</p>
+<p>
+Clicking the entry rectangle focuses the chat for keyboard
+input &mdash; a blinking caret appears in the entry, and the
+worksheet routes printable characters, Backspace, Delete,
+Enter and the cursor keys into the draft buffer. Pressing
+Enter (or clicking the inline Send button) emits a fresh
+message on the chat's output port, with the typed text under
+<code>data/output</code>, the user's <code>me-name</code>
+under <code>data/from_long_name</code>, and <code>topic</code>
+set to whatever the chat node's PnNode topic template resolves
+to (the per-node <em>Topic</em> field in the settings dialog,
+defaulting to <code>/pnode/Chat/${nodename}</code>); the same
+text is also pushed into the local history as a "mine" bubble. Pressing Escape, or clicking anywhere outside the
+entry strip, ends the typing session without sending. The
+entry strip is fully canvas-resident &mdash; there is no
+floating <code>GtkEntry</code> widget. Clicking the bubbles
+area above the entry strip lifts the chat into the standard
+centred zoom overlay (the same animation the Graph and Table
+nodes use); while zoomed, the mouse wheel scrolls back
+through the history.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>text-path</code></td>
+      <td>JSON pointer (&ldquo;/&rdquo;-separated) resolved
+          against the incoming message to extract the
+          bubble's text payload. Defaults to
+          <code>data/output</code>.</td></tr>
+  <tr><td><code>sender-path</code></td>
+      <td>JSON pointer resolved against the incoming message
+          to extract the sender label. The label is shown
+          above the bubble and hashed into the bubble's
+          pastel fill colour. Defaults to
+          <code>data/from_long_name</code>.</td></tr>
+  <tr><td><code>me-name</code></td>
+      <td>Display name attached to messages the user sends
+          from this node. Stamped under
+          <code>data/from_long_name</code> on every outgoing
+          message and shown above the right-aligned
+          &ldquo;mine&rdquo; bubbles in the local history.
+          Defaults to <code>Me</code>.</td></tr>
+  <tr><td><code>limit</code></td>
+      <td>Maximum number of bubbles kept in the history
+          buffer (1&ndash;1000, default 200). Older bubbles
+          are dropped from the top as new ones arrive.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the chat body rectangle behind the
+          bubbles and entry strip.</td></tr>
+  <tr><td><code>border-color</code></td>
+      <td>Colour of the body frame, the bubble outlines, and
+          the separator between the entry and the Send
+          button.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the bubble text and (at lower alpha) the
+          sender label.</td></tr>
+  <tr><td><code>me-color</code></td>
+      <td>Fill colour of the right-aligned bubbles
+          representing messages the user sent from this
+          node.</td></tr>
+  <tr><td><code>input-background-color</code></td>
+      <td>Fill colour of the entry strip rectangle along the
+          bottom edge of the chat body.</td></tr>
+  <tr><td><code>send-button-color</code></td>
+      <td>Fill colour of the inline Send button at the right
+          end of the entry strip.</td></tr>
+</table>
+
+</body>
+</html>

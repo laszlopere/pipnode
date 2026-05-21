@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clock (PnRtc) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRtc">Clock</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnRtc</code>.
+</p>
+<p>
+Real-time-clock node. Emits one message per <code>period</code>
+seconds carrying the current local-time decomposition in its data
+bag: <code>epoch</code>, <code>year</code>, <code>month</code>,
+<code>dom</code>, <code>hour</code>, <code>minute</code>,
+<code>second</code>. Useful as a heartbeat or a tick generator that
+drives downstream work on a schedule.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between emissions. Defaults to 1.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,223 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnTasmotaVoltage",
+      "uuid" : "9c02b81a-d5a5-4d1a-9ae3-b6266856ca4d",
+      "name" : "Tasmota Voltage 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/Voltage",
+        "min-value" : 0.0,
+        "max-value" : 300.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "V",
+        "accuracy-class" : "2.5",
+        "mode" : "AC",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnTasmotaCurrent",
+      "uuid" : "014a9ef9-c65b-4127-9224-393f775f56e9",
+      "name" : "Tasmota Current 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/Current",
+        "min-value" : 0.0,
+        "max-value" : 20.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "A",
+        "accuracy-class" : "2.5",
+        "mode" : "AC",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnTasmotaPowerFactor",
+      "uuid" : "603269a1-6786-4d79-a3b6-4c3a74a830c9",
+      "name" : "Tasmota Power Factor 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/Factor",
+        "min-value" : 0.0,
+        "max-value" : 1.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "cos φ",
+        "accuracy-class" : "2.5",
+        "mode" : "None",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnTasmotaReactivePower",
+      "uuid" : "9a20df89-afe0-4979-bb91-86cda8892a61",
+      "name" : "Tasmota Reactive Power 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/ReactivePower",
+        "min-value" : 0.0,
+        "max-value" : 3000.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "var",
+        "accuracy-class" : "2.5",
+        "mode" : "None",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnTasmotaApparentPower",
+      "uuid" : "7b590cbd-9962-48b6-90bf-7f1d1a464a67",
+      "name" : "Tasmota Apparent Power 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/ApparentPower",
+        "min-value" : 0.0,
+        "max-value" : 3000.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "VA",
+        "accuracy-class" : "2.5",
+        "mode" : "None",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnTasmotaPower",
+      "uuid" : "d173f917-024e-4588-8cd4-3b762d960a23",
+      "name" : "Tasmota Power 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "key" : "data/payload/ENERGY/Power",
+        "min-value" : 0.0,
+        "max-value" : 5000.0,
+        "start-angle" : -90.0,
+        "end-angle" : 0.0,
+        "major-ticks" : 4,
+        "minor-ticks-per-major" : 10,
+        "unit" : "W",
+        "accuracy-class" : "2.5",
+        "mode" : "None",
+        "frame-color" : "rgb(61,56,70)",
+        "face-color" : "rgb(247,247,242)",
+        "scale-color" : "rgb(13,13,13)",
+        "needle-color" : "rgb(13,13,13)",
+        "label-color" : "rgb(13,13,13)",
+        "switch-name" : "sonoff47"
+      }
+    },
+    {
+      "type" : "PnMqtt",
+      "uuid" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 20.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "9c02b81a-d5a5-4d1a-9ae3-b6266856ca4d"
+    },
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "014a9ef9-c65b-4127-9224-393f775f56e9"
+    },
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "603269a1-6786-4d79-a3b6-4c3a74a830c9"
+    },
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "9a20df89-afe0-4979-bb91-86cda8892a61"
+    },
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "7b590cbd-9962-48b6-90bf-7f1d1a464a67"
+    },
+    {
+      "source_id" : "7ca51e85-d1ff-40fb-b46b-47803e8b1a32",
+      "target_id" : "d173f917-024e-4588-8cd4-3b762d960a23"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

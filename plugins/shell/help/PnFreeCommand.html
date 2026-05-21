@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Free Command (PnFreeCommand) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFreeCommand">Free Command</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnFreeCommand</code>.
+</p>
+<p>
+Auto-triggered runner that executes <code>free</code> every
+<code>period</code> seconds and emits one message per run on its
+output port.  The command is spawned on a worker thread so the GUI
+never blocks; <code>free</code> is looked up on <code>PATH</code>.
+</p>
+<p>
+Unlike <em>Shell Command</em>, the emitted message carries the parsed
+table inline: <code>free</code>'s default output is column-aligned
+and has a fixed shape (one header line, one <code>Mem:</code> data
+row, one <code>Swap:</code> data row), so the node just
+whitespace-splits each line and builds <code>data.table</code> in
+the standard shape <em>Table View</em> consumes -- no
+<em>Table Model</em> filter in between.
+</p>
+<p>
+The emitted message carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when
+      <code>free</code> exited with status&nbsp;0, <code>false</code>
+      otherwise.</li>
+  <li><code>data.output</code> &mdash; the combined stdout and stderr
+      of the run, verbatim.</li>
+  <li><code>data.table</code> &mdash; the parsed table in the standard
+      <code>{ "header": { "cells": [...] },
+      "rows": [ { "cells": [...] }, ... ] }</code> shape.  Each cell
+      is a JSON object with at minimum
+      <code>{ "text": "...", "name": "..." }</code>; the
+      <em>Table View</em> sink reads only the <code>text</code> and
+      ignores unknown members, so the extra <code>name</code> is
+      transparent to it.</li>
+</ul>
+<p>
+Cell <code>name</code>s follow the shape
+<code>&lt;row&gt;.&lt;column&gt;</code> so a later consumer can pick
+a specific cell symbolically.  The row part comes from the first
+column of each data row, sanitised
+(<code>Mem:</code>&nbsp;&rarr;&nbsp;<code>mem</code>,
+<code>Swap:</code>&nbsp;&rarr;&nbsp;<code>swap</code>); the column
+part comes from the header text, sanitised
+(<code>buff/cache</code>&nbsp;&rarr;&nbsp;<code>buff_cache</code>);
+the leading row-label column has no header text, so its column id is
+the literal <code>name</code>, and the header row's row id is the
+literal <code>header</code>.
+</p>
+<p>
+With the canonical <code>free</code> output, this produces cell names
+<code>header.name</code>, <code>header.total</code>,
+<code>header.used</code>, <code>header.free</code>,
+<code>header.shared</code>, <code>header.buff_cache</code>,
+<code>header.available</code> for the header row, and analogous
+<code>mem.*</code> / <code>swap.*</code> ids for the data rows.
+Trailing cells that the <code>Swap:</code> line does not produce
+(<code>swap.shared</code>, <code>swap.buff_cache</code>,
+<code>swap.available</code>) still appear in the table with an empty
+<code>text</code>, so a consumer can index by name without guarding
+against ragged rows.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run <code>free</code>.  Default
+          <code>localhost</code> (and the synonyms
+          <code>127.0.0.1</code>, <code>::1</code>, empty string)
+          runs locally.  Any other value (a hostname or
+          <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between executions.</td></tr>
+</table>
+
+</body>
+</html>

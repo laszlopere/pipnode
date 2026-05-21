@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Humidity (PnTasmotaHumidity) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaHumidity">Tasmota Humidity</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaHumidity</code>.
+</p>
+<p>
+Filter / transformer node that watches an upstream MQTT stream for
+Tasmota <code>SENSOR</code> publishes, picks the humidity reading
+out of the per-sensor JSON wrapper, and re-emits the message with the
+reading promoted to the standard <code>data.value</code> /
+<code>data.unit</code> / <code>data.device</code> shape every other
+node in the palette already speaks.
+</p>
+
+<h5>What gets through</h5>
+<p>
+Wire a <em>MQTT Source</em> (or any other producer that emits
+<code>data.payload</code> as a JSON object) into the input port. The
+node looks for a numeric <code>Humidity</code> member in the payload
+&mdash; first at the top level, then in each direct child object
+(Tasmota wraps the reading in a per-sensor object such as
+<code>AM2301</code> or <code>DHT22</code>).  Messages whose payload
+does not contain a <code>Humidity</code> member are dropped silently.
+</p>
+
+<h5>Output shape</h5>
+<p>
+The emitted message preserves the input's envelope topic and id and
+mutates only the data bag:
+</p>
+<ul>
+  <li><code>data.value</code> &mdash; the humidity reading as a JSON
+      number, in units of percent relative humidity.</li>
+  <li><code>data.unit</code> &mdash; always <code>"%"</code>. Tasmota
+      does not carry a per-message unit for humidity (it is
+      universally relative humidity), so the node hard-codes the
+      string here for symmetry with the Temperature node.</li>
+  <li><code>data.device</code> &mdash; the device id parsed from the
+      MQTT topic (the second-to-last segment, e.g.
+      <code>"tasmota13"</code> from
+      <code>"mqtt/tele/tasmota13/SENSOR"</code>). Omitted when the
+      topic has fewer than three segments.</li>
+  <li><code>data.output</code> &mdash; one-line summary suitable for a
+      Debug pane: <code>"tasmota13: humidity 41.3%"</code>.</li>
+  <li><code>data.success</code> &mdash; <code>true</code>.</li>
+</ul>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = tele/+/SENSOR)
+    &rarr; Tasmota Humidity
+        &rarr; Graph     (auto-plots data.value over time)
+        &rarr; Debug View (sees the one-liner output)</pre>
+
+</body>
+</html>

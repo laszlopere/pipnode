@@ -1,0 +1,145 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "c3f6e05e-1c6d-4b94-8831-c0cbea2c09d8",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 20.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnSwitch",
+      "uuid" : "29b8ae9a-f2ca-4e2f-aa3a-5011ba547633",
+      "name" : "Switch",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "on" : true
+      }
+    },
+    {
+      "type" : "PnTasmotaRelayStatus",
+      "uuid" : "40c27cb5-8f8e-4a81-8d5b-08583e46b6e3",
+      "name" : "Tasmota Relay Status 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "switch-name" : "sonoff19"
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "c581e720-b6a7-48eb-9238-1dbec7e55e6f",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "payload" : "",
+        "retain" : false,
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaRelayCommand",
+      "uuid" : "bd624f8a-6744-4396-9be6-d6e5346f80fb",
+      "name" : "Tasmota Relay Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "switch-name" : "sonoff19"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "bbe64312-d4d0-4520-9979-dad9f0bf3b79",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250
+      }
+    },
+    {
+      "type" : "PnTasmotaSwitch",
+      "uuid" : "139800b0-73fb-438d-b157-7939b176107b",
+      "name" : "Tasmota Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "on" : true,
+        "switch-name" : "sonoff19"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "c3f6e05e-1c6d-4b94-8831-c0cbea2c09d8",
+      "target_id" : "40c27cb5-8f8e-4a81-8d5b-08583e46b6e3"
+    },
+    {
+      "source_id" : "40c27cb5-8f8e-4a81-8d5b-08583e46b6e3",
+      "target_id" : "29b8ae9a-f2ca-4e2f-aa3a-5011ba547633"
+    },
+    {
+      "source_id" : "29b8ae9a-f2ca-4e2f-aa3a-5011ba547633",
+      "target_id" : "bd624f8a-6744-4396-9be6-d6e5346f80fb"
+    },
+    {
+      "source_id" : "bd624f8a-6744-4396-9be6-d6e5346f80fb",
+      "target_id" : "c581e720-b6a7-48eb-9238-1dbec7e55e6f"
+    },
+    {
+      "source_id" : "29b8ae9a-f2ca-4e2f-aa3a-5011ba547633",
+      "target_id" : "bbe64312-d4d0-4520-9979-dad9f0bf3b79"
+    },
+    {
+      "source_id" : "c3f6e05e-1c6d-4b94-8831-c0cbea2c09d8",
+      "target_id" : "139800b0-73fb-438d-b157-7939b176107b"
+    },
+    {
+      "source_id" : "139800b0-73fb-438d-b157-7939b176107b",
+      "target_id" : "c581e720-b6a7-48eb-9238-1dbec7e55e6f"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

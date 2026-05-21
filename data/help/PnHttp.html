@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Http Client (PnHttp) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnHttp">Http Client</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnHttp</code>.
+</p>
+<p>
+Auto-triggered HTTP GET. Performs a request against the configured
+URL once per <code>period</code> seconds and emits the response on
+its output port. The request spawns <code>curl</code> on a worker
+thread; <code>--max-time</code> is derived from the period so a
+slow server cannot stall ticks.
+</p>
+<p>
+The message carries <code>data.success</code> (true on a 2xx
+response with non-empty body), <code>data.output</code> (reply body
+or error string), and the raw HTTP status. While the URL is empty
+the node enters its red configuration-required state.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>url</code></td>
+      <td>Absolute URL to fetch. Required.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between requests.</td></tr>
+</table>
+
+</body>
+</html>

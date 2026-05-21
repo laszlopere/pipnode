@@ -1,0 +1,124 @@
+AC_INIT([pipnode], [0.1.0], [laszlopere@gmail.com])
+AC_COPYRIGHT([Copyright (C) 2024-2026 Laszlo Pere.
+GPL-3.0-or-later WITH the Pipnode Plugin Exception; see COPYING and
+LICENSE.PLUGIN-EXCEPTION.])
+AC_CONFIG_SRCDIR([src/main.c])
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_MACRO_DIRS([m4])
+
+AM_INIT_AUTOMAKE([foreign -Wall -Werror subdir-objects])
+
+# Required for building shared libraries
+AM_PROG_AR
+LT_INIT
+
+# Checks for programs
+AC_PROG_CC
+AC_PROG_INSTALL
+
+# Check for GTK+ 3
+PKG_CHECK_MODULES([GTK], [gtk+-3.0 >= 3.22])
+
+# Check for GtkSourceView 4.  Used by the Rewrite node's settings
+# dialog to give the JSON template editor syntax highlighting, line
+# numbers and auto-indent — the same widget toolkit gedit / Builder
+# use, dropped in for one row inside our own dialog.
+PKG_CHECK_MODULES([GTKSOURCEVIEW], [gtksourceview-4 >= 4.0])
+
+# Check for JSON-GLib
+PKG_CHECK_MODULES([JSON_GLIB], [json-glib-1.0 >= 1.0])
+
+# Check for GModule (used by the plugin loader in
+# lib/pn-node-factory.c).  Bundled with GLib but exposed as its own
+# pkg-config module so the linker pulls the right libdl-style backend
+# on every supported platform — we ask for it explicitly rather than
+# relying on the GTK transitive closure to avoid surprises if the GTK
+# link line ever stops including it.
+PKG_CHECK_MODULES([GMODULE], [gmodule-2.0 >= 2.40])
+
+# Check for libsoup 3 (used directly for the websocket client; also a
+# transitive dependency of WebKit2GTK, but we pin it explicitly so the
+# program builds even when --with-webview=no).
+PKG_CHECK_MODULES([LIBSOUP], [libsoup-3.0 >= 3.0])
+
+# Check for GnuTLS.  Used by the bundled network plugin's HTTPS Tunnel
+# Receiver node to mint a self-signed certificate on the fly when the
+# user has not supplied a real cert/key pair, so the node works out of
+# the box without any manual setup.
+PKG_CHECK_MODULES([GNUTLS], [gnutls >= 3.0])
+
+# Check for PLplot (double-precision C core).  Used by plot/graph
+# nodes that render data series — for example the rolling-window
+# output of the Stats filter.
+PKG_CHECK_MODULES([PLPLOT], [plplot >= 5.15])
+
+# Check for libmosquitto (MQTT C client).  Used by the bundled
+# network plugin's MQTT Source node.  Debian/Ubuntu package
+# libmosquitto-dev does not ship a .pc file, so we fall back to a
+# manual header + library probe rather than PKG_CHECK_MODULES.
+AC_CHECK_HEADER([mosquitto.h], [],
+    [AC_MSG_ERROR([libmosquitto headers not found; install libmosquitto-dev (or equivalent)])])
+AC_CHECK_LIB([mosquitto], [mosquitto_lib_init],
+    [MOSQUITTO_LIBS="-lmosquitto"
+     MOSQUITTO_CFLAGS=""],
+    [AC_MSG_ERROR([libmosquitto runtime not found; install libmosquitto1 (or equivalent)])])
+AC_SUBST([MOSQUITTO_CFLAGS])
+AC_SUBST([MOSQUITTO_LIBS])
+
+# Optional WebKit2GTK help browser.  Without it, the help browser
+# falls back to a lightweight GtkTextView-based renderer so the
+# program can run over X11 forwarding on hosts where WebKit's
+# EGL/GL/Wayland stack would otherwise prevent startup.
+AC_ARG_WITH([webview],
+    [AS_HELP_STRING([--with-webview@<:@=auto|yes|no@:>@],
+        [use WebKit2GTK for the in-application help browser
+         @<:@default=auto@:>@])],
+    [],
+    [with_webview=auto])
+
+have_webkit=no
+AS_IF([test "x$with_webview" != "xno"], [
+    PKG_CHECK_MODULES([WEBKIT2GTK], [webkit2gtk-4.1],
+        [have_webkit=yes
+         AC_DEFINE([HAVE_WEBKIT], [1],
+             [Define to 1 if WebKit2GTK is available for the
+              help browser.])],
+        [AS_IF([test "x$with_webview" = "xyes"], [
+            AC_MSG_ERROR([WebKit2GTK requested via --with-webview=yes but webkit2gtk-4.1 was not found])
+         ], [
+            AC_MSG_NOTICE([WebKit2GTK not found; help browser will use the text renderer fallback])
+            WEBKIT2GTK_CFLAGS=
+            WEBKIT2GTK_LIBS=
+            AC_SUBST([WEBKIT2GTK_CFLAGS])
+            AC_SUBST([WEBKIT2GTK_LIBS])
+         ])])
+], [
+    WEBKIT2GTK_CFLAGS=
+    WEBKIT2GTK_LIBS=
+    AC_SUBST([WEBKIT2GTK_CFLAGS])
+    AC_SUBST([WEBKIT2GTK_LIBS])
+])
+AM_CONDITIONAL([HAVE_WEBKIT], [test "x$have_webkit" = "xyes"])
+
+# Embed git commit hash for --version
+GIT_VERSION=$(git -C "$srcdir" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+AC_SUBST([GIT_VERSION])
+
+AC_CONFIG_FILES([
+    Makefile
+    pipnode.pc
+    data/Makefile
+    lib/Makefile
+    plugins/Makefile
+    plugins/network/Makefile
+    plugins/shell/Makefile
+    plugins/tasmota/Makefile
+    plugins/sound-effects/Makefile
+    plugins/image/Makefile
+    src/Makefile
+    tests/Makefile
+    tests/plugins/Makefile
+    tests/plugins/echo/Makefile
+])
+
+AC_OUTPUT

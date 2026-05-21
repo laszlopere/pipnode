@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dedup (PnDedup) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDedup">Dedup</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnDedup</code>.
+</p>
+<p>
+Drops repeats based on a configurable JSON path. The first time a
+value is seen at <code>key</code> the message is forwarded
+unchanged; subsequent messages carrying the same value are
+silently discarded. Each remembered value expires after
+<code>timeout</code> minutes and is then treated as fresh again.
+Messages whose <code>key</code> path resolves to nothing (missing
+member or JSON null) are dropped without being remembered.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>key</code></td>
+      <td>JSON path (&ldquo;/&rdquo;-separated, e.g.
+          <code>data/value</code>) to the value used as the
+          dedup identity. Resolves against the same root used by
+          <em>Format</em>'s placeholders, so <code>topic</code>,
+          <code>id</code>, <code>created</code> and members under
+          <code>data</code> are reachable. Empty key disables the
+          node.</td></tr>
+  <tr><td><code>timeout</code></td>
+      <td>Minutes to remember a value before treating it as fresh
+          again. Defaults to 15.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,186 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 40.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "f70c4dd9-72ff-436f-8eef-2ee0c62b5b0e",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "8f74cbf3-2dee-4cde-a064-571ac2b325e7",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "key" : "data/payload/AM2301/Temperature",
+        "min-value" : 0.0,
+        "max-value" : 40.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "Server Room",
+        "unit" : "°C",
+        "green-start" : 0.0,
+        "green-end" : 23.0,
+        "yellow-start" : 23.0,
+        "yellow-end" : 28.0,
+        "red-start" : 28.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(222,221,218)",
+        "scale-color" : "rgb(26,26,26)",
+        "needle-color" : "rgb(129,61,156)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "16411146-077a-4290-873f-1d5d0b924427",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "key" : "data/payload/AM2301/Humidity",
+        "min-value" : 0.0,
+        "max-value" : 100.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "Server Room",
+        "unit" : "%",
+        "green-start" : 0.0,
+        "green-end" : 23.0,
+        "yellow-start" : 23.0,
+        "yellow-end" : 28.0,
+        "red-start" : 28.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(222,221,218)",
+        "scale-color" : "rgb(26,26,26)",
+        "needle-color" : "rgb(230,97,0)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "65ca0874-c6d8-49ef-ac80-ee88cdc0562d",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "color" : "rgb(51,209,122)",
+        "hold-ms" : 1250
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "9b3e853f-147b-40b8-8b6c-9a7f17dc668d",
+      "name" : "Injector 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "62224b12-d95d-45ee-bb9c-da0085088c4c",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 480.0
+      },
+      "properties" : {
+        "key" : "data/payload/AM2301/Temperature",
+        "resolution" : "1 hour",
+        "mode" : "line",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "target_id" : "f70c4dd9-72ff-436f-8eef-2ee0c62b5b0e"
+    },
+    {
+      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "target_id" : "8f74cbf3-2dee-4cde-a064-571ac2b325e7"
+    },
+    {
+      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "target_id" : "16411146-077a-4290-873f-1d5d0b924427"
+    },
+    {
+      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "target_id" : "65ca0874-c6d8-49ef-ac80-ee88cdc0562d"
+    },
+    {
+      "source_id" : "9b3e853f-147b-40b8-8b6c-9a7f17dc668d",
+      "target_id" : "65ca0874-c6d8-49ef-ac80-ee88cdc0562d"
+    },
+    {
+      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
+      "target_id" : "62224b12-d95d-45ee-bb9c-da0085088c4c"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rewrite (PnRewrite) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRewrite">Rewrite</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnRewrite</code>.
+</p>
+<p>
+Replaces the incoming message with one assembled from a JSON template
+authored in the settings dialog. The template editor uses
+<em>GtkSourceView</em> with JSON syntax highlighting, line numbers and
+auto-indent, so editing a multi-line envelope feels like editing the
+same JSON in a text editor.
+</p>
+<p>
+Every <code>${path/to/field}</code> occurrence in the template expands
+to the value addressed by <code>path</code> against the incoming
+message. The lookup root carries <code>topic</code>, <code>id</code>,
+<code>created</code> and <code>data</code> (the payload bag), so for
+example <code>${data/value}</code> resolves to the data bag's
+<code>value</code> member and <code>${topic}</code> to the incoming
+topic. A missing path renders as the literal <code>null</code>, so the
+template stays parseable even when an upstream node has not produced
+the field yet.
+</p>
+<p>
+Substitution is <em>context-aware</em>: the expander tracks whether
+the cursor sits inside a JSON string literal and picks the form that
+keeps the rendered document parseable.
+</p>
+<ul>
+  <li><strong>Value slot</strong> (after <code>:</code> or
+      <code>,</code> / <code>[</code>) &mdash; the placeholder emits a
+      complete JSON token. Strings come out quoted; numbers, booleans
+      and null come out as bare tokens; objects and arrays come out as
+      compact JSON. <code>"orig": ${data/value}</code> with a numeric
+      <code>value</code> of 42 yields <code>"orig": 42</code>.</li>
+  <li><strong>Inside a string literal</strong> &mdash; the placeholder
+      emits the resolved value with JSON string-escape rules applied
+      but <em>without</em> surrounding quotes, so it splices into the
+      string in place. <code>"topic": "rewritten/${topic}"</code>
+      yields <code>"topic": "rewritten//pnode/&hellip;"</code>.</li>
+</ul>
+<p>
+After placeholder expansion the rendered text is parsed as JSON:
+</p>
+<ul>
+  <li>An object carrying a top-level <code>topic</code> or
+      <code>data</code> member is treated as an envelope: the
+      <code>topic</code> string overrides the outgoing topic and the
+      <code>data</code> object replaces the outgoing data bag.</li>
+  <li>Any other object is treated as the new data bag in its
+      entirety.</li>
+</ul>
+<p>
+The message <code>id</code> and <code>created</code> timestamp are
+preserved either way, so a debug pane downstream can still correlate
+the rewritten message with its origin.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>template</code></td>
+      <td>JSON template the outgoing message is built from. Supports
+          <code>${path/to/field}</code> placeholders.</td></tr>
+</table>
+<pre>{
+  "topic": "${topic}",
+  "data": {
+    "value":  ${data/value},
+    "output": "${data/output}",
+    "source": "${topic}",
+    "id":     "${id}"
+  }
+}</pre>
+
+</body>
+</html>

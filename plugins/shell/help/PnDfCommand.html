@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Df Command (PnDfCommand) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDfCommand">Df Command</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnDfCommand</code>.
+</p>
+<p>
+Auto-triggered runner that executes <code>df</code> every
+<code>period</code> seconds and emits one message per run on its
+output port.  <code>df</code> is looked up on <code>PATH</code>; the
+command is spawned on a worker thread so the GUI never blocks.
+</p>
+<p>
+Like <em>Free Command</em>, the emitted message carries the parsed
+table inline so a downstream <em>Table View</em> can render it
+without an intermediate <em>Table Model</em> filter.  The parser
+hard-codes the knowledge of <code>df</code>'s default output shape
+(six logical columns, the last of which is the mount path) and just
+whitespace-splits each line, folding the tail tokens of every line
+back into the mount-path column so a long mount path (or a header
+word like <em>"Mounted on"</em> with an internal space, or a mount
+point like <em>"/mnt/My&nbsp;Documents"</em>) stays a single column
+rather than spilling into a phantom seventh column the way a
+generic two-pass column-position detector would split it.
+</p>
+<p>
+The emitted message carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when
+      <code>df</code> exited with status&nbsp;0, <code>false</code>
+      otherwise.</li>
+  <li><code>data.output</code> &mdash; the combined stdout and stderr
+      of the run, verbatim.</li>
+  <li><code>data.table</code> &mdash; the parsed table in the standard
+      <code>{ "header": { "cells": [...] },
+      "rows": [ { "cells": [...] }, ... ] }</code> shape.  Each cell
+      is a JSON object with at minimum
+      <code>{ "text": "...", "name": "..." }</code>; the
+      <em>Table View</em> sink reads only <code>text</code> and
+      ignores unknown members, so the extra <code>name</code> is
+      transparent to it.</li>
+</ul>
+<p>
+Cell <code>name</code>s follow the shape
+<code>&lt;row&gt;.&lt;column&gt;</code>.  The column id comes from
+the sanitised header text
+(<code>"Filesystem"</code>&nbsp;&rarr;&nbsp;<code>filesystem</code>,
+<code>"1K-blocks"</code>&nbsp;&rarr;&nbsp;<code>1k_blocks</code>,
+<code>"Use%"</code>&nbsp;&rarr;&nbsp;<code>use</code>,
+<code>"Mounted on"</code>&nbsp;&rarr;&nbsp;<code>mounted_on</code>);
+the row id comes from the sanitised first-column value
+(<code>"/dev/nvme0n1p2"</code>&nbsp;&rarr;&nbsp;<code>dev_nvme0n1p2</code>,
+<code>"tmpfs"</code>&nbsp;&rarr;&nbsp;<code>tmpfs</code>), with
+leading and trailing underscores stripped so a path-rooted
+identifier doesn't read as <code>_dev_…</code>.  The header row's
+row id is the literal <code>header</code>.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run <code>df</code>.  Default
+          <code>localhost</code> (and the synonyms
+          <code>127.0.0.1</code>, <code>::1</code>, empty string)
+          runs locally.  Any other value (a hostname or
+          <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between executions.</td></tr>
+</table>
+
+</body>
+</html>

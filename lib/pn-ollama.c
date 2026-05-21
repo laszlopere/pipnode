@@ -1,0 +1,913 @@
+/*
+ * Copyright (C) 2024-2026 Laszlo Pere
+ *
+ * This file is part of Pipnode.  Pipnode is free software: you can
+ * redistribute it and/or modify it under the terms of the GNU General
+ * Public License version 3, with the additional permission described in
+ * LICENSE.PLUGIN-EXCEPTION, as published by the Free Software Foundation.
+ *
+ * Pipnode is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; see the GNU General Public License for more details.  You
+ * should have received a copy of the license in the file COPYING.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "pn-ollama.h"
+#include "pn-message.h"
+
+#include <json-glib/json-glib.h>
+#include <libsoup/soup.h>
+
+/* fa-microchip U+F2DB.  FontAwesome 5 added fa-robot (U+F544) which
+ * would have been a more on-the-nose fit, but the bundled icon font
+ * on most distros is still FA 4.7 and renders unknown glyphs as the
+ * "tofu" missing-character box; fa-microchip is the closest "AI /
+ * compute" symbol present in FA 4. */
+#define PN_OLLAMA_ICON         "\xef\x8b\x9b"
+#define PN_OLLAMA_WARNING_ICON "\xe2\x9d\x97"   /* ❗  U+2757 */
+
+/* Stored default is the empty string so the settings dialog can show
+ * the local computer's name as a gray placeholder hint (consistent
+ * with the host-monitoring nodes); the empty value is then resolved
+ * to the literal "localhost" inside build_endpoint() because the URL
+ * goes through libsoup, which needs a name that always resolves to
+ * the loopback interface regardless of how the host's mDNS / DNS is
+ * configured -- g_get_host_name() does not satisfy that on every
+ * distro. */
+#define PN_OLLAMA_DEFAULT_HOSTNAME   ""
+#define PN_OLLAMA_HTTP_LOCAL_FALLBACK "localhost"
+#define PN_OLLAMA_DEFAULT_PORT       11434
+#define PN_OLLAMA_DEFAULT_KEEP_ALIVE "5m"
+
+struct _PnOllama
+{
+    PnNode parent_instance;
+
+    gchar *hostname;
+    gint   port;
+    gchar *model;
+
+    /* Forwarded to Ollama as the `keep_alive` request field.  Accepts
+     * a duration string ("5m", "1h", "30s"), `0` to unload immediately
+     * after the call, or `-1` to keep the model resident forever. */
+    gchar *keep_alive;
+
+    /* Text concatenated around the incoming `data.output` before the
+     * combined string is sent to the model -- the place to put the
+     * system / role framing the model expects. */
+    gchar *prefix;
+    gchar *suffix;
+
+    /* libsoup-3 session reused across requests; Soup's internal
+     * connection cache plus the server-side `keep_alive` window keep
+     * the model resident between calls when both line up. */
+    SoupSession  *session;
+    GCancellable *cancellable;
+};
+
+G_DEFINE_TYPE (PnOllama, pn_ollama, PN_TYPE_NODE)
+
+enum {
+    PROP_0,
+    PROP_HOSTNAME,
+    PROP_PORT,
+    PROP_MODEL,
+    PROP_KEEP_ALIVE,
+    PROP_PREFIX,
+    PROP_SUFFIX,
+    N_PROPS,
+};
+
+static GParamSpec *props[N_PROPS];
+
+/* ------------------------------------------------------------------ */
+/*  Visual state                                                       */
+/* ------------------------------------------------------------------ */
+
+static void
+apply_visual_state (
+        PnOllama *self,
+        gboolean  configured)
+{
+    PnNode *node = PN_NODE (self);
+
+    if (configured)
+    {
+        GdkRGBA indigo = { 0.42, 0.36, 0.72, 1.0 };
+        pn_node_set_color (node, &indigo);
+        pn_node_set_icon  (node, PN_OLLAMA_ICON);
+    }
+    else
+    {
+        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        pn_node_set_color (node, &red);
+        pn_node_set_icon  (node, PN_OLLAMA_WARNING_ICON);
+    }
+}
+
+static void
+refresh_visual_state (PnOllama *self)
+{
+    /* An empty hostname is fine -- build_endpoint() resolves it to
+     * the loopback fallback ("localhost") because the placeholder
+     * hint in the dialog already tells the user what an empty value
+     * means.  Only the model has to be filled in for the node to be
+     * runnable; that one really is required because Ollama's API
+     * needs the model name in every request. */
+    gboolean ok = self->model != NULL && *self->model != '\0';
+    apply_visual_state (self, ok);
+}
+
+/* ------------------------------------------------------------------ */
+/*  URL helpers                                                        */
+/* ------------------------------------------------------------------ */
+
+static gchar *
+build_endpoint (
+        PnOllama    *self,
+        const gchar *path)
+{
+    const gchar *host = (self->hostname && *self->hostname)
+                            ? self->hostname
+                            : PN_OLLAMA_HTTP_LOCAL_FALLBACK;
+    return g_strdup_printf ("http://%s:%d%s", host, self->port, path);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Receive: POST /api/generate, await the JSON reply, emit            */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnOllama    *self;
+    SoupMessage *msg;
+} GenerateCtx;
+
+static void
+generate_ctx_free (GenerateCtx *ctx)
+{
+    g_clear_object (&ctx->msg);
+    g_clear_object (&ctx->self);
+    g_free (ctx);
+}
+
+/** Display label for a node: instance name if set, otherwise the
+ *  class name -- same shape pn-debug.c uses for `from_long_name`. */
+static const gchar *
+node_display_name (PnNode *node)
+{
+    const gchar *n;
+
+    if (node == NULL)
+        return NULL;
+
+    n = pn_node_get_name (node);
+    if (n != NULL && *n != '\0')
+        return n;
+
+    return pn_node_get_class_name (node);
+}
+
+/** Extract the `.response` string from a non-streaming Ollama reply.
+ *  Returns a freshly-allocated string the caller must free; %NULL on
+ *  parse failure (with @error_out set when non-NULL). */
+static gchar *
+parse_generate_reply (
+        const gchar  *body,
+        gsize         len,
+        gchar       **error_out)
+{
+    JsonParser *parser = json_parser_new ();
+    GError     *error  = NULL;
+    JsonObject *root;
+    const gchar *response;
+    gchar      *out = NULL;
+
+    if (!json_parser_load_from_data (parser, body, (gssize) len, &error))
+    {
+        if (error_out)
+            *error_out = g_strdup (error ? error->message : "parse error");
+        g_clear_error (&error);
+        g_object_unref (parser);
+        return NULL;
+    }
+
+    root = json_node_get_object (json_parser_get_root (parser));
+    if (root == NULL)
+    {
+        if (error_out)
+            *error_out = g_strdup ("response root is not an object");
+        g_object_unref (parser);
+        return NULL;
+    }
+
+    /* Ollama surfaces request-level errors as `{"error": "..."}` with
+     * a 2xx status, so we have to inspect the body before declaring
+     * success. */
+    if (json_object_has_member (root, "error"))
+    {
+        if (error_out)
+            *error_out = g_strdup (json_object_get_string_member (root,
+                                                                  "error"));
+        g_object_unref (parser);
+        return NULL;
+    }
+
+    response = json_object_has_member (root, "response")
+                   ? json_object_get_string_member (root, "response")
+                   : NULL;
+    out = g_strdup (response ? response : "");
+
+    g_object_unref (parser);
+    return out;
+}
+
+static void
+on_generate_done (
+        GObject      *source,
+        GAsyncResult *result,
+        gpointer      user_data)
+{
+    SoupSession *session = SOUP_SESSION (source);
+    GenerateCtx *ctx     = user_data;
+    GError      *error   = NULL;
+    GBytes      *bytes;
+    gsize        len     = 0;
+    const gchar *body;
+    gchar       *response;
+    gchar       *parse_err = NULL;
+    guint        status;
+
+    bytes = soup_session_send_and_read_finish (session, result, &error);
+    if (bytes == NULL)
+    {
+        if (error != NULL && !g_error_matches (error, G_IO_ERROR,
+                                               G_IO_ERROR_CANCELLED))
+            g_warning ("pn-ollama: POST failed: %s", error->message);
+        g_clear_error (&error);
+        generate_ctx_free (ctx);
+        return;
+    }
+
+    status = soup_message_get_status (ctx->msg);
+    body   = g_bytes_get_data (bytes, &len);
+
+    if (status < 200 || status >= 300)
+    {
+        g_warning ("pn-ollama: HTTP %u from %s", status,
+                   soup_message_get_uri (ctx->msg)
+                       ? g_uri_to_string (soup_message_get_uri (ctx->msg))
+                       : "(unknown)");
+        g_bytes_unref (bytes);
+        generate_ctx_free (ctx);
+        return;
+    }
+
+    response = parse_generate_reply (body, len, &parse_err);
+    g_bytes_unref (bytes);
+
+    if (response == NULL)
+    {
+        g_warning ("pn-ollama: bad reply: %s",
+                   parse_err ? parse_err : "(unknown)");
+        g_free (parse_err);
+        generate_ctx_free (ctx);
+        return;
+    }
+
+    /* Emit a fresh message rather than mutating the incoming one: the
+     * topic / id / created envelope is owned by this node, and the
+     * data bag shape (output + success + from_long_name) is the
+     * shared "chat-style" contract PnChat consumes via
+     * `sender-path = data/from_long_name`.  Passing NULL for the
+     * topic lets pn_message_new resolve the node's own topic
+     * template, same as every other source-style emitter. */
+    {
+        PnNode      *node = PN_NODE (ctx->self);
+        const gchar *who  = node_display_name (node);
+        PnMessage   *out  = pn_message_new (node, NULL);
+
+        pn_message_set_string  (out, "output",         response);
+        pn_message_set_boolean (out, "success",        TRUE);
+        pn_message_set_string  (out, "from_long_name", who ? who : "");
+
+        pn_node_emit_message (node, out);
+        g_object_unref (out);
+    }
+
+    g_free (response);
+    generate_ctx_free (ctx);
+}
+
+static gchar *
+build_generate_body (
+        PnOllama    *self,
+        const gchar *prompt,
+        gsize       *len_out)
+{
+    JsonBuilder *b     = json_builder_new ();
+    JsonGenerator *g   = json_generator_new ();
+    JsonNode    *root;
+    gchar       *out;
+    gsize        len;
+
+    json_builder_begin_object (b);
+
+    json_builder_set_member_name (b, "model");
+    json_builder_add_string_value (b, self->model ? self->model : "");
+
+    json_builder_set_member_name (b, "prompt");
+    json_builder_add_string_value (b, prompt ? prompt : "");
+
+    json_builder_set_member_name (b, "stream");
+    json_builder_add_boolean_value (b, FALSE);
+
+    if (self->keep_alive && *self->keep_alive)
+    {
+        json_builder_set_member_name (b, "keep_alive");
+        json_builder_add_string_value (b, self->keep_alive);
+    }
+
+    json_builder_end_object (b);
+
+    root = json_builder_get_root (b);
+    json_generator_set_root (g, root);
+    out = json_generator_to_data (g, &len);
+
+    json_node_unref (root);
+    g_object_unref (g);
+    g_object_unref (b);
+
+    if (len_out)
+        *len_out = len;
+    return out;
+}
+
+static void
+pn_ollama_receive (
+        PnNode    *node,
+        PnMessage *message)
+{
+    PnOllama   *self = PN_OLLAMA (node);
+    JsonObject *data;
+    const gchar *input = "";
+    gchar      *prompt;
+    gchar      *body;
+    gsize       body_len;
+    GBytes     *body_bytes;
+    SoupMessage *msg;
+    gchar      *url;
+    GenerateCtx *ctx;
+
+    if (self->hostname == NULL || *self->hostname == '\0'
+        || self->model == NULL || *self->model == '\0')
+        return;
+
+    data = pn_message_get_data (message);
+    if (data != NULL && json_object_has_member (data, "output"))
+    {
+        JsonNode *n = json_object_get_member (data, "output");
+        if (JSON_NODE_HOLDS_VALUE (n)
+            && json_node_get_value_type (n) == G_TYPE_STRING)
+            input = json_node_get_string (n);
+    }
+
+    prompt = g_strconcat (self->prefix ? self->prefix : "",
+                          input,
+                          self->suffix ? self->suffix : "",
+                          NULL);
+
+    body = build_generate_body (self, prompt, &body_len);
+    g_free (prompt);
+
+    url = build_endpoint (self, "/api/generate");
+    msg = soup_message_new (SOUP_METHOD_POST, url);
+    g_free (url);
+    if (msg == NULL)
+    {
+        g_warning ("pn-ollama: invalid endpoint URL");
+        g_free (body);
+        return;
+    }
+
+    body_bytes = g_bytes_new_take (body, body_len);
+    soup_message_set_request_body_from_bytes (msg, "application/json",
+                                              body_bytes);
+    g_bytes_unref (body_bytes);
+
+    ctx = g_new0 (GenerateCtx, 1);
+    ctx->self    = g_object_ref (self);
+    ctx->msg     = g_object_ref (msg);
+
+    soup_session_send_and_read_async (self->session,
+                                      msg,
+                                      G_PRIORITY_DEFAULT,
+                                      self->cancellable,
+                                      on_generate_done,
+                                      ctx);
+    g_object_unref (msg);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Model combo: query /api/tags                                       */
+/* ------------------------------------------------------------------ */
+
+static int
+ptr_array_strcmp (gconstpointer a, gconstpointer b)
+{
+    return g_strcmp0 (*(const gchar * const *) a,
+                      *(const gchar * const *) b);
+}
+
+/** Synchronously enumerate the model names installed on
+ *  @hostname:@port via GET /api/tags.  Returns a NULL-terminated
+ *  string array the caller owns (free with g_strfreev), or an empty
+ *  array when the host is unreachable / not running Ollama. */
+static gchar **
+pn_ollama_list_models (
+        const gchar *hostname,
+        gint         port)
+{
+    SoupSession *session;
+    SoupMessage *msg;
+    GError      *error = NULL;
+    GBytes      *bytes;
+    GPtrArray   *names;
+    JsonParser  *parser;
+    gchar       *url;
+    const gchar *host;
+
+    names = g_ptr_array_new_with_free_func (g_free);
+    host  = (hostname && *hostname) ? hostname : PN_OLLAMA_HTTP_LOCAL_FALLBACK;
+    url   = g_strdup_printf ("http://%s:%d/api/tags", host, port);
+
+    /* Dedicated synchronous session with a short timeout so the
+     * settings dialog does not hang when the host is unreachable. */
+    session = soup_session_new ();
+    g_object_set (session, "timeout", (guint) 2, NULL);
+
+    msg = soup_message_new (SOUP_METHOD_GET, url);
+    g_free (url);
+
+    if (msg != NULL)
+        bytes = soup_session_send_and_read (session, msg, NULL, &error);
+    else
+        bytes = NULL;
+
+    if (bytes != NULL
+        && msg != NULL
+        && soup_message_get_status (msg) >= 200
+        && soup_message_get_status (msg) <  300)
+    {
+        gsize        len = 0;
+        const gchar *body = g_bytes_get_data (bytes, &len);
+
+        parser = json_parser_new ();
+        if (json_parser_load_from_data (parser, body, (gssize) len, NULL))
+        {
+            JsonNode   *root = json_parser_get_root (parser);
+            JsonObject *obj  = root ? json_node_get_object (root) : NULL;
+            JsonArray  *arr  = NULL;
+
+            if (obj != NULL && json_object_has_member (obj, "models"))
+                arr = json_object_get_array_member (obj, "models");
+
+            if (arr != NULL)
+            {
+                guint n = json_array_get_length (arr);
+                guint i;
+                for (i = 0; i < n; i++)
+                {
+                    JsonObject *m = json_array_get_object_element (arr, i);
+                    const gchar *name = m && json_object_has_member (m, "name")
+                                            ? json_object_get_string_member (m, "name")
+                                            : NULL;
+                    if (name && *name)
+                        g_ptr_array_add (names, g_strdup (name));
+                }
+            }
+        }
+        g_object_unref (parser);
+    }
+
+    g_clear_pointer (&bytes, g_bytes_unref);
+    g_clear_object  (&msg);
+    g_clear_object  (&session);
+    g_clear_error   (&error);
+
+    g_ptr_array_sort (names, ptr_array_strcmp);
+    g_ptr_array_add (names, NULL);
+
+    return (gchar **) g_ptr_array_free (names, FALSE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings dialog: custom editor for the `model` row                 */
+/*                                                                     */
+/*  Combo populated from /api/tags on the configured host:port, plus   */
+/*  a Refresh button to re-query (the model list changes as the user   */
+/*  pulls or removes models on the server).  Repopulates automatically */
+/*  on `notify::hostname` / `notify::port` so editing those rows above */
+/*  immediately reflects in the combo below.                           */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnOllama       *target;        /* borrowed */
+    GtkComboBoxText *combo;
+    gulong          notify_model;
+    gulong          notify_host;
+    gulong          notify_port;
+    gboolean        updating;
+} ModelBinding;
+
+static void
+model_binding_repopulate (ModelBinding *bind)
+{
+    gchar       **ids;
+    gchar       **p;
+    gchar        *current = NULL;
+
+    g_object_get (bind->target, "model", &current, NULL);
+
+    bind->updating = TRUE;
+    gtk_combo_box_text_remove_all (bind->combo);
+
+    ids = pn_ollama_list_models (bind->target->hostname, bind->target->port);
+
+    /* Make sure the currently-saved model id is always selectable, even
+     * if the server's list does not include it yet (slow host, model
+     * being pulled, hostname not reachable). */
+    if (current && *current)
+    {
+        gboolean present = FALSE;
+        for (p = ids; *p; p++)
+        {
+            if (g_strcmp0 (*p, current) == 0) { present = TRUE; break; }
+        }
+        if (!present)
+            gtk_combo_box_text_append (bind->combo, current, current);
+    }
+
+    for (p = ids; *p; p++)
+        gtk_combo_box_text_append (bind->combo, *p, *p);
+    g_strfreev (ids);
+
+    if (current && *current)
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX (bind->combo), current);
+
+    bind->updating = FALSE;
+    g_free (current);
+}
+
+static void
+on_model_combo_changed (GtkComboBoxText *combo, gpointer user_data)
+{
+    ModelBinding *bind = user_data;
+    const gchar  *id;
+
+    if (bind->updating)
+        return;
+
+    id = gtk_combo_box_get_active_id (GTK_COMBO_BOX (combo));
+    if (id == NULL)
+        return;
+
+    g_object_set (bind->target, "model", id, NULL);
+}
+
+static void
+on_model_refresh_clicked (GtkButton *btn G_GNUC_UNUSED, gpointer user_data)
+{
+    model_binding_repopulate (user_data);
+}
+
+static void
+on_target_notify_model (GObject *o G_GNUC_UNUSED,
+                        GParamSpec *p G_GNUC_UNUSED,
+                        gpointer user_data)
+{
+    ModelBinding *bind = user_data;
+    gchar        *value = NULL;
+
+    if (bind->updating)
+        return;
+
+    g_object_get (bind->target, "model", &value, NULL);
+    bind->updating = TRUE;
+    gtk_combo_box_set_active_id (GTK_COMBO_BOX (bind->combo),
+                                 value && *value ? value : NULL);
+    bind->updating = FALSE;
+    g_free (value);
+}
+
+static void
+on_target_notify_host_or_port (GObject *o G_GNUC_UNUSED,
+                               GParamSpec *p G_GNUC_UNUSED,
+                               gpointer user_data)
+{
+    model_binding_repopulate (user_data);
+}
+
+static void
+model_binding_free (gpointer data)
+{
+    ModelBinding *bind = data;
+
+    if (bind->target)
+    {
+        if (bind->notify_model)
+            g_signal_handler_disconnect (bind->target, bind->notify_model);
+        if (bind->notify_host)
+            g_signal_handler_disconnect (bind->target, bind->notify_host);
+        if (bind->notify_port)
+            g_signal_handler_disconnect (bind->target, bind->notify_port);
+    }
+    g_free (bind);
+}
+
+static GtkWidget *
+build_model_editor (PnOllama *self)
+{
+    GtkWidget    *box     = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget    *combo   = gtk_combo_box_text_new ();
+    GtkWidget    *refresh = gtk_button_new_from_icon_name (
+            "view-refresh-symbolic", GTK_ICON_SIZE_BUTTON);
+    ModelBinding *bind;
+
+    gtk_widget_set_tooltip_text (refresh,
+            "Re-query the server's installed models");
+
+    gtk_widget_set_hexpand (combo, TRUE);
+    gtk_box_pack_start (GTK_BOX (box), combo,   TRUE,  TRUE,  0);
+    gtk_box_pack_start (GTK_BOX (box), refresh, FALSE, FALSE, 0);
+
+    bind = g_new0 (ModelBinding, 1);
+    bind->target = self;
+    bind->combo  = GTK_COMBO_BOX_TEXT (combo);
+
+    model_binding_repopulate (bind);
+
+    g_signal_connect (combo,   "changed",
+                      G_CALLBACK (on_model_combo_changed), bind);
+    g_signal_connect (refresh, "clicked",
+                      G_CALLBACK (on_model_refresh_clicked), bind);
+    bind->notify_model = g_signal_connect (
+            self, "notify::model",
+            G_CALLBACK (on_target_notify_model), bind);
+    bind->notify_host = g_signal_connect (
+            self, "notify::hostname",
+            G_CALLBACK (on_target_notify_host_or_port), bind);
+    bind->notify_port = g_signal_connect (
+            self, "notify::port",
+            G_CALLBACK (on_target_notify_host_or_port), bind);
+
+    g_object_set_data_full (G_OBJECT (box),
+                            "pn-ollama-model-binding",
+                            bind, model_binding_free);
+    return box;
+}
+
+static GtkWidget *
+pn_ollama_build_property_editor (PnNode      *self,
+                                 GParamSpec  *pspec,
+                                 GObject     *target G_GNUC_UNUSED,
+                                 GtkWindow   *parent G_GNUC_UNUSED)
+{
+    if (g_strcmp0 (pspec->name, "model") == 0)
+        return build_model_editor (PN_OLLAMA (self));
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Property plumbing                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_ollama_get_property (GObject *object, guint prop_id,
+                        GValue *value, GParamSpec *pspec)
+{
+    PnOllama *self = PN_OLLAMA (object);
+
+    switch (prop_id)
+    {
+    case PROP_HOSTNAME:   g_value_set_string (value, self->hostname);   break;
+    case PROP_PORT:       g_value_set_int    (value, self->port);       break;
+    case PROP_MODEL:      g_value_set_string (value, self->model);      break;
+    case PROP_KEEP_ALIVE: g_value_set_string (value, self->keep_alive); break;
+    case PROP_PREFIX:     g_value_set_string (value, self->prefix);     break;
+    case PROP_SUFFIX:     g_value_set_string (value, self->suffix);     break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void
+set_string (gchar **slot, const gchar *value)
+{
+    g_free (*slot);
+    *slot = g_strdup (value ? value : "");
+}
+
+static void
+pn_ollama_set_property (GObject *object, guint prop_id,
+                        const GValue *value, GParamSpec *pspec)
+{
+    PnOllama *self = PN_OLLAMA (object);
+
+    switch (prop_id)
+    {
+    case PROP_HOSTNAME:
+        {
+            const gchar *s = g_value_get_string (value);
+            if (g_strcmp0 (self->hostname, s) != 0)
+            {
+                set_string (&self->hostname, s);
+                refresh_visual_state (self);
+                g_object_notify_by_pspec (object, props[PROP_HOSTNAME]);
+            }
+        }
+        break;
+    case PROP_PORT:
+        {
+            gint v = g_value_get_int (value);
+            if (self->port != v)
+            {
+                self->port = v;
+                g_object_notify_by_pspec (object, props[PROP_PORT]);
+            }
+        }
+        break;
+    case PROP_MODEL:
+        {
+            const gchar *s = g_value_get_string (value);
+            if (g_strcmp0 (self->model, s) != 0)
+            {
+                set_string (&self->model, s);
+                refresh_visual_state (self);
+                g_object_notify_by_pspec (object, props[PROP_MODEL]);
+            }
+        }
+        break;
+    case PROP_KEEP_ALIVE:
+        {
+            const gchar *s = g_value_get_string (value);
+            if (g_strcmp0 (self->keep_alive, s) != 0)
+            {
+                set_string (&self->keep_alive, s);
+                g_object_notify_by_pspec (object, props[PROP_KEEP_ALIVE]);
+            }
+        }
+        break;
+    case PROP_PREFIX:
+        {
+            const gchar *s = g_value_get_string (value);
+            if (g_strcmp0 (self->prefix, s) != 0)
+            {
+                set_string (&self->prefix, s);
+                g_object_notify_by_pspec (object, props[PROP_PREFIX]);
+            }
+        }
+        break;
+    case PROP_SUFFIX:
+        {
+            const gchar *s = g_value_get_string (value);
+            if (g_strcmp0 (self->suffix, s) != 0)
+            {
+                set_string (&self->suffix, s);
+                g_object_notify_by_pspec (object, props[PROP_SUFFIX]);
+            }
+        }
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  GObject lifecycle                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_ollama_finalize (GObject *object)
+{
+    PnOllama *self = PN_OLLAMA (object);
+
+    if (self->cancellable != NULL)
+        g_cancellable_cancel (self->cancellable);
+
+    g_clear_object (&self->cancellable);
+    g_clear_object (&self->session);
+
+    g_clear_pointer (&self->hostname,   g_free);
+    g_clear_pointer (&self->model,      g_free);
+    g_clear_pointer (&self->keep_alive, g_free);
+    g_clear_pointer (&self->prefix,     g_free);
+    g_clear_pointer (&self->suffix,     g_free);
+
+    G_OBJECT_CLASS (pn_ollama_parent_class)->finalize (object);
+}
+
+static void
+pn_ollama_class_init (PnOllamaClass *klass)
+{
+    GObjectClass *object_class = G_OBJECT_CLASS (klass);
+    PnNodeClass  *node_class   = PN_NODE_CLASS (klass);
+
+    object_class->get_property = pn_ollama_get_property;
+    object_class->set_property = pn_ollama_set_property;
+    object_class->finalize     = pn_ollama_finalize;
+
+    node_class->receive               = pn_ollama_receive;
+    node_class->build_property_editor = pn_ollama_build_property_editor;
+
+    node_class->palette_icon = PN_OLLAMA_ICON;
+    node_class->class_name   = "Ollama";
+    node_class->icon         = PN_OLLAMA_ICON;
+    node_class->color        = (GdkRGBA){ 0.42, 0.36, 0.72, 1.0 };
+    node_class->category     = "Filters";
+    node_class->has_input    = TRUE;
+    node_class->has_output   = TRUE;
+
+    props[PROP_HOSTNAME] = g_param_spec_string (
+            "hostname", "Hostname",
+            "Hostname or IP of the Ollama server (e.g. \"localhost\", "
+            "\"gpu.lan\").  Leave empty to talk to an Ollama instance "
+            "running on this machine -- the empty value is resolved "
+            "to the loopback name when building the URL, so libsoup "
+            "always reaches it regardless of mDNS / DNS setup.",
+            PN_OLLAMA_DEFAULT_HOSTNAME,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_hostname_hint (props[PROP_HOSTNAME]);
+
+    props[PROP_PORT] = g_param_spec_int (
+            "port", "Port",
+            "TCP port of the Ollama HTTP API (default 11434)",
+            1, 65535, PN_OLLAMA_DEFAULT_PORT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_MODEL] = g_param_spec_string (
+            "model", "Model",
+            "Ollama model id (e.g. \"llama3.2:latest\"); the dialog "
+            "populates this from the server's /api/tags listing",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_KEEP_ALIVE] = g_param_spec_string (
+            "keep-alive", "Keep alive",
+            "How long Ollama keeps the model loaded between requests: "
+            "a duration like \"5m\" or \"1h\", \"0\" to unload "
+            "immediately after each call, or \"-1\" to keep it "
+            "resident forever",
+            PN_OLLAMA_DEFAULT_KEEP_ALIVE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_PREFIX] = g_param_spec_string (
+            "prefix", "Prefix",
+            "Text prepended to the incoming data.output before it is "
+            "sent to the model -- useful for system / role framing",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_SUFFIX] = g_param_spec_string (
+            "suffix", "Suffix",
+            "Text appended to the incoming data.output before it is "
+            "sent to the model",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    g_object_class_install_properties (object_class, N_PROPS, props);
+}
+
+static void
+pn_ollama_init (PnOllama *self)
+{
+    PnNode *node = PN_NODE (self);
+
+    self->hostname    = g_strdup (PN_OLLAMA_DEFAULT_HOSTNAME);
+    self->port        = PN_OLLAMA_DEFAULT_PORT;
+    self->model       = g_strdup ("");
+    self->keep_alive  = g_strdup (PN_OLLAMA_DEFAULT_KEEP_ALIVE);
+    self->prefix      = g_strdup ("");
+    self->suffix      = g_strdup ("");
+
+    self->session     = soup_session_new ();
+    self->cancellable = g_cancellable_new ();
+
+    pn_node_set_class_name (node, "Ollama");
+    pn_node_set_has_input  (node, TRUE);
+    pn_node_set_has_output (node, TRUE);
+
+    refresh_visual_state (self);
+}
+
+PnOllama *
+pn_ollama_new (void)
+{
+    return g_object_new (PN_TYPE_OLLAMA, NULL);
+}

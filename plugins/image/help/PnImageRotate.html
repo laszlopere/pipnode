@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rotate (PnImageRotate) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnImageRotate">Rotate</h4>
+<p>
+<em>Group:</em> Image Processing &rsaquo; Geometry. <em>Type:</em>
+<code>PnImageRotate</code>. <em>Plugin:</em> <code>pipnode-image</code>.
+</p>
+<p>
+Geometry node. It turns the incoming image by an arbitrary
+<code>angle</code> (degrees, counter-clockwise) and emits the result as a
+new <code>PnImageMessage</code>. The canvas grows so the whole rotated
+picture fits, so the output dimensions are generally larger than the input
+and depend on the angle. The source is sampled with bilinear interpolation,
+and the new corners that fall outside the original are filled with black
+(transparent when the image has an alpha channel). Any alpha channel is
+preserved.
+</p>
+<p>
+The pixels are processed in plain C against the raw image buffer; no
+external program is run. A message that is not an image passes through
+unchanged.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>angle</code></td>
+      <td>Rotation angle in degrees, &minus;180.0&ndash;180.0 (default 0.0).
+          Counter-clockwise; the canvas grows to fit and the new corners
+          are filled with black.</td></tr>
+</table>
+
+<h5>Message <code>data</code> members (emitted)</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Always <code>true</code> &mdash; the output is an image message.</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions of the result (the grown, expand-to-fit canvas).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g. <code>Rotate (724×724)</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean, <code>true</code> on a successful transform.</td></tr>
+  <tr><td><code>data.filename</code>, <code>data.path</code>, <code>data.mimetype</code></td>
+      <td>Carried over from the incoming message when present.</td></tr>
+</table>
+
+</body>
+</html>

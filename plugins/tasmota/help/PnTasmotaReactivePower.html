@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Reactive Power (PnTasmotaReactivePower) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaReactivePower">Tasmota Reactive Power</h4>
+<p>
+<em>Group:</em> Tasmota.
+<em>Type:</em> <code>PnTasmotaReactivePower</code>.
+Inherits from <em>Analog Meter</em>.
+</p>
+<p>
+Sink node that paints an analog var-meter reading
+<code>ENERGY.ReactivePower</code> &mdash; Q = V&sdot;I&sdot;sin&phi;
+&mdash; off every Tasmota <code>tele/&lt;device&gt;/SENSOR</code>
+publish from the configured device. The unit glyph is &ldquo;var&rdquo;
+(volt-amperes reactive) with no current-type symbol: reactive power
+has no DC equivalent.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name the meter listens for &mdash; see
+          <em>Tasmota Voltage</em> for the matching rule.</td></tr>
+  <tr><td><code>min-value</code> / <code>max-value</code></td>
+      <td>Defaults to 0&nbsp;var .. 3680&nbsp;var. Drop the lower
+          bound below zero for a meter that should signal
+          capacitive (negative Q) as well as inductive
+          (positive Q) loads.</td></tr>
+</table>
+
+</body>
+</html>

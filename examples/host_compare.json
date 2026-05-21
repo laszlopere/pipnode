@@ -1,0 +1,412 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnLoad",
+      "uuid" : "8b753f98-8e84-4041-8b9f-445cf25f42c5",
+      "name" : "eth4 load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth4"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "9f8650de-91f8-4115-83d4-41417cd9947e",
+      "name" : "Load (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "bd3cebfd-0a76-4833-a315-183a1c81c934",
+      "name" : "Network Connections (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 480.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnConnections",
+      "uuid" : "03144bc6-9b4c-4d37-bde5-ccba549513a8",
+      "name" : "eth4 conn",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth4"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "91b508de-af17-4bfa-8a1b-05a3a4e69725",
+      "name" : "Network Connections (eth5)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 480.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnConnections",
+      "uuid" : "26573b8c-a113-4bb9-b948-d60297648806",
+      "name" : "eth5 conn",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth5"
+      }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "8f47a9c7-8d93-4abe-9bc9-3c04e80bf504",
+      "name" : "eth5 load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth5"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "cefa4400-a8b4-495e-82af-1eaab461dfdd",
+      "name" : "Load (eth5)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnDiskIo",
+      "uuid" : "4f809664-dc64-46da-b391-acce9ee7fa90",
+      "name" : "eth4 disk",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 720.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth4",
+        "device" : "",
+        "unit" : "MByte/sec"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "18294a18-6dd6-4488-8f61-33f1e72ec486",
+      "name" : "Disk I/O (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 780.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnDiskIo",
+      "uuid" : "8e8c3e29-e9e4-4484-8601-3e5769b0e5cb",
+      "name" : "eth5 disk",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 720.0
+      },
+      "properties" : {
+        "period" : 5,
+        "hostname" : "eth5",
+        "device" : "",
+        "unit" : "MByte/sec"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "22d8cecd-0e66-41b7-ae53-89ecb82dddc4",
+      "name" : "Disk I/O (eth5)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 780.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnNetIo",
+      "uuid" : "e776255b-e3d2-4473-b778-b75b66ed08eb",
+      "name" : "eth4 net",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 1020.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "eth4",
+        "interface" : "",
+        "unit" : "MByte/sec"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "59217ca7-20eb-45fc-979a-3f3c124b05b5",
+      "name" : "Net I/O (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 1080.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnNetIo",
+      "uuid" : "8a35be42-1105-4fad-a38a-d4f3920b1373",
+      "name" : "eth4 net",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 1020.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "eth4",
+        "interface" : "",
+        "unit" : "MByte/sec"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "341ef198-94f5-4445-a747-a5c7c0ab6d85",
+      "name" : "Net I/O (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 1080.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnCpu",
+      "uuid" : "b47df604-4d32-46ed-be79-1b63cbce4a75",
+      "name" : "eth4 cpu",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 1320.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "eth4",
+        "core" : ""
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "b3d9c951-e246-4b62-a350-c9026c76c4ee",
+      "name" : "CPU (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 1380.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    },
+    {
+      "type" : "PnCpu",
+      "uuid" : "fd402246-dbbd-4759-b634-eb055d941c04",
+      "name" : "eth4 cpu",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 1320.0
+      },
+      "properties" : {
+        "period" : 2,
+        "hostname" : "eth4",
+        "core" : ""
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "88bb52a4-1aeb-428f-8c62-ff04707840db",
+      "name" : "CPU (eth4)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 1380.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "mode" : "histogram",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "8b753f98-8e84-4041-8b9f-445cf25f42c5",
+      "target_id" : "9f8650de-91f8-4115-83d4-41417cd9947e"
+    },
+    {
+      "source_id" : "03144bc6-9b4c-4d37-bde5-ccba549513a8",
+      "target_id" : "bd3cebfd-0a76-4833-a315-183a1c81c934"
+    },
+    {
+      "source_id" : "26573b8c-a113-4bb9-b948-d60297648806",
+      "target_id" : "91b508de-af17-4bfa-8a1b-05a3a4e69725"
+    },
+    {
+      "source_id" : "8f47a9c7-8d93-4abe-9bc9-3c04e80bf504",
+      "target_id" : "cefa4400-a8b4-495e-82af-1eaab461dfdd"
+    },
+    {
+      "source_id" : "4f809664-dc64-46da-b391-acce9ee7fa90",
+      "target_id" : "18294a18-6dd6-4488-8f61-33f1e72ec486"
+    },
+    {
+      "source_id" : "8e8c3e29-e9e4-4484-8601-3e5769b0e5cb",
+      "target_id" : "22d8cecd-0e66-41b7-ae53-89ecb82dddc4"
+    },
+    {
+      "source_id" : "e776255b-e3d2-4473-b778-b75b66ed08eb",
+      "target_id" : "59217ca7-20eb-45fc-979a-3f3c124b05b5"
+    },
+    {
+      "source_id" : "8a35be42-1105-4fad-a38a-d4f3920b1373",
+      "target_id" : "341ef198-94f5-4445-a747-a5c7c0ab6d85"
+    },
+    {
+      "source_id" : "b47df604-4d32-46ed-be79-1b63cbce4a75",
+      "target_id" : "b3d9c951-e246-4b62-a350-c9026c76c4ee"
+    },
+    {
+      "source_id" : "fd402246-dbbd-4759-b634-eb055d941c04",
+      "target_id" : "88bb52a4-1aeb-428f-8c62-ff04707840db"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

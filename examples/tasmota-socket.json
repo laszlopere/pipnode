@@ -1,0 +1,65 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "8d4ddc42-06ce-4d7a-a7cf-7aa83cb214ca",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnFilter",
+      "uuid" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad",
+      "name" : "Filter 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/stat/sonoff19/POWER\"}]"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad",
+      "target_id" : "8d4ddc42-06ce-4d7a-a7cf-7aa83cb214ca"
+    },
+    {
+      "source_id" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
+      "target_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

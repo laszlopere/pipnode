@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Relay Status (PnTasmotaRelayStatus) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaRelayStatus">Tasmota Relay Status</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaRelayStatus</code>.
+</p>
+<p>
+Converts a Tasmota relay-state publish
+(<code>stat/&lt;device&gt;/POWER</code> carrying the bare strings
+<code>ON</code> / <code>OFF</code>) into the standard
+<code>data.value</code> / <code>data.success</code> / <code>data.device</code>
+/ <code>data.output</code> shape the rest of the palette already
+speaks. Place it downstream of an <em>MQTT Source</em> subscribed to
+<code>stat/+/POWER</code> (or <code>stat/#</code>) and feed the output
+into anything that reacts to a numeric on/off &mdash; the host's
+<em>Switch</em>, an <em>LED</em>, a <em>Graph</em> in histogram mode,
+or an <em>Edge</em> filter that fires on transitions.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name the filter listens for. Matched against
+          the second-to-last segment of each incoming topic, so
+          <code>sonoff19</code> accepts publishes on
+          <code>mqtt/stat/sonoff19/POWER</code> (and any
+          <code>POWER&lt;N&gt;</code> variant) and silently drops
+          everything else. Leaving the field empty puts the node in
+          the red &ldquo;configuration required&rdquo; state and
+          rejects every message &mdash; the same convention
+          <em>Injector</em> uses for its empty-text state.</td></tr>
+</table>
+
+<h5>What gets through</h5>
+<p>
+A message is forwarded when all three of:
+</p>
+<ul>
+  <li>The second-to-last segment of its <code>topic</code> equals the
+      configured <code>switch-name</code> exactly. Comparing extracted
+      device names (rather than substring-matching the raw topic)
+      means <code>sonoff1</code> does not accidentally accept
+      publishes from <code>sonoff19</code>, and the same node works
+      regardless of whether the upstream <em>MQTT Source</em> uses an
+      <code>mqtt/</code> prefix or not.</li>
+  <li>The last segment starts with the literal text <code>POWER</code>
+      &mdash; that covers both the single-relay default and the
+      <code>POWER1</code>..<code>POWER8</code> multi-relay variants
+      without listing each numbered code.</li>
+  <li>Its <code>data.payload</code> is the string <code>ON</code> or
+      <code>OFF</code> (case-insensitive). Other Tasmota responses
+      that share the POWER topic family
+      (<code>TOGGLE</code>, <code>Blink</code>, <code>PulseTime</code>)
+      are dropped so a downstream edge filter does not see them as a
+      false off-transition.</li>
+</ul>
+
+<h5>Output shape</h5>
+<p>
+The original envelope (topic, id, source) survives the conversion;
+the data bag is rewritten so a downstream node sees the canonical
+numeric form:
+</p>
+<table>
+  <tr><th>Member</th><th>Value</th></tr>
+  <tr><td><code>value</code></td>
+      <td><code>1.0</code> when the payload was <code>ON</code>,
+          <code>0.0</code> when it was <code>OFF</code>.</td></tr>
+  <tr><td><code>success</code></td>
+      <td><code>true</code> on every forwarded message &mdash; the
+          conversion succeeded, regardless of which state the relay
+          was in.</td></tr>
+  <tr><td><code>device</code></td>
+      <td>The second-to-last topic segment
+          (<code>sonoff19</code> in
+          <code>mqtt/stat/sonoff19/POWER</code>), suitable for keying
+          per-device state downstream.</td></tr>
+  <tr><td><code>output</code></td>
+      <td>Human-readable summary, e.g.
+          <code>sonoff19: power on</code> &mdash; handy for a
+          <em>Debug</em> sink or a <em>Notify</em> popup.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = stat/+/POWER)
+    &rarr; Tasmota Relay Status (switch-name = sonoff19)
+        &rarr; LED                        (visual indicator)
+        &rarr; Edge &rarr; Notify         (popup on every on/off transition)
+        &rarr; Graph (histogram)          (relay-state timeline)</pre>
+
+<p>
+For multiple devices, drop one <em>Tasmota Relay Status</em> per
+device and fan the same MQTT source into each &mdash; the per-node
+<code>switch-name</code> field handles the demultiplexing without
+needing a separate <em>Filter</em> rule.
+</p>
+
+</body>
+</html>

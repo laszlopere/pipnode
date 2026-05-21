@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notify (PnNotify) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnNotify">Notify</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnNotify</code>.
+</p>
+<p>
+Shows a desktop notification whenever a message arrives. The
+notification is delivered over D-Bus to the freedesktop
+<code>org.freedesktop.Notifications</code> service on the session
+bus &mdash; the same protocol <code>libnotify</code>,
+<code>notify-send</code>, and <code>GNotification</code> use, so
+any desktop environment that displays standard notification
+bubbles (GNOME, KDE, XFCE, Cinnamon, MATE, dunst, mako, &hellip;)
+shows them without any extra configuration.
+</p>
+
+<p>
+Summary and body are template strings; <code>${path/to/field}</code>
+placeholders expand against the incoming message's lookup root
+(the same root <code>PnFormat</code> uses, carrying
+<code>topic</code>, <code>id</code>, <code>created</code>, and
+every member of the <code>data</code> bag). For example
+<code>${topic}</code> expands to the message topic, and
+<code>${data/output}</code> reaches the data bag's
+<code>output</code> member. Unknown paths render as the empty
+string.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>summary</code></td>
+      <td>Notification title template. Defaults to
+          <code>${topic}</code> so a typical pipeline carries the
+          source topic into the bubble header.</td></tr>
+  <tr><td><code>body</code></td>
+      <td>Notification body template. Defaults to
+          <code>${data/output}</code> to pair naturally with
+          upstream nodes (<code>PnFormat</code>,
+          <code>PnRewrite</code>) that write into
+          <code>data.output</code>.</td></tr>
+  <tr><td><code>icon</code></td>
+      <td>Freedesktop icon name (e.g. <code>dialog-information</code>,
+          <code>dialog-warning</code>, <code>dialog-error</code>,
+          <code>mail-message-new</code>) or an absolute path to an
+          image file. Empty hides the icon.</td></tr>
+  <tr><td><code>app-name</code></td>
+      <td>Application name the daemon reports next to the bubble
+          on desktops that show it. Defaults to
+          <code>pipnode</code>.</td></tr>
+  <tr><td><code>urgency</code></td>
+      <td>Freedesktop urgency hint: <em>low</em>, <em>normal</em>,
+          or <em>critical</em>. Critical bubbles typically bypass
+          the do-not-disturb filter and stay on screen until
+          dismissed.</td></tr>
+  <tr><td><code>timeout-ms</code></td>
+      <td>Bubble expire timeout in milliseconds. <code>-1</code>
+          (the default) lets the notification daemon pick;
+          <code>0</code> means "never expires" &mdash; the user
+          must dismiss it.</td></tr>
+  <tr><td><code>replace</code></td>
+      <td>When on (the default), every new notification from this
+          node replaces the previous one in place rather than
+          stacking a fresh bubble. Useful for fast-firing sources
+          where a tray full of duplicates would be noise.</td></tr>
+</table>
+
+<div class="note">
+This node depends on a running freedesktop notification daemon on
+the session bus. Every mainstream Linux desktop ships one; on a
+headless host without a session bus the node logs a warning and
+drops the notification.
+</div>
+
+<div class="note">
+<strong>No bubbles appearing on XFCE?</strong> If the daemon is
+<code>xfce4-notifyd</code> and Do Not Disturb is on, every call is
+accepted (a notification id is returned) but the bubble is silently
+suppressed &mdash; so the node looks like it is misbehaving even
+though the wire call succeeded. Check and disable DND with:
+<pre>xfconf-query -c xfce4-notifyd -p /do-not-disturb
+xfconf-query -c xfce4-notifyd -p /do-not-disturb -s false</pre>
+Setting <code>urgency</code> to <em>critical</em> on the node also
+bypasses DND on most daemons, so a single high-priority alert can
+still come through without flipping the global switch.
+</div>
+
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meshtastic (PnMeshtastic) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnMeshtastic">Meshtastic</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnMeshtastic</code>.
+</p>
+<p>
+Bidirectional bridge between the message graph and a USB-attached
+Meshtastic LoRa device. Speaks the device's framed-protobuf serial
+protocol natively in C &mdash; no helper subprocess &mdash; so the
+connection is held open for the lifetime of the node and incoming
+text packets land on the output port the moment they arrive.
+Outgoing messages received on the input port are sent on the
+configured channel as <code>TEXT_MESSAGE_APP</code> packets.
+</p>
+<p>
+A single worker thread per node owns the serial fd, runs the
+configuration handshake on start-up to learn the device's channel
+list and node-name table, and then alternates between reading
+inbound frames and draining the outbound queue fed by the input
+port.  Changing the <code>device</code> or <code>channel</code>
+property restarts the worker; toggling the node's disabled flag
+stops and restarts it cleanly.
+</p>
+<p>
+Each inbound text packet is emitted as a message with
+<code>topic: "meshtastic"</code> and the following data-bag members:
+<code>data.output</code> (the message text),
+<code>data.from_node_id</code> (sender as
+<code>!aabbccdd</code> hex id),
+<code>data.from_long_name</code> (sender's display name from the
+node table, falling back to the hex id),
+<code>data.channel_index</code>, <code>data.channel_name</code>,
+<code>data.packet_id</code>, <code>data.rx_time</code>,
+<code>data.hop_limit</code>, <code>data.hop_start</code>,
+<code>data.broadcast</code>, and <code>data.success = true</code>.
+On a connection error a single message with
+<code>data.success = false</code> and <code>data.error = "&hellip;"</code>
+is emitted before the worker exits.
+</p>
+<p>
+On the input port, <code>data.output</code> is read as the
+message text to send (same convention as Text to Speech and
+Sound).  Other fields are ignored.  Messages without a
+<code>data.output</code> string are dropped silently.
+</p>
+<p>
+Accessing <code>/dev/tty*</code> typically requires the user to be
+in the <code>dialout</code> group on Debian/Ubuntu (or
+<code>uucp</code> on some distributions); otherwise the worker
+emits an <code>EACCES</code> error.  The settings dialog's device
+combobox lists devices whose USB vendor/product IDs match the
+known-hardware table (Heltec V3, Tracker variants, SenseCAP); a
+device that isn't recognised but does present a working serial
+port can still be used by typing its path.
+</p>
+<p>
+Below the two property rows the dialog shows a <em>Status</em>
+line that mirrors the worker's runtime state.  While the worker is
+opening the port and running the configuration handshake the line
+turns red and reads <code>Device /dev/ttyUSB0 is busy.</code>; once
+the handshake completes and the local <code>NodeInfo</code> arrives,
+it switches to <code>HELTEC_V3 is ready.</code> (or whichever
+<code>HardwareModel</code> the device reports — the symbolic name
+matches the table the <code>pip-mesh</code> CLI prints).  If the
+configured port cannot be opened for any other reason (the cable was
+unplugged before the worksheet loaded, the kernel never enumerated
+the device, the user lacks <code>dialout</code> group membership, the
+device disappeared mid-stream and the read loop saw a hangup) the
+line shows <code>Device /dev/ttyUSB0: No such file or directory</code>
+or the equivalent errno text in red, and the node body switches to
+the warning ❗ visual until the user picks a different device or the
+worker successfully re-opens the port.  The line clears when no
+device is selected.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>device</code></td>
+      <td>Serial-port path of the USB-attached Meshtastic device
+          (e.g. <code>/dev/ttyUSB0</code>, <code>/dev/ttyACM0</code>).
+          Empty leaves the node disconnected.</td></tr>
+  <tr><td><code>channel</code></td>
+      <td>Case-sensitive name of the channel to send on (e.g.
+          <code>LongFast</code>).  Empty falls back to the primary
+          channel (index 0).  The dialog combobox is populated from
+          the device's live configuration.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File Drop (PnFileDrop) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFileDrop">File Drop</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnFileDrop</code>.
+</p>
+<p>
+Desktop drop target. The node paints a white drop-area rectangle below
+its header (the same way the <em>Graph</em> node paints its plot area).
+Drag a file onto that rectangle from your desktop or file manager and
+the node emits one message describing the dropped file.
+</p>
+<p>
+When the dropped file is an image, the node decodes it once and resizes
+its drop area to the image's own aspect ratio (at a fixed width, clamped
+to sane bounds), so the picture fills the rectangle edge-to-edge with no
+white margin &mdash; just the frame and the drop shadow around it. It
+then emits a specialised <code>PnImageMessage</code> &mdash; a
+subclass of the ordinary message that additionally carries the decoded
+image by pointer. Passing the picture by pointer keeps message delivery
+cheap even when the output fans out to several nodes: each fan-out branch
+shares a reference to the same image rather than copying its pixels. The
+pixels never enter the JSON <code>data</code> bag, so a <em>Debug Print</em>
+or a saved worksheet only ever shows the lightweight metadata below, never
+the image bytes.
+</p>
+<p>
+Any non-image file emits an ordinary message instead, with the same
+filename / mime-type / size metadata but no preview.
+</p>
+
+<h5>Message <code>data</code> members</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.filename</code></td>
+      <td>Base name of the dropped file.</td></tr>
+  <tr><td><code>data.path</code></td>
+      <td>Absolute filesystem path of the dropped file.</td></tr>
+  <tr><td><code>data.mimetype</code></td>
+      <td>Guessed content type, e.g. <code>image/png</code>.</td></tr>
+  <tr><td><code>data.image</code></td>
+      <td>Boolean: <code>true</code> when the file decoded as an image
+          (and the message is a <code>PnImageMessage</code>).</td></tr>
+  <tr><td><code>data.width</code>, <code>data.height</code></td>
+      <td>Pixel dimensions, present for images only.</td></tr>
+  <tr><td><code>data.size</code></td>
+      <td>File size in bytes (omitted when it cannot be read).</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Boolean placed in <code>data.success</code> so downstream
+          filters can react to the drop.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary &mdash; the filename, with
+          <code>(w&times;h)</code> appended for images.</td></tr>
+</table>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>area-color</code></td>
+      <td>Fill colour of the drop-area rectangle (white by default).</td></tr>
+  <tr><td><code>border-color</code></td>
+      <td>Colour of the 1&nbsp;px frame around the drop area.</td></tr>
+</table>
+
+</body>
+</html>

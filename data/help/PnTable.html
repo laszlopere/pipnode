@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table (PnTable) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTable">Table</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnTable</code>.
+</p>
+<p>
+Sink that displays the most recent messages it receives as a
+scrolling table of rows, with a header row that names the
+columns. Visually it mirrors <em>Graph</em>: a 280&thinsp;px
+standard header sits on top, and a separately-painted body of
+the same width and height shows the data, so a row of mixed
+Graph and Table sinks lines up cleanly on the worksheet.
+Rows appear newest-first; older rows fall off the bottom once
+the buffer reaches the configured limit. Clicking the body
+lifts the table into a centred zoom overlay (the same animation
+the graph node uses); while zoomed, the mouse wheel scrolls
+through the rows.
+</p>
+<p>
+Columns are configured as a single comma-separated string of
+&ldquo;Title:path&rdquo; entries &mdash; one entry per column.
+The path is the same &ldquo;/&rdquo;-separated JSON pointer
+used elsewhere in the project (it resolves against the same
+root as <em>Format</em>'s placeholders, <em>Graph</em>'s
+<code>key</code>, and <em>Stats</em>'s <code>key</code>). An
+entry without a &ldquo;:&rdquo; is treated as path-only with
+the path doubling as the title, so <code>data/value</code>
+works as a one-column shorthand. Example:
+<code>Status:data/status,URL:data/url,ms:data/ms</code>
+shows three columns of HTTP responses.
+</p>
+<p>
+Cells are stringified by JSON type: numbers via
+<code>%g</code>/<code>%</code><code>"PRId64"</code>, booleans
+as <code>true</code>/<code>false</code>, strings verbatim,
+missing fields as &ldquo;&mdash;&rdquo;. Sub-objects and
+arrays render as the compact placeholders <code>{&hellip;}</code>
+and <code>[&hellip;]</code> so a row that accidentally points
+at a nested structure doesn't blow out the column with a
+multi-line dump &mdash; drill in with a deeper path to see the
+contents flattened. Cell text that doesn't fit its column is
+truncated with a trailing &hellip;.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>columns</code></td>
+      <td>Comma-separated <em>Title:path</em> list. Each entry
+          becomes one column; empty entries are skipped, and
+          whitespace around titles and paths is stripped. An
+          entry without a &ldquo;:&rdquo; uses its path as the
+          title.</td></tr>
+  <tr><td><code>limit</code></td>
+      <td>Maximum number of rows kept in the buffer (1&ndash;1000,
+          default 200). Older rows are dropped from the bottom
+          as new ones arrive. Lowering this trims the buffer
+          immediately.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the body rectangle behind the rows.
+          Defaults to white.</td></tr>
+  <tr><td><code>header-background-color</code></td>
+      <td>Fill colour of the header band. The same colour at
+          30&nbsp;% alpha is used as the alternating-row stripe
+          when that option is enabled.</td></tr>
+  <tr><td><code>grid-color</code></td>
+      <td>Colour of the frame, the column separators, and the
+          line that underlines the header.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the body cell text.</td></tr>
+  <tr><td><code>header-text-color</code></td>
+      <td>Colour of the bold column titles in the header band.</td></tr>
+  <tr><td><code>alternate-row-background</code></td>
+      <td>When enabled (default), tints every second body row
+          with the header background colour at 30&nbsp;% alpha
+          to make dense feeds easier to read.</td></tr>
+</table>
+
+</body>
+</html>

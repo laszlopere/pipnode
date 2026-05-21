@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Power Factor (PnTasmotaPowerFactor) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaPowerFactor">Tasmota Power Factor</h4>
+<p>
+<em>Group:</em> Tasmota.
+<em>Type:</em> <code>PnTasmotaPowerFactor</code>.
+Inherits from <em>Analog Meter</em>.
+</p>
+<p>
+Sink node that paints an analog cos&phi; gauge reading
+<code>ENERGY.Factor</code> &mdash; the dimensionless ratio
+P&nbsp;/&nbsp;S &mdash; off every Tasmota
+<code>tele/&lt;device&gt;/SENSOR</code> publish from the configured
+device. The unit label is the literal string &ldquo;cos &phi;&rdquo;
+and the IEC current-type symbol is suppressed: power factor
+describes the phase between voltage and current, so an AC / DC
+indicator would be self-referential.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>switch-name</code></td>
+      <td>Tasmota device name the meter listens for &mdash; see
+          <em>Tasmota Voltage</em> for the matching rule.</td></tr>
+  <tr><td><code>min-value</code> / <code>max-value</code></td>
+      <td>Defaults to 0 .. 1, the natural cos&phi; range.</td></tr>
+</table>
+
+</body>
+</html>

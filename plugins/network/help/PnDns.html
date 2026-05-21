@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DNS Check (PnDns) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDns">DNS Check</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnDns</code>.
+</p>
+<p>
+Auto-triggered probe that asks a DNS server to resolve a list of
+names every <code>period</code> seconds and emits an aggregate
+result. The probe spawns the system <code>dig</code> utility on a
+worker thread; per-query timeout is derived from the period so an
+unreachable server cannot stall ticks.
+</p>
+<p>
+The point of this node is to verify the DNS server itself, so the
+probe is a pure DNS query &mdash; <code>/etc/hosts</code>, mDNS and
+NSS are deliberately bypassed. A short name that only lives in
+<code>/etc/hosts</code> will therefore look like a failed lookup,
+which is the intended behaviour: if the DNS server doesn't know it,
+the node says so.
+</p>
+<p>
+The <code>server</code> property is optional. When empty the
+resolvers from <code>/etc/resolv.conf</code> are queried; set it to
+test a specific server (e.g. <code>8.8.8.8</code>, an internal
+recursor). The <code>names</code> property is a whitespace- or
+comma-separated list of names to look up on every tick. While it is
+empty the node turns red, shows a warning glyph, and skips its
+triggers entirely.
+</p>
+<p>
+The emitted message carries <code>data.success</code> (true only when
+every name resolved), <code>data.output</code> (one-line summary),
+<code>data.server</code> (the configured server, or
+<code>"system"</code> when the system resolver was used),
+<code>data.ok_count</code> / <code>data.name_count</code>, and a
+<code>data.results</code> object mapping each queried name to a
+boolean.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>server</code></td>
+      <td>DNS server to query (hostname or IP). Optional &mdash;
+          when empty the resolvers from
+          <code>/etc/resolv.conf</code> are queried directly via
+          <code>dig</code> (still pure DNS, no <code>/etc/hosts</code>
+          fallback).</td></tr>
+  <tr><td><code>names</code></td>
+      <td>Whitespace- or comma-separated list of DNS names to look
+          up. Required.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between probes.</td></tr>
+</table>
+
+</body>
+</html>

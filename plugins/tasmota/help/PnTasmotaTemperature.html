@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Temperature (PnTasmotaTemperature) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaTemperature">Tasmota Temperature</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaTemperature</code>.
+</p>
+<p>
+Filter / transformer node that watches an upstream MQTT stream for
+Tasmota <code>SENSOR</code> publishes, picks the temperature reading
+out of the per-sensor JSON wrapper, and re-emits the message with the
+reading promoted to the standard <code>data.value</code> /
+<code>data.unit</code> / <code>data.device</code> shape every other
+node in the palette already speaks.
+</p>
+
+<h5>What gets through</h5>
+<p>
+Wire a <em>MQTT Source</em> (or any other producer that emits
+<code>data.payload</code> as a JSON object) into the input port. The
+node looks for a numeric <code>Temperature</code> member in the
+payload &mdash; first at the top level, then in each direct child
+object (Tasmota wraps the reading in a per-sensor object such as
+<code>AM2301</code>, <code>DHT22</code> or <code>BMP280</code>).
+Messages whose payload does not contain a <code>Temperature</code>
+member are dropped silently.
+</p>
+
+<h5>Output shape</h5>
+<p>
+The emitted message preserves the input's envelope topic and id and
+mutates only the data bag:
+</p>
+<ul>
+  <li><code>data.value</code> &mdash; the temperature reading as a
+      JSON number (no rounding, the producer's precision is preserved).</li>
+  <li><code>data.unit</code> &mdash; <code>"C"</code>, <code>"F"</code>
+      or whatever the publish carried in <code>TempUnit</code>.
+      Defaults to <code>"C"</code> when the firmware omits the field
+      &mdash; that matches the Tasmota build default.</li>
+  <li><code>data.device</code> &mdash; the device id parsed from the
+      MQTT topic (the second-to-last segment, e.g.
+      <code>"tasmota13"</code> from
+      <code>"mqtt/tele/tasmota13/SENSOR"</code>). Omitted when the
+      topic has fewer than three segments.</li>
+  <li><code>data.output</code> &mdash; one-line summary suitable for a
+      Debug pane: <code>"tasmota13: temperature 22.8 °C"</code>.</li>
+  <li><code>data.success</code> &mdash; <code>true</code>.</li>
+</ul>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = tele/+/SENSOR)
+    &rarr; Tasmota Temperature
+        &rarr; Graph     (auto-plots data.value over time)
+        &rarr; Debug View (sees the one-liner output)</pre>
+<p>
+The same shape works downstream of any producer that emits Tasmota-
+style JSON publishes &mdash; an HTTPS Tunnel Receiver that the
+firmware posts to, a synthetic Injector for testing, etc.
+</p>
+
+</body>
+</html>
