@@ -2548,6 +2548,25 @@ on_node_repaint_needed (
     if (!node_on_sheet (self, node))
         return;
 
+    /* A maximised node is painted as the large zoom overlay (centred in
+     * the viewport), not at its on-canvas rectangle — so invalidate the
+     * overlay region instead, padded for its drop shadow.  Without this a
+     * live, scrolling graph would only refresh the sliver of its small
+     * on-canvas footprint while maximised. */
+    if (node == self->zoomed_node)
+    {
+        double zx, zy, zw, zh;
+        const double pad = 32.0;
+
+        zoom_current_rect (self, &zx, &zy, &zw, &zh);
+        gtk_widget_queue_draw_area (GTK_WIDGET (self),
+                                    (int) floor (zx - pad),
+                                    (int) floor (zy - pad),
+                                    (int) ceil (zw + 2.0 * pad) + 1,
+                                    (int) ceil (zh + 2.0 * pad) + 1);
+        return;
+    }
+
     pn_node_get_size (node, &w, &h);
 
     /* If the node's footprint changed, fall back to queue_resize so the
