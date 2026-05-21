@@ -23,8 +23,6 @@
 #include <pango/pangocairo.h>
 #include <json-glib/json-glib.h>
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -279,6 +277,11 @@ struct _PnWeatherReport
     PnWrTempUnit  temp_unit;
     PnWrWindUnit  wind_unit;
     PnWrPressUnit press_unit;
+
+    /* Drives the on-card clock: a 15 s timeout that repaints so the
+     * displayed local time tracks the wall clock independently of the
+     * (much slower) weather refresh.  0 when not running. */
+    guint         clock_source;
 };
 
 G_DEFINE_TYPE (PnWeatherReport, pn_weather_report, PN_TYPE_NODE)
@@ -417,36 +420,14 @@ cardinal (gdouble deg)
     return c[i];
 }
 
-/* Pull "HH:MM" out of an ISO-8601-ish timestamp such as
- * "2026-05-21T14:00"; returns %NULL when the shape is unexpected. */
+/* Format @dt as a long human label, e.g. "Wednesday, 21 May 2026".
+ * @dt is borrowed and may be %NULL, in which case %NULL is returned.
+ * Caller frees the result with g_free(). */
 static gchar *
-short_time (const gchar *iso)
+format_long_date (GDateTime *dt)
 {
-    const gchar *t;
+    gchar *weekday, *month, *out;
 
-    if (iso == NULL)
-        return NULL;
-    t = strchr (iso, 'T');
-    if (t == NULL || strlen (t + 1) < 5)
-        return NULL;
-    return g_strndup (t + 1, 5);
-}
-
-/* Format the date carried by an ISO-8601-ish timestamp
- * ("2026-05-21T14:00") as a long human label, e.g.
- * "Wednesday, 21 May 2026".  Falls back to the current local date when
- * the stamp is missing or unparseable.  Caller frees with g_free(). */
-static gchar *
-format_long_date (const gchar *iso)
-{
-    gint       y = 0, m = 0, d = 0;
-    GDateTime *dt = NULL;
-    gchar     *weekday, *month, *out;
-
-    if (iso != NULL && sscanf (iso, "%d-%d-%d", &y, &m, &d) == 3)
-        dt = g_date_time_new_utc (y, m, d, 12, 0, 0);
-    if (dt == NULL)
-        dt = g_date_time_new_now_local ();
     if (dt == NULL)
         return NULL;
 
@@ -458,7 +439,6 @@ format_long_date (const gchar *iso)
 
     g_free (weekday);
     g_free (month);
-    g_date_time_unref (dt);
     return out;
 }
 
@@ -664,8 +644,6 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
     gint     code        = obj_num (data, "weather_code", &code_d)
                            ? (gint) code_d : -1;
     gboolean is_day      = obj_bool (cur, "is_day", TRUE);
-    const gchar *iso_time = obj_str (cur, "time");
-    gchar   *obstime     = short_time (iso_time);
 
     const double padx = w * 0.05;
     const double ml   = padx;
@@ -812,18 +790,19 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         const gchar *glyph = condition_glyph (code, is_day);
         gchar       *numbuf;
         gchar       *subbuf;
-        gchar       *datebuf = format_long_date (iso_time);
+        gchar       *datebuf;
         gchar       *timebuf;
 
         double icon_w, icon_h, num_h, time_w, time_h, desc_h, sub_h;
         double hero_top, numx, ly, ry, left_bottom, right_bottom, content_bottom;
 
-        /* Observation time, falling back to the local wall clock. */
-        if (obstime != NULL)
-            timebuf = g_strdup (obstime);
-        else
+        /* The clock shows the user's own wall time — deliberately not the
+         * meteo observation stamp (which lags and is GMT / location-local).
+         * The card doubles as a desk clock, kept current by the node's own
+         * 15 s timer; the long date follows the same local now. */
         {
             GDateTime *now = g_date_time_new_now_local ();
+            datebuf = format_long_date (now);
             timebuf = now != NULL ? g_date_time_format (now, "%H:%M")
                                   : g_strdup ("--:--");
             if (now != NULL)
@@ -957,8 +936,6 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         g_free (datebuf);
         g_free (timebuf);
     }
-
-    g_free (obstime);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1160,6 +1137,24 @@ pn_weather_report_set_property (GObject      *object,
 }
 
 /* ------------------------------------------------------------------ */
+/*  Clock tick                                                         */
+/* ------------------------------------------------------------------ */
+
+/* Fires every 15 s to advance the on-card clock.  The time is only drawn
+ * on a successful reading, so a waiting / failed node is left untouched
+ * and stays quiet on the canvas. */
+static gboolean
+pn_weather_report_clock_tick (gpointer user_data)
+{
+    PnWeatherReport *self = PN_WEATHER_REPORT (user_data);
+
+    if (self->data != NULL && obj_bool (self->data, "success", TRUE))
+        pn_node_request_repaint (PN_NODE (self));
+
+    return G_SOURCE_CONTINUE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -1167,6 +1162,12 @@ static void
 pn_weather_report_finalize (GObject *object)
 {
     PnWeatherReport *self = PN_WEATHER_REPORT (object);
+
+    if (self->clock_source != 0)
+    {
+        g_source_remove (self->clock_source);
+        self->clock_source = 0;
+    }
 
     g_clear_pointer (&self->data, json_object_unref);
 
@@ -1248,6 +1249,11 @@ pn_weather_report_init (PnWeatherReport *self)
     pn_node_set_color      (node, &sky);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
+
+    /* Tick the on-card clock every 15 s so the displayed local time keeps
+     * up with the wall clock, independently of the slow weather refresh. */
+    self->clock_source = g_timeout_add_seconds (
+            15, pn_weather_report_clock_tick, self);
 }
 
 /* ------------------------------------------------------------------ */
