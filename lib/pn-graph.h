@@ -86,6 +86,13 @@ GType pn_graph_view_get_type (void) G_GNUC_CONST;
  * @PN_GRAPH_STYLE_LINES:  Connect the data points with a polyline.
  * @PN_GRAPH_STYLE_BARS:   Draw each data point as a filled bar rising from
  *                         the baseline.
+ * @PN_GRAPH_STYLE_ERROR_BARS: Draw each time bucket as a box-and-whisker:
+ *                         whiskers span the bucket's min..max, the box spans
+ *                         the mean ±1 standard deviation, and a tick marks the
+ *                         mean.  Each bucket is coloured green when its mean
+ *                         rose versus the previous bucket and red when it fell,
+ *                         so the trend reads at a glance.  Time-series view
+ *                         only; the distribution view falls back to bars.
  *
  * Selects *how* the active #PnGraphView is drawn.  Honoured for single-topic
  * (2D) plots; multi-topic 3D plots fall back to the polyline form for the
@@ -96,6 +103,7 @@ typedef enum
     PN_GRAPH_STYLE_POINTS,
     PN_GRAPH_STYLE_LINES,
     PN_GRAPH_STYLE_BARS,
+    PN_GRAPH_STYLE_ERROR_BARS,
 } PnGraphStyle;
 
 #define PN_TYPE_GRAPH_STYLE (pn_graph_style_get_type ())

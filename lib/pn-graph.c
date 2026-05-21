@@ -43,10 +43,18 @@
                                 PN_GRAPH_GAP +           \
                                 PN_GRAPH_PLOT_HEIGHT)
 
-/* Number of bins the configured window is split into.  Each bin uses
- * a few tens of bytes, so the line-mode time-bucket ring stays under
- * 10 KB per series regardless of resolution. */
-#define PN_GRAPH_BINS  200
+/* Capacity of the per-series time-bucket ring: the largest number of X
+ * buckets the configured window can be split into.  Each bin uses a few
+ * tens of bytes, so the ring stays under 10 KB per series regardless of
+ * resolution.  The *active* bucket count is the runtime "x-buckets"
+ * property (PnGraph.n_bins), which must always stay within this cap so
+ * the fixed-size ring and the stack arrays sized to it never overflow. */
+#define PN_GRAPH_MAX_BINS  200
+
+/* Default active X-bucket count — the full ring, matching the value the
+ * window was hard-split into before the count became configurable, so
+ * worksheets saved without an "x-buckets" property render unchanged. */
+#define PN_GRAPH_DEF_BINS  200
 
 /* Raw sample ring used by histogram mode.  Each entry is 16 bytes so
  * the whole ring is 32 KB per series — well above the time-bucket
@@ -137,8 +145,12 @@ typedef struct
     /* Number of samples folded into this bin. */
     guint64  count;
 
-    /* Tallies over the samples in this bin. */
+    /* Tallies over the samples in this bin.  sum_sq (the running sum
+     * of value²) lets the Error-bars draw-style recover the per-bucket
+     * standard deviation as sqrt(sum_sq/count - mean²) without keeping
+     * the individual samples. */
     gdouble  sum;
+    gdouble  sum_sq;
     gdouble  min;
     gdouble  max;
 } PnGraphBin;
@@ -165,7 +177,7 @@ typedef struct
 
 typedef struct
 {
-    PnGraphBin     ring[PN_GRAPH_BINS];
+    PnGraphBin     ring[PN_GRAPH_MAX_BINS];
 
     PnGraphSample  samples[PN_GRAPH_SAMPLES];
     guint          sample_head;
@@ -182,6 +194,7 @@ struct _PnGraph
 
     gchar             *key;          /* JSON path to the value */
     PnGraphResolution  resolution;   /* X-axis time span */
+    guint              n_bins;       /* active X buckets (<= PN_GRAPH_MAX_BINS) */
     PnGraphView        view;         /* time-series vs distribution */
     PnGraphStyle       style;        /* points / lines / bars */
 
@@ -228,6 +241,7 @@ enum {
     PROP_0,
     PROP_KEY,
     PROP_RESOLUTION,
+    PROP_X_BUCKETS,
     PROP_DATA_VIEW,
     PROP_DRAW_STYLE,
     PROP_LINE_COLOR,
@@ -298,9 +312,10 @@ pn_graph_style_get_type (void)
     if (g_once_init_enter (&id))
     {
         static const GEnumValue values[] = {
-            { PN_GRAPH_STYLE_POINTS, "PN_GRAPH_STYLE_POINTS", "Points" },
-            { PN_GRAPH_STYLE_LINES,  "PN_GRAPH_STYLE_LINES",  "Lines"  },
-            { PN_GRAPH_STYLE_BARS,   "PN_GRAPH_STYLE_BARS",   "Bars"   },
+            { PN_GRAPH_STYLE_POINTS,     "PN_GRAPH_STYLE_POINTS",     "Points"     },
+            { PN_GRAPH_STYLE_LINES,      "PN_GRAPH_STYLE_LINES",      "Lines"      },
+            { PN_GRAPH_STYLE_BARS,       "PN_GRAPH_STYLE_BARS",       "Bars"       },
+            { PN_GRAPH_STYLE_ERROR_BARS, "PN_GRAPH_STYLE_ERROR_BARS", "Error bars" },
             { 0, NULL, NULL }
         };
 
@@ -357,7 +372,7 @@ bin_width_us (PnGraph *self)
 {
     gint64 w = (gint64) resolution_seconds (self->resolution)
              * G_TIME_SPAN_SECOND
-             / (gint64) PN_GRAPH_BINS;
+             / (gint64) self->n_bins;
     return w > 0 ? w : 1;
 }
 
@@ -368,11 +383,12 @@ reset_bin (
         PnGraphBin *bin,
         gint64      epoch)
 {
-    bin->epoch = epoch;
-    bin->count = 0;
-    bin->sum   = 0.0;
-    bin->min   = 0.0;
-    bin->max   = 0.0;
+    bin->epoch  = epoch;
+    bin->count  = 0;
+    bin->sum    = 0.0;
+    bin->sum_sq = 0.0;
+    bin->min    = 0.0;
+    bin->max    = 0.0;
 }
 
 static PnGraphSeries *
@@ -381,7 +397,7 @@ series_new (guint arrival_idx)
     PnGraphSeries *s = g_new0 (PnGraphSeries, 1);
     guint          i;
 
-    for (i = 0; i < PN_GRAPH_BINS; i++)
+    for (i = 0; i < PN_GRAPH_MAX_BINS; i++)
         s->ring[i].epoch = G_MININT64;
 
     s->arrival_idx = arrival_idx;
@@ -811,7 +827,7 @@ pn_graph_receive (
     now_us    = g_get_monotonic_time ();
     width     = bin_width_us (self);
     cur_epoch = now_us / width;
-    slot      = (guint) (cur_epoch % PN_GRAPH_BINS);
+    slot      = (guint) (cur_epoch % self->n_bins);
     bin       = &series->ring[slot];
 
     if (bin->epoch != cur_epoch)
@@ -827,8 +843,9 @@ pn_graph_receive (
         if (value < bin->min) bin->min = value;
         if (value > bin->max) bin->max = value;
     }
-    bin->sum   += value;
-    bin->count += 1;
+    bin->sum    += value;
+    bin->sum_sq += value * value;
+    bin->count  += 1;
 
     /* Mirror the value into the per-series raw-sample ring so
      * histogram mode has something to bin.  The ring is fed
@@ -1160,6 +1177,7 @@ bar_depth_cmp (
 static guint
 collect_line_points (
         const PnGraphSeries *s,
+        guint                n_bins,
         gint64               width,
         gint64               cur_epoch,
         gint64               oldest_valid_epoch,
@@ -1172,11 +1190,11 @@ collect_line_points (
     guint  n = 0;
     guint  i;
 
-    for (i = 0; i < PN_GRAPH_BINS; i++)
+    for (i = 0; i < n_bins; i++)
     {
         gint64 epoch = oldest_valid_epoch + (gint64) i;
-        gint64 slot  = epoch % PN_GRAPH_BINS;
-        if (slot < 0) slot += PN_GRAPH_BINS;
+        gint64 slot  = epoch % (gint64) n_bins;
+        if (slot < 0) slot += (gint64) n_bins;
         {
             const PnGraphBin *b = &s->ring[slot];
             gdouble           mean;
@@ -1197,6 +1215,82 @@ collect_line_points (
             if (!*have_range_io)
             {
                 *inout_ymin = *inout_ymax = mean;
+                *have_range_io = TRUE;
+            }
+            else
+            {
+                if (b->min < *inout_ymin) *inout_ymin = b->min;
+                if (b->max > *inout_ymax) *inout_ymax = b->max;
+            }
+        }
+    }
+
+    return n;
+}
+
+/** Like collect_line_points, but for the Error-bars draw-style: walk
+ *  @s's bin ring left-to-right (oldest first) and, for every occupied
+ *  bucket, emit the box-and-whisker statistics — the bucket mean
+ *  (@mean), the mean ±1 standard deviation box edges (@sd_lo/@sd_hi)
+ *  and the min/max whisker ends (@w_lo/@w_hi).  The standard deviation
+ *  is recovered from the running sum and sum-of-squares as
+ *  sqrt(sum_sq/count - mean²), clamped at zero to absorb rounding.
+ *  The visible Y range is widened to the whisker extent (min..max) so
+ *  the same range logic as the line path applies.  Returns the number
+ *  of buckets written. */
+static guint
+collect_error_bars (
+        const PnGraphSeries *s,
+        guint                n_bins,
+        gint64               width,
+        gint64               cur_epoch,
+        gint64               oldest_valid_epoch,
+        PLFLT               *xs,
+        PLFLT               *mean,
+        PLFLT               *sd_lo,
+        PLFLT               *sd_hi,
+        PLFLT               *w_lo,
+        PLFLT               *w_hi,
+        gdouble             *inout_ymin,
+        gdouble             *inout_ymax,
+        gboolean            *have_range_io)
+{
+    guint  n = 0;
+    guint  i;
+
+    for (i = 0; i < n_bins; i++)
+    {
+        gint64 epoch = oldest_valid_epoch + (gint64) i;
+        gint64 slot  = epoch % (gint64) n_bins;
+        if (slot < 0) slot += (gint64) n_bins;
+        {
+            const PnGraphBin *b = &s->ring[slot];
+            gdouble           m, var, sd, seconds_ago;
+
+            if (b->epoch != epoch || b->count == 0)
+                continue;
+
+            m   = b->sum / (gdouble) b->count;
+            var = b->sum_sq / (gdouble) b->count - m * m;
+            if (var < 0.0) var = 0.0;       /* float noise on flat bins */
+            sd  = sqrt (var);
+
+            seconds_ago = (gdouble) (cur_epoch - epoch)
+                        * (gdouble) width
+                        / (gdouble) G_TIME_SPAN_SECOND;
+
+            xs[n]    = (PLFLT) (-seconds_ago);
+            mean[n]  = (PLFLT) m;
+            sd_lo[n] = (PLFLT) (m - sd);
+            sd_hi[n] = (PLFLT) (m + sd);
+            w_lo[n]  = (PLFLT) b->min;
+            w_hi[n]  = (PLFLT) b->max;
+            n += 1;
+
+            if (!*have_range_io)
+            {
+                *inout_ymin = b->min;
+                *inout_ymax = b->max;
                 *have_range_io = TRUE;
             }
             else
@@ -1269,6 +1363,96 @@ draw_series_2d (
     }
 }
 
+/* Trend colours for the Error-bars draw-style.  A bucket is green when
+ * its mean rose versus the previous (older) bucket and red when it fell;
+ * the first bucket — which has no predecessor — and a perfectly flat
+ * step use a neutral grey so "no change" never reads as a direction. */
+static const GdkRGBA pn_graph_trend_up   = { 0.18, 0.70, 0.34, 1.0 };
+static const GdkRGBA pn_graph_trend_down = { 0.85, 0.27, 0.27, 1.0 };
+static const GdkRGBA pn_graph_trend_flat = { 0.55, 0.55, 0.55, 1.0 };
+
+/** Draw @n buckets as box-and-whisker glyphs for the Error-bars
+ *  draw-style.  Each glyph is centred on its bucket's time @xs[i]: a
+ *  vertical whisker spans min..max (@w_lo/@w_hi) with short end caps,
+ *  a box of half-width @box_hw spans the mean ±1σ (@sd_lo/@sd_hi) filled
+ *  in the bucket's trend colour, and a tick marks the mean (@mean).  The
+ *  trend colour is green when this bucket's mean exceeds the previous
+ *  bucket's, red when it is lower, grey for the first bucket or a flat
+ *  step.  cmap0 slots 5/6/7 are pinned to the up/down/flat colours;
+ *  slot 2 (the axis colour) is reused for the box outline and mean tick
+ *  so they stay legible against either fill. */
+static void
+draw_error_bars_2d (
+        PnGraph     *self,
+        guint        n,
+        const PLFLT *xs,
+        const PLFLT *mean,
+        const PLFLT *sd_lo,
+        const PLFLT *sd_hi,
+        const PLFLT *w_lo,
+        const PLFLT *w_hi,
+        PLFLT        box_hw)
+{
+    const PLFLT cap_hw = box_hw * 0.55;
+    guint       i;
+
+    paint_set_cmap0 (5, &pn_graph_trend_up);
+    paint_set_cmap0 (6, &pn_graph_trend_down);
+    paint_set_cmap0 (7, &pn_graph_trend_flat);
+
+    for (i = 0; i < n; i++)
+    {
+        const PLFLT x = xs[i];
+        PLINT       col;
+
+        if (i == 0 || mean[i] == mean[i - 1])
+            col = 7;
+        else
+            col = (mean[i] > mean[i - 1]) ? 5 : 6;
+
+        /* Whisker (min..max) with end caps, drawn first so the box fill
+         * covers the segment behind it and only the tails stay visible. */
+        plcol0  (col);
+        plwidth ((PLINT) self->line_width);
+        {
+            PLFLT wx[2]   = { x, x };
+            PLFLT wy[2]   = { w_lo[i], w_hi[i] };
+            PLFLT capx[2] = { x - cap_hw, x + cap_hw };
+            PLFLT lo[2]   = { w_lo[i], w_lo[i] };
+            PLFLT hi[2]   = { w_hi[i], w_hi[i] };
+
+            plline (2, wx, wy);
+            plline (2, capx, lo);
+            plline (2, capx, hi);
+        }
+
+        /* Box (mean ±1σ) filled in the trend colour, then outlined. */
+        {
+            PLFLT bx[4] = { x - box_hw, x + box_hw, x + box_hw, x - box_hw };
+            PLFLT by[4] = { sd_lo[i], sd_lo[i], sd_hi[i], sd_hi[i] };
+            PLFLT ox[5] = { bx[0], bx[1], bx[2], bx[3], bx[0] };
+            PLFLT oy[5] = { by[0], by[1], by[2], by[3], by[0] };
+
+            plcol0  (col);
+            plfill  (4, bx, by);
+
+            plcol0  (2);
+            plwidth (1);
+            plline  (5, ox, oy);
+        }
+
+        /* Mean tick across the box. */
+        {
+            PLFLT mx[2] = { x - box_hw, x + box_hw };
+            PLFLT my[2] = { mean[i], mean[i] };
+
+            plcol0  (2);
+            plwidth ((PLINT) self->line_width);
+            plline  (2, mx, my);
+        }
+    }
+}
+
 /** 2D time-series painter — single-series fast path.  Used when only
  *  one topic has ever been seen; with the Lines draw-style it matches
  *  the pre-multi-topic rendering byte-for-byte.  Points and Bars draw
@@ -1281,17 +1465,30 @@ paint_timeseries_2d (
         double               h,
         const PnGraphSeries *s)
 {
-    PLFLT     xs[PN_GRAPH_BINS];
-    PLFLT     ys[PN_GRAPH_BINS];
+    PLFLT     xs[PN_GRAPH_MAX_BINS];
+    PLFLT     ys[PN_GRAPH_MAX_BINS];
+    /* Error-bars draw-style only: per-bucket ±1σ box edges and
+     * min/max whisker ends, filled in parallel with xs/ys. */
+    PLFLT     e_sdlo[PN_GRAPH_MAX_BINS];
+    PLFLT     e_sdhi[PN_GRAPH_MAX_BINS];
+    PLFLT     e_wlo[PN_GRAPH_MAX_BINS];
+    PLFLT     e_whi[PN_GRAPH_MAX_BINS];
+    gboolean  error_bars = (self->style == PN_GRAPH_STYLE_ERROR_BARS);
+    guint     n_bins            = self->n_bins;
     guint     n;
     gint64    width             = bin_width_us (self);
     gint64    cur_epoch         = g_get_monotonic_time () / width;
-    gint64    oldest_valid      = cur_epoch - PN_GRAPH_BINS + 1;
+    gint64    oldest_valid      = cur_epoch - (gint64) n_bins + 1;
     gdouble   ymin = 0.0, ymax = 1.0;
     gboolean  have_range = FALSE;
 
-    n = collect_line_points (s, width, cur_epoch, oldest_valid,
-                             xs, ys, &ymin, &ymax, &have_range);
+    if (error_bars)
+        n = collect_error_bars (s, n_bins, width, cur_epoch, oldest_valid,
+                                xs, ys, e_sdlo, e_sdhi, e_wlo, e_whi,
+                                &ymin, &ymax, &have_range);
+    else
+        n = collect_line_points (s, n_bins, width, cur_epoch, oldest_valid,
+                                 xs, ys, &ymin, &ymax, &have_range);
 
     if (n < 1 || !have_range)
         return;
@@ -1347,7 +1544,11 @@ paint_timeseries_2d (
         const PLFLT bar_hw   = (PLFLT) ((gdouble) width
                                         / (gdouble) G_TIME_SPAN_SECOND
                                         * 0.40);
-        draw_series_2d (self, n, xs, ys, baseline, bar_hw);
+        if (error_bars)
+            draw_error_bars_2d (self, n, xs, ys, e_sdlo, e_sdhi,
+                                e_wlo, e_whi, bar_hw);
+        else
+            draw_series_2d (self, n, xs, ys, baseline, bar_hw);
     }
 
     pleop  ();
@@ -1368,9 +1569,10 @@ paint_line_3d (
         const PnGraphSeriesView *views,
         guint                    nseries)
 {
+    guint     n_bins            = self->n_bins;
     gint64    width             = bin_width_us (self);
     gint64    cur_epoch         = g_get_monotonic_time () / width;
-    gint64    oldest_valid      = cur_epoch - PN_GRAPH_BINS + 1;
+    gint64    oldest_valid      = cur_epoch - (gint64) n_bins + 1;
     gdouble   zmin = 0.0, zmax = 1.0;
     gboolean  have_range = FALSE;
     guint     i;
@@ -1378,16 +1580,16 @@ paint_line_3d (
     /* Pre-scan every series once so the 3D box has a stable Z range
      * before we draw any polyline.  Without this, the first series
      * would set the box and later series might overflow. */
-    PLFLT  *all_xs = g_new (PLFLT, nseries * PN_GRAPH_BINS);
-    PLFLT  *all_ys = g_new (PLFLT, nseries * PN_GRAPH_BINS);
-    PLFLT  *all_zs = g_new (PLFLT, nseries * PN_GRAPH_BINS);
+    PLFLT  *all_xs = g_new (PLFLT, nseries * n_bins);
+    PLFLT  *all_ys = g_new (PLFLT, nseries * n_bins);
+    PLFLT  *all_zs = g_new (PLFLT, nseries * n_bins);
     guint  *counts = g_new0 (guint, nseries);
 
     for (i = 0; i < nseries; i++)
     {
-        PLFLT *xs = all_xs + i * PN_GRAPH_BINS;
-        PLFLT *zs = all_zs + i * PN_GRAPH_BINS;
-        PLFLT *ys = all_ys + i * PN_GRAPH_BINS;
+        PLFLT *xs = all_xs + i * n_bins;
+        PLFLT *zs = all_zs + i * n_bins;
+        PLFLT *ys = all_ys + i * n_bins;
         guint  n;
         guint  j;
 
@@ -1395,7 +1597,7 @@ paint_line_3d (
          * want (x=time, y=topic_index, z=value), so we shuffle the
          * y values into z and overwrite y with the topic-index
          * constant for the whole series. */
-        n = collect_line_points (views[i].series, width, cur_epoch,
+        n = collect_line_points (views[i].series, n_bins, width, cur_epoch,
                                  oldest_valid, xs, zs,
                                  &zmin, &zmax, &have_range);
         counts[i] = n;
@@ -1489,9 +1691,9 @@ paint_line_3d (
         plcol0 (8 + (PLINT) i);
 
         plline3 ((PLINT) counts[i],
-                 all_xs + i * PN_GRAPH_BINS,
-                 all_ys + i * PN_GRAPH_BINS,
-                 all_zs + i * PN_GRAPH_BINS);
+                 all_xs + i * n_bins,
+                 all_ys + i * n_bins,
+                 all_zs + i * n_bins);
     }
 
     g_free (all_xs); g_free (all_ys); g_free (all_zs); g_free (counts);
@@ -1625,7 +1827,10 @@ paint_distribution_2d (
         }
         plslabelfunc (NULL, NULL);
 
-        if (self->style == PN_GRAPH_STYLE_BARS)
+        /* Error bars are a time-series glyph; in the distribution view
+         * there is no per-bucket spread to draw, so fall back to bars. */
+        if (self->style == PN_GRAPH_STYLE_BARS
+            || self->style == PN_GRAPH_STYLE_ERROR_BARS)
         {
             for (i = 0; i < PN_GRAPH_HIST_BINS; i++)
             {
@@ -2122,6 +2327,9 @@ pn_graph_get_property (
     case PROP_RESOLUTION:
         g_value_set_enum (value, self->resolution);
         break;
+    case PROP_X_BUCKETS:
+        g_value_set_uint (value, self->n_bins);
+        break;
     case PROP_DATA_VIEW:
         g_value_set_enum (value, self->view);
         break;
@@ -2189,6 +2397,23 @@ pn_graph_set_property (
                  * rings are unaffected: histogram mode just filters
                  * by the new cutoff on its next paint. */
                 g_object_notify_by_pspec (object, props[PROP_RESOLUTION]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_X_BUCKETS:
+        {
+            guint b = g_value_get_uint (value);
+            if (b != self->n_bins)
+            {
+                /* Changing the bucket count changes the bin width, so
+                 * every existing slot's epoch looks stale under the new
+                 * width and lazy reset rebuilds the ring over the next
+                 * window — same reasoning as PROP_RESOLUTION.  The cap
+                 * is enforced by the param-spec's max (PN_GRAPH_MAX_BINS)
+                 * so the fixed-size ring can never overflow. */
+                self->n_bins = b;
+                g_object_notify_by_pspec (object, props[PROP_X_BUCKETS]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -2399,7 +2624,7 @@ pn_graph_build_class_tabs (
     };
     /* What is plotted and how the value axis is framed. */
     static const gchar *const data_props[] = {
-        "key", "resolution", "data-view",
+        "key", "resolution", "x-buckets", "data-view",
         "log-y", "y-from-zero",
         NULL
     };
@@ -2451,6 +2676,19 @@ pn_graph_class_init (PnGraphClass *klass)
             PN_GRAPH_RES_MINUTE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_X_BUCKETS] = g_param_spec_uint (
+            "x-buckets", "X buckets",
+            "Number of time buckets the window is split into along the X "
+            "axis.  Each bucket aggregates the samples that land in its "
+            "time slice (their count, mean, spread); the time-series view "
+            "draws one point — or one error-bar box-and-whisker — per "
+            "bucket.  Fewer, wider buckets fold more samples together (a "
+            "smoother line, a fuller spread per error bar); more, narrower "
+            "buckets track finer detail.  Does not affect the distribution "
+            "view, which bins by value rather than by time.",
+            2, PN_GRAPH_MAX_BINS, PN_GRAPH_DEF_BINS,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_DATA_VIEW] = g_param_spec_enum (
             "data-view", "Data view",
             "What the plot represents.  Time series plots each value "
@@ -2468,11 +2706,16 @@ pn_graph_class_init (PnGraphClass *klass)
     props[PROP_DRAW_STYLE] = g_param_spec_enum (
             "draw-style", "Draw as",
             "How the data view is drawn: Points (a discrete marker per "
-            "sample), Lines (a polyline through the samples), or Bars (a "
-            "filled bar rising from the baseline).  Honoured for "
+            "sample), Lines (a polyline through the samples), Bars (a "
+            "filled bar rising from the baseline), or Error bars (a "
+            "box-and-whisker per time bucket — whiskers to the bucket "
+            "min/max, a box over the mean ±1 standard deviation, and a "
+            "mean tick; each bucket is green when its mean rose versus "
+            "the previous bucket and red when it fell).  Honoured for "
             "single-topic plots; multi-topic 3D plots fall back to the "
             "polyline form for the time-series view and to bars for the "
-            "distribution view.",
+            "distribution view, and the Error-bars style draws as bars "
+            "in the distribution view.",
             PN_TYPE_GRAPH_STYLE,
             PN_GRAPH_STYLE_LINES,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
@@ -2555,6 +2798,7 @@ pn_graph_init (PnGraph *self)
 
     self->key        = g_strdup ("data/value");
     self->resolution = PN_GRAPH_RES_MINUTE;
+    self->n_bins     = PN_GRAPH_DEF_BINS;
     self->view       = PN_GRAPH_VIEW_TIME_SERIES;
     self->style      = PN_GRAPH_STYLE_LINES;
     self->last_repaint_us    = 0;

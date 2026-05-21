@@ -26,9 +26,11 @@ Plotting is done with PLplot.
 </p>
 <p>
 Two parallel rings are kept per node, <em>per topic</em>. The
-time-series view reads from a ring of 200 fixed-width time buckets
-that store running totals only (about 8&thinsp;KB), so it summarises
-arbitrary arrival rates over arbitrary windows without growing.
+time-series view reads from a ring of up to 200 fixed-width time
+buckets &mdash; the active count is the <code>x-buckets</code> setting
+&mdash; that store running totals only (about 8&thinsp;KB), so it
+summarises arbitrary arrival rates over arbitrary windows without
+growing.
 The distribution view reads from a ring of 2048 raw samples (about
 32&thinsp;KB); in long-window resolutions (1 day, 1 week) at high
 arrival rates the ring shows the most recent 2048 samples that
@@ -87,6 +89,20 @@ memory without bound.
           the next paint; existing time-series samples whose bucket
           maps onto a stale slot under the new window are discarded
           lazily.</td></tr>
+  <tr><td><code>x-buckets</code></td>
+      <td>How many time buckets the window is split into along the X
+          axis (2&ndash;200, default 200). Each bucket aggregates the
+          samples that fall in its slice of the window &mdash; their
+          count, mean, and spread &mdash; and the time-series view
+          draws one point per bucket (or, with the <em>Error bars</em>
+          draw-style, one box-and-whisker). Fewer, wider buckets fold
+          more samples together for a smoother line and a fuller spread
+          per error bar; more, narrower buckets track finer detail.
+          Like <code>resolution</code> it changes the bucket width, so
+          changing it discards the existing time buckets lazily and the
+          plot rebuilds over the next window. Has no effect on the
+          distribution view, which bins by value rather than by
+          time.</td></tr>
   <tr><td><code>data-view</code></td>
       <td>What the plot represents. <em>Time series</em> (default)
           plots each value against time, most recent sample on the
@@ -103,14 +119,27 @@ memory without bound.
       <td>How the chosen <code>data-view</code> is drawn (the
           &ldquo;Draw as&rdquo; setting): <em>Points</em> marks each
           data point with a filled circle, <em>Lines</em> (default)
-          connects them with a polyline, and <em>Bars</em> draws each
-          as a filled bar from the baseline. The two settings are
-          independent, so e.g. a time series can be shown as points
+          connects them with a polyline, <em>Bars</em> draws each
+          as a filled bar from the baseline, and <em>Error bars</em>
+          draws each time bucket as a box-and-whisker. The two settings
+          are independent, so e.g. a time series can be shown as points
           (a scatter) or bars (a column chart), and a distribution as
           a line (a frequency polygon) instead of bars (the classic
           histogram). Honoured for single-topic plots; multi-topic
           3D plots fall back to the polyline form for the time-series
-          view and to bars for the distribution view.</td></tr>
+          view and to bars for the distribution view.
+          <p>The <em>Error bars</em> style is built for the time-series
+          view: it draws on the same time buckets that back the line,
+          showing how much each bucket&rsquo;s samples spread rather than
+          just their mean. Per bucket the whisker spans the
+          minimum&hellip;maximum sample, the box spans the mean
+          &plusmn;&thinsp;1 standard deviation, and a tick marks the
+          mean. Each box is filled <span style="color:#2eb357">green</span>
+          when its mean rose versus the previous (older) bucket and
+          <span style="color:#d94545">red</span> when it fell, so the
+          trend reads at a glance; the first bucket and any flat step are
+          drawn neutral grey. In the distribution view (where there is no
+          per-bucket spread) the style falls back to bars.</p></td></tr>
   <tr><td><code>line-color</code></td>
       <td>Colour of the plotted data &mdash; the polyline, the point
           markers, or the bar fill, depending on <code>draw-style</code>.
@@ -164,7 +193,8 @@ tabs: <strong>Appearance</strong> collects how the plot is drawn
 <code>background-color</code>, <code>show-grid</code>), while
 <strong>Data</strong> collects what is plotted and how the value axis
 is framed (<code>key</code>, <code>resolution</code>,
-<code>data-view</code>, <code>log-y</code>, <code>y-from-zero</code>).
+<code>x-buckets</code>, <code>data-view</code>, <code>log-y</code>,
+<code>y-from-zero</code>).
 </p>
 
 </body>
