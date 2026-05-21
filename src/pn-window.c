@@ -1295,14 +1295,16 @@ save_to_path (
     return TRUE;
 }
 
-static void
-action_save_as (
-        GtkMenuItem *item,
-        gpointer     user_data)
+/* Run the Save As chooser, persist the worksheet to the chosen path and
+ * remember it.  Returns %TRUE only when the worksheet was actually
+ * written; a cancelled chooser or a failed write yields %FALSE so
+ * callers (such as the close-confirmation flow) can keep the window
+ * open. */
+static gboolean
+save_as_dialog (PnWindow *self)
 {
-    PnWindow *self = PN_WINDOW (user_data);
     GtkWidget *dialog;
-    (void) item;
+    gboolean   saved = FALSE;
 
     dialog = gtk_file_chooser_dialog_new (
             "Save Worksheet As",
@@ -1329,12 +1331,36 @@ action_save_as (
             path = NULL;
 
             update_window_title (self);
+            saved = TRUE;
         }
 
         g_free (path);
     }
 
     gtk_widget_destroy (dialog);
+    return saved;
+}
+
+/* Persist the worksheet to its current path, falling back to Save As
+ * when it has never been saved.  Returns %TRUE when the file ends up
+ * written. */
+static gboolean
+save_current (PnWindow *self)
+{
+    if (self->current_path)
+        return save_to_path (self, self->current_path);
+
+    return save_as_dialog (self);
+}
+
+static void
+action_save_as (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    (void) item;
+
+    (void) save_as_dialog (PN_WINDOW (user_data));
 }
 
 static void
@@ -1342,12 +1368,9 @@ action_save (
         GtkMenuItem *item,
         gpointer     user_data)
 {
-    PnWindow *self = PN_WINDOW (user_data);
+    (void) item;
 
-    if (self->current_path)
-        save_to_path (self, self->current_path);
-    else
-        action_save_as (item, user_data);
+    (void) save_current (PN_WINDOW (user_data));
 }
 
 static void
@@ -1358,6 +1381,8 @@ action_quit (
     PnWindow *self = PN_WINDOW (user_data);
     (void) item;
 
+    /* Routes through "delete-event", so the unsaved-changes guard in
+     * on_window_delete_event applies to File -> Quit too. */
     gtk_window_close (GTK_WINDOW (self));
 }
 
@@ -3004,6 +3029,62 @@ on_flow_modified_changed (
     update_window_title (self);
 }
 
+/* Guard against losing unsaved work.  Connected to "delete-event",
+ * which fires for both the window-manager close button and
+ * gtk_window_close() (File -> Quit, Ctrl+Q).  Returning %TRUE vetoes
+ * the close; %FALSE lets it proceed to destroy the window. */
+static gboolean
+on_window_delete_event (
+        GtkWidget *widget,
+        GdkEvent  *event,
+        gpointer   user_data)
+{
+    PnWindow  *self = PN_WINDOW (widget);
+    GtkWidget *dialog;
+    gint       response;
+    (void) event;
+    (void) user_data;
+
+    if (!pn_flow_is_modified (self->flow))
+        return FALSE;
+
+    dialog = gtk_message_dialog_new (
+            GTK_WINDOW (self),
+            GTK_DIALOG_MODAL,
+            GTK_MESSAGE_QUESTION,
+            GTK_BUTTONS_NONE,
+            "Save changes to the worksheet before closing?");
+    gtk_message_dialog_format_secondary_text (
+            GTK_MESSAGE_DIALOG (dialog),
+            "Your changes will be lost if you don't save them.");
+    gtk_dialog_add_buttons (
+            GTK_DIALOG (dialog),
+            "Close _without Saving", GTK_RESPONSE_REJECT,
+            "_Cancel",               GTK_RESPONSE_CANCEL,
+            "_Save",                 GTK_RESPONSE_ACCEPT,
+            NULL);
+    gtk_dialog_set_default_response (GTK_DIALOG (dialog),
+                                     GTK_RESPONSE_ACCEPT);
+
+    response = gtk_dialog_run (GTK_DIALOG (dialog));
+    gtk_widget_destroy (dialog);
+
+    switch (response)
+    {
+    case GTK_RESPONSE_ACCEPT:
+        /* Save first, then close only if the write actually happened:
+         * the Save As chooser may have been cancelled, or the write may
+         * have failed. */
+        return !save_current (self);
+
+    case GTK_RESPONSE_REJECT:
+        return FALSE;   /* discard: let the close proceed */
+
+    default:
+        return TRUE;    /* cancel or dismissed: keep the window open */
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Window construction                                                */
 /* ------------------------------------------------------------------ */
@@ -3039,6 +3120,8 @@ pn_window_constructed (GObject *object)
 
     g_signal_connect (self, "configure-event",
                       G_CALLBACK (on_window_configure), NULL);
+    g_signal_connect (self, "delete-event",
+                      G_CALLBACK (on_window_delete_event), NULL);
 
     vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add (GTK_CONTAINER (self), vbox);
