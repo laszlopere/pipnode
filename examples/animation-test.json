@@ -7,16 +7,17 @@
       "uuid" : "bc6da0fc-d81b-4e41-97c0-e9c0acd3f333",
       "name" : "AutoRandom 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
         "x" : 200.0,
         "y" : 60.0
       },
       "properties" : {
-        "period" : 1,
+        "period" : 2,
         "autostart" : true,
         "output" : "AutoRandom sample.",
         "min" : 0.0,
-        "max" : 120.0,
+        "max" : 10.0,
         "distribution" : "uniform",
         "success" : true
       }
@@ -31,7 +32,7 @@
         "y" : 60.0
       },
       "properties" : {
-        "expression" : "value"
+        "expression" : "value * 10"
       }
     },
     {
@@ -44,7 +45,7 @@
         "y" : 60.0
       },
       "properties" : {
-        "expression" : "value"
+        "expression" : "value + 100"
       }
     },
     {
@@ -52,9 +53,10 @@
       "uuid" : "db08d7a4-ddb9-4771-bbc7-fb2dbaa515ef",
       "name" : "Dial 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
-        "x" : 900.0,
-        "y" : 200.0
+        "x" : 920.0,
+        "y" : 80.0
       },
       "properties" : {
         "key" : "data/value",
@@ -105,8 +107,32 @@
       },
       "properties" : {
         "min" : 0.0,
-        "max" : 1.0,
-        "value" : 0.29166666666666652
+        "max" : 120.0,
+        "value" : 120.0
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "1713aeec-8323-4097-acc5-4c3f11d9a4a5",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 900.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 minute",
+        "x-buckets" : 50,
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : false
       }
     }
   ],
@@ -126,6 +152,10 @@
     {
       "source_id" : "7ebfe9ff-190d-4516-bd02-f2db6d65f8a9",
       "target_id" : "1358207c-c3cc-4b75-b45d-7eee5e05046b"
+    },
+    {
+      "source_id" : "ad4a4be1-476c-4039-bdbe-5b2806611b10",
+      "target_id" : "1713aeec-8323-4097-acc5-4c3f11d9a4a5"
     },
     {
       "source_id" : "ad4a4be1-476c-4039-bdbe-5b2806611b10",
