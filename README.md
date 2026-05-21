@@ -20,8 +20,9 @@ plugin system so the node catalogue can grow without forking the core.
   built-in per-node HTML help.
 
 <p>
-  <img src="screenshots/temperature.png" width="45%" alt="Temperature graph">
-  <img src="screenshots/ollama.png" width="45%" alt="Ollama node">
+  <img src="screenshots/temperature.png" width="32%" alt="Temperature graph">
+  <img src="screenshots/ollama.png" width="32%" alt="Ollama node">
+  <img src="screenshots/meshtastic.png" width="32%" alt="Meshtastic node">
 </p>
 
 ## Building
