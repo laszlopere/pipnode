@@ -53,7 +53,12 @@ check_PROGRAMS = \
 	test-pn-memory \
 	test-pn-cpu \
 	test-pn-net-io \
-	test-pn-disk-io
+	test-pn-disk-io \
+	test-pn-var-store \
+	test-pn-expr-parser \
+	test-pn-json-path \
+	test-pn-jmespath \
+	test-pn-auto-trigger
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
@@ -85,5 +90,10 @@ test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h
 test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h
 test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h
 test_pn_disk_io_SOURCES       = test-pn-disk-io.c        pntest.c pntest.h
+test_pn_var_store_SOURCES     = test-pn-var-store.c     pntest.c pntest.h
+test_pn_expr_parser_SOURCES   = test-pn-expr-parser.c   pntest.c pntest.h
+test_pn_json_path_SOURCES     = test-pn-json-path.c     pntest.c pntest.h
+test_pn_jmespath_SOURCES      = test-pn-jmespath.c      pntest.c pntest.h
+test_pn_auto_trigger_SOURCES  = test-pn-auto-trigger.c  pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
