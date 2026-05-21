@@ -47,6 +47,14 @@ extension kinds). The [`PLUGINS`](PLUGINS) guide walks through the ABI, the
 loader, and how to build and install a plugin — a minimal one is about fifty
 lines of C. Reference plugins live in `plugins/` and `tests/plugins/echo/`.
 
+## Ideas & feature requests
+
+Got an idea for a node or a feature? Open one on the
+[**Ideas board**](https://github.com/laszlopere/pipnode/discussions/categories/ideas)
+(GitHub Discussions) and 👍 the ones you'd like to see. It's a wishlist, not a
+roadmap — every suggestion is read (sponsor input especially), but nothing there
+is a promise.
+
 ## Licensing
 
 Pipnode is **open core**:
