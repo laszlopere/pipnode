@@ -1,0 +1,4 @@
+# Compiled unit-test programs.  The sources are the test-*.c files,
+# which the negation below keeps tracked.
+test-pn-*
+!test-pn-*.c

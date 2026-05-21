@@ -117,6 +117,7 @@ AC_CONFIG_FILES([
     plugins/image/Makefile
     src/Makefile
     tests/Makefile
+    tests/unit/Makefile
     tests/plugins/Makefile
     tests/plugins/echo/Makefile
 ])

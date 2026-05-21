@@ -1,4 +1,4 @@
-SUBDIRS = plugins
+SUBDIRS = plugins unit
 
 TESTS = \
 	test_auto_injector_filter_debug.py \
