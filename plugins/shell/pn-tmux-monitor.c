@@ -79,6 +79,14 @@ struct _PnTmuxMonitor
      * changed so a switch doesn't diff the new target's content
      * against unrelated history. */
     gchar      *prev_output;
+
+    /* Text of the last *failed* capture we emitted downstream.  Now
+     * that the node retries forever, a persistent failure (no server,
+     * dead session, ssh down) would otherwise re-send the same error
+     * message every tick — so we latch it here and stay quiet until
+     * the error text changes or a capture succeeds.  Worker-thread-
+     * only via @mutex; reset alongside prev_output on a target change. */
+    gchar      *last_failure;
 };
 
 G_DEFINE_TYPE (PnTmuxMonitor, pn_tmux_monitor, PN_TYPE_AUTO_TRIGGER)
@@ -703,15 +711,33 @@ tm_swap_prev_output (PnTmuxMonitor *self, gchar *new_value)
     return prev;
 }
 
+/* Latch the failure text we just emitted, returning the previous one
+ * so the caller can tell whether this tick repeats it.  Takes ownership
+ * of @new_value (pass NULL to clear the latch on a successful tick). */
+static gchar *
+tm_swap_last_failure (PnTmuxMonitor *self, gchar *new_value)
+{
+    gchar *prev;
+    g_mutex_lock (&self->mutex);
+    prev = self->last_failure;
+    self->last_failure = new_value;
+    g_mutex_unlock (&self->mutex);
+    return prev;
+}
+
 static void
 tm_reset_prev_output (PnTmuxMonitor *self)
 {
-    gchar *old;
+    gchar *old_output;
+    gchar *old_failure;
     g_mutex_lock (&self->mutex);
-    old = self->prev_output;
-    self->prev_output = NULL;
+    old_output = self->prev_output;
+    old_failure = self->last_failure;
+    self->prev_output  = NULL;
+    self->last_failure = NULL;
     g_mutex_unlock (&self->mutex);
-    g_free (old);
+    g_free (old_output);
+    g_free (old_failure);
 }
 
 /* ------------------------------------------------------------------ */
@@ -878,13 +904,27 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
 
             /* Unchanged buffer → empty delta → nothing new to report.
              * Stay quiet rather than emitting an empty message on every
-             * tick while the monitored screen sits idle.  Failures
-             * still fall through below so the user sees them. */
+             * tick while the monitored screen sits idle. */
             if (delta == NULL || *delta == '\0')
                 emit = FALSE;
+
+            /* A good capture clears the failure latch so that, if the
+             * session later breaks again, the first error of the new
+             * outage is reported rather than swallowed. */
+            g_free (tm_swap_last_failure (self, NULL));
         }
         else
         {
+            /* The node retries forever, so a persistent failure repeats
+             * the same text every tick.  Emit the first occurrence, then
+             * latch it and stay silent until the error changes or a
+             * capture succeeds. */
+            gchar *prev_fail = tm_swap_last_failure (self,
+                                                     g_strdup (combined));
+            if (g_strcmp0 (prev_fail, combined) == 0)
+                emit = FALSE;
+            g_free (prev_fail);
+
             delta = g_strdup (combined);
         }
 
@@ -1295,6 +1335,7 @@ pn_tmux_monitor_finalize (GObject *object)
     g_clear_pointer (&self->last_error,     g_free);
     g_clear_pointer (&self->sessions_cache, g_strfreev);
     g_clear_pointer (&self->prev_output,    g_free);
+    g_clear_pointer (&self->last_failure,   g_free);
     g_mutex_clear   (&self->mutex);
 
     G_OBJECT_CLASS (pn_tmux_monitor_parent_class)->finalize (object);
