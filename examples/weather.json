@@ -14,7 +14,7 @@
       "properties" : {
         "period" : 600,
         "url" : "https://api.open-meteo.com/v1/forecast",
-        "city" : "Pécs "
+        "city" : "Pécs"
       }
     },
     {
