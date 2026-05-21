@@ -2075,6 +2075,22 @@ on_debug_clear_clicked (
     g_list_free (children);
 }
 
+/** Close the debug pane via the View → Debug View check item, so the
+ *  menu checkmark, saved width, and "open" preference all stay in sync
+ *  with action_toggle_debug_view rather than hiding the pane directly. */
+static void
+on_debug_close_clicked (
+        GtkButton *button,
+        gpointer   user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) button;
+
+    if (self->menu_debug_view != NULL)
+        gtk_check_menu_item_set_active (
+                GTK_CHECK_MENU_ITEM (self->menu_debug_view), FALSE);
+}
+
 static GtkWidget *
 create_debug_pane (PnWindow *self)
 {
@@ -2082,6 +2098,7 @@ create_debug_pane (PnWindow *self)
     GtkWidget *clear_row;
     GtkWidget *search_row;
     GtkWidget *clear;
+    GtkWidget *close_btn;
     GtkWidget *search;
     GtkWidget *prev_btn;
     GtkWidget *next_btn;
@@ -2126,9 +2143,19 @@ create_debug_pane (PnWindow *self)
             GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_container_add (GTK_CONTAINER (scrolled), self->debug_list);
 
-    /* Clear button on its own row above the search, dropping accumulated
-     * output without restarting the flow. */
+    /* Top row above the search: a Close button at the far right that
+     * dismisses the whole pane, plus a Clear button that drops the
+     * accumulated output without restarting the flow. */
     clear_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+
+    /* Packed end-first so it sits in the top-right corner of the pane. */
+    close_btn = gtk_button_new_from_icon_name ("window-close-symbolic",
+                                               GTK_ICON_SIZE_BUTTON);
+    gtk_widget_set_tooltip_text (close_btn, "Close debug view");
+    g_signal_connect (close_btn, "clicked",
+                      G_CALLBACK (on_debug_close_clicked), self);
+    gtk_box_pack_end (GTK_BOX (clear_row), close_btn, FALSE, FALSE, 0);
+
     clear = gtk_button_new_from_icon_name ("user-trash",
                                            GTK_ICON_SIZE_BUTTON);
     gtk_widget_set_tooltip_text (clear, "Clear all debug messages");
