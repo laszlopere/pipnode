@@ -107,3 +107,26 @@ so the change is reproducible the next time the firmware is reset.
 (22) Implement a tasmota concentrator. Here is how a discovery message can be
 sent to a tasmota device:
 mosquitto_pub -h mqtt.homelab.local -p 1883 -t 'cmnd/sonoff19/Status' -m '5'
+
+(23) Split libpipnode into a headless "core" library and a GTK "gui" library
+so pipnode-run can be installed and run on servers without pulling the GTK
+toolkit (gtk+-3.0, gtksourceview-4, webkit2gtk). The runtime is already
+headless-clean: src/pn-run.c, lib/pn-flow.c, lib/pn-node-factory.c and ~35 of
+the 71 lib sources make zero GTK/cairo calls. The two blockers are build-time:
+(a) one libpipnode.la compiles every source with GTK_CFLAGS and links the full
+toolkit, and both binaries link it; (b) lib/pn-node.h #includes <gtk/gtk.h> and
+bakes GdkRGBA + cairo_t*/GtkWidget*/GtkNotebook* into the PnNodeClass vtable, so
+even pure-logic nodes drag in GTK at compile time. ~15 "dual-nature" nodes
+(Rate, LED, Knob, Dial, Analog-Meter, Graph, Switch, Table, Chat...) mix
+receive() logic + cairo drawing (and sometimes a custom GTK dialog tab) in one
+.c file, so the split line is not a clean per-file cut. Refactor pn-node.h to
+forward-declare the GTK/cairo types used only in vfunc signatures so the class
+ABI (and plugin ABI) stays stable. Prerequisite: build the characterization
+tests first (a number of pipnode-run tests that lock down current headless
+behavior) so the refactor can be proven not to change behavior. Open decisions
+to settle before starting: (1) core dependency strictness -- pragmatic (drop
+the GTK toolkit but keep cairo/pango for offscreen drawing) vs strict (zero
+GTK/GDK/cairo, replace GdkRGBA with our own color type+parser); (2) whether
+visual nodes' logic must remain loadable headless or they become GUI-only;
+(3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
+in the same pass.
