@@ -227,6 +227,14 @@ struct _PnGraph
     gint64  last_repaint_us;
     guint   pending_repaint_id;
 
+    /* Recurring refresh so the time axis scrolls (and aged-out samples
+     * drop) even when no new messages arrive — the plot's "now" edge is
+     * read at paint time, so without this the graph would freeze between
+     * messages and only redraw when something else dirtied its area.
+     * Runs at the bin-width cadence while there is data; stops when the
+     * graph empties out. */
+    guint   tick_id;
+
     /* Per-instance PLplot stream id.  PLplot keeps a process-wide
      * stream table; reusing one id across multiple PnGraph nodes
      * would cross their axis state, so each node owns its own id
@@ -786,6 +794,62 @@ schedule_repaint (PnGraph *self)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Time-driven refresh                                                */
+/* ------------------------------------------------------------------ */
+
+/** TRUE while any series still holds at least one sample. */
+static gboolean
+graph_has_data (PnGraph *self)
+{
+    GHashTableIter iter;
+    gpointer       val;
+
+    g_hash_table_iter_init (&iter, self->series);
+    while (g_hash_table_iter_next (&iter, NULL, &val))
+        if (((PnGraphSeries *) val)->sample_count > 0)
+            return TRUE;
+    return FALSE;
+}
+
+/** Refresh cadence: one bin width, clamped so fine resolutions don't
+ *  spin and coarse ones still drop aged-out samples reasonably soon. */
+static guint
+graph_tick_interval_ms (PnGraph *self)
+{
+    gint64 ms = bin_width_us (self) / G_TIME_SPAN_MILLISECOND;
+
+    if (ms < 250)   ms = 250;
+    if (ms > 5000)  ms = 5000;
+    return (guint) ms;
+}
+
+static gboolean
+on_refresh_tick (gpointer user_data)
+{
+    PnGraph *self = PN_GRAPH (user_data);
+
+    /* Nothing left to scroll — let the timer lapse; receive() re-arms it
+     * when fresh data arrives. */
+    if (!graph_has_data (self))
+    {
+        self->tick_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+
+    schedule_repaint (self);
+    return G_SOURCE_CONTINUE;
+}
+
+/** Arm the refresh timer if it is not already running. */
+static void
+graph_ensure_tick (PnGraph *self)
+{
+    if (self->tick_id == 0)
+        self->tick_id = g_timeout_add (graph_tick_interval_ms (self),
+                                       on_refresh_tick, self);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -862,6 +926,9 @@ pn_graph_receive (
      * call pn_node_request_repaint directly because they are
      * intrinsically low-frequency. */
     schedule_repaint (self);
+
+    /* Keep the time axis live between messages. */
+    graph_ensure_tick (self);
 
     (void) node;
 }
@@ -2396,6 +2463,14 @@ pn_graph_set_property (
                  * — no need to wipe the rings here.  The raw-sample
                  * rings are unaffected: histogram mode just filters
                  * by the new cutoff on its next paint. */
+                /* Bin width changed → re-arm the refresh at the new
+                 * cadence (only if it was running). */
+                if (self->tick_id != 0)
+                {
+                    g_source_remove (self->tick_id);
+                    self->tick_id = 0;
+                    graph_ensure_tick (self);
+                }
                 g_object_notify_by_pspec (object, props[PROP_RESOLUTION]);
                 pn_node_request_repaint (PN_NODE (self));
             }
@@ -2413,6 +2488,12 @@ pn_graph_set_property (
                  * is enforced by the param-spec's max (PN_GRAPH_MAX_BINS)
                  * so the fixed-size ring can never overflow. */
                 self->n_bins = b;
+                if (self->tick_id != 0)
+                {
+                    g_source_remove (self->tick_id);
+                    self->tick_id = 0;
+                    graph_ensure_tick (self);
+                }
                 g_object_notify_by_pspec (object, props[PROP_X_BUCKETS]);
                 pn_node_request_repaint (PN_NODE (self));
             }
@@ -2556,6 +2637,11 @@ pn_graph_finalize (GObject *object)
     {
         g_source_remove (self->pending_repaint_id);
         self->pending_repaint_id = 0;
+    }
+    if (self->tick_id != 0)
+    {
+        g_source_remove (self->tick_id);
+        self->tick_id = 0;
     }
 
     if (self->plstream_valid)
@@ -2803,6 +2889,7 @@ pn_graph_init (PnGraph *self)
     self->style      = PN_GRAPH_STYLE_LINES;
     self->last_repaint_us    = 0;
     self->pending_repaint_id = 0;
+    self->tick_id            = 0;
 
     /* Defaults match the original hard-coded palette so existing
      * worksheets keep the same look until the user picks their own
