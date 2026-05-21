@@ -28,6 +28,13 @@ G_BEGIN_DECLS
 /*  actively routes messages: it listens for the source's "message"   */
 /*  signal and forwards each emission into the target via             */
 /*  pn_node_receive_message().                                        */
+/*                                                                     */
+/*  Signals:                                                          */
+/*    "message-passed" (PnMessage *message): emitted as a message is  */
+/*    forwarded across the wire, just before downstream delivery so    */
+/*    handlers fire in travel order.  The view listens to animate a    */
+/*    light travelling along the wire.  @message is borrowed for the   */
+/*    emission and must not be retained.                              */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_WIRE (pn_wire_get_type ())

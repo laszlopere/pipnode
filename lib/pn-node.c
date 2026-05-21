@@ -541,6 +541,12 @@ pn_node_current_input (void)
     return pn_node_current_input_idx;
 }
 
+gint
+pn_node_get_dispatch_depth (void)
+{
+    return pn_node_dispatch_depth;
+}
+
 void
 pn_node_get_size (
         PnNode *self,

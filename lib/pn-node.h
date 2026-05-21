@@ -726,6 +726,17 @@ void            pn_node_receive_message_on_input (PnNode    *self,
 gint            pn_node_current_input  (void);
 
 /**
+ * pn_node_get_dispatch_depth:
+ *
+ * Current synchronous message-dispatch recursion depth on this thread:
+ * 0 at a top-level emission, incremented once per hop as a message
+ * cascades through wired nodes.  Read from a "message-passed" handler
+ * it gives the hop index of the wire that just fired, which the
+ * worksheet uses to stagger the message-flow animation hop by hop.
+ */
+gint            pn_node_get_dispatch_depth (void);
+
+/**
  * pn_param_spec_set_multiline:
  * @pspec: a string-typed #GParamSpec
  *

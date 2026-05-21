@@ -49,6 +49,13 @@ enum {
 
 static GParamSpec *props[N_PROPS];
 
+enum {
+    SIG_MESSAGE_PASSED,
+    N_SIGNALS,
+};
+
+static guint sigs[N_SIGNALS];
+
 /* ------------------------------------------------------------------ */
 /*  Routing                                                            */
 /* ------------------------------------------------------------------ */
@@ -79,6 +86,16 @@ on_source_message (
         return;
 
     copy = pn_message_clone (message);
+
+    /* Announce the crossing *before* delivering downstream.  Delivery is
+     * synchronous and depth-first, so emitting first means handlers fire
+     * in travel order (root hop first) and observe the dispatch depth of
+     * THIS hop rather than the deepest one already unwound — the view
+     * relies on both to stagger the animation hop by hop.  The handler
+     * reads the original (caller-owned) message but must not retain it;
+     * emission is near-free when nobody is listening. */
+    g_signal_emit (self, sigs[SIG_MESSAGE_PASSED], 0, message);
+
     pn_node_receive_message_on_input (self->target, copy, self->target_input);
     g_object_unref (copy);
 }
@@ -202,6 +219,21 @@ pn_wire_class_init (PnWireClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Emitted each time a message is forwarded across this wire, after
+     * it has been delivered to the target.  Carries the #PnMessage that
+     * crossed (borrowed — do not retain).  Wired one source to several
+     * targets each fire independently, so a fan-out lights every branch. */
+    sigs[SIG_MESSAGE_PASSED] = g_signal_new (
+            "message-passed",
+            PN_TYPE_WIRE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            1,
+            PN_TYPE_MESSAGE);
 }
 
 static void
