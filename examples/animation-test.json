@@ -1,0 +1,140 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "bc6da0fc-d81b-4e41-97c0-e9c0acd3f333",
+      "name" : "AutoRandom 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "period" : 1,
+        "autostart" : true,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 120.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "c8cc9a91-7e2d-4fc1-b0eb-75c080d8cfe4",
+      "name" : "Expression 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "expression" : "value"
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "7ebfe9ff-190d-4516-bd02-f2db6d65f8a9",
+      "name" : "Expression 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "expression" : "value"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "db08d7a4-ddb9-4771-bbc7-fb2dbaa515ef",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 900.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "1358207c-c3cc-4b75-b45d-7eee5e05046b",
+      "name" : "Expression 2 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 740.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "expression" : "value1 * value2"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "ad4a4be1-476c-4039-bdbe-5b2806611b10",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.0,
+        "value" : 0.29166666666666652
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "bc6da0fc-d81b-4e41-97c0-e9c0acd3f333",
+      "target_id" : "c8cc9a91-7e2d-4fc1-b0eb-75c080d8cfe4"
+    },
+    {
+      "source_id" : "c8cc9a91-7e2d-4fc1-b0eb-75c080d8cfe4",
+      "target_id" : "7ebfe9ff-190d-4516-bd02-f2db6d65f8a9"
+    },
+    {
+      "source_id" : "1358207c-c3cc-4b75-b45d-7eee5e05046b",
+      "target_id" : "db08d7a4-ddb9-4771-bbc7-fb2dbaa515ef"
+    },
+    {
+      "source_id" : "7ebfe9ff-190d-4516-bd02-f2db6d65f8a9",
+      "target_id" : "1358207c-c3cc-4b75-b45d-7eee5e05046b"
+    },
+    {
+      "source_id" : "ad4a4be1-476c-4039-bdbe-5b2806611b10",
+      "target_id" : "1358207c-c3cc-4b75-b45d-7eee5e05046b",
+      "target_input" : 1
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

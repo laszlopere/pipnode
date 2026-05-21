@@ -13,6 +13,7 @@
       },
       "properties" : {
         "period" : 2,
+        "autostart" : true,
         "hostname" : "eth4"
       }
     },
@@ -28,6 +29,7 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
+        "x-buckets" : 200,
         "data-view" : "Time series",
         "draw-style" : "Lines",
         "line-color" : "rgb(129,61,156)",
@@ -35,7 +37,8 @@
         "axis-color" : "rgb(154,153,150)",
         "background-color" : "rgb(255,255,255)",
         "show-grid" : false,
-        "log-y" : false
+        "log-y" : false,
+        "y-from-zero" : false
       }
     },
     {
@@ -50,6 +53,7 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
+        "x-buckets" : 200,
         "data-view" : "Distribution",
         "draw-style" : "Bars",
         "line-color" : "rgb(220,138,221)",
@@ -57,7 +61,8 @@
         "axis-color" : "rgb(154,153,150)",
         "background-color" : "rgb(255,255,255)",
         "show-grid" : false,
-        "log-y" : false
+        "log-y" : false,
+        "y-from-zero" : false
       }
     },
     {
@@ -65,6 +70,7 @@
       "uuid" : "004af386-283c-41be-b08d-b412cc9a7233",
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
         "x" : 800.0,
         "y" : 20.0
@@ -119,6 +125,7 @@
       },
       "properties" : {
         "period" : 5,
+        "autostart" : true,
         "hostname" : "",
         "aggregation" : "maximum"
       }
@@ -134,6 +141,7 @@
       },
       "properties" : {
         "period" : 5,
+        "autostart" : true,
         "hostname" : "",
         "aggregation" : "average"
       }

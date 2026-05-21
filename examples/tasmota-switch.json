@@ -31,7 +31,7 @@
         "y" : 180.0
       },
       "properties" : {
-        "on" : false
+        "on" : true
       }
     },
     {
@@ -103,7 +103,7 @@
         "y" : 280.0
       },
       "properties" : {
-        "on" : false,
+        "on" : true,
         "switch-name" : "sonoff19"
       }
     },
