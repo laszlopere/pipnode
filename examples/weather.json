@@ -1,0 +1,83 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnWeather",
+      "uuid" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "name" : "Weather 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 100.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.open-meteo.com/v1/forecast",
+        "city" : "Pécs "
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "b64d6015-ebef-48bf-b4ae-0be92052fee3",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "key" : "data/raw/current/temperature_2m",
+        "min-value" : -10.0,
+        "max-value" : 40.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "°C",
+        "green-start" : 20.0,
+        "green-end" : 25.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
+    },
+    {
+      "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "target_id" : "b64d6015-ebef-48bf-b4ae-0be92052fee3"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
