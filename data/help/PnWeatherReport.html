@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weather Report (PnWeatherReport) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnWeatherReport">Weather Report</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnWeatherReport</code>.
+</p>
+<p>
+Sink that renders the message emitted by a <em>Weather</em> node as a
+compact, mostly-monochrome weather card. Like the <em>Graph</em> node
+the header is drawn in the standard Node-RED style and a white card of
+the same dimensions sits below it with a small gap; instead of a plot
+the card is painted with cairo and Pango &mdash; FontAwesome glyphs and
+plain text &mdash; to lay out the place, the current conditions, the
+temperature, and a row of detail tiles. The look is deliberately black
+on white: a clean, print-like report rather than a dashboard.
+</p>
+<p>
+The card has three bands. A <strong>location row</strong> at the top
+shows a map-marker, the resolved &ldquo;City, Country&rdquo; (ellipsized
+when long), and the observation time on the right. The
+<strong>headline band</strong> in the middle pairs a large condition
+glyph (sun, moon, cloud, umbrella, snowflake, or bolt, chosen from the
+WMO weather code and the day/night flag) with the temperature, a short
+description, and a &ldquo;feels like&rdquo; sub-line that also surfaces
+precipitation when there is any. The <strong>detail tiles</strong> along
+the bottom show humidity, wind (a small compass arrow drawn to the
+reported bearing, plus the speed and cardinal direction), pressure, and
+cloud cover.
+</p>
+<p>
+The node also mirrors the current conditions onto its own header glyph,
+so the small at-rest node on the canvas reflects the weather at a
+glance. Clicking the card lifts it into the centred zoom overlay at the
+same 280:173 aspect ratio for a larger read.
+</p>
+
+<h5>Input</h5>
+<p>
+Wire the output of a <em>Weather</em> node straight into this node's
+input. It reads the named members the Weather node promotes
+(<code>city</code>, <code>country</code>, <code>temperature</code>,
+<code>humidity</code>, <code>wind_speed</code>,
+<code>weather_code</code>, <code>description</code>,
+<code>success</code>, <code>output</code>) and dips into the raw
+Open-Meteo passthrough at <code>data/raw/current</code> for the extra
+fields it surfaces (<code>apparent_temperature</code>,
+<code>is_day</code>, <code>cloud_cover</code>,
+<code>pressure_msl</code>, <code>precipitation</code>,
+<code>wind_direction_10m</code>, and the observation
+<code>time</code>). Missing fields are shown as an em-dash rather than a
+zero. Before the first message arrives the card shows a
+&ldquo;Waiting for weather&rdquo; placeholder; a message whose
+<code>success</code> is false shows the failure reason from
+<code>output</code> instead.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>show-details</code></td>
+      <td>When enabled (the default), draws the bottom row of detail
+          tiles &mdash; humidity, wind, pressure, and cloud cover &mdash;
+          under the headline conditions. Turn it off for a minimal card
+          that shows only the place and the headline temperature /
+          conditions.</td></tr>
+</table>
+
+</body>
+</html>

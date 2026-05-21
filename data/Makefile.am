@@ -53,7 +53,8 @@ pnhelp_DATA = \
 	help/PnTextView.html \
 	help/PnThrottle.html \
 	help/PnTts.html \
-	help/PnWatchdog.html
+	help/PnWatchdog.html \
+	help/PnWeatherReport.html
 
 # Crypto-currency icons used by the Rate node's settings dialog.
 # Installed under $(pkgdatadir)/icons/ so the dialog code can resolve

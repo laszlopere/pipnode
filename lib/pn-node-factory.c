@@ -70,6 +70,7 @@
 #include "pn-tts.h"
 #include "pn-watchdog.h"
 #include "pn-weather.h"
+#include "pn-weather-report.h"
 
 /* ------------------------------------------------------------------ */
 /*  Registry entry                                                     */
@@ -235,6 +236,7 @@ register_builtins (PnNodeFactory *self)
     /* Sinks. */
     pn_node_factory_register (self, PN_TYPE_DEBUG);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
+    pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
     pn_node_factory_register (self, PN_TYPE_DIAL);
     pn_node_factory_register (self, PN_TYPE_ANALOG_METER);
     pn_node_factory_register (self, PN_TYPE_LED);
