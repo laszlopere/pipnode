@@ -1,0 +1,46 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnTmuxMonitor",
+      "uuid" : "65a67b55-fb01-4904-8aa8-8bea67474143",
+      "name" : "Tmux Monitor 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 1,
+        "host" : "",
+        "tmux-session" : "edit",
+        "line-limit" : 1
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "04e51d8f-1b09-44c6-9948-4730377881a6",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 360.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "target" : "stderr",
+        "format" : "text"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "65a67b55-fb01-4904-8aa8-8bea67474143",
+      "target_id" : "04e51d8f-1b09-44c6-9948-4730377881a6"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
