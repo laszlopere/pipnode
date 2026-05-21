@@ -30,6 +30,7 @@ struct _PnInject
     PnNode parent_instance;
 
     gchar    *text;
+    gdouble   value;
     gboolean  success;
 };
 
@@ -38,6 +39,7 @@ G_DEFINE_TYPE (PnInject, pn_inject, PN_TYPE_NODE)
 enum {
     PROP_0,
     PROP_TEXT,
+    PROP_VALUE,
     PROP_SUCCESS,
     N_PROPS,
 };
@@ -107,6 +109,9 @@ pn_inject_get_property (
     case PROP_TEXT:
         g_value_set_string (value, self->text);
         break;
+    case PROP_VALUE:
+        g_value_set_double (value, self->value);
+        break;
     case PROP_SUCCESS:
         g_value_set_boolean (value, self->success);
         break;
@@ -128,6 +133,16 @@ pn_inject_set_property (
     {
     case PROP_TEXT:
         inject_set_text (self, g_value_get_string (value));
+        break;
+    case PROP_VALUE:
+        {
+            gdouble v = g_value_get_double (value);
+            if (self->value != v)
+            {
+                self->value = v;
+                g_object_notify_by_pspec (object, props[PROP_VALUE]);
+            }
+        }
         break;
     case PROP_SUCCESS:
         {
@@ -187,6 +202,14 @@ pn_inject_class_init (PnInjectClass *klass)
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_VALUE] = g_param_spec_double (
+            "value", "Value",
+            "Number attached to the message's \"value\" data member "
+            "on activation",
+            -G_MAXDOUBLE, G_MAXDOUBLE,
+            0.0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_SUCCESS] = g_param_spec_boolean (
             "success", "Success",
             "Boolean attached to the message's \"success\" data "
@@ -204,6 +227,7 @@ pn_inject_init (PnInject *self)
     PnNode *node = PN_NODE (self);
 
     self->text    = NULL;
+    self->value   = 0.0;
     self->success = TRUE;
 
     pn_node_set_class_name (node, "Injector");
@@ -241,6 +265,7 @@ pn_inject_fire (PnInject *self)
     node = PN_NODE (self);
     msg  = pn_message_new (node, NULL);
     pn_message_set_string  (msg, "output",  self->text);
+    pn_message_set_double  (msg, "value",   self->value);
     pn_message_set_boolean (msg, "success", self->success);
 
     pn_node_emit_message (node, msg);

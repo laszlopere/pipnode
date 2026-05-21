@@ -41,8 +41,9 @@ PnInject *pn_inject_new  (void);
  * @self: the inject node
  *
  * Emit a single message carrying the configured text in the data
- * bag's "output" member.  Silently does nothing while the text is
- * unset.  Must be called from the main thread.
+ * bag's "output" member, the configured number in "value", and the
+ * configured flag in "success".  Silently does nothing while the
+ * text is unset.  Must be called from the main thread.
  */
 void      pn_inject_fire (PnInject *self);
 

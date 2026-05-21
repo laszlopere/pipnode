@@ -66,6 +66,7 @@ test_fires_default_payload (void)
     PN_CHECK_CMPINT (cap.count, ==, 1);
     PN_CHECK_CMPSTR (pn_test_str  (cap.last, "output"), ==,
                      "Injector activated.");
+    PN_CHECK        (pn_test_num  (cap.last, "value") == 0.0);
     PN_CHECK        (pn_test_bool (cap.last, "success"));
 
     g_clear_object (&cap.last);
@@ -78,11 +79,13 @@ test_fires_custom_text_and_flag (void)
     Capture   cap;
     PnInject *node = make_node (&cap);
 
-    g_object_set (node, "text", "boom", "success", FALSE, NULL);
+    g_object_set (node, "text", "boom", "value", 42.5, "success", FALSE,
+                  NULL);
     pn_inject_fire (node);
 
     PN_CHECK_CMPINT (cap.count, ==, 1);
     PN_CHECK_CMPSTR (pn_test_str  (cap.last, "output"), ==, "boom");
+    PN_CHECK        (pn_test_num  (cap.last, "value") == 42.5);
     PN_CHECK_FALSE  (pn_test_bool (cap.last, "success"));
 
     g_clear_object (&cap.last);
