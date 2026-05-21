@@ -31,12 +31,31 @@
         "target" : "Standard Error",
         "format" : "text"
       }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "f2f99580-dc01-418d-8394-b1b2db68b23a",
+      "name" : "Text View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 360.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
     }
   ],
   "connections" : [
     {
       "source_id" : "65a67b55-fb01-4904-8aa8-8bea67474143",
       "target_id" : "04e51d8f-1b09-44c6-9948-4730377881a6"
+    },
+    {
+      "source_id" : "65a67b55-fb01-4904-8aa8-8bea67474143",
+      "target_id" : "f2f99580-dc01-418d-8394-b1b2db68b23a"
     }
   ],
   "sheets" : [
