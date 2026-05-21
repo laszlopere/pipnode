@@ -69,6 +69,7 @@
 #include "pn-throttle.h"
 #include "pn-tts.h"
 #include "pn-watchdog.h"
+#include "pn-weather.h"
 
 /* ------------------------------------------------------------------ */
 /*  Registry entry                                                     */
@@ -212,6 +213,7 @@ register_builtins (PnNodeFactory *self)
      * Meshtastic here for now since they are not yet relocated. */
     pn_node_factory_register (self, PN_TYPE_HTTP);
     pn_node_factory_register (self, PN_TYPE_MESHTASTIC);
+    pn_node_factory_register (self, PN_TYPE_WEATHER);
 
     /* Filters. */
     pn_node_factory_register (self, PN_TYPE_DEDUP);

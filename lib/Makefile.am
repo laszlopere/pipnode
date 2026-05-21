@@ -126,6 +126,8 @@ libpipnode_la_SOURCES = \
 	pn-var-store.h \
 	pn-watchdog.c \
 	pn-watchdog.h \
+	pn-weather.c \
+	pn-weather.h \
 	pn-ws.c \
 	pn-ws.h \
 	pn-wire.c \
@@ -225,6 +227,7 @@ pipnodeinclude_HEADERS = \
 	pn-tts.h \
 	pn-var-store.h \
 	pn-watchdog.h \
+	pn-weather.h \
 	pn-ws.h \
 	pn-wire.h \
 	pn-wire-store.h \
