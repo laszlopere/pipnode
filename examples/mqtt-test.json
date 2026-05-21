@@ -144,7 +144,8 @@
       "properties" : {
         "key" : "data/payload/AM2301/Temperature",
         "resolution" : "1 hour",
-        "mode" : "line",
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 2,
         "axis-color" : "rgb(70,70,70)",

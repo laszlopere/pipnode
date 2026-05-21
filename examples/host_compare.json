@@ -28,7 +28,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -49,7 +50,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -84,7 +86,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -133,7 +136,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -170,7 +174,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -207,7 +212,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -244,7 +250,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -281,7 +288,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -317,7 +325,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",
@@ -353,7 +362,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 hour",
-        "mode" : "histogram",
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 1,
         "axis-color" : "rgb(154,153,150)",

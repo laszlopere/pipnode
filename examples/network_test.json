@@ -198,7 +198,8 @@
       "properties" : {
         "key" : "data/value",
         "resolution" : "1 day",
-        "mode" : "line",
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 2,
         "axis-color" : "rgb(70,70,70)",
