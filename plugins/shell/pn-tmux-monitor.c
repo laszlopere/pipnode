@@ -22,6 +22,8 @@
 #include "pn-node-dialog-helpers.h"
 #include "pn-shell-host.h"
 
+#include <string.h>
+
 /* fa-television U+F26C — close enough to a terminal-y "session" glyph
  * within the FA-4 set the canvas font ships. */
 #define PN_TMUX_MONITOR_NORMAL_ICON  "\xef\x89\xac"
@@ -646,6 +648,29 @@ tm_compute_delta (const gchar *prev, const gchar *curr)
     return g_string_free (out, FALSE);
 }
 
+/* tmux capture-pane -T trims trailing blank *columns* within each line
+ * but leaves the empty *rows* at the bottom of the pane, which arrive
+ * as a run of trailing newlines (the lower part of the screen the user
+ * has not filled).  No capture-pane option drops them — -E only takes a
+ * line number, not "last non-empty line" — so trim them here: cut every
+ * trailing whitespace character so the text ends at its last real
+ * glyph.  An all-blank capture collapses to "".  Caller owns the
+ * result. */
+static gchar *
+tm_rstrip_trailing_blank_lines (const gchar *s)
+{
+    gsize len;
+
+    if (s == NULL)
+        return g_strdup ("");
+
+    len = strlen (s);
+    while (len > 0 && g_ascii_isspace ((guchar) s[len - 1]))
+        len--;
+
+    return g_strndup (s, len);
+}
+
 /* Swap the worker-side previous-capture cache atomically, returning
  * the *old* value so the caller (on the worker thread) can diff
  * against it.  The setter takes ownership of @new_value. */
@@ -749,6 +774,15 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
         combined = g_strconcat (stdout_text ? stdout_text : "",
                                 stderr_text ? stderr_text : "",
                                 NULL);
+    }
+
+    /* Drop the empty rows at the bottom of the pane so the message
+     * doesn't carry a tail of bare newlines (and so the delta against
+     * the previous tick compares real content, not trailing blanks). */
+    {
+        gchar *trimmed = tm_rstrip_trailing_blank_lines (combined);
+        g_free (combined);
+        combined = trimmed;
     }
 
     /* Emit only the new tail since the previous tick.  On the

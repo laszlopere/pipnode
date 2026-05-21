@@ -21,7 +21,11 @@ on its output port.  The capture is performed by spawning
 (<code>-T</code> drops trailing blank positions so lines are not
 padded out to the pane width)
 on a worker thread, so the GUI never blocks even when the
-configured host is slow to respond over ssh.
+configured host is slow to respond over ssh.  <code>-T</code> only
+trims trailing blank <em>columns</em>; the empty <em>rows</em> at the
+bottom of the pane have no <code>capture-pane</code> switch to
+suppress them, so the node strips those trailing blank lines itself
+before emitting.
 </p>
 <p>
 The emitted message (topic <code>tmux</code>) carries:
