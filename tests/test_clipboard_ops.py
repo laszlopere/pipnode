@@ -79,7 +79,7 @@ SEED_PAYLOAD = {
             "type":       "PnDebug",
             "name":       "Sink-B",
             "position":   {"x": 320.0, "y": 60.0},
-            "properties": {"target": "stderr", "format": "text"},
+            "properties": {"target": "Standard Error", "format": "text"},
         },
     ],
     "connections": [

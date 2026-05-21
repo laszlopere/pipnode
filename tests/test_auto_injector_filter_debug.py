@@ -276,7 +276,7 @@ def build_network_json(scenario: dict) -> dict:
             "name": scenario["sink"],
             "position": {"x": 480.0, "y": 100.0},
             "properties": {
-                "target": "stdout",
+                "target": "Standard Output",
                 "format": "JSON",
             },
         },

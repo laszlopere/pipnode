@@ -98,7 +98,7 @@ def debug_print(name: str, sheet: str,
         "worksheet":  sheet,
         "position":   {"x": x, "y": y},
         "properties": {
-            "target": "stdout",
+            "target": "Standard Output",
             "format": "text",
         },
     }
@@ -203,7 +203,7 @@ def test_legacy_file_loads_unchanged():
             "name":     "Debug1",
             "position": {"x": 400.0, "y": 100.0},
             "properties": {
-                "target": "stdout",
+                "target": "Standard Output",
                 "format": "text",
             },
         },

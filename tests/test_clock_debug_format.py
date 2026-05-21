@@ -63,10 +63,10 @@ CLOCK_NAME = "Ticker"
 # prints is the two values joined under /pnode/.
 CLOCK_TOPIC = f"/pnode/Clock/{CLOCK_NAME}"
 SINKS = [
-    {"name": "stdout-text",     "target": "stdout", "format": "text"},
-    {"name": "stderr-text",     "target": "stderr", "format": "text"},
-    {"name": "stdout-oneliner", "target": "stdout", "format": "oneliner"},
-    {"name": "stderr-json",     "target": "stderr", "format": "JSON"},
+    {"name": "stdout-text",     "target": "Standard Output", "format": "text"},
+    {"name": "stderr-text",     "target": "Standard Error",  "format": "text"},
+    {"name": "stdout-oneliner", "target": "Standard Output", "format": "oneliner"},
+    {"name": "stderr-json",     "target": "Standard Error",  "format": "JSON"},
 ]
 
 

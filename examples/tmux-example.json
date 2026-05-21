@@ -28,7 +28,7 @@
         "y" : 100.0
       },
       "properties" : {
-        "target" : "stderr",
+        "target" : "Standard Error",
         "format" : "text"
       }
     }

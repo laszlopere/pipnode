@@ -39,7 +39,7 @@
         "y" : 140.0
       },
       "properties" : {
-        "target" : "stderr",
+        "target" : "Standard Error",
         "format" : "JSON"
       }
     },
@@ -140,7 +140,7 @@
         "y" : 280.0
       },
       "properties" : {
-        "target" : "stderr",
+        "target" : "Standard Error",
         "format" : "JSON"
       }
     },

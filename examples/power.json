@@ -274,7 +274,7 @@
         "y" : 960.0
       },
       "properties" : {
-        "target" : "stderr",
+        "target" : "Standard Error",
         "format" : "JSON"
       }
     },

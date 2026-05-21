@@ -32,7 +32,7 @@
         "y" : 20.0
       },
       "properties" : {
-        "target" : "debug view",
+        "target" : "Debug View",
         "format" : "JSON"
       }
     },

@@ -60,15 +60,17 @@ pn_debug_target_get_type (void)
 
     if (g_once_init_enter (&id))
     {
+        /* Listed in the order the target combo should present them;
+           the numeric values stay fixed so saved projects keep working. */
         static const GEnumValue values[] = {
-            { PN_DEBUG_TARGET_STDERR,
-              "PN_DEBUG_TARGET_STDERR",     "stderr"     },
-            { PN_DEBUG_TARGET_STDOUT,
-              "PN_DEBUG_TARGET_STDOUT",     "stdout"     },
-            { PN_DEBUG_TARGET_STATUS_BAR,
-              "PN_DEBUG_TARGET_STATUS_BAR", "status bar" },
             { PN_DEBUG_TARGET_DEBUG_VIEW,
-              "PN_DEBUG_TARGET_DEBUG_VIEW", "debug view" },
+              "PN_DEBUG_TARGET_DEBUG_VIEW", "Debug View"      },
+            { PN_DEBUG_TARGET_STATUS_BAR,
+              "PN_DEBUG_TARGET_STATUS_BAR", "Status Bar"      },
+            { PN_DEBUG_TARGET_STDOUT,
+              "PN_DEBUG_TARGET_STDOUT",     "Standard Output" },
+            { PN_DEBUG_TARGET_STDERR,
+              "PN_DEBUG_TARGET_STDERR",     "Standard Error"  },
             { 0, NULL, NULL }
         };
 

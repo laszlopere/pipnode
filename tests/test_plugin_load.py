@@ -80,7 +80,7 @@ def build_flow_json() -> dict:
                 "name": "Sink",
                 "position": {"x": 480.0, "y": 100.0},
                 "properties": {
-                    "target": "stdout",
+                    "target": "Standard Output",
                     "format": "JSON",
                 },
             },

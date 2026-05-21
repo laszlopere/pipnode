@@ -233,7 +233,7 @@ def build_server_network(port: int) -> dict:
                 "name":       SINK_NAME,
                 "position":   {"x": 400.0, "y": 100.0},
                 "properties": {
-                    "target": "stdout",
+                    "target": "Standard Output",
                     "format": "JSON",
                 },
             },

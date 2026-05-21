@@ -13,7 +13,7 @@
         "y" : 40.0
       },
       "properties" : {
-        "target" : "stderr",
+        "target" : "Standard Output",
         "format" : "JSON"
       }
     },
