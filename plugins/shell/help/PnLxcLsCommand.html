@@ -87,10 +87,13 @@ right.  The default single-IP case &mdash; the most common one
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>host</code></td>
-      <td>Where to run <code>sudo lxc-ls -f</code>.  Default
-          <code>localhost</code> (and the synonyms
-          <code>127.0.0.1</code>, <code>::1</code>, empty string)
-          runs locally.  Any other value (a hostname or
+      <td>Where to run <code>sudo lxc-ls -f</code>.  Default: the empty
+          string &mdash; the local machine, whose name appears as a grey
+          hint in the settings entry.  An empty value,
+          <code>localhost</code>, <code>127.0.0.1</code> and
+          <code>::1</code> all run locally (clearing the field leaves it
+          empty rather than reverting to <code>localhost</code>).  Any
+          other value (a hostname or
           <code>user@host</code>) routes the run through
           <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
           working passwordless key for that host is required since

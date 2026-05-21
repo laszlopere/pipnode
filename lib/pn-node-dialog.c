@@ -529,8 +529,8 @@ on_hostname_hint_draw (
     return FALSE;
 }
 
-static void
-attach_hostname_hint (GtkEntry *entry)
+void
+pn_node_dialog_attach_hostname_hint (GtkEntry *entry)
 {
     /* g_get_host_name() returns a process-lifetime cached string
      * (GLib owns the storage and never frees it), so it is safe to
@@ -590,7 +590,7 @@ pn_node_dialog_default_editor (
          * (entry's own draw ran first), it just blinks "inside" the
          * first character of the hint, matching GTK4's behaviour. */
         if (pn_param_spec_get_hostname_hint (pspec))
-            attach_hostname_hint (GTK_ENTRY (entry));
+            pn_node_dialog_attach_hostname_hint (GTK_ENTRY (entry));
         g_object_bind_property (target, name, entry, "text", flags);
         return entry;
     }

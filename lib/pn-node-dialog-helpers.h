@@ -131,6 +131,28 @@ void       pn_node_dialog_append_page       (GtkNotebook *notebook,
                                              GtkWidget   *page,
                                              const gchar *title);
 
+/**
+ * pn_node_dialog_attach_hostname_hint:
+ * @entry: the #GtkEntry to decorate
+ *
+ * Render the local computer's name (g_get_host_name()) as a grey hint
+ * inside @entry whenever its buffer is empty — the same "this is the
+ * host the node falls back to when you leave the field blank" cue the
+ * introspection-driven default editor paints for a string property
+ * carrying the pn_param_spec_set_hostname_hint() flag.
+ *
+ * Use this from a #PnNodeClass.build_property_editor override that
+ * hand-rolls its own host #GtkEntry (rather than delegating to
+ * pn_node_dialog_default_editor()) and still wants the hint.  The hint
+ * is purely visual: the bound value stays the empty string until the
+ * user types, so an empty entry round-trips as an empty host.
+ *
+ * Unlike gtk_entry_set_placeholder_text(), the hint stays visible while
+ * the entry has focus (GTK3 hides the native placeholder on focus-in),
+ * which is why it is drawn by hand here.
+ */
+void       pn_node_dialog_attach_hostname_hint (GtkEntry *entry);
+
 G_END_DECLS
 
 #endif /* PN_NODE_DIALOG_HELPERS_H */

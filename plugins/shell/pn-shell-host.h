@@ -24,15 +24,19 @@ G_BEGIN_DECLS
 /*  Shared host-routing helper for the Shell-plugin runner nodes.      */
 /*                                                                     */
 /*  Every node in the Shell category carries a "host" property whose   */
-/*  default is "localhost" (run on the local machine).  When the user  */
-/*  sets it to anything else, the node executes its command via        */
-/*  passwordless ssh on that host instead of spawning it directly.     */
-/*  The two helpers here keep the local/remote branching out of each   */
-/*  node's trigger so they stay readable.                              */
+/*  default is the empty string (run on the local machine).  An empty  */
+/*  value is left empty rather than coerced to "localhost", and the    */
+/*  settings dialog paints the local machine's name as a grey hint so  */
+/*  the user can see where a blank field will actually run.  When the  */
+/*  user sets it to anything other than empty/localhost, the node      */
+/*  executes its command via passwordless ssh on that host instead of  */
+/*  spawning it directly.  The two helpers here keep the local/remote  */
+/*  branching out of each node's trigger so they stay readable.        */
 /* ------------------------------------------------------------------ */
 
-/** Default value of the "host" property — "localhost". */
-#define PN_SHELL_HOST_DEFAULT "localhost"
+/** Default value of the "host" property — the empty string, meaning
+ *  "run on the local machine" (see pn_shell_host_is_local). */
+#define PN_SHELL_HOST_DEFAULT ""
 
 /** Return %TRUE when @host refers to the local machine.  Treats %NULL,
  *  the empty string, "localhost", "127.0.0.1" and "::1" as local; any

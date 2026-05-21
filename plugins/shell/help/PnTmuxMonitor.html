@@ -47,7 +47,8 @@ The emitted message (topic <code>tmux</code>) carries:
       baseline, so the next successful capture diffs against the
       last good one.</li>
   <li><code>data.host</code> &mdash; the host the capture ran on
-      (<code>localhost</code> for the local synonyms).</li>
+      (the local machine&rsquo;s real name when the host is left empty
+      or set to a local synonym).</li>
   <li><code>data.session</code> &mdash; the session name the
       capture targeted.</li>
 </ul>
@@ -82,10 +83,12 @@ worker still wakes, it just has no target to capture from).
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>host</code></td>
-      <td>Where to run the tmux commands.  Default
-          <code>localhost</code> (and the synonyms
-          <code>127.0.0.1</code>, <code>::1</code>, empty string)
-          runs locally.  Any other value (a hostname or
+      <td>Where to run the tmux commands.  Default: the empty string
+          &mdash; the local machine, whose name appears as a grey hint
+          in the settings entry.  An empty value, <code>localhost</code>,
+          <code>127.0.0.1</code> and <code>::1</code> all run locally
+          (clearing the field leaves it empty rather than reverting to
+          <code>localhost</code>).  Any other value (a hostname or
           <code>user@host</code>) routes the run through
           <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
           working passwordless key for that host is required since

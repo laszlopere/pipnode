@@ -54,8 +54,8 @@ G_BEGIN_DECLS
 /*    data.success - whether capture-pane exited with status 0,        */
 /*    data.output  - the captured characters verbatim (the visible     */
 /*                   pane plus up to :line-limit scrollback lines),    */
-/*    data.host    - the host the capture ran on (`localhost` for the  */
-/*                   local synonyms), and                              */
+/*    data.host    - the host the capture ran on (the local machine's  */
+/*                   real name when the host is empty/localhost), and   */
 /*    data.session - the session name the capture targeted.            */
 /* ------------------------------------------------------------------ */
 

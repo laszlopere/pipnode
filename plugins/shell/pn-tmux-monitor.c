@@ -485,8 +485,11 @@ tm_set_host (PnTmuxMonitor *self, const gchar *host)
     gchar    *replacement;
     gboolean  host_changed;
 
-    replacement = g_strdup ((host != NULL && *host != '\0')
-                            ? host : PN_SHELL_HOST_DEFAULT);
+    /* Keep an empty entry empty — an empty host means "local machine"
+     * (see pn_shell_host_is_local) and the entry shows the real local
+     * name as a grey hint, so coercing "" to "localhost" here would
+     * only fight the hint and discard the user's clear. */
+    replacement = g_strdup ((host != NULL) ? host : PN_SHELL_HOST_DEFAULT);
 
     g_mutex_lock (&self->mutex);
     host_changed = (g_strcmp0 (self->host, replacement) != 0);
@@ -763,10 +766,15 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
             delta = g_strdup (combined);
         }
 
+        /* An empty host means "local machine"; report its real name in
+         * the message rather than an empty string, matching the local
+         * monitoring nodes (PnCpu, PnMemory, …). */
         msg = pn_message_new (node, NULL);
         pn_message_set_boolean (msg, "success", success);
         pn_message_set_string  (msg, "output",  delta);
-        pn_message_set_string  (msg, "host",    host);
+        pn_message_set_string  (msg, "host",
+                                pn_shell_host_is_local (host)
+                                ? g_get_host_name () : host);
         pn_message_set_string  (msg, "session", session);
 
         pn_auto_trigger_emit_on_main (trigger, msg);
@@ -938,6 +946,12 @@ pn_tmux_monitor_build_property_editor (PnNode     *self      G_GNUC_UNUSED,
 
         gtk_widget_set_hexpand   (entry, TRUE);
         gtk_widget_set_sensitive (entry, writable);
+
+        /* Mirror the default string editor's grey local-hostname hint
+         * (this entry is hand-rolled for deferred commit, so it does
+         * not go through pn_node_dialog_default_editor()).  Empty host
+         * == run locally, and the hint shows which machine that is. */
+        pn_node_dialog_attach_hostname_hint (GTK_ENTRY (entry));
 
         if (writable)
         {
@@ -1186,9 +1200,9 @@ pn_tmux_monitor_class_init (PnTmuxMonitorClass *klass)
 
     props[PROP_HOST] = g_param_spec_string (
             "host", "Host",
-            "Hostname (or user@host) the tmux server runs on.  "
-            "\"localhost\" (the default) runs locally; any other "
-            "value routes the tmux invocation through passwordless "
+            "Hostname (or user@host) the tmux server runs on.  An empty "
+            "string (the default) or \"localhost\" runs locally; any "
+            "other value routes the tmux invocation through passwordless "
             "ssh (BatchMode=yes — a pre-installed key is required).",
             PN_SHELL_HOST_DEFAULT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);

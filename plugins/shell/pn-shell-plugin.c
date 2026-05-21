@@ -55,8 +55,9 @@ pn_plugin_init (PnNodeFactory *factory)
                        "(periodic `tmux capture-pane` against a named "
                        "session, with a live session combobox in the "
                        "settings dialog).  Each node carries a `host` "
-                       "property defaulting to `localhost`; setting it "
-                       "to a remote host routes the command through "
+                       "property defaulting to the empty string (the "
+                       "local machine, shown as a grey hint); setting "
+                       "it to a remote host routes the command through "
                        "passwordless ssh.",
     };
 

@@ -74,8 +74,11 @@ free_set_host (PnFreeCommand *self, const gchar *host)
     gchar *old;
     gchar *replacement;
 
-    replacement = g_strdup ((host != NULL && *host != '\0')
-                            ? host : PN_SHELL_HOST_DEFAULT);
+    /* Keep an empty entry empty — an empty host means "local machine"
+     * (see pn_shell_host_is_local) and the settings dialog shows the
+     * real local name as a grey hint, so coercing "" to "localhost"
+     * here would only fight the hint and discard the user's clear. */
+    replacement = g_strdup ((host != NULL) ? host : PN_SHELL_HOST_DEFAULT);
 
     g_mutex_lock (&self->mutex);
     old = self->host;
@@ -434,12 +437,15 @@ pn_free_command_class_init (PnFreeCommandClass *klass)
 
     props[PROP_HOST] = g_param_spec_string (
             "host", "Host",
-            "Hostname (or user@host) to run the command on.  "
-            "\"localhost\" (the default) runs locally; any other "
-            "value routes the command through passwordless ssh "
+            "Hostname (or user@host) to run the command on.  An empty "
+            "string (the default) or \"localhost\" runs locally; any "
+            "other value routes the command through passwordless ssh "
             "(BatchMode=yes — a pre-installed key is required).",
             PN_SHELL_HOST_DEFAULT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    /* Show the local machine's name as a grey hint while the field is
+     * blank, so the user sees where an empty host actually runs. */
+    pn_param_spec_set_hostname_hint (props[PROP_HOST]);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
