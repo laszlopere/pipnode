@@ -38,7 +38,11 @@ check_PROGRAMS = \
 	test-pn-stats \
 	test-pn-inject \
 	test-pn-knob \
-	test-pn-table-model
+	test-pn-table-model \
+	test-pn-auto-injector \
+	test-pn-auto-random \
+	test-pn-rtc \
+	test-pn-watchdog
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
@@ -55,5 +59,9 @@ test_pn_stats_SOURCES        = test-pn-stats.c        pntest.c pntest.h
 test_pn_inject_SOURCES       = test-pn-inject.c       pntest.c pntest.h
 test_pn_knob_SOURCES         = test-pn-knob.c         pntest.c pntest.h
 test_pn_table_model_SOURCES  = test-pn-table-model.c  pntest.c pntest.h
+test_pn_auto_injector_SOURCES = test-pn-auto-injector.c pntest.c pntest.h pntimer.h
+test_pn_auto_random_SOURCES   = test-pn-auto-random.c   pntest.c pntest.h pntimer.h
+test_pn_rtc_SOURCES           = test-pn-rtc.c           pntest.c pntest.h pntimer.h
+test_pn_watchdog_SOURCES      = test-pn-watchdog.c      pntest.c pntest.h pntimer.h
 
 TESTS = $(check_PROGRAMS)
