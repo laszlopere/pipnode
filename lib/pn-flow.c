@@ -281,13 +281,50 @@ on_wire_store_wire_removed_mark (
     on_store_changed_mark_modified (user_data);
 }
 
+/* Forward decl: the same predicate node_to_json uses to pick which
+ * subclass properties round-trip to disk (see below). */
+static gboolean should_serialize_property (GParamSpec *pspec);
+
+/** Decide whether a property-change notification should mark the flow
+ *  modified.  A change matters only if it alters what node_to_json
+ *  actually writes: the serialisable subclass properties, plus the
+ *  handful of #PnNode-owned fields that round-trip on disk (name,
+ *  worksheet, disabled, position, topic).  The remaining #PnNode
+ *  properties — icon, colour, class-name and the port flags — are
+ *  class-derived or live-status decorations that never persist, so the
+ *  runtime self-updates driving them (e.g. #PnMqtt flipping its body
+ *  green on a CONNACK that lands after the load completes) must not
+ *  masquerade as unsaved edits. */
+static gboolean
+property_affects_document (GParamSpec *pspec)
+{
+    if (should_serialize_property (pspec))
+        return TRUE;
+
+    if (pspec->owner_type == PN_TYPE_NODE)
+        return g_strcmp0 (pspec->name, "name")      == 0
+            || g_strcmp0 (pspec->name, "worksheet") == 0
+            || g_strcmp0 (pspec->name, "disabled")  == 0
+            || g_strcmp0 (pspec->name, "position")  == 0
+            || g_strcmp0 (pspec->name, "topic")     == 0;
+
+    return FALSE;
+}
+
 static void
 on_node_any_notify_mark (
         GObject    *object,
         GParamSpec *pspec,
         gpointer    user_data)
 {
-    (void) object; (void) pspec;
+    (void) object;
+
+    /* Ignore purely cosmetic / live-status notifications so a node
+     * settling into its runtime appearance after load does not flag the
+     * document dirty. */
+    if (!property_affects_document (pspec))
+        return;
+
     on_store_changed_mark_modified (user_data);
 }
 
