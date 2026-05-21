@@ -87,7 +87,7 @@
     {
       "type" : "PnRate",
       "uuid" : "d8722ef6-b07f-4fda-9479-4c15962d85d6",
-      "name" : "Rate 1",
+      "name" : "BNB -> USD",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -99,14 +99,14 @@
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
-        "rate" : 650.48000000000002,
-        "last-update" : "2026-05-21T17:39:24.751069+02"
+        "rate" : 650.94000000000005,
+        "last-update" : "2026-05-21T18:24:19.476447+02"
       }
     },
     {
       "type" : "PnAutoInjector",
       "uuid" : "3f5295db-8b59-4f7e-b0e8-367ace5cf387",
-      "name" : "AutoInjector 1",
+      "name" : "1.00",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 80.0,
@@ -133,7 +133,7 @@
         "key" : "data/value",
         "resolution" : "1 hour",
         "data-view" : "Time series",
-        "draw-style" : "Lines",
+        "draw-style" : "Error bars",
         "line-color" : "rgb(30,60,140)",
         "line-width" : 2,
         "axis-color" : "rgb(70,70,70)",
@@ -156,6 +156,61 @@
         "text" : "Injector activated.",
         "value" : 0.0,
         "success" : true
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "73a71546-e31c-4f66-895c-ecbf32fe5bc1",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 860.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "15 minutes",
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : true
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "ac07b544-44d5-4884-90d4-c2fc33eef73c",
+      "name" : "AutoRandom 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "period" : 1,
+        "autostart" : true,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 1.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "672a16f1-be61-40d1-9453-1b308e9f9e60",
+      "name" : "Expression 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "expression" : "value + 12.0"
       }
     }
   ],
@@ -187,6 +242,14 @@
     {
       "source_id" : "d8722ef6-b07f-4fda-9479-4c15962d85d6",
       "target_id" : "5edd3d01-a72f-4ec7-83ff-8359dae71406"
+    },
+    {
+      "source_id" : "ac07b544-44d5-4884-90d4-c2fc33eef73c",
+      "target_id" : "672a16f1-be61-40d1-9453-1b308e9f9e60"
+    },
+    {
+      "source_id" : "672a16f1-be61-40d1-9453-1b308e9f9e60",
+      "target_id" : "73a71546-e31c-4f66-895c-ecbf32fe5bc1"
     }
   ],
   "sheets" : [
