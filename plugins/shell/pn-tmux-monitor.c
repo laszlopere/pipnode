@@ -718,6 +718,58 @@ tm_reset_prev_output (PnTmuxMonitor *self)
 /*  Trigger (periodic capture)                                         */
 /* ------------------------------------------------------------------ */
 
+/* Re-list sessions while none are known yet.  tm_kick_enumerator only
+ * runs at construction and on a host change, so a session the user
+ * starts *after* the node was created (typically while the config
+ * dialog is open with an empty session combo) would never show up.
+ * The periodic trigger calls tm_poll_sessions_if_empty below, which
+ * schedules this on the main thread — tm_kick_enumerator emits
+ * notify::busy and notify::last-error that drive the dialog's GTK
+ * widgets, so it must not run on the auto-trigger worker thread.
+ *
+ * Ideally we'd only poll while the dialog is up, but the node has no
+ * cheap way to know that, so for now it keeps re-listing whenever the
+ * cache holds no sessions.  Re-checks busy + emptiness here on the
+ * main thread, where they only ever change, so the decision is final. */
+static gboolean
+tm_refresh_sessions_idle (gpointer data)
+{
+    PnTmuxMonitor *self      = data;
+    gboolean       want_kick = FALSE;
+
+    g_mutex_lock (&self->mutex);
+    if (!self->busy &&
+        (self->sessions_cache == NULL || self->sessions_cache[0] == NULL))
+        want_kick = TRUE;
+    g_mutex_unlock (&self->mutex);
+
+    if (want_kick)
+        tm_kick_enumerator (self);
+
+    return G_SOURCE_REMOVE;
+}
+
+/* Worker-thread gate: only bounce to the main thread when the cache
+ * actually shows no sessions, so a configured node that is happily
+ * capturing doesn't spawn a list-sessions roundtrip every tick. */
+static void
+tm_poll_sessions_if_empty (PnTmuxMonitor *self)
+{
+    gboolean empty;
+
+    g_mutex_lock (&self->mutex);
+    empty = !self->busy &&
+            (self->sessions_cache == NULL || self->sessions_cache[0] == NULL);
+    g_mutex_unlock (&self->mutex);
+
+    if (empty)
+        g_main_context_invoke_full (NULL,
+                                    G_PRIORITY_DEFAULT,
+                                    tm_refresh_sessions_idle,
+                                    g_object_ref (self),
+                                    g_object_unref);
+}
+
 static void
 pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
 {
@@ -737,6 +789,11 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     gchar           *start_arg;
     const gchar     *base_argv[9];
     gchar          **argv;
+
+    /* Keep hunting for sessions while the host has none yet, so one
+     * the user starts after this node was created appears in the combo
+     * without forcing a host edit. */
+    tm_poll_sessions_if_empty (self);
 
     /* Without a session selected the trigger has nothing meaningful
      * to emit — the visual state already marks the node as needing
