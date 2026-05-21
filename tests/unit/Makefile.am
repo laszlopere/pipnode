@@ -43,7 +43,17 @@ check_PROGRAMS = \
 	test-pn-auto-random \
 	test-pn-rtc \
 	test-pn-watchdog \
-	test-pn-flow
+	test-pn-flow \
+	test-pn-debug \
+	test-pn-text-view \
+	test-pn-rate \
+	test-pn-led \
+	test-pn-analog-meter \
+	test-pn-load \
+	test-pn-memory \
+	test-pn-cpu \
+	test-pn-net-io \
+	test-pn-disk-io
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
@@ -65,5 +75,15 @@ test_pn_auto_random_SOURCES   = test-pn-auto-random.c   pntest.c pntest.h pntime
 test_pn_rtc_SOURCES           = test-pn-rtc.c           pntest.c pntest.h pntimer.h
 test_pn_watchdog_SOURCES      = test-pn-watchdog.c      pntest.c pntest.h pntimer.h
 test_pn_flow_SOURCES          = test-pn-flow.c          pntest.c pntest.h
+test_pn_debug_SOURCES         = test-pn-debug.c         pntest.c pntest.h
+test_pn_text_view_SOURCES     = test-pn-text-view.c     pntest.c pntest.h
+test_pn_rate_SOURCES          = test-pn-rate.c          pntest.c pntest.h
+test_pn_led_SOURCES           = test-pn-led.c           pntest.c pntest.h
+test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
+test_pn_load_SOURCES          = test-pn-load.c          pntest.c pntest.h
+test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h
+test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h
+test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h
+test_pn_disk_io_SOURCES       = test-pn-disk-io.c        pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
