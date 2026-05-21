@@ -425,9 +425,13 @@ pn_weather_build_command (PnHttp *http, guint timeout)
     g_ascii_dtostr (latbuf, sizeof latbuf, lat);
     g_ascii_dtostr (lonbuf, sizeof lonbuf, lon);
 
-    full = g_strdup_printf ("%s?latitude=%s&longitude=%s&current=%s",
-                            base ? base : PN_WEATHER_FORECAST_URL,
-                            latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
+    /* timezone=auto makes Open-Meteo resolve the location's own timezone
+     * and stamp current.time in that local time; without it the API
+     * defaults to GMT, so the report's clock reads UTC. */
+    full = g_strdup_printf (
+            "%s?latitude=%s&longitude=%s&current=%s&timezone=auto",
+            base ? base : PN_WEATHER_FORECAST_URL,
+            latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
     cmd = weather_curl_command (full, timeout);
 
     g_free (full);
