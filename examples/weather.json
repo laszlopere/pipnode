@@ -27,7 +27,7 @@
         "y" : 140.0
       },
       "properties" : {
-        "target" : "Debug View",
+        "target" : "Standard Error",
         "format" : "JSON"
       }
     },
@@ -64,6 +64,19 @@
         "yellow-color" : "rgba(242,204,38,0.85)",
         "red-color" : "rgba(217,51,38,0.85)"
       }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "4e3b11c7-cbae-4c90-a267-cef50515fff9",
+      "name" : "Weather Report 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 470.0
+      },
+      "properties" : {
+        "show-details" : true
+      }
     }
   ],
   "connections" : [
@@ -74,6 +87,10 @@
     {
       "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
       "target_id" : "b64d6015-ebef-48bf-b4ae-0be92052fee3"
+    },
+    {
+      "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "target_id" : "4e3b11c7-cbae-4c90-a267-cef50515fff9"
     }
   ],
   "sheets" : [
