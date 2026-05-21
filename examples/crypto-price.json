@@ -1,0 +1,196 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnExpression",
+      "uuid" : "c2179c2c-14a3-4162-a278-5804c10e8b98",
+      "name" : "Expression 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "expression" : "/data/current/temperature_2m"
+      }
+    },
+    {
+      "type" : "PnWeather",
+      "uuid" : "dcc00082-db96-4d9a-9a7e-eee67f4a69dc",
+      "name" : "Weather 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "period" : 600,
+        "autostart" : true,
+        "url" : "https://api.open-meteo.com/v1/forecast",
+        "city" : "Budapest"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "f1581a6a-a3ff-4bca-a8c9-f14a62145c79",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 440.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "5edd3d01-a72f-4ec7-83ff-8359dae71406",
+      "name" : "Debug Print 2",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 480.0,
+        "y" : 520.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "75436727-c8c6-482b-806b-d8715d77fca0",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : false
+      }
+    },
+    {
+      "type" : "PnRate",
+      "uuid" : "d8722ef6-b07f-4fda-9479-4c15962d85d6",
+      "name" : "Rate 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 580.0
+      },
+      "properties" : {
+        "period" : 600,
+        "autostart" : true,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "BNB",
+        "to" : "USD",
+        "rate" : 650.48000000000002,
+        "last-update" : "2026-05-21T17:39:24.751069+02"
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "3f5295db-8b59-4f7e-b0e8-367ace5cf387",
+      "name" : "AutoInjector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 580.0
+      },
+      "properties" : {
+        "period" : 10,
+        "autostart" : true,
+        "output" : "AutoInjector activated.",
+        "value" : 1.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "0c9b80dd-3a41-41f0-8d6b-574380d1aad9",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 580.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : true
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "bd43b07f-57fc-4279-bb7c-067833d5a6e9",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 500.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "dcc00082-db96-4d9a-9a7e-eee67f4a69dc",
+      "target_id" : "c2179c2c-14a3-4162-a278-5804c10e8b98"
+    },
+    {
+      "source_id" : "c2179c2c-14a3-4162-a278-5804c10e8b98",
+      "target_id" : "f1581a6a-a3ff-4bca-a8c9-f14a62145c79"
+    },
+    {
+      "source_id" : "dcc00082-db96-4d9a-9a7e-eee67f4a69dc",
+      "target_id" : "f1581a6a-a3ff-4bca-a8c9-f14a62145c79"
+    },
+    {
+      "source_id" : "c2179c2c-14a3-4162-a278-5804c10e8b98",
+      "target_id" : "75436727-c8c6-482b-806b-d8715d77fca0"
+    },
+    {
+      "source_id" : "3f5295db-8b59-4f7e-b0e8-367ace5cf387",
+      "target_id" : "d8722ef6-b07f-4fda-9479-4c15962d85d6"
+    },
+    {
+      "source_id" : "d8722ef6-b07f-4fda-9479-4c15962d85d6",
+      "target_id" : "0c9b80dd-3a41-41f0-8d6b-574380d1aad9"
+    },
+    {
+      "source_id" : "d8722ef6-b07f-4fda-9479-4c15962d85d6",
+      "target_id" : "5edd3d01-a72f-4ec7-83ff-8359dae71406"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
