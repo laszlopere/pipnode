@@ -31,7 +31,7 @@
         "y" : 180.0
       },
       "properties" : {
-        "on" : true
+        "on" : false
       }
     },
     {
@@ -103,8 +103,22 @@
         "y" : 280.0
       },
       "properties" : {
-        "on" : true,
+        "on" : false,
         "switch-name" : "sonoff19"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "4c1021ee-14fe-4afe-b2da-fa3f7eff6596",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
       }
     }
   ],
@@ -136,6 +150,10 @@
     {
       "source_id" : "139800b0-73fb-438d-b157-7939b176107b",
       "target_id" : "c581e720-b6a7-48eb-9238-1dbec7e55e6f"
+    },
+    {
+      "source_id" : "139800b0-73fb-438d-b157-7939b176107b",
+      "target_id" : "4c1021ee-14fe-4afe-b2da-fa3f7eff6596"
     }
   ],
   "sheets" : [
