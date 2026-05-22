@@ -27,6 +27,7 @@
 #include "pn-wire-store.h"
 #include "pn-message.h"
 #include "pn-inject.h"
+#include "pn-auto-trigger.h"
 #include "pn-switch.h"
 #include "pn-knob.h"
 #include "pn-chat.h"
@@ -3225,6 +3226,15 @@ on_node_menu_inject (
 }
 
 static void
+on_node_menu_trigger (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    (void) item;
+    pn_auto_trigger_kick (PN_AUTO_TRIGGER (user_data));
+}
+
+static void
 on_node_menu_toggle_disabled (
         GtkMenuItem *item,
         gpointer     user_data)
@@ -3375,6 +3385,17 @@ show_node_popup (
         g_signal_connect (inject, "activate",
                           G_CALLBACK (on_node_menu_inject), node);
         gtk_menu_shell_append (GTK_MENU_SHELL (menu), inject);
+    }
+
+    /* Auto-trigger nodes get a "Trigger" entry that fires one extra tick
+     * now, without waiting for the periodic delay to elapse. */
+    if (PN_IS_AUTO_TRIGGER (node))
+    {
+        GtkWidget *trigger = make_icon_menu_item ("media-playback-start",
+                                                  "Trigger");
+        g_signal_connect (trigger, "activate",
+                          G_CALLBACK (on_node_menu_trigger), node);
+        gtk_menu_shell_append (GTK_MENU_SHELL (menu), trigger);
     }
 
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), toggle);
