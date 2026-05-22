@@ -29,6 +29,7 @@
 #include "pn-auto-injector.h"
 #include "pn-auto-random.h"
 #include "pn-chat.h"
+#include "pn-comparator.h"
 #include "pn-connections.h"
 #include "pn-cpu.h"
 #include "pn-debug.h"
@@ -219,6 +220,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_WEATHER);
 
     /* Filters. */
+    pn_node_factory_register (self, PN_TYPE_COMPARATOR);
     pn_node_factory_register (self, PN_TYPE_DEDUP);
     pn_node_factory_register (self, PN_TYPE_DELAY);
     pn_node_factory_register (self, PN_TYPE_EDGE);

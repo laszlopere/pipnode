@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Comparator (PnComparator) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnComparator">Comparator</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnComparator</code>.
+</p>
+<p>
+Two-input ordering comparator &mdash; the live-reference sibling of
+<a href="PnThreshold.html">Threshold</a>. Where Threshold compares the
+incoming <code>value</code> against a fixed number, Comparator compares
+two streams: <strong>input&nbsp;1</strong> (A) and
+<strong>input&nbsp;2</strong> (B) each carry a numeric
+<code>value</code>. The node latches the most recent value seen on each
+input and tracks a single on/off state answering &ldquo;is A at or above
+B?&rdquo;. It forwards a message only when that state changes, rewriting
+<code>value</code> to <code>1.0</code> (A&nbsp;&ge;&nbsp;B) or
+<code>0.0</code> (A&nbsp;&lt;&nbsp;B) &mdash; the same
+<code>0.0</code>/<code>1.0</code> encoding the rest of Pipnode uses for
+on/off.
+</p>
+<p>
+<code>hysteresis</code> defines a dead-band centered on equality
+(A&nbsp;==&nbsp;B). The state turns <strong>on</strong> once A reaches
+the upper edge, <code>B&nbsp;+&nbsp;hysteresis/2</code>, and turns
+<strong>off</strong> again only once A falls below the lower edge,
+<code>B&nbsp;&minus;&nbsp;hysteresis/2</code>. While A sits inside that
+band the state is held, so two values hovering around each other do not
+flap the output. With <code>hysteresis</code> left at <code>0</code> the
+band collapses onto equality and the node is a plain
+&ldquo;<code>A&nbsp;&ge;&nbsp;B</code>&rdquo; comparator that emits on
+every crossing.
+</p>
+<p>
+No comparison happens until <em>both</em> inputs have carried at least
+one numeric <code>value</code>; the message that completes the pair
+establishes the initial state (on if A&nbsp;&ge;&nbsp;B, off otherwise)
+and is always forwarded. A message without a numeric <code>value</code>
+is ignored and leaves the latched values and state untouched.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>hysteresis</code></td>
+      <td>Width of the dead-band centered on equality: A must rise half
+          this above B to turn the output on and fall half below B to
+          turn it off. Zero disables hysteresis.</td></tr>
+</table>
+
+</body>
+</html>

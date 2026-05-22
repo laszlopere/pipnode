@@ -26,6 +26,7 @@ LDADD = \
 check_PROGRAMS = \
 	test-pn-expression \
 	test-pn-format \
+	test-pn-comparator \
 	test-pn-dedup \
 	test-pn-delay \
 	test-pn-threshold \
@@ -65,6 +66,7 @@ check_PROGRAMS = \
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
+test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h
 test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
 test_pn_delay_SOURCES        = test-pn-delay.c        pntest.c pntest.h
 test_pn_threshold_SOURCES    = test-pn-threshold.c    pntest.c pntest.h

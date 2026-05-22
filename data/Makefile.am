@@ -14,6 +14,7 @@ pnhelp_DATA = \
 	help/PnAutoInjector.html \
 	help/PnAutoRandom.html \
 	help/PnChat.html \
+	help/PnComparator.html \
 	help/PnConnections.html \
 	help/PnCpu.html \
 	help/PnDebug.html \
