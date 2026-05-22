@@ -18,6 +18,7 @@ pnhelp_DATA = \
 	help/PnCpu.html \
 	help/PnDebug.html \
 	help/PnDedup.html \
+	help/PnDelay.html \
 	help/PnDial.html \
 	help/PnDiskIo.html \
 	help/PnEdge.html \

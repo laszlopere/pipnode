@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Delay (PnDelay) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDelay">Delay</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnDelay</code>.
+</p>
+<p>
+Time shifter. Forwards every message it receives unchanged, but only
+after <code>delay-ms</code> milliseconds have elapsed. Each message is
+held independently on its own one-shot timer, so a burst arrives
+downstream as the same burst shifted later in time &mdash; nothing is
+dropped or coalesced and the original order is preserved. This is the
+opposite of <a href="PnThrottle.html">Throttle</a>, which thins a
+stream rather than delaying it.
+</p>
+<p>
+A delay of <code>0</code> still defers each message to the next
+main-loop iteration rather than forwarding it inline. Messages still
+waiting on their timers when the node is deleted (or the worksheet
+closed) are discarded without being forwarded.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>delay-ms</code></td>
+      <td>Milliseconds to hold each message before forwarding it.</td></tr>
+</table>
+
+</body>
+</html>

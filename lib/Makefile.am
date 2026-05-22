@@ -24,6 +24,8 @@ libpipnode_la_SOURCES = \
 	pn-dial.h \
 	pn-dedup.c \
 	pn-dedup.h \
+	pn-delay.c \
+	pn-delay.h \
 	pn-disk-io.c \
 	pn-disk-io.h \
 	pn-edge.c \
@@ -181,6 +183,7 @@ pipnodeinclude_HEADERS = \
 	pn-cpu.h \
 	pn-debug.h \
 	pn-dedup.h \
+	pn-delay.h \
 	pn-dial.h \
 	pn-disk-io.h \
 	pn-edge.h \

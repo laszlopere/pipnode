@@ -33,6 +33,7 @@
 #include "pn-cpu.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
+#include "pn-delay.h"
 #include "pn-dial.h"
 #include "pn-disk-io.h"
 #include "pn-edge.h"
@@ -218,6 +219,7 @@ register_builtins (PnNodeFactory *self)
 
     /* Filters. */
     pn_node_factory_register (self, PN_TYPE_DEDUP);
+    pn_node_factory_register (self, PN_TYPE_DELAY);
     pn_node_factory_register (self, PN_TYPE_EDGE);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION2);

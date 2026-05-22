@@ -27,6 +27,7 @@ check_PROGRAMS = \
 	test-pn-expression \
 	test-pn-format \
 	test-pn-dedup \
+	test-pn-delay \
 	test-pn-throttle \
 	test-pn-query \
 	test-pn-edge \
@@ -64,6 +65,7 @@ check_PROGRAMS = \
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
+test_pn_delay_SOURCES        = test-pn-delay.c        pntest.c pntest.h
 test_pn_throttle_SOURCES     = test-pn-throttle.c     pntest.c pntest.h
 test_pn_query_SOURCES        = test-pn-query.c        pntest.c pntest.h
 test_pn_edge_SOURCES         = test-pn-edge.c         pntest.c pntest.h
