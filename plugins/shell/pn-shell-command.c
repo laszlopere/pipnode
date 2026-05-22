@@ -165,7 +165,8 @@ pn_shell_command_trigger (PnAutoTrigger *trigger)
 {
     PnShellCommand     *self        = PN_SHELL_COMMAND (trigger);
     PnNode             *node        = PN_NODE (self);
-    gchar              *command     = shell_dup_command_locked (self);
+    gchar              *command_raw = shell_dup_command_locked (self);
+    gchar              *command;
     gchar              *host        = shell_dup_host_locked (self);
     gchar              *stdout_text = NULL;
     gchar              *stderr_text = NULL;
@@ -182,12 +183,17 @@ pn_shell_command_trigger (PnAutoTrigger *trigger)
     /* Skip work entirely while the node is in its "configuration
      * required" state.  The visual marker on the canvas already tells
      * the user; emitting nothing keeps downstream nodes idle. */
-    if (command == NULL || *command == '\0')
+    if (command_raw == NULL || *command_raw == '\0')
     {
-        g_free (command);
+        g_free (command_raw);
         g_free (host);
         return;
     }
+
+    /* Interpolate ${nodeclass} / ${nodename} / ${hostname}; any other
+     * ${...} is left for the login shell to expand (e.g. ${HOME}). */
+    command = pn_node_expand_vars (node, command_raw);
+    g_free (command_raw);
 
     /* Local: spawn /bin/sh -c <command> directly so pipes, redirections
      * and variable expansion work without us tokenising the one-liner

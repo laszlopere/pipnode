@@ -21,6 +21,7 @@
 
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-subst.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -58,6 +59,7 @@ struct _PnMqttSink
      * main thread inside receive, before handing bytes to
      * mosquitto_publish which has its own internal locking. */
     gchar  *url;
+    gchar  *topic_template;   /* "" -> use inbound envelope topic    */
     gchar  *payload_template; /* "" -> use inbound data.payload      */
     gchar  *username;
     gchar  *password;
@@ -75,6 +77,7 @@ G_DEFINE_TYPE (PnMqttSink, pn_mqtt_sink, PN_TYPE_NODE)
 enum {
     PROP_0,
     PROP_URL,
+    PROP_TOPIC,
     PROP_PAYLOAD,
     PROP_RETAIN,
     PROP_USERNAME,
@@ -237,83 +240,27 @@ parse_mqtt_url (
 /*  envelope and data bag directly.                                    */
 /* ------------------------------------------------------------------ */
 
-/** Stringify a #JsonNode the way the placeholder expander wants:
- *  scalars (string, int, double, bool) render as their natural text
- *  form; objects and arrays render as compact JSON; %NULL renders as
- *  the empty string. */
-static gchar *
-node_to_string (JsonNode *node)
-{
-    if (node == NULL)
-        return g_strdup ("");
-
-    if (JSON_NODE_HOLDS_VALUE (node))
-    {
-        GType t = json_node_get_value_type (node);
-
-        if (t == G_TYPE_STRING)
-            return g_strdup (json_node_get_string (node));
-        if (t == G_TYPE_INT64)
-            return g_strdup_printf ("%" G_GINT64_FORMAT,
-                                    json_node_get_int (node));
-        if (t == G_TYPE_DOUBLE)
-            return g_strdup_printf ("%g", json_node_get_double (node));
-        if (t == G_TYPE_BOOLEAN)
-            return g_strdup (json_node_get_boolean (node) ? "true" : "false");
-        return g_strdup ("");
-    }
-
-    {
-        JsonGenerator *gen = json_generator_new ();
-        gchar         *out;
-
-        json_generator_set_root (gen, node);
-        out = json_generator_to_data (gen, NULL);
-        g_object_unref (gen);
-        return out != NULL ? out : g_strdup ("");
-    }
-}
-
+/** Expand every "${path}" in @tmpl to the plain-text form of the JSON
+ *  value at that path against @root.  Same `${path/to/field}` syntax
+ *  PnFormat / PnRewrite use; unknown paths render as the empty string,
+ *  an unterminated "${" is emitted verbatim. */
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
         JsonObject  *root)
 {
-    GString     *out;
-    const gchar *p;
+    PnSubstResolver  resolver;
+    PnSubstResolver *chain[2];
+    PnSubstContext   ctx;
 
-    if (tmpl == NULL)
-        return g_strdup ("");
+    pn_subst_resolver_json (&resolver, root);
+    chain[0] = &resolver;
+    chain[1] = NULL;
+    ctx.resolvers = chain;
+    ctx.mode      = PN_SUBST_TEXT;
+    ctx.miss      = PN_SUBST_MISS_EMPTY;
 
-    out = g_string_new (NULL);
-    p   = tmpl;
-
-    while (*p != '\0')
-    {
-        if (p[0] == '$' && p[1] == '{')
-        {
-            const gchar *end = strchr (p + 2, '}');
-
-            if (end != NULL)
-            {
-                gchar    *path  = g_strndup (p + 2, end - (p + 2));
-                JsonNode *node  = pn_json_resolve_path (root, path);
-                gchar    *value = node_to_string (node);
-
-                g_string_append (out, value);
-
-                g_free (value);
-                g_free (path);
-                p = end + 1;
-                continue;
-            }
-        }
-
-        g_string_append_c (out, *p);
-        p++;
-    }
-
-    return g_string_free (out, FALSE);
+    return pn_subst_expand (tmpl, &ctx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -508,6 +455,7 @@ pn_mqtt_sink_receive (
 {
     PnMqttSink  *self = PN_MQTT_SINK (node);
     const gchar *publish_topic;
+    gchar       *topic_owned = NULL;
     gchar       *payload = NULL;
     gsize        payload_len = 0;
     int          err;
@@ -519,17 +467,54 @@ pn_mqtt_sink_receive (
     if (self->client == NULL || !self->connected)
         return;
 
-    /* Publish topic comes straight off the inbound envelope -- a
-     * canvas pattern like `Tasmota Switch -> Rewrite (topic =
+    /* Publish topic.  With an explicit template, expand it against this
+     * node's variables (${nodeclass} / ${nodename} / ${hostname}) and
+     * the incoming message (${topic}, ${data/device}, ...).  Without a
+     * template it comes straight off the inbound envelope -- a canvas
+     * pattern like `Tasmota Switch -> Rewrite (topic =
      * cmnd/${data/device}/POWER) -> MQTT Sink` then drives the right
-     * broker topic per message without the sink itself having to
-     * carry a topic template.  Messages without a topic are dropped. */
-    publish_topic = strip_mqtt_prefix (pn_message_get_topic (message));
+     * broker topic per message.  Messages with no resulting topic are
+     * dropped. */
+    if (self->topic_template != NULL && *self->topic_template != '\0')
+    {
+        JsonObject      *root  = pn_json_lookup_root_for_message (message);
+        gchar          **pairs = pn_node_dup_subst_pairs (node);
+        PnSubstResolver  vars, msg;
+        PnSubstResolver *chain[3];
+        PnSubstContext   ctx;
+
+        pn_subst_resolver_strv (&vars, (const gchar * const *) pairs);
+        pn_subst_resolver_json (&msg, root);
+        chain[0] = &vars;     /* node vars win */
+        chain[1] = &msg;      /* then message fields */
+        chain[2] = NULL;
+        ctx.resolvers = chain;
+        ctx.mode      = PN_SUBST_TEXT;
+        ctx.miss      = PN_SUBST_MISS_EMPTY;
+
+        topic_owned = pn_subst_expand (self->topic_template, &ctx);
+
+        g_strfreev (pairs);
+        json_object_unref (root);
+
+        publish_topic = strip_mqtt_prefix (topic_owned);
+    }
+    else
+    {
+        publish_topic = strip_mqtt_prefix (pn_message_get_topic (message));
+    }
+
     if (publish_topic == NULL || *publish_topic == '\0')
+    {
+        g_free (topic_owned);
         return;
+    }
 
     if (!build_payload (self, message, &payload, &payload_len))
+    {
+        g_free (topic_owned);
         return;
+    }
 
     err = mosquitto_publish (self->client,
                              NULL,                 /* mid -- we do not track */
@@ -543,6 +528,7 @@ pn_mqtt_sink_receive (
                    publish_topic, mosquitto_strerror (err));
 
     g_free (payload);
+    g_free (topic_owned);
 }
 
 /* ------------------------------------------------------------------ */
@@ -678,6 +664,7 @@ pn_mqtt_sink_get_property (
     switch (prop_id)
     {
     case PROP_URL:       g_value_set_string  (value, self->url);              break;
+    case PROP_TOPIC:     g_value_set_string  (value, self->topic_template);   break;
     case PROP_PAYLOAD:   g_value_set_string  (value, self->payload_template); break;
     case PROP_RETAIN:    g_value_set_boolean (value, self->retain);           break;
     case PROP_USERNAME:  g_value_set_string  (value, self->username);         break;
@@ -704,6 +691,10 @@ pn_mqtt_sink_set_property (
         g_free (self->url);
         self->url = g_value_dup_string (value);
         restart_client (self);
+        break;
+    case PROP_TOPIC:
+        g_free (self->topic_template);
+        self->topic_template = g_value_dup_string (value);
         break;
     case PROP_PAYLOAD:
         g_free (self->payload_template);
@@ -755,6 +746,7 @@ pn_mqtt_sink_finalize (GObject *object)
     PnMqttSink *self = PN_MQTT_SINK (object);
 
     g_clear_pointer (&self->url,              g_free);
+    g_clear_pointer (&self->topic_template,   g_free);
     g_clear_pointer (&self->payload_template, g_free);
     g_clear_pointer (&self->username,         g_free);
     g_clear_pointer (&self->password,         g_free);
@@ -797,6 +789,20 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             "Sink pair dropped onto a fresh worksheet talk to the "
             "same broker without configuration.",
             PN_MQTT_SINK_DEFAULT_URL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_TOPIC] = g_param_spec_string (
+            "topic-template", "Topic template",
+            "Optional publish-topic template.  When empty the publish "
+            "topic comes straight off the inbound message envelope (the "
+            "common case: a Rewrite step upstream sets the topic).  When "
+            "non-empty it is expanded and used as the publish topic: "
+            "${nodeclass} / ${nodename} / ${hostname} resolve against "
+            "this node, and ${path/to/field} (e.g. ${topic} or "
+            "${data/device}) resolves against the incoming message, so "
+            "'cmnd/${data/device}/POWER' or 'sensors/${hostname}/temp' "
+            "drive the broker topic per message.",
+            NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_PAYLOAD] = g_param_spec_string (
@@ -867,6 +873,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     PnNode *node = PN_NODE (self);
 
     self->url              = g_strdup (PN_MQTT_SINK_DEFAULT_URL);
+    self->topic_template   = NULL;
     self->payload_template = NULL;
     self->username         = NULL;
     self->password         = NULL;

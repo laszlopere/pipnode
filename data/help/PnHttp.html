@@ -26,10 +26,19 @@ response with non-empty body), <code>data.output</code> (reply body
 or error string), and the raw HTTP status. While the URL is empty
 the node enters its red configuration-required state.
 </p>
+<p>
+The URL may embed the node variables <code>${nodeclass}</code>,
+<code>${nodename}</code>, and <code>${hostname}</code>, which are
+substituted before each request (for example
+<code>https://${hostname}/metrics</code>). Any other
+<code>${...}</code> is left untouched.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>url</code></td>
-      <td>Absolute URL to fetch. Required.</td></tr>
+      <td>Absolute URL to fetch. Required.
+          <code>${nodeclass}</code> / <code>${nodename}</code> /
+          <code>${hostname}</code> are substituted.</td></tr>
   <tr><td><code>period</code></td>
       <td>Seconds between requests.</td></tr>
 </table>

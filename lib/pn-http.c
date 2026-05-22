@@ -216,7 +216,10 @@ default_build_command (
         guint   timeout)
 {
     gchar *url        = pn_http_dup_url (self);
-    gchar *quoted_url = g_shell_quote (url ? url : "");
+    /* Interpolate ${nodeclass} / ${nodename} / ${hostname} into the URL;
+     * any other ${...} is left verbatim. */
+    gchar *expanded   = pn_node_expand_vars (PN_NODE (self), url);
+    gchar *quoted_url = g_shell_quote (expanded);
     gchar *cmd;
 
     cmd = g_strdup_printf (
@@ -227,6 +230,7 @@ default_build_command (
             timeout, PN_HTTP_STATUS_SENTINEL, quoted_url);
 
     g_free (quoted_url);
+    g_free (expanded);
     g_free (url);
     return cmd;
 }

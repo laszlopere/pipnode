@@ -40,10 +40,21 @@ The emitted message carries:
 While <code>shell-command</code> is empty the node turns red, shows
 a warning glyph, and skips its triggers entirely.
 </p>
+<p>
+The command may embed the node variables <code>${nodeclass}</code>,
+<code>${nodename}</code>, and <code>${hostname}</code>, which Pipnode
+substitutes before the command runs &mdash; for example
+<code>ssh ${hostname} uptime</code>. Any other <code>${...}</code> is
+left untouched, so ordinary shell variables such as <code>${HOME}</code>
+are still expanded by the shell itself.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>shell-command</code></td>
-      <td>One-line shell command to execute. Required.</td></tr>
+      <td>One-line shell command to execute. Required.
+          <code>${nodeclass}</code> / <code>${nodename}</code> /
+          <code>${hostname}</code> are substituted; any other
+          <code>${...}</code> is left for the shell.</td></tr>
   <tr><td><code>host</code></td>
       <td>Where to run the command.  Default: the empty string &mdash;
           the local machine, whose name appears as a grey hint in the

@@ -41,12 +41,25 @@ follows.
 
 <h5>Publish topic</h5>
 <p>
-The publish topic is taken from each inbound message's
-<code>topic</code> envelope field &mdash; the sink itself carries no
-topic property. Per-message routing is the upstream's concern: drop
-a <em>Rewrite</em> in front of the sink to stamp the topic you want,
-e.g. <code>topic = cmnd/${data/device}/POWER</code> for Tasmota relay
-control, and every message flows through with its own destination.
+By default the publish topic is taken from each inbound message's
+<code>topic</code> envelope field. Per-message routing is then the
+upstream's concern: drop a <em>Rewrite</em> in front of the sink to
+stamp the topic you want, e.g. <code>topic = cmnd/${data/device}/POWER</code>
+for Tasmota relay control, and every message flows through with its own
+destination.
+</p>
+<p>
+Alternatively, set the <code>topic-template</code> property to compute
+the publish topic on the sink itself. The template is expanded per
+message: <code>${nodeclass}</code>, <code>${nodename}</code>, and
+<code>${hostname}</code> resolve against this node, while
+<code>${path/to/field}</code> (such as <code>${topic}</code> or
+<code>${data/device}</code>) resolves against the incoming message JSON
+&mdash; a node variable wins over a message field of the same name.
+So <code>cmnd/${data/device}/POWER</code> or
+<code>sensors/${hostname}/temp</code> drive the broker topic without a
+separate <em>Rewrite</em> step. Leave it empty to use the envelope
+topic as before.
 </p>
 <p>
 When the inbound topic begins with the literal prefix
