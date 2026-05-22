@@ -46,6 +46,7 @@ pnhelp_DATA = \
 	help/PnRtc.html \
 	help/PnSet.html \
 	help/PnSound.html \
+	help/PnStaircase.html \
 	help/PnStats.html \
 	help/PnSwitch.html \
 	help/PnTable.html \

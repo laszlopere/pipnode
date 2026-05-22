@@ -61,6 +61,7 @@
 #include "pn-rtc.h"
 #include "pn-set.h"
 #include "pn-sound.h"
+#include "pn-staircase.h"
 #include "pn-stats.h"
 #include "pn-switch.h"
 #include "pn-table.h"
@@ -232,6 +233,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_RATE);
     pn_node_factory_register (self, PN_TYPE_REWRITE);
     pn_node_factory_register (self, PN_TYPE_SET);
+    pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);
     pn_node_factory_register (self, PN_TYPE_THRESHOLD);

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Staircase (PnStaircase) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnStaircase">Staircase</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnStaircase</code>.
+</p>
+<p>
+Monostable timer, named after the stairwell light switch you press once
+and that turns itself off a while later. A <em>trigger</em> &mdash; any
+message whose <code>data.value</code> is greater than <code>0.5</code>
+&mdash; is forwarded unchanged, after which the node arms a single
+one-shot timer and goes quiet. When <code>on-time-ms</code> milliseconds
+have elapsed it emits a fresh message carrying
+<code>data.value&nbsp;=&nbsp;0.0</code> as the turn-off signal and returns
+to its resting state.
+</p>
+<p>
+Messages that are not triggers &mdash; <code>data.value</code> at or
+below <code>0.5</code>, or no numeric <code>data.value</code> at all
+&mdash; are dropped. The node owns the off edge: nothing external
+disturbs the timed window, so the turn-off you see downstream is always
+the one this node scheduled.
+</p>
+<p>
+What happens to a trigger that arrives while the node is already on
+depends on <code>retriggerable</code>. When it is on (the default), each
+fresh trigger restarts the timer and pushes the turn-off further into
+the future &mdash; the stairwell light you keep tapping to stay lit. When
+it is off, in-window triggers are ignored and the original turn-off time
+stands. Either way a re-trigger is never re-forwarded, because whatever
+is downstream is already on.
+</p>
+<p>
+The turn-off message reuses the topic of the trigger that started the
+window, so a downstream consumer that filters by topic sees the on and
+off edges as a matched pair. Changing <code>on-time-ms</code> while a
+window is counting down does not move that window's deadline; the new
+value governs the next trigger. A timer still counting down when the
+node is deleted (or the worksheet closed) is cancelled without emitting
+the turn-off.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>on-time-ms</code></td>
+      <td>Milliseconds the node stays on after a trigger before it emits
+          the <code>value = 0.0</code> turn-off message.</td></tr>
+  <tr><td><code>retriggerable</code></td>
+      <td>When on, a trigger that arrives during the window restarts the
+          timer (delaying the turn-off) instead of being ignored.</td></tr>
+</table>
+
+</body>
+</html>

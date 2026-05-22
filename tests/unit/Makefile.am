@@ -62,6 +62,7 @@ check_PROGRAMS = \
 	test-pn-json-path \
 	test-pn-jmespath \
 	test-pn-subst \
+	test-pn-staircase \
 	test-pn-auto-trigger
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
@@ -102,6 +103,7 @@ test_pn_expr_parser_SOURCES   = test-pn-expr-parser.c   pntest.c pntest.h
 test_pn_json_path_SOURCES     = test-pn-json-path.c     pntest.c pntest.h
 test_pn_jmespath_SOURCES      = test-pn-jmespath.c      pntest.c pntest.h
 test_pn_subst_SOURCES         = test-pn-subst.c         pntest.c pntest.h
+test_pn_staircase_SOURCES     = test-pn-staircase.c     pntest.c pntest.h
 test_pn_auto_trigger_SOURCES  = test-pn-auto-trigger.c  pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
