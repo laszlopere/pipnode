@@ -102,6 +102,28 @@ gboolean  pn_switch_get_on    (PnSwitch *self);
 void      pn_switch_toggle    (PnSwitch *self);
 
 /**
+ * pn_switch_set_announce_on_startup:
+ * @self:     the switch node
+ * @announce: whether to emit the latch state once shortly after construction
+ *
+ * By default a switch announces its current position once, shortly
+ * after it is constructed, so a freshly-loaded worksheet lets
+ * downstream nodes learn the latch state without a user click -- the
+ * same "report on startup" behaviour #PnKnob and the periodic data
+ * sources have.
+ *
+ * Subclasses whose outbound message has an outward side effect -- e.g.
+ * #PnTasmotaSwitch, whose build_outbound_message() produces an MQTT
+ * *command* that would flip a physical relay -- call this with @announce
+ * = %FALSE from their instance init (which runs before the base
+ * constructed schedules the shot) so opening a worksheet never silently
+ * actuates hardware.  Passing %FALSE after construction also cancels an
+ * already-scheduled announce.
+ */
+void      pn_switch_set_announce_on_startup (PnSwitch *self,
+                                             gboolean  announce);
+
+/**
  * pn_switch_hit_slider:
  * @self: the switch node
  * @px:   x in worksheet coordinates

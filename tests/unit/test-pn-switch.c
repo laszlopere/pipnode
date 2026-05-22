@@ -122,6 +122,52 @@ test_passthrough_without_value (void)
     g_object_unref (node);
 }
 
+static void
+test_announces_state_once_on_startup (void)
+{
+    guint   emits;
+    PnNode *node = make_node (&emits);
+
+    /* A switch announces its latch state once shortly after construction
+     * so a freshly-loaded worksheet lets downstream nodes learn the
+     * position without a click.  The announce is a one-shot main-loop
+     * idle scheduled at construction; nothing has fired yet. */
+    g_object_set (node, "on", TRUE, NULL);   /* set silently */
+    PN_CHECK_CMPINT (emits, ==, 0);
+
+    /* Pump the default context until the idle fires. */
+    while (emits == 0 && g_main_context_iteration (NULL, TRUE))
+        ;
+    PN_CHECK_CMPINT (emits, ==, 1);
+
+    /* One-shot: it does not recur like a periodic data source. */
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
+    PN_CHECK_CMPINT (emits, ==, 1);
+
+    g_object_unref (node);
+}
+
+static void
+test_announce_opt_out_is_silent (void)
+{
+    guint   emits;
+    PnNode *node = make_node (&emits);
+
+    /* Opting out cancels the pending announce so no startup emit fires
+     * -- the behaviour PnTasmotaSwitch relies on (it opts out from its
+     * init, before the base schedules the shot) so opening a worksheet
+     * never commands a physical relay.  Here the call lands just after
+     * construction, exercising the late-cancel branch of the setter. */
+    pn_switch_set_announce_on_startup (PN_SWITCH (node), FALSE);
+
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
+    PN_CHECK_CMPINT (emits, ==, 0);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -129,5 +175,7 @@ main (int argc, char **argv)
     pn_test_add ("latch_drops_noops",      test_latches_and_drops_noops);
     pn_test_add ("midpoint_is_off",        test_midpoint_counts_as_off);
     pn_test_add ("passthrough_no_value",   test_passthrough_without_value);
+    pn_test_add ("startup_announce",       test_announces_state_once_on_startup);
+    pn_test_add ("startup_opt_out",        test_announce_opt_out_is_silent);
     return pn_test_run ();
 }

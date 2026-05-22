@@ -395,6 +395,17 @@ pn_tasmota_switch_init (PnTasmotaSwitch *self)
 
     pn_node_set_class_name (node, "Tasmota Switch");
 
+    /* Opt out of the base #PnSwitch startup announce: our
+     * build_outbound_message() emits an MQTT relay *command*
+     * (cmnd/<device>/POWER = ON/OFF), so auto-emitting on load would
+     * silently actuate the physical relay every time a worksheet opens
+     * -- exactly the kind of outward side effect the base announce must
+     * not trigger here.  This runs before the base constructed schedules
+     * the shot, so it is suppressed outright.  (A relay's state instead
+     * arrives via inbound stat/POWER messages, which sync the latch
+     * silently -- see pn_tasmota_switch_receive.) */
+    pn_switch_set_announce_on_startup (PN_SWITCH (self), FALSE);
+
     /* Start in the unconfigured (red ❗) state so a freshly-dropped
      * node visibly refuses to operate until the user fills in the
      * switch-name field.  apply_visual_state inspects switch_name

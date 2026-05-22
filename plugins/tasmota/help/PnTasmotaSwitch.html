@@ -56,6 +56,16 @@ shorthand for the common case.
           the same value form it would have from the factored
           chain.</td></tr>
 </table>
+<p>
+<strong>No startup command.</strong> The base <em>Switch</em> announces
+its latch state once when a worksheet loads, so downstream nodes learn
+its position without a click.  The Tasmota Switch deliberately
+<em>suppresses</em> that announce: its output is a physical relay
+command, and re-issuing it on every load would actuate the relay just
+because someone opened the worksheet.  The relay's true state instead
+arrives over the inbound <code>stat/&hellip;/POWER</code> path, which
+syncs the slider silently.
+</p>
 
 <h5>Configuration</h5>
 <table>

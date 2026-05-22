@@ -47,6 +47,16 @@ Messages without a numeric <code>value</code> cannot drive that
 cycle and may carry annotations the user expects to flow through, so
 they pass through unchanged with the latch left alone.
 </p>
+<p>
+On startup the switch emits its current position once, shortly after
+the worksheet loads, so downstream nodes know the latch state without
+waiting for a click.  This mirrors how the periodic data sources (and
+the Knob) report on load, but it is a single shot &mdash; the switch
+never re-emits on a timer.  Device-flavoured subclasses whose output is
+a physical command (the <code>Tasmota&nbsp;Switch</code>, which sends an
+MQTT relay command) deliberately suppress this so opening a worksheet
+never actuates hardware.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>on</code></td>

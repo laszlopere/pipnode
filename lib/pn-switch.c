@@ -55,6 +55,16 @@ typedef struct
      * "value" -- flipped by a click on the switch, or by an incoming
      * message whose value crosses the midpoint. */
     gboolean on;
+
+    /* Startup announce.  @announce_on_startup gates whether the switch
+     * emits its latch state once shortly after construction (default
+     * TRUE; subclasses with an outward side effect clear it via
+     * pn_switch_set_announce_on_startup()).  @startup_emit_id is the
+     * main-loop source id of that one-shot idle, 0 once it has fired or
+     * been cancelled, tracked so dispose() can pull it if the node dies
+     * before the idle runs. */
+    gboolean announce_on_startup;
+    guint    startup_emit_id;
 } PnSwitchPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnSwitch, pn_switch, PN_TYPE_NODE)
@@ -413,8 +423,70 @@ pn_switch_set_property (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Startup announce                                                    */
+/*                                                                      */
+/*  A switch is a manual source/latch: without a one-shot announce a    */
+/*  freshly-loaded (or freshly-dropped) switch would leave every        */
+/*  downstream node ignorant of its position until the first click or   */
+/*  inbound edge -- the same gap the periodic data sources and PnKnob   */
+/*  close by reporting once shortly after the worksheet loads.  The     */
+/*  emit goes through the build_outbound_message vfunc, so a subclass'  */
+/*  message shape is honoured; subclasses whose outbound has an outward */
+/*  side effect (PnTasmotaSwitch builds an MQTT relay *command*) opt    */
+/*  out via pn_switch_set_announce_on_startup() so opening a worksheet  */
+/*  never silently actuates hardware.                                   */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+emit_startup_state (gpointer data)
+{
+    PnSwitch *self = PN_SWITCH (data);
+
+    PRIV (self)->startup_emit_id = 0;
+    emit_state_message (self);
+
+    return G_SOURCE_REMOVE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
+
+static void
+pn_switch_constructed (GObject *object)
+{
+    PnSwitch        *self = PN_SWITCH (object);
+    PnSwitchPrivate *priv = PRIV (self);
+
+    G_OBJECT_CLASS (pn_switch_parent_class)->constructed (object);
+
+    /* Defer the announce to a main-loop idle rather than emitting here:
+     * at construction time the load path has built this node but not yet
+     * attached its output wires (node_from_json creates every node first,
+     * applies their properties, then connects the wires), so an emit now
+     * would reach nobody.  By the time the idle runs the load call has
+     * returned to the main loop, the graph is fully wired, and priv->on
+     * holds the latch position restored from the file.  The idle holds no
+     * reference on @self; dispose() pulls it if the node dies first.  A
+     * subclass that cleared announce_on_startup in its init (which runs
+     * before this base constructed) skips the shot entirely. */
+    if (priv->announce_on_startup)
+        priv->startup_emit_id = g_idle_add (emit_startup_state, self);
+}
+
+static void
+pn_switch_dispose (GObject *object)
+{
+    PnSwitchPrivate *priv = PRIV (PN_SWITCH (object));
+
+    if (priv->startup_emit_id != 0)
+    {
+        g_source_remove (priv->startup_emit_id);
+        priv->startup_emit_id = 0;
+    }
+
+    G_OBJECT_CLASS (pn_switch_parent_class)->dispose (object);
+}
 
 static void
 pn_switch_class_init (PnSwitchClass *klass)
@@ -424,6 +496,8 @@ pn_switch_class_init (PnSwitchClass *klass)
 
     object_class->get_property = pn_switch_get_property;
     object_class->set_property = pn_switch_set_property;
+    object_class->constructed  = pn_switch_constructed;
+    object_class->dispose      = pn_switch_dispose;
 
     node_class->receive              = pn_switch_receive;
     node_class->get_size             = pn_switch_get_size;
@@ -458,9 +532,12 @@ pn_switch_class_init (PnSwitchClass *klass)
 static void
 pn_switch_init (PnSwitch *self)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode          *node = PN_NODE (self);
+    PnSwitchPrivate *priv = PRIV (self);
 
-    PRIV (self)->on = FALSE;
+    priv->on                  = FALSE;
+    priv->announce_on_startup = TRUE;
+    priv->startup_emit_id     = 0;
 
     pn_node_set_class_name (node, "Switch");
     pn_node_set_icon       (node, PN_SWITCH_ICON);
@@ -488,6 +565,27 @@ pn_switch_get_on (PnSwitch *self)
 {
     g_return_val_if_fail (PN_IS_SWITCH (self), FALSE);
     return PRIV (self)->on;
+}
+
+void
+pn_switch_set_announce_on_startup (
+        PnSwitch *self,
+        gboolean  announce)
+{
+    PnSwitchPrivate *priv;
+
+    g_return_if_fail (PN_IS_SWITCH (self));
+
+    priv = PRIV (self);
+    priv->announce_on_startup = announce;
+
+    /* If the shot was already scheduled (the setter ran after the base
+     * constructed) honour a late opt-out by pulling the pending idle. */
+    if (!announce && priv->startup_emit_id != 0)
+    {
+        g_source_remove (priv->startup_emit_id);
+        priv->startup_emit_id = 0;
+    }
 }
 
 void
