@@ -14,14 +14,38 @@
 <em>Group:</em> Sinks. <em>Type:</em> <code>PnLed</code>.
 </p>
 <p>
-A simple activity indicator shaped like a real 5&nbsp;mm through-hole
-LED clipped into a black panel-mount bracket, drawn inset on the right
-side of the node header.  Every incoming message turns the LED on in
-its configured colour; it stays lit until the configured hold period
-elapses with no further messages arriving.  Useful as a heartbeat /
-liveness widget at the end of a pipeline &mdash; wire it after a
-filter to see at a glance that messages are still flowing, or after a
-network probe to confirm a remote host is still responding.
+A status indicator shaped like a real 5&nbsp;mm through-hole LED
+clipped into a black panel-mount bracket, drawn inset on the right
+side of the node header.  The <code>mode</code> property selects one of
+two behaviours: <strong>Flash</strong> (the default) lights the LED on
+every incoming message and self-extinguishes on a timer, so it reads
+as an activity blink; <strong>Steady (level)</strong> instead latches
+the LED to the boolean carried on <code>data.value</code>, so it reads
+as a permanent on/off state lamp.  Useful as a heartbeat / liveness
+widget at the end of a pipeline &mdash; wire the Flash mode after a
+filter to see at a glance that messages are still flowing, or wire the
+Steady mode after a <code>Threshold</code> / <code>Comparator</code> to
+show a latched on/off condition.
+</p>
+
+<h5>Modes</h5>
+<p>
+<strong>Flash</strong> &mdash; every message turns the LED on in its
+configured colour and (re)arms the off timer; the LED stays lit until
+the hold period elapses with no further messages.  A steady stream of
+messages keeps it continuously lit.  This is the historical behaviour
+and the default.
+</p>
+<p>
+<strong>Steady (level)</strong> &mdash; the LED follows the number on
+<code>data.value</code>: it lights when the value is above the
+0.5&nbsp;midpoint and goes dark at or below it (the same
+boolean-on-<code>value</code> convention <code>Threshold</code> and
+<code>Comparator</code> emit).  A message that carries no numeric
+<code>value</code> leaves the lamp where it is.  No timer is involved,
+so the lamp holds its level until the next value arrives &mdash; the
+<code>hold-ms</code> property is therefore ignored in this mode, and
+the settings dialog greys it out while Steady is selected.
 </p>
 <p>
 The bracket is a thick black ring with a thin lighter highlight on its
@@ -37,16 +61,21 @@ the off state.
 
 <h5>Timing</h5>
 <p>
-The hold period (<code>hold-ms</code>) is the minimum time the LED
-stays lit after the most-recent message.  Every new message resets the
-timer, so a steady stream of messages keeps the LED continuously lit.
-The minimum value is 100&nbsp;ms &mdash; below that a one-shot flash
-would not be reliably visible on a 60&nbsp;Hz display.
+In Flash mode the hold period (<code>hold-ms</code>) is the minimum
+time the LED stays lit after the most-recent message.  Every new
+message resets the timer, so a steady stream of messages keeps the LED
+continuously lit.  The minimum value is 100&nbsp;ms &mdash; below that
+a one-shot flash would not be reliably visible on a 60&nbsp;Hz display.
+The hold period has no effect in Steady mode.
 </p>
 
 <h5>Properties</h5>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>mode</code></td>
+      <td><em>Flash</em> blinks the LED on each message for the hold
+          period; <em>Steady (level)</em> latches the LED to the
+          boolean on <code>data.value</code>.  Default: Flash.</td></tr>
   <tr><td><code>color</code></td>
       <td>Colour the LED glows in while lit.  The unlit face is always
           a neutral grey &mdash; only the lit state uses this colour.
@@ -54,7 +83,8 @@ would not be reliably visible on a 60&nbsp;Hz display.
           indicator.</td></tr>
   <tr><td><code>hold-ms</code></td>
       <td>Minimum hold time in milliseconds after the most-recent
-          message.  Floor of 100&nbsp;ms.  Default: 250&nbsp;ms.</td></tr>
+          message (Flash mode only; ignored in Steady mode).  Floor of
+          100&nbsp;ms.  Default: 250&nbsp;ms.</td></tr>
 </table>
 
 </body>

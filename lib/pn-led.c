@@ -19,6 +19,7 @@
 
 #include "pn-led.h"
 #include "pn-message.h"
+#include "pn-node-dialog-helpers.h"
 
 #include <math.h>
 
@@ -60,8 +61,9 @@ struct _PnLed
      * most-recent message.  Anything below 100 ms is clamped at the
      * property layer so a one-shot flash is still visible on a 60 Hz
      * display. */
-    GdkRGBA  color;
-    guint    hold_ms;
+    GdkRGBA   color;
+    guint     hold_ms;
+    PnLedMode mode;
 
     /* Live state.  @lit is TRUE between the most-recent message and
      * the hold timer firing; @off_timeout_id is the g_timeout source
@@ -77,10 +79,35 @@ enum {
     PROP_0,
     PROP_COLOR,
     PROP_HOLD_MS,
+    PROP_MODE,
     N_PROPS,
 };
 
 static GParamSpec *props[N_PROPS];
+
+/* ------------------------------------------------------------------ */
+/*  Mode enum GType                                                     */
+/* ------------------------------------------------------------------ */
+
+GType
+pn_led_mode_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_LED_MODE_FLASH,  "PN_LED_MODE_FLASH",  "Flash"          },
+            { PN_LED_MODE_STEADY, "PN_LED_MODE_STEADY", "Steady (level)" },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnLedMode", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
 
 /* The smallest hold period the user can configure.  Anything shorter
  * than this would be invisible on a 60 Hz display (one frame is ~16 ms
@@ -110,16 +137,57 @@ on_off_timeout (gpointer user_data)
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
+/** Pull a number out of @message under "value".  Returns %TRUE only
+ *  when the member exists and holds a numeric JSON value (int or
+ *  double); @out is left untouched otherwise.  Matches the reader
+ *  PnThreshold / PnComparator use so the boolean-on-value contract is
+ *  interpreted identically across the Filters and Sinks nodes. */
+static gboolean
+read_value (PnMessage *message, gdouble *out)
+{
+    JsonNode *node = pn_message_get_member (message, "value");
+    GType     vt;
+
+    if (node == NULL || !JSON_NODE_HOLDS_VALUE (node))
+        return FALSE;
+
+    vt = json_node_get_value_type (node);
+    if (vt != G_TYPE_DOUBLE && vt != G_TYPE_INT64)
+        return FALSE;
+
+    *out = json_node_get_double (node);
+    return TRUE;
+}
+
 static void
 pn_led_receive (PnNode *node, PnMessage *message)
 {
     PnLed   *self    = PN_LED (node);
     gboolean was_lit = self->lit;
 
+    if (self->mode == PN_LED_MODE_STEADY)
+    {
+        gdouble value;
+
+        /* State lamp: latch to the boolean on data.value -- on above
+         * the 0.5 midpoint, off at or below it.  A message that carries
+         * no numeric value leaves the lamp where it is; a state lamp
+         * only moves when handed a new state.  No timer is involved, so
+         * the lamp holds its level until the next value arrives.        */
+        if (!read_value (message, &value))
+            return;
+
+        self->lit = (value > 0.5);
+        if (self->lit != was_lit)
+            pn_node_request_repaint (PN_NODE (self));
+        return;
+    }
+
+    /* Flash mode: reschedule the off-timer so the LED stays lit for the
+     * full hold period from the most-recent message, not from the
+     * first.                                                            */
     (void) message;
 
-    /* Reschedule the off-timer so the LED stays lit for the full hold
-     * period from the most-recent message, not from the first.        */
     if (self->off_timeout_id != 0)
     {
         g_source_remove (self->off_timeout_id);
@@ -352,6 +420,7 @@ pn_led_get_property (
     {
     case PROP_COLOR:   g_value_set_boxed (value, &self->color);  break;
     case PROP_HOLD_MS: g_value_set_uint  (value, self->hold_ms); break;
+    case PROP_MODE:    g_value_set_enum  (value, self->mode);    break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -388,9 +457,86 @@ pn_led_set_property (
         g_object_notify_by_pspec (object, props[PROP_HOLD_MS]);
         break;
     }
+    case PROP_MODE:
+    {
+        PnLedMode new_mode = g_value_get_enum (value);
+        if (self->mode == new_mode)
+            return;
+        self->mode = new_mode;
+
+        /* Switching modes starts from a clean, dark lamp: cancel any
+         * pending flash off-timer and drop the lit state so the lamp
+         * reflects the new mode's next input rather than a stale blink
+         * left over from the other mode. */
+        if (self->off_timeout_id != 0)
+        {
+            g_source_remove (self->off_timeout_id);
+            self->off_timeout_id = 0;
+        }
+        self->lit = FALSE;
+
+        g_object_notify_by_pspec (object, props[PROP_MODE]);
+        pn_node_request_repaint (PN_NODE (self));
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings dialog: PnNodeClass.build_property_editor override        */
+/*                                                                     */
+/*  Hold (ms) only governs the Flash mode self-extinguish timer; in    */
+/*  Steady mode the lamp follows data.value and the field does         */
+/*  nothing.  Rather than hide it (which would also drop the hint that  */
+/*  it exists), we grey the spin button out whenever the mode is       */
+/*  Steady and re-enable it on Flash, tracking the mode live so the    */
+/*  field dims the instant the user switches the Mode dropdown.         */
+/* ------------------------------------------------------------------ */
+
+static void
+sync_hold_editor_sensitivity (GtkWidget *hold_editor, PnLed *self)
+{
+    gtk_widget_set_sensitive (hold_editor,
+                              self->mode == PN_LED_MODE_FLASH);
+}
+
+static void
+on_mode_notify_sync_hold (
+        GObject    *target,
+        GParamSpec *pspec,
+        gpointer    hold_editor)
+{
+    (void) pspec;
+    sync_hold_editor_sensitivity (GTK_WIDGET (hold_editor), PN_LED (target));
+}
+
+static GtkWidget *
+pn_led_build_property_editor (
+        PnNode     *self,
+        GParamSpec *pspec,
+        GObject    *target,
+        GtkWindow  *parent G_GNUC_UNUSED)
+{
+    if (g_strcmp0 (pspec->name, "hold-ms") == 0)
+    {
+        GtkWidget *editor = pn_node_dialog_default_editor (target, pspec);
+
+        /* Set the initial greyed/enabled state from the node's current
+         * mode, then follow every later mode change.  connect_object
+         * ties the handler's lifetime to the editor widget, so it
+         * auto-disconnects when the dialog (and this row) is destroyed
+         * -- no manual teardown needed. */
+        sync_hold_editor_sensitivity (editor, PN_LED (self));
+        g_signal_connect_object (target, "notify::mode",
+                                 G_CALLBACK (on_mode_notify_sync_hold),
+                                 editor, 0);
+        return editor;
+    }
+
+    /* Every other property uses the host's default editor. */
+    return NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -425,6 +571,7 @@ pn_led_class_init (PnLedClass *klass)
     node_class->get_size             = pn_led_get_size;
     node_class->paint_header_overlay = pn_led_paint_header_overlay;
     node_class->paint_right_decoration_width = PN_LED_RESERVED_RIGHT;
+    node_class->build_property_editor = pn_led_build_property_editor;
 
     node_class->class_name = "LED";
     /* fa-lightbulb-o U+F0EB -- a glyph that is in the bundled
@@ -452,6 +599,17 @@ pn_led_class_init (PnLedClass *klass)
             PN_LED_MIN_HOLD_MS, 60u * 60u * 1000u, PN_LED_DEFAULT_HOLD_MS,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_MODE] = g_param_spec_enum (
+            "mode", "Mode",
+            "How the lamp reacts to incoming messages.  Flash: every "
+            "message lights the lamp for the Hold period, a momentary "
+            "activity blink (the default).  Steady (level): the lamp "
+            "latches to the boolean on data.value -- lit while value > "
+            "0.5, dark otherwise -- so it reads as a permanent state "
+            "lamp.  The Hold (ms) period is ignored in Steady mode.",
+            PN_TYPE_LED_MODE, PN_LED_MODE_FLASH,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -464,6 +622,7 @@ pn_led_init (PnLed *self)
      * indicator on real-world status panels. */
     self->color   = (GdkRGBA){ 0.20, 0.85, 0.30, 1.0 };
     self->hold_ms = PN_LED_DEFAULT_HOLD_MS;
+    self->mode    = PN_LED_MODE_FLASH;
     self->lit            = FALSE;
     self->off_timeout_id = 0;
 

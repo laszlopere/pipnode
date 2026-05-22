@@ -17,7 +17,8 @@
  * timer and only matters on screen, so the headless tests cover the
  * contract that holds without a display: it is a pure sink (it never
  * forwards a message), its hold period is floored so a one-shot flash
- * stays visible, and its colour round-trips through the property. */
+ * stays visible, its colour round-trips through the property, and the
+ * Mode property defaults to Flash and round-trips its two values. */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -89,6 +90,54 @@ test_color_round_trips (void)
     g_object_unref (node);
 }
 
+static void
+test_mode_default_and_round_trip (void)
+{
+    PnNode    *node = PN_NODE (pn_led_new ());
+    PnLedMode  mode = PN_LED_MODE_STEADY;
+
+    /* A fresh LED defaults to Flash -- the historical behaviour. */
+    g_object_get (node, "mode", &mode, NULL);
+    PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_FLASH);
+
+    /* Both values round-trip through the property. */
+    g_object_set (node, "mode", PN_LED_MODE_STEADY, NULL);
+    g_object_get (node, "mode", &mode, NULL);
+    PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_STEADY);
+
+    g_object_set (node, "mode", PN_LED_MODE_FLASH, NULL);
+    g_object_get (node, "mode", &mode, NULL);
+    PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_FLASH);
+
+    g_object_unref (node);
+}
+
+static void
+test_steady_is_still_a_sink (void)
+{
+    guint      emits;
+    PnNode    *node = PN_NODE (pn_led_new ());
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* Steady mode is a sink too: latching to data.value never forwards
+     * a downstream message. */
+    g_object_set (node, "mode", PN_LED_MODE_STEADY, NULL);
+
+    emits = 0;
+    g_signal_connect (node, "message",
+                      G_CALLBACK (pn_test_count_emits), &emits);
+
+    pn_message_set_double (msg, "value", 1.0);
+    pn_node_receive_message (node, msg);
+    pn_message_set_double (msg, "value", 0.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 0);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -96,5 +145,7 @@ main (int argc, char **argv)
     pn_test_add ("is_a_sink",              test_is_a_sink);
     pn_test_add ("hold_ms_floor_default",  test_hold_ms_floor_and_default);
     pn_test_add ("color_round_trips",      test_color_round_trips);
+    pn_test_add ("mode_default_round_trip", test_mode_default_and_round_trip);
+    pn_test_add ("steady_is_still_a_sink", test_steady_is_still_a_sink);
     return pn_test_run ();
 }
