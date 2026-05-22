@@ -54,6 +54,7 @@ pnhelp_DATA = \
 	help/PnThrottle.html \
 	help/PnTts.html \
 	help/PnWatchdog.html \
+	help/PnWeather.html \
 	help/PnWeatherReport.html
 
 # Crypto-currency icons used by the Rate node's settings dialog.

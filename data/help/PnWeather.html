@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weather (PnWeather) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnWeather">Weather</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnWeather</code>.
+</p>
+<p>
+Auto-triggered source that polls the current weather for a named place
+from <a href="https://open-meteo.com/">Open-Meteo</a>, a free, key-less
+API. It is a specialised <em>Http Client</em>: each tick first resolves
+the configured city to latitude/longitude through Open-Meteo's geocoding
+endpoint (the result is cached until the city changes), then fetches the
+forecast for those coordinates. Because that is two requests rather than
+one, the node overrides the plain HTTP trigger while still reusing the
+same <code>curl</code> worker for the forecast fetch.
+</p>
+<p>
+The default cadence is <strong>10&nbsp;minutes</strong> &mdash; weather
+moves slowly and Open-Meteo updates roughly hourly, so this stays well
+clear of the free tier's rate limits. Changing the <code>city</code>
+re-geocodes and fetches within seconds rather than waiting for the next
+period. While the city is empty the node enters its red
+configuration-required state and does not poll.
+</p>
+
+<h5>Output</h5>
+<p>
+The node has no input; wire its output into a <em>Weather Report</em>
+sink for a rendered card, or into a <em>Debug</em>, <em>Graph</em>, or
+<em>Query</em> / <em>JMESPath</em> / <em>JSON Path</em> node. The emitted
+message carries these data-bag members:
+</p>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>success</code></td>
+      <td>Whether a current reading was obtained.</td></tr>
+  <tr><td><code>value</code></td>
+      <td>Current temperature in &deg;C &mdash; the canonical
+          value.</td></tr>
+  <tr><td><code>temperature</code></td>
+      <td>Same as <code>value</code>, explicitly named.</td></tr>
+  <tr><td><code>humidity</code></td>
+      <td>Relative humidity, %.</td></tr>
+  <tr><td><code>wind_speed</code></td>
+      <td>Wind speed at 10&nbsp;m, km/h.</td></tr>
+  <tr><td><code>weather_code</code></td>
+      <td>WMO weather code (integer).</td></tr>
+  <tr><td><code>description</code></td>
+      <td>Human label for the weather code.</td></tr>
+  <tr><td><code>city</code> / <code>country</code></td>
+      <td>The resolved place.</td></tr>
+  <tr><td><code>latitude</code> / <code>longitude</code></td>
+      <td>The resolved coordinates.</td></tr>
+  <tr><td><code>output</code></td>
+      <td>One-line human summary.</td></tr>
+  <tr><td><code>raw</code></td>
+      <td>The provider's full JSON response verbatim, so a downstream
+          node can read any field not promoted to a member above
+          (apparent temperature, day/night flag, cloud cover, pressure,
+          precipitation, wind direction, and so on).</td></tr>
+</table>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>city</code></td>
+      <td>Place name to fetch weather for (e.g. <code>Berlin</code> or
+          <code>Berlin, US</code>). Resolved to coordinates via
+          Open-Meteo's geocoding service before each forecast fetch.
+          Required.</td></tr>
+  <tr><td><code>url</code></td>
+      <td>Open-Meteo forecast endpoint. Defaults to the public service;
+          point it at a self-hosted instance if you run one. The
+          geocoding endpoint is fixed.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between fetches (default 600).</td></tr>
+</table>
+
+</body>
+</html>
