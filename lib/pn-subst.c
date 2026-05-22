@@ -78,7 +78,12 @@ render_node_json (JsonNode *node, gboolean in_string, GString *out)
 {
     if (node == NULL || JSON_NODE_HOLDS_NULL (node))
     {
-        g_string_append (out, "null");
+        /* `null` is a JSON value token, meaningful only in a value slot.
+         * Inside a string literal it is just text, so a null value
+         * collapses to empty there — mirroring the MISS_NULL policy so a
+         * present-but-null value and a missing key read the same. */
+        if (!in_string)
+            g_string_append (out, "null");
         return;
     }
 
@@ -121,7 +126,9 @@ render_node_json (JsonNode *node, gboolean in_string, GString *out)
             return;
         }
 
-        g_string_append (out, "null");
+        /* Unknown scalar GType: treat like null (value token only). */
+        if (!in_string)
+            g_string_append (out, "null");
         return;
     }
 
@@ -135,7 +142,8 @@ render_node_json (JsonNode *node, gboolean in_string, GString *out)
 
         if (json == NULL)
         {
-            g_string_append (out, "null");
+            if (!in_string)
+                g_string_append (out, "null");
             return;
         }
 
@@ -252,7 +260,13 @@ render_key (const PnSubstContext *ctx,
         case PN_SUBST_MISS_EMPTY:
             break;
         case PN_SUBST_MISS_NULL:
-            g_string_append (out, "null");
+            /* `null` is a JSON value token, meaningful only in a value
+             * slot.  Inside a string literal there is no such token, so a
+             * missing key collapses to empty rather than injecting the
+             * misleading word "null" into the string's text.  (@in_string
+             * is only ever set in JSON mode.) */
+            if (!in_string)
+                g_string_append (out, "null");
             break;
         case PN_SUBST_MISS_VERBATIM:
             g_string_append (out, "${");

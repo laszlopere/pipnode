@@ -49,6 +49,7 @@ make_root (void)
     json_object_set_object_member (data, "obj", obj);
 
     json_object_set_string_member (data, "raw", "a\"b\\c\nd");
+    json_object_set_null_member   (data, "none");
 
     json_object_set_object_member (root, "data", data);
     json_object_set_string_member (root, "topic", "sensors");
@@ -222,6 +223,39 @@ test_json_miss_null (void)
 }
 
 static void
+test_json_miss_null_in_string (void)
+{
+    JsonObject *root = make_root ();
+    gchar      *out;
+
+    /* A missing key in a value slot becomes the JSON token `null`, but a
+     * missing key INSIDE a string literal must not inject the word "null"
+     * into the text — there it collapses to empty, leaving valid JSON. */
+    out = expand_json ("{\"v\": ${data/nope}, \"s\": \"hello ${data/nope}\"}",
+                       root, PN_SUBST_JSON, PN_SUBST_MISS_NULL);
+    PN_CHECK_CMPSTR (out, ==, "{\"v\": null, \"s\": \"hello \"}");
+    g_free (out);
+
+    json_object_unref (root);
+}
+
+static void
+test_json_null_value_in_string (void)
+{
+    JsonObject *root = make_root ();
+    gchar      *out;
+
+    /* A present-but-null value reads the same as a missing key: the JSON
+     * token `null` in a value slot, empty inside a string literal. */
+    out = expand_json ("{\"v\": ${data/none}, \"s\": \"x=${data/none}\"}",
+                       root, PN_SUBST_JSON, PN_SUBST_MISS_NULL);
+    PN_CHECK_CMPSTR (out, ==, "{\"v\": null, \"s\": \"x=\"}");
+    g_free (out);
+
+    json_object_unref (root);
+}
+
+static void
 test_strv_exact_and_verbatim (void)
 {
     const gchar * const pairs[] = {
@@ -322,6 +356,8 @@ main (int argc, char **argv)
     pn_test_add ("json_string_slot",     test_json_string_slot);
     pn_test_add ("json_escaping",        test_json_escaping);
     pn_test_add ("json_miss_null",       test_json_miss_null);
+    pn_test_add ("json_miss_null_str",   test_json_miss_null_in_string);
+    pn_test_add ("json_null_value_str",  test_json_null_value_in_string);
     pn_test_add ("strv_exact_verbatim",  test_strv_exact_and_verbatim);
     pn_test_add ("chain_precedence",     test_chain_precedence);
     pn_test_add ("unterminated_brace",   test_unterminated_brace);
