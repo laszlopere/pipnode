@@ -872,6 +872,15 @@ build_tab_for_type (
         if ((pspecs[i]->flags & G_PARAM_WRITABLE) == 0)
             continue;
 
+        /* Skip construct-only properties (e.g. PnAutoTrigger:autostart,
+         * the Clock node's test seam): they can only be set when the
+         * object is created, so editing one here would do nothing —
+         * g_object_set_property() raises a GObject-CRITICAL on a live
+         * instance.  The JSON serialiser excludes them for the same
+         * reason (see should_serialize_property() in pn-flow.c). */
+        if ((pspecs[i]->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
+            continue;
+
         attach_property_row (GTK_GRID (grid), target, pspecs[i], row, parent);
         row++;
     }
