@@ -34,6 +34,13 @@ G_BEGIN_DECLS
 /*  and the current value are exposed as editable properties; writing  */
 /*  them updates the dial without emitting -- only a wheel rotation     */
 /*  emits, mirroring how PnSwitch only emits on a click.               */
+/*                                                                     */
+/*  One exception to "only a rotation emits": the knob announces its    */
+/*  current position once, shortly after it is constructed, so a        */
+/*  freshly-loaded worksheet lets downstream nodes learn the knob's     */
+/*  state without the user having to turn it.  This is a single         */
+/*  startup shot, not the recurring tick of a PnAutoTrigger data        */
+/*  source.                                                            */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_KNOB (pn_knob_get_type ())

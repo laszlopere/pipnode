@@ -117,6 +117,36 @@ test_scroll_at_end_stop_is_silent (void)
 }
 
 static void
+test_announces_value_once_on_startup (void)
+{
+    Capture cap;
+    PnKnob *node = make_node (&cap);     /* default range [0, 1], value 0 */
+
+    /* A knob announces its current position once shortly after it is
+     * constructed, so a freshly-loaded worksheet lets downstream nodes
+     * learn the knob's state without a manual turn.  The announce is a
+     * one-shot main-loop idle scheduled at construction; set_value is
+     * silent, so nothing has fired yet. */
+    pn_knob_set_value (node, 0.5);
+    PN_CHECK_CMPINT (cap.count, ==, 0);
+
+    /* Pump the default context until the idle fires. */
+    while (cap.count == 0 && g_main_context_iteration (NULL, TRUE))
+        ;
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 0.5, 1e-9);
+
+    /* One-shot: no recurring emit like a periodic data source would. */
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+
+    g_clear_object (&cap.last);
+    g_object_unref (node);
+}
+
+static void
 test_zero_width_range_does_not_rotate (void)
 {
     Capture cap;
@@ -139,6 +169,7 @@ main (int argc, char **argv)
     pn_test_add ("set_value_clamps",       test_set_value_clamps_without_emitting);
     pn_test_add ("scroll_steps_emits",     test_scroll_steps_and_emits);
     pn_test_add ("scroll_end_stop_silent", test_scroll_at_end_stop_is_silent);
+    pn_test_add ("startup_announce",       test_announces_value_once_on_startup);
     pn_test_add ("zero_width_no_rotate",   test_zero_width_range_does_not_rotate);
     return pn_test_run ();
 }

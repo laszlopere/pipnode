@@ -73,6 +73,12 @@ struct _PnKnob
     gdouble min_value;
     gdouble max_value;
     gdouble value;
+
+    /* Main-loop source id of the one-shot "announce my initial value"
+     * idle scheduled in constructed(); 0 once it has fired or been
+     * cancelled.  Tracked so dispose() can pull it if the node dies
+     * before the idle runs. */
+    guint   startup_emit_id;
 };
 
 G_DEFINE_TYPE (PnKnob, pn_knob, PN_TYPE_NODE)
@@ -386,8 +392,65 @@ pn_knob_set_property (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Startup announce                                                    */
+/*                                                                      */
+/*  A knob is a manual source: its only other output is the message it  */
+/*  emits when the user turns it.  Without a one-shot announce a         */
+/*  freshly-loaded (or freshly-dropped) knob would leave every          */
+/*  downstream node ignorant of its position until the first manual     */
+/*  turn -- exactly the gap the periodic data sources avoid by firing   */
+/*  once shortly after the worksheet loads.  The knob wants the same    */
+/*  "report on startup" behaviour but, unlike a PnAutoTrigger data      */
+/*  collector, it must fire only once and never on a recurring timer.   */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+emit_startup_value (gpointer data)
+{
+    PnKnob *self = PN_KNOB (data);
+
+    self->startup_emit_id = 0;
+    emit_value_message (self);
+
+    return G_SOURCE_REMOVE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                   */
 /* ------------------------------------------------------------------ */
+
+static void
+pn_knob_constructed (GObject *object)
+{
+    PnKnob *self = PN_KNOB (object);
+
+    G_OBJECT_CLASS (pn_knob_parent_class)->constructed (object);
+
+    /* Defer the announce to a main-loop idle rather than emitting here:
+     * at construction time the load path has built this node but not yet
+     * attached its output wires (node_from_json creates every node first,
+     * applies their properties, and only then connects the wires), so an
+     * emit now would reach nobody.  By the time the idle runs the load
+     * call has returned to the main loop, the graph is fully wired, and
+     * self->value holds the position restored from the file.  The idle
+     * holds no reference on @self; dispose() pulls it if the node dies
+     * first. */
+    self->startup_emit_id = g_idle_add (emit_startup_value, self);
+}
+
+static void
+pn_knob_dispose (GObject *object)
+{
+    PnKnob *self = PN_KNOB (object);
+
+    if (self->startup_emit_id != 0)
+    {
+        g_source_remove (self->startup_emit_id);
+        self->startup_emit_id = 0;
+    }
+
+    G_OBJECT_CLASS (pn_knob_parent_class)->dispose (object);
+}
 
 static void
 pn_knob_class_init (PnKnobClass *klass)
@@ -397,6 +460,8 @@ pn_knob_class_init (PnKnobClass *klass)
 
     object_class->get_property = pn_knob_get_property;
     object_class->set_property = pn_knob_set_property;
+    object_class->constructed  = pn_knob_constructed;
+    object_class->dispose      = pn_knob_dispose;
 
     node_class->get_size             = pn_knob_get_size;
     node_class->paint_header_overlay = pn_knob_paint_header_overlay;
@@ -444,6 +509,7 @@ pn_knob_init (PnKnob *self)
     self->min_value = PN_KNOB_DEFAULT_MIN;
     self->max_value = PN_KNOB_DEFAULT_MAX;
     self->value     = PN_KNOB_DEFAULT_MIN;
+    self->startup_emit_id = 0;
 
     pn_node_set_class_name (node, "Knob");
     pn_node_set_icon       (node, PN_KNOB_ICON);

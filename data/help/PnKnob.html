@@ -36,6 +36,13 @@ value.  Writing the <code>min</code>, <code>max</code> or
 <code>value</code> properties turns the dial without emitting a
 message &mdash; only a wheel rotation emits.
 </p>
+<p>
+The one exception is startup: shortly after a worksheet loads, each
+knob emits its current position once, so downstream nodes know the
+knob's value without waiting for the user to turn it.  This mirrors the
+way the periodic data-source nodes report on load, but it is a single
+shot &mdash; the knob never re-emits on a timer.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>min</code></td>
