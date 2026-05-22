@@ -28,7 +28,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 300.0,
-        "y" : 180.0
+        "y" : 200.0
       },
       "properties" : {
         "on" : true
@@ -41,7 +41,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 120.0,
-        "y" : 180.0
+        "y" : 200.0
       },
       "properties" : {
         "switch-name" : "sonoff19"
@@ -58,6 +58,7 @@
       },
       "properties" : {
         "url" : "tcp://mqtt.homelab.local:1883",
+        "topic-template" : "",
         "payload" : "",
         "retain" : false,
         "username" : "",
@@ -73,7 +74,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 500.0,
-        "y" : 180.0
+        "y" : 200.0
       },
       "properties" : {
         "switch-name" : "sonoff19"
@@ -85,12 +86,13 @@
       "name" : "LED 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 500.0,
-        "y" : 40.0
+        "x" : 640.0,
+        "y" : 420.0
       },
       "properties" : {
         "color" : "rgb(28,113,216)",
-        "hold-ms" : 250
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
       }
     },
     {
@@ -104,7 +106,8 @@
       },
       "properties" : {
         "on" : true,
-        "switch-name" : "sonoff19"
+        "switch-name" : "sonoff19",
+        "enforce-on-startup" : true
       }
     },
     {
