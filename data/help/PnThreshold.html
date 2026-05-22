@@ -24,17 +24,18 @@ clean boolean &mdash; the same <code>0.0</code>/<code>1.0</code>
 encoding the rest of Pipnode uses for on/off.
 </p>
 <p>
-The state turns <strong>on</strong> the moment <code>value</code>
-reaches <code>threshold</code>. It turns <strong>off</strong> again only
-once <code>value</code> has fallen a full <code>hysteresis</code> below
-the threshold &mdash; that is, below
-<code>threshold&nbsp;&minus;&nbsp;hysteresis</code>. Readings inside the
-<code>[threshold&nbsp;&minus;&nbsp;hysteresis, threshold)</code> band
-leave the state unchanged, which is what stops a noisy signal hovering
-near the trip point from flapping the output. With
-<code>hysteresis</code> left at <code>0</code> the node degenerates to a
-plain &ldquo;<code>value&nbsp;&ge;&nbsp;threshold</code>&rdquo;
-comparator that emits on every crossing.
+<code>hysteresis</code> defines a dead-band centered on
+<code>threshold</code>. The state turns <strong>on</strong> once
+<code>value</code> reaches the upper edge,
+<code>threshold&nbsp;+&nbsp;hysteresis/2</code>, and turns
+<strong>off</strong> again only once <code>value</code> falls below the
+lower edge, <code>threshold&nbsp;&minus;&nbsp;hysteresis/2</code>.
+Readings inside that band leave the state unchanged, which is what stops
+a noisy signal hovering near the trip point from flapping the output.
+With <code>hysteresis</code> left at <code>0</code> the band collapses
+onto the threshold and the node degenerates to a plain
+&ldquo;<code>value&nbsp;&ge;&nbsp;threshold</code>&rdquo; comparator that
+emits on every crossing.
 </p>
 <p>
 The first message that carries a numeric <code>value</code> establishes
@@ -48,8 +49,9 @@ state untouched.
   <tr><td><code>threshold</code></td>
       <td>Value at or above which the output is on (<code>1.0</code>).</td></tr>
   <tr><td><code>hysteresis</code></td>
-      <td>How far below the threshold the value must fall before the
-          output turns off again. Zero disables hysteresis.</td></tr>
+      <td>Width of the dead-band centered on the threshold: the value
+          must rise half this above the threshold to turn on and fall
+          half below it to turn off. Zero disables hysteresis.</td></tr>
 </table>
 
 </body>

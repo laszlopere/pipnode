@@ -110,23 +110,24 @@ test_on_edge_is_inclusive (void)
     g_object_unref (node);
 }
 
-/* Hysteresis widens the off trip point: once on, the value must drop a
- * full hysteresis below the threshold before the output turns off.
- * Readings inside the dead-band leave the state untouched, so a signal
- * hovering near the threshold does not flap the output. */
+/* Hysteresis is a dead-band centered on the threshold: with threshold
+ * 10 and hysteresis 4 the band runs [8, 12), so the output turns on
+ * only at 12 and off only below 8.  Readings inside the band leave the
+ * state untouched, so a signal hovering near the threshold does not
+ * flap the output. */
 static void
 test_hysteresis_holds_state (void)
 {
     Recorder rec;
-    PnNode  *node = make_node (10.0, 3.0, &rec);   /* off-trip at 7.0 */
+    PnNode  *node = make_node (10.0, 4.0, &rec);   /* band [8, 12) */
 
-    feed (node, 0.0);    /* first -> OFF, emits 0.0          */
-    feed (node, 12.0);   /* >= 10 -> ON, emits 1.0           */
-    feed (node, 8.0);    /* in band [7,10) -> hold ON, silent */
-    feed (node, 9.5);    /* still in band -> hold ON, silent  */
-    feed (node, 7.0);    /* still >= 7 -> hold ON, silent     */
-    feed (node, 6.9);    /* below 7 -> OFF, emits 0.0         */
-    feed (node, 9.9);    /* in band but rising -> stays OFF (< 10) */
+    feed (node, 0.0);    /* first -> OFF, emits 0.0                  */
+    feed (node, 11.0);   /* in band, below upper edge -> stays OFF   */
+    feed (node, 12.0);   /* reaches upper edge -> ON, emits 1.0      */
+    feed (node, 9.0);    /* in band -> hold ON, silent               */
+    feed (node, 8.0);    /* still >= lower edge -> hold ON, silent   */
+    feed (node, 7.9);    /* below lower edge -> OFF, emits 0.0       */
+    feed (node, 11.9);   /* in band but below upper edge -> stays OFF */
 
     PN_CHECK_CMPINT (rec.count, ==, 3);
     PN_CHECK_NEAR   (rec.seen[0], 0.0, 1e-9);

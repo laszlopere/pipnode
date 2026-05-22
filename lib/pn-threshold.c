@@ -93,6 +93,7 @@ pn_threshold_receive (
 {
     PnThreshold *self = PN_THRESHOLD (node);
     gdouble      value;
+    gdouble      half = self->hysteresis / 2.0;
     gboolean     next;
 
     /* No usable number to compare — stay silent and keep our state. */
@@ -107,14 +108,16 @@ pn_threshold_receive (
     }
     else if (self->state)
     {
-        /* Currently ON: fall back to OFF only after dropping a full
-         * hysteresis below the threshold; otherwise hold. */
-        next = (value >= self->threshold - self->hysteresis);
+        /* Currently ON: fall back to OFF only once the value drops
+         * below the lower edge of the band (threshold - hysteresis/2);
+         * otherwise hold. */
+        next = (value >= self->threshold - half);
     }
     else
     {
-        /* Currently OFF: rise to ON exactly at the threshold. */
-        next = (value >= self->threshold);
+        /* Currently OFF: rise to ON only once the value reaches the
+         * upper edge of the band (threshold + hysteresis/2). */
+        next = (value >= self->threshold + half);
     }
 
     /* Forward only when the state actually changes (the first numeric
@@ -222,8 +225,9 @@ pn_threshold_class_init (PnThresholdClass *klass)
 
     props[PROP_HYSTERESIS] = g_param_spec_double (
             "hysteresis", "Hysteresis",
-            "How far below the threshold the value must fall before the "
-            "output turns off again",
+            "Width of the dead-band centered on the threshold: the value "
+            "must rise half this above the threshold to turn on and fall "
+            "half below it to turn off",
             PN_HYSTERESIS_MIN, PN_HYSTERESIS_MAX, PN_HYSTERESIS_DEF,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

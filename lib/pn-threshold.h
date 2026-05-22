@@ -25,14 +25,15 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Schmitt-trigger comparator.  Watches the numeric data.value of     */
 /*  each incoming message and tracks a single ON/OFF state.  The       */
-/*  state turns ON when the value reaches #PnThreshold:threshold and   */
-/*  turns OFF again only once it has dropped a full                    */
-/*  #PnThreshold:hysteresis below that threshold; readings inside the  */
-/*  [threshold - hysteresis, threshold) band leave the state           */
-/*  unchanged, which is what suppresses chatter around the trip        */
-/*  point.  A message is forwarded only when the state actually        */
-/*  changes, and its data.value is overwritten with 1.0 (at or above   */
-/*  threshold) or 0.0 (below) so downstream nodes see a clean boolean. */
+/*  #PnThreshold:hysteresis defines a dead-band centered on            */
+/*  #PnThreshold:threshold: the state turns ON once the value reaches  */
+/*  the upper edge (threshold + hysteresis/2) and turns OFF again only */
+/*  once it falls below the lower edge (threshold - hysteresis/2);     */
+/*  readings inside that band leave the state unchanged, which is what */
+/*  suppresses chatter around the trip point.  A message is forwarded  */
+/*  only when the state actually changes, and its data.value is        */
+/*  overwritten with 1.0 (on) or 0.0 (off) so downstream nodes see a   */
+/*  clean boolean.                                                     */
 /*                                                                     */
 /*  With #PnThreshold:hysteresis set to 0 this degenerates to a plain  */
 /*  "value >= threshold" comparator that emits on every crossing.      */
