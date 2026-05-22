@@ -38,6 +38,20 @@ transient outage triggers libmosquitto's built-in 1&nbsp;s to
 30&nbsp;s exponential back-off reconnect &mdash; the visual state
 follows.
 </p>
+<p>
+Because the connect is asynchronous, a message can arrive in the brief
+window <em>after</em> a worksheet loads but <em>before</em> the broker
+session is up &mdash; most visibly the command a
+<em>Tasmota&nbsp;Switch</em> with <code>enforce-on-startup</code> emits
+the instant the document opens. Rather than lose it, the sink holds
+publishes in a small queue while offline and flushes them, oldest
+first, the moment it connects (the same applies across a mid-session
+reconnect). The queue is bounded: it keeps at most the 64 most recent
+publishes (the oldest is dropped when full), and on connect it only
+sends those still younger than 30&nbsp;seconds &mdash; a command that
+has been waiting minutes is more likely stale than useful, while one
+from the load that just happened is exactly what you want enforced.
+</p>
 
 <h5>Publish topic</h5>
 <p>
@@ -140,10 +154,12 @@ expects; the sink then publishes wherever the envelope points.
 Messages are silently dropped (without warning) when:
 </p>
 <ul>
-  <li>The broker session is down (the visual state is already red
-      &mdash; the message is not queued, since pipnode has no bounded
-      backlog and queuing during an outage would grow memory without
-      a limit).</li>
+  <li>The broker session is down <em>and</em> the message cannot be
+      held for later &mdash; i.e. the offline queue is full of newer
+      publishes (it caps at 64), or by the time the broker connects the
+      message has aged past the 30&nbsp;second freshness window. A
+      publish that fits the queue and connects in time is delivered, not
+      dropped (see <em>Connection</em> above).</li>
   <li>The inbound message has no envelope topic, or its topic is the
       bare prefix <code>mqtt/</code> (nothing to publish to once the
       prefix is stripped).</li>

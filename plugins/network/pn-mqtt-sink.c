@@ -48,6 +48,25 @@
 #define PN_MQTT_SINK_RECONNECT_DELAY_MIN   1u
 #define PN_MQTT_SINK_RECONNECT_DELAY_MAX  30u
 
+/* Offline publish queue.  While the broker session is down, publishes
+ * are held here instead of dropped so a command issued at document load
+ * -- before the async connect has completed -- still reaches the relay
+ * once the link comes up (and likewise across a mid-session broker
+ * reconnect).  Two bounds keep this from misbehaving:
+ *
+ *   - LEN:  a hard cap on the backlog so a prolonged outage cannot grow
+ *           memory without limit; once full, the oldest entry is evicted
+ *           to make room for the newest (most recent intent wins).
+ *   - AGE:  on reconnect only entries still younger than this are
+ *           flushed -- a "turn the relay on" that has been waiting for
+ *           minutes is more likely stale than useful, whereas a command
+ *           from the document load that just happened is exactly what
+ *           the user wants enforced.  Chosen to comfortably cover
+ *           load + async-connect (and a broker that comes up a little
+ *           after the app) without resurrecting long-dead intents. */
+#define PN_MQTT_SINK_QUEUE_MAX_LEN     64u
+#define PN_MQTT_SINK_QUEUE_MAX_AGE_US  (30 * G_TIME_SPAN_SECOND)
+
 struct _PnMqttSink
 {
     PnNode parent_instance;
@@ -71,6 +90,11 @@ struct _PnMqttSink
     struct mosquitto *client;
     gboolean          loop_running;
     gboolean          connected;
+
+    /* Offline publish backlog (PnMqttSinkPending*, head = oldest).
+     * Touched only on the main thread -- both the receive path and the
+     * connect trampoline run there -- so it needs no locking. */
+    GQueue           *pending;
 };
 
 G_DEFINE_TYPE (PnMqttSink, pn_mqtt_sink, PN_TYPE_NODE)
@@ -341,6 +365,88 @@ build_payload (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Offline publish queue                                              */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    gchar   *topic;        /* resolved publish topic (owned)          */
+    gchar   *payload;      /* payload bytes (owned)                   */
+    gsize    payload_len;
+    int      qos;
+    gboolean retain;
+    gint64   received_us;  /* g_get_monotonic_time() at enqueue       */
+} PnMqttSinkPending;
+
+static void
+pending_free (gpointer data)
+{
+    PnMqttSinkPending *p = data;
+
+    g_free (p->topic);
+    g_free (p->payload);
+    g_free (p);
+}
+
+/** Hold @payload (ownership transferred) for @topic until the broker
+ *  session is back.  Bounded: when the backlog is full the oldest entry
+ *  is dropped first, so a prolonged outage keeps the most recent
+ *  intents rather than growing without limit. */
+static void
+enqueue_pending (
+        PnMqttSink  *self,
+        const gchar *topic,
+        gchar       *payload,
+        gsize        payload_len,
+        int          qos,
+        gboolean     retain)
+{
+    PnMqttSinkPending *p;
+
+    while (g_queue_get_length (self->pending) >= PN_MQTT_SINK_QUEUE_MAX_LEN)
+        pending_free (g_queue_pop_head (self->pending));
+
+    p = g_new0 (PnMqttSinkPending, 1);
+    p->topic       = g_strdup (topic);
+    p->payload     = payload;          /* transfer */
+    p->payload_len = payload_len;
+    p->qos         = qos;
+    p->retain      = retain;
+    p->received_us = g_get_monotonic_time ();
+
+    g_queue_push_tail (self->pending, p);
+}
+
+/** Publish every queued entry still younger than the freshness window,
+ *  oldest first, discarding the rest.  Runs on the main thread from the
+ *  connect trampoline once a session is up.  Requires self->client to
+ *  be live and connected. */
+static void
+flush_pending (PnMqttSink *self)
+{
+    gint64             now = g_get_monotonic_time ();
+    PnMqttSinkPending *p;
+
+    while ((p = g_queue_pop_head (self->pending)) != NULL)
+    {
+        if (now - p->received_us <= PN_MQTT_SINK_QUEUE_MAX_AGE_US)
+        {
+            int err = mosquitto_publish (self->client,
+                                         NULL,     /* mid -- not tracked */
+                                         p->topic,
+                                         (int) p->payload_len, p->payload,
+                                         p->qos, p->retain);
+            if (err != MOSQ_ERR_SUCCESS)
+                g_warning ("pn-mqtt-sink: queued publish('%s') failed: %s",
+                           p->topic, mosquitto_strerror (err));
+        }
+        /* else: too stale to still be meaningful -- discard. */
+
+        pending_free (p);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main-thread marshalling                                            */
 /*                                                                     */
 /*  Same shape as PnMqtt: libmosquitto's threaded loop fires our       */
@@ -362,6 +468,11 @@ conn_state_trampoline (gpointer data)
     if (c->self->client != NULL)
     {
         c->self->connected = c->connected;
+        /* Session just came up: drain whatever was held while offline so
+         * a command issued before the connect completed (the
+         * enforce-on-startup case) reaches the broker now. */
+        if (c->connected)
+            flush_pending (c->self);
         apply_visual_state (c->self);
     }
     return G_SOURCE_REMOVE;
@@ -464,14 +575,6 @@ pn_mqtt_sink_receive (
     gchar       *topic_owned = NULL;
     gchar       *payload = NULL;
     gsize        payload_len = 0;
-    int          err;
-
-    /* No broker session yet -- drop silently rather than queue, since
-     * we have no bounded backlog and a flapping broker would otherwise
-     * grow memory without limit.  The visual state is already red so
-     * the user can see why nothing is going out. */
-    if (self->client == NULL || !self->connected)
-        return;
 
     /* Publish topic.  With an explicit template, expand it against this
      * node's variables (${nodeclass} / ${nodename} / ${hostname}) and
@@ -524,18 +627,32 @@ pn_mqtt_sink_receive (
         return;
     }
 
-    err = mosquitto_publish (self->client,
-                             NULL,                 /* mid -- we do not track */
-                             publish_topic,
-                             (int) payload_len,
-                             payload,
-                             (int) self->qos,
-                             self->retain);
-    if (err != MOSQ_ERR_SUCCESS)
-        g_warning ("pn-mqtt-sink: publish('%s') failed: %s",
-                   publish_topic, mosquitto_strerror (err));
+    /* Online: publish straight through.  Offline (the common case at
+     * document load, before the async connect has completed): hold the
+     * publish in the bounded, timestamped backlog and deliver it on
+     * connect instead of dropping it, so an enforce-on-startup command
+     * still reaches the relay. */
+    if (self->client != NULL && self->connected)
+    {
+        int err = mosquitto_publish (self->client,
+                                     NULL,         /* mid -- we do not track */
+                                     publish_topic,
+                                     (int) payload_len,
+                                     payload,
+                                     (int) self->qos,
+                                     self->retain);
+        if (err != MOSQ_ERR_SUCCESS)
+            g_warning ("pn-mqtt-sink: publish('%s') failed: %s",
+                       publish_topic, mosquitto_strerror (err));
+        g_free (payload);
+    }
+    else
+    {
+        /* Ownership of @payload transfers into the queue entry. */
+        enqueue_pending (self, publish_topic, payload, payload_len,
+                         (int) self->qos, self->retain);
+    }
 
-    g_free (payload);
     g_free (topic_owned);
 }
 
@@ -760,6 +877,12 @@ pn_mqtt_sink_finalize (GObject *object)
     g_clear_pointer (&self->password,         g_free);
     g_clear_pointer (&self->client_id,        g_free);
 
+    if (self->pending != NULL)
+    {
+        g_queue_free_full (self->pending, pending_free);
+        self->pending = NULL;
+    }
+
     G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->finalize (object);
 }
 
@@ -891,6 +1014,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     self->client           = NULL;
     self->loop_running     = FALSE;
     self->connected        = FALSE;
+    self->pending          = g_queue_new ();
 
     pn_node_set_class_name (node, "MQTT Sink");
     pn_node_set_has_input  (node, TRUE);
