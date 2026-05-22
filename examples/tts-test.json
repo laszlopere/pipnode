@@ -15,7 +15,9 @@
         "engine" : "piper",
         "model" : "/home/pipas/.local/share/piper/voices/en_US-amy-medium.onnx",
         "speed" : 1.3,
-        "sink" : ""
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
       }
     },
     {
@@ -29,6 +31,7 @@
       },
       "properties" : {
         "text" : "This is a test for the text to speech node.",
+        "value" : 0.0,
         "success" : true
       }
     },
@@ -55,7 +58,7 @@
         "y" : 200.0
       },
       "properties" : {
-        "target" : "Standard Error",
+        "target" : "Debug View",
         "format" : "JSON"
       }
     },
@@ -82,13 +85,26 @@
         "y" : 260.0
       },
       "properties" : {
-        "summary" : "${topic}",
+        "summary" : "My Notification",
         "body" : "${data/output}",
-        "icon" : "dialog-information",
+        "icon" : "dialog-error",
         "app-name" : "pipnode",
         "urgency" : "normal",
         "timeout-ms" : 3,
         "replace" : true
+      }
+    },
+    {
+      "type" : "PnRtc",
+      "uuid" : "f41ef0cf-606d-4561-80cf-c19fc5174074",
+      "name" : "Clock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "period" : 600
       }
     }
   ],
@@ -112,6 +128,10 @@
     {
       "source_id" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
       "target_id" : "9f31998f-ea07-433f-9c14-e03620aaca0e"
+    },
+    {
+      "source_id" : "f41ef0cf-606d-4561-80cf-c19fc5174074",
+      "target_id" : "30122097-458d-4a22-9e7b-305128438348"
     }
   ],
   "sheets" : [

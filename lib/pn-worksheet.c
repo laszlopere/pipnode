@@ -3391,8 +3391,11 @@ show_node_popup (
      * now, without waiting for the periodic delay to elapse. */
     if (PN_IS_AUTO_TRIGGER (node))
     {
-        GtkWidget *trigger = make_icon_menu_item ("media-playback-start",
+        GtkWidget *trigger = make_icon_menu_item ("view-refresh",
                                                   "Trigger");
+        /* A disabled node ignores ticks, so a manual trigger would be a
+         * no-op -- grey the entry out to make that clear. */
+        gtk_widget_set_sensitive (trigger, !disabled);
         g_signal_connect (trigger, "activate",
                           G_CALLBACK (on_node_menu_trigger), node);
         gtk_menu_shell_append (GTK_MENU_SHELL (menu), trigger);
