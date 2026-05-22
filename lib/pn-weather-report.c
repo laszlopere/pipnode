@@ -175,6 +175,45 @@ pn_wr_press_unit_get_type (void)
     return id;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Background-gradient direction                                      */
+/*                                                                     */
+/*  The card background is normally a flat fill, but the user can ask  */
+/*  for a two-stop linear gradient running between the primary         */
+/*  background colour and a second colour.  Registered as an enum so   */
+/*  the settings dialog renders it as a combobox and it serialises by  */
+/*  nick.                                                              */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_WR_GRADIENT_NONE,
+    PN_WR_GRADIENT_VERTICAL,
+    PN_WR_GRADIENT_HORIZONTAL,
+    PN_WR_GRADIENT_DIAGONAL,
+} PnWrGradient;
+
+#define PN_TYPE_WR_GRADIENT (pn_wr_gradient_get_type ())
+
+static GType
+pn_wr_gradient_get_type (void)
+{
+    static gsize id = 0;
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_WR_GRADIENT_NONE,       "PN_WR_GRADIENT_NONE",       "Solid (no gradient)" },
+            { PN_WR_GRADIENT_VERTICAL,   "PN_WR_GRADIENT_VERTICAL",   "Vertical"            },
+            { PN_WR_GRADIENT_HORIZONTAL, "PN_WR_GRADIENT_HORIZONTAL", "Horizontal"          },
+            { PN_WR_GRADIENT_DIAGONAL,   "PN_WR_GRADIENT_DIAGONAL",   "Diagonal"            },
+            { 0, NULL, NULL }
+        };
+        GType t = g_enum_register_static ("PnWrGradient", values);
+        g_once_init_leave (&id, t);
+    }
+    return id;
+}
+
 /* Convert from the metric base unit the Weather node emits to the
  * user-chosen display unit, and the short label to print alongside. */
 static gdouble
@@ -278,6 +317,18 @@ struct _PnWeatherReport
     PnWrWindUnit  wind_unit;
     PnWrPressUnit press_unit;
 
+    /* Colours.  @font_color paints the primary text (place, temperature,
+     * description, time, the detail-tile icons and values);
+     * @secondary_color paints the muted text (the feels-like sub-line,
+     * the date, the tile captions, and the "Waiting for weather" /
+     * failure notices).  @bg_color fills the card; when @bg_gradient is
+     * not NONE a linear gradient runs from @bg_color to @bg_color2. */
+    GdkRGBA       font_color;
+    GdkRGBA       secondary_color;
+    GdkRGBA       bg_color;
+    GdkRGBA       bg_color2;
+    PnWrGradient  bg_gradient;
+
     /* Drives the on-card clock: a 15 s timeout that repaints so the
      * displayed local time tracks the wall clock independently of the
      * (much slower) weather refresh.  0 when not running. */
@@ -292,6 +343,11 @@ enum {
     PROP_TEMP_UNIT,
     PROP_WIND_UNIT,
     PROP_PRESS_UNIT,
+    PROP_FONT_COLOR,
+    PROP_SECONDARY_COLOR,
+    PROP_BG_COLOR,
+    PROP_BG_COLOR2,
+    PROP_BG_GRADIENT,
     N_PROPS,
 };
 
@@ -540,7 +596,8 @@ draw_wind_arrow (cairo_t *cr, double cx, double cy, double radius,
  * failed" states. */
 static void
 paint_notice (cairo_t *cr, double w, double h,
-              const gchar *glyph, const gchar *line1, const gchar *line2)
+              const gchar *glyph, const gchar *line1, const gchar *line2,
+              const GdkRGBA *muted)
 {
     double ih, l1h;
     double cy = h * 0.5;
@@ -552,15 +609,18 @@ paint_notice (cairo_t *cr, double w, double h,
         double block = ih + h * 0.04 + l1h + (line2 ? l1h + h * 0.015 : 0);
         double top   = cy - block / 2.0;
 
+        /* The glyph stays a light, decorative grey so it never competes
+         * with the message; only the text follows the secondary colour. */
         draw_text_centered (cr, w / 2.0, top, FONT_FA, h * 0.20, glyph,
                             0.72, 0.72, 0.72);
         draw_text_centered (cr, w / 2.0, top + ih + h * 0.04,
-                            FONT_SANS, h * 0.065, line1, MUT_R, MUT_G, MUT_B);
+                            FONT_SANS, h * 0.065, line1,
+                            muted->red, muted->green, muted->blue);
         if (line2 != NULL)
             draw_text_centered (cr, w / 2.0,
                                 top + ih + h * 0.04 + l1h + h * 0.015,
                                 FONT_SANS, h * 0.052, line2,
-                                MUT_R, MUT_G, MUT_B);
+                                muted->red, muted->green, muted->blue);
     }
 }
 
@@ -573,7 +633,8 @@ typedef void (*TileIconFn) (cairo_t *cr, double cx, double iy, double size,
 static void
 paint_tile (cairo_t *cr, double cx, double tile_top, double h,
             const gchar *glyph, TileIconFn icon_fn, gpointer icon_user,
-            const gchar *value, const gchar *caption)
+            const gchar *value, const gchar *caption,
+            const GdkRGBA *fg, const GdkRGBA *muted)
 {
     double icon_sz = h * 0.072;
     double val_sz  = h * 0.066;
@@ -594,25 +655,26 @@ paint_tile (cairo_t *cr, double cx, double tile_top, double h,
         double iw;
         measure (cr, FONT_FA, icon_sz, glyph, &iw, &ih);
         draw_text (cr, cx - iw / 2.0, y, FONT_FA, icon_sz, glyph,
-                   INK_R, INK_G, INK_B);
+                   fg->red, fg->green, fg->blue);
     }
 
     y += ih + h * 0.022;
     draw_text_centered (cr, cx, y, FONT_BOLD, val_sz, value,
-                        INK_R, INK_G, INK_B);
+                        fg->red, fg->green, fg->blue);
     y += vh + h * 0.012;
     draw_text_centered (cr, cx, y, FONT_SANS, cap_sz, caption,
-                        MUT_R, MUT_G, MUT_B);
+                        muted->red, muted->green, muted->blue);
 }
 
-typedef struct { double dir; } WindArrowCtx;
+typedef struct { double dir; GdkRGBA col; } WindArrowCtx;
 
 static void
 wind_arrow_tile_icon (cairo_t *cr, double cx, double iy, double size,
                       gpointer user)
 {
     WindArrowCtx *ctx = user;
-    draw_wind_arrow (cr, cx, iy, size * 0.5, ctx->dir, INK_R, INK_G, INK_B);
+    draw_wind_arrow (cr, cx, iy, size * 0.5, ctx->dir,
+                     ctx->col.red, ctx->col.green, ctx->col.blue);
 }
 
 /* ------------------------------------------------------------------ */
@@ -625,6 +687,9 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
     JsonObject  *data = self->data;
     JsonObject  *raw  = obj_obj (data, "raw");
     JsonObject  *cur  = obj_obj (raw, "current");
+
+    const GdkRGBA *fg  = &self->font_color;
+    const GdkRGBA *mut = &self->secondary_color;
 
     const gchar *city    = obj_str (data, "city");
     const gchar *country = obj_str (data, "country");
@@ -676,7 +741,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         loc_bottom = y + MAX (mk_h, city_h);
 
         draw_text (cr, ml, y + (MAX (mk_h, city_h) - mk_h) / 2.0,
-                   FONT_FA, mk_sz, ICON_MARKER, INK_R, INK_G, INK_B);
+                   FONT_FA, mk_sz, ICON_MARKER, fg->red, fg->green, fg->blue);
 
         /* Ellipsize the place name into the rest of the row. */
         {
@@ -691,7 +756,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             pango_layout_set_width (l, (int) (MAX (avail, w * 0.2) * PANGO_SCALE));
             pango_layout_set_ellipsize (l, PANGO_ELLIPSIZE_END);
 
-            cairo_set_source_rgb (cr, INK_R, INK_G, INK_B);
+            cairo_set_source_rgb (cr, fg->red, fg->green, fg->blue);
             cairo_move_to (cr, ml + mk_w + w * 0.03,
                            y + (MAX (mk_h, city_h) - city_h) / 2.0);
             pango_cairo_show_layout (cr, l);
@@ -719,14 +784,14 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             s = have_hum ? g_strdup_printf ("%.0f%%", hum)
                          : g_strdup (GLYPH_EMDASH);
             paint_tile (cr, ml + tw * 0.5, tiles_top, h,
-                        ICON_TINT, NULL, NULL, s, "HUMIDITY");
+                        ICON_TINT, NULL, NULL, s, "HUMIDITY", fg, mut);
             g_free (s);
 
             /* Wind — a compass arrow drawn to the bearing when we have
              * a direction, otherwise a static compass glyph.  The speed
              * is converted to the chosen unit and carries it inline. */
             {
-                WindArrowCtx ctx = { have_wdir ? wdir : 0.0 };
+                WindArrowCtx ctx = { have_wdir ? wdir : 0.0, *fg };
                 const gchar *wu  = wind_unit_label (self->wind_unit);
                 gchar       *cap;
 
@@ -743,10 +808,11 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
                                 : g_strdup ("WIND");
                 if (have_wdir)
                     paint_tile (cr, ml + tw * 1.5, tiles_top, h,
-                                NULL, wind_arrow_tile_icon, &ctx, s, cap);
+                                NULL, wind_arrow_tile_icon, &ctx, s, cap,
+                                fg, mut);
                 else
                     paint_tile (cr, ml + tw * 1.5, tiles_top, h,
-                                ICON_COMPASS, NULL, NULL, s, cap);
+                                ICON_COMPASS, NULL, NULL, s, cap, fg, mut);
                 g_free (s);
                 g_free (cap);
             }
@@ -759,14 +825,14 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
                     : g_strdup (GLYPH_EMDASH);
             paint_tile (cr, ml + tw * 2.5, tiles_top, h,
                         ICON_GAUGE, NULL, NULL, s,
-                        press_unit_label (self->press_unit));
+                        press_unit_label (self->press_unit), fg, mut);
             g_free (s);
 
             /* Cloud cover. */
             s = have_cloud ? g_strdup_printf ("%.0f%%", cloud)
                            : g_strdup (GLYPH_EMDASH);
             paint_tile (cr, ml + tw * 3.5, tiles_top, h,
-                        ICON_CLOUD, NULL, NULL, s, "CLOUD");
+                        ICON_CLOUD, NULL, NULL, s, "CLOUD", fg, mut);
             g_free (s);
         }
     }
@@ -865,23 +931,23 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
         numx = ml + icon_w + w * 0.02;
 
         draw_text (cr, ml, ly + MAX (0.0, (num_h - icon_h) / 2.0),
-                   FONT_FA, icon_sz, glyph, INK_R, INK_G, INK_B);
+                   FONT_FA, icon_sz, glyph, fg->red, fg->green, fg->blue);
         draw_text (cr, numx, ly, FONT_SANS, num_sz, numbuf,
-                   INK_R, INK_G, INK_B);
+                   fg->red, fg->green, fg->blue);
 
         ly += num_h;
         if (desc != NULL && *desc != '\0')
         {
             ly += h * 0.004;
             draw_text (cr, ml, ly, FONT_BOLD, desc_sz, desc,
-                       INK_R, INK_G, INK_B);
+                       fg->red, fg->green, fg->blue);
             ly += desc_h;
         }
         if (subbuf != NULL)
         {
             ly += h * 0.006;
             draw_text (cr, ml, ly, FONT_SANS, sub_sz, subbuf,
-                       MUT_R, MUT_G, MUT_B);
+                       mut->red, mut->green, mut->blue);
             ly += sub_h;
         }
         left_bottom = ly;
@@ -890,7 +956,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
          * right-aligned beneath it, both flush to the card's right edge. */
         ry = hero_top;
         draw_text (cr, mr - time_w, ry, FONT_BOLD, time_sz, timebuf,
-                   INK_R, INK_G, INK_B);
+                   fg->red, fg->green, fg->blue);
         ry += time_h + h * 0.012;
         if (datebuf != NULL)
         {
@@ -902,7 +968,7 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
             pango_layout_set_alignment (l, PANGO_ALIGN_RIGHT);
             pango_layout_get_pixel_size (l, &pw, &ph);
 
-            cairo_set_source_rgb (cr, MUT_R, MUT_G, MUT_B);
+            cairo_set_source_rgb (cr, mut->red, mut->green, mut->blue);
             cairo_move_to (cr, mr - right_w, ry);
             pango_cairo_show_layout (cr, l);
             g_object_unref (l);
@@ -942,6 +1008,43 @@ paint_report (PnWeatherReport *self, cairo_t *cr, double w, double h)
 /*  paint_plot vfunc                                                   */
 /* ------------------------------------------------------------------ */
 
+/* Set @cr's source to the card background: a flat fill of @bg_color, or
+ * a two-stop linear gradient from @bg_color to @bg_color2 when a
+ * gradient direction is selected.  The gradient endpoints are derived
+ * from the card rectangle (@x, @y, @w, @h) so the run spans the whole
+ * card regardless of size. */
+static void
+set_background_source (PnWeatherReport *self, cairo_t *cr,
+                       double x, double y, double w, double h)
+{
+    const GdkRGBA *a = &self->bg_color;
+    const GdkRGBA *b = &self->bg_color2;
+    cairo_pattern_t *grad;
+    double x2 = x, y2 = y;
+
+    if (self->bg_gradient == PN_WR_GRADIENT_NONE)
+    {
+        cairo_set_source_rgba (cr, a->red, a->green, a->blue, a->alpha);
+        return;
+    }
+
+    switch (self->bg_gradient)
+    {
+    case PN_WR_GRADIENT_HORIZONTAL: x2 = x + w;             break;
+    case PN_WR_GRADIENT_DIAGONAL:   x2 = x + w; y2 = y + h; break;
+    case PN_WR_GRADIENT_VERTICAL:
+    default:                        y2 = y + h;             break;
+    }
+
+    grad = cairo_pattern_create_linear (x, y, x2, y2);
+    cairo_pattern_add_color_stop_rgba (grad, 0.0,
+                                       a->red, a->green, a->blue, a->alpha);
+    cairo_pattern_add_color_stop_rgba (grad, 1.0,
+                                       b->red, b->green, b->blue, b->alpha);
+    cairo_set_source (cr, grad);
+    cairo_pattern_destroy (grad);
+}
+
 static void
 pn_weather_report_paint_plot (PnNode  *node,
                               cairo_t *cr,
@@ -952,11 +1055,11 @@ pn_weather_report_paint_plot (PnNode  *node,
 {
     PnWeatherReport *self = PN_WEATHER_REPORT (node);
 
-    /* White card + hairline frame, always drawn so an empty card reads
-     * as a deliberate surface rather than a hole in the canvas. */
+    /* Card background + hairline frame, always drawn so an empty card
+     * reads as a deliberate surface rather than a hole in the canvas. */
     cairo_save (cr);
     cairo_rectangle (cr, x, y, w, h);
-    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+    set_background_source (self, cr, x, y, w, h);
     cairo_fill_preserve (cr);
     cairo_set_source_rgb (cr, LINE_R, LINE_G, LINE_B);
     cairo_set_line_width (cr, 1.0);
@@ -971,13 +1074,14 @@ pn_weather_report_paint_plot (PnNode  *node,
     if (self->data == NULL)
     {
         paint_notice (cr, w, h, ICON_CLOUD,
-                      "Waiting for weather" GLYPH_ELLIPSIS, NULL);
+                      "Waiting for weather" GLYPH_ELLIPSIS, NULL,
+                      &self->secondary_color);
     }
     else if (!obj_bool (self->data, "success", TRUE))
     {
         const gchar *out = obj_str (self->data, "output");
         paint_notice (cr, w, h, ICON_CLOUD,
-                      "No reading", out);
+                      "No reading", out, &self->secondary_color);
     }
     else
     {
@@ -1072,8 +1176,40 @@ pn_weather_report_get_property (GObject    *object,
     case PROP_PRESS_UNIT:
         g_value_set_enum (value, self->press_unit);
         break;
+    case PROP_FONT_COLOR:
+        g_value_set_boxed (value, &self->font_color);
+        break;
+    case PROP_SECONDARY_COLOR:
+        g_value_set_boxed (value, &self->secondary_color);
+        break;
+    case PROP_BG_COLOR:
+        g_value_set_boxed (value, &self->bg_color);
+        break;
+    case PROP_BG_COLOR2:
+        g_value_set_boxed (value, &self->bg_color2);
+        break;
+    case PROP_BG_GRADIENT:
+        g_value_set_enum (value, self->bg_gradient);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+/* Assign @value (a boxed #GdkRGBA) to *@dest, repainting and notifying
+ * via @pspec only when the colour actually changes.  A %NULL boxed value
+ * (possible from a malformed deserialisation) is ignored. */
+static void
+set_rgba_prop (GObject *object, const GValue *value, GdkRGBA *dest,
+               GParamSpec *pspec)
+{
+    const GdkRGBA *c = g_value_get_boxed (value);
+
+    if (c != NULL && !gdk_rgba_equal (dest, c))
+    {
+        *dest = *c;
+        g_object_notify_by_pspec (object, pspec);
+        pn_node_request_repaint (PN_NODE (object));
     }
 }
 
@@ -1127,6 +1263,33 @@ pn_weather_report_set_property (GObject      *object,
             {
                 self->press_unit = v;
                 g_object_notify_by_pspec (object, props[PROP_PRESS_UNIT]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_FONT_COLOR:
+        set_rgba_prop (object, value, &self->font_color,
+                       props[PROP_FONT_COLOR]);
+        break;
+    case PROP_SECONDARY_COLOR:
+        set_rgba_prop (object, value, &self->secondary_color,
+                       props[PROP_SECONDARY_COLOR]);
+        break;
+    case PROP_BG_COLOR:
+        set_rgba_prop (object, value, &self->bg_color,
+                       props[PROP_BG_COLOR]);
+        break;
+    case PROP_BG_COLOR2:
+        set_rgba_prop (object, value, &self->bg_color2,
+                       props[PROP_BG_COLOR2]);
+        break;
+    case PROP_BG_GRADIENT:
+        {
+            PnWrGradient v = g_value_get_enum (value);
+            if (self->bg_gradient != v)
+            {
+                self->bg_gradient = v;
+                g_object_notify_by_pspec (object, props[PROP_BG_GRADIENT]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -1229,6 +1392,43 @@ pn_weather_report_class_init (PnWeatherReportClass *klass)
             PN_TYPE_WR_PRESS_UNIT, PN_WR_PRESS_HPA,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_FONT_COLOR] = g_param_spec_boxed (
+            "font-color", "Font colour",
+            "Colour of the primary text and detail-tile icons: the place "
+            "name, temperature, description, time and tile values",
+            GDK_TYPE_RGBA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_SECONDARY_COLOR] = g_param_spec_boxed (
+            "secondary-font-color", "Secondary font colour",
+            "Colour of the muted text: the feels-like sub-line, the date, "
+            "the tile captions and the \"Waiting for weather\" / failure "
+            "notices",
+            GDK_TYPE_RGBA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_BG_COLOR] = g_param_spec_boxed (
+            "background-color", "Background colour",
+            "Card background fill, and the starting colour when a "
+            "background gradient is enabled",
+            GDK_TYPE_RGBA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_BG_COLOR2] = g_param_spec_boxed (
+            "background-color2", "Background gradient end",
+            "The colour the background gradient runs to; ignored unless "
+            "\"background-gradient\" selects a direction",
+            GDK_TYPE_RGBA,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_BG_GRADIENT] = g_param_spec_enum (
+            "background-gradient", "Background gradient",
+            "Whether the background is a flat fill or a linear gradient "
+            "from \"background-color\" to \"background-color2\", and which "
+            "way the gradient runs",
+            PN_TYPE_WR_GRADIENT, PN_WR_GRADIENT_NONE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -1243,6 +1443,17 @@ pn_weather_report_init (PnWeatherReport *self)
     self->temp_unit    = PN_WR_TEMP_CELSIUS;
     self->wind_unit    = PN_WR_WIND_KMH;
     self->press_unit   = PN_WR_PRESS_HPA;
+
+    /* Colour defaults reproduce the original monochrome card exactly:
+     * near-black ink, mid-grey secondary text, white background.  The
+     * gradient is off, so background-color2 only matters once the user
+     * turns it on; a soft sky-blue makes that an attractive one-click
+     * change rather than a white-to-white no-op. */
+    self->font_color      = (GdkRGBA){ INK_R, INK_G, INK_B, 1.0 };
+    self->secondary_color = (GdkRGBA){ MUT_R, MUT_G, MUT_B, 1.0 };
+    self->bg_color        = (GdkRGBA){ 1.0, 1.0, 1.0, 1.0 };
+    self->bg_color2       = (GdkRGBA){ 0.80, 0.89, 0.97, 1.0 };
+    self->bg_gradient     = PN_WR_GRADIENT_NONE;
 
     pn_node_set_class_name (node, "Weather Report");
     pn_node_set_icon       (node, PN_WR_ICON);

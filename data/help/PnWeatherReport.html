@@ -20,8 +20,10 @@ the header is drawn in the standard Node-RED style and a white card of
 the same dimensions sits below it with a small gap; instead of a plot
 the card is painted with cairo and Pango &mdash; FontAwesome glyphs and
 plain text &mdash; to lay out the place, the current conditions, the
-temperature, and a row of detail tiles. The look is deliberately black
-on white: a clean, print-like report rather than a dashboard.
+temperature, and a row of detail tiles. The look is black on white by
+default &mdash; a clean, print-like report rather than a dashboard
+&mdash; but the text and background colours are configurable, and the
+background can be a two-colour gradient (see the properties below).
 </p>
 <p>
 The card has three bands. A <strong>location row</strong> at the top
@@ -85,6 +87,27 @@ zero. Before the first message arrives the card shows a
           equivalent to mbar), <em>kPa</em>, <em>inHg</em>, or
           <em>mmHg</em>. Converted from the hPa the Weather node
           reports.</td></tr>
+  <tr><td><code>font-color</code></td>
+      <td>Colour of the primary text and the detail-tile icons &mdash;
+          the place name, temperature, condition glyph, description,
+          time, and tile values. Defaults to near-black.</td></tr>
+  <tr><td><code>secondary-font-color</code></td>
+      <td>Colour of the muted text: the &ldquo;feels like&rdquo;
+          sub-line, the date, the tile captions, and the
+          &ldquo;Waiting for weather&rdquo; / failure notices. Defaults
+          to a mid-grey.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Card background fill. Also the starting colour when a
+          background gradient is enabled. Defaults to white.</td></tr>
+  <tr><td><code>background-color2</code></td>
+      <td>The colour a background gradient runs to. Ignored unless
+          <code>background-gradient</code> selects a direction.</td></tr>
+  <tr><td><code>background-gradient</code></td>
+      <td>Whether the background is a flat fill (<em>Solid</em>, the
+          default) or a linear gradient from <code>background-color</code>
+          to <code>background-color2</code>, and which way it runs:
+          <em>Vertical</em>, <em>Horizontal</em>, or
+          <em>Diagonal</em>.</td></tr>
 </table>
 
 </body>
