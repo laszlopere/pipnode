@@ -13,7 +13,6 @@
       },
       "properties" : {
         "period" : 2,
-        "autostart" : true,
         "hostname" : "eth4"
       }
     },
@@ -125,7 +124,6 @@
       },
       "properties" : {
         "period" : 5,
-        "autostart" : true,
         "hostname" : "",
         "aggregation" : "maximum"
       }
@@ -141,7 +139,6 @@
       },
       "properties" : {
         "period" : 5,
-        "autostart" : true,
         "hostname" : "",
         "aggregation" : "average"
       }

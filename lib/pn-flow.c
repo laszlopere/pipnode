@@ -423,6 +423,14 @@ should_serialize_property (GParamSpec *pspec)
         (pspec->flags & G_PARAM_READABLE) == 0)
         return FALSE;
 
+    /* Construct-only properties can only be set at construction time, so
+     * re-applying one on load via g_object_set_property would raise a
+     * GObject-CRITICAL.  They are not user state worth persisting anyway
+     * (e.g. PnAutoTrigger:autostart is a test seam, always TRUE in
+     * normal use), so keep them out of the on-disk bag entirely. */
+    if ((pspec->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
+        return FALSE;
+
     return pspec->owner_type != PN_TYPE_NODE
         && pspec->owner_type != G_TYPE_OBJECT;
 }
@@ -806,6 +814,14 @@ node_from_json (
 
             if (pspec == NULL || !should_serialize_property (pspec))
             {
+                /* Older worksheets may carry construct-only keys (e.g.
+                 * PnAutoTrigger:autostart) that we now exclude from the
+                 * bag.  They cannot be applied post-construction; skip
+                 * them quietly rather than crying "unknown property". */
+                if (pspec != NULL &&
+                    (pspec->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
+                    continue;
+
                 g_warning ("pn-flow: ignoring unknown property %s::%s",
                            type_name, key);
                 continue;

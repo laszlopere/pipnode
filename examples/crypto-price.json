@@ -26,7 +26,6 @@
       },
       "properties" : {
         "period" : 600,
-        "autostart" : true,
         "url" : "https://api.open-meteo.com/v1/forecast",
         "city" : "Budapest"
       }
@@ -96,7 +95,6 @@
       },
       "properties" : {
         "period" : 600,
-        "autostart" : true,
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
@@ -115,7 +113,6 @@
       },
       "properties" : {
         "period" : 10,
-        "autostart" : true,
         "output" : "AutoInjector activated.",
         "value" : 1.0,
         "success" : true
@@ -195,7 +192,6 @@
       },
       "properties" : {
         "period" : 1,
-        "autostart" : true,
         "output" : "AutoRandom sample.",
         "min" : 0.0,
         "max" : 1.0,
