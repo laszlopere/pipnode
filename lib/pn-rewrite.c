@@ -63,8 +63,12 @@ static GParamSpec *props[N_PROPS];
 /*  boolean / null scalar dropped in a value slot                      */
 /*  (e.g. `"value": ${data/value}`) emerges as its bare JSON token,    */
 /*  while a placeholder inside a string ("rewritten/${topic}") emerges */
-/*  as its escaped contents.  Unknown paths render as the JSON literal */
-/*  `null`; an unterminated "${" is emitted verbatim.                  */
+/*  as its escaped contents.  An unknown path is left verbatim as      */
+/*  "${path}": inside a string literal it survives as typed, while in  */
+/*  a value slot it leaves the rendered template invalid JSON, so the  */
+/*  node logs a warning and forwards the message unchanged rather than */
+/*  silently nulling the field.  An unterminated "${" is also emitted  */
+/*  verbatim.                                                          */
 /* ------------------------------------------------------------------ */
 
 static gchar *
@@ -85,7 +89,7 @@ expand_placeholders (
     chain[2] = NULL;
     ctx.resolvers = chain;
     ctx.mode      = PN_SUBST_JSON;
-    ctx.miss      = PN_SUBST_MISS_NULL;
+    ctx.miss      = PN_SUBST_MISS_VERBATIM;
 
     return pn_subst_expand (tmpl, &ctx);
 }
@@ -456,7 +460,8 @@ pn_rewrite_class_init (PnRewriteClass *klass)
             "template", "Template",
             "JSON template the outgoing message is built from; "
             "${path/to/field} placeholders expand to JSON values "
-            "from the incoming message",
+            "from the incoming message, and an unknown path is left "
+            "intact as ${path/to/field}",
             PN_REWRITE_DEFAULT_TEMPLATE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

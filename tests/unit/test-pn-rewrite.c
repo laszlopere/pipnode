@@ -27,8 +27,6 @@
 #include "pn-rewrite.h"
 #include "pn-flow.h"
 
-#include <json-glib/json-glib.h>
-
 static PnNode *
 make_node (const gchar *template_text, guint *out_emits)
 {
@@ -160,27 +158,49 @@ test_invalid_json_leaves_message_untouched (void)
     g_object_unref (node);
 }
 
-/* In JSON mode an unknown path is rendered as the bare token `null` in a
- * value slot, but collapses to empty inside a string literal — both must
- * keep the document well-formed (PN_SUBST_MISS_NULL). */
+/* An unknown path inside a string literal is kept verbatim as ${path}
+ * (PN_SUBST_MISS_VERBATIM) rather than collapsing to empty, so the
+ * unresolved placeholder is visible in the output instead of silently
+ * disappearing. */
 static void
-test_missing_placeholder_null_and_empty (void)
+test_missing_placeholder_kept_in_string (void)
 {
     guint      emits;
     PnNode    *node = make_node (
-            "{ \"miss\": ${data/nope},"
-            "  \"label\": \"v=${data/nope}\" }", &emits);
+            "{ \"label\": \"v=${data/nope}\" }", &emits);
     PnMessage *msg  = pn_message_new (NULL, NULL);
-    JsonNode  *miss;
 
     pn_node_receive_message (node, msg);
 
     PN_CHECK_CMPINT (emits, ==, 1);
-    /* Value slot: the member exists and holds JSON null. */
-    miss = pn_test_member (msg, "miss");
-    PN_CHECK (miss != NULL && JSON_NODE_HOLDS_NULL (miss));
-    /* String slot: the placeholder vanished, leaving just the prefix. */
-    PN_CHECK_CMPSTR (pn_test_str (msg, "label"), ==, "v=");
+    PN_CHECK_CMPSTR (pn_test_str (msg, "label"), ==, "v=${data/nope}");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* An unknown path in a value slot is also left verbatim, but "${path}"
+ * is not a JSON token, so the rendered template is invalid JSON: the
+ * node warns and forwards the message unchanged rather than nulling the
+ * field.  (swallow_log keeps the expected warning off stderr.) */
+static void
+test_missing_placeholder_value_slot_passthrough (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("{ \"miss\": ${data/nope} }", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    GLogFunc   prev;
+
+    pn_message_set_double (msg, "value", 7.0);
+
+    prev = g_log_set_default_handler (swallow_log, NULL);
+    pn_node_receive_message (node, msg);
+    g_log_set_default_handler (prev, NULL);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    /* Untouched: the original member survives, no "miss" was grafted. */
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 7.0, 1e-9);
+    PN_CHECK_FALSE  (pn_test_has (msg, "miss"));
 
     g_object_unref (msg);
     g_object_unref (node);
@@ -255,7 +275,8 @@ main (int argc, char **argv)
     pn_test_add ("data_bag_reshape",       test_data_bag_reshape);
     pn_test_add ("topic_placeholder",      test_topic_and_string_placeholder);
     pn_test_add ("invalid_json_untouched", test_invalid_json_leaves_message_untouched);
-    pn_test_add ("missing_placeholder",    test_missing_placeholder_null_and_empty);
+    pn_test_add ("miss_kept_in_string",    test_missing_placeholder_kept_in_string);
+    pn_test_add ("miss_value_passthrough", test_missing_placeholder_value_slot_passthrough);
     pn_test_add ("global_placeholder",     test_document_global_placeholder);
     pn_test_add ("field_beats_global",     test_message_field_beats_global);
     return pn_test_run ();

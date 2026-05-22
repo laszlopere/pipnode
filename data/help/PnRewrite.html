@@ -27,9 +27,11 @@ message. The lookup root carries <code>topic</code>, <code>id</code>,
 <code>created</code> and <code>data</code> (the payload bag), so for
 example <code>${data/value}</code> resolves to the data bag's
 <code>value</code> member and <code>${topic}</code> to the incoming
-topic. A missing path renders as the literal <code>null</code>, so the
-template stays parseable even when an upstream node has not produced
-the field yet.
+topic. A missing path is left intact as
+<code>${path/to/field}</code>: inside a string literal the unresolved
+placeholder stays visible as typed, while in a value slot it leaves the
+rendered text invalid JSON, so the node logs a warning and forwards the
+message unchanged rather than silently nulling the field.
 </p>
 <p>
 Substitution is <em>context-aware</em>: the expander tracks whether
