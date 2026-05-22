@@ -87,7 +87,8 @@ enum {
 #define PAGE_ID_GRID        "grid"
 #define PAGE_ID_MSGFLOW     "msgflow"     /* background + message-flow lights */
 #define PAGE_ID_WORKSHEET   "worksheet"   /* group node: no per-page settings */
-#define PAGE_ID_PLUGINS     "plugins"
+#define PAGE_ID_PLUGINS     "plugins"      /* group node: no per-page settings */
+#define PAGE_ID_NODE_PLUGINS "node-plugins"
 
 /* ------------------------------------------------------------------ */
 /*  Live binding between dialog widgets and the preferences singleton  */
@@ -262,7 +263,8 @@ on_category_selection_changed (
 static void
 build_category_tree (PnPreferencesDialog *self)
 {
-    GtkTreeIter        worksheet_iter, grid_iter, msgflow_iter, plugins_iter;
+    GtkTreeIter        worksheet_iter, grid_iter, msgflow_iter, plugins_iter,
+                       node_plugins_iter;
     GtkCellRenderer   *renderer;
     GtkTreeViewColumn *column;
     GtkTreeSelection  *selection;
@@ -291,16 +293,24 @@ build_category_tree (PnPreferencesDialog *self)
                         COL_PAGE_ID, PAGE_ID_MSGFLOW,
                         -1);
 
-    /* Plugins: top-level entry so it sits next to "Worksheet Editor"
+    /* Plugins: top-level group that sits next to "Worksheet Editor"
      * rather than nested underneath -- plugin enable/disable is not a
      * worksheet-editor concern, it controls which node types exist at
-     * all. */
+     * all.  The group itself carries no interactive widgets; the actual
+     * plugin list lives under the "Node plugins" subcategory. */
     gtk_tree_store_append (self->category_store, &plugins_iter, NULL);
     gtk_tree_store_set (self->category_store, &plugins_iter,
                         COL_LABEL,   "Plugins",
                         COL_PAGE_ID, PAGE_ID_PLUGINS,
                         -1);
-    (void) plugins_iter;
+
+    gtk_tree_store_append (self->category_store, &node_plugins_iter,
+                           &plugins_iter);
+    gtk_tree_store_set (self->category_store, &node_plugins_iter,
+                        COL_LABEL,   "Node plugins",
+                        COL_PAGE_ID, PAGE_ID_NODE_PLUGINS,
+                        -1);
+    (void) node_plugins_iter;
 
     self->category_view = gtk_tree_view_new_with_model (
             GTK_TREE_MODEL (self->category_store));
@@ -464,6 +474,33 @@ build_worksheet_placeholder_page (void)
     return box;
 }
 
+/* "Plugins" group page: a heading and a pointer to the subcategories.
+ * The group itself carries no interactive widgets. */
+static GtkWidget *
+build_plugins_placeholder_page (void)
+{
+    GtkWidget *box;
+    GtkWidget *body;
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+    g_object_set (box,
+                  "margin-start", 16, "margin-end", 16,
+                  "margin-top",   16, "margin-bottom", 16,
+                  NULL);
+
+    gtk_box_pack_start (GTK_BOX (box),
+                        make_page_heading ("Plugins"),
+                        FALSE, FALSE, 0);
+
+    body = gtk_label_new (
+            "Select a subcategory on the left to manage plugins.");
+    gtk_label_set_line_wrap (GTK_LABEL (body), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (body), 0.0);
+    gtk_box_pack_start (GTK_BOX (box), body, FALSE, FALSE, 0);
+
+    return box;
+}
+
 /* "Message Flow" subcategory: the worksheet background colour and the
  * message-flow animation (toggle + light speed). */
 static GtkWidget *
@@ -587,7 +624,7 @@ build_plugins_page (PnPreferencesDialog *self)
                   "margin-top",   16, "margin-bottom", 16,
                   NULL);
 
-    heading = gtk_label_new ("Plugins");
+    heading = gtk_label_new ("Node Plugins");
     attrs   = pango_attr_list_new ();
     pango_attr_list_insert (attrs, pango_attr_weight_new (PANGO_WEIGHT_BOLD));
     pango_attr_list_insert (attrs, pango_attr_scale_new  (PANGO_SCALE_LARGE));
@@ -635,7 +672,10 @@ build_plugins_page (PnPreferencesDialog *self)
         gchar              *primary;
         gchar              *secondary;
 
-        row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+        /* Stack the metadata under the checkbox rather than beside it,
+         * so a long description can wrap onto several lines instead of
+         * being clipped to the first few characters. */
+        row = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
 
         /* Primary label: plugin display name (or basename when the
          * .so is on disk but currently disabled, so we have no
@@ -678,13 +718,15 @@ build_plugins_page (PnPreferencesDialog *self)
         meta = gtk_label_new (secondary);
         g_free (secondary);
         gtk_label_set_xalign (GTK_LABEL (meta), 0.0);
-        /* Ellipsize at the end so a long description does not push
-         * the page (and therefore the whole dialog) wider than the
+        /* Wrap long descriptions onto multiple lines.  Cap the natural
+         * width so the label asks to grow taller, not wider, and so a
+         * long description does not drag the whole dialog wider than the
          * other pages in the stack. */
-        gtk_label_set_ellipsize    (GTK_LABEL (meta), PANGO_ELLIPSIZE_END);
-        gtk_label_set_max_width_chars (GTK_LABEL (meta), 40);
+        gtk_label_set_line_wrap       (GTK_LABEL (meta), TRUE);
+        gtk_label_set_max_width_chars (GTK_LABEL (meta), 50);
+        gtk_label_set_width_chars     (GTK_LABEL (meta), 50);
         gtk_widget_set_sensitive (meta, FALSE);
-        gtk_box_pack_start (GTK_BOX (row), meta, TRUE, TRUE, 0);
+        gtk_box_pack_start (GTK_BOX (row), meta, FALSE, FALSE, 0);
 
         gtk_box_pack_start (GTK_BOX (list_box), row, FALSE, FALSE, 0);
     }
@@ -772,6 +814,7 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
     GtkWidget     *grid_page;
     GtkWidget     *msgflow_page;
     GtkWidget     *plugins_page;
+    GtkWidget     *node_plugins_page;
     PnPreferences *prefs;
 
     gtk_window_set_title (GTK_WINDOW (self), "Preferences");
@@ -819,8 +862,11 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
     msgflow_page = build_msgflow_page (self);
     gtk_stack_add_named (self->stack, msgflow_page, PAGE_ID_MSGFLOW);
 
-    plugins_page = build_plugins_page (self);
+    plugins_page = build_plugins_placeholder_page ();
     gtk_stack_add_named (self->stack, plugins_page, PAGE_ID_PLUGINS);
+
+    node_plugins_page = build_plugins_page (self);
+    gtk_stack_add_named (self->stack, node_plugins_page, PAGE_ID_NODE_PLUGINS);
 
     right_scroll = gtk_scrolled_window_new (NULL, NULL);
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (right_scroll),
