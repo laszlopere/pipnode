@@ -9,12 +9,12 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 60.0,
-        "y" : 120.0
+        "y" : 40.0
       },
       "properties" : {
         "min" : 0.0,
         "max" : 100.0,
-        "value" : 29.166666666666675
+        "value" : 66.666666666666657
       }
     },
     {
@@ -24,51 +24,11 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
-        "y" : 120.0
+        "y" : 40.0
       },
       "properties" : {
         "threshold" : 50.0,
         "hysteresis" : 10.0
-      }
-    },
-    {
-      "type" : "PnDebug",
-      "uuid" : "412dfda2-661b-4c90-80f6-b7275a8e9722",
-      "name" : "Debug Print 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 500.0,
-        "y" : 40.0
-      },
-      "properties" : {
-        "target" : "Debug View",
-        "format" : "JSON"
-      }
-    },
-    {
-      "type" : "PnSwitch",
-      "uuid" : "0239d8d7-67f1-436b-b727-264738560ccc",
-      "name" : "Switch 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 480.0,
-        "y" : 120.0
-      },
-      "properties" : {
-        "on" : false
-      }
-    },
-    {
-      "type" : "PnSwitch",
-      "uuid" : "e555dad8-b14a-48c6-a4c3-04bb44918ff4",
-      "name" : "Switch 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 480.0,
-        "y" : 200.0
-      },
-      "properties" : {
-        "on" : false
       }
     },
     {
@@ -78,12 +38,12 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 60.0,
-        "y" : 200.0
+        "y" : 120.0
       },
       "properties" : {
         "min" : 0.0,
         "max" : 100.0,
-        "value" : 54.166666666666664
+        "value" : 41.666666666666664
       }
     },
     {
@@ -93,10 +53,156 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
-        "y" : 200.0
+        "y" : 120.0
       },
       "properties" : {
         "hysteresis" : 5.0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "7945b24b-4463-44aa-9aff-cb80d0941c6f",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "a5774470-1572-4513-8baf-13c1f5abeb07",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnThreshold",
+      "uuid" : "7920907c-a9c3-48fd-a6bc-ece027134c1c",
+      "name" : "Threshold 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "threshold" : 20.0,
+        "hysteresis" : 1.0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "5a8149e2-ba0f-4f4c-854e-1f12d46ca3dd",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "color" : "rgb(51,217,77)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnThreshold",
+      "uuid" : "134ea12f-2e15-4ad0-9056-c2e237e0d766",
+      "name" : "Threshold 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "threshold" : 30.0,
+        "hysteresis" : 1.0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "ff26830e-6c9e-4455-85ed-5a398e2cd306",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "color" : "rgb(51,217,77)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnThreshold",
+      "uuid" : "2060e056-b9e0-47f1-a0a0-9123a854e54e",
+      "name" : "Threshold 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "threshold" : 40.0,
+        "hysteresis" : 1.0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "7218d0c6-171f-4563-93dc-51f89f9c9927",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "color" : "rgb(246,211,45)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnThreshold",
+      "uuid" : "7bde7508-e5fe-4cc0-b979-a30893f6d526",
+      "name" : "Threshold 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "threshold" : 50.0,
+        "hysteresis" : 1.0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "870b6ed1-afce-421a-8ab5-81e2ecd768d0",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "color" : "rgb(224,27,36)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
       }
     }
   ],
@@ -104,14 +210,6 @@
     {
       "source_id" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
       "target_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001"
-    },
-    {
-      "source_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
-      "target_id" : "412dfda2-661b-4c90-80f6-b7275a8e9722"
-    },
-    {
-      "source_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
-      "target_id" : "0239d8d7-67f1-436b-b727-264738560ccc"
     },
     {
       "source_id" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
@@ -124,7 +222,43 @@
     },
     {
       "source_id" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618",
-      "target_id" : "e555dad8-b14a-48c6-a4c3-04bb44918ff4"
+      "target_id" : "7945b24b-4463-44aa-9aff-cb80d0941c6f"
+    },
+    {
+      "source_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
+      "target_id" : "a5774470-1572-4513-8baf-13c1f5abeb07"
+    },
+    {
+      "source_id" : "7920907c-a9c3-48fd-a6bc-ece027134c1c",
+      "target_id" : "5a8149e2-ba0f-4f4c-854e-1f12d46ca3dd"
+    },
+    {
+      "source_id" : "134ea12f-2e15-4ad0-9056-c2e237e0d766",
+      "target_id" : "ff26830e-6c9e-4455-85ed-5a398e2cd306"
+    },
+    {
+      "source_id" : "2060e056-b9e0-47f1-a0a0-9123a854e54e",
+      "target_id" : "7218d0c6-171f-4563-93dc-51f89f9c9927"
+    },
+    {
+      "source_id" : "7bde7508-e5fe-4cc0-b979-a30893f6d526",
+      "target_id" : "870b6ed1-afce-421a-8ab5-81e2ecd768d0"
+    },
+    {
+      "source_id" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "target_id" : "7920907c-a9c3-48fd-a6bc-ece027134c1c"
+    },
+    {
+      "source_id" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "target_id" : "134ea12f-2e15-4ad0-9056-c2e237e0d766"
+    },
+    {
+      "source_id" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "target_id" : "2060e056-b9e0-47f1-a0a0-9123a854e54e"
+    },
+    {
+      "source_id" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "target_id" : "7bde7508-e5fe-4cc0-b979-a30893f6d526"
     }
   ],
   "sheets" : [
