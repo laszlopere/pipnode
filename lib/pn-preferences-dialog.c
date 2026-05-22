@@ -84,8 +84,9 @@ enum {
     N_COLS,
 };
 
+#define PAGE_ID_LOOK_FEEL   "look-and-feel" /* worksheet background colour */
 #define PAGE_ID_GRID        "grid"
-#define PAGE_ID_MSGFLOW     "msgflow"     /* background + message-flow lights */
+#define PAGE_ID_MSGFLOW     "msgflow"     /* message-flow lights */
 #define PAGE_ID_WORKSHEET   "worksheet"   /* group node: no per-page settings */
 #define PAGE_ID_PLUGINS     "plugins"      /* group node: no per-page settings */
 #define PAGE_ID_NODE_PLUGINS "node-plugins"
@@ -263,8 +264,8 @@ on_category_selection_changed (
 static void
 build_category_tree (PnPreferencesDialog *self)
 {
-    GtkTreeIter        worksheet_iter, grid_iter, msgflow_iter, plugins_iter,
-                       node_plugins_iter;
+    GtkTreeIter        worksheet_iter, look_feel_iter, grid_iter, msgflow_iter,
+                       plugins_iter, node_plugins_iter;
     GtkCellRenderer   *renderer;
     GtkTreeViewColumn *column;
     GtkTreeSelection  *selection;
@@ -278,6 +279,15 @@ build_category_tree (PnPreferencesDialog *self)
     gtk_tree_store_set (self->category_store, &worksheet_iter,
                         COL_LABEL,   "Worksheet Editor",
                         COL_PAGE_ID, PAGE_ID_WORKSHEET,
+                        -1);
+
+    /* "Look and Feel" first -- worksheet appearance is the most common
+     * thing to reach for, so it leads the Worksheet Editor subcategories. */
+    gtk_tree_store_append (self->category_store, &look_feel_iter,
+                           &worksheet_iter);
+    gtk_tree_store_set (self->category_store, &look_feel_iter,
+                        COL_LABEL,   "Look and Feel",
+                        COL_PAGE_ID, PAGE_ID_LOOK_FEEL,
                         -1);
 
     gtk_tree_store_append (self->category_store, &grid_iter, &worksheet_iter);
@@ -331,10 +341,10 @@ build_category_tree (PnPreferencesDialog *self)
     g_signal_connect (selection, "changed",
                       G_CALLBACK (on_category_selection_changed), self);
 
-    /* Select the Grid leaf at startup -- it is the only page with real
-     * settings today, so jumping straight to it saves the user a click. */
+    /* Select the leading "Look and Feel" leaf at startup so the right
+     * pane opens on a real settings page rather than a group placeholder. */
     path = gtk_tree_model_get_path (GTK_TREE_MODEL (self->category_store),
-                                    &grid_iter);
+                                    &look_feel_iter);
     gtk_tree_selection_select_path (selection, path);
     gtk_tree_path_free (path);
 }
@@ -361,7 +371,14 @@ make_page_heading (const gchar *title)
 }
 
 /* Helper: attach a "Label: <editor>" row at the next free row of @grid.
- * Keeps the page builders readable. */
+ * Keeps the page builders readable.
+ *
+ * The editor fills the value column (halign FILL + hexpand) so every
+ * row's setter shares one left and right edge -- a column of comboboxes,
+ * colour buttons and check buttons that line up instead of each sitting
+ * at its own ragged natural width.  Stretching a check button has no
+ * visible effect (its indicator and label stay left-packed), so this is
+ * safe to apply uniformly to every editor type. */
 static void
 attach_labelled_row (
         GtkGrid     *grid,
@@ -375,8 +392,9 @@ attach_labelled_row (
     gtk_widget_set_halign (label, GTK_ALIGN_END);
     gtk_widget_set_valign (label, GTK_ALIGN_CENTER);
 
-    gtk_widget_set_halign (editor, GTK_ALIGN_START);
-    gtk_widget_set_valign (editor, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign  (editor, GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand (editor, TRUE);
+    gtk_widget_set_valign  (editor, GTK_ALIGN_CENTER);
 
     gtk_grid_attach (grid, label,  0, row, 1, 1);
     gtk_grid_attach (grid, editor, 1, row, 1, 1);
@@ -501,8 +519,45 @@ build_plugins_placeholder_page (void)
     return box;
 }
 
-/* "Message Flow" subcategory: the worksheet background colour and the
- * message-flow animation (toggle + light speed). */
+/* "Look and Feel" subcategory: worksheet-editor appearance.  Currently
+ * the worksheet background colour. */
+static GtkWidget *
+build_look_feel_page (PnPreferencesDialog *self)
+{
+    GtkWidget *box;
+    GtkWidget *grid;
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    g_object_set (box,
+                  "margin-start", 16, "margin-end", 16,
+                  "margin-top",   16, "margin-bottom", 16,
+                  NULL);
+
+    gtk_box_pack_start (GTK_BOX (box),
+                        make_page_heading ("Look and Feel"),
+                        FALSE, FALSE, 0);
+
+    grid = gtk_grid_new ();
+    gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
+    gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
+    gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
+
+    /* Background colour. */
+    self->bg_color_button = gtk_color_button_new ();
+    gtk_color_chooser_set_use_alpha (
+            GTK_COLOR_CHOOSER (self->bg_color_button), TRUE);
+    gtk_color_button_set_title (
+            GTK_COLOR_BUTTON (self->bg_color_button), "Background Color");
+    g_signal_connect (self->bg_color_button, "color-set",
+                      G_CALLBACK (on_bg_color_set), self);
+    attach_labelled_row (GTK_GRID (grid), 0,
+                         "Background color:", self->bg_color_button);
+
+    return box;
+}
+
+/* "Message Flow" subcategory: the message-flow animation (toggle +
+ * light speed). */
 static GtkWidget *
 build_msgflow_page (PnPreferencesDialog *self)
 {
@@ -525,23 +580,12 @@ build_msgflow_page (PnPreferencesDialog *self)
     gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
     gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
 
-    /* Background colour. */
-    self->bg_color_button = gtk_color_button_new ();
-    gtk_color_chooser_set_use_alpha (
-            GTK_COLOR_CHOOSER (self->bg_color_button), TRUE);
-    gtk_color_button_set_title (
-            GTK_COLOR_BUTTON (self->bg_color_button), "Background Color");
-    g_signal_connect (self->bg_color_button, "color-set",
-                      G_CALLBACK (on_bg_color_set), self);
-    attach_labelled_row (GTK_GRID (grid), 0,
-                         "Background color:", self->bg_color_button);
-
     /* Animate messages on wires. */
     self->anim_wire_check = gtk_check_button_new_with_label (
             "Animate messages travelling along wires");
     g_signal_connect (self->anim_wire_check, "toggled",
                       G_CALLBACK (on_anim_wire_toggled), self);
-    attach_labelled_row (GTK_GRID (grid), 1,
+    attach_labelled_row (GTK_GRID (grid), 0,
                          "Wire animation:", self->anim_wire_check);
 
     /* Light travel speed (worksheet units per second). */
@@ -549,7 +593,7 @@ build_msgflow_page (PnPreferencesDialog *self)
     gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->speed_spin), 0);
     g_signal_connect (self->speed_spin, "value-changed",
                       G_CALLBACK (on_speed_changed), self);
-    attach_labelled_row (GTK_GRID (grid), 2,
+    attach_labelled_row (GTK_GRID (grid), 1,
                          "Light speed (px/s):", self->speed_spin);
 
     /* Redraw interval — the CPU/smoothness dial. */
@@ -557,7 +601,7 @@ build_msgflow_page (PnPreferencesDialog *self)
     gtk_spin_button_set_digits (GTK_SPIN_BUTTON (self->interval_spin), 0);
     g_signal_connect (self->interval_spin, "value-changed",
                       G_CALLBACK (on_interval_changed), self);
-    attach_labelled_row (GTK_GRID (grid), 3,
+    attach_labelled_row (GTK_GRID (grid), 2,
                          "Animation interval (ms):", self->interval_spin);
 
     blurb = gtk_label_new (
@@ -811,6 +855,7 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
     GtkWidget     *button_box;
     GtkWidget     *close_button;
     GtkWidget     *worksheet_page;
+    GtkWidget     *look_feel_page;
     GtkWidget     *grid_page;
     GtkWidget     *msgflow_page;
     GtkWidget     *plugins_page;
@@ -855,6 +900,9 @@ pn_preferences_dialog_init (PnPreferencesDialog *self)
 
     worksheet_page = build_worksheet_placeholder_page ();
     gtk_stack_add_named (self->stack, worksheet_page, PAGE_ID_WORKSHEET);
+
+    look_feel_page = build_look_feel_page (self);
+    gtk_stack_add_named (self->stack, look_feel_page, PAGE_ID_LOOK_FEEL);
 
     grid_page = build_grid_page (self);
     gtk_stack_add_named (self->stack, grid_page, PAGE_ID_GRID);
