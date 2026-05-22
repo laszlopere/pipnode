@@ -1,0 +1,134 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 100.0,
+        "value" : 29.166666666666675
+      }
+    },
+    {
+      "type" : "PnThreshold",
+      "uuid" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
+      "name" : "Threshold 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "threshold" : 50.0,
+        "hysteresis" : 10.0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "412dfda2-661b-4c90-80f6-b7275a8e9722",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnSwitch",
+      "uuid" : "0239d8d7-67f1-436b-b727-264738560ccc",
+      "name" : "Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "on" : false
+      }
+    },
+    {
+      "type" : "PnSwitch",
+      "uuid" : "e555dad8-b14a-48c6-a4c3-04bb44918ff4",
+      "name" : "Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 480.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "on" : false
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "name" : "Knob 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 100.0,
+        "value" : 54.166666666666664
+      }
+    },
+    {
+      "type" : "PnComparator",
+      "uuid" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618",
+      "name" : "Comparator 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "hysteresis" : 5.0
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
+      "target_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001"
+    },
+    {
+      "source_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
+      "target_id" : "412dfda2-661b-4c90-80f6-b7275a8e9722"
+    },
+    {
+      "source_id" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
+      "target_id" : "0239d8d7-67f1-436b-b727-264738560ccc"
+    },
+    {
+      "source_id" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
+      "target_id" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618"
+    },
+    {
+      "source_id" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
+      "target_id" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618",
+      "target_id" : "e555dad8-b14a-48c6-a4c3-04bb44918ff4"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
