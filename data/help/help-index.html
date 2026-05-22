@@ -29,6 +29,7 @@ node's output to another node's input.
       <li><a href="#messages-data">Standard <code>data</code>-bag members</a></li>
     </ul>
   </li>
+  <li><a href="#globals">Document globals</a></li>
   <li><a href="#plugins">Plugins</a></li>
   <li><a href="#tips">Tips and troubleshooting</a></li>
 </ul>
@@ -378,6 +379,62 @@ family of nodes rather than universal across all of them:
 <p>
 Producers are free to add any other members they need; consumers
 should ignore members they don't understand.
+</p>
+
+<h2 id="globals">Document globals</h2>
+
+<p>
+A worksheet file can carry a set of <strong>document globals</strong>:
+user-defined, typed <em>name &rarr; value</em> pairs that belong to the
+document as a whole rather than to any single node. They are shared by
+every sheet in the file and round-trip through the on-disk format, so a
+value you set is still there the next time the file is opened. Edit them
+from <em>File &rarr; Document Settings&hellip;</em>, on the
+<em>Globals</em> page; adding, changing or removing one marks the file
+modified so the change persists on the next save.
+</p>
+
+<p>
+Each global holds one of four scalar types, picked from the type
+drop-down next to its value:
+</p>
+<ul>
+  <li><strong>Boolean</strong> &mdash; <code>true</code> /
+      <code>false</code>.</li>
+  <li><strong>Integer</strong> &mdash; a 64-bit whole number.</li>
+  <li><strong>Double</strong> &mdash; a floating-point number.</li>
+  <li><strong>String</strong> &mdash; free text.</li>
+</ul>
+
+<p>
+Their main use is as <code>${name}</code> placeholders, the same
+<code>${&hellip;}</code> syntax used for
+<a href="#messages-envelope">topic templates</a> and the text /
+JSON templates of the <em>Format</em>, <em>Rewrite</em> and
+<em>Notify</em> nodes. A global is consulted as a <em>fallback</em>:
+each call site tries its own source first &mdash; the node's own
+variables (<code>${nodeclass}</code> / <code>${nodename}</code> /
+<code>${hostname}</code>) for a topic, or the incoming message's fields
+(<code>${data/&hellip;}</code>, <code>${topic}</code>) for a template
+&mdash; and only when a name is not found there does it resolve against
+the document globals.
+</p>
+
+<p>
+What happens to a name that no source provides depends on the call
+site: a <a href="#messages-envelope">topic template</a> and the
+<em>Rewrite</em> node leave it exactly as typed
+(<code>${name}</code>), so an unrelated placeholder such as a shell
+one-liner's <code>${HOME}</code> survives untouched, while the
+<em>Format</em> and <em>Notify</em> templates drop it to nothing.
+</p>
+
+<p>
+So a global named <code>env</code> set to <code>"prod"</code> lets every
+node in the document fold the same value into its topics and templates
+&mdash; <code>/pnode/${nodeclass}/${nodename}/${env}</code> resolves the
+class and instance names from the node and <code>${env}</code> from the
+global &mdash; and changing it in one place updates the whole document.
 </p>
 
 <h2 id="plugins">Plugins</h2>
