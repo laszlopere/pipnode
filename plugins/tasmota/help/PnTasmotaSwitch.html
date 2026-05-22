@@ -57,14 +57,15 @@ shorthand for the common case.
           chain.</td></tr>
 </table>
 <p>
-<strong>No startup command.</strong> The base <em>Switch</em> announces
-its latch state once when a worksheet loads, so downstream nodes learn
-its position without a click.  The Tasmota Switch deliberately
-<em>suppresses</em> that announce: its output is a physical relay
-command, and re-issuing it on every load would actuate the relay just
-because someone opened the worksheet.  The relay's true state instead
-arrives over the inbound <code>stat/&hellip;/POWER</code> path, which
-syncs the slider silently.
+<strong>Startup command is opt-in.</strong> The base <em>Switch</em>
+announces its latch state once when a worksheet loads, so downstream
+nodes learn its position without a click.  Because the Tasmota Switch's
+output is a physical relay command, this is <em>off by default</em>: the
+relay's true state instead arrives over the inbound
+<code>stat/&hellip;/POWER</code> path, which syncs the slider silently,
+so opening a worksheet never actuates hardware.  Set
+<code>enforce-on-startup</code> if you want the worksheet to be the
+source of truth and force the relay to the saved position on load.
 </p>
 
 <h5>Configuration</h5>
@@ -84,6 +85,15 @@ syncs the slider silently.
       <td>Inherited from <em>Switch</em>.  Current latch position
           (persisted in the worksheet so the slider parks back the
           way the user left it on reload).</td></tr>
+  <tr><td><code>enforce-on-startup</code></td>
+      <td>When enabled, the node emits a
+          <code>cmnd/&lt;switch-name&gt;/POWER</code> command for the
+          saved latch position once shortly after the worksheet loads,
+          forcing the physical relay to match the worksheet on startup.
+          <strong>Off by default</strong> &mdash; opening a worksheet
+          never actuates the relay; the latch tracks the device's
+          reported state instead.  Enable it when the worksheet (not the
+          device) is the source of truth for the desired state.</td></tr>
 </table>
 
 <h5>Wiring example</h5>

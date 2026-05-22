@@ -55,6 +55,7 @@ G_DEFINE_TYPE (PnTasmotaSwitch, pn_tasmota_switch, PN_TYPE_SWITCH)
 enum {
     PROP_0,
     PROP_SWITCH_NAME,
+    PROP_ENFORCE_ON_STARTUP,
     N_PROPS,
 };
 
@@ -300,6 +301,13 @@ pn_tasmota_switch_get_property (
     case PROP_SWITCH_NAME:
         g_value_set_string (value, self->switch_name);
         break;
+    case PROP_ENFORCE_ON_STARTUP:
+        /* Backed directly by the base #PnSwitch announce flag -- the
+         * property *is* the switch's startup-announce control, just
+         * surfaced with a device-flavoured name. */
+        g_value_set_boolean (value,
+                pn_switch_get_announce_on_startup (PN_SWITCH (object)));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -319,6 +327,16 @@ pn_tasmota_switch_set_property (
     case PROP_SWITCH_NAME:
         tasmota_switch_set_name (self, g_value_get_string (value));
         break;
+    case PROP_ENFORCE_ON_STARTUP:
+    {
+        gboolean enforce = g_value_get_boolean (value);
+        if (pn_switch_get_announce_on_startup (PN_SWITCH (self)) != enforce)
+        {
+            pn_switch_set_announce_on_startup (PN_SWITCH (self), enforce);
+            g_object_notify_by_pspec (object, props[PROP_ENFORCE_ON_STARTUP]);
+        }
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -383,6 +401,20 @@ pn_tasmota_switch_class_init (PnTasmotaSwitchClass *klass)
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_ENFORCE_ON_STARTUP] = g_param_spec_boolean (
+            "enforce-on-startup", "Enforce on startup",
+            "When TRUE, the node commands the relay to its saved latch "
+            "position once shortly after the worksheet loads, emitting a "
+            "cmnd/<switch-name>/POWER message (ON/OFF) so a downstream "
+            "MQTT Sink forces the physical relay to match the worksheet "
+            "on startup.  Default FALSE: opening a worksheet never "
+            "actuates the relay -- the latch instead tracks the relay's "
+            "reported state via inbound stat/POWER messages.  Enabling "
+            "this is the right choice when the worksheet, not the device, "
+            "is the source of truth for the desired relay state.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -395,15 +427,15 @@ pn_tasmota_switch_init (PnTasmotaSwitch *self)
 
     pn_node_set_class_name (node, "Tasmota Switch");
 
-    /* Opt out of the base #PnSwitch startup announce: our
+    /* Default the base #PnSwitch startup announce OFF: our
      * build_outbound_message() emits an MQTT relay *command*
-     * (cmnd/<device>/POWER = ON/OFF), so auto-emitting on load would
-     * silently actuate the physical relay every time a worksheet opens
-     * -- exactly the kind of outward side effect the base announce must
-     * not trigger here.  This runs before the base constructed schedules
-     * the shot, so it is suppressed outright.  (A relay's state instead
-     * arrives via inbound stat/POWER messages, which sync the latch
-     * silently -- see pn_tasmota_switch_receive.) */
+     * (cmnd/<device>/POWER = ON/OFF), so announcing on load would
+     * actuate the physical relay every time a worksheet opens.  The
+     * safe default is to leave the relay alone and let its true state
+     * arrive via inbound stat/POWER messages (see
+     * pn_tasmota_switch_receive).  Users who do want the worksheet to
+     * force the relay to its saved state on load opt back in through the
+     * "enforce-on-startup" property, which drives this same flag. */
     pn_switch_set_announce_on_startup (PN_SWITCH (self), FALSE);
 
     /* Start in the unconfigured (red ❗) state so a freshly-dropped

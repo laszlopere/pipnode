@@ -432,18 +432,29 @@ pn_switch_set_property (
 /*  close by reporting once shortly after the worksheet loads.  The     */
 /*  emit goes through the build_outbound_message vfunc, so a subclass'  */
 /*  message shape is honoured; subclasses whose outbound has an outward */
-/*  side effect (PnTasmotaSwitch builds an MQTT relay *command*) opt    */
-/*  out via pn_switch_set_announce_on_startup() so opening a worksheet  */
-/*  never silently actuates hardware.                                   */
+/*  side effect (PnTasmotaSwitch builds an MQTT relay *command*) clear  */
+/*  announce_on_startup so opening a worksheet never silently actuates  */
+/*  hardware.                                                           */
+/*                                                                      */
+/*  The shot is scheduled unconditionally at construction but consults  */
+/*  announce_on_startup only when it *fires*.  The flag is read late on */
+/*  purpose: a node's regular properties (e.g. PnTasmotaSwitch's        */
+/*  enforce-on-startup) are applied by the loader after constructed()   */
+/*  has run, so a construction-time decision would miss a value the     */
+/*  file is about to set.  By the time the idle fires the load has      */
+/*  returned to the main loop and the flag reflects the loaded state.   */
 /* ------------------------------------------------------------------ */
 
 static gboolean
 emit_startup_state (gpointer data)
 {
-    PnSwitch *self = PN_SWITCH (data);
+    PnSwitch        *self = PN_SWITCH (data);
+    PnSwitchPrivate *priv = PRIV (self);
 
-    PRIV (self)->startup_emit_id = 0;
-    emit_state_message (self);
+    priv->startup_emit_id = 0;
+
+    if (priv->announce_on_startup)
+        emit_state_message (self);
 
     return G_SOURCE_REMOVE;
 }
@@ -467,11 +478,13 @@ pn_switch_constructed (GObject *object)
      * would reach nobody.  By the time the idle runs the load call has
      * returned to the main loop, the graph is fully wired, and priv->on
      * holds the latch position restored from the file.  The idle holds no
-     * reference on @self; dispose() pulls it if the node dies first.  A
-     * subclass that cleared announce_on_startup in its init (which runs
-     * before this base constructed) skips the shot entirely. */
-    if (priv->announce_on_startup)
-        priv->startup_emit_id = g_idle_add (emit_startup_state, self);
+     * reference on @self; dispose() pulls it if the node dies first.
+     *
+     * Scheduled unconditionally; emit_startup_state() reads
+     * announce_on_startup when it fires, so a subclass property applied
+     * after constructed() (PnTasmotaSwitch's enforce-on-startup) still
+     * governs whether the shot actually emits. */
+    priv->startup_emit_id = g_idle_add (emit_startup_state, self);
 }
 
 static void
@@ -567,25 +580,25 @@ pn_switch_get_on (PnSwitch *self)
     return PRIV (self)->on;
 }
 
+gboolean
+pn_switch_get_announce_on_startup (PnSwitch *self)
+{
+    g_return_val_if_fail (PN_IS_SWITCH (self), FALSE);
+    return PRIV (self)->announce_on_startup;
+}
+
 void
 pn_switch_set_announce_on_startup (
         PnSwitch *self,
         gboolean  announce)
 {
-    PnSwitchPrivate *priv;
-
     g_return_if_fail (PN_IS_SWITCH (self));
 
-    priv = PRIV (self);
-    priv->announce_on_startup = announce;
-
-    /* If the shot was already scheduled (the setter ran after the base
-     * constructed) honour a late opt-out by pulling the pending idle. */
-    if (!announce && priv->startup_emit_id != 0)
-    {
-        g_source_remove (priv->startup_emit_id);
-        priv->startup_emit_id = 0;
-    }
+    /* Just record the intent.  The one-shot scheduled in constructed()
+     * reads this when it fires, so toggling it any time before then --
+     * from a subclass init, or from a property setter the loader applies
+     * during load -- takes effect without needing to (re)schedule. */
+    PRIV (self)->announce_on_startup = announce;
 }
 
 void

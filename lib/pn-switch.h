@@ -102,6 +102,15 @@ gboolean  pn_switch_get_on    (PnSwitch *self);
 void      pn_switch_toggle    (PnSwitch *self);
 
 /**
+ * pn_switch_get_announce_on_startup:
+ * @self: the switch node
+ *
+ * Returns whether the switch will emit its latch state once shortly
+ * after construction.  See pn_switch_set_announce_on_startup().
+ */
+gboolean  pn_switch_get_announce_on_startup (PnSwitch *self);
+
+/**
  * pn_switch_set_announce_on_startup:
  * @self:     the switch node
  * @announce: whether to emit the latch state once shortly after construction
@@ -112,13 +121,15 @@ void      pn_switch_toggle    (PnSwitch *self);
  * same "report on startup" behaviour #PnKnob and the periodic data
  * sources have.
  *
- * Subclasses whose outbound message has an outward side effect -- e.g.
- * #PnTasmotaSwitch, whose build_outbound_message() produces an MQTT
- * *command* that would flip a physical relay -- call this with @announce
- * = %FALSE from their instance init (which runs before the base
- * constructed schedules the shot) so opening a worksheet never silently
- * actuates hardware.  Passing %FALSE after construction also cancels an
- * already-scheduled announce.
+ * The flag is consulted when the one-shot fires (after the worksheet
+ * finishes loading), not when it is scheduled, so it may be set at any
+ * point before then -- from a subclass instance init, or from a
+ * property setter the loader applies during load.  Subclasses whose
+ * outbound message has an outward side effect -- e.g. #PnTasmotaSwitch,
+ * whose build_outbound_message() produces an MQTT *command* that would
+ * flip a physical relay -- clear it by default so opening a worksheet
+ * never silently actuates hardware, and expose their own property to
+ * let the user opt back in.
  */
 void      pn_switch_set_announce_on_startup (PnSwitch *self,
                                              gboolean  announce);
