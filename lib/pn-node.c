@@ -19,8 +19,7 @@
 
 #include "pn-node.h"
 #include "pn-message.h"
-
-#include <string.h>
+#include "pn-subst.h"
 
 /* ------------------------------------------------------------------ */
 /*  PnPoint                                                            */
@@ -1077,32 +1076,16 @@ pn_node_dup_configured_hostname (PnNode *self)
     return hostname;
 }
 
-gchar *
-pn_node_resolve_topic (PnNode *self)
+gchar **
+pn_node_dup_subst_pairs (PnNode *self)
 {
-    PnNodePrivate *priv;
-    GString       *out;
-    const gchar   *cursor;
-    const gchar   *template_str;
-    gchar         *template_owned = NULL;
-    const gchar   *class_label    = NULL;
-    const gchar   *node_name      = NULL;
-    gchar         *hostname_owned = NULL;
-    const gchar   *hostname       = NULL;
+    const gchar *class_label;
+    const gchar *node_name;
+    gchar       *hostname_owned;
+    const gchar *hostname;
+    gchar      **pairs;
 
-    g_return_val_if_fail (PN_IS_NODE (self), g_strdup (""));
-
-    priv = pn_node_get_instance_private (self);
-
-    if (priv->topic != NULL && *priv->topic != '\0')
-    {
-        template_str = priv->topic;
-    }
-    else
-    {
-        template_owned = pn_node_default_topic_template (self);
-        template_str   = template_owned;
-    }
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
 
     /* Prefer the class label ("CPU" / "Clock") over the GType name
      * ("PnCpu" / "PnRtc") so the topic reads naturally. */
@@ -1138,48 +1121,78 @@ pn_node_resolve_topic (PnNode *self)
         hostname = g_get_host_name ();
     }
 
-    out    = g_string_new (NULL);
-    cursor = template_str;
-    while (*cursor != '\0')
-    {
-        if (cursor[0] == '$' && cursor[1] == '{')
-        {
-            const gchar *close = strchr (cursor + 2, '}');
-            if (close != NULL)
-            {
-                gsize        name_len = (gsize) (close - (cursor + 2));
-                const gchar *subst    = NULL;
+    pairs = g_new (gchar *, 7);
+    pairs[0] = g_strdup ("nodeclass");
+    pairs[1] = g_strdup (class_label);
+    pairs[2] = g_strdup ("nodename");
+    pairs[3] = g_strdup (node_name);
+    pairs[4] = g_strdup ("hostname");
+    pairs[5] = g_strdup (hostname);
+    pairs[6] = NULL;
 
-                if (name_len == strlen ("nodeclass")
-                    && strncmp (cursor + 2, "nodeclass", name_len) == 0)
-                    subst = class_label;
-                else if (name_len == strlen ("nodename")
-                         && strncmp (cursor + 2, "nodename", name_len) == 0)
-                    subst = node_name;
-                else if (name_len == strlen ("hostname")
-                         && strncmp (cursor + 2, "hostname", name_len) == 0)
-                    subst = hostname;
-
-                if (subst != NULL)
-                {
-                    g_string_append (out, subst);
-                    cursor = close + 1;
-                    continue;
-                }
-                /* Unknown placeholder: leave the ${...} as-is so the
-                 * user can see exactly what they typed.  Fall through
-                 * to the literal-copy path below. */
-            }
-        }
-
-        g_string_append_c (out, *cursor);
-        cursor++;
-    }
-
-    g_free (template_owned);
     g_free (hostname_owned);
 
-    return g_string_free (out, FALSE);
+    return pairs;
+}
+
+gchar *
+pn_node_expand_vars (PnNode *self, const gchar *tmpl)
+{
+    gchar          **pairs;
+    PnSubstResolver  resolver;
+    PnSubstResolver *chain[2];
+    PnSubstContext   ctx;
+    gchar           *result;
+
+    g_return_val_if_fail (PN_IS_NODE (self), g_strdup (""));
+
+    /* TEXT mode, verbatim on miss: ${nodeclass} / ${nodename} /
+     * ${hostname} are substituted, but any other placeholder is left
+     * exactly as typed so an unrelated ${var} — e.g. a shell one-liner's
+     * ${HOME} — survives for whoever consumes the string. */
+    pairs = pn_node_dup_subst_pairs (self);
+
+    pn_subst_resolver_strv (&resolver, (const gchar * const *) pairs);
+    chain[0] = &resolver;
+    chain[1] = NULL;
+    ctx.resolvers = chain;
+    ctx.mode      = PN_SUBST_TEXT;
+    ctx.miss      = PN_SUBST_MISS_VERBATIM;
+
+    result = pn_subst_expand (tmpl, &ctx);
+
+    g_strfreev (pairs);
+
+    return result;
+}
+
+gchar *
+pn_node_resolve_topic (PnNode *self)
+{
+    PnNodePrivate *priv;
+    const gchar   *template_str;
+    gchar         *template_owned = NULL;
+    gchar         *result;
+
+    g_return_val_if_fail (PN_IS_NODE (self), g_strdup (""));
+
+    priv = pn_node_get_instance_private (self);
+
+    if (priv->topic != NULL && *priv->topic != '\0')
+    {
+        template_str = priv->topic;
+    }
+    else
+    {
+        template_owned = pn_node_default_topic_template (self);
+        template_str   = template_owned;
+    }
+
+    result = pn_node_expand_vars (self, template_str);
+
+    g_free (template_owned);
+
+    return result;
 }
 
 /* ------------------------------------------------------------------ */

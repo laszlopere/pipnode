@@ -639,6 +639,41 @@ gchar          *pn_node_default_topic_template (PnNode *self);
 gchar          *pn_node_resolve_topic  (PnNode *self);
 
 /**
+ * pn_node_dup_subst_pairs:
+ * @self: the node
+ *
+ * Builds the node's substitution variables as a %NULL-terminated
+ * { "nodeclass", value, "nodename", value, "hostname", value, %NULL }
+ * array suitable for pn_subst_resolver_strv().  The values follow the
+ * same rules as pn_node_resolve_topic() (class label, instance name with
+ * class-label fallback, configured-or-local hostname).  Both the keys
+ * and values are freshly allocated; free the whole array with
+ * g_strfreev().
+ *
+ * This lets any node interpolate ${nodeclass} / ${nodename} /
+ * ${hostname} into one of its own settings (a shell command, a URL, an
+ * MQTT topic) without a message in hand.
+ */
+gchar         **pn_node_dup_subst_pairs (PnNode *self);
+
+/**
+ * pn_node_expand_vars:
+ * @self: the node
+ * @tmpl: a template, or %NULL (treated as "")
+ *
+ * Expands <literal>${nodeclass}</literal>, <literal>${nodename}</literal>
+ * and <literal>${hostname}</literal> in @tmpl against the node's own
+ * variables (see pn_node_dup_subst_pairs()).  Any other placeholder is
+ * left verbatim, so an unrelated <literal>${var}</literal> — such as a
+ * shell one-liner's <literal>${HOME}</literal> — survives untouched for
+ * whoever consumes the string.  Use this for node settings that should
+ * interpolate node identity without an incoming message (a shell
+ * command, a request URL).  The returned string is freshly allocated;
+ * caller frees with g_free().
+ */
+gchar          *pn_node_expand_vars     (PnNode *self, const gchar *tmpl);
+
+/**
  * pn_node_get_size:
  * @self:  the node
  * @out_w: (out): width in worksheet pixels

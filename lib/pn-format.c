@@ -20,9 +20,9 @@
 #include "pn-format.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-subst.h"
 
 #include <json-glib/json-glib.h>
-#include <string.h>
 
 struct _PnFormat
 {
@@ -70,87 +70,26 @@ read_boolean_member (
     return TRUE;
 }
 
-/** Render a #JsonNode as a freshly-allocated string suitable for
- *  inlining into the output template.  Scalars use their natural
- *  textual form; objects and arrays fall back to compact JSON so a
- *  template author still gets something readable when they reference
- *  a non-leaf path. */
-static gchar *
-node_to_string (JsonNode *node)
-{
-    if (node == NULL || JSON_NODE_HOLDS_NULL (node))
-        return g_strdup ("");
-
-    if (JSON_NODE_HOLDS_VALUE (node))
-    {
-        GType vtype = json_node_get_value_type (node);
-
-        if (vtype == G_TYPE_STRING)
-            return g_strdup (json_node_get_string (node));
-        if (vtype == G_TYPE_INT64)
-            return g_strdup_printf ("%" G_GINT64_FORMAT,
-                                    json_node_get_int (node));
-        if (vtype == G_TYPE_DOUBLE)
-            return g_strdup_printf ("%g", json_node_get_double (node));
-        if (vtype == G_TYPE_BOOLEAN)
-            return g_strdup (json_node_get_boolean (node) ? "true" : "false");
-    }
-
-    {
-        JsonGenerator *gen = json_generator_new ();
-        gchar         *out;
-
-        json_generator_set_root (gen, node);
-        out = json_generator_to_data (gen, NULL);
-        g_object_unref (gen);
-        return out ? out : g_strdup ("");
-    }
-}
-
-
-/** Replace every "${path}" occurrence in @tmpl with the string form
- *  of the JSON value at that path.  Unknown paths render as the empty
+/** Expand every "${path}" in @tmpl to the plain-text form of the JSON
+ *  value at that path against @root.  Unknown paths render as the empty
  *  string; an unterminated "${" is emitted verbatim. */
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
         JsonObject  *root)
 {
-    GString     *out;
-    const gchar *p;
+    PnSubstResolver  resolver;
+    PnSubstResolver *chain[2];
+    PnSubstContext   ctx;
 
-    if (tmpl == NULL)
-        return g_strdup ("");
+    pn_subst_resolver_json (&resolver, root);
+    chain[0] = &resolver;
+    chain[1] = NULL;
+    ctx.resolvers = chain;
+    ctx.mode      = PN_SUBST_TEXT;
+    ctx.miss      = PN_SUBST_MISS_EMPTY;
 
-    out = g_string_new (NULL);
-    p   = tmpl;
-
-    while (*p != '\0')
-    {
-        if (p[0] == '$' && p[1] == '{')
-        {
-            const gchar *end = strchr (p + 2, '}');
-
-            if (end != NULL)
-            {
-                gchar    *path  = g_strndup (p + 2, end - (p + 2));
-                JsonNode *node  = pn_json_resolve_path (root, path);
-                gchar    *value = node_to_string (node);
-
-                g_string_append (out, value);
-
-                g_free (value);
-                g_free (path);
-                p = end + 1;
-                continue;
-            }
-        }
-
-        g_string_append_c (out, *p);
-        p++;
-    }
-
-    return g_string_free (out, FALSE);
+    return pn_subst_expand (tmpl, &ctx);
 }
 
 /* ------------------------------------------------------------------ */

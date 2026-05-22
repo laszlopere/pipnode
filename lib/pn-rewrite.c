@@ -20,10 +20,10 @@
 #include "pn-rewrite.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-subst.h"
 
 #include <gtksourceview/gtksource.h>
 #include <json-glib/json-glib.h>
-#include <string.h>
 
 static const gchar PN_REWRITE_DEFAULT_TEMPLATE[] =
     "{\n"
@@ -56,207 +56,33 @@ static GParamSpec *props[N_PROPS];
 /* ------------------------------------------------------------------ */
 /*  Placeholder expansion                                              */
 /*                                                                     */
-/*  Same shape as PnFormat's expander but with one extra rule for the  */
-/*  JSON context: numeric / boolean / null scalars are emitted as      */
-/*  their bare JSON token so a placeholder dropped inside a JSON       */
-/*  numeric slot (e.g. `"value": ${data/value}`) yields valid JSON     */
-/*  after substitution.  Strings, objects, and arrays still emit       */
-/*  their compact JSON form, which is already quoted / braced so they  */
-/*  drop into any value slot a user might write.                       */
+/*  PnRewrite authors its output in JSON, so it expands placeholders   */
+/*  in PN_SUBST_JSON mode: the engine tracks whether the cursor sits   */
+/*  inside a JSON string literal and renders accordingly — a numeric / */
+/*  boolean / null scalar dropped in a value slot                      */
+/*  (e.g. `"value": ${data/value}`) emerges as its bare JSON token,    */
+/*  while a placeholder inside a string ("rewritten/${topic}") emerges */
+/*  as its escaped contents.  Unknown paths render as the JSON literal */
+/*  `null`; an unterminated "${" is emitted verbatim.                  */
 /* ------------------------------------------------------------------ */
 
-/** Append @s to @out with JSON string-escape rules applied (control
- *  set, backslash, double-quote).  Multi-byte UTF-8 sequences pass
- *  through verbatim. */
-static void
-append_json_escaped (GString *out, const gchar *s)
-{
-    if (s == NULL)
-        return;
-
-    for (const gchar *p = s; *p != '\0'; p++)
-    {
-        guchar c = (guchar) *p;
-        switch (c)
-        {
-        case '"':  g_string_append (out, "\\\""); break;
-        case '\\': g_string_append (out, "\\\\"); break;
-        case '\b': g_string_append (out, "\\b");  break;
-        case '\f': g_string_append (out, "\\f");  break;
-        case '\n': g_string_append (out, "\\n");  break;
-        case '\r': g_string_append (out, "\\r");  break;
-        case '\t': g_string_append (out, "\\t");  break;
-        default:
-            if (c < 0x20)
-                g_string_append_printf (out, "\\u%04x", c);
-            else
-                g_string_append_c (out, *p);
-        }
-    }
-}
-
-/** Render @node into @out as JSON suitable for inlining into a JSON
- *  document.  Two contexts:
- *
- *    in_string = FALSE — the cursor is in a value slot (after `:` or
- *      `,` / `[`).  Strings emerge quoted; numbers, booleans, null
- *      emerge as their bare JSON tokens; objects / arrays emerge as
- *      compact JSON.
- *
- *    in_string = TRUE  — the cursor is inside a JSON string literal.
- *      Strings emerge as their raw contents with JSON escapes (no
- *      surrounding quotes), so a placeholder like
- *      "rewritten/${topic}" expands inline.  Scalars and structured
- *      nodes serialise to their JSON form and then have their special
- *      characters escaped so the surrounding string stays well-formed.
- *
- *  json-glib's #JsonGenerator only accepts an object or array root,
- *  so the scalar branch hand-formats numbers / booleans / null. */
-static void
-render_placeholder (JsonNode *node, gboolean in_string, GString *out)
-{
-    if (node == NULL || JSON_NODE_HOLDS_NULL (node))
-    {
-        g_string_append (out, "null");
-        return;
-    }
-
-    if (JSON_NODE_HOLDS_VALUE (node))
-    {
-        GType vtype = json_node_get_value_type (node);
-
-        if (vtype == G_TYPE_STRING)
-        {
-            const gchar *s = json_node_get_string (node);
-            if (in_string)
-            {
-                append_json_escaped (out, s);
-            }
-            else
-            {
-                g_string_append_c (out, '"');
-                append_json_escaped (out, s);
-                g_string_append_c (out, '"');
-            }
-            return;
-        }
-        if (vtype == G_TYPE_INT64)
-        {
-            g_string_append_printf (out, "%" G_GINT64_FORMAT,
-                                    json_node_get_int (node));
-            return;
-        }
-        if (vtype == G_TYPE_DOUBLE)
-        {
-            gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
-            g_ascii_dtostr (buf, sizeof buf, json_node_get_double (node));
-            g_string_append (out, buf);
-            return;
-        }
-        if (vtype == G_TYPE_BOOLEAN)
-        {
-            g_string_append (out,
-                json_node_get_boolean (node) ? "true" : "false");
-            return;
-        }
-
-        g_string_append (out, "null");
-        return;
-    }
-
-    {
-        JsonGenerator *gen = json_generator_new ();
-        gchar         *json;
-
-        json_generator_set_root (gen, node);
-        json = json_generator_to_data (gen, NULL);
-        g_object_unref (gen);
-
-        if (json == NULL)
-        {
-            g_string_append (out, "null");
-            return;
-        }
-
-        if (in_string)
-            append_json_escaped (out, json);
-        else
-            g_string_append (out, json);
-
-        g_free (json);
-    }
-}
-
-/** Walk @tmpl, replacing every "${path}" occurrence with the JSON
- *  rendering of the value addressed by `path` against @root.  Tracks
- *  whether the cursor is inside a JSON string literal so a
- *  placeholder embedded in a string ("rewritten/${topic}") emits the
- *  unquoted escaped form while a placeholder in a value slot
- *  ("orig": ${data/value}) emits a full JSON token.  Unknown paths
- *  render as the JSON literal `null`; an unterminated "${" is emitted
- *  verbatim. */
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
         JsonObject  *root)
 {
-    GString     *out;
-    const gchar *p;
-    gboolean     in_string = FALSE;
-    gboolean     escaped   = FALSE;
+    PnSubstResolver  resolver;
+    PnSubstResolver *chain[2];
+    PnSubstContext   ctx;
 
-    if (tmpl == NULL)
-        return g_strdup ("");
+    pn_subst_resolver_json (&resolver, root);
+    chain[0] = &resolver;
+    chain[1] = NULL;
+    ctx.resolvers = chain;
+    ctx.mode      = PN_SUBST_JSON;
+    ctx.miss      = PN_SUBST_MISS_NULL;
 
-    out = g_string_new (NULL);
-    p   = tmpl;
-
-    while (*p != '\0')
-    {
-        /* Placeholder dispatch happens before the per-character
-         * string-state update so the in_string bit reflects the
-         * context the placeholder sits inside, not the character we
-         * are about to consume. */
-        if (!escaped && p[0] == '$' && p[1] == '{')
-        {
-            const gchar *end = strchr (p + 2, '}');
-
-            if (end != NULL)
-            {
-                gchar    *path = g_strndup (p + 2, end - (p + 2));
-                JsonNode *node = pn_json_resolve_path (root, path);
-
-                render_placeholder (node, in_string, out);
-
-                g_free (path);
-                p = end + 1;
-                continue;
-            }
-        }
-
-        if (escaped)
-        {
-            /* Previous char was a backslash: this one is the escapee,
-             * no string-state toggle, no further escape carry-over. */
-            escaped = FALSE;
-        }
-        else if (in_string)
-        {
-            if (*p == '\\')
-                escaped = TRUE;
-            else if (*p == '"')
-                in_string = FALSE;
-        }
-        else if (*p == '"')
-        {
-            in_string = TRUE;
-        }
-
-        g_string_append_c (out, *p);
-        p++;
-    }
-
-    return g_string_free (out, FALSE);
+    return pn_subst_expand (tmpl, &ctx);
 }
 
 /* ------------------------------------------------------------------ */
