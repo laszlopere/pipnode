@@ -20,6 +20,7 @@
 #include "pn-node.h"
 #include "pn-message.h"
 #include "pn-subst.h"
+#include "pn-flow.h"
 
 /* ------------------------------------------------------------------ */
 /*  PnPoint                                                            */
@@ -91,6 +92,13 @@ typedef struct
      * the user typed it; pn_node_resolve_topic() substitutes them at
      * emit time, which is what message envelopes carry. */
     gchar   *topic;
+    /* Borrowed back-pointer to the owning #PnFlow, set by the flow when
+     * the node is added to its store and cleared on removal.  Used so
+     * substitution can fall back to the document globals.  Not reffed:
+     * the flow owns the node through the store and always outlives it.
+     * Accessed via g_atomic_pointer_* because the auto-trigger worker
+     * thread reads it while the main thread sets it. */
+    gpointer flow;
 } PnNodePrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnNode, pn_node, G_TYPE_OBJECT)
@@ -1135,26 +1143,54 @@ pn_node_dup_subst_pairs (PnNode *self)
     return pairs;
 }
 
+void
+pn_node_set_flow (PnNode *self, PnFlow *flow)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    /* Atomic: the auto-trigger worker thread reads this while the main
+     * thread (flow add/remove) writes it.  Borrowed pointer, no ref. */
+    g_atomic_pointer_set (&priv->flow, flow);
+}
+
+PnFlow *
+pn_node_get_flow (PnNode *self)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+
+    priv = pn_node_get_instance_private (self);
+    return g_atomic_pointer_get (&priv->flow);
+}
+
 gchar *
 pn_node_expand_vars (PnNode *self, const gchar *tmpl)
 {
     gchar          **pairs;
     PnSubstResolver  resolver;
-    PnSubstResolver *chain[2];
+    PnSubstResolver  globals;
+    PnSubstResolver *chain[3];
     PnSubstContext   ctx;
     gchar           *result;
 
     g_return_val_if_fail (PN_IS_NODE (self), g_strdup (""));
 
     /* TEXT mode, verbatim on miss: ${nodeclass} / ${nodename} /
-     * ${hostname} are substituted, but any other placeholder is left
-     * exactly as typed so an unrelated ${var} — e.g. a shell one-liner's
-     * ${HOME} — survives for whoever consumes the string. */
+     * ${hostname} are substituted, the document globals are consulted
+     * next, and any other placeholder is left exactly as typed so an
+     * unrelated ${var} — e.g. a shell one-liner's ${HOME} — survives for
+     * whoever consumes the string. */
     pairs = pn_node_dup_subst_pairs (self);
 
     pn_subst_resolver_strv (&resolver, (const gchar * const *) pairs);
-    chain[0] = &resolver;
-    chain[1] = NULL;
+    pn_flow_subst_resolver_globals (&globals, pn_node_get_flow (self));
+    chain[0] = &resolver;   /* node vars win */
+    chain[1] = &globals;    /* then document globals */
+    chain[2] = NULL;
     ctx.resolvers = chain;
     ctx.mode      = PN_SUBST_TEXT;
     ctx.miss      = PN_SUBST_MISS_VERBATIM;

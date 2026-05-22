@@ -21,6 +21,7 @@
 #include "pn-json-path.h"
 #include "pn-message.h"
 #include "pn-subst.h"
+#include "pn-flow.h"
 
 #include <json-glib/json-glib.h>
 
@@ -76,15 +77,19 @@ read_boolean_member (
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
-        JsonObject  *root)
+        JsonObject  *root,
+        PnFlow      *flow)
 {
     PnSubstResolver  resolver;
-    PnSubstResolver *chain[2];
+    PnSubstResolver  globals;
+    PnSubstResolver *chain[3];
     PnSubstContext   ctx;
 
     pn_subst_resolver_json (&resolver, root);
-    chain[0] = &resolver;
-    chain[1] = NULL;
+    pn_flow_subst_resolver_globals (&globals, flow);
+    chain[0] = &resolver;   /* message fields win */
+    chain[1] = &globals;    /* then document globals */
+    chain[2] = NULL;
     ctx.resolvers = chain;
     ctx.mode      = PN_SUBST_TEXT;
     ctx.miss      = PN_SUBST_MISS_EMPTY;
@@ -115,7 +120,7 @@ pn_format_receive (
         tmpl = "";
 
     root     = pn_json_lookup_root_for_message (message);
-    expanded = expand_placeholders (tmpl, root);
+    expanded = expand_placeholders (tmpl, root, pn_node_get_flow (node));
     json_object_unref (root);
 
     pn_message_set_string (message, "output", expanded);

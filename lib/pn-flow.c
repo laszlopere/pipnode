@@ -64,8 +64,11 @@ struct _PnFlow
     /* Document-wide user globals: name (gchar*, owned) -> value
      * (GValue*, owned).  Shared by every sheet and saved into the file.
      * Holds only the four basic scalar types (boolean/int64/double/
-     * string). */
+     * string).  Guarded by @globals_mutex because substitution reads
+     * them from the auto-trigger worker thread while the document
+     * settings dialog edits them from the main thread. */
     GHashTable  *globals;
+    GMutex       globals_mutex;
 };
 
 G_DEFINE_TYPE (PnFlow, pn_flow, G_TYPE_OBJECT)
@@ -319,71 +322,136 @@ GList *
 pn_flow_list_globals (PnFlow *self)
 {
     GList *names;
+    GList *l;
 
     g_return_val_if_fail (PN_IS_FLOW (self), NULL);
 
+    g_mutex_lock (&self->globals_mutex);
     names = g_hash_table_get_keys (self->globals);
     names = g_list_sort (names, (GCompareFunc) g_strcmp0);
+    /* Copy the keys while we still hold the lock; the table owns them. */
+    for (l = names; l != NULL; l = l->next)
+        l->data = g_strdup (l->data);
+    g_mutex_unlock (&self->globals_mutex);
 
-    /* Hand back copies so the caller can free with g_free without
-     * touching the keys the table still owns. */
-    {
-        GList *l;
-        for (l = names; l != NULL; l = l->next)
-            l->data = g_strdup (l->data);
-    }
     return names;
 }
 
 gboolean
 pn_flow_get_global (PnFlow *self, const gchar *name, GValue *out_value)
 {
-    GValue *stored;
+    GValue   *stored;
+    gboolean  found = FALSE;
 
     g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
     g_return_val_if_fail (name != NULL, FALSE);
     g_return_val_if_fail (out_value != NULL, FALSE);
 
+    g_mutex_lock (&self->globals_mutex);
     stored = g_hash_table_lookup (self->globals, name);
-    if (stored == NULL)
-        return FALSE;
+    if (stored != NULL)
+    {
+        g_value_init (out_value, G_VALUE_TYPE (stored));
+        g_value_copy (stored, out_value);
+        found = TRUE;
+    }
+    g_mutex_unlock (&self->globals_mutex);
 
-    g_value_init (out_value, G_VALUE_TYPE (stored));
-    g_value_copy (stored, out_value);
-    return TRUE;
+    return found;
 }
 
 void
 pn_flow_set_global (PnFlow *self, const gchar *name, const GValue *value)
 {
-    GValue *stored;
-    GValue *copy;
+    GValue   *stored;
+    GValue   *copy;
+    gboolean  changed = FALSE;
 
     g_return_if_fail (PN_IS_FLOW (self));
     g_return_if_fail (name != NULL && *name != '\0');
     g_return_if_fail (value != NULL);
     g_return_if_fail (global_type_supported (G_VALUE_TYPE (value)));
 
+    g_mutex_lock (&self->globals_mutex);
     stored = g_hash_table_lookup (self->globals, name);
-    if (stored != NULL && gvalue_equal_basic (stored, value))
-        return;
+    if (stored == NULL || !gvalue_equal_basic (stored, value))
+    {
+        copy = g_new0 (GValue, 1);
+        g_value_init (copy, G_VALUE_TYPE (value));
+        g_value_copy (value, copy);
+        g_hash_table_insert (self->globals, g_strdup (name), copy);
+        changed = TRUE;
+    }
+    g_mutex_unlock (&self->globals_mutex);
 
-    copy = g_new0 (GValue, 1);
-    g_value_init (copy, G_VALUE_TYPE (value));
-    g_value_copy (value, copy);
-
-    g_hash_table_insert (self->globals, g_strdup (name), copy);
-    pn_flow_set_modified (self, TRUE);
+    /* Emit outside the lock: pn_flow_set_modified runs handlers (the
+     * window's Save UI) that have no business contending for it. */
+    if (changed)
+        pn_flow_set_modified (self, TRUE);
 }
 
 void
 pn_flow_remove_global (PnFlow *self, const gchar *name)
 {
+    gboolean changed;
+
     g_return_if_fail (PN_IS_FLOW (self));
     g_return_if_fail (name != NULL);
 
-    if (g_hash_table_remove (self->globals, name))
+    g_mutex_lock (&self->globals_mutex);
+    changed = g_hash_table_remove (self->globals, name);
+    g_mutex_unlock (&self->globals_mutex);
+
+    if (changed)
         pn_flow_set_modified (self, TRUE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Globals as a ${...} substitution source                           */
+/* ------------------------------------------------------------------ */
+
+static JsonNode *
+globals_resolve (PnSubstResolver *self, const gchar *key, gboolean *owned)
+{
+    PnFlow   *flow = self->user_data;
+    GValue    v    = G_VALUE_INIT;
+    JsonNode *node;
+
+    *owned = FALSE;
+    if (flow == NULL || !pn_flow_get_global (flow, key, &v))
+        return NULL;
+
+    node = json_node_new (JSON_NODE_VALUE);
+    switch (G_VALUE_TYPE (&v))
+    {
+    case G_TYPE_BOOLEAN:
+        json_node_set_boolean (node, g_value_get_boolean (&v));
+        break;
+    case G_TYPE_INT64:
+        json_node_set_int (node, g_value_get_int64 (&v));
+        break;
+    case G_TYPE_DOUBLE:
+        json_node_set_double (node, g_value_get_double (&v));
+        break;
+    case G_TYPE_STRING:
+        json_node_set_string (node, g_value_get_string (&v));
+        break;
+    default:
+        json_node_free (node);
+        g_value_unset (&v);
+        return NULL;
+    }
+
+    g_value_unset (&v);
+    *owned = TRUE;
+    return node;
+}
+
+void
+pn_flow_subst_resolver_globals (PnSubstResolver *r, PnFlow *flow)
+{
+    r->resolve   = globals_resolve;
+    r->user_data = flow;
 }
 
 static void
@@ -516,6 +584,10 @@ on_node_added (
     (void) store;
     (void) index;
 
+    /* Give the node a back-pointer to us so substitution can reach the
+     * document globals. */
+    pn_node_set_flow (node, self);
+
     if (PN_IS_DEBUG (node))
     {
         g_signal_connect (node, "status-message",
@@ -544,6 +616,8 @@ on_node_removed (
 {
     PnFlow *self = PN_FLOW (user_data);
     (void) store; (void) index;
+
+    pn_node_set_flow (node, NULL);
 
     g_signal_handlers_disconnect_by_func (
             node, G_CALLBACK (on_node_any_notify_mark), self);
@@ -1023,7 +1097,9 @@ pn_flow_clear (PnFlow *self)
     self->loading = TRUE;
     pn_node_store_clear (self->nodes);
     pn_wire_store_clear (self->wires);
+    g_mutex_lock (&self->globals_mutex);
     g_hash_table_remove_all (self->globals);
+    g_mutex_unlock (&self->globals_mutex);
 
     /* Tell every host that all but the canonical default sheet just
      * went away.  Walk a copy so emitting "sheet-removed" in the loop
@@ -1563,6 +1639,7 @@ pn_flow_load_from_file (
         GList      *members = json_object_get_members (globals_obj);
         GList      *l;
 
+        g_mutex_lock (&self->globals_mutex);
         for (l = members; l != NULL; l = l->next)
         {
             const gchar *name  = l->data;
@@ -1608,6 +1685,7 @@ pn_flow_load_from_file (
             }
             g_hash_table_insert (self->globals, g_strdup (name), val);
         }
+        g_mutex_unlock (&self->globals_mutex);
         g_list_free (members);
     }
 
@@ -1680,6 +1758,7 @@ flow_build_root (
          * explicit type nick alongside its value so loading never has to
          * guess (e.g. integer vs double).  Names sorted for stable
          * diffs; omitted entirely when there are none. */
+        g_mutex_lock (&self->globals_mutex);
         if (g_hash_table_size (self->globals) > 0)
         {
             JsonObject *globals_obj = json_object_new ();
@@ -1711,6 +1790,7 @@ flow_build_root (
 
             json_object_set_object_member (obj, "globals", globals_obj);
         }
+        g_mutex_unlock (&self->globals_mutex);
     }
 
     if (subset != NULL)
@@ -2038,6 +2118,7 @@ pn_flow_finalize (GObject *object)
     g_clear_pointer (&self->sheets, g_ptr_array_unref);
     g_clear_pointer (&self->active_sheet, g_free);
     g_clear_pointer (&self->globals, g_hash_table_destroy);
+    g_mutex_clear (&self->globals_mutex);
 
     G_OBJECT_CLASS (pn_flow_parent_class)->finalize (object);
 }
@@ -2134,6 +2215,7 @@ pn_flow_init (PnFlow *self)
 
     self->globals = g_hash_table_new_full (g_str_hash, g_str_equal,
                                            g_free, free_gvalue);
+    g_mutex_init (&self->globals_mutex);
 
     g_signal_connect (self->nodes, "node-added",
                       G_CALLBACK (on_node_added), self);

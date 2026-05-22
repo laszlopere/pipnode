@@ -22,6 +22,7 @@
 #include "pn-json-path.h"
 #include "pn-message.h"
 #include "pn-subst.h"
+#include "pn-flow.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -247,15 +248,19 @@ parse_mqtt_url (
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
-        JsonObject  *root)
+        JsonObject  *root,
+        PnFlow      *flow)
 {
     PnSubstResolver  resolver;
-    PnSubstResolver *chain[2];
+    PnSubstResolver  globals;
+    PnSubstResolver *chain[3];
     PnSubstContext   ctx;
 
     pn_subst_resolver_json (&resolver, root);
-    chain[0] = &resolver;
-    chain[1] = NULL;
+    pn_flow_subst_resolver_globals (&globals, flow);
+    chain[0] = &resolver;   /* message fields win */
+    chain[1] = &globals;    /* then document globals */
+    chain[2] = NULL;
     ctx.resolvers = chain;
     ctx.mode      = PN_SUBST_TEXT;
     ctx.miss      = PN_SUBST_MISS_EMPTY;
@@ -292,8 +297,9 @@ build_payload (
     if (self->payload_template != NULL && *self->payload_template != '\0')
     {
         JsonObject *root     = pn_json_lookup_root_for_message (message);
-        gchar      *expanded = expand_placeholders (self->payload_template,
-                                                    root);
+        gchar      *expanded = expand_placeholders (
+                self->payload_template, root,
+                pn_node_get_flow (PN_NODE (self)));
         json_object_unref (root);
 
         *out_bytes = expanded;
@@ -479,15 +485,17 @@ pn_mqtt_sink_receive (
     {
         JsonObject      *root  = pn_json_lookup_root_for_message (message);
         gchar          **pairs = pn_node_dup_subst_pairs (node);
-        PnSubstResolver  vars, msg;
-        PnSubstResolver *chain[3];
+        PnSubstResolver  vars, msg, globals;
+        PnSubstResolver *chain[4];
         PnSubstContext   ctx;
 
         pn_subst_resolver_strv (&vars, (const gchar * const *) pairs);
         pn_subst_resolver_json (&msg, root);
+        pn_flow_subst_resolver_globals (&globals, pn_node_get_flow (node));
         chain[0] = &vars;     /* node vars win */
         chain[1] = &msg;      /* then message fields */
-        chain[2] = NULL;
+        chain[2] = &globals;  /* then document globals */
+        chain[3] = NULL;
         ctx.resolvers = chain;
         ctx.mode      = PN_SUBST_TEXT;
         ctx.miss      = PN_SUBST_MISS_EMPTY;

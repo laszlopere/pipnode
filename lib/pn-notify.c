@@ -21,6 +21,7 @@
 #include "pn-json-path.h"
 #include "pn-message.h"
 #include "pn-subst.h"
+#include "pn-flow.h"
 
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -137,15 +138,19 @@ pn_notify_urgency_get_type (void)
 static gchar *
 expand_placeholders (
         const gchar *tmpl,
-        JsonObject  *root)
+        JsonObject  *root,
+        PnFlow      *flow)
 {
     PnSubstResolver  resolver;
-    PnSubstResolver *chain[2];
+    PnSubstResolver  globals;
+    PnSubstResolver *chain[3];
     PnSubstContext   ctx;
 
     pn_subst_resolver_json (&resolver, root);
-    chain[0] = &resolver;
-    chain[1] = NULL;
+    pn_flow_subst_resolver_globals (&globals, flow);
+    chain[0] = &resolver;   /* message fields win */
+    chain[1] = &globals;    /* then document globals */
+    chain[2] = NULL;
     ctx.resolvers = chain;
     ctx.mode      = PN_SUBST_TEXT;
     ctx.miss      = PN_SUBST_MISS_EMPTY;
@@ -278,8 +283,8 @@ pn_notify_receive (
     gchar      *body;
 
     root    = pn_json_lookup_root_for_message (message);
-    summary = expand_placeholders (self->summary, root);
-    body    = expand_placeholders (self->body,    root);
+    summary = expand_placeholders (self->summary, root, pn_node_get_flow (node));
+    body    = expand_placeholders (self->body,    root, pn_node_get_flow (node));
     json_object_unref (root);
 
     pn_notify_send (self, summary, body);

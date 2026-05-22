@@ -60,6 +60,10 @@ G_DECLARE_DERIVABLE_TYPE (PnNode, pn_node, PN, NODE, GObject)
  * cannot include it from here without creating a circular include. */
 typedef struct _PnMessage PnMessage;
 
+/* Forward declaration: pn-flow.h includes this header, so the owning
+ * flow is referenced by pointer only (see pn_node_get_flow). */
+typedef struct _PnFlow PnFlow;
+
 struct _PnNodeClass
 {
     GObjectClass parent_class;
@@ -663,8 +667,9 @@ gchar         **pn_node_dup_subst_pairs (PnNode *self);
  *
  * Expands <literal>${nodeclass}</literal>, <literal>${nodename}</literal>
  * and <literal>${hostname}</literal> in @tmpl against the node's own
- * variables (see pn_node_dup_subst_pairs()).  Any other placeholder is
- * left verbatim, so an unrelated <literal>${var}</literal> — such as a
+ * variables (see pn_node_dup_subst_pairs()), then falls back to the
+ * owning flow's document globals.  Any other placeholder is left
+ * verbatim, so an unrelated <literal>${var}</literal> — such as a
  * shell one-liner's <literal>${HOME}</literal> — survives untouched for
  * whoever consumes the string.  Use this for node settings that should
  * interpolate node identity without an incoming message (a shell
@@ -672,6 +677,26 @@ gchar         **pn_node_dup_subst_pairs (PnNode *self);
  * caller frees with g_free().
  */
 gchar          *pn_node_expand_vars     (PnNode *self, const gchar *tmpl);
+
+/**
+ * pn_node_get_flow:
+ * @self: the node
+ *
+ * Returns: (transfer none) (nullable): the #PnFlow that owns this node,
+ *   or %NULL when the node has not been added to a flow.  Borrowed.
+ */
+PnFlow         *pn_node_get_flow        (PnNode *self);
+
+/**
+ * pn_node_set_flow: (skip)
+ * @self: the node
+ * @flow: (nullable): the owning flow, or %NULL to clear
+ *
+ * Library-internal: called by #PnFlow when the node is added to or
+ * removed from its store.  Stores a borrowed pointer (the flow outlives
+ * the node).  Not for application use.
+ */
+void            pn_node_set_flow        (PnNode *self, PnFlow *flow);
 
 /**
  * pn_node_get_size:

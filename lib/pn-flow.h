@@ -20,6 +20,7 @@
 
 #include "pn-node-store.h"
 #include "pn-wire-store.h"
+#include "pn-subst.h"
 
 G_BEGIN_DECLS
 
@@ -158,6 +159,22 @@ void         pn_flow_set_global     (PnFlow       *self,
  */
 void         pn_flow_remove_global  (PnFlow       *self,
                                      const gchar  *name);
+
+/**
+ * pn_flow_subst_resolver_globals:
+ * @r: caller-owned resolver struct to initialise (stack ok).
+ * @flow: (nullable): the flow whose globals back the resolver; %NULL
+ *   yields a resolver that always misses.
+ *
+ * Initialises @r so a `${name}` placeholder resolves to the document
+ * global named @name (any of the four scalar types).  Intended as the
+ * last link in a #PnSubstContext resolver chain, so the call site's
+ * own source is consulted first and the globals act as a fallback.
+ * Thread-safe: the lookup takes the flow's globals lock, so it is safe
+ * to expand on the auto-trigger worker thread.
+ */
+void         pn_flow_subst_resolver_globals (PnSubstResolver *r,
+                                             PnFlow          *flow);
 
 /**
  * pn_flow_serialize_nodes:
