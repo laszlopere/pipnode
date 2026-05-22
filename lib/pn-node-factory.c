@@ -67,6 +67,7 @@
 #include "pn-table-view.h"
 #include "pn-temp.h"
 #include "pn-text-view.h"
+#include "pn-threshold.h"
 #include "pn-throttle.h"
 #include "pn-tts.h"
 #include "pn-watchdog.h"
@@ -231,6 +232,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_SET);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);
+    pn_node_factory_register (self, PN_TYPE_THRESHOLD);
     pn_node_factory_register (self, PN_TYPE_THROTTLE);
     pn_node_factory_register (self, PN_TYPE_WATCHDOG);
     pn_node_factory_register (self, PN_TYPE_OLLAMA);

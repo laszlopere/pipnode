@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Threshold (PnThreshold) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnThreshold">Threshold</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnThreshold</code>.
+</p>
+<p>
+Schmitt-trigger comparator. Watches the numeric <code>value</code> of
+each incoming message, tracks a single on/off state, and forwards a
+message only when that state changes. The forwarded message keeps its
+topic, id and other members, but its <code>value</code> is rewritten to
+<code>1.0</code> (state on, at or above the threshold) or
+<code>0.0</code> (state off, below it), so downstream nodes always see a
+clean boolean &mdash; the same <code>0.0</code>/<code>1.0</code>
+encoding the rest of Pipnode uses for on/off.
+</p>
+<p>
+The state turns <strong>on</strong> the moment <code>value</code>
+reaches <code>threshold</code>. It turns <strong>off</strong> again only
+once <code>value</code> has fallen a full <code>hysteresis</code> below
+the threshold &mdash; that is, below
+<code>threshold&nbsp;&minus;&nbsp;hysteresis</code>. Readings inside the
+<code>[threshold&nbsp;&minus;&nbsp;hysteresis, threshold)</code> band
+leave the state unchanged, which is what stops a noisy signal hovering
+near the trip point from flapping the output. With
+<code>hysteresis</code> left at <code>0</code> the node degenerates to a
+plain &ldquo;<code>value&nbsp;&ge;&nbsp;threshold</code>&rdquo;
+comparator that emits on every crossing.
+</p>
+<p>
+The first message that carries a numeric <code>value</code> establishes
+the initial state (on if at or above the threshold, off otherwise) and
+is always forwarded, since there is no earlier output to compare it to.
+Messages without a numeric <code>value</code> are ignored and leave the
+state untouched.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>threshold</code></td>
+      <td>Value at or above which the output is on (<code>1.0</code>).</td></tr>
+  <tr><td><code>hysteresis</code></td>
+      <td>How far below the threshold the value must fall before the
+          output turns off again. Zero disables hysteresis.</td></tr>
+</table>
+
+</body>
+</html>

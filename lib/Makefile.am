@@ -124,6 +124,8 @@ libpipnode_la_SOURCES = \
 	pn-temp.h \
 	pn-text-view.c \
 	pn-text-view.h \
+	pn-threshold.c \
+	pn-threshold.h \
 	pn-throttle.c \
 	pn-throttle.h \
 	pn-tts.c \
@@ -234,6 +236,7 @@ pipnodeinclude_HEADERS = \
 	pn-table-view.h \
 	pn-temp.h \
 	pn-text-view.h \
+	pn-threshold.h \
 	pn-throttle.h \
 	pn-tts.h \
 	pn-var-store.h \
