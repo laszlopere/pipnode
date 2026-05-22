@@ -106,6 +106,8 @@ libpipnode_la_SOURCES = \
 	pn-sound.h \
 	pn-stats.c \
 	pn-stats.h \
+	pn-subst.c \
+	pn-subst.h \
 	pn-switch.c \
 	pn-switch.h \
 	pn-table.c \
@@ -220,6 +222,7 @@ pipnodeinclude_HEADERS = \
 	pn-set.h \
 	pn-sound.h \
 	pn-stats.h \
+	pn-subst.h \
 	pn-table.h \
 	pn-table-model.h \
 	pn-table-view.h \
