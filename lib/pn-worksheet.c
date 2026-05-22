@@ -1876,6 +1876,38 @@ draw_wire_pulses (
             cairo_fill (cr);
         }
     }
+
+    /* Fold the region we just painted into the pulse dirty box, so the
+     * next wire_pulses_invalidate() erases it regardless of what
+     * triggered this draw.  Without this, a draw kicked off by an
+     * unrelated partial repaint — e.g. a Knob node redrawing its own
+     * rectangle as the wheel turns it — stamps an in-flight light on top
+     * of the node, but the pulse-erase machinery (driven solely by the
+     * timer) never learns about it: it follows the light out along the
+     * wire and erases where the light now is, leaving the stamped star
+     * stranded inside the node rectangle.  The timer ticks for as long as
+     * any light is alive (and once more after), so a region recorded here
+     * is always erased. */
+    {
+        double bx0, by0, bx1, by1;
+
+        if (wire_pulses_bbox (self, now_us, &bx0, &by0, &bx1, &by1))
+        {
+            if (self->wire_pulse_dirty_valid)
+            {
+                self->wire_pulse_dirty_x0 = MIN (self->wire_pulse_dirty_x0, bx0);
+                self->wire_pulse_dirty_y0 = MIN (self->wire_pulse_dirty_y0, by0);
+                self->wire_pulse_dirty_x1 = MAX (self->wire_pulse_dirty_x1, bx1);
+                self->wire_pulse_dirty_y1 = MAX (self->wire_pulse_dirty_y1, by1);
+            }
+            else
+            {
+                self->wire_pulse_dirty_x0 = bx0; self->wire_pulse_dirty_y0 = by0;
+                self->wire_pulse_dirty_x1 = bx1; self->wire_pulse_dirty_y1 = by1;
+                self->wire_pulse_dirty_valid = TRUE;
+            }
+        }
+    }
 }
 
 /** Center @node in the enclosing #GtkScrolledWindow's viewport, when
