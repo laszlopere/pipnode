@@ -25,6 +25,9 @@
 
 #include "pntest.h"
 #include "pn-rewrite.h"
+#include "pn-flow.h"
+
+#include <json-glib/json-glib.h>
 
 static PnNode *
 make_node (const gchar *template_text, guint *out_emits)
@@ -38,6 +41,28 @@ make_node (const gchar *template_text, guint *out_emits)
     g_signal_connect (node, "message",
                       G_CALLBACK (pn_test_count_emits), out_emits);
     return node;
+}
+
+/* Define a string-valued document global on @flow. */
+static void
+set_string_global (PnFlow *flow, const gchar *name, const gchar *value)
+{
+    GValue v = G_VALUE_INIT;
+    g_value_init (&v, G_TYPE_STRING);
+    g_value_set_string (&v, value);
+    pn_flow_set_global (flow, name, &v);
+    g_value_unset (&v);
+}
+
+/* Define an int64-valued document global on @flow. */
+static void
+set_int_global (PnFlow *flow, const gchar *name, gint64 value)
+{
+    GValue v = G_VALUE_INIT;
+    g_value_init (&v, G_TYPE_INT64);
+    g_value_set_int64 (&v, value);
+    pn_flow_set_global (flow, name, &v);
+    g_value_unset (&v);
 }
 
 static void
@@ -135,6 +160,93 @@ test_invalid_json_leaves_message_untouched (void)
     g_object_unref (node);
 }
 
+/* In JSON mode an unknown path is rendered as the bare token `null` in a
+ * value slot, but collapses to empty inside a string literal — both must
+ * keep the document well-formed (PN_SUBST_MISS_NULL). */
+static void
+test_missing_placeholder_null_and_empty (void)
+{
+    guint      emits;
+    PnNode    *node = make_node (
+            "{ \"miss\": ${data/nope},"
+            "  \"label\": \"v=${data/nope}\" }", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    JsonNode  *miss;
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    /* Value slot: the member exists and holds JSON null. */
+    miss = pn_test_member (msg, "miss");
+    PN_CHECK (miss != NULL && JSON_NODE_HOLDS_NULL (miss));
+    /* String slot: the placeholder vanished, leaving just the prefix. */
+    PN_CHECK_CMPSTR (pn_test_str (msg, "label"), ==, "v=");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* A ${name} absent from the message resolves from a document global:
+ * a string global inside a string slot, an int64 global as a bare JSON
+ * number in a value slot. */
+static void
+test_document_global_placeholder (void)
+{
+    guint      emits;
+    PnFlow    *flow = pn_flow_new ();
+    PnNode    *node = make_node (
+            "{ \"env\": \"${env}\", \"build\": ${build} }", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    set_string_global (flow, "env",   "prod");
+    set_int_global    (flow, "build", 42);
+    pn_flow_add_node (flow, node);   /* wires the node's back-pointer */
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_CMPSTR (pn_test_str (msg, "env"),   ==, "prod");
+    PN_CHECK_NEAR   (pn_test_num (msg, "build"), 42.0, 1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+    g_object_unref (flow);
+}
+
+/* The message resolver precedes the globals resolver: a path served by
+ * the message wins over a same-named global, while a miss falls through.
+ * The envelope "topic" exists in the message and also as a global; the
+ * message must win.  data.env has no message field, so it resolves from
+ * the global. */
+static void
+test_message_field_beats_global (void)
+{
+    guint      emits;
+    PnFlow    *flow = pn_flow_new ();
+    PnNode    *node = make_node (
+            "{ \"topic\": \"${topic}\","
+            "  \"data\": { \"env\": \"${env}\","
+            "             \"echo\": \"${topic}\" } }", &emits);
+    PnMessage *msg  = pn_message_new (NULL, "msg-topic");
+
+    set_string_global (flow, "topic", "global-topic");
+    set_string_global (flow, "env",   "prod");
+    pn_flow_add_node (flow, node);
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    /* topic resolves from the message, beating the same-named global. */
+    PN_CHECK_CMPSTR (pn_message_get_topic (msg), ==, "msg-topic");
+    PN_CHECK_CMPSTR (pn_test_str (msg, "echo"), ==, "msg-topic");
+    /* env has no message field, so it falls through to the global. */
+    PN_CHECK_CMPSTR (pn_test_str (msg, "env"),  ==, "prod");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -143,5 +255,8 @@ main (int argc, char **argv)
     pn_test_add ("data_bag_reshape",       test_data_bag_reshape);
     pn_test_add ("topic_placeholder",      test_topic_and_string_placeholder);
     pn_test_add ("invalid_json_untouched", test_invalid_json_leaves_message_untouched);
+    pn_test_add ("missing_placeholder",    test_missing_placeholder_null_and_empty);
+    pn_test_add ("global_placeholder",     test_document_global_placeholder);
+    pn_test_add ("field_beats_global",     test_message_field_beats_global);
     return pn_test_run ();
 }
