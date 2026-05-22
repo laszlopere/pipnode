@@ -92,6 +92,8 @@ libpipnode_la_SOURCES = \
 	pn-preferences.h \
 	pn-preferences-dialog.c \
 	pn-preferences-dialog.h \
+	pn-document-settings-dialog.c \
+	pn-document-settings-dialog.h \
 	pn-query.c \
 	pn-query.h \
 	pn-rate.c \
@@ -215,6 +217,7 @@ pipnodeinclude_HEADERS = \
 	pn-plugin.h \
 	pn-preferences.h \
 	pn-preferences-dialog.h \
+	pn-document-settings-dialog.h \
 	pn-query.h \
 	pn-rate.h \
 	pn-rewrite.h \

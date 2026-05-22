@@ -60,6 +60,12 @@ struct _PnFlow
      * being applied to the stores would otherwise flip the flag back
      * to %TRUE the moment we tried to settle on %FALSE. */
     gboolean     loading;
+
+    /* Document-wide user globals: name (gchar*, owned) -> value
+     * (GValue*, owned).  Shared by every sheet and saved into the file.
+     * Holds only the four basic scalar types (boolean/int64/double/
+     * string). */
+    GHashTable  *globals;
 };
 
 G_DEFINE_TYPE (PnFlow, pn_flow, G_TYPE_OBJECT)
@@ -235,6 +241,149 @@ static void
 on_store_changed_mark_modified (gpointer user_data)
 {
     pn_flow_set_modified (PN_FLOW (user_data), TRUE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Document globals                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Hash-table value destructor for the globals table. */
+static void
+free_gvalue (gpointer data)
+{
+    GValue *v = data;
+    g_value_unset (v);
+    g_free (v);
+}
+
+/** TRUE when @type is one of the four scalar types a global may hold. */
+static gboolean
+global_type_supported (GType type)
+{
+    return type == G_TYPE_BOOLEAN || type == G_TYPE_INT64
+        || type == G_TYPE_DOUBLE  || type == G_TYPE_STRING;
+}
+
+/** Value equality across the supported scalar types, used so a set that
+ *  does not change anything does not dirty the document. */
+static gboolean
+gvalue_equal_basic (const GValue *a, const GValue *b)
+{
+    GType type = G_VALUE_TYPE (a);
+
+    if (G_VALUE_TYPE (b) != type)
+        return FALSE;
+
+    switch (type)
+    {
+    case G_TYPE_BOOLEAN:
+        return g_value_get_boolean (a) == g_value_get_boolean (b);
+    case G_TYPE_INT64:
+        return g_value_get_int64 (a) == g_value_get_int64 (b);
+    case G_TYPE_DOUBLE:
+        return g_value_get_double (a) == g_value_get_double (b);
+    case G_TYPE_STRING:
+        return g_strcmp0 (g_value_get_string (a),
+                          g_value_get_string (b)) == 0;
+    default:
+        return FALSE;
+    }
+}
+
+/** Stable on-disk nick for a global's value type. */
+static const gchar *
+global_type_nick (GType type)
+{
+    switch (type)
+    {
+    case G_TYPE_BOOLEAN: return "boolean";
+    case G_TYPE_INT64:   return "integer";
+    case G_TYPE_DOUBLE:  return "double";
+    case G_TYPE_STRING:  return "string";
+    default:             return NULL;
+    }
+}
+
+/** Inverse of global_type_nick; %G_TYPE_INVALID for an unknown nick. */
+static GType
+gtype_from_global_nick (const gchar *nick)
+{
+    if (g_strcmp0 (nick, "boolean") == 0) return G_TYPE_BOOLEAN;
+    if (g_strcmp0 (nick, "integer") == 0) return G_TYPE_INT64;
+    if (g_strcmp0 (nick, "double")  == 0) return G_TYPE_DOUBLE;
+    if (g_strcmp0 (nick, "string")  == 0) return G_TYPE_STRING;
+    return G_TYPE_INVALID;
+}
+
+GList *
+pn_flow_list_globals (PnFlow *self)
+{
+    GList *names;
+
+    g_return_val_if_fail (PN_IS_FLOW (self), NULL);
+
+    names = g_hash_table_get_keys (self->globals);
+    names = g_list_sort (names, (GCompareFunc) g_strcmp0);
+
+    /* Hand back copies so the caller can free with g_free without
+     * touching the keys the table still owns. */
+    {
+        GList *l;
+        for (l = names; l != NULL; l = l->next)
+            l->data = g_strdup (l->data);
+    }
+    return names;
+}
+
+gboolean
+pn_flow_get_global (PnFlow *self, const gchar *name, GValue *out_value)
+{
+    GValue *stored;
+
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (name != NULL, FALSE);
+    g_return_val_if_fail (out_value != NULL, FALSE);
+
+    stored = g_hash_table_lookup (self->globals, name);
+    if (stored == NULL)
+        return FALSE;
+
+    g_value_init (out_value, G_VALUE_TYPE (stored));
+    g_value_copy (stored, out_value);
+    return TRUE;
+}
+
+void
+pn_flow_set_global (PnFlow *self, const gchar *name, const GValue *value)
+{
+    GValue *stored;
+    GValue *copy;
+
+    g_return_if_fail (PN_IS_FLOW (self));
+    g_return_if_fail (name != NULL && *name != '\0');
+    g_return_if_fail (value != NULL);
+    g_return_if_fail (global_type_supported (G_VALUE_TYPE (value)));
+
+    stored = g_hash_table_lookup (self->globals, name);
+    if (stored != NULL && gvalue_equal_basic (stored, value))
+        return;
+
+    copy = g_new0 (GValue, 1);
+    g_value_init (copy, G_VALUE_TYPE (value));
+    g_value_copy (value, copy);
+
+    g_hash_table_insert (self->globals, g_strdup (name), copy);
+    pn_flow_set_modified (self, TRUE);
+}
+
+void
+pn_flow_remove_global (PnFlow *self, const gchar *name)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+    g_return_if_fail (name != NULL);
+
+    if (g_hash_table_remove (self->globals, name))
+        pn_flow_set_modified (self, TRUE);
 }
 
 static void
@@ -874,6 +1023,7 @@ pn_flow_clear (PnFlow *self)
     self->loading = TRUE;
     pn_node_store_clear (self->nodes);
     pn_wire_store_clear (self->wires);
+    g_hash_table_remove_all (self->globals);
 
     /* Tell every host that all but the canonical default sheet just
      * went away.  Walk a copy so emitting "sheet-removed" in the loop
@@ -1401,6 +1551,66 @@ pn_flow_load_from_file (
         g_ptr_array_unref (old_names);
     }
 
+    /* Document globals.  pn_flow_clear above emptied the table; repopulate
+     * from the file's name-keyed "globals" object, trusting each entry's
+     * explicit type nick.  Malformed or unknown-typed entries are skipped
+     * so a hand-edited file degrades gracefully. */
+    if (json_object_has_member (obj, "globals") &&
+        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, "globals")))
+    {
+        JsonObject *globals_obj = json_object_get_object_member (obj,
+                                                                 "globals");
+        GList      *members = json_object_get_members (globals_obj);
+        GList      *l;
+
+        for (l = members; l != NULL; l = l->next)
+        {
+            const gchar *name  = l->data;
+            JsonNode    *enode = json_object_get_member (globals_obj, name);
+            JsonObject  *entry;
+            GType        type;
+            JsonNode    *vnode;
+            GValue      *val;
+
+            if (name == NULL || *name == '\0'
+                || !JSON_NODE_HOLDS_OBJECT (enode))
+                continue;
+
+            entry = json_node_get_object (enode);
+            if (!json_object_has_member (entry, "type")
+                || !json_object_has_member (entry, "value"))
+                continue;
+
+            type = gtype_from_global_nick (
+                    json_object_get_string_member (entry, "type"));
+            vnode = json_object_get_member (entry, "value");
+            if (type == G_TYPE_INVALID || !JSON_NODE_HOLDS_VALUE (vnode))
+                continue;
+
+            val = g_new0 (GValue, 1);
+            g_value_init (val, type);
+            switch (type)
+            {
+            case G_TYPE_BOOLEAN:
+                g_value_set_boolean (val, json_node_get_boolean (vnode));
+                break;
+            case G_TYPE_INT64:
+                g_value_set_int64 (val, json_node_get_int (vnode));
+                break;
+            case G_TYPE_DOUBLE:
+                g_value_set_double (val, json_node_get_double (vnode));
+                break;
+            case G_TYPE_STRING:
+                g_value_set_string (val, json_node_get_string (vnode));
+                break;
+            default:
+                break;
+            }
+            g_hash_table_insert (self->globals, g_strdup (name), val);
+        }
+        g_list_free (members);
+    }
+
     self->loading = FALSE;
     if (self->modified)
     {
@@ -1465,6 +1675,42 @@ flow_build_root (
         if (self->active_sheet != NULL)
             json_object_set_string_member (obj, "active_sheet",
                                            self->active_sheet);
+
+        /* Document globals: a name-keyed object, each entry carrying an
+         * explicit type nick alongside its value so loading never has to
+         * guess (e.g. integer vs double).  Names sorted for stable
+         * diffs; omitted entirely when there are none. */
+        if (g_hash_table_size (self->globals) > 0)
+        {
+            JsonObject *globals_obj = json_object_new ();
+            GList      *names = g_hash_table_get_keys (self->globals);
+            GList      *l;
+
+            names = g_list_sort (names, (GCompareFunc) g_strcmp0);
+            for (l = names; l != NULL; l = l->next)
+            {
+                const gchar *name  = l->data;
+                const GValue *val  = g_hash_table_lookup (self->globals,
+                                                          name);
+                const gchar *nick  = global_type_nick (G_VALUE_TYPE (val));
+                JsonObject  *entry;
+                JsonNode    *vnode;
+
+                if (nick == NULL)
+                    continue;
+                vnode = gvalue_to_json (val);
+                if (vnode == NULL)
+                    continue;
+
+                entry = json_object_new ();
+                json_object_set_string_member (entry, "type", nick);
+                json_object_set_member         (entry, "value", vnode);
+                json_object_set_object_member  (globals_obj, name, entry);
+            }
+            g_list_free (names);
+
+            json_object_set_object_member (obj, "globals", globals_obj);
+        }
     }
 
     if (subset != NULL)
@@ -1791,6 +2037,7 @@ pn_flow_finalize (GObject *object)
 
     g_clear_pointer (&self->sheets, g_ptr_array_unref);
     g_clear_pointer (&self->active_sheet, g_free);
+    g_clear_pointer (&self->globals, g_hash_table_destroy);
 
     G_OBJECT_CLASS (pn_flow_parent_class)->finalize (object);
 }
@@ -1884,6 +2131,9 @@ pn_flow_init (PnFlow *self)
 
     self->sheets = g_ptr_array_new_with_free_func (g_free);
     sheet_list_reset_default (self);
+
+    self->globals = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                           g_free, free_gvalue);
 
     g_signal_connect (self->nodes, "node-added",
                       G_CALLBACK (on_node_added), self);

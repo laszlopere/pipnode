@@ -101,6 +101,64 @@ gboolean     pn_flow_save_to_file   (PnFlow      *self,
                                      const gchar *path,
                                      GError     **error);
 
+/* --- Document globals ----------------------------------------------
+ *
+ * User-maintained typed name -> value pairs that belong to the document
+ * as a whole: they are shared by every sheet in the file (not
+ * per-worksheet) and round-trip through the on-disk format.  Setting or
+ * removing one marks the flow modified, so the change persists the next
+ * time the file is saved.  Supported value types are the four basic
+ * scalars: %G_TYPE_BOOLEAN, %G_TYPE_INT64, %G_TYPE_DOUBLE and
+ * %G_TYPE_STRING.
+ */
+
+/**
+ * pn_flow_list_globals:
+ * @self: the flow
+ *
+ * Returns: (transfer full) (element-type utf8): the global names in
+ *   ascending order.  Free with g_list_free_full (list, g_free).
+ */
+GList       *pn_flow_list_globals   (PnFlow *self);
+
+/**
+ * pn_flow_get_global:
+ * @self: the flow
+ * @name: the global's name
+ * @out_value: (out caller-allocates): an uninitialised #GValue filled
+ *   with a copy of the stored value on success; the caller unsets it
+ *   with g_value_unset().
+ *
+ * Returns: %TRUE when @name exists, %FALSE otherwise (@out_value
+ *   untouched).
+ */
+gboolean     pn_flow_get_global     (PnFlow       *self,
+                                     const gchar  *name,
+                                     GValue       *out_value);
+
+/**
+ * pn_flow_set_global:
+ * @self: the flow
+ * @name: the global's name (non-empty)
+ * @value: a #GValue of one of the four supported scalar types
+ *
+ * Creates or replaces the global @name.  Marks the flow modified when
+ * the stored value actually changes.
+ */
+void         pn_flow_set_global     (PnFlow       *self,
+                                     const gchar  *name,
+                                     const GValue *value);
+
+/**
+ * pn_flow_remove_global:
+ * @self: the flow
+ * @name: the global to drop
+ *
+ * Removes @name if present, marking the flow modified when it existed.
+ */
+void         pn_flow_remove_global  (PnFlow       *self,
+                                     const gchar  *name);
+
 /**
  * pn_flow_serialize_nodes:
  * @self: the flow

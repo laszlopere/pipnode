@@ -22,6 +22,7 @@
 #include "pn-palette.h"
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
+#include "pn-document-settings-dialog.h"
 
 #include <json-glib/json-glib.h>
 
@@ -1518,6 +1519,20 @@ action_preferences (
     pn_preferences_dialog_present (GTK_WINDOW (self));
 }
 
+/** Open (or raise) the Document Settings dialog for this window's open
+ *  file.  Unlike Preferences it is bound to this window's #PnFlow, so the
+ *  globals it edits are saved into the file rather than the user's config. */
+static void
+action_document_settings (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) item;
+
+    pn_document_settings_dialog_present (GTK_WINDOW (self), self->flow);
+}
+
 static void
 action_about (
         GtkMenuItem *item,
@@ -1833,6 +1848,14 @@ create_menubar (PnWindow *self)
         create_image_menu_item ("document-save-as", "Save _As…", accel_group,
                                 GDK_KEY_s, GDK_CONTROL_MASK | GDK_SHIFT_MASK,
                                 G_CALLBACK (action_save_as), self));
+
+    separator = gtk_separator_menu_item_new ();
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), separator);
+
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu),
+        create_image_menu_item ("document-properties", "Document _Settings…",
+                                accel_group, 0, 0,
+                                G_CALLBACK (action_document_settings), self));
 
     separator = gtk_separator_menu_item_new ();
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), separator);
