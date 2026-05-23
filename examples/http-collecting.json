@@ -1,0 +1,63 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnWeather",
+      "uuid" : "f77a1475-385a-4601-97eb-5bb4d6fddc02",
+      "name" : "Weather 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.open-meteo.com/v1/forecast",
+        "city" : "Pécs"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "db8664d7-04d3-43f7-892a-97acf4988191",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnRate",
+      "uuid" : "25cb6a5e-a532-4263-b638-1311f02a58a3",
+      "name" : "Rate 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "ETH",
+        "to" : "USD",
+        "rate" : 2069.5799999999999,
+        "last-update" : "2026-05-23T21:16:12.254149+02"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "f77a1475-385a-4601-97eb-5bb4d6fddc02",
+      "target_id" : "db8664d7-04d3-43f7-892a-97acf4988191"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
