@@ -13,6 +13,20 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnRewrite — logic tier (headless core).                            */
+/*                                                                     */
+/*  This file holds the GTK-free half of the Rewrite node: the GType,  */
+/*  the `template` property, the JSON placeholder expansion and the     */
+/*  receive() rewrite (render the template, parse it, apply the         */
+/*  resulting envelope / data bag onto the message).  The settings-     */
+/*  dialog editor — a GtkSourceView with JSON syntax highlighting —     */
+/*  lives in the companion gui-tier file pn-rewrite-gui.c, which        */
+/*  installs that vfunc slot onto this class at editor startup (see     */
+/*  pn_rewrite_gui_install).  The headless runtime registers and runs   */
+/*  this node without ever pulling GTK / GtkSourceView.                 */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -23,7 +37,6 @@
 #include "pn-subst.h"
 #include "pn-flow.h"
 
-#include <gtksourceview/gtksource.h>
 #include <json-glib/json-glib.h>
 
 static const gchar PN_REWRITE_DEFAULT_TEMPLATE[] =
@@ -224,155 +237,6 @@ pn_rewrite_receive (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog: GtkSourceView editor with JSON syntax             */
-/* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    GObject       *target;          /* borrowed PnRewrite */
-    GtkTextBuffer *buffer;
-    gulong         notify_handler;
-    gboolean       updating;        /* re-entrancy guard */
-} PnRewriteBinding;
-
-static void
-rewrite_binding_free (gpointer data)
-{
-    PnRewriteBinding *bind = data;
-
-    if (bind->target != NULL && bind->notify_handler != 0)
-        g_signal_handler_disconnect (bind->target, bind->notify_handler);
-    g_free (bind);
-}
-
-static void
-rewrite_binding_pull (PnRewriteBinding *bind)
-{
-    gchar *value = NULL;
-
-    g_object_get (bind->target, "template", &value, NULL);
-
-    {
-        GtkTextIter start, end;
-        gchar      *current;
-
-        gtk_text_buffer_get_bounds (bind->buffer, &start, &end);
-        current = gtk_text_buffer_get_text (bind->buffer, &start, &end, FALSE);
-
-        if (g_strcmp0 (current, value != NULL ? value : "") != 0)
-        {
-            bind->updating = TRUE;
-            gtk_text_buffer_set_text (bind->buffer,
-                                      value != NULL ? value : "", -1);
-            bind->updating = FALSE;
-        }
-
-        g_free (current);
-    }
-
-    g_free (value);
-}
-
-static void
-rewrite_binding_push (PnRewriteBinding *bind)
-{
-    GtkTextIter start, end;
-    gchar      *text;
-
-    if (bind->updating)
-        return;
-
-    gtk_text_buffer_get_bounds (bind->buffer, &start, &end);
-    text = gtk_text_buffer_get_text (bind->buffer, &start, &end, FALSE);
-
-    bind->updating = TRUE;
-    g_object_set (bind->target, "template", text, NULL);
-    bind->updating = FALSE;
-
-    g_free (text);
-}
-
-static void
-on_rewrite_target_notify (GObject    *object G_GNUC_UNUSED,
-                          GParamSpec *pspec  G_GNUC_UNUSED,
-                          gpointer    user_data)
-{
-    rewrite_binding_pull (user_data);
-}
-
-static void
-on_rewrite_buffer_changed (GtkTextBuffer *buffer G_GNUC_UNUSED,
-                           gpointer       user_data)
-{
-    rewrite_binding_push (user_data);
-}
-
-static GtkWidget *
-pn_rewrite_build_class_tab (PnNode    *self,
-                            GtkWindow *parent G_GNUC_UNUSED)
-{
-    GObject                  *target = G_OBJECT (self);
-    GtkSourceLanguageManager *langs;
-    GtkSourceLanguage        *json_lang;
-    GtkSourceBuffer          *buffer;
-    GtkWidget                *view;
-    GtkWidget                *scrolled;
-    PnRewriteBinding         *bind;
-
-    langs     = gtk_source_language_manager_get_default ();
-    json_lang = gtk_source_language_manager_get_language (langs, "json");
-
-    buffer = gtk_source_buffer_new_with_language (json_lang);
-    gtk_source_buffer_set_highlight_syntax    (buffer, TRUE);
-    gtk_source_buffer_set_highlight_matching_brackets (buffer, TRUE);
-
-    view = gtk_source_view_new_with_buffer (buffer);
-    gtk_source_view_set_show_line_numbers   (GTK_SOURCE_VIEW (view), TRUE);
-    gtk_source_view_set_auto_indent         (GTK_SOURCE_VIEW (view), TRUE);
-    gtk_source_view_set_indent_on_tab       (GTK_SOURCE_VIEW (view), TRUE);
-    gtk_source_view_set_tab_width           (GTK_SOURCE_VIEW (view), 2);
-    gtk_source_view_set_insert_spaces_instead_of_tabs (
-            GTK_SOURCE_VIEW (view), TRUE);
-    gtk_source_view_set_highlight_current_line (GTK_SOURCE_VIEW (view), TRUE);
-    gtk_text_view_set_monospace (GTK_TEXT_VIEW (view), TRUE);
-    g_object_unref (buffer);
-
-    scrolled = gtk_scrolled_window_new (NULL, NULL);
-    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
-                                    GTK_POLICY_AUTOMATIC,
-                                    GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled),
-                                         GTK_SHADOW_IN);
-    /* Give the editor a comfortable canvas for a multi-line JSON
-     * object — twelve lines is roughly the size of the default
-     * template plus a couple of extra fields the user typically adds
-     * before the dialog feels cramped. */
-    gtk_widget_set_size_request (scrolled, -1, 240);
-    gtk_widget_set_hexpand (scrolled, TRUE);
-    gtk_widget_set_vexpand (scrolled, TRUE);
-    gtk_container_add (GTK_CONTAINER (scrolled), view);
-
-    bind = g_new0 (PnRewriteBinding, 1);
-    bind->target = target;
-    bind->buffer = GTK_TEXT_BUFFER (gtk_text_view_get_buffer (
-            GTK_TEXT_VIEW (view)));
-
-    rewrite_binding_pull (bind);
-
-    bind->notify_handler = g_signal_connect (
-            target, "notify::template",
-            G_CALLBACK (on_rewrite_target_notify), bind);
-    g_signal_connect (bind->buffer, "changed",
-                      G_CALLBACK (on_rewrite_buffer_changed), bind);
-
-    g_object_set_data_full (G_OBJECT (scrolled),
-                            "pn-rewrite-binding",
-                            bind, rewrite_binding_free);
-
-    return scrolled;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Property plumbing                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -447,7 +311,6 @@ pn_rewrite_class_init (PnRewriteClass *klass)
     object_class->finalize     = pn_rewrite_finalize;
 
     node_class->receive         = pn_rewrite_receive;
-    node_class->build_class_tab = pn_rewrite_build_class_tab;
 
     node_class->class_name = "Rewrite";
     node_class->icon       = "\xef\x81\x84";  /* fa-edit U+F044 */
