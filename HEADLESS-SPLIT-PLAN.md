@@ -543,6 +543,7 @@ changes, re-read the affected phases.
 | D2 | Plugin GUI mechanism | **Declarative settings schema (default path) + companion `-gui.so` (escape hatch).** Most plugins ship one GTK-free `.so` and *describe* their settings as data; bespoke UI ships a second `.so` the server never installs. |
 | D3 | Dual-nature visual nodes (Rate, LED, Knob, Dial, Analog-Meter, Graph, Switch, Table, Chat, …) | **Logic stays headless-loadable.** Each `.c` is split: `receive()`/logic into core, cairo drawing + dialog into the GUI tier. |
 | D4 | Bundled plugin re-tiering (network / shell / tasmota → core-only) | **In scope**, done in Phase 8 once the mechanism exists. |
+| D5 | `--disable-gui` build switch | **Dropped (decided 2026-05-23, Laszlo).** The package is *always* built on a host that has the full GTK stack, so a build-time switch to compile core without GTK present buys nothing. The core/gui split is a **runtime + packaging** property — `pipnode-run` and `libpipnode-core` pull no GTK at runtime (Phase 5, done), and a distro may still ship separate `pipnode-core` / `pipnode-gui` binary packages — both produced from one GTK-equipped build. Removes the `--disable-gui` step/verification from Phases 3 and 8. |
 
 ---
 
@@ -697,15 +698,15 @@ and `libpipnode-gui.la` (links core + the GTK stack).
 **Result:** done in two increments — 3.1 freed the core serializer/factory
 from GTK; 3.2 built the two libraries. `libpipnode-core.so`'s `DT_NEEDED`
 is GTK-free (verified by `objdump`). The `--disable-gui` server build (the
-optional bullet in step 1) is deferred to Phase 5, when `pipnode-run` goes
-core-only and the core↔gui symbol debt is gone; doing it now would be
-moot while the dual logic still lives in the gui tier.
+optional bullet in step 1) was first deferred to Phase 5, then **dropped
+entirely — see decision D5** (the package is always built where GTK is
+available, so a GTK-less *build* mode buys nothing; the runtime/packaging
+split is what matters and is done).
 
 **Steps**
 1. `configure.ac`: keep GTK/webkit/sourceview/plplot detection but make
    the GUI bits feed only the gui library; core gets a minimal dep set.
-   Consider a `--disable-gui` configure switch that builds core only
-   (the server build).
+   (~~`--disable-gui` configure switch~~ — dropped, see decision D5.)
 2. `lib/Makefile.am`: replace the single `lib_LTLIBRARIES = libpipnode.la`
    with two libraries and two source lists (from Phase 2's table). Core
    sources compile with **no** `GTK_CFLAGS`; gui sources keep them.
@@ -717,9 +718,10 @@ moot while the dual logic still lives in the gui tier.
    `pn-plugin.h`, factory, flow, message, schema) go to the core dev
    package; GUI headers to the gui package.
 
-**Verification:** `./configure --disable-gui` builds core + `pipnode-run`
-with no GTK linkage (`ldd src/pipnode-run` shows no `libgtk`); full build
-still produces a working editor. Phase 0 tests green in both modes.
+**Verification:** the full build's `libpipnode-core.so` has GTK-free
+`DT_NEEDED` (`objdump -p`), and `pipnode-run` links no `libgtk` (Phase 5
+made it core-only). Full build still produces a working editor. Phase 0
+tests green. (The `--disable-gui` variant of this gate is dropped — D5.)
 
 **Rollback:** the source lists are the only structural change; revert
 `Makefile.am` / `configure.ac` to the single-library form.
@@ -858,15 +860,17 @@ longer need GTK; finalise documentation and packaging.
    and `plugins/sound-effects` keep a companion `-gui.so` if they draw.
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
    API, and a "how to ship a server-installable plugin" checklist.
-3. Update `README.md` / `INSTALL` with the server (`--disable-gui`) build
-   and the `pipnode-core` vs `pipnode-gui` packages.
+3. Update `README.md` / `INSTALL` with the `pipnode-core` vs
+   `pipnode-gui` package split (one GTK-equipped build produces both;
+   there is no `--disable-gui` build — D5).
 4. Provide distro packaging guidance: `pipnode-core` (no GTK depends),
    `pipnode-gui` (depends on core + GTK), `pipnode-plugin-*` split into
    core/gui sub-packages where applicable.
 
-**Verification:** a clean container with **no GTK installed** can
-`--disable-gui` build, install core + bundled core plugins, and run a
-worksheet via `pipnode-run`.
+**Verification:** on a clean container with **no GTK installed**,
+installing only the `pipnode-core` package + bundled core plugins +
+`pipnode-run` runs a worksheet (the binaries pull no GTK at runtime). The
+build itself is always done on a GTK-equipped host (D5).
 
 ---
 
