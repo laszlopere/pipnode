@@ -982,10 +982,34 @@ list-of-records) falls through to the Phase 6 companion / imperative
   `Class|Node|Data|Scale|Colours` and Graph → `Class|Node|Appearance|Data`.
   These three are the first nodes whose dialogs the Phase-7 renderer
   actually builds.
-- **7.5** port **Expression/Expression2** (full-width multiline via row
-  flag), **Led** (conditional sensitivity on `mode == flash`), and
-  **Rewrite** via a new `PN_EDITOR_CODE` kind → GtkSourceView in the
-  renderer. D-Bus assert Led `hold-ms` sensitivity toggles with `mode`.
+- **7.5 DONE** port **Expression/Expression2**, **Led**, **Rewrite** — the
+  sub-phase exercising the schema's richer features (three commits):
+  - **7.5a** (Expression/Expression2): single full-width multiline body on
+    a named tab (`PN_EDITOR_MULTILINE` + `PN_ROW_FLAG_FULL_WIDTH`). The
+    renderer's `FULL_WIDTH` now also sets `vexpand` so the body fills the
+    page like the old hand-built tab. Both gui files were *only* a
+    build_class_tab → `pn-expression-gui.{c,h}` + `pn-expression2-gui.{c,h}`
+    **deleted** (Phase-7 D2 payoff: settings-only nodes need no companion).
+  - **7.5b** (Led): `hold-ms` greyed unless `mode == Flash`, declared via
+    `pn_settings_schema_enable_when_eq(schema,"hold-ms","mode","Flash")`
+    (no named tab — customises one row of the auto "Led" tab through the
+    schema-row path). `pn-led-gui.c` keeps only its painter. Added a
+    `GetDialogEditorSensitive` D-Bus method (+ `pn_window_get_dialog_
+    editor_sensitive`) and a new functional test
+    `tests/test_node_dialog_led.py` asserting the toggle.
+  - **7.5c** (Rewrite): implemented `PN_EDITOR_CODE` as a real
+    **GtkSourceView** (JSON highlight/line-numbers/brackets) in the
+    renderer's `build_code_editor`, reusing the multiline `PnTextBinding`;
+    Rewrite declares a "Rewrite" tab with the `template` as a full-width
+    CODE row; `pn-rewrite-gui.{c,h}` **deleted**. gtksourceview now lives
+    behind the renderer (gui lib already linked it).
+  - **Verified each:** clean build (the LSP "gtksourceview not found" is a
+    stale-include false positive — real gui CFLAGS carry
+    `-I/usr/include/gtksourceview-4`); core `.so` GTK-free; 53 unit + 12
+    functional green; D-Bus probes confirm Expression/Expression2 →
+    `Class|Node|Expression[2]`, Rewrite → `Class|Node|Rewrite` with the
+    bound code editor, and the Led `hold-ms` sensitivity toggles with mode.
+    Commits af1e181, 162e27e, a8e8b48.
 - **7.6 (deferred/optional)** list-of-records editor kind → port
   **Filter/Set**.
 
