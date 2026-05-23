@@ -18,6 +18,36 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **IO-node parsers extracted + tested (TODO #24, Phase 0 fill-out).**
+  The pure parse/aggregate logic of the auto-trigger IO nodes — whose
+  receive/trigger logic is core-bound but was untestable headless
+  because `trigger()` does real disk/network I/O — is now exposed
+  (non-static) and unit-tested on canned fixtures, per the
+  `pn-disk-io`/`pn-net-io` precedent:
+  - **Temp** — `pn_temp_parse_remote_lines` (one
+    `name|label|millidegrees` line each → readings) +
+    `pn_temp_aggregate` (AVERAGE/MAXIMUM collapse, min/max/avg, hottest
+    label); `TempReading` → `PnTempReading` in the header.
+  - **Http** — `pn_http_split_body_and_status` (curl body + status via
+    sentinel) was already exported; added its test.
+  - **Weather** — extracted `pn_weather_parse_current` (Open-Meteo
+    `current` reading + provider error `reason` out of a parsed object)
+    from inside `emit_message` (behaviour-preserving) and exported
+    `pn_weather_code_description` (WMO code → label).
+  - **Tts** — `pn_tts_derive_voice_label` (piper model filename →
+    label; refactored to take an engine id, not the private struct) +
+    `pn_tts_voice_index_for` (deterministic sender → voice slot).
+  - **Net-IO** — already done (`pn_net_io_parse_net_dev` exported +
+    tested); the per-second delta/rate stays in the trigger (entangled
+    with the monotonic clock + prev-sample state), not a clean pure cut.
+
+  Standardised on **declaring the exported parsers in the node headers**
+  (the TODO's wording; net-io/disk-io historically forward-declared in
+  the test). Four new binaries (`test-pn-{temp,http,weather,tts}`);
+  `./run-unit-tests.sh` green (51/51). This closes the Phase 0
+  characterization net — the header de-GTK surgery (Phase 1) can now
+  proceed against a behaviour baseline.
+
 - **Dual-node logic characterized (Phase 0 fill-out).** Added headless
   unit tests for the four dual-nature nodes that previously had none —
   `test-pn-dial.c`, `test-pn-graph.c`, `test-pn-table.c`,

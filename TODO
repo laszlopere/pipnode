@@ -131,7 +131,17 @@ visual nodes' logic must remain loadable headless or they become GUI-only;
 (3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
 in the same pass.
 
-(24) PnAutoTrigger now has a synchronous test seam: a construct-only
+(24) DONE (follow-up complete): the pure parsers/aggregators of the IO
+nodes are now exported non-static and unit-tested on canned fixtures --
+Temp (pn_temp_parse_remote_lines / pn_temp_aggregate), Http
+(pn_http_split_body_and_status), Weather (pn_weather_parse_current /
+pn_weather_code_description, extracted from emit_message), Tts
+(pn_tts_derive_voice_label / pn_tts_voice_index_for); Net-IO was already
+done (pn_net_io_parse_net_dev). See tests/unit/test-pn-{temp,http,weather,
+tts}.c. The per-second delta/rate math stays in the trigger (entangled
+with the monotonic clock + prev-sample state). Original note follows.
+
+PnAutoTrigger now has a synchronous test seam: a construct-only
 "autostart" property (default TRUE; pass FALSE to skip the worker thread) and
 pn_auto_trigger_run_once_sync(), which runs the trigger() vfunc once on the
 calling thread and makes pn_auto_trigger_emit_on_main() deliver synchronously,

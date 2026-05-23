@@ -152,8 +152,8 @@ obj_number (JsonObject *obj, const gchar *key, gdouble def)
 
 /* Map a WMO weather code (as Open-Meteo reports it) to a short English
  * label.  Unknown codes fall through to a generic string. */
-static const gchar *
-weather_code_description (gint code)
+const gchar *
+pn_weather_code_description (gint code)
 {
     switch (code)
     {
@@ -187,6 +187,54 @@ weather_code_description (gint code)
     case 99: return "Thunderstorm with heavy hail";
     default: return "Unknown conditions";
     }
+}
+
+/* Extract the "current" reading (and any provider error "reason") from a
+ * parsed Open-Meteo response object.  Pure: no I/O, no node state — the
+ * caller supplies the already-parsed root and frees @out->reason. */
+gboolean
+pn_weather_parse_current (JsonObject *root, PnWeatherCurrent *out)
+{
+    JsonNode *cn;
+
+    g_return_val_if_fail (out != NULL, FALSE);
+
+    if (root == NULL)
+        return FALSE;
+
+    /* Open-Meteo reports problems as {"error":true,"reason":...}. */
+    if (json_object_has_member (root, "reason"))
+    {
+        JsonNode *rn = json_object_get_member (root, "reason");
+        if (JSON_NODE_HOLDS_VALUE (rn) &&
+            json_node_get_value_type (rn) == G_TYPE_STRING)
+            out->reason = g_strdup (json_node_get_string (rn));
+    }
+
+    if (!json_object_has_member (root, "current"))
+        return out->ok;
+
+    cn = json_object_get_member (root, "current");
+    if (JSON_NODE_HOLDS_OBJECT (cn))
+    {
+        JsonObject *cur  = json_node_get_object (cn);
+        gdouble     temp = obj_number (cur, "temperature_2m",       (gdouble) NAN);
+        gdouble     hum  = obj_number (cur, "relative_humidity_2m", (gdouble) NAN);
+        gdouble     wind = obj_number (cur, "wind_speed_10m",       (gdouble) NAN);
+        gdouble     code = obj_number (cur, "weather_code",         (gdouble) NAN);
+
+        /* A finite temperature is the marker of a usable reading. */
+        if (isfinite (temp))
+        {
+            out->ok          = TRUE;
+            out->temperature = temp;
+            if (isfinite (hum))  { out->has_humidity = TRUE; out->humidity     = hum;  }
+            if (isfinite (wind)) { out->has_wind     = TRUE; out->wind_speed   = wind; }
+            if (isfinite (code)) { out->has_code     = TRUE; out->weather_code = (gint) code; }
+        }
+    }
+
+    return out->ok;
 }
 
 /* Build a curl command that GETs @url and prints the body.  Shared
@@ -501,72 +549,54 @@ pn_weather_emit_message (
             if (o != NULL)
                 pn_message_set_member (msg, "raw", json_node_copy (root));
 
-            /* Open-Meteo reports problems as {"error":true,"reason":...}. */
-            if (o != NULL && json_object_has_member (o, "reason"))
-            {
-                JsonNode *rn = json_object_get_member (o, "reason");
-                if (JSON_NODE_HOLDS_VALUE (rn) &&
-                    json_node_get_value_type (rn) == G_TYPE_STRING)
-                    reason = g_strdup (json_node_get_string (rn));
-            }
+            /* Pull the reading + any provider error out of the parsed
+             * body (see pn_weather_parse_current); the message/summary
+             * building below stays here because it needs the node's
+             * resolved place name. */
+            PnWeatherCurrent cur = { 0 };
 
-            if (o != NULL && json_object_has_member (o, "current"))
-            {
-                JsonNode *cn = json_object_get_member (o, "current");
+            pn_weather_parse_current (o, &cur);
+            reason = g_steal_pointer (&cur.reason);
 
-                if (JSON_NODE_HOLDS_OBJECT (cn))
+            if (cur.ok)
+            {
+                GString *summary = g_string_new (NULL);
+
+                ok = TRUE;
+                pn_message_set_double (msg, "value",       cur.temperature);
+                pn_message_set_double (msg, "temperature", cur.temperature);
+                if (cur.has_humidity)
+                    pn_message_set_double (msg, "humidity", cur.humidity);
+                if (cur.has_wind)
+                    pn_message_set_double (msg, "wind_speed", cur.wind_speed);
+
+                if (name != NULL)
+                    g_string_append (summary, name);
+                if (country != NULL && *country != '\0')
+                    g_string_append_printf (summary, ", %s", country);
+                if (summary->len > 0)
+                    g_string_append (summary, ": ");
+                g_string_append_printf (summary, "%.1f \xc2\xb0""C",
+                                        cur.temperature);
+
+                if (cur.has_code)
                 {
-                    JsonObject *cur  = json_node_get_object (cn);
-                    gdouble     temp = obj_number (cur, "temperature_2m",
-                                                   (gdouble) NAN);
-                    gdouble     hum  = obj_number (cur, "relative_humidity_2m",
-                                                   (gdouble) NAN);
-                    gdouble     wind = obj_number (cur, "wind_speed_10m",
-                                                   (gdouble) NAN);
-                    gdouble     code = obj_number (cur, "weather_code",
-                                                   (gdouble) NAN);
-
-                    if (isfinite (temp))
-                    {
-                        GString *summary = g_string_new (NULL);
-
-                        ok = TRUE;
-                        pn_message_set_double (msg, "value",       temp);
-                        pn_message_set_double (msg, "temperature", temp);
-                        if (isfinite (hum))
-                            pn_message_set_double (msg, "humidity", hum);
-                        if (isfinite (wind))
-                            pn_message_set_double (msg, "wind_speed", wind);
-
-                        if (name != NULL)
-                            g_string_append (summary, name);
-                        if (country != NULL && *country != '\0')
-                            g_string_append_printf (summary, ", %s", country);
-                        if (summary->len > 0)
-                            g_string_append (summary, ": ");
-                        g_string_append_printf (summary, "%.1f \xc2\xb0""C",
-                                                temp);
-
-                        if (isfinite (code))
-                        {
-                            const gchar *desc =
-                                    weather_code_description ((gint) code);
-                            pn_message_set_int    (msg, "weather_code",
-                                                   (gint) code);
-                            pn_message_set_string (msg, "description", desc);
-                            g_string_append_printf (summary, ", %s", desc);
-                        }
-                        if (isfinite (hum))
-                            g_string_append_printf (summary, ", %.0f%% RH",
-                                                    hum);
-                        if (isfinite (wind))
-                            g_string_append_printf (summary,
-                                                    ", wind %.1f km/h", wind);
-
-                        pn_message_set_string (msg, "output", summary->str);
-                        g_string_free (summary, TRUE);
-                    }
+                    const gchar *desc =
+                            pn_weather_code_description (cur.weather_code);
+                    pn_message_set_int    (msg, "weather_code",
+                                           cur.weather_code);
+                    pn_message_set_string (msg, "description", desc);
+                    g_string_append_printf (summary, ", %s", desc);
                 }
+                if (cur.has_humidity)
+                    g_string_append_printf (summary, ", %.0f%% RH",
+                                            cur.humidity);
+                if (cur.has_wind)
+                    g_string_append_printf (summary,
+                                            ", wind %.1f km/h", cur.wind_speed);
+
+                pn_message_set_string (msg, "output", summary->str);
+                g_string_free (summary, TRUE);
             }
         }
         g_object_unref (parser);

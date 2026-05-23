@@ -69,6 +69,25 @@ gchar **pn_tts_list_voice_models (void);
  */
 gchar **pn_tts_list_audio_sinks  (void);
 
+/* ------------------------------------------------------------------ */
+/*  Pure selection seam (no I/O, no GTK)                                */
+/*                                                                     */
+/*  Exposed (non-static) so the headless unit tests can drive the      */
+/*  voice-selection logic without enumerating installed engines or     */
+/*  voices; the node remains the only production caller.                */
+/* ------------------------------------------------------------------ */
+
+/* Turn a voice id into a short display label.  For the "piper" engine
+ * this strips the directory, the ".onnx" suffix and a leading
+ * "<lang>_<COUNTRY>-" prefix (so "en_US-amy-low" -> "amy-low"); for
+ * every other engine the id is returned verbatim.  Caller frees. */
+gchar *pn_tts_derive_voice_label (const gchar *engine_id, const gchar *id);
+
+/* Deterministically map a sender label to one of @n_voices slots, so a
+ * given source always speaks in the same voice.  Returns 0 when
+ * @n_voices is 0. */
+guint  pn_tts_voice_index_for    (const gchar *who, guint n_voices);
+
 G_END_DECLS
 
 #endif /* PN_TTS_H */

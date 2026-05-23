@@ -159,18 +159,17 @@ hostname_is_local (const gchar *hostname)
 
 /* ------------------------------------------------------------------ */
 /*  Reading buffer                                                     */
+/*                                                                     */
+/*  PnTempReading and the two pure helpers below                       */
+/*  (pn_temp_parse_remote_lines / pn_temp_aggregate) are declared in   */
+/*  pn-temp.h so the headless unit tests can drive the parse + collapse */
+/*  logic on canned text without sampling real hardware.               */
 /* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    gchar  *label;    /* "<source>/<sensor>", owned */
-    gdouble celsius;
-} TempReading;
 
 static void
 temp_reading_clear (gpointer data)
 {
-    TempReading *r = data;
+    PnTempReading *r = data;
     g_free (r->label);
 }
 
@@ -260,7 +259,7 @@ read_hwmon_dir (
         gchar       *label_str = NULL;
         gchar       *label;
         gdouble      milli;
-        TempReading  r;
+        PnTempReading  r;
 
         idx = extract_temp_index (entry, &idx_len);
         if (idx == NULL)
@@ -367,7 +366,7 @@ collect_local_thermal (GArray *readings)
         if (is_cpu_thermal_type (type_str)
             && g_file_get_contents (temp_path, &value_str, NULL, NULL))
         {
-            TempReading r;
+            PnTempReading r;
             r.label   = g_strdup_printf ("%s/%s", type_str, child);
             r.celsius = g_ascii_strtod (value_str, NULL) / 1000.0;
             g_array_append_val (readings, r);
@@ -492,8 +491,8 @@ sample_ssh (
     return ok;
 }
 
-static void
-parse_remote_lines (
+void
+pn_temp_parse_remote_lines (
         const gchar *blob,
         GArray      *readings)
 {
@@ -510,7 +509,7 @@ parse_remote_lines (
         const gchar *line_stop;
         gsize        line_len;
         gchar       *line;
-        TempReading  r;
+        PnTempReading  r;
         gdouble      milli;
 
         line_end = strchr (cursor, '\n');
@@ -556,8 +555,8 @@ aggregation_nick (PnTempAggregation a)
     return (a == PN_TEMP_MAXIMUM) ? "maximum" : "average";
 }
 
-static gdouble
-aggregate (
+gdouble
+pn_temp_aggregate (
         GArray             *readings,
         PnTempAggregation   mode,
         gdouble            *out_min,
@@ -582,7 +581,7 @@ aggregate (
 
     for (i = 0; i < readings->len; ++i)
     {
-        TempReading *r = &g_array_index (readings, TempReading, i);
+        PnTempReading *r = &g_array_index (readings, PnTempReading, i);
         if (i == 0)
         {
             lo  = r->celsius;
@@ -618,7 +617,7 @@ build_readings_json (GArray *readings)
 
     for (i = 0; i < readings->len; ++i)
     {
-        TempReading *r = &g_array_index (readings, TempReading, i);
+        PnTempReading *r = &g_array_index (readings, PnTempReading, i);
         JsonObject  *obj = json_object_new ();
         json_object_set_string_member (obj, "label", r->label);
         json_object_set_double_member (obj, "value", r->celsius);
@@ -660,7 +659,7 @@ pn_temp_trigger (PnAutoTrigger *trigger)
     period  = pn_auto_trigger_get_period (trigger);
     timeout = (period > 1u) ? period - 1u : 1u;
 
-    readings = g_array_new (FALSE, FALSE, sizeof (TempReading));
+    readings = g_array_new (FALSE, FALSE, sizeof (PnTempReading));
     g_array_set_clear_func (readings, temp_reading_clear);
 
     if (local)
@@ -671,7 +670,7 @@ pn_temp_trigger (PnAutoTrigger *trigger)
     {
         success = sample_ssh (hostname, timeout, &raw, &errbuf, &error);
         if (success)
-            parse_remote_lines (raw, readings);
+            pn_temp_parse_remote_lines (raw, readings);
     }
 
     /* A successful sample with zero sensors is treated as a failure
@@ -694,7 +693,7 @@ pn_temp_trigger (PnAutoTrigger *trigger)
         const gchar *hot = NULL;
         gchar       *summary;
 
-        value = aggregate (readings, mode, &lo, &hi, &avg, &hot);
+        value = pn_temp_aggregate (readings, mode, &lo, &hi, &avg, &hot);
 
         pn_message_set_double (msg, "value",   value);
         pn_message_set_double (msg, "average", avg);

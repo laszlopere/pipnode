@@ -431,6 +431,18 @@ pn_tts_speak (
 /*  message has no source, or anything else that breaks the lookup.    */
 /* ------------------------------------------------------------------ */
 
+/* Deterministically map a sender label @who to one of @n_voices slots,
+ * so every message from the same source always speaks in the same voice.
+ * Pure: the hash makes the choice stable across runs without storing a
+ * per-sender table.  Returns 0 when @n_voices is 0. */
+guint
+pn_tts_voice_index_for (const gchar *who, guint n_voices)
+{
+    if (who == NULL || n_voices == 0)
+        return 0;
+    return g_str_hash (who) % n_voices;
+}
+
 static gchar *
 pick_voice_for_message (
         PnTts     *self,
@@ -461,8 +473,7 @@ pick_voice_for_message (
     }
 
     guint n     = g_strv_length (voices);
-    guint hash  = g_str_hash (who);
-    gchar *out  = g_strdup (voices[hash % n]);
+    gchar *out  = g_strdup (voices[pn_tts_voice_index_for (who, n)]);
 
     g_strfreev (voices);
     return out;
@@ -788,10 +799,10 @@ build_tts_engine_editor (GObject    *target,
  *  the original dialog used is preserved here.  Every other engine
  *  identifies its voices by short names that are already readable
  *  as-is. */
-static gchar *
-derive_voice_label (const TtsEngine *eng, const gchar *id)
+gchar *
+pn_tts_derive_voice_label (const gchar *engine_id, const gchar *id)
 {
-    if (g_strcmp0 (eng->id, "piper") == 0)
+    if (g_strcmp0 (engine_id, "piper") == 0)
     {
         gchar        *base = g_path_get_basename (id);
         gchar        *dot  = g_strrstr (base, ".onnx");
@@ -859,7 +870,7 @@ voice_repopulate (GObject *target, GtkComboBoxText *combo)
         gboolean listed = FALSE;
         for (gchar **p = voices; *p != NULL; p++)
         {
-            gchar *label = derive_voice_label (eng, *p);
+            gchar *label = pn_tts_derive_voice_label (eng->id, *p);
             gtk_combo_box_text_append (combo, *p, label);
             g_free (label);
             if (g_strcmp0 (*p, current) == 0)

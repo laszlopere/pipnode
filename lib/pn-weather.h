@@ -17,6 +17,7 @@
 #define PN_WEATHER_H
 
 #include "pn-http.h"
+#include <json-glib/json-glib.h>
 
 G_BEGIN_DECLS
 
@@ -33,6 +34,39 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (PnWeather, pn_weather, PN, WEATHER, PnHttp)
 
 PnWeather *pn_weather_new (void);
+
+/* ------------------------------------------------------------------ */
+/*  Pure parse seam (no I/O, no GTK)                                    */
+/*                                                                     */
+/*  The values extracted from one Open-Meteo forecast response.  These */
+/*  helpers are exposed (non-static) purely so the headless unit tests */
+/*  can drive the JSON parse on canned bodies without a network fetch;  */
+/*  the node remains the only production caller.                        */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    gboolean  ok;             /* a finite current temperature was found */
+    gdouble   temperature;    /* °C; valid iff @ok                       */
+    gboolean  has_humidity;
+    gdouble   humidity;       /* %RH                                     */
+    gboolean  has_wind;
+    gdouble   wind_speed;     /* km/h                                    */
+    gboolean  has_code;
+    gint      weather_code;   /* WMO code                                */
+    gchar    *reason;         /* provider error reason, or NULL; owned   */
+} PnWeatherCurrent;
+
+/* Extract the "current" reading (and any provider "reason" error) from
+ * a parsed Open-Meteo response object @root (may be %NULL).  Fills
+ * @out (zero it first) and returns @out->ok.  The caller frees
+ * @out->reason. */
+gboolean     pn_weather_parse_current   (JsonObject       *root,
+                                         PnWeatherCurrent *out);
+
+/* Map a WMO weather code (as Open-Meteo reports it) to a short English
+ * label; unknown codes yield a generic string. */
+const gchar *pn_weather_code_description (gint code);
 
 G_END_DECLS
 

@@ -60,6 +60,10 @@ check_PROGRAMS = \
 	test-pn-load \
 	test-pn-memory \
 	test-pn-cpu \
+	test-pn-temp \
+	test-pn-http \
+	test-pn-weather \
+	test-pn-tts \
 	test-pn-net-io \
 	test-pn-disk-io \
 	test-pn-var-store \
@@ -108,6 +112,10 @@ test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
 test_pn_load_SOURCES          = test-pn-load.c          pntest.c pntest.h
 test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h
 test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h
+test_pn_temp_SOURCES          = test-pn-temp.c          pntest.c pntest.h
+test_pn_http_SOURCES          = test-pn-http.c          pntest.c pntest.h
+test_pn_weather_SOURCES       = test-pn-weather.c       pntest.c pntest.h
+test_pn_tts_SOURCES           = test-pn-tts.c           pntest.c pntest.h
 test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h
 test_pn_disk_io_SOURCES       = test-pn-disk-io.c        pntest.c pntest.h
 test_pn_var_store_SOURCES     = test-pn-var-store.c     pntest.c pntest.h
