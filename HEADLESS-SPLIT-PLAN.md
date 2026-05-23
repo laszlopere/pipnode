@@ -18,6 +18,65 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 4 DONE — the final four dual nodes split; ALL 23 of 23 are now
+  core + gui.** Rate, Rewrite, Filedrop and File-Viewer (the special-case
+  nodes) followed the established pattern: the GTK-free logic half (GType,
+  properties, `receive`/source/emit + parsers + state, `get_size`,
+  lifecycle, read seams) stays in `libpipnode-core`; the cairo painter
+  and/or settings dialog move to a new gui-tier `pn-<name>-gui.c` exporting
+  `pn_<name>_gui_install()`, wired into `pn_gui_install_builtin_nodes()`.
+  - **Rate (4.20):** despite the expectation of a cairo+pango readout
+    painter, Rate has **no painter and no `paint_*` vfunc** — its only GTK
+    was the `build_property_editor` dialog, so it was a clean dialog-only
+    cut. The whole dialog (read-only label rows for cached `rate` /
+    `last-update`, incl. the `PangoAttrList` mono font, and the
+    icon+ticker `PnCurrency` combos with gdk-pixbuf icon loading) → gui.
+    The cache-aware periodic fetch + the receive() conversion stay core.
+    **No read seam** (dialog binds the properties + the already-public
+    `PN_TYPE_CURRENCY` / `pn_currency_get_icon_name`). **No colour pspec**
+    — the body colour is a class field, not a property.
+  - **Rewrite (4.21):** the JSON-template **GtkSourceView** code editor
+    (`build_class_tab` + its text-buffer binding) → gui;
+    `<gtksourceview/gtksource.h>` moved with it. **No WebKit was involved**
+    (the help browser, not Rewrite, uses webkit). The placeholder
+    expansion + receive() rewrite stay core. No read seam (binds the
+    `template` property), no colour pspec.
+  - **Filedrop (4.22):** the cairo drop-area painter → gui behind a
+    `pn_filedrop_get_paint_state` snapshot; **the GTK drag-and-drop was
+    NOT in this node** — it already lives in the gui-tier worksheet
+    (`pn-worksheet.c`), which calls the public `pn_filedrop_drop_file()`
+    (unchanged). The drop-emit logic stays core: it loads the path into a
+    `GdkPixbuf` and emits the `PnImageMessage` / `PnMessage` — **gdk-pixbuf
+    stays in core** (allowed image-data dep) for both the carrying logic
+    and the snapshot pointer; only the cairo rendering went to gui. Both
+    colour pspecs migrated `GDK_TYPE_RGBA` → `PN_TYPE_COLOR`.
+  - **File-Viewer (4.23):** structurally identical to Filedrop. The cairo
+    preview painter → gui behind `pn_file_viewer_get_paint_state`; the
+    receive() (ref the incoming `PnImageMessage`'s pixbuf, read the
+    filename hint) stays core (gdk-pixbuf in core). Both colour pspecs
+    migrated to `PN_TYPE_COLOR`. The painter casts the snapshot's `PnColor`
+    fields to `GdkRGBA*` for `gdk_cairo_set_source_rgba` (layout-identical).
+  - **Carried debt is now RETIREABLE in Phase 5.** With every dual node
+    split: (a) `pipnode-run` can drop `-Wl,--no-as-needed` and link
+    core-only; (b) the `pn-flow.c` by-name `GdkRGBA` clause
+    (`pn_flow_legacy_rgba_type()` at lines ~42/698/800) can go — a
+    tree-wide grep confirms **no core or dual node carries a
+    `GDK_TYPE_RGBA` pspec anymore**; every remaining `GDK_TYPE_RGBA` /
+    `gdk_rgba_` in `lib/` is either a comment (`pn-color.{c,h}`,
+    `pn-flow.c`) or lives in a **gui-tier** file that pn-flow never
+    serialises as a node (`pn-table-view.c` — a GtkWidget, not a node;
+    `pn-node-dialog.c` — the colour-editor selection; `pn-preferences.c` —
+    serialised via its own keyfile path, not pn-flow). (c) The core
+    factory's hard-registration of the gui node GTypes is the remaining
+    Phase 5 item. **Phase 5 is now unblocked** (not done here).
+  - **Verified per node:** whole tree builds clean (exit 0, no new
+    warnings), 52/52 C unit tests, the D-Bus dial test PASS, the core
+    `.so` `DT_NEEDED` stays GTK-free (now also pulling the allowed
+    `libgdk_pixbuf-2.0` once Filedrop/File-Viewer moved into core) and each
+    core `pn-<name>.o` carries zero `cairo_`/`gtk_`/`gdk_cairo`/
+    `gdk_rgba_`/`pango_`/`gtk_source_`/`webkit_` refs (only the allowed
+    `gdk_pixbuf_*`).
+
 - **Phase 4 continues — the nine dialog-only dual nodes split
   (Expression, Expression2, Filter, Meshtastic, Notify, Ollama, Set,
   Sound, Tts; 19 of 23 dual nodes done).** These nodes confine their GTK
@@ -619,7 +678,12 @@ still produces a working editor. Phase 0 tests green in both modes.
 
 ---
 
-### Phase 4 — Split the dual-nature node sources (D3)
+### Phase 4 — Split the dual-nature node sources (D3) — **DONE** (see §0)
+
+All 23 of 23 dual-nature nodes are split (logic → core, drawing + dialog
+→ gui). The carried debt (the `-Wl,--no-as-needed` on `pipnode-run`, the
+`pn-flow.c` by-name `GdkRGBA` clause, and the core factory's gui-GType
+hard-registration) is now retireable in Phase 5 — see §0.
 
 **Objective:** each dual node's `receive()`/logic lives in core; its
 cairo drawing + dialog hooks live in the gui tier — without breaking the

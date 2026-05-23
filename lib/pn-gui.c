@@ -24,6 +24,7 @@
 #include "pn-dial-gui.h"
 #include "pn-expression-gui.h"
 #include "pn-expression2-gui.h"
+#include "pn-file-viewer-gui.h"
 #include "pn-filedrop-gui.h"
 #include "pn-filter-gui.h"
 #include "pn-graph-gui.h"
@@ -53,6 +54,7 @@ pn_gui_install_builtin_nodes (void)
     pn_dial_gui_install ();
     pn_expression_gui_install ();
     pn_expression2_gui_install ();
+    pn_file_viewer_gui_install ();
     pn_filedrop_gui_install ();
     pn_filter_gui_install ();
     pn_graph_gui_install ();

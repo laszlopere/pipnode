@@ -18,6 +18,8 @@
 
 #include "pn-node.h"
 
+#include <gdk-pixbuf/gdk-pixbuf.h>
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -44,6 +46,29 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (PnFileViewer, pn_file_viewer, PN, FILE_VIEWER, PnNode)
 
 PnFileViewer *pn_file_viewer_new (void);
+
+/* ------------------------------------------------------------------ */
+/*  GUI paint-state seam (GTK-free)                                    */
+/*                                                                     */
+/*  The cairo preview painter lives in the gui tier                    */
+/*  (pn-file-viewer-gui.c) and reads the node's preview state through  */
+/*  this one snapshot rather than reaching into the private instance   */
+/*  struct.  The pixbuf and filename are borrowed (owned by the node), */
+/*  valid only for the duration of the paint call.  gdk-pixbuf is an   */
+/*  allowed core image-data dep, so the pixbuf rides the snapshot as a */
+/*  plain pointer with no GTK involvement.                             */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    GdkPixbuf   *pixbuf;        /* borrowed; %NULL when no image preview */
+    const gchar *last_filename; /* borrowed; %NULL before the first message */
+    PnColor      area_color;
+    PnColor      border_color;
+} PnFileViewerPaintState;
+
+void          pn_file_viewer_get_paint_state (PnFileViewer           *self,
+                                              PnFileViewerPaintState *out);
 
 G_END_DECLS
 

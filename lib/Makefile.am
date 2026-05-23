@@ -66,6 +66,8 @@ libpipnode_core_la_SOURCES = \
 	pn-expression.h \
 	pn-expression2.c \
 	pn-expression2.h \
+	pn-file-viewer.c \
+	pn-file-viewer.h \
 	pn-filedrop.c \
 	pn-filedrop.h \
 	pn-filter.c \
@@ -198,8 +200,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-expression-gui.h \
 	pn-expression2-gui.c \
 	pn-expression2-gui.h \
-	pn-file-viewer.c \
-	pn-file-viewer.h \
+	pn-file-viewer-gui.c \
+	pn-file-viewer-gui.h \
 	pn-filedrop-gui.c \
 	pn-filedrop-gui.h \
 	pn-filter-gui.c \
@@ -308,6 +310,7 @@ pipnode_core_headers = \
 	pn-expr-parser.h \
 	pn-expression.h \
 	pn-expression2.h \
+	pn-file-viewer.h \
 	pn-filedrop.h \
 	pn-filter.h \
 	pn-flow.h \
@@ -363,7 +366,7 @@ pipnode_gui_headers = \
 	pn-document-settings-dialog.h \
 	pn-expression-gui.h \
 	pn-expression2-gui.h \
-	pn-file-viewer.h \
+	pn-file-viewer-gui.h \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \
 	pn-graph-gui.h \

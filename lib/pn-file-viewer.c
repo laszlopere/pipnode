@@ -13,6 +13,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnFileViewer — logic tier (headless core).                         */
+/*                                                                     */
+/*  This file holds the GTK-free half of the FileViewer sink node: the */
+/*  GType, the two appearance colour properties, the intrinsic size    */
+/*  (get_size / get_header_height, driven by the received image's       */
+/*  aspect ratio) and the receive() that stores what to show — it refs  */
+/*  the #GdkPixbuf carried by an incoming #PnImageMessage (gdk-pixbuf   */
+/*  is an allowed core image-data dep) and reads the filename hint from */
+/*  the data bag.  The cairo preview painter lives in the companion     */
+/*  gui-tier file pn-file-viewer-gui.c, which installs that paint vfunc */
+/*  slot onto this class at editor startup (see                         */
+/*  pn_file_viewer_gui_install) and reads the preview state through the */
+/*  GTK-free pn_file_viewer_get_paint_state() seam.  The headless       */
+/*  runtime registers and runs this node without ever pulling GTK.     */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -21,7 +38,7 @@
 #include "pn-image-message.h"
 #include "pn-message.h"
 
-#include <gtk/gtk.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -72,8 +89,8 @@ struct _PnFileViewer
 
     /* Appearance — view-area fill and frame.  Both serialise like any
      * other writable property and only affect painting. */
-    GdkRGBA    area_color;
-    GdkRGBA    border_color;
+    PnColor    area_color;
+    PnColor    border_color;
 };
 
 G_DEFINE_TYPE (PnFileViewer, pn_file_viewer, PN_TYPE_NODE)
@@ -134,152 +151,29 @@ pn_file_viewer_get_header_height (PnNode *node)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                           */
+/*  GUI paint-state seam (GTK-free)                                    */
+/*                                                                     */
+/*  The cairo preview painter lives in the gui tier                    */
+/*  (pn-file-viewer-gui.c) and cannot see this file's private instance */
+/*  struct.  It reads everything it needs through this one snapshot     */
+/*  accessor: the borrowed preview pixbuf (or %NULL), the borrowed      */
+/*  filename hint (or %NULL), and the two appearance colours by value.  */
+/*  gdk-pixbuf is an allowed core dep, so the pixbuf can ride the       */
+/*  snapshot as a plain (borrowed) pointer with no GTK involvement.     */
 /* ------------------------------------------------------------------ */
 
-/** Centre @text horizontally and vertically inside the rectangle
- *  (@x, @y, @w, @h), painted in a muted grey.  Used for the
- *  placeholder hint and the non-image filename label. */
-static void
-paint_centered_text (
-        cairo_t     *cr,
-        const gchar *text,
-        double       x,
-        double       y,
-        double       w,
-        double       h)
+void
+pn_file_viewer_get_paint_state (
+        PnFileViewer            *self,
+        PnFileViewerPaintState  *out)
 {
-    cairo_text_extents_t ext;
+    g_return_if_fail (PN_IS_FILE_VIEWER (self));
+    g_return_if_fail (out != NULL);
 
-    cairo_save (cr);
-    cairo_select_font_face (cr, "Sans",
-                            CAIRO_FONT_SLANT_NORMAL,
-                            CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size (cr, 13.0);
-    cairo_set_source_rgba (cr, 0.45, 0.45, 0.48, 1.0);
-
-    cairo_text_extents (cr, text, &ext);
-    cairo_move_to (cr,
-                   x + (w - ext.width)  / 2.0 - ext.x_bearing,
-                   y + (h - ext.height) / 2.0 - ext.y_bearing);
-    cairo_show_text (cr, text);
-    cairo_restore (cr);
-}
-
-/** Paint the image so it *covers* the content rectangle
- *  (@cx, @cy, @cw, @ch): aspect ratio preserved, scaled so the image
- *  fills the whole box with no gap, centred so any overflow is cropped
- *  evenly.  Because the view area is sized to the image's own aspect
- *  ratio (see file_viewer_area_height), cover and fit coincide and
- *  nothing is cropped in the common case; cover only crops in the
- *  clamped extreme-aspect case, where it is still preferable to a white
- *  margin.  The caller is expected to have clipped to the same
- *  rectangle.  This matches #PnFileDrop's paint_pixbuf_cover so the same
- *  pixbuf renders identically in both nodes.  */
-static void
-paint_pixbuf_cover (
-        cairo_t   *cr,
-        GdkPixbuf *pixbuf,
-        double     cx,
-        double     cy,
-        double     cw,
-        double     ch)
-{
-    const double iw = (double) gdk_pixbuf_get_width  (pixbuf);
-    const double ih = (double) gdk_pixbuf_get_height (pixbuf);
-    double       scale, dw, dh, ox, oy;
-
-    if (iw <= 0.0 || ih <= 0.0 || cw <= 0.0 || ch <= 0.0)
-        return;
-
-    /* Cover: the larger of the two ratios fills the box completely. */
-    scale = MAX (cw / iw, ch / ih);
-    dw    = iw * scale;
-    dh    = ih * scale;
-    ox    = cx + (cw - dw) / 2.0;
-    oy    = cy + (ch - dh) / 2.0;
-
-    cairo_save (cr);
-    cairo_translate (cr, ox, oy);
-    cairo_scale (cr, scale, scale);
-    gdk_cairo_set_source_pixbuf (cr, pixbuf, 0.0, 0.0);
-    /* GOOD is a sensible quality/speed trade-off for the down-scale
-     * that the typical (larger-than-area) photo needs. */
-    cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
-    cairo_paint (cr);
-    cairo_restore (cr);
-}
-
-/** PnNodeClass::paint_plot — draw the view-area rectangle and whatever
- *  preview / hint belongs in it, anchored at (@x, @y) with size
- *  @w × @h.  Mirrors #PnFileDrop's paint_plot so the two nodes look
- *  the same. */
-static void
-pn_file_viewer_paint_plot (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnFileViewer *self = PN_FILE_VIEWER (node);
-
-    /* Base fill.  When an image is present it is painted over this
-     * edge-to-edge, so the area colour only ever shows in the empty
-     * state. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->area_color);
-    cairo_fill (cr);
-    cairo_restore (cr);
-
-    if (self->pixbuf != NULL)
-    {
-        /* Fill the whole rectangle with the image — no padding, no
-         * white margin; the rectangle already carries the image's
-         * aspect ratio, so the picture covers it exactly. */
-        cairo_save (cr);
-        cairo_rectangle (cr, x, y, w, h);
-        cairo_clip (cr);
-        paint_pixbuf_cover (cr, self->pixbuf, x, y, w, h);
-        cairo_restore (cr);
-    }
-    else
-    {
-        /* Dashed inner outline + centred hint so an empty viewer reads
-         * as a deliberate display waiting for an image. */
-        const double cx = x + PN_FILE_VIEWER_PADDING;
-        const double cy = y + PN_FILE_VIEWER_PADDING;
-        const double cw = w - 2.0 * PN_FILE_VIEWER_PADDING;
-        const double ch = h - 2.0 * PN_FILE_VIEWER_PADDING;
-
-        cairo_save (cr);
-        cairo_set_source_rgba (cr, 0.62, 0.62, 0.66, 1.0);
-        cairo_set_line_width (cr, 1.0);
-        {
-            const double dashes[] = { 4.0, 3.0 };
-            cairo_set_dash (cr, dashes, 2, 0.0);
-        }
-        cairo_rectangle (cr, cx, cy, cw, ch);
-        cairo_stroke (cr);
-        cairo_restore (cr);
-
-        paint_centered_text (cr,
-                             self->last_filename != NULL
-                                 ? self->last_filename
-                                 : "Nothing to show",
-                             cx, cy, cw, ch);
-    }
-
-    /* Frame last, so it edges the image (or the empty area) cleanly on
-     * top of whatever was drawn. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->border_color);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-    cairo_restore (cr);
+    out->pixbuf        = self->pixbuf;        /* borrowed */
+    out->last_filename = self->last_filename; /* borrowed */
+    out->area_color    = self->area_color;
+    out->border_color  = self->border_color;
 }
 
 /* ------------------------------------------------------------------ */
@@ -377,8 +271,8 @@ pn_file_viewer_set_property (
     {
     case PROP_AREA_COLOR:
         {
-            const GdkRGBA *c = g_value_get_boxed (value);
-            if (c != NULL && !gdk_rgba_equal (c, &self->area_color))
+            const PnColor *c = g_value_get_boxed (value);
+            if (c != NULL && !pn_color_equal (c, &self->area_color))
             {
                 self->area_color = *c;
                 g_object_notify_by_pspec (object, props[PROP_AREA_COLOR]);
@@ -388,8 +282,8 @@ pn_file_viewer_set_property (
         break;
     case PROP_BORDER_COLOR:
         {
-            const GdkRGBA *c = g_value_get_boxed (value);
-            if (c != NULL && !gdk_rgba_equal (c, &self->border_color))
+            const PnColor *c = g_value_get_boxed (value);
+            if (c != NULL && !pn_color_equal (c, &self->border_color))
             {
                 self->border_color = *c;
                 g_object_notify_by_pspec (object, props[PROP_BORDER_COLOR]);
@@ -430,12 +324,9 @@ pn_file_viewer_class_init (PnFileViewerClass *klass)
     node_class->receive           = pn_file_viewer_receive;
     node_class->get_size          = pn_file_viewer_get_size;
     node_class->get_header_height = pn_file_viewer_get_header_height;
-    node_class->paint_plot        = pn_file_viewer_paint_plot;
-    /* A primary press on the view area lifts it into the centred zoom
-     * overlay, the same gesture that enlarges a Graph's plot; click the
-     * enlarged rectangle to drop it back.  Keep the preview's aspect
-     * ratio when enlarged so the maximised image is not stretched. */
-    node_class->paint_plot_zoom_keep_aspect = TRUE;
+    /* The cairo paint_plot painter and its companion
+     * paint_plot_zoom_keep_aspect flag are installed by the gui tier
+     * (pn_file_viewer_gui_install); the headless core leaves them NULL. */
 
     node_class->class_name = "FileViewer";
     node_class->icon       = "\xef\x80\xbe";  /* fa-image U+F03E */
@@ -447,13 +338,13 @@ pn_file_viewer_class_init (PnFileViewerClass *klass)
     props[PROP_AREA_COLOR] = g_param_spec_boxed (
             "area-color", "Area colour",
             "Fill colour of the view-area rectangle drawn below the header",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_BORDER_COLOR] = g_param_spec_boxed (
             "border-color", "Border colour",
             "Colour of the 1 px frame around the view area",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
@@ -463,16 +354,16 @@ static void
 pn_file_viewer_init (PnFileViewer *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.36, 0.60, 0.74, 1.0 };
+    PnColor  color = { 0.36, 0.60, 0.74, 1.0 };
 
     self->pixbuf        = NULL;
     self->last_filename = NULL;
-    self->area_color    = (GdkRGBA){ 1.0, 1.0, 1.0, 1.0 };   /* white */
-    self->border_color  = (GdkRGBA){ 70.0/255.0, 70.0/255.0, 70.0/255.0, 1.0 };
+    self->area_color    = (PnColor){ 1.0, 1.0, 1.0, 1.0 };   /* white */
+    self->border_color  = (PnColor){ 70.0/255.0, 70.0/255.0, 70.0/255.0, 1.0 };
 
     pn_node_set_class_name (node, "FileViewer");
     pn_node_set_icon       (node, "\xef\x80\xbe");  /* fa-image U+F03E */
-    pn_node_set_color (node, (const PnColor *)&color);
+    pn_node_set_color (node, &color);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 }
