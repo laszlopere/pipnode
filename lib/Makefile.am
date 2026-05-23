@@ -52,6 +52,8 @@ libpipnode_core_la_SOURCES = \
 	pn-dedup.h \
 	pn-delay.c \
 	pn-delay.h \
+	pn-dial.c \
+	pn-dial.h \
 	pn-disk-io.c \
 	pn-disk-io.h \
 	pn-edge.c \
@@ -154,8 +156,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-analog-meter-gui.h \
 	pn-chat.c \
 	pn-chat.h \
-	pn-dial.c \
-	pn-dial.h \
+	pn-dial-gui.c \
+	pn-dial-gui.h \
 	pn-document-settings-dialog.c \
 	pn-document-settings-dialog.h \
 	pn-expression.c \
@@ -265,6 +267,7 @@ pipnode_core_headers = \
 	pn-debug.h \
 	pn-dedup.h \
 	pn-delay.h \
+	pn-dial.h \
 	pn-disk-io.h \
 	pn-edge.h \
 	pn-expr-parser.h \
@@ -305,7 +308,7 @@ pipnode_gui_headers = \
 	pipnode.h \
 	pn-analog-meter-gui.h \
 	pn-chat.h \
-	pn-dial.h \
+	pn-dial-gui.h \
 	pn-document-settings-dialog.h \
 	pn-expression.h \
 	pn-expression2.h \
