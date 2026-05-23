@@ -18,6 +18,52 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 4 continues — Switch, Knob, Analog-Meter split (4 of 23 dual
+  nodes done, counting LED).** Each followed the LED pattern exactly: the
+  GTK-free logic half (GType, properties, `receive`/source-emit +
+  startup-announce, lifecycle, `get_size`, hit-tests) stays in
+  `libpipnode-core`; the cairo drawing + any settings-dialog override moves
+  to a new gui-tier `pn-<name>-gui.c` exporting `pn_<name>_gui_install()`,
+  which is added to `pn_gui_install_builtin_nodes()` in `pn-gui.c`.
+  - **Switch (4.2):** no colour property, so no pspec migration; the slider
+    painter (`pill_path`, `paint_switch`, `paint_header_overlay`) +
+    `paint_right_decoration_width` moved to gui, which reads the latch via
+    the existing public `pn_switch_get_on()`. The subclass vfuncs
+    (`apply_visual_state`, `build_outbound_message`) and the
+    startup-announce one-shot stay core.
+  - **Knob (4.3):** no colour property; the dial painter (`paint_knob`,
+    `paint_header_overlay`), the pointer sweep angles +
+    `paint_right_decoration_width` moved to gui. One GTK-free read seam
+    `pn_knob_get_value_fraction()` (wrapping the pure `value_fraction`
+    helper) lets the painter read the derived pointer position. Wheel-emit
+    + startup-announce stay core.
+  - **Analog-Meter (4.4):** the biggest split. Five colour properties
+    migrated `GDK_TYPE_RGBA` → `PN_TYPE_COLOR` (instance fields, the shared
+    `set_color_prop` helper's `gdk_rgba_equal`→`pn_color_equal`, the five
+    pspecs, the init defaults, the body-colour cast dropped). The whole
+    panel-meter painter (case/face/ticks/needle/glyphs/pivot/labels, the
+    `paint_plot` vfunc + `paint_plot_skip_shadow`/`paint_plot_skip_zoom`
+    flags) AND the three-tab settings dialog (`build_class_tabs` +
+    `build_am_page`) moved to gui. Because the painter touches ~16 private
+    fields plus the derived `value_to_angle`, a single snapshot read seam
+    `pn_analog_meter_get_paint_state(self, PnAnalogMeterPaintState *out)`
+    (struct declared in the public header) replaces the per-field accessor
+    approach; the angle helpers (`clock_to_cairo`, `value_to_angle`) moved
+    to gui and now read the snapshot. The damped-spring animation + repaint
+    throttle stay core.
+  - **Verified per node:** whole tree builds clean (exit 0, no new
+    warnings), 52/52 C unit tests, the D-Bus dial functional test PASS, the
+    core `.so` `DT_NEEDED` stays GTK-free and each core `pn-<name>.o`
+    carries zero `cairo_`/`gtk_`/`gdk_rgba_` refs; `nm` shows the logic
+    symbols in `libpipnode-core.so` and `pn_<name>_gui_install` in
+    `libpipnode-gui.so`.
+  - **Carried debt still stands** (retires as the rest split): the
+    `-Wl,--no-as-needed` on `pipnode-run`, the by-name `GdkRGBA` clause in
+    `pn-flow.c`, and the `GDK_TYPE_RGBA` pspecs in the remaining ~19 dual
+    nodes. **Next:** the remaining cairo-drawing dual nodes (Graph, Dial,
+    Table, Chat, Text-View, Weather-Report) and the dialog-only ones, then
+    Phase 5 (point `pipnode-run` at core only).
+
 - **Phase 4 STARTED — first dual node split: LED (the pattern).** `pn-led.c`
   is now the GTK-free logic half (GType, properties, `receive`, hold-timer,
   `get_size`) and lives in `libpipnode-core`. Its colour property migrated

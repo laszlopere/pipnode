@@ -30,6 +30,8 @@ libpipnode_core_la_SOURCES = \
 	pn-plugin.h \
 	pn-ambient.c \
 	pn-ambient.h \
+	pn-analog-meter.c \
+	pn-analog-meter.h \
 	pn-auto-injector.c \
 	pn-auto-injector.h \
 	pn-auto-random.c \
@@ -148,8 +150,8 @@ libpipnode_core_la_LDFLAGS = -version-info 0:0:0
 libpipnode_gui_la_SOURCES = \
 	pipnode.h \
 	pn-node-dialog-helpers.h \
-	pn-analog-meter.c \
-	pn-analog-meter.h \
+	pn-analog-meter-gui.c \
+	pn-analog-meter-gui.h \
 	pn-chat.c \
 	pn-chat.h \
 	pn-dial.c \
@@ -252,6 +254,7 @@ pipnodeincludedir = $(includedir)/pipnode
 pipnode_core_headers = \
 	pn-plugin.h \
 	pn-ambient.h \
+	pn-analog-meter.h \
 	pn-auto-injector.h \
 	pn-auto-random.h \
 	pn-auto-trigger.h \
@@ -300,7 +303,7 @@ pipnode_core_headers = \
 
 pipnode_gui_headers = \
 	pipnode.h \
-	pn-analog-meter.h \
+	pn-analog-meter-gui.h \
 	pn-chat.h \
 	pn-dial.h \
 	pn-document-settings-dialog.h \
