@@ -40,6 +40,18 @@ G_DECLARE_FINAL_TYPE (PnOllama, pn_ollama, PN, OLLAMA, PnNode)
 
 PnOllama *pn_ollama_new (void);
 
+/* pn_ollama_list_models:
+ * @hostname: Ollama server host (empty/NULL -> local fallback)
+ * @port:     Ollama server port
+ *
+ * Synchronously enumerate the model names installed on @hostname:@port
+ * via GET /api/tags.  Returns a NULL-terminated string array the caller
+ * owns (free with g_strfreev), or an empty array when the host is
+ * unreachable / not running Ollama.  GTK-free (libsoup + json-glib), so
+ * the core keeps this network helper; the gui settings dialog calls it
+ * to populate the model combo.  */
+gchar **pn_ollama_list_models (const gchar *hostname, gint port);
+
 G_END_DECLS
 
 #endif /* PN_OLLAMA_H */

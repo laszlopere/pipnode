@@ -106,6 +106,8 @@ libpipnode_core_la_SOURCES = \
 	pn-node-store.h \
 	pn-notify.c \
 	pn-notify.h \
+	pn-ollama.c \
+	pn-ollama.h \
 	pn-query.c \
 	pn-query.h \
 	pn-rtc.c \
@@ -206,8 +208,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-node-dialog.h \
 	pn-notify-gui.c \
 	pn-notify-gui.h \
-	pn-ollama.c \
-	pn-ollama.h \
+	pn-ollama-gui.c \
+	pn-ollama-gui.h \
 	pn-palette.c \
 	pn-palette.h \
 	pn-preferences.c \
@@ -314,6 +316,7 @@ pipnode_core_headers = \
 	pn-node-factory.h \
 	pn-node-store.h \
 	pn-notify.h \
+	pn-ollama.h \
 	pn-query.h \
 	pn-rtc.h \
 	pn-staircase.h \
@@ -354,7 +357,7 @@ pipnode_gui_headers = \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \
 	pn-notify-gui.h \
-	pn-ollama.h \
+	pn-ollama-gui.h \
 	pn-palette.h \
 	pn-preferences.h \
 	pn-preferences-dialog.h \
