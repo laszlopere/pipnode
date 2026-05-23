@@ -92,6 +92,8 @@ libpipnode_core_la_SOURCES = \
 	pn-load.h \
 	pn-memory.c \
 	pn-memory.h \
+	pn-meshtastic.c \
+	pn-meshtastic.h \
 	pn-message.c \
 	pn-message.h \
 	pn-net-io.c \
@@ -196,8 +198,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-knob-gui.h \
 	pn-led-gui.c \
 	pn-led-gui.h \
-	pn-meshtastic.c \
-	pn-meshtastic.h \
+	pn-meshtastic-gui.c \
+	pn-meshtastic-gui.h \
 	pn-node-dialog.c \
 	pn-node-dialog.h \
 	pn-notify.c \
@@ -303,6 +305,7 @@ pipnode_core_headers = \
 	pn-led.h \
 	pn-load.h \
 	pn-memory.h \
+	pn-meshtastic.h \
 	pn-message.h \
 	pn-net-io.h \
 	pn-node.h \
@@ -344,7 +347,7 @@ pipnode_gui_headers = \
 	pn-help-browser.h \
 	pn-knob-gui.h \
 	pn-led-gui.h \
-	pn-meshtastic.h \
+	pn-meshtastic-gui.h \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \
 	pn-notify.h \

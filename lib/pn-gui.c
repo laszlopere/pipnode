@@ -28,6 +28,7 @@
 #include "pn-graph-gui.h"
 #include "pn-knob-gui.h"
 #include "pn-led-gui.h"
+#include "pn-meshtastic-gui.h"
 #include "pn-switch-gui.h"
 #include "pn-table-gui.h"
 #include "pn-text-view-gui.h"
@@ -48,6 +49,7 @@ pn_gui_install_builtin_nodes (void)
     pn_graph_gui_install ();
     pn_knob_gui_install ();
     pn_led_gui_install ();
+    pn_meshtastic_gui_install ();
     pn_switch_gui_install ();
     pn_table_gui_install ();
     pn_text_view_gui_install ();
