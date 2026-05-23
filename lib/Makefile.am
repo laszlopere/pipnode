@@ -239,6 +239,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-rewrite-gui.h \
 	pn-set-gui.c \
 	pn-set-gui.h \
+	pn-settings-renderer.c \
+	pn-settings-renderer.h \
 	pn-sound-gui.c \
 	pn-sound-gui.h \
 	pn-switch-gui.c \
@@ -390,6 +392,7 @@ pipnode_gui_headers = \
 	pn-rate-gui.h \
 	pn-rewrite-gui.h \
 	pn-set-gui.h \
+	pn-settings-renderer.h \
 	pn-sound-gui.h \
 	pn-switch-gui.h \
 	pn-table-gui.h \

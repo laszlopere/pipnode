@@ -924,7 +924,25 @@ list-of-records) falls through to the Phase 6 companion / imperative
 - **7.1** core `pn-settings-schema.[ch]` + builder + qdata storage; unit
   test `tests/unit/test-pn-settings-schema.c`; verify `libpipnode-core.so`
   DT_NEEDED still GTK-free.
-- **7.2** gui `pn-settings-renderer.[ch]` (renderer + schema-aware editor).
+- **7.2 DONE** gui `pn-settings-renderer.[ch]` (renderer + schema-aware
+  editor).  `pn_settings_schema_render_class()` emits one notebook page per
+  named tab (honouring `FULL_WIDTH` span vs. labelled row; skips
+  unresolved / construct-only props like the auto tab);
+  `pn_settings_render_editor()` builds a single row's editor and falls
+  back to `pn_node_dialog_default_editor()` for `PN_EDITOR_AUTO` or a
+  property the schema does not mention.  Hand-built kinds: ENTRY / CHECK /
+  MULTILINE / COMBO(string choices via `active-id`) / FILE / LABEL;
+  SPIN / COLOR / AUTO delegate to the host default (right widget +
+  `PnColor↔GdkRGBA` transforms in one place).  CODE renders as plain
+  multiline for now → GtkSourceView in 7.5.  Conditional sensitivity wired
+  via `g_signal_connect_object(target,"notify::<when>",…,editor,0)`
+  (auto-disconnects with the editor); condition string parsed vs. the
+  controller pspec (enum nick/name, bool true/1/yes/on, number, string;
+  NULL value == truthy), ANDed with the builder's base sensitivity.
+  Editors carry the same `pn-prop-<name>` widget name as the default.
+  Purely additive — nothing calls it until 7.3, so every dialog stays
+  byte-identical.  Verified: clean build (no warnings), core `.so` +
+  `pipnode-run` still GTK-free, net 53 unit + 11 functional green.
 - **7.3** wire renderer into `pn-node-dialog.c` (no-op until a schema
   exists — net unchanged).
 - **7.4** port tab-grouping: **Dial (4), Analog-Meter (3), Graph (2)** —

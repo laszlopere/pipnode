@@ -145,9 +145,11 @@ qdata so no PnNodeClass-ABI / plugin-ABI change) + a schema->GtkWidget renderer
 in the gui tier (lib/pn-settings-renderer.[ch]); escape-hatch build_* vfuncs
 still win. v1 = tab grouping + editor-kind/choices + conditional sensitivity
 (+ a CODE editor kind for GtkSourceView); list-of-records (Filter/Set) deferred
-to 7.6. Sub-phases 7.1 schema core, 7.2 renderer, 7.3 dialog wiring (no-op),
-7.4 port Dial/Analog-Meter/Graph tab grouping, 7.5 port Expression(2)/Led/
-Rewrite. See HEADLESS-SPLIT-PLAN.md Phase 7 for the full breakdown.
+to 7.6. Sub-phases: 7.1 schema core DONE, 7.2 renderer DONE (gui-tier
+lib/pn-settings-renderer.[ch], additive/no-op until wired), 7.3 dialog wiring
+(no-op) NEXT, 7.4 port Dial/Analog-Meter/Graph tab grouping, 7.5 port
+Expression(2)/Led/Rewrite. See HEADLESS-SPLIT-PLAN.md Phase 7 for the full
+breakdown.
 
 (24) DONE (follow-up complete): the pure parsers/aggregators of the IO
 nodes are now exported non-static and unit-tested on canned fixtures --
