@@ -18,12 +18,11 @@
 #endif
 
 #include "pn-chat.h"
-#include <gtk/gtk.h>
 #include "pn-json-path.h"
 #include "pn-message.h"
 
 #include <math.h>
-#include <pango/pangocairo.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -75,15 +74,12 @@
 
 /* ------------------------------------------------------------------ */
 /*  Per-bubble state                                                   */
+/*                                                                     */
+/*  PnChatBubble is published in pn-chat.h: it is plain data (no GTK)   */
+/*  and the gui-tier painter has to read the same bubbles receive() and */
+/*  pn_chat_submit() push, so the struct crosses the tier boundary      */
+/*  through the public header.                                          */
 /* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    gchar   *sender;       /* nullable; rendered above bubble when set */
-    gchar   *text;          /* never NULL once installed */
-    gboolean mine;          /* TRUE when source == this chat node */
-    gint64   received_us;   /* arrival timestamp, kept for future use */
-} PnChatBubble;
 
 static void
 pn_chat_bubble_free (gpointer ptr)
@@ -105,12 +101,12 @@ struct _PnChat
     gchar   *sender_path;
     gchar   *me_name;
     guint    limit;
-    GdkRGBA  background_color;
-    GdkRGBA  border_color;
-    GdkRGBA  text_color;
-    GdkRGBA  me_color;
-    GdkRGBA  input_background_color;
-    GdkRGBA  send_button_color;
+    PnColor  background_color;
+    PnColor  border_color;
+    PnColor  text_color;
+    PnColor  me_color;
+    PnColor  input_background_color;
+    PnColor  send_button_color;
 
     /* Bubble buffer.  Newest at tail (chat-style: scroll bottom). */
     GQueue *bubbles;
@@ -320,64 +316,6 @@ resolve_string (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sender → colour                                                    */
-/* ------------------------------------------------------------------ */
-
-/** Hash @s into a stable HSV hue (0..1) so two messages from the same
- *  sender always paint with the same bubble colour without our having
- *  to remember a per-sender palette.  Empty / NULL falls back to a
- *  neutral grey hue. */
-static double
-sender_hue (const gchar *s)
-{
-    /* djb2 hash, classic and good enough — we only need a stable
-     * spread, not cryptographic uniformity. */
-    guint32 h = 5381u;
-    if (s == NULL)
-        return 0.0;
-    while (*s != '\0')
-    {
-        h = ((h << 5) + h) + (guint8) *s;
-        s++;
-    }
-    return (double) (h % 360u) / 360.0;
-}
-
-/** Convert HSV (h, s, v all in [0, 1]) to RGB.  Output written into
- *  @out_rgba's r/g/b; alpha left untouched.  Standard formula — kept
- *  inline so the bubble painter doesn't pull in a colour-conversion
- *  dependency. */
-static void
-hsv_to_rgb (
-        double  h,
-        double  s,
-        double  v,
-        GdkRGBA *out)
-{
-    double r, g, b;
-    double i = floor (h * 6.0);
-    double f = h * 6.0 - i;
-    double p = v * (1.0 - s);
-    double q = v * (1.0 - f * s);
-    double t = v * (1.0 - (1.0 - f) * s);
-    int    ii = ((int) i) % 6;
-
-    switch (ii)
-    {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    default: r = v; g = p; b = q; break;
-    }
-
-    out->red   = r;
-    out->green = g;
-    out->blue  = b;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Caret blink timer                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -447,430 +385,6 @@ pn_chat_receive (
 
     g_free (text);
     g_free (sender);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Painting                                                           */
-/* ------------------------------------------------------------------ */
-
-static void
-rounded_rect (
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h,
-        double   r)
-{
-    if (r > w * 0.5) r = w * 0.5;
-    if (r > h * 0.5) r = h * 0.5;
-
-    cairo_new_sub_path (cr);
-    cairo_arc (cr, x + w - r, y + r,     r, -G_PI_2, 0);
-    cairo_arc (cr, x + w - r, y + h - r, r, 0,        G_PI_2);
-    cairo_arc (cr, x + r,     y + h - r, r,  G_PI_2,  G_PI);
-    cairo_arc (cr, x + r,     y + r,     r,  G_PI,    1.5 * G_PI);
-    cairo_close_path (cr);
-}
-
-/** Build a Pango layout for @text constrained to @max_w pixels with
- *  word wrap.  Returns the layout (caller unrefs).  @out_w / @out_h
- *  receive the measured pixel size. */
-static PangoLayout *
-make_text_layout (
-        cairo_t     *cr,
-        const gchar *text,
-        double       max_w,
-        double       font_px,
-        gboolean     bold,
-        int         *out_w,
-        int         *out_h)
-{
-    PangoLayout          *layout = pango_cairo_create_layout (cr);
-    PangoFontDescription *desc;
-    gchar                *desc_str;
-
-    desc_str = g_strdup_printf ("Sans%s %.0f",
-                                bold ? " Bold" : "",
-                                font_px);
-    desc = pango_font_description_from_string (desc_str);
-    g_free (desc_str);
-
-    pango_layout_set_font_description (layout, desc);
-    pango_font_description_free (desc);
-
-    pango_layout_set_text  (layout, text, -1);
-    pango_layout_set_width (layout, (int) (max_w * PANGO_SCALE));
-    pango_layout_set_wrap  (layout, PANGO_WRAP_WORD_CHAR);
-    pango_layout_get_pixel_size (layout, out_w, out_h);
-
-    return layout;
-}
-
-/** Single-line variant of make_text_layout — no wrap, no width
- *  constraint.  Used for the entry-strip draft so the caret-position
- *  measurement is reliable regardless of how long the user has
- *  typed. */
-static PangoLayout *
-make_single_line_layout (
-        cairo_t     *cr,
-        const gchar *text,
-        double       font_px,
-        gboolean     bold,
-        int         *out_w,
-        int         *out_h)
-{
-    PangoLayout          *layout = pango_cairo_create_layout (cr);
-    PangoFontDescription *desc;
-    gchar                *desc_str;
-
-    desc_str = g_strdup_printf ("Sans%s %.0f",
-                                bold ? " Bold" : "",
-                                font_px);
-    desc = pango_font_description_from_string (desc_str);
-    g_free (desc_str);
-
-    pango_layout_set_font_description (layout, desc);
-    pango_font_description_free (desc);
-
-    pango_layout_set_text (layout, text, -1);
-    pango_layout_get_pixel_size (layout, out_w, out_h);
-
-    return layout;
-}
-
-static void
-pn_chat_paint_plot (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnChat      *self        = PN_CHAT (node);
-    const double inset       = PN_CHAT_INSET;
-    const double inner_x     = x + inset;
-    const double inner_w     = w - 2 * inset;
-    const double input_h     = PN_CHAT_INPUT_HEIGHT;
-    const double bubbles_y0  = y + inset;
-    const double bubbles_y1  = y + h - input_h - inset;
-    const double bubbles_h   = bubbles_y1 - bubbles_y0;
-    const double bubble_max  = inner_w * PN_CHAT_BUBBLE_MAX_FRAC;
-    const guint  count       = g_queue_get_length (self->bubbles);
-    GList       *iter;
-    int          skip;
-    double       cursor_y;
-
-    /* Background + frame. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->background_color);
-    cairo_fill_preserve (cr);
-    gdk_cairo_set_source_rgba (cr, &self->border_color);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-    cairo_restore (cr);
-
-    /* Clip to the body so a stray-long bubble can't bleed onto the
-     * neighbouring node. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    cairo_clip (cr);
-
-    /* Bubbles: walk newest-first (tail) up to the top of the bubbles
-     * area, painting each bubble with its newest at the bottom.  The
-     * scroll offset skips that many bubbles from the tail. */
-    cursor_y = bubbles_y1;
-    skip     = self->scroll_offset;
-    if (skip < 0) skip = 0;
-    if (skip >= (int) count) skip = (int) count - 1;
-    if (skip < 0) skip = 0;
-
-    iter = g_queue_peek_tail_link (self->bubbles);
-    while (iter != NULL && skip > 0)
-    {
-        iter = iter->prev;
-        skip--;
-    }
-
-    while (iter != NULL && cursor_y > bubbles_y0)
-    {
-        PnChatBubble *b = iter->data;
-        PangoLayout  *text_layout;
-        PangoLayout  *sender_layout = NULL;
-        int           tw, th;
-        int           sw = 0, sh = 0;
-        double        bw, bh;
-        double        bx, by;
-        GdkRGBA       fill;
-
-        text_layout = make_text_layout (cr, b->text,
-                                        bubble_max - 2 * PN_CHAT_BUBBLE_PAD_X,
-                                        PN_CHAT_FONT_PX,
-                                        FALSE,
-                                        &tw, &th);
-
-        if (b->sender != NULL && !b->mine)
-            sender_layout = make_text_layout (
-                    cr, b->sender,
-                    bubble_max,
-                    PN_CHAT_SENDER_FONT_PX,
-                    TRUE,
-                    &sw, &sh);
-
-        bw = (double) tw + 2 * PN_CHAT_BUBBLE_PAD_X;
-        bh = (double) th + 2 * PN_CHAT_BUBBLE_PAD_Y;
-        if (bw > bubble_max) bw = bubble_max;
-
-        /* Bubble sits with its bottom at cursor_y; sender label
-         * (if any) sits 1 px above the bubble. */
-        by = cursor_y - bh;
-        bx = b->mine
-                 ? (inner_x + inner_w - bw)
-                 : (inner_x);
-
-        /* Sender label, only for non-"mine" bubbles. */
-        if (sender_layout != NULL)
-        {
-            cairo_save (cr);
-            cairo_set_source_rgba (cr,
-                                   self->text_color.red,
-                                   self->text_color.green,
-                                   self->text_color.blue,
-                                   self->text_color.alpha * 0.55);
-            cairo_move_to (cr, bx + 2.0, by - sh - 1.0);
-            pango_cairo_show_layout (cr, sender_layout);
-            cairo_restore (cr);
-            g_object_unref (sender_layout);
-        }
-
-        /* Bubble fill colour: hash sender → pastel hue for received
-         * bubbles, the configured #me-color for sent bubbles. */
-        if (b->mine)
-        {
-            fill = self->me_color;
-        }
-        else
-        {
-            fill.alpha = 1.0;
-            hsv_to_rgb (sender_hue (b->sender), 0.35, 0.96, &fill);
-        }
-
-        rounded_rect (cr, bx, by, bw, bh, PN_CHAT_BUBBLE_RADIUS);
-        gdk_cairo_set_source_rgba (cr, &fill);
-        cairo_fill_preserve (cr);
-        cairo_set_line_width (cr, 0.75);
-        cairo_set_source_rgba (cr,
-                               self->border_color.red,
-                               self->border_color.green,
-                               self->border_color.blue,
-                               self->border_color.alpha * 0.6);
-        cairo_stroke (cr);
-
-        /* Bubble text. */
-        cairo_save (cr);
-        gdk_cairo_set_source_rgba (cr, &self->text_color);
-        cairo_move_to (cr,
-                       bx + PN_CHAT_BUBBLE_PAD_X,
-                       by + PN_CHAT_BUBBLE_PAD_Y);
-        pango_cairo_show_layout (cr, text_layout);
-        cairo_restore (cr);
-
-        g_object_unref (text_layout);
-
-        /* Move the cursor up past this bubble (and its sender label
-         * if present) for the next iteration. */
-        cursor_y = by - PN_CHAT_BUBBLE_GAP;
-        if (sender_layout != NULL)
-            cursor_y -= sh + 1.0;
-
-        iter = iter->prev;
-    }
-
-    /* Hint when there are no bubbles yet. */
-    if (count == 0)
-    {
-        PangoLayout *l;
-        int          lw, lh;
-
-        l = make_text_layout (cr, "No messages yet.",
-                              inner_w, PN_CHAT_FONT_PX, FALSE, &lw, &lh);
-        cairo_save (cr);
-        cairo_set_source_rgba (cr,
-                               self->text_color.red,
-                               self->text_color.green,
-                               self->text_color.blue,
-                               self->text_color.alpha * 0.45);
-        cairo_move_to (cr,
-                       inner_x + (inner_w - lw) / 2.0,
-                       bubbles_y0 + (bubbles_h - lh) / 2.0);
-        pango_cairo_show_layout (cr, l);
-        cairo_restore (cr);
-        g_object_unref (l);
-    }
-
-    /* Entry strip across the bottom edge of the body. */
-    {
-        const double ix    = x + inset;
-        const double iy    = y + h - input_h - inset / 2.0;
-        const double iw    = w - 2 * inset;
-        const double ih    = input_h;
-        const double sb_w  = PN_CHAT_SEND_BUTTON_W;
-        const double sb_x  = ix + iw - sb_w;
-        const double txt_pad = 6.0;
-        const double txt_x   = ix + txt_pad;
-        const double txt_w   = sb_x - ix - 2 * txt_pad;
-        PangoLayout *send_label;
-        int          ssw, ssh;
-
-        /* Entry rectangle.  When the chat is focused the rectangle
-         * gets a subtle accent border so the user can see at a
-         * glance which chat is taking keystrokes. */
-        rounded_rect (cr, ix, iy, iw, ih, 4.0);
-        gdk_cairo_set_source_rgba (cr, &self->input_background_color);
-        cairo_fill_preserve (cr);
-        if (self->focused)
-        {
-            cairo_set_line_width (cr, 1.5);
-            gdk_cairo_set_source_rgba (cr, &self->send_button_color);
-        }
-        else
-        {
-            cairo_set_line_width (cr, 1.0);
-            gdk_cairo_set_source_rgba (cr, &self->border_color);
-        }
-        cairo_stroke (cr);
-
-        /* Send button rectangle, painted as the right end of the
-         * entry strip so the whole row reads as a single chat input
-         * with an inline button. */
-        rounded_rect (cr, sb_x, iy, sb_w, ih, 4.0);
-        gdk_cairo_set_source_rgba (cr, &self->send_button_color);
-        cairo_fill (cr);
-
-        /* Vertical separator between entry and send button. */
-        gdk_cairo_set_source_rgba (cr, &self->border_color);
-        cairo_set_line_width (cr, 1.0);
-        cairo_move_to (cr, sb_x + 0.5, iy + 3.0);
-        cairo_line_to (cr, sb_x + 0.5, iy + ih - 3.0);
-        cairo_stroke (cr);
-
-        /* Clip text rendering to the entry rectangle so a long
-         * draft cannot spill onto the Send button. */
-        cairo_save (cr);
-        cairo_rectangle (cr, ix, iy, sb_x - ix, ih);
-        cairo_clip (cr);
-
-        if (self->draft != NULL && self->draft->len > 0)
-        {
-            PangoLayout *layout;
-            int          tw, th;
-            int          caret_x_pango;
-            PangoRectangle strong;
-            double       caret_x;
-            double       baseline_y;
-
-            layout = make_single_line_layout (cr, self->draft->str,
-                                              PN_CHAT_FONT_PX, FALSE,
-                                              &tw, &th);
-
-            /* Caret pixel position from the byte offset.  Pango's
-             * cursor_pos returns 1024ths of a pixel (PANGO_SCALE).
-             * Use the strong cursor position so RTL doesn't surprise
-             * the caret. */
-            pango_layout_get_cursor_pos (layout,
-                                         (int) self->caret_byte,
-                                         &strong, NULL);
-            caret_x_pango = strong.x;
-
-            /* Pin the caret inside the visible rectangle: nudge
-             * draft_scroll_px until the caret is in [4, txt_w-4]. */
-            caret_x = (double) caret_x_pango / PANGO_SCALE
-                    - self->draft_scroll_px;
-            if (caret_x < 4.0)
-                self->draft_scroll_px += caret_x - 4.0;
-            else if (caret_x > txt_w - 4.0)
-                self->draft_scroll_px += caret_x - (txt_w - 4.0);
-            if (self->draft_scroll_px < 0.0)
-                self->draft_scroll_px = 0.0;
-            caret_x = (double) caret_x_pango / PANGO_SCALE
-                    - self->draft_scroll_px;
-
-            baseline_y = iy + (ih - th) / 2.0;
-
-            cairo_save (cr);
-            gdk_cairo_set_source_rgba (cr, &self->text_color);
-            cairo_move_to (cr,
-                           txt_x - self->draft_scroll_px,
-                           baseline_y);
-            pango_cairo_show_layout (cr, layout);
-            cairo_restore (cr);
-
-            if (self->focused && self->caret_visible)
-            {
-                cairo_save (cr);
-                gdk_cairo_set_source_rgba (cr, &self->text_color);
-                cairo_set_line_width (cr, 1.0);
-                cairo_move_to (cr, txt_x + caret_x + 0.5, iy + 4.0);
-                cairo_line_to (cr, txt_x + caret_x + 0.5, iy + ih - 4.0);
-                cairo_stroke (cr);
-                cairo_restore (cr);
-            }
-
-            g_object_unref (layout);
-        }
-        else
-        {
-            /* No draft.  Paint either the placeholder hint or — when
-             * focused with an empty draft — just the caret at the
-             * left edge so the user sees the input is live. */
-            if (!self->focused)
-            {
-                PangoLayout *placeholder;
-                int          pw, ph;
-                placeholder = make_single_line_layout (
-                        cr, "Type a message…",
-                        PN_CHAT_FONT_PX, FALSE, &pw, &ph);
-                cairo_save (cr);
-                cairo_set_source_rgba (cr,
-                                       self->text_color.red,
-                                       self->text_color.green,
-                                       self->text_color.blue,
-                                       self->text_color.alpha * 0.45);
-                cairo_move_to (cr, txt_x, iy + (ih - ph) / 2.0);
-                pango_cairo_show_layout (cr, placeholder);
-                cairo_restore (cr);
-                g_object_unref (placeholder);
-            }
-            else if (self->caret_visible)
-            {
-                cairo_save (cr);
-                gdk_cairo_set_source_rgba (cr, &self->text_color);
-                cairo_set_line_width (cr, 1.0);
-                cairo_move_to (cr, txt_x + 0.5, iy + 4.0);
-                cairo_line_to (cr, txt_x + 0.5, iy + ih - 4.0);
-                cairo_stroke (cr);
-                cairo_restore (cr);
-            }
-        }
-
-        cairo_restore (cr);
-
-        /* "Send" label centred in the button. */
-        send_label = make_single_line_layout (
-                cr, "Send", PN_CHAT_FONT_PX, TRUE, &ssw, &ssh);
-        cairo_save (cr);
-        cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.95);
-        cairo_move_to (cr,
-                       sb_x + (sb_w - ssw) / 2.0,
-                       iy + (ih - ssh) / 2.0);
-        pango_cairo_show_layout (cr, send_label);
-        cairo_restore (cr);
-        g_object_unref (send_label);
-    }
-
-    cairo_restore (cr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1089,132 +603,155 @@ utf8_next (const gchar *str, gsize byte_off, gsize len)
     return byte_off;
 }
 
-gboolean
-pn_chat_handle_key_press (
-        PnChat      *self,
-        GdkEventKey *event)
+/* The GdkEventKey translator (pn_chat_handle_key_press) lives in the gui
+ * tier — it reads GDK keyvals — and dispatches into the GTK-free
+ * draft-editing primitives below.  Each primitive mutates the draft /
+ * caret, shows the caret and queues a repaint exactly as the old inline
+ * handler did. */
+
+void
+pn_chat_draft_insert (PnChat *self, const gchar *text, gssize len)
 {
-    g_return_val_if_fail (PN_IS_CHAT (self), FALSE);
-    g_return_val_if_fail (event != NULL, FALSE);
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (text == NULL || len == 0)
+        return;
 
-    if (!self->focused)
-        return FALSE;
+    if (self->draft == NULL)
+        self->draft = g_string_new (NULL);
 
-    /* Ignore Ctrl-/ Alt-modified keystrokes so global accelerators
-     * (Ctrl+C copy etc.) still reach the worksheet.  Shift is fine
-     * — it is part of normal text input. */
-    if ((event->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK)) != 0)
-        return FALSE;
+    g_string_insert_len (self->draft, (gssize) self->caret_byte, text, len);
+    self->caret_byte   += (gsize) (len < 0 ? (gssize) strlen (text) : len);
+    self->caret_visible = TRUE;
+    pn_node_request_repaint (PN_NODE (self));
+}
 
-    switch (event->keyval)
+void
+pn_chat_draft_backspace (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (self->draft != NULL && self->caret_byte > 0)
     {
-    case GDK_KEY_Return:
-    case GDK_KEY_KP_Enter:
-        pn_chat_submit (self);
-        return TRUE;
-
-    case GDK_KEY_Escape:
-        pn_chat_set_focused (self, FALSE);
-        return TRUE;
-
-    case GDK_KEY_BackSpace:
-        if (self->draft != NULL && self->caret_byte > 0)
-        {
-            gsize prev = utf8_prev (self->draft->str, self->caret_byte);
-            g_string_erase (self->draft,
-                            (gssize) prev,
-                            (gssize) (self->caret_byte - prev));
-            self->caret_byte = prev;
-            self->caret_visible = TRUE;
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        return TRUE;
-
-    case GDK_KEY_Delete:
-    case GDK_KEY_KP_Delete:
-        if (self->draft != NULL &&
-            self->caret_byte < self->draft->len)
-        {
-            gsize next = utf8_next (self->draft->str,
-                                    self->caret_byte,
-                                    self->draft->len);
-            g_string_erase (self->draft,
-                            (gssize) self->caret_byte,
-                            (gssize) (next - self->caret_byte));
-            self->caret_visible = TRUE;
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        return TRUE;
-
-    case GDK_KEY_Left:
-    case GDK_KEY_KP_Left:
-        if (self->draft != NULL && self->caret_byte > 0)
-        {
-            self->caret_byte = utf8_prev (self->draft->str,
-                                          self->caret_byte);
-            self->caret_visible = TRUE;
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        return TRUE;
-
-    case GDK_KEY_Right:
-    case GDK_KEY_KP_Right:
-        if (self->draft != NULL &&
-            self->caret_byte < self->draft->len)
-        {
-            self->caret_byte = utf8_next (self->draft->str,
-                                          self->caret_byte,
-                                          self->draft->len);
-            self->caret_visible = TRUE;
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        return TRUE;
-
-    case GDK_KEY_Home:
-    case GDK_KEY_KP_Home:
-        self->caret_byte = 0;
+        gsize prev = utf8_prev (self->draft->str, self->caret_byte);
+        g_string_erase (self->draft,
+                        (gssize) prev,
+                        (gssize) (self->caret_byte - prev));
+        self->caret_byte    = prev;
         self->caret_visible = TRUE;
         pn_node_request_repaint (PN_NODE (self));
-        return TRUE;
+    }
+}
 
-    case GDK_KEY_End:
-    case GDK_KEY_KP_End:
-        if (self->draft != NULL)
-            self->caret_byte = self->draft->len;
+void
+pn_chat_draft_delete (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (self->draft != NULL && self->caret_byte < self->draft->len)
+    {
+        gsize next = utf8_next (self->draft->str,
+                                self->caret_byte,
+                                self->draft->len);
+        g_string_erase (self->draft,
+                        (gssize) self->caret_byte,
+                        (gssize) (next - self->caret_byte));
         self->caret_visible = TRUE;
         pn_node_request_repaint (PN_NODE (self));
-        return TRUE;
-
-    default:
-        break;
     }
+}
 
-    /* Printable keystroke: convert keyval to its UTF-8 form and
-     * insert at the caret.  gdk_keyval_to_unicode returns 0 for
-     * non-printable keys we should not consume. */
+void
+pn_chat_caret_left (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (self->draft != NULL && self->caret_byte > 0)
     {
-        guint32 uc = gdk_keyval_to_unicode (event->keyval);
-        if (uc == 0 || g_unichar_iscntrl (uc))
-            return FALSE;
-
-        {
-            gchar  buf[8];
-            gint   n = g_unichar_to_utf8 (uc, buf);
-            if (n <= 0)
-                return FALSE;
-
-            if (self->draft == NULL)
-                self->draft = g_string_new (NULL);
-
-            g_string_insert_len (self->draft,
-                                 (gssize) self->caret_byte,
-                                 buf, n);
-            self->caret_byte += (gsize) n;
-            self->caret_visible = TRUE;
-            pn_node_request_repaint (PN_NODE (self));
-        }
+        self->caret_byte    = utf8_prev (self->draft->str, self->caret_byte);
+        self->caret_visible = TRUE;
+        pn_node_request_repaint (PN_NODE (self));
     }
-    return TRUE;
+}
+
+void
+pn_chat_caret_right (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (self->draft != NULL && self->caret_byte < self->draft->len)
+    {
+        self->caret_byte    = utf8_next (self->draft->str,
+                                         self->caret_byte,
+                                         self->draft->len);
+        self->caret_visible = TRUE;
+        pn_node_request_repaint (PN_NODE (self));
+    }
+}
+
+void
+pn_chat_caret_home (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    self->caret_byte    = 0;
+    self->caret_visible = TRUE;
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+void
+pn_chat_caret_end (PnChat *self)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    if (self->draft != NULL)
+        self->caret_byte = self->draft->len;
+    self->caret_visible = TRUE;
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The gui-tier cairo/Pango painter (pn-chat-gui.c) reads the scalar   */
+/*  drawing config through a snapshot and the bubble buffer + draft      */
+/*  through borrowed-pointer accessors.  The painter's only write-back   */
+/*  is the horizontal draft scroll, since only it knows the live entry   */
+/*  width + caret pixel position.                                        */
+/* ------------------------------------------------------------------ */
+
+void
+pn_chat_get_paint_state (PnChat *self, PnChatPaintState *out)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    g_return_if_fail (out != NULL);
+
+    out->background_color       = self->background_color;
+    out->border_color           = self->border_color;
+    out->text_color             = self->text_color;
+    out->me_color               = self->me_color;
+    out->input_background_color  = self->input_background_color;
+    out->send_button_color      = self->send_button_color;
+
+    out->focused          = self->focused;
+    out->caret_visible    = self->caret_visible;
+    out->scroll_offset    = self->scroll_offset;
+    out->caret_byte       = self->caret_byte;
+    out->draft_scroll_px  = self->draft_scroll_px;
+}
+
+GQueue *
+pn_chat_peek_bubbles (PnChat *self)
+{
+    g_return_val_if_fail (PN_IS_CHAT (self), NULL);
+    return self->bubbles;
+}
+
+const gchar *
+pn_chat_peek_draft (PnChat *self)
+{
+    g_return_val_if_fail (PN_IS_CHAT (self), "");
+    return (self->draft != NULL) ? self->draft->str : "";
+}
+
+void
+pn_chat_set_draft_scroll_px (PnChat *self, gdouble px)
+{
+    g_return_if_fail (PN_IS_CHAT (self));
+    self->draft_scroll_px = px;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1302,42 +839,42 @@ pn_chat_set_property (
     }
     case PROP_BACKGROUND_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->background_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_BORDER_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->border_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_TEXT_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->text_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_ME_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->me_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_INPUT_BACKGROUND_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->input_background_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_SEND_BUTTON_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->send_button_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
@@ -1389,8 +926,11 @@ pn_chat_class_init (PnChatClass *klass)
     node_class->receive           = pn_chat_receive;
     node_class->get_size          = pn_chat_get_size;
     node_class->get_header_height = pn_chat_get_header_height;
-    node_class->paint_plot        = pn_chat_paint_plot;
     node_class->scroll            = pn_chat_scroll;
+    /* The cairo/Pango chat painter (paint_plot) is installed onto this
+     * class by the gui tier — pn_chat_gui_install() in pn-chat-gui.c —
+     * so the headless core carries no GTK/cairo/pango.  The scroll vfunc
+     * stays here: it only nudges an int. */
 
     node_class->class_name        = "Chat";
     node_class->icon              = "\xef\x82\x86";  /* fa-comments U+F086 */
@@ -1441,42 +981,42 @@ pn_chat_class_init (PnChatClass *klass)
             "background-color", "Background colour",
             "Fill colour of the chat body rectangle behind the "
             "bubbles and entry strip",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_BORDER_COLOR] = g_param_spec_boxed (
             "border-color", "Border colour",
             "Colour of the body frame, the bubble outlines, and the "
             "separator between the entry and the Send button",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_TEXT_COLOR] = g_param_spec_boxed (
             "text-color", "Text colour",
             "Colour of the bubble text and (at lower alpha) the "
             "sender label",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_ME_COLOR] = g_param_spec_boxed (
             "me-color", "My-bubble colour",
             "Fill colour of the right-aligned bubbles representing "
             "messages the user sent from this node",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_INPUT_BACKGROUND_COLOR] = g_param_spec_boxed (
             "input-background-color", "Input background",
             "Fill colour of the entry strip rectangle along the "
             "bottom edge of the chat body",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_SEND_BUTTON_COLOR] = g_param_spec_boxed (
             "send-button-color", "Send button colour",
             "Fill colour of the inline Send button at the right end "
             "of the entry strip",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
@@ -1486,19 +1026,19 @@ static void
 pn_chat_init (PnChat *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  body_color = { 0.40, 0.55, 0.80, 1.0 };
+    PnColor  body_color = { 0.40, 0.55, 0.80, 1.0 };
 
     self->text_path   = g_strdup ("data/output");
     self->sender_path = g_strdup ("data/from_long_name");
     self->me_name     = g_strdup ("Me");
     self->limit       = 200;
 
-    self->background_color        = (GdkRGBA){ 0.97, 0.97, 0.99, 1.0 };
-    self->border_color            = (GdkRGBA){ 0.55, 0.55, 0.60, 1.0 };
-    self->text_color              = (GdkRGBA){ 0.10, 0.10, 0.10, 1.0 };
-    self->me_color                = (GdkRGBA){ 0.74, 0.86, 0.99, 1.0 };
-    self->input_background_color  = (GdkRGBA){ 1.00, 1.00, 1.00, 1.0 };
-    self->send_button_color       = (GdkRGBA){ 0.27, 0.55, 0.85, 1.0 };
+    self->background_color        = (PnColor){ 0.97, 0.97, 0.99, 1.0 };
+    self->border_color            = (PnColor){ 0.55, 0.55, 0.60, 1.0 };
+    self->text_color              = (PnColor){ 0.10, 0.10, 0.10, 1.0 };
+    self->me_color                = (PnColor){ 0.74, 0.86, 0.99, 1.0 };
+    self->input_background_color  = (PnColor){ 1.00, 1.00, 1.00, 1.0 };
+    self->send_button_color       = (PnColor){ 0.27, 0.55, 0.85, 1.0 };
 
     self->bubbles            = g_queue_new ();
     self->scroll_offset      = 0;
@@ -1514,7 +1054,7 @@ pn_chat_init (PnChat *self)
 
     pn_node_set_class_name (node, "Chat");
     pn_node_set_icon       (node, "\xef\x82\x86");  /* fa-comments U+F086 */
-    pn_node_set_color (node, (const PnColor *)&body_color);
+    pn_node_set_color (node, &body_color);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }

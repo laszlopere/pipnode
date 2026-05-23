@@ -190,6 +190,87 @@ void      pn_chat_submit (PnChat *self);
  * result through this accessor. */
 guint     pn_chat_get_bubble_count (PnChat *self);
 
+/* ------------------------------------------------------------------ */
+/*  GTK-free draft-editing primitives                                  */
+/*                                                                     */
+/*  pn_chat_handle_key_press() (the GdkEventKey translator) lives in    */
+/*  the gui tier because it must read GDK keyvals, but the actual draft */
+/*  mutation it performs is plain string editing with no GTK.  These    */
+/*  primitives keep that editing in the GTK-free core so the gui-tier   */
+/*  key handler is a thin keyval→primitive switch.  Each one queues a   */
+/*  repaint and shows the caret as appropriate.                         */
+/* ------------------------------------------------------------------ */
+
+/* Insert @len bytes of UTF-8 @text at the caret. */
+void pn_chat_draft_insert    (PnChat *self, const gchar *text, gssize len);
+/* Erase the character before / after the caret. */
+void pn_chat_draft_backspace (PnChat *self);
+void pn_chat_draft_delete    (PnChat *self);
+/* Move the caret one character / to the line ends. */
+void pn_chat_caret_left      (PnChat *self);
+void pn_chat_caret_right     (PnChat *self);
+void pn_chat_caret_home      (PnChat *self);
+void pn_chat_caret_end       (PnChat *self);
+
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The cairo/Pango chat painter lives in the gui-tier file            */
+/*  pn-chat-gui.c, but it has to read the same bubble buffer + colours  */
+/*  + entry-strip state that the core fills.  Those are plain data (no  */
+/*  GTK), so the bubble struct, a scalar snapshot, and borrowed-pointer */
+/*  accessors are published here.  The painter's only write-back is the */
+/*  horizontal draft scroll, set through pn_chat_set_draft_scroll_px(). */
+/* ------------------------------------------------------------------ */
+
+/* One buffered bubble: sender label (nullable), text, and whether it
+ * was sent from this node ("mine"). */
+typedef struct
+{
+    gchar   *sender;
+    gchar   *text;
+    gboolean mine;
+    gint64   received_us;
+} PnChatBubble;
+
+/* Scalar drawing configuration snapshotted by value for one paint.  The
+ * colours are #PnColor (layout-identical to GdkRGBA). */
+typedef struct
+{
+    PnColor  background_color;
+    PnColor  border_color;
+    PnColor  text_color;
+    PnColor  me_color;
+    PnColor  input_background_color;
+    PnColor  send_button_color;
+
+    gboolean focused;
+    gboolean caret_visible;
+    int      scroll_offset;
+    gsize    caret_byte;
+    gdouble  draft_scroll_px;
+} PnChatPaintState;
+
+/**
+ * pn_chat_get_paint_state:
+ * @self: chat instance
+ * @out:  (out): caller-provided snapshot filled with the current scalar
+ *        drawing configuration.
+ */
+void pn_chat_get_paint_state (PnChat *self, PnChatPaintState *out);
+
+/* The live bubble buffer (borrowed): a #GQueue of #PnChatBubble*, oldest
+ * at the head, newest at the tail. */
+GQueue *pn_chat_peek_bubbles (PnChat *self);
+
+/* The current draft string (borrowed, never %NULL — may be empty). */
+const gchar *pn_chat_peek_draft (PnChat *self);
+
+/* Horizontal scroll inside the entry rectangle.  The painter computes it
+ * (it knows the live entry width + caret pixel position) and writes it
+ * back so the value persists between paints. */
+void pn_chat_set_draft_scroll_px (PnChat *self, gdouble px);
+
 G_END_DECLS
 
 #endif /* PN_CHAT_H */

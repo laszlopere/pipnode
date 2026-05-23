@@ -38,6 +38,8 @@ libpipnode_core_la_SOURCES = \
 	pn-auto-random.h \
 	pn-auto-trigger.c \
 	pn-auto-trigger.h \
+	pn-chat.c \
+	pn-chat.h \
 	pn-color.c \
 	pn-color.h \
 	pn-comparator.c \
@@ -158,8 +160,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-node-dialog-helpers.h \
 	pn-analog-meter-gui.c \
 	pn-analog-meter-gui.h \
-	pn-chat.c \
-	pn-chat.h \
+	pn-chat-gui.c \
+	pn-chat-gui.h \
 	pn-dial-gui.c \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.c \
@@ -264,6 +266,7 @@ pipnode_core_headers = \
 	pn-auto-injector.h \
 	pn-auto-random.h \
 	pn-auto-trigger.h \
+	pn-chat.h \
 	pn-color.h \
 	pn-comparator.h \
 	pn-connections.h \
@@ -313,7 +316,7 @@ pipnode_core_headers = \
 pipnode_gui_headers = \
 	pipnode.h \
 	pn-analog-meter-gui.h \
-	pn-chat.h \
+	pn-chat-gui.h \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.h \
 	pn-expression.h \
