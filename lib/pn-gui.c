@@ -24,6 +24,7 @@
 #include "pn-dial-gui.h"
 #include "pn-expression-gui.h"
 #include "pn-expression2-gui.h"
+#include "pn-filter-gui.h"
 #include "pn-graph-gui.h"
 #include "pn-knob-gui.h"
 #include "pn-led-gui.h"
@@ -43,6 +44,7 @@ pn_gui_install_builtin_nodes (void)
     pn_dial_gui_install ();
     pn_expression_gui_install ();
     pn_expression2_gui_install ();
+    pn_filter_gui_install ();
     pn_graph_gui_install ();
     pn_knob_gui_install ();
     pn_led_gui_install ();
