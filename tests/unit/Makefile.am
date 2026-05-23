@@ -9,6 +9,7 @@
 
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/lib \
+	-I$(top_srcdir)/plugins/shell \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS)
 
@@ -63,7 +64,10 @@ check_PROGRAMS = \
 	test-pn-jmespath \
 	test-pn-subst \
 	test-pn-staircase \
-	test-pn-auto-trigger
+	test-pn-auto-trigger \
+	test-pn-free-command \
+	test-pn-df-command \
+	test-pn-lxc-ls-command
 
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
@@ -105,5 +109,20 @@ test_pn_jmespath_SOURCES      = test-pn-jmespath.c      pntest.c pntest.h
 test_pn_subst_SOURCES         = test-pn-subst.c         pntest.c pntest.h
 test_pn_staircase_SOURCES     = test-pn-staircase.c     pntest.c pntest.h
 test_pn_auto_trigger_SOURCES  = test-pn-auto-trigger.c  pntest.c pntest.h
+
+# The shell-plugin nodes live in their own loadable module (pipnode_shell.la),
+# not in libpipnode, so their table parsers reach the test binary by compiling
+# the node .c directly.  pn-shell-host.c comes along because the node's trigger
+# (linked whole, object-file granularity) references pn_shell_wrap_argv; the
+# parser under test itself only needs json-glib.
+test_pn_free_command_SOURCES = test-pn-free-command.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-free-command.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c
+test_pn_df_command_SOURCES = test-pn-df-command.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-df-command.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c
+test_pn_lxc_ls_command_SOURCES = test-pn-lxc-ls-command.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-lxc-ls-command.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c
 
 TESTS = $(check_PROGRAMS)

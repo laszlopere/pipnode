@@ -43,6 +43,7 @@ Makefile.in
 *.so.*
 .libs/
 .deps/
+.dirstamp
 *.log
 *.trs
 tests/__pycache__/
