@@ -21,7 +21,6 @@
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 #include "pn-message.h"
-#include "pn-node-dialog-helpers.h"
 
 #include <json-glib/json-glib.h>
 
@@ -153,36 +152,6 @@ pn_expression_receive (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog tab                                                */
-/* ------------------------------------------------------------------ */
-
-/** Replace the auto-generated property tab with a single full-width
- *  editor.  The node has one property and the tab is already titled
- *  "Expression", so the per-row "Expression" label the default tab
- *  would add is redundant — drop it and let the editor fill the tab. */
-static GtkWidget *
-pn_expression_build_class_tab (
-        PnNode    *node,
-        GtkWindow *dialog_parent)
-{
-    GtkWidget *grid   = pn_node_dialog_new_property_grid ();
-    GtkWidget *editor;
-
-    (void) dialog_parent;
-
-    editor = pn_node_dialog_default_editor (G_OBJECT (node),
-                                            props[PROP_EXPRESSION]);
-    gtk_widget_set_hexpand (editor, TRUE);
-    gtk_widget_set_vexpand (editor, TRUE);
-
-    /* Span both columns so the editor uses the full width the
-     * "label : editor" grid would otherwise reserve for the label. */
-    gtk_grid_attach (GTK_GRID (grid), editor, 0, 0, 2, 1);
-
-    return grid;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Property plumbing                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -261,7 +230,6 @@ pn_expression_class_init (PnExpressionClass *klass)
     object_class->set_property = pn_expression_set_property;
     object_class->finalize     = pn_expression_finalize;
     node_class->receive        = pn_expression_receive;
-    node_class->build_class_tab = pn_expression_build_class_tab;
 
     node_class->class_name     = "Expression";
     node_class->icon           = "\xef\x87\xac";  /* fa-calculator U+F1EC */

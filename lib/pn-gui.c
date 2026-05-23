@@ -22,6 +22,7 @@
 #include "pn-analog-meter-gui.h"
 #include "pn-chat-gui.h"
 #include "pn-dial-gui.h"
+#include "pn-expression-gui.h"
 #include "pn-graph-gui.h"
 #include "pn-knob-gui.h"
 #include "pn-led-gui.h"
@@ -39,6 +40,7 @@ pn_gui_install_builtin_nodes (void)
     pn_analog_meter_gui_install ();
     pn_chat_gui_install ();
     pn_dial_gui_install ();
+    pn_expression_gui_install ();
     pn_graph_gui_install ();
     pn_knob_gui_install ();
     pn_led_gui_install ();
