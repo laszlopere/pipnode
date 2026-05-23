@@ -26,8 +26,13 @@ pipnode_network_la_SOURCES = \
 	pn-ping.c \
 	pn-ping.h
 
+# Core-only plugin (TODO #23, Phase 8): every node here is pure logic
+# (mqtt / ping / dns / https-tunnel), so the plugin compiles with no GTK
+# on the command line and links libpipnode-core ALONE.  A headless server
+# installs it and runs it under pipnode-run with no GTK present.  The
+# node body colour uses PnColor (the de-GTK'd core type), not GdkRGBA.
 pipnode_network_la_CFLAGS = \
-	$(GTK_CFLAGS) \
+	$(GLIB_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(GMODULE_CFLAGS) \
 	$(LIBSOUP_CFLAGS) \
@@ -45,8 +50,8 @@ pipnode_network_la_CFLAGS = \
 pipnode_network_la_LDFLAGS = -module -avoid-version -shared
 
 pipnode_network_la_LIBADD = \
-	$(top_builddir)/lib/libpipnode-gui.la \
-	$(GTK_LIBS) \
+	$(top_builddir)/lib/libpipnode-core.la \
+	$(GLIB_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS) \
 	$(LIBSOUP_LIBS) \

@@ -1029,8 +1029,40 @@ visual breaks); ported classes carry no GTK and load under `pipnode-run`;
 **Objective:** move network / shell / tasmota to core-only where they no
 longer need GTK; finalise documentation and packaging.
 
+**Sub-phases (regression net green at each):**
+- **8.1 DONE — `plugins/network` re-tiered to core-only.** Every node in
+  this plugin (Mqtt, Mqtt-Sink, Ping, Dns, Https-Tunnel send/receive) is
+  pure logic with **zero GTK in its sources** (a token scan found no
+  `gtk_`/`gdk_`/`cairo_`/`pango_` and no GUI includes; the node body
+  colour already uses the de-GTK'd `PnColor`, and the only includes are
+  core headers + glib/gio/json-glib/libsoup/gnutls/mosquitto). So the
+  re-tier was a **pure `Makefile.am` change, no source edits**:
+  `pipnode_network_la_CFLAGS` dropped `$(GTK_CFLAGS)` → `$(GLIB_CFLAGS)`;
+  `pipnode_network_la_LIBADD` swapped `libpipnode-gui.la` + `$(GTK_LIBS)`
+  → `libpipnode-core.la` + `$(GLIB_LIBS)`. **Verified:** `objdump -p
+  pipnode_network.so` `DT_NEEDED` = libpipnode-core, json-glib, soup, gio,
+  gobject, glib, gnutls, mosquitto, libc — **no gtk/gdk/cairo/pango**; the
+  plugin loads under the core-only `pipnode-run` and its Ping/Dns nodes run
+  a worksheet headless (`examples/network_test.json`, emitting messages);
+  53/53 C unit tests + plugin-load + companion + dial functional tests
+  green. This is the Phase-8 pattern for a plugin with no GUI footprint:
+  flip two Makefile variables, no companion `-gui.so` needed.
+- **8.2 TODO — `plugins/tasmota`.** Also zero GTK includes, but
+  `pn-tasmota-energy-meter.c` subclasses the (now core) `PnAnalogMeter`
+  and sets `build_class_tabs = NULL` — confirm the inherited dual-node
+  split leaves the energy-meter logic core-loadable before flipping the
+  Makefile.
+- **8.3 TODO — `plugins/shell`.** The hardest: `pn-tmux-monitor.c` has a
+  real imperative settings dialog (`build_property_editor` +
+  `build_class_tab`, includes `pn-node-dialog-helpers.h`) — it needs a
+  companion `-gui.so` split (Phase 6 mechanism) or a Phase-7 schema port
+  before the logic half can go core-only. The other shell nodes
+  (df/free/lxc-ls/shell-command) are pure logic.
+- **8.4 TODO** `plugins/image` and `plugins/sound-effects` keep a
+  companion `-gui.so` if they draw.
+
 **Steps**
-1. Re-tier `plugins/network`, `plugins/shell`, `plugins/tasmota` to
+1. Re-tier `plugins/network` ✅, `plugins/shell`, `plugins/tasmota` to
    core-only (logic `.so`, schema for any settings UI). `plugins/image`
    and `plugins/sound-effects` keep a companion `-gui.so` if they draw.
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
