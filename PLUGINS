@@ -28,9 +28,10 @@ CONTENTS
   13. Debugging a plugin that does not load
   14. Shipping per-node help pages
   15. Extending the node settings dialog (ABI v2)
-  16. Reference plugins in the tree
-  17. Quick checklist
-  18. Plugin licensing and the Plugin Exception
+  16. Companion GUI module: server-installable plugins (ABI v3)
+  17. Reference plugins in the tree
+  18. Quick checklist
+  19. Plugin licensing and the Plugin Exception
 
 
 1. WHAT IS A PIPNODE PLUGIN?
@@ -962,7 +963,84 @@ ABI v2 refuse to load against an ABI v1 host (the version check
 catches the mismatch up-front and surfaces a clear `GError`).
 
 
-16. REFERENCE PLUGINS IN THE TREE
+16. COMPANION GUI MODULE: SERVER-INSTALLABLE PLUGINS (ABI v3)
+------------------------------------------------------------
+
+The dialog hooks in section 15 (and the cairo painter vfuncs
+`paint_header_overlay` / `paint_plot` / `get_size`) all touch GTK
+and cairo.  A plugin that sets them from `pn_plugin_init` therefore
+has to link the GTK tier (`libpipnode-gui`), which means its single
+`.so` pulls the whole GTK/cairo/pango stack into EVERY host that
+loads it -- including the headless runner `pipnode-run` on a server
+with no display.  That is fine for a desktop-only plugin but defeats
+the point of the headless core.
+
+ABI v3 lets you split a plugin the same way the in-tree dual-nature
+nodes are split: logic in one GTK-free `.so`, drawing and dialogs in
+a separate companion the editor loads and the server never does.
+
+  - The LOGIC module `myplugin.so` links `libpipnode-core` ONLY.  It
+    exports `pn_plugin_init`, registers the node types, and carries
+    `receive()` plus any pure-data state.  It must NOT set the GTK
+    vfuncs (`build_property_editor`, `build_class_tab`,
+    `build_class_tabs`, `build_extra_pages`, `paint_*`) -- leave those
+    slots NULL.  This is the only half a headless server installs;
+    `pipnode-run` loads it and runs the worksheet with no GTK.
+
+  - The COMPANION module `myplugin-gui.so` (the logic basename plus
+    the `-gui` infix before the module suffix -- the constant
+    `PN_PLUGIN_GUI_INFIX` in `pn-plugin.h`) links the GTK tier and
+    exports a SECOND entry point:
+
+        G_MODULE_EXPORT const PnPluginInfo *
+        pn_plugin_gui_init (PnNodeFactory *factory);
+
+    The editor calls it after the logic `.so` has registered the
+    types; it installs the GTK vfunc slots onto the already-registered
+    classes and returns a `PnPluginInfo` (same ABI check as
+    `pn_plugin_init`).
+
+How the host wires it up:
+
+  - The CORE loader (`pipnode-run` AND the editor) discovers and loads
+    `*.so` exactly as before, but SKIPS any file whose name ends in
+    `-gui.<suffix>` -- a companion is never a standalone plugin.
+  - The editor ALSO calls `pn_gui_load_plugin_companions()` after the
+    plugin scan: for each logic plugin it loaded, it looks for the
+    sibling `-gui.<suffix>` next to it and, if present, calls its
+    `pn_plugin_gui_init()`.  A missing companion is not an error -- the
+    node simply renders with the host's default painter and the
+    auto-generated settings tab.
+  - `pipnode-run` never looks for a companion, so the GTK half never
+    loads on a server.
+
+CRITICAL -- resolve your type by NAME in the companion:
+
+    GType        t     = g_type_from_name ("MyGauge");
+    PnNodeClass *klass = PN_NODE_CLASS (g_type_class_ref (t));
+    klass->paint_header_overlay  = my_gauge_paint;
+    klass->build_property_editor = my_gauge_build_editor;
+
+The host loads the logic `.so` with `G_MODULE_BIND_LOCAL`, so its
+symbols (the `my_gauge_get_type()` getter, any read-seam accessors)
+are NOT visible to the separately-dlopened companion.  Calling the
+logic header's `MY_TYPE_GAUGE` macro from the companion fails at load
+time with `undefined symbol: my_gauge_get_type`.  `g_type_from_name()`
+needs no symbol -- the type is already in the global GType registry
+once the logic half ran.  Drive the node through public API only:
+GObject properties (`g_object_get` / `g_object_bind_property`) and the
+`PnNode` vfunc table.  If a painter needs state that is not a readable
+property, expose it as one from the logic half (which also keeps the
+headless side inspectable).
+
+The reference split lives in `tests/plugins/echo/`: `pn-echo.c`
+(logic, core-only) plus `pn-echo-gui.c` (companion).  Its Makefile.am
+shows the two `-module` builds, and the pair is verified by
+`tests/test_plugin_load.py` (logic under `pipnode-run`, no GTK) and
+`tests/test_plugin_gui_companion.py` (companion under the editor).
+
+
+17. REFERENCE PLUGINS IN THE TREE
 --------------------------------
 
 The source tree carries a handful of plugins you can read for
@@ -970,11 +1048,15 @@ worked examples; they all build out of the box from a fresh
 `./configure && make`.  Two are worth pointing out here.
 
   - `tests/plugins/echo/`
-        A minimal `noinst` plugin used by
-        `tests/test_plugin_load.py` to verify the loader path
-        end-to-end.  Defines a single `PnEcho` pass-through
-        node and exports `pn_plugin_init`.  Read this first
-        if you are writing your first plugin.
+        A minimal `noinst` plugin used by the plugin tests to
+        verify the loader path end-to-end.  It is the reference
+        TWO-TIER plugin (section 16): the GTK-free logic half
+        `pn-echo.c` defines a single `PnEcho` pass-through node
+        and exports `pn_plugin_init` (linked core-only, loaded by
+        `pipnode-run`); the companion `pn-echo-gui.c` exports
+        `pn_plugin_gui_init` and installs the node's settings
+        dialog (combo editor + extra "Stats" page) for the editor.
+        Read this first if you are writing your first plugin.
 
   - `plugins/network/`
         The bundled "pipnode-network" plugin.  Installed by
@@ -987,7 +1069,7 @@ worked examples; they all build out of the box from a fresh
         as part of the install.
 
 
-17. QUICK CHECKLIST
+18. QUICK CHECKLIST
 -------------------
 
 Before publishing a plugin, walk through this list:
@@ -1020,8 +1102,18 @@ Before publishing a plugin, walk through this list:
 
 If every box is ticked, you are done.
 
+For a plugin that draws or shows a custom settings dialog and that
+you also want to run on a headless server, add (section 16):
 
-18. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
+  [ ] Logic `.so` links `libpipnode-core` only and leaves the GTK
+      vfunc slots NULL; verify with
+      `objdump -p myplugin.so | grep NEEDED` showing no gtk/cairo.
+  [ ] Companion `myplugin-gui.so` links the GTK tier, exports
+      `pn_plugin_gui_init`, and resolves its types with
+      `g_type_from_name` (never the logic header's type macro).
+
+
+19. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
 
 The pipnode core (the `src/` application and the `lib/` host library)
 is licensed under the GNU GPL version 3 or later.  Because a plugin

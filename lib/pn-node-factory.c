@@ -768,6 +768,13 @@ pn_node_factory_load_plugins_in_dir (PnNodeFactory *self, const gchar *dir)
             || g_strcmp0 (name + len - suffix_len, suffix) != 0)
             continue;
 
+        /* Skip companion GUI modules (<base>-gui.<suffix>).  They export
+         * pn_plugin_gui_init, not pn_plugin_init, and are loaded by the
+         * editor's GUI loader keyed off their logic plugin — never as a
+         * standalone plugin in their own right (TODO #23, Phase 6). */
+        if (g_str_has_suffix (name, PN_PLUGIN_GUI_INFIX "." G_MODULE_SUFFIX))
+            continue;
+
         path = g_build_filename (dir, name, NULL);
         if (pn_node_factory_load_plugin (self, path, &error))
             loaded++;
@@ -878,6 +885,27 @@ pn_node_factory_load_plugins_default (PnNodeFactory *self)
     return loaded;
 }
 
+GList *
+pn_node_factory_get_loaded_plugin_paths (PnNodeFactory *self)
+{
+    GHashTableIter iter;
+    gpointer       key;
+    GList         *result = NULL;
+
+    g_return_val_if_fail (PN_IS_NODE_FACTORY (self), NULL);
+
+    /* loaded_paths is the set of canonical .so paths the loader actually
+     * passed to g_module_open — i.e. exactly the logic plugins whose
+     * #GTypes are now registered, after the policy filter and the path /
+     * basename dedup.  The editor's GUI loader walks this to find each
+     * one's sibling companion (TODO #23, Phase 6). */
+    g_hash_table_iter_init (&iter, self->loaded_paths);
+    while (g_hash_table_iter_next (&iter, &key, NULL))
+        result = g_list_prepend (result, g_strdup ((const gchar *) key));
+
+    return result;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Discovery                                                          */
 /* ------------------------------------------------------------------ */
@@ -916,6 +944,12 @@ discover_dir (const gchar *dir, GHashTable *basename_to_path)
         gsize len = strlen (name);
         if (len <= suffix_len
             || g_strcmp0 (name + len - suffix_len, suffix) != 0)
+            continue;
+
+        /* Companion GUI modules are not standalone plugins — keep them
+         * out of the discovered list the Preferences dialog shows
+         * (TODO #23, Phase 6). */
+        if (g_str_has_suffix (name, PN_PLUGIN_GUI_INFIX "." G_MODULE_SUFFIX))
             continue;
 
         if (g_hash_table_contains (basename_to_path, name))

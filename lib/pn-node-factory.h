@@ -274,6 +274,23 @@ guint    pn_node_factory_load_plugins_in_dir (PnNodeFactory *self,
  */
 guint    pn_node_factory_load_plugins_default (PnNodeFactory *self);
 
+/**
+ * pn_node_factory_get_loaded_plugin_paths:
+ * @self: the factory
+ *
+ * Returns the canonical filesystem paths of every plugin .so that was
+ * actually loaded this session (its pn_plugin_init() ran) — i.e. after
+ * the policy filter and the path / basename dedup have been applied.
+ * The editor's GUI loader walks this list to find each loaded plugin's
+ * sibling companion GUI module (TODO #23, Phase 6); the headless runner
+ * never calls it.
+ *
+ * Returns: (transfer full) (element-type utf8): a newly-allocated list
+ *   of newly-allocated path strings.  Free with
+ *   `g_list_free_full (list, g_free)`.  Order is unspecified.
+ */
+GList   *pn_node_factory_get_loaded_plugin_paths (PnNodeFactory *self);
+
 /* ------------------------------------------------------------------ */
 /*  Plugin discovery (for the Preferences dialog)                      */
 /* ------------------------------------------------------------------ */

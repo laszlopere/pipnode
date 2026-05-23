@@ -130,6 +130,16 @@ GTK/GDK/cairo, replace GdkRGBA with our own color type+parser); (2) whether
 visual nodes' logic must remain loadable headless or they become GUI-only;
 (3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
 in the same pass.
+STATUS (see HEADLESS-SPLIT-PLAN.md §0 for detail): Phases 0-6 DONE. The lib is
+split into GTK-free libpipnode-core + libpipnode-gui; all 24 dual nodes are
+split; pipnode-run links core only and is verified GTK-free; the plugin ABI
+(now v3) gained a companion GUI module (pn_plugin_gui_init in <plugin>-gui.so)
+so a plugin ships GTK-free logic the server installs + bespoke GUI the editor
+alone loads (reference: tests/plugins/echo split + test_plugin_gui_companion.py).
+Decisions settled: (1) strict zero-graphics core (glib/gio/json-glib/libsoup/
+gmodule + gdk-pixbuf only); (2) visual nodes' logic stays headless-loadable;
+(3) re-tier bundled plugins = Phase 8 (next, plus Phase 7 declarative settings
+schema). No --disable-gui build switch (decision D5).
 
 (24) DONE (follow-up complete): the pure parsers/aggregators of the IO
 nodes are now exported non-static and unit-tested on canned fixtures --

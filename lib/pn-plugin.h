@@ -89,8 +89,21 @@ G_BEGIN_DECLS
  *       exposing the host's grid / row / default-editor / append-
  *       page builders so a partially-custom tab matches the host
  *       look-and-feel without reimplementing it.
+ *   3 — split a plugin's GTK-touching code into an optional companion
+ *       GUI module (TODO #23, Phase 6).  The logic .so stays GTK-free
+ *       and exports only #pn_plugin_init; a sibling
+ *       <literal>&lt;name&gt;-gui.&lt;suffix&gt;</literal> (see
+ *       #PN_PLUGIN_GUI_INFIX) exports #pn_plugin_gui_init, which the
+ *       editor loads after the logic .so to install the drawing /
+ *       dialog vfunc slots onto the already-registered classes.  The
+ *       headless host loads only the logic .so, so a server-installable
+ *       plugin pulls no GTK.  No #PnNode / #PnNodeClass layout change —
+ *       the bump exists so a host and a plugin pair agree on the
+ *       companion contract (a v2 monolithic plugin that set the dialog
+ *       vfuncs from #pn_plugin_init still works, but is rebuilt against
+ *       v3 to load).
  */
-#define PN_PLUGIN_ABI_VERSION 2
+#define PN_PLUGIN_ABI_VERSION 3
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:
@@ -143,6 +156,102 @@ typedef struct
  * .so without pinning it in memory.
  */
 typedef const PnPluginInfo *(*PnPluginInitFunc) (PnNodeFactory *factory);
+
+/* ------------------------------------------------------------------ */
+/*  Companion GUI module (ABI v3, TODO #23 Phase 6)                     */
+/*                                                                     */
+/*  A plugin that wants bespoke drawing or a custom settings dialog    */
+/*  splits in two, exactly the way the in-tree dual-nature nodes do:   */
+/*                                                                     */
+/*    - the logic <name>.so links only the GTK-free core, exports      */
+/*      pn_plugin_init(), and registers its #PnNode subclasses;        */
+/*    - a companion <name>-gui.<suffix> (the same basename with the    */
+/*      PN_PLUGIN_GUI_INFIX inserted before the module suffix) links   */
+/*      the GUI tier, exports pn_plugin_gui_init(), and installs the    */
+/*      cairo painter / settings-dialog vfunc slots onto the classes   */
+/*      the logic .so already registered.                              */
+/*                                                                     */
+/*  The headless host (pipnode-run) loads only the logic .so, so a     */
+/*  server-installable plugin pulls no GTK.  The editor loads the      */
+/*  logic .so first and then, for each loaded plugin, looks for the    */
+/*  sibling companion and calls its pn_plugin_gui_init().  A missing   */
+/*  companion is not an error — the node simply renders with the host  */
+/*  default painter and the auto-generated settings tab.               */
+/*                                                                     */
+/*  The companion's pn_plugin_gui_init() typically does, per type:      */
+/*                                                                     */
+/*  ```c                                                               */
+/*  G_MODULE_EXPORT const PnPluginInfo *                               */
+/*  pn_plugin_gui_init (PnNodeFactory *factory)                        */
+/*  {                                                                  */
+/*      static const PnPluginInfo info = {                             */
+/*          .abi_version = PN_PLUGIN_ABI_VERSION,                      */
+/*          .name        = "AcmeCrypto (GUI)",                         */
+/*          .version     = "1.0.0",                                    */
+/*      };                                                             */
+/*      GType t = g_type_from_name ("MyGauge");                        */
+/*      PnNodeClass *klass = PN_NODE_CLASS (g_type_class_ref (t));     */
+/*      klass->paint_header_overlay  = my_gauge_paint;                 */
+/*      klass->build_property_editor = my_gauge_build_editor;          */
+/*      // class ref intentionally held for the process lifetime       */
+/*      return &info;                                                  */
+/*  }                                                                  */
+/*  ```                                                                */
+/*                                                                     */
+/*  IMPORTANT — resolve the type by NAME, not by linking the logic      */
+/*  header's MY_TYPE_GAUGE / my_gauge_get_type().  The host loads the   */
+/*  logic .so with G_MODULE_BIND_LOCAL, so its symbols (the type        */
+/*  getter, any read-seam accessors) are not visible to a separately-   */
+/*  dlopened companion; a header reference would fail with "undefined   */
+/*  symbol" at companion-load time.  g_type_from_name() needs no        */
+/*  symbol — the type is already in the global GType registry once the  */
+/*  logic half ran.  A companion therefore drives its node through      */
+/*  public API only: GObject properties (g_object_get/bind) and the     */
+/*  PnNode vfunc table.  State a painter needs that is not already a    */
+/*  readable property should be exposed as one by the logic half (which */
+/*  is also how the headless side stays inspectable).                  */
+/*                                                                     */
+/*  The @factory argument is the same process-wide factory the logic   */
+/*  half registered against, passed for symmetry and future use.        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * PN_PLUGIN_GUI_INIT_SYMBOL:
+ *
+ * Name of the C symbol the editor looks up in a plugin's companion
+ * GUI module.  Only the companion <name>-gui.<suffix> exports it; the
+ * logic .so exports #PN_PLUGIN_INIT_SYMBOL alone.
+ */
+#define PN_PLUGIN_GUI_INIT_SYMBOL "pn_plugin_gui_init"
+
+/**
+ * PN_PLUGIN_GUI_INFIX:
+ *
+ * The fragment inserted before the module suffix to name a plugin's
+ * companion GUI module: a logic plugin <literal>foo.so</literal> has
+ * companion <literal>foo-gui.so</literal>.  The core loader uses this
+ * to skip companions during a logic-plugin directory scan, and the
+ * editor's GUI loader uses it to derive the companion path from each
+ * loaded logic plugin.  A logic plugin must therefore not itself be
+ * named with this infix.
+ */
+#define PN_PLUGIN_GUI_INFIX "-gui"
+
+/**
+ * PnPluginGuiInitFunc:
+ * @factory: the same process-wide #PnNodeFactory the logic half
+ *           registered its node types with.
+ *
+ * Signature of the companion entry point (#PN_PLUGIN_GUI_INIT_SYMBOL).
+ * Implementations install the GUI-tier vfunc slots (cairo painters,
+ * settings-dialog customisations) onto the already-registered classes
+ * and return a borrowed pointer to a static #PnPluginInfo describing
+ * the companion.  The editor checks the returned @abi_version against
+ * #PN_PLUGIN_ABI_VERSION and refuses the companion on mismatch;
+ * returning %NULL is treated as a failed companion load.  As with the
+ * logic entry point the host pins the module resident on success.
+ */
+typedef const PnPluginInfo *(*PnPluginGuiInitFunc) (PnNodeFactory *factory);
 
 G_END_DECLS
 

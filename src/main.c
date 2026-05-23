@@ -61,6 +61,14 @@ main (
      * never calls this, so those nodes run without GTK. */
     pn_gui_install_builtin_nodes ();
 
+    /* Editor only: for each plugin whose logic .so just loaded, load the
+     * sibling companion GUI module (<base>-gui.so) if present and let it
+     * install the plugin node's painter/dialog vfuncs — the per-plugin
+     * analogue of the built-in installs above (TODO #23, Phase 6).
+     * pipnode-run never calls this, so a server-installed plugin pulls no
+     * GTK. */
+    pn_gui_load_plugin_companions (factory);
+
     app = pn_application_new ();
     status = g_application_run (G_APPLICATION (app), argc, argv);
     g_object_unref (app);

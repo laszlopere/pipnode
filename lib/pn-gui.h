@@ -18,6 +18,8 @@
 
 #include <glib.h>
 
+#include "pn-node-factory.h"
+
 G_BEGIN_DECLS
 
 /* pn_gui_install_builtin_nodes:
@@ -34,6 +36,22 @@ G_BEGIN_DECLS
  * is the in-tree counterpart of the per-plugin pn_plugin_gui_init()
  * companion entry point introduced in Phase 6.  */
 void pn_gui_install_builtin_nodes (void);
+
+/* pn_gui_load_plugin_companions:
+ * @factory: the process-wide factory whose logic plugins have already
+ *           been loaded (via pn_node_factory_load_plugins_default()).
+ *
+ * For every plugin .so the factory loaded this session, look for the
+ * sibling companion GUI module (<base>-gui.<suffix>, see
+ * PN_PLUGIN_GUI_INFIX) next to it, dlopen it, and call its
+ * pn_plugin_gui_init() so it installs the cairo painter / settings-
+ * dialog vfunc slots onto the classes the logic .so registered.  A
+ * missing companion is not an error.  Call once at editor startup,
+ * after pn_node_factory_load_plugins_default(); the headless runtime
+ * (pipnode-run) never calls this, so a server-installed plugin pulls no
+ * GTK (TODO #23, Phase 6).  This is the per-plugin counterpart of
+ * pn_gui_install_builtin_nodes().  */
+void pn_gui_load_plugin_companions (PnNodeFactory *factory);
 
 G_END_DECLS
 

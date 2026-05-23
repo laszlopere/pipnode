@@ -18,6 +18,59 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 6 DONE — the plugin ABI gained a companion GUI module so a
+  plugin can ship GTK-free logic the server installs plus bespoke GUI
+  the editor alone loads.** The per-plugin analogue of
+  `pn_<node>_gui_install()`:
+  - **ABI bumped 2 → 3** (`pn-plugin.h`).  New entry point
+    `pn_plugin_gui_init(PnNodeFactory*)` (symbol `PN_PLUGIN_GUI_INIT_
+    SYMBOL`, returns a `PnPluginInfo` so the loader runs the same ABI
+    check) and the companion naming convention `<base>-gui.<suffix>`
+    (`PN_PLUGIN_GUI_INFIX`).  Both documented in the header + `PLUGINS`
+    §16.
+  - **Core loader (used by `pipnode-run` AND the editor) now skips
+    `*-gui.so`** in `pn_node_factory_load_plugins_in_dir()` and in
+    `discover_dir()` (the Preferences list) — a companion is never a
+    standalone plugin.  Added the GTK-free accessor
+    `pn_node_factory_get_loaded_plugin_paths()`.
+  - **GUI tier got the companion loader `pn_gui_load_plugin_
+    companions()`** (`pn-gui.c`): for each loaded logic plugin it
+    derives the sibling `-gui.<suffix>`, and if present dlopens it,
+    ABI-checks + calls `pn_plugin_gui_init`, and pins it resident.
+    Missing companion = not an error.  The **editor** calls it in
+    `src/main.c` right after `pn_gui_install_builtin_nodes()`;
+    `pipnode-run` never does, so a server pulls no GTK.
+  - **KEY GOTCHA — companions must resolve their type by NAME.** The
+    core loader opens logic plugins `G_MODULE_BIND_LOCAL`, so the logic
+    `.so`'s symbols (the `_get_type` getter, any read seams) are NOT
+    visible to a separately-dlopened companion.  A companion that calls
+    the logic header's `MY_TYPE_X` macro fails at load with `undefined
+    symbol: my_x_get_type`.  Use `g_type_from_name("PnX")` +
+    `g_type_class_ref` and drive the node through public API
+    (properties, the vfunc table) only.  Documented in `pn-plugin.h`
+    and `PLUGINS` §16.
+  - **Reference plugin `tests/plugins/echo` converted to the split:**
+    `pn-echo.c` (logic, core-only, exports `pn_plugin_init`) +
+    `pn-echo-gui.c` (companion, GTK, exports `pn_plugin_gui_init`,
+    installs the device-combo `build_property_editor` and the "Stats"
+    `build_extra_pages`).  Its Makefile.am builds the two `-module`s
+    `pn_echo.so` / `pn_echo-gui.so`.  This de-GTK's the headless
+    plugin-load path.
+  - **Verified:** `pn_echo.so` `NEEDED` = libpipnode-core + libgobject
+    (no GTK); `pn_echo-gui.so` `NEEDED` = libpipnode-gui + libgtk-3;
+    `pipnode-run` still GTK-free.  New test
+    `tests/test_plugin_gui_companion.py` drives the editor over D-Bus,
+    adds a `PnEcho` node and asserts the dialog carries the companion-
+    installed "Stats" tab; `tests/test_plugin_load.py` proves the logic
+    half runs under `pipnode-run` with no GTK.  Full net green: **52/52
+    C unit tests + 11/11 functional tests** (`make check`).
+  - **ENV NOTE:** stale ABI-2, GTK-linked plugins under
+    `/usr/local/lib/pipnode/plugins` (built against an older core)
+    *deadlock* both binaries on `dlopen` during the startup scan — moved
+    to `plugins.disabled/` to run the suite.  Pre-existing/environmental
+    (dlopen precedes the ABI check); freshly-built in-tree plugins load
+    fine.  Re-tiering the bundled plugins is Phase 8.
+
 - **Phase 5 DONE — the two binaries are wired to the two tiers;
   `pipnode-run` links core only.** Four increments cleared the carried
   debt and made `libpipnode-core` fully self-contained:
@@ -790,7 +843,7 @@ PASS.
 
 ---
 
-### Phase 6 — Plugin ABI: companion GUI module (D2 escape hatch)
+### Phase 6 — Plugin ABI: companion GUI module (D2 escape hatch) — **DONE** (see §0)
 
 **Objective:** let a plugin ship logic in `myplugin.so` (core) and
 bespoke GUI in `myplugin-gui.so` (gui tier), with the server installing
