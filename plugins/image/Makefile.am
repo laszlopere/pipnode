@@ -14,6 +14,14 @@
 # Pixelate, Add Noise, Dither, Threshold, Oil Paint, Crosshatch).  Each
 # node processes the pixels in plain C against gdk-pixbuf's raw buffer; no
 # external process is ever started.
+#
+# Core-only plugin (headless split, Phase 8.4): every node is pure logic
+# with zero GTK — the only graphics dependency is gdk-pixbuf, an allowed
+# core image-data dep (see lib/Makefile.am + the §6 tier classification).
+# So this links libpipnode-core (not -gui) and pulls no GTK at runtime,
+# letting servers install and run it under pipnode-run.  gdk-pixbuf was
+# previously coming in transitively via GTK; it is now requested
+# explicitly via $(GDK_PIXBUF_CFLAGS)/$(GDK_PIXBUF_LIBS).
 plugindir = $(pkglibdir)/plugins
 
 plugin_LTLIBRARIES = pipnode_image.la
@@ -134,7 +142,8 @@ pipnode_image_la_SOURCES = \
 	pn-image-crosshatch.h
 
 pipnode_image_la_CFLAGS = \
-	$(GTK_CFLAGS) \
+	$(GLIB_CFLAGS) \
+	$(GDK_PIXBUF_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(GMODULE_CFLAGS) \
 	-I$(top_srcdir)/lib
@@ -142,8 +151,9 @@ pipnode_image_la_CFLAGS = \
 pipnode_image_la_LDFLAGS = -module -avoid-version -shared
 
 pipnode_image_la_LIBADD = \
-	$(top_builddir)/lib/libpipnode-gui.la \
-	$(GTK_LIBS) \
+	$(top_builddir)/lib/libpipnode-core.la \
+	$(GLIB_LIBS) \
+	$(GDK_PIXBUF_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS)
 

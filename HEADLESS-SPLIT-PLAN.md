@@ -1114,14 +1114,40 @@ longer need GTK; finalise documentation and packaging.
     dialog renders identically: Host entry (local-hostname hint), Session
     combobox, Line Limit spinner, red Status row. 53/53 C unit + plugin-
     load + companion + dial + led + shell-companion functional tests green.
-- **8.4 TODO** `plugins/image` and `plugins/sound-effects` keep a
-  companion `-gui.so` if they draw.
+- **8.4a DONE — `plugins/image` re-tiered to core-only.** All 57 filter
+  nodes are pure logic with **zero GTK** (a token scan found no `gtk_`/
+  `cairo_`/`pango_` and no GUI includes); the body colour already uses the
+  de-GTK'd `PnColor` and the only graphics dep is **gdk-pixbuf**, an
+  allowed core image-data dep (D1 / §6). gdk-pixbuf had been arriving
+  *transitively through GTK*, so the re-tier was the 8.1/8.2 Makefile flip
+  **plus** an explicit pixbuf request — no source edits:
+  `pipnode_image_la_CFLAGS` `$(GTK_CFLAGS)` → `$(GLIB_CFLAGS)` +
+  `$(GDK_PIXBUF_CFLAGS)`; `pipnode_image_la_LIBADD` `libpipnode-gui.la` +
+  `$(GTK_LIBS)` → `libpipnode-core.la` + `$(GLIB_LIBS)` +
+  `$(GDK_PIXBUF_LIBS)`. **Verified:** `objdump -p pipnode_image.so`
+  `DT_NEEDED` = libpipnode-core, gdk_pixbuf, json-glib, gio, gobject, glib,
+  libc — **no gtk/gdk-3/cairo/pango**; the build copy loads under the
+  core-only `pipnode-run` (`PIPNODE_PLUGIN_PATH` to the `.libs` dir so it
+  wins over the stale installed GTK copy) and runs `examples/image-test.json`
+  headless (exit 0); 53/53 C unit + plugin-load + companion functional
+  tests green. No companion `-gui.so` — these nodes have no settings UI.
+- **8.4b TODO — `plugins/sound-effects` → two-tier split (the 8.3 shell
+  pattern).** `pn-sci-fi-sound.c` carries a heavy `build_class_tabs` dialog
+  (dynamic category/clip combos populated from a downloaded sound-pack
+  library, per-pack checkbox grid, async Download/Delete/Preview buttons +
+  `gtk_message_dialog` confirms) that is **not** schema-expressible — so it
+  needs the Phase-6 companion `-gui.so` (D2), exactly like shell: split the
+  dialog into `pn-sci-fi-sound-gui.c` (exports `pn_plugin_gui_init`), add a
+  read seam for the combos (the shell precedent used a read-only
+  `G_TYPE_STRV` property since C accessors are invisible across
+  `G_MODULE_BIND_LOCAL`), and build `pipnode_sound_effects.so` (logic,
+  core-only) + `pipnode_sound_effects-gui.so` (companion).
 
 **Steps**
-1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` ✅
-   to core-only (logic `.so`, schema or companion `-gui.so` for any
-   settings UI). `plugins/image` and `plugins/sound-effects` keep a
-   companion `-gui.so` if they draw.
+1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` ✅,
+   `plugins/image` ✅ to core-only (logic `.so`, schema or companion
+   `-gui.so` for any settings UI). `plugins/sound-effects` still TODO —
+   needs a companion `-gui.so` for its async download dialog.
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
    API, and a "how to ship a server-installable plugin" checklist.
 3. Update `README.md` / `INSTALL` with the `pipnode-core` vs
