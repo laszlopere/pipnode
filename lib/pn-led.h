@@ -63,6 +63,19 @@ G_DECLARE_FINAL_TYPE (PnLed, pn_led, PN, LED, PnNode)
 
 PnLed *pn_led_new (void);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seams (GTK-free)                                          */
+/*                                                                     */
+/*  The lit flag and lit colour live in the private instance struct.   */
+/*  The cairo painter — which the gui tier installs onto this class    */
+/*  (see pn_led_gui_install in pn-led-gui.c) — reads them through       */
+/*  these accessors rather than reaching into the struct, so the       */
+/*  drawing code can live in a separate translation unit.              */
+/* ------------------------------------------------------------------ */
+
+gboolean pn_led_get_lit    (PnLed *self);
+void     pn_led_peek_color (PnLed *self, PnColor *out);
+
 G_END_DECLS
 
 #endif /* PN_LED_H */

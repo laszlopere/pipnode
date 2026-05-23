@@ -19,6 +19,7 @@
 
 #include "pn-application.h"
 #include "pn-node-factory.h"
+#include "pn-gui.h"
 
 int
 main (
@@ -35,6 +36,12 @@ main (
      * PnWindow already sees the plugin types when the first window
      * is built. */
     pn_node_factory_load_plugins_default (pn_node_factory_get_default ());
+
+    /* Editor only: install the gui-tier vfunc slots (cairo painters +
+     * settings dialogs) onto the dual-nature node classes whose logic
+     * half lives in the headless core (TODO #23, Phase 4).  pipnode-run
+     * never calls this, so those nodes run without GTK. */
+    pn_gui_install_builtin_nodes ();
 
     app = pn_application_new ();
     status = g_application_run (G_APPLICATION (app), argc, argv);

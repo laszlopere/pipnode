@@ -13,40 +13,37 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnLed — logic tier (headless core).                                */
+/*                                                                     */
+/*  This file holds the GTK-free half of the LED node: the GType, its  */
+/*  properties, the receive() contract (Flash hold-timer / Steady      */
+/*  level latch), and the read seams the GUI tier paints from.  The    */
+/*  cairo drawing and the settings-dialog customisation live in the    */
+/*  companion gui-tier file pn-led-gui.c, which installs those vfunc    */
+/*  slots onto this class at editor startup (see pn_led_gui_install).   */
+/*  The headless runtime registers and runs this node without ever     */
+/*  pulling GTK.                                                        */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
 #include "pn-led.h"
 #include "pn-message.h"
-#include "pn-node-dialog-helpers.h"
-
-#include <math.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
 /*                                                                     */
-/*  Standard Node-RED rectangle (40 px header tall) widened on the     */
-/*  right so a small rectangular LED indicator fits inside the body    */
-/*  without crowding the label area.  The LED itself is drawn by      */
-/*  paint_header_overlay, which clips to the body's rounded rect so   */
-/*  the LED respects the corner radius on the right edge.              */
+/*  Standard Node-RED rectangle (40 px header tall).  The right-edge   */
+/*  inset where the GUI tier paints the LED disc lives with the        */
+/*  painter in pn-led.c's gui companion; here we only need the node's  */
+/*  intrinsic size for headless layout (get_size).                     */
 /* ------------------------------------------------------------------ */
 
 #define PN_LED_NODE_WIDTH        180.0
 #define PN_LED_NODE_HEIGHT        40.0
-
-/* Inset of the LED disc inside the right portion of the header.  The
- * LED is circular so its diameter is fixed at PN_LED_DIAMETER; the
- * disc is centred vertically in the header and sits PN_LED_RIGHT_PAD
- * pixels clear of the right edge. */
-#define PN_LED_RIGHT_PAD          12.0     /* clear of right edge */
-#define PN_LED_DIAMETER           24.0     /* outer bracket diameter */
-
-/* The label painter is told to leave the rightmost slice of the     */
-/* header alone -- LED diameter + right pad + a small breathing gap  */
-/* so the centred label cannot bump into the LED bracket.            */
-#define PN_LED_RESERVED_RIGHT    (PN_LED_DIAMETER + PN_LED_RIGHT_PAD + 6.0)
 
 /* ------------------------------------------------------------------ */
 /*  PnLed instance                                                     */
@@ -61,7 +58,7 @@ struct _PnLed
      * most-recent message.  Anything below 100 ms is clamped at the
      * property layer so a one-shot flash is still visible on a 60 Hz
      * display. */
-    GdkRGBA   color;
+    PnColor   color;
     guint     hold_ms;
     PnLedMode mode;
 
@@ -207,191 +204,6 @@ pn_led_receive (PnNode *node, PnMessage *message)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                           */
-/* ------------------------------------------------------------------ */
-
-/** Paint a circular through-hole LED sitting in a black panel-mount
- *  bracket -- the kind a real 5 mm indicator LED clips into on the
- *  front of a piece of equipment.  The whole assembly is concentric
- *  on (@cx, @cy) with overall radius @outer_r:
- *
- *    - When lit, a soft halo of the LED's colour spills out around
- *      the bracket first so the bracket overpaints (and softly trims)
- *      its outer edge.
- *    - The bracket is a thick black ring with a tiny lighter highlight
- *      on the upper-left lip so it reads as a chunky moulded bezel
- *      rather than a flat ring of paint.
- *    - The dome inside is a coloured circle with a radial gradient
- *      from a bright centre to a darker rim (user colour when lit,
- *      two greys when off).  A thin dark hairline just inside the
- *      bracket sells the "recessed into the bracket" look.
- *    - A small bright catch-light in the upper-left of the dome adds
- *      the obligatory glass highlight every real LED window picks up.
- */
-static void
-paint_led (
-        cairo_t       *cr,
-        double         cx,
-        double         cy,
-        double         outer_r,
-        gboolean       lit,
-        const GdkRGBA *color)
-{
-    /* Bracket takes the outer ~22 % of the radius -- thick enough to
-     * read as a moulded mounting collar at the small sizes we paint
-     * at, thin enough that the coloured dome still dominates the
-     * read. */
-    const double     bracket_r = outer_r;
-    const double     dome_r    = outer_r * 0.78;
-    cairo_pattern_t *grad;
-
-    /* Halo: only when lit.  A soft radial gradient centred on the LED
-     * with the user's colour at the centre fading to transparent at
-     * about 2 r, painted before the bracket so the bracket sits on
-     * top of (and softly trims) the halo's outer edge.               */
-    if (lit)
-    {
-        const double halo_r = outer_r * 2.1;
-
-        grad = cairo_pattern_create_radial (cx, cy, outer_r * 0.7,
-                                            cx, cy, halo_r);
-        cairo_pattern_add_color_stop_rgba (grad, 0.0,
-                                           color->red,
-                                           color->green,
-                                           color->blue,
-                                           0.55);
-        cairo_pattern_add_color_stop_rgba (grad, 1.0,
-                                           color->red,
-                                           color->green,
-                                           color->blue,
-                                           0.0);
-        cairo_set_source (cr, grad);
-        cairo_rectangle (cr, cx - halo_r, cy - halo_r,
-                         halo_r * 2.0, halo_r * 2.0);
-        cairo_fill (cr);
-        cairo_pattern_destroy (grad);
-    }
-
-    /* Bracket body: a black disc filling the full outer radius.  The
-     * dome painted on top of this leaves the outer ring of the disc
-     * visible as the bracket's mounting collar.                      */
-    cairo_set_source_rgb (cr, 0.05, 0.05, 0.06);
-    cairo_arc (cr, cx, cy, bracket_r, 0.0, 2.0 * M_PI);
-    cairo_fill (cr);
-
-    /* Bracket highlight: a thin lighter arc on the upper-left rim of
-     * the bracket so the bezel reads as a chamfered lip catching
-     * overhead light.  A linear gradient from a mid-grey at the top
-     * to near-black at the bottom, stroked along the outer edge,
-     * gives the bracket its sense of thickness without an explicit
-     * second concentric disc. */
-    grad = cairo_pattern_create_linear (cx, cy - bracket_r,
-                                        cx, cy + bracket_r);
-    cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.40, 0.40, 0.42);
-    cairo_pattern_add_color_stop_rgb (grad, 0.5, 0.12, 0.12, 0.13);
-    cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.22, 0.22, 0.24);
-    cairo_set_source (cr, grad);
-    cairo_set_line_width (cr, 1.2);
-    cairo_arc (cr, cx, cy, bracket_r - 0.6, 0.0, 2.0 * M_PI);
-    cairo_stroke (cr);
-    cairo_pattern_destroy (grad);
-
-    /* Dome: a coloured radial gradient inside the bracket.  Painted
-     * as an arc fill so the boundary against the black bracket is a
-     * crisp circular edge (a radial-gradient pattern applied to a
-     * rectangle would still leave the rectangle outside the dome
-     * showing on top of the bracket). */
-    {
-        double cr_r, cg, cb;
-        double or_r, og, ob;
-
-        if (lit)
-        {
-            /* Lit: bright user colour at the centre, darker ring at
-             * the rim -- the standard "shiny LED" read. */
-            cr_r = color->red   * 0.40 + 0.60;
-            cg   = color->green * 0.40 + 0.60;
-            cb   = color->blue  * 0.40 + 0.60;
-            or_r = color->red   * 0.85;
-            og   = color->green * 0.85;
-            ob   = color->blue  * 0.85;
-        }
-        else
-        {
-            /* Off: two greys, lighter centre to darker rim, reading
-             * as a translucent dome with no light behind it. */
-            cr_r = 0.72; cg = 0.72; cb = 0.74;
-            or_r = 0.30; og = 0.30; ob = 0.32;
-        }
-
-        grad = cairo_pattern_create_radial (cx - dome_r * 0.20,
-                                            cy - dome_r * 0.20,
-                                            dome_r * 0.05,
-                                            cx, cy, dome_r);
-        cairo_pattern_add_color_stop_rgb (grad, 0.0, cr_r, cg, cb);
-        cairo_pattern_add_color_stop_rgb (grad, 1.0, or_r, og, ob);
-        cairo_set_source (cr, grad);
-        cairo_arc (cr, cx, cy, dome_r, 0.0, 2.0 * M_PI);
-        cairo_fill (cr);
-        cairo_pattern_destroy (grad);
-    }
-
-    /* Hairline shadow where the dome meets the bracket -- a thin
-     * stroke just inside the dome's edge, in translucent black, sells
-     * the "dome recessed into the bracket" read by suggesting the
-     * tiny dark gap a real moulded part has at that seam. */
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
-    cairo_set_line_width (cr, 0.8);
-    cairo_arc (cr, cx, cy, dome_r - 0.4, 0.0, 2.0 * M_PI);
-    cairo_stroke (cr);
-
-    /* Small bright catch-light in the upper-left of the dome -- sells
-     * the 3D read even when the LED is off, since real LED windows
-     * always pick up an ambient highlight on the glass.  Clipped to
-     * the dome so it does not bleed onto the bracket. */
-    {
-        const double hl_r = dome_r * 0.55;
-
-        cairo_save (cr);
-        cairo_arc (cr, cx, cy, dome_r, 0.0, 2.0 * M_PI);
-        cairo_clip (cr);
-
-        grad = cairo_pattern_create_radial (cx - dome_r * 0.30,
-                                            cy - dome_r * 0.30,
-                                            0.0,
-                                            cx - dome_r * 0.30,
-                                            cy - dome_r * 0.30,
-                                            hl_r);
-        cairo_pattern_add_color_stop_rgba (grad, 0.0, 1.0, 1.0, 1.0,
-                                           lit ? 0.65 : 0.45);
-        cairo_pattern_add_color_stop_rgba (grad, 1.0, 1.0, 1.0, 1.0, 0.0);
-        cairo_set_source (cr, grad);
-        cairo_arc (cr, cx, cy, dome_r, 0.0, 2.0 * M_PI);
-        cairo_fill (cr);
-        cairo_pattern_destroy (grad);
-
-        cairo_restore (cr);
-    }
-}
-
-static void
-pn_led_paint_header_overlay (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnLed       *self = PN_LED (node);
-    const double r    = PN_LED_DIAMETER * 0.5;
-    const double cx   = x + w - PN_LED_RIGHT_PAD - r;
-    const double cy   = y + h * 0.5;
-
-    paint_led (cr, cx, cy, r, self->lit, &self->color);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Size vfuncs                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -401,6 +213,29 @@ pn_led_get_size (PnNode *node, double *out_w, double *out_h)
     (void) node;
     if (out_w != NULL) *out_w = PN_LED_NODE_WIDTH;
     if (out_h != NULL) *out_h = PN_LED_NODE_HEIGHT;
+}
+
+/* ------------------------------------------------------------------ */
+/*  GUI read seams                                                     */
+/*                                                                     */
+/*  The cairo painter lives in the gui tier (pn-led-gui.c) and cannot  */
+/*  see this file's private instance struct, so it reads the lit flag  */
+/*  and lit colour through these GTK-free accessors.                   */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_led_get_lit (PnLed *self)
+{
+    g_return_val_if_fail (PN_IS_LED (self), FALSE);
+    return self->lit;
+}
+
+void
+pn_led_peek_color (PnLed *self, PnColor *out)
+{
+    g_return_if_fail (PN_IS_LED (self));
+    g_return_if_fail (out != NULL);
+    *out = self->color;
 }
 
 /* ------------------------------------------------------------------ */
@@ -439,8 +274,8 @@ pn_led_set_property (
     {
     case PROP_COLOR:
     {
-        const GdkRGBA *new_color = g_value_get_boxed (value);
-        if (new_color == NULL || gdk_rgba_equal (&self->color, new_color))
+        const PnColor *new_color = g_value_get_boxed (value);
+        if (new_color == NULL || pn_color_equal (&self->color, new_color))
             return;
         self->color = *new_color;
         g_object_notify_by_pspec (object, props[PROP_COLOR]);
@@ -485,61 +320,6 @@ pn_led_set_property (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog: PnNodeClass.build_property_editor override        */
-/*                                                                     */
-/*  Hold (ms) only governs the Flash mode self-extinguish timer; in    */
-/*  Steady mode the lamp follows data.value and the field does         */
-/*  nothing.  Rather than hide it (which would also drop the hint that  */
-/*  it exists), we grey the spin button out whenever the mode is       */
-/*  Steady and re-enable it on Flash, tracking the mode live so the    */
-/*  field dims the instant the user switches the Mode dropdown.         */
-/* ------------------------------------------------------------------ */
-
-static void
-sync_hold_editor_sensitivity (GtkWidget *hold_editor, PnLed *self)
-{
-    gtk_widget_set_sensitive (hold_editor,
-                              self->mode == PN_LED_MODE_FLASH);
-}
-
-static void
-on_mode_notify_sync_hold (
-        GObject    *target,
-        GParamSpec *pspec,
-        gpointer    hold_editor)
-{
-    (void) pspec;
-    sync_hold_editor_sensitivity (GTK_WIDGET (hold_editor), PN_LED (target));
-}
-
-static GtkWidget *
-pn_led_build_property_editor (
-        PnNode     *self,
-        GParamSpec *pspec,
-        GObject    *target,
-        GtkWindow  *parent G_GNUC_UNUSED)
-{
-    if (g_strcmp0 (pspec->name, "hold-ms") == 0)
-    {
-        GtkWidget *editor = pn_node_dialog_default_editor (target, pspec);
-
-        /* Set the initial greyed/enabled state from the node's current
-         * mode, then follow every later mode change.  connect_object
-         * ties the handler's lifetime to the editor widget, so it
-         * auto-disconnects when the dialog (and this row) is destroyed
-         * -- no manual teardown needed. */
-        sync_hold_editor_sensitivity (editor, PN_LED (self));
-        g_signal_connect_object (target, "notify::mode",
-                                 G_CALLBACK (on_mode_notify_sync_hold),
-                                 editor, 0);
-        return editor;
-    }
-
-    /* Every other property uses the host's default editor. */
-    return NULL;
-}
-
-/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -567,11 +347,13 @@ pn_led_class_init (PnLedClass *klass)
     object_class->set_property = pn_led_set_property;
     object_class->finalize     = pn_led_finalize;
 
-    node_class->receive              = pn_led_receive;
-    node_class->get_size             = pn_led_get_size;
-    node_class->paint_header_overlay = pn_led_paint_header_overlay;
-    node_class->paint_right_decoration_width = PN_LED_RESERVED_RIGHT;
-    node_class->build_property_editor = pn_led_build_property_editor;
+    /* Logic + intrinsic geometry stay in the core class.  The cairo
+     * decoration (paint_header_overlay), its reserved label margin
+     * (paint_right_decoration_width) and the settings-dialog editor
+     * (build_property_editor) are installed by the gui tier — see
+     * pn_led_gui_install() in pn-led-gui.c. */
+    node_class->receive  = pn_led_receive;
+    node_class->get_size = pn_led_get_size;
 
     node_class->class_name = "LED";
     /* fa-lightbulb-o U+F0EB -- a glyph that is in the bundled
@@ -586,7 +368,7 @@ pn_led_class_init (PnLedClass *klass)
             "color", "LED colour",
             "Colour the LED face glows in while lit.  The unlit face is "
             "always a neutral grey -- only the lit state uses this colour.",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_HOLD_MS] = g_param_spec_uint (
@@ -620,7 +402,7 @@ pn_led_init (PnLed *self)
 
     /* Default lit colour: a bright green, the canonical "OK / activity"
      * indicator on real-world status panels. */
-    self->color   = (GdkRGBA){ 0.20, 0.85, 0.30, 1.0 };
+    self->color   = (PnColor){ 0.20, 0.85, 0.30, 1.0 };
     self->hold_ms = PN_LED_DEFAULT_HOLD_MS;
     self->mode    = PN_LED_MODE_FLASH;
     self->lit            = FALSE;
@@ -631,8 +413,8 @@ pn_led_init (PnLed *self)
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
     {
-        GdkRGBA body = { 0.40, 0.55, 0.70, 1.0 };
-        pn_node_set_color (node, (const PnColor *)&body);
+        PnColor body = { 0.40, 0.55, 0.70, 1.0 };
+        pn_node_set_color (node, &body);
     }
 }
 

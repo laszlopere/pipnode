@@ -18,6 +18,52 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 4 STARTED — first dual node split: LED (the pattern).** `pn-led.c`
+  is now the GTK-free logic half (GType, properties, `receive`, hold-timer,
+  `get_size`) and lives in `libpipnode-core`. Its colour property migrated
+  `GDK_TYPE_RGBA` → `PN_TYPE_COLOR` (the instance field, get/set, the pspec,
+  and the init default), so the node carries no GDK type at all; the
+  serializer round-trips it through the existing `PN_TYPE_COLOR` branch
+  (`rgb(28,113,216)` in `examples/staircase.json` loads + runs headless
+  unchanged). The cairo drawing (`paint_led`, `paint_header_overlay`), the
+  reserved-label-margin constant (`paint_right_decoration_width`) and the
+  settings-dialog customisation (`build_property_editor` + its hold-field
+  sensitivity tracking) moved to a **new gui-tier `pn-led-gui.c`**. Because
+  the painter can't see the core file's private instance struct, two
+  GTK-free read seams were added to core (`pn_led_get_lit`,
+  `pn_led_peek_color`), matching the existing inspection-seam pattern.
+  - **The install mechanism (the reusable Phase 4 seam):** `pn-led-gui.c`
+    exports `pn_led_gui_install()`, which `g_type_class_ref`s `PN_TYPE_LED`
+    and writes the three gui vfunc/data slots onto the class (keeping the
+    ref for process lifetime, like the factory). A new gui-tier
+    **`pn-gui.c`** holds `pn_gui_install_builtin_nodes()`, which calls each
+    split node's `_gui_install()`; the **editor** calls it once in
+    `src/main.c` after the factory registers the built-ins. `pipnode-run`
+    never calls it, so the LED's logic loads and runs with no GTK and NULL
+    paint/dialog slots. This is the in-tree counterpart of Phase 6's
+    per-plugin `pn_plugin_gui_init()` companion entry point — each
+    remaining dual node adds one `_gui_install()` + one line in `pn-gui.c`.
+  - `lib/Makefile.am`: `pn-led.{c,h}` moved to the core source + core
+    public-header lists; `pn-led-gui.{c,h}` + `pn-gui.{c,h}` added to the
+    gui lists. **Verified:** `nm` shows `pn_led_{new,receive,get_lit,
+    peek_color,get_type}` in `libpipnode-core.so` and
+    `pn_{led_gui_install,gui_install_builtin_nodes}` in `libpipnode-gui.so`;
+    `objdump -p libpipnode-core.so` `DT_NEEDED` stays GTK-free and the core
+    `pn-led.o` carries zero `cairo_`/`gtk_`/`gdk_rgba_` refs.
+  - Regression net green: whole tree builds (exit 0, no warnings from the
+    split), 52/52 C unit tests (incl. `test-pn-led`, whose colour test
+    moved `gdk_rgba_*` → `pn_color_*` for the boxed `PN_TYPE_COLOR` value),
+    the D-Bus dial functional test PASS, `pipnode-run` runs the LED
+    worksheet headless, and the editor draws the LED identically (verified
+    by screenshot: icon + panel-mount disc + reserved label margin).
+  - **Carried debt still present** (retires as more dual nodes split): the
+    `-Wl,--no-as-needed` on `pipnode-run`, the by-name `GdkRGBA` clause in
+    `pn-flow.c`, and the ~44 remaining `GDK_TYPE_RGBA` pspecs in the other
+    22 dual nodes. **Next: batch the remaining cairo-drawing dual nodes**
+    (Switch, Knob, Analog-Meter, then Graph/Dial/Table/Chat/Text-View/
+    Weather-Report) and the dialog-only ones, each following the LED
+    pattern; then Phase 5 (point `pipnode-run` at core only).
+
 - **Phase 3 increment 3.2 DONE — the build is split into two libraries.**
   `lib/Makefile.am` now builds `libpipnode-core.la` (43 sources, the §6
   core tier) and `libpipnode-gui.la` (31 sources, dual + gui tiers,

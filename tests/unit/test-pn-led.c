@@ -83,10 +83,10 @@ test_color_round_trips (void)
     g_object_set (node, "color", &in, NULL);
     g_object_get (node, "color", &out, NULL);
 
-    PN_CHECK (out != NULL && gdk_rgba_equal (out, &in));
+    PN_CHECK (out != NULL && pn_color_equal (out, &in));
 
     if (out != NULL)
-        gdk_rgba_free (out);
+        pn_color_free (out);
     g_object_unref (node);
 }
 
