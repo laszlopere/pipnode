@@ -13,12 +13,25 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnSwitch — logic tier (headless core).                             */
+/*                                                                     */
+/*  This file holds the GTK-free half of the Switch node: the GType,   */
+/*  its property, the receive() latch contract, the startup-announce    */
+/*  one-shot, the subclass vfuncs (apply_visual_state /                 */
+/*  build_outbound_message), get_size, the slider hit-test and the      */
+/*  read seam the GUI tier paints from.  The cairo slider drawing lives */
+/*  in the companion gui-tier file pn-switch-gui.c, which installs the   */
+/*  paint vfunc slots onto this class at editor startup (see            */
+/*  pn_switch_gui_install).  The headless runtime registers and runs    */
+/*  this node without ever pulling GTK.                                 */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
 #include "pn-switch.h"
-#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <json-glib/json-glib.h>
@@ -38,6 +51,10 @@
 /*  mirroring PnLed's right-decoration approach so the standard       */
 /*  Node-RED header (icon panel + centred label) stays untouched and  */
 /*  the input/output ports keep their usual positions on left/right.  */
+/*                                                                     */
+/*  The node's intrinsic size and the slider hit-test geometry live    */
+/*  here (both GTK-free); the cairo painter and its reserved label     */
+/*  margin live with the painter in the gui companion pn-switch-gui.c. */
 /* ------------------------------------------------------------------ */
 
 #define PN_SWITCH_NODE_WIDTH      170.0
@@ -46,8 +63,6 @@
 #define PN_SWITCH_RIGHT_PAD        10.0
 #define PN_SWITCH_TRACK_WIDTH      38.0
 #define PN_SWITCH_TRACK_HEIGHT     20.0
-
-#define PN_SWITCH_RESERVED_RIGHT  (PN_SWITCH_TRACK_WIDTH + PN_SWITCH_RIGHT_PAD + 6.0)
 
 typedef struct
 {
@@ -208,117 +223,6 @@ pn_switch_receive (
     }
 
     pn_node_emit_message (node, message);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Painting                                                           */
-/* ------------------------------------------------------------------ */
-
-/** Trace a horizontal pill (rounded-end rectangle) so the switch
- *  track and thumb share a consistent silhouette. */
-static void
-pill_path (
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    const double r = h * 0.5;
-
-    cairo_new_sub_path (cr);
-    cairo_arc (cr, x + w - r, y + r, r, -G_PI_2,  G_PI_2);
-    cairo_arc (cr, x + r,     y + r, r,  G_PI_2,  3.0 * G_PI_2);
-    cairo_close_path (cr);
-}
-
-/** Paint a slide switch -- a rounded "track" with a circular "thumb"
- *  parked at one end.  On state shows the thumb on the right with a
- *  green track; off state parks the thumb on the left with a dark
- *  grey track.  Painted concentric on (@cx, @cy) with the configured
- *  width / height. */
-static void
-paint_switch (
-        cairo_t *cr,
-        double   cx,
-        double   cy,
-        double   w,
-        double   h,
-        gboolean on)
-{
-    const double tx = cx - w * 0.5;
-    const double ty = cy - h * 0.5;
-    const double thumb_r = h * 0.5 - 2.0;
-    const double thumb_cx = on ? (tx + w - h * 0.5)
-                               : (tx + h * 0.5);
-
-    /* Track fill.  Green when on (canonical "switch engaged"), neutral
-     * dark grey when off so the on-state pops against the surrounding
-     * teal body colour. */
-    pill_path (cr, tx, ty, w, h);
-    if (on)
-        cairo_set_source_rgb (cr, 0.25, 0.72, 0.35);
-    else
-        cairo_set_source_rgb (cr, 0.28, 0.30, 0.32);
-    cairo_fill_preserve (cr);
-
-    /* Track outline -- a thin dark ring so the pill reads as a real
-     * moulded part rather than a flat coloured patch. */
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.55);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-
-    /* Inset highlight on the upper rim sells the chamfered bevel the
-     * surrounding node body uses, so the switch reads as built into
-     * the panel rather than glued on top. */
-    cairo_save (cr);
-    pill_path (cr, tx, ty, w, h);
-    cairo_clip (cr);
-    pill_path (cr, tx + 1.0, ty + 1.0, w - 2.0, h - 2.0);
-    cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.18);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-    cairo_restore (cr);
-
-    /* Thumb -- a near-white disc, lit from the upper-left with a
-     * subtle radial gradient so it reads as a physical knob.  A thin
-     * dark hairline just inside the rim seals it against the track. */
-    {
-        cairo_pattern_t *grad = cairo_pattern_create_radial (
-                thumb_cx - thumb_r * 0.30,
-                cy        - thumb_r * 0.30,
-                thumb_r * 0.10,
-                thumb_cx, cy, thumb_r);
-        cairo_pattern_add_color_stop_rgb (grad, 0.0, 1.00, 1.00, 1.00);
-        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.80, 0.80, 0.82);
-        cairo_set_source (cr, grad);
-        cairo_arc (cr, thumb_cx, cy, thumb_r, 0.0, 2.0 * G_PI);
-        cairo_fill (cr);
-        cairo_pattern_destroy (grad);
-
-        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
-        cairo_set_line_width (cr, 0.8);
-        cairo_arc (cr, thumb_cx, cy, thumb_r - 0.4, 0.0, 2.0 * G_PI);
-        cairo_stroke (cr);
-    }
-}
-
-static void
-pn_switch_paint_header_overlay (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnSwitch    *self = PN_SWITCH (node);
-    const double sw   = PN_SWITCH_TRACK_WIDTH;
-    const double sh   = PN_SWITCH_TRACK_HEIGHT;
-    const double cx   = x + w - PN_SWITCH_RIGHT_PAD - sw * 0.5;
-    const double cy   = y + h * 0.5;
-
-    paint_switch (cr, cx, cy, sw, sh, PRIV (self)->on);
 }
 
 /* ------------------------------------------------------------------ */
@@ -513,10 +417,12 @@ pn_switch_class_init (PnSwitchClass *klass)
     object_class->constructed  = pn_switch_constructed;
     object_class->dispose      = pn_switch_dispose;
 
-    node_class->receive              = pn_switch_receive;
-    node_class->get_size             = pn_switch_get_size;
-    node_class->paint_header_overlay = pn_switch_paint_header_overlay;
-    node_class->paint_right_decoration_width = PN_SWITCH_RESERVED_RIGHT;
+    /* Logic + intrinsic geometry stay in the core class.  The cairo
+     * slider decoration (paint_header_overlay) and its reserved label
+     * margin (paint_right_decoration_width) are installed by the gui
+     * tier — see pn_switch_gui_install() in pn-switch-gui.c. */
+    node_class->receive  = pn_switch_receive;
+    node_class->get_size = pn_switch_get_size;
 
     klass->apply_visual_state     = pn_switch_real_apply_visual_state;
     klass->build_outbound_message = pn_switch_real_build_outbound_message;

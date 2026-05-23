@@ -96,6 +96,8 @@ libpipnode_core_la_SOURCES = \
 	pn-stats.h \
 	pn-subst.c \
 	pn-subst.h \
+	pn-switch.c \
+	pn-switch.h \
 	pn-table-model.c \
 	pn-table-model.h \
 	pn-temp.c \
@@ -194,8 +196,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-set.h \
 	pn-sound.c \
 	pn-sound.h \
-	pn-switch.c \
-	pn-switch.h \
+	pn-switch-gui.c \
+	pn-switch-gui.h \
 	pn-table.c \
 	pn-table.h \
 	pn-table-view.c \
@@ -281,6 +283,7 @@ pipnode_core_headers = \
 	pn-staircase.h \
 	pn-stats.h \
 	pn-subst.h \
+	pn-switch.h \
 	pn-table-model.h \
 	pn-temp.h \
 	pn-threshold.h \
@@ -320,7 +323,7 @@ pipnode_gui_headers = \
 	pn-rewrite.h \
 	pn-set.h \
 	pn-sound.h \
-	pn-switch.h \
+	pn-switch-gui.h \
 	pn-table.h \
 	pn-table-view.h \
 	pn-text-view.h \
