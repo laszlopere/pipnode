@@ -126,6 +126,8 @@ libpipnode_core_la_SOURCES = \
 	pn-watchdog.h \
 	pn-weather.c \
 	pn-weather.h \
+	pn-weather-report.c \
+	pn-weather-report.h \
 	pn-ws.c \
 	pn-ws.h \
 	pn-wire.c \
@@ -220,8 +222,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-text-view-gui.h \
 	pn-tts.c \
 	pn-tts.h \
-	pn-weather-report.c \
-	pn-weather-report.h \
+	pn-weather-report-gui.c \
+	pn-weather-report-gui.h \
 	pn-worksheet.c \
 	pn-worksheet.h
 
@@ -312,6 +314,7 @@ pipnode_core_headers = \
 	pn-var-store.h \
 	pn-watchdog.h \
 	pn-weather.h \
+	pn-weather-report.h \
 	pn-ws.h \
 	pn-wire.h \
 	pn-wire-store.h
@@ -349,7 +352,7 @@ pipnode_gui_headers = \
 	pn-table-view.h \
 	pn-text-view-gui.h \
 	pn-tts.h \
-	pn-weather-report.h \
+	pn-weather-report-gui.h \
 	pn-worksheet.h
 
 pipnodeinclude_HEADERS = $(pipnode_core_headers) $(pipnode_gui_headers)

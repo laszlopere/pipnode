@@ -18,6 +18,61 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 4 continues — Dial, Graph, Table, Chat, Text-View,
+  Weather-Report split (10 of 23 dual nodes done).** Six more cairo-drawing
+  dual nodes split the established way: the GTK-free logic half (GType,
+  properties, `receive` + parsers + accumulation/state, timers/throttles,
+  `get_size`, the read-only inspection seams) stays in `libpipnode-core`;
+  the cairo/Pango (and, for Graph, PLplot) drawing + any settings dialog
+  moves to a new gui-tier `pn-<name>-gui.c` exporting
+  `pn_<name>_gui_install()`, wired into `pn_gui_install_builtin_nodes()`.
+  - **Dial (4.5):** 7 colour pspecs → `PnColor`; painter + 4-tab dialog →
+    gui behind a single `pn_dial_get_paint_state` snapshot (the
+    `clock_to_cairo`/`value_to_angle`/tick helpers moved with it). The
+    damped-spring needle animation + 30 Hz throttle stay core; the D-Bus
+    dial test still PASSes against the gui-installed six-tab dialog.
+  - **Graph (4.6):** 3 colour pspecs → `PnColor`; **all PLplot is gui-tier
+    only.** The per-topic series ring structs + `PN_GRAPH_MAX_BINS/SAMPLES`
+    are published in the header (plain data) so the painter walks the same
+    rings; a scalar snapshot + `pn_graph_collect_series_sorted` /
+    `pn_graph_resolution_seconds` / `pn_graph_bin_width_us` are the
+    data-access seam. The per-instance PLplot stream is now owned entirely
+    by the gui tier (lazy `plmkstrm` on first paint, torn down via a
+    GObject-data destroy-notify), so the core never calls PLplot. Series
+    fan-out, the `PN_GRAPH_MAX_SERIES` cap and `pn_graph_get_series_count`
+    stay core.
+  - **Table (4.7):** only `pn-table.c` split (model already core, view
+    already gui; no held GtkWidget so the cut is clean). 5 colour pspecs →
+    `PnColor`; `PnTableColumn`/`PnTableRow` published; row/`#limit`
+    accumulation + `pn_table_get_row_count` + the `scroll` vfunc (just an
+    int) stay core; painter → gui, with scroll clamping crossing back via
+    `pn_table_clamp_scroll_offset`.
+  - **Chat (4.8):** 6 colour pspecs → `PnColor`; self-loop suppression +
+    bubble accumulation + focus flag + caret-blink timer + submit +
+    `pn_chat_get_bubble_count` stay core. The one genuinely GDK-needing
+    piece — `pn_chat_handle_key_press` (reads keyvals) — moved to gui, and
+    the draft mutation it does is now GTK-free core primitives
+    (`pn_chat_draft_insert/backspace/delete`, `pn_chat_caret_*`) the gui
+    handler dispatches into; painter + bubble struct → gui/header.
+  - **Text-View (4.9):** 2 colour pspecs → `PnColor`; line-split snapshot
+    + passthrough re-emit + `scroll` vfunc stay core; painter → gui, scroll
+    clamping via `pn_text_view_clamp_scroll_offset`.
+  - **Weather-Report (4.10):** 4 colour pspecs → `PnColor`; the unit +
+    gradient enum typedefs published in the header (GType registrations
+    stay core); `receive` + data snapshot + header-glyph mirroring +
+    `condition_glyph` + clock tick stay core; the whole card painter + its
+    unit converters / JSON readers (duplicated as painter-local statics) →
+    gui behind `pn_weather_report_get_paint_state` + `pn_weather_report_peek_data`.
+  - **Verified per node:** whole tree builds clean (exit 0, no new
+    warnings), 52/52 C unit tests, the D-Bus dial test PASS, the core `.so`
+    `DT_NEEDED` stays GTK-free and each core `pn-<name>.o` carries zero
+    `cairo_`/`gtk_`/`gdk_rgba_`/`pango_`/`pl` (plplot) refs.
+  - **Carried debt still stands** (retires as the rest split): the
+    `-Wl,--no-as-needed` on `pipnode-run`, the by-name `GdkRGBA` clause in
+    `pn-flow.c`, and the `GDK_TYPE_RGBA` pspecs in the remaining ~13
+    dialog-only / display dual nodes. **Next:** the dialog-only dual nodes,
+    then Phase 5 (point `pipnode-run` at core only).
+
 - **Phase 4 continues — Switch, Knob, Analog-Meter split (4 of 23 dual
   nodes done, counting LED).** Each followed the LED pattern exactly: the
   GTK-free logic half (GType, properties, `receive`/source-emit +
