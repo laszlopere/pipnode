@@ -18,6 +18,33 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 3 STARTED — increment 3.1: core serializer + factory de-GTK'd
+  (prereq for the library split).** Splitting `lib/` into a GTK-free core
+  needs the two core files that still pulled GTK to stop:
+  - `pn-flow.c` (the serializer — must be core) dropped `#include
+    <gtk/gtk.h>`. Its two `GDK_TYPE_RGBA` (de)serialise branches — there
+    for the dual nodes' not-yet-migrated colour properties — folded into
+    the existing `PN_TYPE_COLOR` branches, resolving the legacy boxed type
+    by name (`g_type_from_name("GdkRGBA")`) and reading its value through a
+    `PnColor *` (layout-identical; `pn_color_*()` byte-compatible with
+    `gdk_rgba_*()`). Verified: a Dial `needle-color` round-trips through
+    `save`/`load_from_file` to the identical on-disk `"rgb(51,102,153)"`
+    and back. This pulls only the *serializer's* slice of Phase 4 forward;
+    the bulk pspec migration (`GDK_TYPE_RGBA`→`PN_TYPE_COLOR`, ~45 specs)
+    stays in Phase 4, where the allocator-safe `g_object_get` free sites
+    move with the dual-node split. The by-name clause becomes dead then.
+  - `pn-node-factory.c` (core registry) dropped `#include
+    "pn-preferences.h"` (a GTK-pulling GUI header) — it only needed the
+    plugin-disabled check; forward-declared the opaque `PnPreferences` +
+    its two functions, which resolve from the gui lib at link (both libs
+    link into the binaries). Phase 5/6 replaces this with a core plugin-
+    policy seam. `pn-node-factory.o` and `pn-flow.o` now carry zero
+    `gtk_`/`gdk_rgba_` refs. Tree builds (still single lib), 52/52 unit
+    tests + the D-Bus dial test green. **Next: increment 3.2 — the actual
+    two-library split (configure.ac core/gui deps, `lib/Makefile.am` two
+    libraries, pkg-config split, relink).** D1 refined: `gdk-pixbuf` is an
+    allowed core dep (see §6 decision 1).
+
 - **Phase 2 DONE — tier boundary re-measured (see §6 table).** A direct-
   call scan (`gtk_`/`gdk_`/`cairo_`/`pango_`/`webkit_`/`gtk_source_`
   tokens, not transitive includes) cross-checked against each file's flow
@@ -561,16 +588,17 @@ not a node).
 
 ### Open decisions for the Phase 2 review gate
 
-1. **`gdk-pixbuf` in core?** `PnImageMessage` carries a `GdkPixbuf *`.
-   `gdk-pixbuf-2.0` pulls no GTK/GDK widget code but is still a graphics
-   library, so strict D1 ("zero graphics") is ambiguous here. Options:
-   (a) permit `gdk-pixbuf` in core (it's how image messages flow between
-   logic nodes headlessly); (b) carry the pixels as an opaque ref +
-   `(width,height,stride,format)` and decode only in the gui tier;
-   (c) move `pn-image-message` to gui (loses headless image flow — likely
-   wrong). **Recommend (a)** — pragmatic, keeps image nodes headless-
-   loadable, and `gdk-pixbuf` has no toolkit footprint. Decide before
-   Phase 3 wires the core dep set.
+1. **`gdk-pixbuf` in core? — DECIDED: YES (option a).** `PnImageMessage`
+   carries a `GdkPixbuf *`. `gdk-pixbuf-2.0` pulls no GTK/GDK widget code
+   but is still a graphics library, so strict D1 ("zero graphics") was
+   ambiguous. Resolved 2026-05-23 (Laszlo): **core may link `gdk-pixbuf`**
+   — it's how image messages flow between logic nodes headlessly, and it
+   has no toolkit footprint. D1 is hereby refined to "no GTK/GDK widget
+   toolkit, cairo, pango, webkit, gtksourceview, plplot"; `gdk-pixbuf` is
+   an allowed core image-data dep. The core dep set is therefore: glib,
+   gobject, json-glib, libsoup, **gdk-pixbuf-2.0**. (Rejected: (b) opaque
+   pixel ref — needless churn; (c) move to gui — loses headless image
+   flow.)
 2. **Display-only dual nodes** (`filedrop`, `file-viewer`): confirm the
    agreed shape is "core registers the GType + props so headless load
    succeeds; all visuals in gui." (Assumed above.)

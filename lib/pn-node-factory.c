@@ -19,10 +19,21 @@
 
 #include "pn-node-factory.h"
 #include "pn-plugin.h"
-#include "pn-preferences.h"
 
 #include <gmodule.h>
 #include <string.h>
+
+/* Headless split (TODO #23): PnPreferences lives in the GTK GUI tier and
+ * its header pulls <gtk/gtk.h>, but the core factory only needs to ask
+ * whether the user disabled a plugin.  Forward-declare just that slice so
+ * this translation unit stays GTK-free; the symbols resolve from the gui
+ * library at link time (both libraries are linked into the binaries).
+ * Phase 5/6 replaces this with a core-side plugin-policy seam so a
+ * headless-only build needs no GUI symbols at all. */
+typedef struct _PnPreferences PnPreferences;
+PnPreferences *pn_preferences_get_default       (void);
+gboolean       pn_preferences_is_plugin_disabled (PnPreferences *self,
+                                                  const gchar   *basename);
 
 #include "pn-ambient.h"
 #include "pn-analog-meter.h"

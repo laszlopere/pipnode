@@ -28,12 +28,23 @@
 
 #include <json-glib/json-glib.h>
 
-/* TEMPORARY (headless split, TODO #23): the base node "color" property is
- * now PN_TYPE_COLOR and (de)serialises GTK-free via pn_color_*().  The
- * dual-nature visual nodes still declare their own GDK_TYPE_RGBA colour
- * properties, so the serializer keeps a GdkRGBA fallback branch and this
- * GTK include until those move to PnColor in the Phase 4 node split. */
-#include <gtk/gtk.h>
+/* Headless split (TODO #23): the serializer is GTK-free.  The base node
+ * "color" property is PN_TYPE_COLOR and (de)serialises via pn_color_*().
+ * The dual-nature visual nodes still register some of their own colour
+ * properties as GdkRGBA (they migrate to PN_TYPE_COLOR in the Phase 4
+ * node split); rather than pull <gtk/gtk.h> into the core serializer for
+ * those, we resolve the GdkRGBA boxed GType *by name* and treat its value
+ * as a PnColor.  PnColor is layout-identical to GdkRGBA and pn_color_*()
+ * is byte-compatible with gdk_rgba_*() (proven by the G_STATIC_ASSERTs and
+ * cross-checks in tests/unit/test-pn-color.c), so the on-disk form is
+ * unchanged.  When Phase 4 finishes, this lookup becomes dead and can go. */
+static GType
+pn_flow_legacy_rgba_type (void)
+{
+    /* 0 until GTK has registered GdkRGBA; a real GValue's type is never 0,
+     * so the "type == legacy_rgba" tests below simply never match then. */
+    return g_type_from_name ("GdkRGBA");
+}
 
 /* ------------------------------------------------------------------ */
 /*  PnFlow                                                             */
@@ -684,28 +695,14 @@ gvalue_to_json (const GValue *value)
         return out;
     }
 
-    if (type == PN_TYPE_COLOR)
+    if (type == PN_TYPE_COLOR || type == pn_flow_legacy_rgba_type ())
     {
+        /* Legacy GdkRGBA values are read through a PnColor* — same layout. */
         const PnColor *c = g_value_get_boxed (value);
         out = json_node_new (JSON_NODE_VALUE);
         if (c != NULL)
         {
             gchar *s = pn_color_to_string (c);
-            json_node_set_string (out, s);
-            g_free (s);
-        }
-        else
-            json_node_set_string (out, "");
-        return out;
-    }
-
-    if (type == GDK_TYPE_RGBA)
-    {
-        const GdkRGBA *rgba = g_value_get_boxed (value);
-        out = json_node_new (JSON_NODE_VALUE);
-        if (rgba != NULL)
-        {
-            gchar *s = gdk_rgba_to_string (rgba);
             json_node_set_string (out, s);
             g_free (s);
         }
@@ -800,7 +797,7 @@ json_to_gvalue (
         return TRUE;
     }
 
-    if (type == PN_TYPE_COLOR)
+    if (type == PN_TYPE_COLOR || type == pn_flow_legacy_rgba_type ())
     {
         PnColor c;
 
@@ -811,22 +808,9 @@ json_to_gvalue (
         if (!pn_color_parse (&c, json_node_get_string (json)))
             return FALSE;
 
+        /* For a GdkRGBA out_value the boxed copy goes through gdk_rgba_copy,
+         * which reads our PnColor bytes verbatim — layouts match. */
         g_value_set_boxed (out_value, &c);
-        return TRUE;
-    }
-
-    if (type == GDK_TYPE_RGBA)
-    {
-        GdkRGBA rgba;
-
-        if (!JSON_NODE_HOLDS_VALUE (json) ||
-            json_node_get_value_type (json) != G_TYPE_STRING)
-            return FALSE;
-
-        if (!gdk_rgba_parse (&rgba, json_node_get_string (json)))
-            return FALSE;
-
-        g_value_set_boxed (out_value, &rgba);
         return TRUE;
     }
 
