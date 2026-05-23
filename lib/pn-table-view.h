@@ -48,6 +48,62 @@ G_DECLARE_FINAL_TYPE (PnTableView, pn_table_view, PN, TABLE_VIEW, PnNode)
 
 PnTableView *pn_table_view_new (void);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The cairo painter lives in the gui-tier file pn-table-view-gui.c,   */
+/*  but it has to read the same parsed snapshot that receive() fills in  */
+/*  the core file.  That snapshot is plain data (no GTK), so the structs */
+/*  and the data-access accessors are published here.  The pointers      */
+/*  handed back are owned by the node and valid for the duration of one  */
+/*  paint call.                                                          */
+/* ------------------------------------------------------------------ */
+
+/* One row's stringified cells, stamped at receive time. */
+typedef struct
+{
+    gchar **cells;     /* cells[i] for column i; owned by the node */
+    guint   n_cells;
+} PnTableViewRow;
+
+/* Scalar drawing configuration, snapshotted by value for one paint.
+ * The colours are #PnColor (layout-identical to GdkRGBA). */
+typedef struct
+{
+    PnColor  background_color;
+    PnColor  header_background_color;
+    PnColor  grid_color;
+    PnColor  text_color;
+    PnColor  header_text_color;
+    gboolean alternate_row_background;
+    guint    n_cols;            /* max cells across header + rows */
+} PnTableViewPaintState;
+
+/**
+ * pn_table_view_get_paint_state:
+ * @self: table-view instance
+ * @out:  (out): caller-provided snapshot filled with the current scalar
+ *        drawing configuration.
+ */
+void pn_table_view_get_paint_state (PnTableView           *self,
+                                    PnTableViewPaintState *out);
+
+/* The latest header cells (borrowed): the array and its length via
+ * @n_out.  Returns %NULL / 0 when the most recent message carried no
+ * header object. */
+const gchar * const *pn_table_view_peek_header (PnTableView *self,
+                                                guint       *n_out);
+
+/* The live row buffer (borrowed): a #GPtrArray of #PnTableViewRow*. */
+GPtrArray *pn_table_view_peek_rows (PnTableView *self);
+
+/* Scroll bookkeeping.  The painter is the only place that knows the live
+ * row height / visible-row count, so it computes the maximum offset and
+ * asks the core to clamp the stored value into [0, max] before reading
+ * it back.  Both are GTK-free (they only touch an int). */
+int  pn_table_view_get_scroll_offset   (PnTableView *self);
+void pn_table_view_clamp_scroll_offset (PnTableView *self, int max_offset);
+
 G_END_DECLS
 
 #endif /* PN_TABLE_VIEW_H */

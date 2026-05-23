@@ -39,6 +39,7 @@
 #include "pn-sound-gui.h"
 #include "pn-switch-gui.h"
 #include "pn-table-gui.h"
+#include "pn-table-view-gui.h"
 #include "pn-text-view-gui.h"
 #include "pn-tts-gui.h"
 #include "pn-weather-report-gui.h"
@@ -69,6 +70,7 @@ pn_gui_install_builtin_nodes (void)
     pn_sound_gui_install ();
     pn_switch_gui_install ();
     pn_table_gui_install ();
+    pn_table_view_gui_install ();
     pn_text_view_gui_install ();
     pn_tts_gui_install ();
     pn_weather_report_gui_install ();

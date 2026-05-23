@@ -136,6 +136,8 @@ libpipnode_core_la_SOURCES = \
 	pn-table-model.h \
 	pn-table.c \
 	pn-table.h \
+	pn-table-view.c \
+	pn-table-view.h \
 	pn-temp.c \
 	pn-temp.h \
 	pn-text-view.c \
@@ -242,8 +244,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-switch-gui.h \
 	pn-table-gui.c \
 	pn-table-gui.h \
-	pn-table-view.c \
-	pn-table-view.h \
+	pn-table-view-gui.c \
+	pn-table-view-gui.h \
 	pn-text-view-gui.c \
 	pn-text-view-gui.h \
 	pn-tts-gui.c \
@@ -345,6 +347,7 @@ pipnode_core_headers = \
 	pn-switch.h \
 	pn-table-model.h \
 	pn-table.h \
+	pn-table-view.h \
 	pn-temp.h \
 	pn-text-view.h \
 	pn-threshold.h \
@@ -388,7 +391,7 @@ pipnode_gui_headers = \
 	pn-sound-gui.h \
 	pn-switch-gui.h \
 	pn-table-gui.h \
-	pn-table-view.h \
+	pn-table-view-gui.h \
 	pn-text-view-gui.h \
 	pn-tts-gui.h \
 	pn-weather-report-gui.h \
