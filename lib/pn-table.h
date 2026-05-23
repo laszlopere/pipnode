@@ -50,6 +50,67 @@ PnTable *pn_table_new (void);
  * trimming through this accessor. */
 guint    pn_table_get_row_count (PnTable *self);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The cairo table painter lives in the gui-tier file pn-table-gui.c,  */
+/*  but it has to read the same parsed column spec and row buffer that  */
+/*  receive() fills in the core file.  Those are plain data (no GTK),   */
+/*  so the structs and the data-access accessors are published here.    */
+/*  The pointers handed back are owned by the node and valid for the    */
+/*  duration of one paint call.                                         */
+/* ------------------------------------------------------------------ */
+
+/* One parsed column: header label + the JSON pointer its cells read. */
+typedef struct
+{
+    gchar *title;
+    gchar *path;
+} PnTableColumn;
+
+/* One buffered row: the stringified cells stamped at receive time. */
+typedef struct
+{
+    gint64   received_us;
+    gchar  **values;        /* values[i] for column i */
+    guint    n_values;
+} PnTableRow;
+
+/* Scalar drawing configuration, snapshotted by value for one paint.
+ * The colours are #PnColor (layout-identical to GdkRGBA). */
+typedef struct
+{
+    PnColor  background_color;
+    PnColor  header_background_color;
+    PnColor  grid_color;
+    PnColor  text_color;
+    PnColor  header_text_color;
+    gboolean alternate_row_background;
+} PnTablePaintState;
+
+/**
+ * pn_table_get_paint_state:
+ * @self: table instance
+ * @out:  (out): caller-provided snapshot filled with the current scalar
+ *        drawing configuration.
+ */
+void pn_table_get_paint_state (PnTable *self, PnTablePaintState *out);
+
+/* Parsed column spec (borrowed): the array of #PnTableColumn and its
+ * length.  @n_out receives the count. */
+const PnTableColumn *pn_table_peek_columns (PnTable *self, guint *n_out);
+
+/* The live row buffer (borrowed): a #GQueue of #PnTableRow*, newest at
+ * the head. */
+GQueue *pn_table_peek_rows (PnTable *self);
+
+/* Scroll bookkeeping.  The painter is the only place that knows the live
+ * row height / visible-row count, so it computes the maximum offset and
+ * asks the core to clamp the stored value into [0, max] before reading
+ * it back.  Both are GTK-free (they only touch an int). */
+int  pn_table_get_scroll_offset    (PnTable *self);
+void pn_table_clamp_scroll_offset  (PnTable *self, int max_offset);
+
 G_END_DECLS
 
 #endif /* PN_TABLE_H */

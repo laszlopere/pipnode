@@ -25,6 +25,7 @@
 #include "pn-knob-gui.h"
 #include "pn-led-gui.h"
 #include "pn-switch-gui.h"
+#include "pn-table-gui.h"
 
 void
 pn_gui_install_builtin_nodes (void)
@@ -38,4 +39,5 @@ pn_gui_install_builtin_nodes (void)
     pn_knob_gui_install ();
     pn_led_gui_install ();
     pn_switch_gui_install ();
+    pn_table_gui_install ();
 }

@@ -18,7 +18,6 @@
 #endif
 
 #include "pn-table.h"
-#include <gtk/gtk.h>
 #include "pn-json-path.h"
 #include "pn-message.h"
 
@@ -60,25 +59,10 @@
 #define PN_TABLE_ROW_HEIGHT_PX  18.0
 #define PN_TABLE_FONT_PX        12.0
 
-/* ------------------------------------------------------------------ */
-/*  Per-column / per-row state                                         */
-/* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    gchar *title;   /* header label, owned */
-    gchar *path;    /* argument for pn_json_resolve_path, owned */
-} PnTableColumn;
-
-typedef struct
-{
-    gint64   received_us;   /* arrival timestamp, kept for future use */
-    gchar  **values;        /* stringified cells; values[i] for col i */
-    guint    n_values;      /* matches the parsed column count at the
-                             * time of receive; if the user edits the
-                             * spec later, historical rows keep the
-                             * widths they were stamped with */
-} PnTableRow;
+/* PnTableColumn and PnTableRow are published in pn-table.h: they are
+ * plain data (no GTK) and the gui-tier painter has to read the same
+ * parsed columns + row buffer receive() fills, so the structs cross the
+ * tier boundary through the public header. */
 
 struct _PnTable
 {
@@ -87,11 +71,11 @@ struct _PnTable
     /* User-facing properties. */
     gchar   *columns;
     guint    limit;
-    GdkRGBA  background_color;
-    GdkRGBA  header_background_color;
-    GdkRGBA  grid_color;
-    GdkRGBA  text_color;
-    GdkRGBA  header_text_color;
+    PnColor  background_color;
+    PnColor  header_background_color;
+    PnColor  grid_color;
+    PnColor  text_color;
+    PnColor  header_text_color;
     gboolean alternate_row_background;
 
     /* Parsed-spec cache, derived from #columns. */
@@ -399,241 +383,6 @@ pn_table_receive (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                           */
-/* ------------------------------------------------------------------ */
-
-/** Truncate @str in place (mutating its tail) until the
- *  cairo_text_extents width fits within @max_w.  Falls back to an
- *  empty string when even a single ellipsis doesn't fit, so an
- *  ultra-narrow column never produces text spilling into its
- *  neighbour. */
-static void
-fit_text_with_ellipsis (
-        cairo_t *cr,
-        gchar   *str,
-        double   max_w)
-{
-    cairo_text_extents_t ext;
-    gsize                len;
-
-    if (str == NULL || *str == '\0')
-        return;
-
-    cairo_text_extents (cr, str, &ext);
-    if (ext.width <= max_w)
-        return;
-
-    /* Binary search-ish: chop one UTF-8 character at a time off the
-     * tail until the truncated string with a trailing '…' fits.  The
-     * UTF-8 walk avoids cutting in the middle of a multi-byte
-     * sequence. */
-    len = strlen (str);
-    while (len > 0)
-    {
-        gchar buf[256];
-        gsize copy = (len < sizeof buf - 4) ? len : (sizeof buf - 4);
-        memcpy (buf, str, copy);
-        buf[copy]     = '\xe2';  /* '…' = 0xE2 0x80 0xA6 */
-        buf[copy + 1] = '\x80';
-        buf[copy + 2] = '\xa6';
-        buf[copy + 3] = '\0';
-
-        cairo_text_extents (cr, buf, &ext);
-        if (ext.width <= max_w)
-        {
-            memcpy (str, buf, copy + 3);
-            str[copy + 3] = '\0';
-            return;
-        }
-
-        /* Step back over one (possibly multi-byte) UTF-8 char. */
-        do {
-            len--;
-        } while (len > 0 && (((unsigned char) str[len]) & 0xC0) == 0x80);
-    }
-
-    str[0] = '\0';
-}
-
-static void
-pn_table_paint_plot (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnTable     *self = PN_TABLE (node);
-    const double scale = MIN (1.0, (w / PN_TABLE_WIDTH) * 0.6 + 0.4);
-    /* Scale plays gently with overlay size:
-     *   w == 280   → scale ≈ 1.00
-     *   w == 560   → scale ≈ 1.00 (capped)
-     * Overlay grows the row count, not the type. */
-    const double font_px      = PN_TABLE_FONT_PX        * scale;
-    const double row_h        = PN_TABLE_ROW_HEIGHT_PX  * scale;
-    const double header_h     = PN_TABLE_HEADER_BAND_PX * scale;
-    const double inset        = PN_TABLE_INSET;
-    const double inner_x      = x + inset;
-    const double inner_w      = w - 2 * inset;
-    const guint  queue_len    = g_queue_get_length (self->rows);
-    int          visible_rows;
-    int          max_offset;
-    guint        i;
-    GList       *iter;
-    int          shown;
-    double       col_w;
-
-    /* Background + frame. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->background_color);
-    cairo_fill_preserve (cr);
-    gdk_cairo_set_source_rgba (cr, &self->grid_color);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-    cairo_restore (cr);
-
-    /* Clip to the rectangle so an unexpectedly long header label can
-     * never spill onto adjacent nodes. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    cairo_clip (cr);
-
-    /* No columns?  The empty rectangle plus a hint at the top is more
-     * helpful than a blank canvas. */
-    if (self->n_cols == 0)
-    {
-        cairo_select_font_face (cr, "sans-serif",
-                                CAIRO_FONT_SLANT_ITALIC,
-                                CAIRO_FONT_WEIGHT_NORMAL);
-        cairo_set_font_size (cr, font_px);
-        gdk_cairo_set_source_rgba (cr, &self->grid_color);
-        cairo_move_to (cr, x + inset, y + font_px + 6.0);
-        cairo_show_text (cr, "no columns configured");
-        cairo_restore (cr);
-        return;
-    }
-
-    col_w = inner_w / (double) self->n_cols;
-
-    /* Header band: solid fill + bold titles + 1 px underline. */
-    cairo_set_source_rgba (cr,
-                           self->header_background_color.red,
-                           self->header_background_color.green,
-                           self->header_background_color.blue,
-                           self->header_background_color.alpha);
-    cairo_rectangle (cr, x, y, w, header_h);
-    cairo_fill (cr);
-
-    cairo_select_font_face (cr, "sans-serif",
-                            CAIRO_FONT_SLANT_NORMAL,
-                            CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size (cr, font_px);
-    gdk_cairo_set_source_rgba (cr, &self->header_text_color);
-
-    for (i = 0; i < self->n_cols; i++)
-    {
-        const double cx = inner_x + i * col_w;
-        gchar       *t  = g_strdup (self->cols[i].title != NULL
-                                        ? self->cols[i].title
-                                        : "");
-        fit_text_with_ellipsis (cr, t, col_w - 6.0);
-        cairo_move_to (cr, cx + 2.0, y + header_h * 0.7);
-        cairo_show_text (cr, t);
-        g_free (t);
-    }
-
-    /* Underline below the header band. */
-    gdk_cairo_set_source_rgba (cr, &self->grid_color);
-    cairo_set_line_width (cr, 1.0);
-    cairo_move_to (cr, x,     y + header_h);
-    cairo_line_to (cr, x + w, y + header_h);
-    cairo_stroke (cr);
-
-    /* Body row count.  Floor so the last row is fully visible. */
-    visible_rows = (int) floor ((h - header_h) / row_h);
-    if (visible_rows < 0) visible_rows = 0;
-
-    max_offset = (int) queue_len - visible_rows;
-    if (max_offset < 0) max_offset = 0;
-    if (self->scroll_offset > max_offset) self->scroll_offset = max_offset;
-    if (self->scroll_offset < 0)          self->scroll_offset = 0;
-
-    /* Body rows. */
-    cairo_select_font_face (cr, "sans-serif",
-                            CAIRO_FONT_SLANT_NORMAL,
-                            CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size (cr, font_px);
-
-    iter  = g_queue_peek_head_link (self->rows);
-    /* Skip past the scroll offset.  The list is borrowed; iter advances
-     * through the same nodes the queue owns. */
-    for (i = 0; iter != NULL && (int) i < self->scroll_offset; i++)
-        iter = iter->next;
-
-    shown = 0;
-    while (iter != NULL && shown < visible_rows)
-    {
-        PnTableRow  *row    = iter->data;
-        const double row_y  = y + header_h + shown * row_h;
-        guint        ci;
-
-        /* Alternating row background — drawn before the text so it
-         * doesn't paint over the cell glyphs. */
-        if (self->alternate_row_background && (shown & 1) == 1)
-        {
-            cairo_set_source_rgba (cr,
-                                   self->header_background_color.red,
-                                   self->header_background_color.green,
-                                   self->header_background_color.blue,
-                                   self->header_background_color.alpha * 0.30);
-            cairo_rectangle (cr, x, row_y, w, row_h);
-            cairo_fill (cr);
-        }
-
-        gdk_cairo_set_source_rgba (cr, &self->text_color);
-
-        for (ci = 0; ci < self->n_cols; ci++)
-        {
-            const double cx = inner_x + ci * col_w;
-            gchar       *t;
-
-            /* Older rows that were stamped before a column-spec
-             * change won't have a value at this index — show the
-             * em-dash placeholder so the misalignment reads as a
-             * deliberate "no data here" rather than as a bug. */
-            if (ci < row->n_values && row->values[ci] != NULL)
-                t = g_strdup (row->values[ci]);
-            else
-                t = g_strdup ("\xe2\x80\x94");
-
-            fit_text_with_ellipsis (cr, t, col_w - 6.0);
-            cairo_move_to (cr, cx + 2.0, row_y + row_h * 0.72);
-            cairo_show_text (cr, t);
-            g_free (t);
-        }
-
-        iter = iter->next;
-        shown++;
-    }
-
-    /* Vertical column separators, painted last so they sit on top of
-     * the alternating-row backgrounds. */
-    gdk_cairo_set_source_rgba (cr, &self->grid_color);
-    cairo_set_line_width (cr, 1.0);
-    for (i = 1; i < self->n_cols; i++)
-    {
-        const double sx = inner_x + i * col_w;
-        cairo_move_to (cr, sx, y);
-        cairo_line_to (cr, sx, y + h);
-        cairo_stroke (cr);
-    }
-
-    cairo_restore (cr);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Scroll                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -656,6 +405,62 @@ pn_table_scroll (PnNode *node, double dy)
         self->scroll_offset = 0;
 
     pn_node_request_repaint (PN_NODE (self));
+}
+
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The gui-tier cairo painter (pn-table-gui.c) reads the scalar        */
+/*  drawing config through a snapshot and the parsed columns + row      */
+/*  buffer through borrowed-pointer accessors.  Scroll clamping crosses */
+/*  back the other way: the painter knows the live extents, so it asks  */
+/*  the core to pin the stored offset before reading it.                */
+/* ------------------------------------------------------------------ */
+
+void
+pn_table_get_paint_state (PnTable *self, PnTablePaintState *out)
+{
+    g_return_if_fail (PN_IS_TABLE (self));
+    g_return_if_fail (out != NULL);
+
+    out->background_color         = self->background_color;
+    out->header_background_color  = self->header_background_color;
+    out->grid_color               = self->grid_color;
+    out->text_color               = self->text_color;
+    out->header_text_color        = self->header_text_color;
+    out->alternate_row_background = self->alternate_row_background;
+}
+
+const PnTableColumn *
+pn_table_peek_columns (PnTable *self, guint *n_out)
+{
+    g_return_val_if_fail (PN_IS_TABLE (self), NULL);
+    if (n_out != NULL)
+        *n_out = self->n_cols;
+    return self->cols;
+}
+
+GQueue *
+pn_table_peek_rows (PnTable *self)
+{
+    g_return_val_if_fail (PN_IS_TABLE (self), NULL);
+    return self->rows;
+}
+
+int
+pn_table_get_scroll_offset (PnTable *self)
+{
+    g_return_val_if_fail (PN_IS_TABLE (self), 0);
+    return self->scroll_offset;
+}
+
+void
+pn_table_clamp_scroll_offset (PnTable *self, int max_offset)
+{
+    g_return_if_fail (PN_IS_TABLE (self));
+    if (max_offset < 0) max_offset = 0;
+    if (self->scroll_offset > max_offset) self->scroll_offset = max_offset;
+    if (self->scroll_offset < 0)          self->scroll_offset = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -756,35 +561,35 @@ pn_table_set_property (
     }
     case PROP_BACKGROUND_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->background_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_HEADER_BACKGROUND_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->header_background_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_GRID_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->grid_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_TEXT_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->text_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_HEADER_TEXT_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->header_text_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
@@ -841,8 +646,11 @@ pn_table_class_init (PnTableClass *klass)
     node_class->receive           = pn_table_receive;
     node_class->get_size          = pn_table_get_size;
     node_class->get_header_height = pn_table_get_header_height;
-    node_class->paint_plot        = pn_table_paint_plot;
     node_class->scroll            = pn_table_scroll;
+    /* The cairo table painter (paint_plot) is installed onto this class
+     * by the gui tier — pn_table_gui_install() in pn-table-gui.c — so the
+     * headless core carries no GTK/cairo.  The scroll vfunc stays here:
+     * it only nudges an int. */
 
     node_class->class_name        = "Table";
     node_class->icon              = "\xef\x83\x8e";  /* fa-table U+F0CE */
@@ -871,33 +679,33 @@ pn_table_class_init (PnTableClass *klass)
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
             "background-color", "Background colour",
             "Fill colour of the table rectangle behind the rows",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_HEADER_BACKGROUND_COLOR] = g_param_spec_boxed (
             "header-background-color", "Header background colour",
             "Fill colour of the header band (and, at 30%% alpha, the "
             "alternating-row stripe when that option is enabled)",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_GRID_COLOR] = g_param_spec_boxed (
             "grid-color", "Grid colour",
             "Colour of the frame, the column separators, and the "
             "header underline",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_TEXT_COLOR] = g_param_spec_boxed (
             "text-color", "Text colour",
             "Colour of the body cell text",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_HEADER_TEXT_COLOR] = g_param_spec_boxed (
             "header-text-color", "Header text colour",
             "Colour of the bold column titles in the header band",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_ALTERNATE_ROW_BACKGROUND] = g_param_spec_boolean (
@@ -914,16 +722,16 @@ static void
 pn_table_init (PnTable *self)
 {
     PnNode  *node      = PN_NODE (self);
-    GdkRGBA  cyan      = { 0.27, 0.71, 0.85, 1.0 };
+    PnColor  cyan      = { 0.27, 0.71, 0.85, 1.0 };
 
     self->columns = g_strdup ("topic:topic,id:id");
     self->limit   = 200;
 
-    self->background_color        = (GdkRGBA) { 1.0, 1.0, 1.0, 1.0 };
-    self->header_background_color = (GdkRGBA) { 0.92, 0.92, 0.92, 1.0 };
-    self->grid_color              = (GdkRGBA) { 0.55, 0.55, 0.55, 1.0 };
-    self->text_color              = (GdkRGBA) { 0.10, 0.10, 0.10, 1.0 };
-    self->header_text_color       = (GdkRGBA) { 0.10, 0.10, 0.10, 1.0 };
+    self->background_color        = (PnColor) { 1.0, 1.0, 1.0, 1.0 };
+    self->header_background_color = (PnColor) { 0.92, 0.92, 0.92, 1.0 };
+    self->grid_color              = (PnColor) { 0.55, 0.55, 0.55, 1.0 };
+    self->text_color              = (PnColor) { 0.10, 0.10, 0.10, 1.0 };
+    self->header_text_color       = (PnColor) { 0.10, 0.10, 0.10, 1.0 };
     self->alternate_row_background = TRUE;
 
     self->cols    = NULL;
@@ -937,7 +745,7 @@ pn_table_init (PnTable *self)
 
     pn_node_set_class_name (node, "Table");
     pn_node_set_icon       (node, "\xef\x83\x8e");  /* fa-table U+F0CE */
-    pn_node_set_color (node, (const PnColor *)&cyan);
+    pn_node_set_color (node, &cyan);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 }
