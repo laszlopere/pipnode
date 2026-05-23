@@ -28,23 +28,12 @@
 
 #include <json-glib/json-glib.h>
 
-/* Headless split (TODO #23): the serializer is GTK-free.  The base node
- * "color" property is PN_TYPE_COLOR and (de)serialises via pn_color_*().
- * The dual-nature visual nodes still register some of their own colour
- * properties as GdkRGBA (they migrate to PN_TYPE_COLOR in the Phase 4
- * node split); rather than pull <gtk/gtk.h> into the core serializer for
- * those, we resolve the GdkRGBA boxed GType *by name* and treat its value
- * as a PnColor.  PnColor is layout-identical to GdkRGBA and pn_color_*()
- * is byte-compatible with gdk_rgba_*() (proven by the G_STATIC_ASSERTs and
- * cross-checks in tests/unit/test-pn-color.c), so the on-disk form is
- * unchanged.  When Phase 4 finishes, this lookup becomes dead and can go. */
-static GType
-pn_flow_legacy_rgba_type (void)
-{
-    /* 0 until GTK has registered GdkRGBA; a real GValue's type is never 0,
-     * so the "type == legacy_rgba" tests below simply never match then. */
-    return g_type_from_name ("GdkRGBA");
-}
+/* Headless split (TODO #23): the serializer is GTK-free.  Every colour
+ * property in the tree -- the base node "color" and all the dual-nature
+ * visual nodes' own colours -- is PN_TYPE_COLOR since the Phase 1/4/5
+ * migration, and (de)serialises via pn_color_*().  The transitional
+ * "resolve GdkRGBA by name and read it as a PnColor" clause that bridged
+ * the not-yet-migrated nodes is gone now that none remain. */
 
 /* ------------------------------------------------------------------ */
 /*  PnFlow                                                             */
@@ -695,9 +684,8 @@ gvalue_to_json (const GValue *value)
         return out;
     }
 
-    if (type == PN_TYPE_COLOR || type == pn_flow_legacy_rgba_type ())
+    if (type == PN_TYPE_COLOR)
     {
-        /* Legacy GdkRGBA values are read through a PnColor* — same layout. */
         const PnColor *c = g_value_get_boxed (value);
         out = json_node_new (JSON_NODE_VALUE);
         if (c != NULL)
@@ -797,7 +785,7 @@ json_to_gvalue (
         return TRUE;
     }
 
-    if (type == PN_TYPE_COLOR || type == pn_flow_legacy_rgba_type ())
+    if (type == PN_TYPE_COLOR)
     {
         PnColor c;
 
@@ -808,8 +796,6 @@ json_to_gvalue (
         if (!pn_color_parse (&c, json_node_get_string (json)))
             return FALSE;
 
-        /* For a GdkRGBA out_value the boxed copy goes through gdk_rgba_copy,
-         * which reads our PnColor bytes verbatim — layouts match. */
         g_value_set_boxed (out_value, &c);
         return TRUE;
     }
