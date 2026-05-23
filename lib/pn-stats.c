@@ -367,7 +367,7 @@ pn_stats_class_init (PnStatsClass *klass)
     object_class->finalize     = pn_stats_finalize;
     node_class->receive        = pn_stats_receive;
 
-    node_class->class_name     = "Stats";
+    node_class->class_name     = "Throughput";
     node_class->icon           = "\xef\x82\x80";  /* fa-bar-chart U+F080 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
@@ -411,7 +411,7 @@ pn_stats_init (PnStats *self)
 
     realloc_ring (self);
 
-    pn_node_set_class_name (node, "Stats");
+    pn_node_set_class_name (node, "Throughput");
     pn_node_set_icon       (node, "\xef\x82\x80");  /* fa-bar-chart U+F080 */
     pn_node_set_color      (node, &yellow);
     pn_node_set_has_input  (node, TRUE);
