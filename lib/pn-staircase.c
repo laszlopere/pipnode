@@ -263,7 +263,7 @@ pn_staircase_class_init (PnStaircaseClass *klass)
     node_class->class_name     = "Staircase";
     node_class->icon           = "\xef\x87\x9a";  /* fa-history U+F1DA */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Timing";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

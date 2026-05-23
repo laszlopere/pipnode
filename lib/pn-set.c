@@ -337,7 +337,7 @@ pn_set_class_init (PnSetClass *klass)
     node_class->class_name     = "Set";
     node_class->icon           = "\xef\x80\xac";  /* fa-tags U+F02C */
     node_class->color          = (PnColor){ 0.62, 0.45, 0.78, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Reshape";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

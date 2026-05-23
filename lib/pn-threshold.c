@@ -213,7 +213,7 @@ pn_threshold_class_init (PnThresholdClass *klass)
     node_class->class_name     = "Threshold";
     node_class->icon           = "\xef\x85\x88";  /* fa-level-up U+F148 */
     node_class->color          = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Gate";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

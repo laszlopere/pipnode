@@ -532,7 +532,7 @@ pn_filter_class_init (PnFilterClass *klass)
     node_class->class_name     = "Filter";
     node_class->icon           = "\xef\x82\xb0";  /* fa-filter U+F0B0 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Gate";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

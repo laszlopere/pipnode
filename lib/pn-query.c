@@ -270,7 +270,7 @@ pn_query_class_init (PnQueryClass *klass)
     node_class->class_name     = "JMESPath";
     node_class->icon           = "\xef\x81\x9b";  /* fa-crosshairs U+F05B */
     node_class->color          = (PnColor){ 0.30, 0.66, 0.62, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Expressions";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

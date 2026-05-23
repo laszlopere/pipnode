@@ -714,7 +714,7 @@ pn_rate_class_init (PnRateClass *klass)
     node_class->class_name   = "Rate";
     node_class->icon         = PN_RATE_NORMAL_ICON;
     node_class->color        = (PnColor){ 0.85, 0.65, 0.20, 1.0 };
-    node_class->category     = "Filters";
+    node_class->category     = "Filters/Compute & AI";
     node_class->has_input    = TRUE;
     node_class->has_output   = TRUE;
     http_class->normal_icon  = PN_RATE_NORMAL_ICON;

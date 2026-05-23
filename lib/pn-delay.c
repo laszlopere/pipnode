@@ -208,7 +208,7 @@ pn_delay_class_init (PnDelayClass *klass)
     node_class->class_name     = "Delay";
     node_class->icon           = "\xef\x89\x92";  /* fa-hourglass-half U+F252 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Timing";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

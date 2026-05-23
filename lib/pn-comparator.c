@@ -223,7 +223,7 @@ pn_comparator_class_init (PnComparatorClass *klass)
     node_class->class_name     = "Comparator";
     node_class->icon           = "\xef\x89\x8e";  /* fa-balance-scale U+F24E */
     node_class->color          = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Gate";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

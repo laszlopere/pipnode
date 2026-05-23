@@ -370,7 +370,7 @@ pn_stats_class_init (PnStatsClass *klass)
     node_class->class_name     = "Throughput";
     node_class->icon           = "\xef\x82\x80";  /* fa-bar-chart U+F080 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Compute & AI";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

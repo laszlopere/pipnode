@@ -104,7 +104,7 @@ pn_edge_class_init (PnEdgeClass *klass)
     node_class->class_name = "Edge";
     node_class->icon       = "\xef\x83\xa7";  /* fa-bolt U+F0E7 */
     node_class->color      = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
-    node_class->category   = "Filters";
+    node_class->category   = "Filters/Gate";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
 }

@@ -173,7 +173,7 @@ pn_watchdog_class_init (PnWatchdogClass *klass)
     node_class->class_name     = "Watchdog";
     node_class->icon           = "\xef\x84\xb2";  /* fa-shield U+F132 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Timing";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

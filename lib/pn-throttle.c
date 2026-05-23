@@ -139,7 +139,7 @@ pn_throttle_class_init (PnThrottleClass *klass)
     node_class->class_name     = "Throttle";
     node_class->icon           = "\xef\x83\xa4";  /* fa-tachometer U+F0E4 */
     node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Timing";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

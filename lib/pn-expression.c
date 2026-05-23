@@ -235,7 +235,7 @@ pn_expression_class_init (PnExpressionClass *klass)
     node_class->class_name     = "Expression";
     node_class->icon           = "\xef\x87\xac";  /* fa-calculator U+F1EC */
     node_class->color          = (PnColor){ 0.55, 0.45, 0.80, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Expressions";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 

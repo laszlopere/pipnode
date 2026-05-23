@@ -655,7 +655,7 @@ pn_ollama_class_init (PnOllamaClass *klass)
     node_class->class_name   = "Ollama";
     node_class->icon         = PN_OLLAMA_ICON;
     node_class->color        = (PnColor){ 0.42, 0.36, 0.72, 1.0 };
-    node_class->category     = "Filters";
+    node_class->category     = "Filters/Compute & AI";
     node_class->has_input    = TRUE;
     node_class->has_output   = TRUE;
 

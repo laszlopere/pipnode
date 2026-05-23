@@ -362,7 +362,7 @@ pn_table_model_class_init (PnTableModelClass *klass)
     node_class->class_name     = "Table Model";
     node_class->icon           = "\xef\x83\x8e";  /* fa-table U+F0CE */
     node_class->color          = (PnColor){ 0.40, 0.66, 0.78, 1.0 };
-    node_class->category       = "Filters";
+    node_class->category       = "Filters/Reshape";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
 
