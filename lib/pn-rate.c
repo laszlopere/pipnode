@@ -711,7 +711,7 @@ pn_rate_class_init (PnRateClass *klass)
 
     /* Visual identity. */
     node_class->palette_icon = PN_RATE_NORMAL_ICON;
-    node_class->class_name   = "Rate";
+    node_class->class_name   = "FX Converter";
     node_class->icon         = PN_RATE_NORMAL_ICON;
     node_class->color        = (PnColor){ 0.85, 0.65, 0.20, 1.0 };
     node_class->category     = "Filters/Compute & AI";
@@ -775,7 +775,7 @@ pn_rate_init (PnRate *self)
     self->rate        = 1.0;
     self->last_update = NULL;
 
-    pn_node_set_class_name (node, "Rate");
+    pn_node_set_class_name (node, "FX Converter");
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 

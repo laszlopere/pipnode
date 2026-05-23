@@ -205,7 +205,7 @@ the original emission.
 New nodes should honour these names when the concept applies and
 reach for a more specific name only when it genuinely does not. A
 node reporting a numeric reading puts the magnitude in
-<code>value</code>; the <em>Rate</em> node downstream multiplies
+<code>value</code>; the <em>FX Converter</em> node downstream multiplies
 that <code>value</code> in place rather than introducing a parallel
 <code>converted_value</code>, which is exactly why the <em>Graph</em>
 sitting after either of them needs no reconfiguration.
@@ -252,9 +252,9 @@ sitting after either of them needs no reconfiguration.
   Receiver</em> replays the topic that arrived on the wire.
   <p>
   Filter / transformer nodes (<em>Format</em>, <em>Filter</em>,
-  <em>Rate</em>, <em>Dedup</em>, <em>Edge</em>, <em>Throttle</em>,
+  <em>FX Converter</em>, <em>Dedup</em>, <em>Edge</em>, <em>Throttle</em>,
   <em>JMESPath</em>, <em>Table Model</em>) forward the message they
-  received without rewriting the topic, so a <em>Rate</em> placed
+  received without rewriting the topic, so an <em>FX Converter</em> placed
   after a <em>Temp</em> carries the
   <em>Temp</em>'s topic downstream.
   </p>
