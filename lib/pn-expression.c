@@ -232,7 +232,7 @@ pn_expression_class_init (PnExpressionClass *klass)
     object_class->finalize     = pn_expression_finalize;
     node_class->receive        = pn_expression_receive;
 
-    node_class->class_name     = "Expression";
+    node_class->class_name     = "Calculator";
     node_class->icon           = "\xef\x87\xac";  /* fa-calculator U+F1EC */
     node_class->color          = (PnColor){ 0.55, 0.45, 0.80, 1.0 };
     node_class->category       = "Filters/Expressions";
@@ -285,7 +285,7 @@ pn_expression_init (PnExpression *self)
     self->expression = g_strdup ("value");
     expr_recompile (self);
 
-    pn_node_set_class_name (node, "Expression");
+    pn_node_set_class_name (node, "Calculator");
     pn_node_set_icon       (node, "\xef\x87\xac");  /* fa-calculator U+F1EC */
     pn_node_set_color      (node, &purple);
     pn_node_set_has_input  (node, TRUE);
