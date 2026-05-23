@@ -5,7 +5,7 @@
     {
       "type" : "PnKnob",
       "uuid" : "91618ce9-6e2b-4859-9667-1ddbc48ec017",
-      "name" : "Knob 1",
+      "name" : "Knob",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 60.0,
@@ -14,13 +14,13 @@
       "properties" : {
         "min" : 0.0,
         "max" : 100.0,
-        "value" : 66.666666666666657
+        "value" : 58.333333333333329
       }
     },
     {
       "type" : "PnThreshold",
       "uuid" : "f938d65c-a15f-4c17-b6f0-304763e4a001",
-      "name" : "Threshold 1",
+      "name" : "Threshold",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -34,7 +34,7 @@
     {
       "type" : "PnKnob",
       "uuid" : "107a6c56-e0ac-45f8-9e09-26a956be6189",
-      "name" : "Knob 2",
+      "name" : "Knob",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 60.0,
@@ -43,13 +43,13 @@
       "properties" : {
         "min" : 0.0,
         "max" : 100.0,
-        "value" : 41.666666666666664
+        "value" : 54.166666666666657
       }
     },
     {
       "type" : "PnComparator",
       "uuid" : "383b53df-a4c2-4a93-943a-ed8c2d3c7618",
-      "name" : "Comparator 1",
+      "name" : "Comparator",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -62,7 +62,7 @@
     {
       "type" : "PnLed",
       "uuid" : "7945b24b-4463-44aa-9aff-cb80d0941c6f",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -77,7 +77,7 @@
     {
       "type" : "PnLed",
       "uuid" : "a5774470-1572-4513-8baf-13c1f5abeb07",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -92,7 +92,7 @@
     {
       "type" : "PnThreshold",
       "uuid" : "7920907c-a9c3-48fd-a6bc-ece027134c1c",
-      "name" : "Threshold 1",
+      "name" : "Threshold",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -106,7 +106,7 @@
     {
       "type" : "PnLed",
       "uuid" : "5a8149e2-ba0f-4f4c-854e-1f12d46ca3dd",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -121,7 +121,7 @@
     {
       "type" : "PnThreshold",
       "uuid" : "134ea12f-2e15-4ad0-9056-c2e237e0d766",
-      "name" : "Threshold 1",
+      "name" : "Threshold",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -135,7 +135,7 @@
     {
       "type" : "PnLed",
       "uuid" : "ff26830e-6c9e-4455-85ed-5a398e2cd306",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -150,7 +150,7 @@
     {
       "type" : "PnThreshold",
       "uuid" : "2060e056-b9e0-47f1-a0a0-9123a854e54e",
-      "name" : "Threshold 1",
+      "name" : "Threshold",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -164,7 +164,7 @@
     {
       "type" : "PnLed",
       "uuid" : "7218d0c6-171f-4563-93dc-51f89f9c9927",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -179,7 +179,7 @@
     {
       "type" : "PnThreshold",
       "uuid" : "7bde7508-e5fe-4cc0-b979-a30893f6d526",
-      "name" : "Threshold 1",
+      "name" : "Threshold",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 280.0,
@@ -193,7 +193,7 @@
     {
       "type" : "PnLed",
       "uuid" : "870b6ed1-afce-421a-8ab5-81e2ecd768d0",
-      "name" : "LED 1",
+      "name" : "LED",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,

@@ -8,8 +8,8 @@
       "name" : "FileDrop 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 60.0,
-        "y" : 100.0
+        "x" : 40.0,
+        "y" : 180.0
       },
       "properties" : {
         "area-color" : "rgb(255,255,255)",
@@ -22,7 +22,7 @@
       "name" : "FileViewer 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 720.0,
+        "x" : 900.0,
         "y" : 180.0
       },
       "properties" : {
@@ -36,8 +36,8 @@
       "name" : "Invert 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 500.0,
-        "y" : 60.0
+        "x" : 440.0,
+        "y" : 20.0
       },
       "properties" : {      }
     },
@@ -47,37 +47,10 @@
       "name" : "Prewitt Edge 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 320.0,
-        "y" : 60.0
+        "x" : 260.0,
+        "y" : 20.0
       },
       "properties" : {      }
-    },
-    {
-      "type" : "PnImageMotionBlur",
-      "uuid" : "9cad356d-ca0b-46d2-9756-a1d0effe37c1",
-      "name" : "Motion Blur 1",
-      "worksheet" : "Worksheet 1",
-      "position" : {
-        "x" : 320.0,
-        "y" : 120.0
-      },
-      "properties" : {
-        "length" : 5
-      }
-    },
-    {
-      "type" : "PnFileViewer",
-      "uuid" : "95478edb-d911-410b-963a-77b0f255f43e",
-      "name" : "FileViewer 1",
-      "worksheet" : "Worksheet 1",
-      "position" : {
-        "x" : 500.0,
-        "y" : 180.0
-      },
-      "properties" : {
-        "area-color" : "rgb(255,255,255)",
-        "border-color" : "rgb(70,70,70)"
-      }
     },
     {
       "type" : "PnFileViewer",
@@ -85,8 +58,8 @@
       "name" : "FileViewer 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 500.0,
-        "y" : 540.0
+        "x" : 660.0,
+        "y" : 180.0
       },
       "properties" : {
         "area-color" : "rgb(255,255,255)",
@@ -151,12 +124,37 @@
       "name" : "Add Noise 1",
       "worksheet" : "Worksheet 1",
       "position" : {
-        "x" : 320.0,
-        "y" : 540.0
+        "x" : 260.0,
+        "y" : 80.0
       },
       "properties" : {
         "amount" : 1.0
       }
+    },
+    {
+      "type" : "PnFileViewer",
+      "uuid" : "085217c9-fa24-4a9a-aeb6-85e979020bde",
+      "name" : "FileViewer 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 420.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "area-color" : "rgb(255,255,255)",
+        "border-color" : "rgb(70,70,70)"
+      }
+    },
+    {
+      "type" : "PnImageHistEqualize",
+      "uuid" : "93189225-6393-418c-bdf8-8d983b6bba15",
+      "name" : "Histogram Equalize 1",
+      "worksheet" : "Worksheet 1",
+      "position" : {
+        "x" : 260.0,
+        "y" : 140.0
+      },
+      "properties" : {      }
     }
   ],
   "connections" : [
@@ -171,14 +169,6 @@
     {
       "source_id" : "5466bd26-aae9-46b8-9e01-fd0431b5a81f",
       "target_id" : "64da7945-722d-4dbc-8eeb-c19673063da8"
-    },
-    {
-      "source_id" : "02be72d3-3b5f-4b98-8806-3f0f2f8c0028",
-      "target_id" : "9cad356d-ca0b-46d2-9756-a1d0effe37c1"
-    },
-    {
-      "source_id" : "9cad356d-ca0b-46d2-9756-a1d0effe37c1",
-      "target_id" : "95478edb-d911-410b-963a-77b0f255f43e"
     },
     {
       "source_id" : "010c9aba-f189-4234-92fa-d8f5f92cf878",
@@ -204,6 +194,14 @@
     {
       "source_id" : "5bc5e279-c711-4962-bd5d-61d5cb4c7685",
       "target_id" : "f921d542-f916-4515-997c-fdb421ce0ea5"
+    },
+    {
+      "source_id" : "02be72d3-3b5f-4b98-8806-3f0f2f8c0028",
+      "target_id" : "93189225-6393-418c-bdf8-8d983b6bba15"
+    },
+    {
+      "source_id" : "93189225-6393-418c-bdf8-8d983b6bba15",
+      "target_id" : "085217c9-fa24-4a9a-aeb6-85e979020bde"
     }
   ],
   "sheets" : [

@@ -5,7 +5,7 @@
     {
       "type" : "PnMqtt",
       "uuid" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
-      "name" : "MQTT Source 1",
+      "name" : "MQTT Source",
       "worksheet" : "Worksheet",
       "topic" : "#",
       "position" : {
@@ -24,7 +24,7 @@
     {
       "type" : "PnDebug",
       "uuid" : "f70c4dd9-72ff-436f-8eef-2ee0c62b5b0e",
-      "name" : "Debug Print 1",
+      "name" : "Debug Print",
       "worksheet" : "Worksheet",
       "disabled" : true,
       "position" : {
@@ -73,7 +73,7 @@
     {
       "type" : "PnDial",
       "uuid" : "16411146-077a-4290-873f-1d5d0b924427",
-      "name" : "Dial 1",
+      "name" : "Dial 2",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 480.0,
@@ -115,13 +115,14 @@
       },
       "properties" : {
         "color" : "rgb(51,209,122)",
-        "hold-ms" : 1250
+        "hold-ms" : 1250,
+        "mode" : "Flash"
       }
     },
     {
       "type" : "PnInject",
       "uuid" : "9b3e853f-147b-40b8-8b6c-9a7f17dc668d",
-      "name" : "Injector 2",
+      "name" : "Injector",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 40.0,
@@ -129,29 +130,8 @@
       },
       "properties" : {
         "text" : "Injector activated.",
+        "value" : 0.0,
         "success" : true
-      }
-    },
-    {
-      "type" : "PnGraph",
-      "uuid" : "62224b12-d95d-45ee-bb9c-da0085088c4c",
-      "name" : "Graph 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 220.0,
-        "y" : 480.0
-      },
-      "properties" : {
-        "key" : "data/payload/AM2301/Temperature",
-        "resolution" : "1 hour",
-        "data-view" : "Time series",
-        "draw-style" : "Lines",
-        "line-color" : "rgb(30,60,140)",
-        "line-width" : 2,
-        "axis-color" : "rgb(70,70,70)",
-        "background-color" : "rgb(255,255,255)",
-        "show-grid" : false,
-        "log-y" : false
       }
     },
     {
@@ -188,10 +168,6 @@
     {
       "source_id" : "9b3e853f-147b-40b8-8b6c-9a7f17dc668d",
       "target_id" : "65ca0874-c6d8-49ef-ac80-ee88cdc0562d"
-    },
-    {
-      "source_id" : "43a80a3e-5aae-47d4-84f6-87e9b3e87bc0",
-      "target_id" : "62224b12-d95d-45ee-bb9c-da0085088c4c"
     },
     {
       "source_id" : "1430b005-829a-4866-95b3-f37012c2ac0d",
