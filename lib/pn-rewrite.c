@@ -36,6 +36,7 @@
 #include "pn-message.h"
 #include "pn-subst.h"
 #include "pn-flow.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 
@@ -329,6 +330,24 @@ pn_rewrite_class_init (PnRewriteClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.5): the JSON `template` body
+     * gets a full-width GtkSourceView code editor (syntax highlighting,
+     * line numbers, bracket matching) on a tab named "Rewrite".  The
+     * editor itself lives in the GUI tier's renderer (PN_EDITOR_CODE);
+     * this is just the GTK-free description, so the deleted
+     * pn-rewrite-gui.c is no longer needed and the rewrite logic stays
+     * headless. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Rewrite");
+        pn_settings_schema_row (schema, "template", PN_EDITOR_CODE);
+        pn_settings_schema_row_flags (schema, "template",
+                                      PN_ROW_FLAG_FULL_WIDTH);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

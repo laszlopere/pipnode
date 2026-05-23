@@ -17,6 +17,8 @@
 
 #include "pn-node-dialog-helpers.h"
 
+#include <gtksourceview/gtksource.h>
+
 /* ------------------------------------------------------------------ */
 /*  Multi-line string editor                                           */
 /*                                                                     */
@@ -24,8 +26,9 @@
 /*  same re-entrancy-guarded binding the auto dialog uses for its       */
 /*  pn_param_spec_set_multiline() editor (a naïve bind to              */
 /*  GtkTextBuffer:text yanks the cursor to the end on every keystroke   */
-/*  as the property re-emits notify).  Backs both %PN_EDITOR_MULTILINE  */
-/*  and, until Phase 7.5 swaps in a GtkSourceView, %PN_EDITOR_CODE.     */
+/*  as the property re-emits notify).  Backs %PN_EDITOR_MULTILINE;      */
+/*  %PN_EDITOR_CODE has its own GtkSourceView editor below, sharing     */
+/*  this same #PnTextBinding.                                           */
 /* ------------------------------------------------------------------ */
 
 typedef struct
@@ -152,6 +155,87 @@ build_multiline_editor (GObject    *target,
 
     if (writable)
         g_signal_connect (buffer, "changed",
+                          G_CALLBACK (on_text_buffer_changed), bind);
+
+    gtk_text_view_set_editable (GTK_TEXT_VIEW (view), writable);
+    gtk_widget_set_sensitive (scrolled, writable);
+
+    g_object_set_data_full (G_OBJECT (scrolled),
+                            "pn-text-binding", bind, text_binding_free);
+
+    return scrolled;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Code editor (GtkSourceView)                                        */
+/*                                                                     */
+/*  %PN_EDITOR_CODE: a GtkSourceView with JSON syntax highlighting,    */
+/*  line numbers and bracket matching, bound to a string property      */
+/*  through the same re-entrancy-guarded #PnTextBinding the multiline   */
+/*  editor uses (a #GtkSourceBuffer is a #GtkTextBuffer).  This is the  */
+/*  declarative home of the editor that used to live in the deleted     */
+/*  pn-rewrite-gui.c; it is GUI-tier only, so the headless core never   */
+/*  pulls GtkSourceView.                                                */
+/* ------------------------------------------------------------------ */
+
+static GtkWidget *
+build_code_editor (GObject    *target,
+                   GParamSpec *pspec)
+{
+    const gchar              *name     = pspec->name;
+    gboolean                  writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
+    GtkSourceLanguageManager *langs    =
+            gtk_source_language_manager_get_default ();
+    GtkSourceLanguage        *json     =
+            gtk_source_language_manager_get_language (langs, "json");
+    GtkSourceBuffer          *buffer   =
+            gtk_source_buffer_new_with_language (json);
+    GtkWidget                *view;
+    GtkWidget                *scrolled = gtk_scrolled_window_new (NULL, NULL);
+    PnTextBinding            *bind;
+    gchar                    *signal_name;
+
+    gtk_source_buffer_set_highlight_syntax            (buffer, TRUE);
+    gtk_source_buffer_set_highlight_matching_brackets (buffer, TRUE);
+
+    view = gtk_source_view_new_with_buffer (buffer);
+    gtk_source_view_set_show_line_numbers      (GTK_SOURCE_VIEW (view), TRUE);
+    gtk_source_view_set_auto_indent            (GTK_SOURCE_VIEW (view), TRUE);
+    gtk_source_view_set_indent_on_tab          (GTK_SOURCE_VIEW (view), TRUE);
+    gtk_source_view_set_tab_width              (GTK_SOURCE_VIEW (view), 2);
+    gtk_source_view_set_insert_spaces_instead_of_tabs (
+            GTK_SOURCE_VIEW (view), TRUE);
+    gtk_source_view_set_highlight_current_line (GTK_SOURCE_VIEW (view), TRUE);
+    gtk_text_view_set_monospace (GTK_TEXT_VIEW (view), TRUE);
+    g_object_unref (buffer);
+
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_AUTOMATIC,
+                                    GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled),
+                                         GTK_SHADOW_IN);
+    /* Twelve-ish lines: the default JSON template plus a few added
+     * fields before the editor feels cramped (matching the old tab). */
+    gtk_widget_set_size_request (scrolled, -1, 240);
+    gtk_widget_set_hexpand (scrolled, TRUE);
+    gtk_widget_set_vexpand (scrolled, TRUE);
+    gtk_container_add (GTK_CONTAINER (scrolled), view);
+
+    bind = g_new0 (PnTextBinding, 1);
+    bind->target   = target;
+    bind->property = name;
+    bind->buffer   = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+
+    text_binding_pull (bind);
+
+    signal_name = g_strdup_printf ("notify::%s", name);
+    bind->notify_handler = g_signal_connect (
+            target, signal_name,
+            G_CALLBACK (on_text_target_notify), bind);
+    g_free (signal_name);
+
+    if (writable)
+        g_signal_connect (bind->buffer, "changed",
                           G_CALLBACK (on_text_buffer_changed), bind);
 
     gtk_text_view_set_editable (GTK_TEXT_VIEW (view), writable);
@@ -568,10 +652,10 @@ build_row_editor (GObject            *target,
         editor = build_check_editor (target, pspec);
         break;
     case PN_EDITOR_MULTILINE:
-    case PN_EDITOR_CODE:
-        /* Phase 7.5 swaps %PN_EDITOR_CODE for a GtkSourceView; until
-         * then both render as the plain multiline editor. */
         editor = build_multiline_editor (target, pspec);
+        break;
+    case PN_EDITOR_CODE:
+        editor = build_code_editor (target, pspec);
         break;
     case PN_EDITOR_COMBO:
         editor = (choices != NULL)
