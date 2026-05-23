@@ -21,6 +21,7 @@
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 
@@ -306,6 +307,21 @@ pn_expression2_class_init (PnExpression2Class *klass)
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.5): single full-width
+     * multiline editor on a tab named "Expression2", replacing the
+     * deleted pn-expression2-gui.c build_class_tab.  See pn-expression.c
+     * for the rationale; this node likewise needs no -gui.c companion. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Expression2");
+        pn_settings_schema_row (schema, "expression", PN_EDITOR_MULTILINE);
+        pn_settings_schema_row_flags (schema, "expression",
+                                      PN_ROW_FLAG_FULL_WIDTH);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

@@ -723,9 +723,12 @@ build_tab_grid (PnSettingsSchema *schema,
 
         if ((flags & PN_ROW_FLAG_FULL_WIDTH) != 0)
         {
-            /* No label cell: span the editor across both columns, the way
-             * a big expression body reads best. */
+            /* No label cell: span the editor across both columns and let
+             * it grow to fill the page, the way a big expression / code
+             * body reads best (the multiline editor caps its own minimum
+             * height, so vexpand only adds the slack above that). */
             gtk_widget_set_hexpand (editor, TRUE);
+            gtk_widget_set_vexpand (editor, TRUE);
             gtk_grid_attach (GTK_GRID (grid), editor, 0, grid_row, 2, 1);
         }
         else

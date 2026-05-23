@@ -21,6 +21,7 @@
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 
@@ -250,6 +251,24 @@ pn_expression_class_init (PnExpressionClass *klass)
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.5): the node has the single
+     * `expression` body, so replace the auto property tab with one named
+     * "Expression" holding a single full-width multiline editor — no
+     * redundant "Expression :" row label, the editor fills the page.
+     * This is GTK-free data on the class; the GUI tier's renderer builds
+     * the same tab the deleted pn-expression-gui.c build_class_tab did,
+     * so this node no longer needs a -gui.c companion at all. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Expression");
+        pn_settings_schema_row (schema, "expression", PN_EDITOR_MULTILINE);
+        pn_settings_schema_row_flags (schema, "expression",
+                                      PN_ROW_FLAG_FULL_WIDTH);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

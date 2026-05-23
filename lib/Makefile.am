@@ -199,10 +199,6 @@ libpipnode_gui_la_SOURCES = \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.c \
 	pn-document-settings-dialog.h \
-	pn-expression-gui.c \
-	pn-expression-gui.h \
-	pn-expression2-gui.c \
-	pn-expression2-gui.h \
 	pn-file-viewer-gui.c \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.c \
@@ -371,8 +367,6 @@ pipnode_gui_headers = \
 	pn-chat-gui.h \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.h \
-	pn-expression-gui.h \
-	pn-expression2-gui.h \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \
