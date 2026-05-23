@@ -1071,19 +1071,57 @@ longer need GTK; finalise documentation and packaging.
   the basename dedup + PIPNODE_PLUGIN_PATH precedence) and runs
   `examples/tasmota-switch.json` headless (Tasmota Switch emits); 53/53 C
   unit + plugin-load + companion + dial green.
-- **8.3 TODO — `plugins/shell`.** The hardest: `pn-tmux-monitor.c` has a
-  real imperative settings dialog (`build_property_editor` +
-  `build_class_tab`, includes `pn-node-dialog-helpers.h`) — it needs a
-  companion `-gui.so` split (Phase 6 mechanism) or a Phase-7 schema port
-  before the logic half can go core-only. The other shell nodes
-  (df/free/lxc-ls/shell-command) are pure logic.
+- **8.3 DONE — `plugins/shell` is now the first bundled two-tier
+  plugin.** Investigation settled the route: `pn-tmux-monitor.c`'s dialog
+  has a **dynamic** session combo (populated from an async `tmux
+  list-sessions` enumeration) and a **live status row** (red `last-error`
+  markup) — neither expressible in the Phase-7 declarative schema — so it
+  took the **Phase-6 companion `-gui.so`** escape hatch (D2), not a schema.
+  - **8.3a — split tmux-monitor logic/gui in place.** `pn-tmux-monitor.c`
+    became logic-only (GTK-free): dropped `pn-node-dialog-helpers.h` and
+    the two dialog vfunc assignments; the dialog (build_property_editor +
+    build_class_tab + all host-entry / combo / status helpers, ~270 lines)
+    moved to the new **`pn-tmux-monitor-gui.c`**. **Read seam = a new
+    read-only `sessions` GObject property** (`G_TYPE_STRV`, notified in
+    `enum_result_deliver`): a companion is dlopened separately and the
+    logic `.so` is `G_MODULE_BIND_LOCAL`, so a C accessor like
+    `tm_dup_sessions_cache` is invisible across the barrier — the combo
+    reads `g_object_get(target,"sessions",…)` and repopulates on
+    `notify::sessions`. The status row likewise reads the public
+    `last-error` property (was reaching into the private struct). The
+    companion resolves the type by name (`g_type_from_name("PnTmuxMonitor")`)
+    and the per-property pspecs via `g_object_class_find_property` (no
+    `props[]` access). `pn_shell_host_is_local` stays in the logic half
+    (`pn-shell-host.c` is plugin-local and GTK-free).
+  - **8.3b — shell built as two modules.** `plugins/shell/Makefile.am`:
+    `pipnode_shell.so` (logic, core-only — `GLIB`/`JSON_GLIB`/`GMODULE`
+    CFLAGS, links `libpipnode-core.la`, exports `pn_plugin_init`, registers
+    every shell GType incl. PnTmuxMonitor) + `pipnode_shell-gui.so`
+    (companion, GTK tier, exports `pn_plugin_gui_init`, builds only
+    `pn-tmux-monitor-gui.c`). The df/free/lxc-ls/shell-command nodes were
+    already pure logic and ride in the logic `.so`.
+  - **Verified:** logic `.so` `DT_NEEDED` = libpipnode-core, json-glib,
+    gobject, glib, libc — **no GTK**; companion needs libpipnode-gui +
+    libgtk-3; logic exports `pn_plugin_init`, companion exports
+    `pn_plugin_gui_init`. The logic half loads under the core-only
+    `pipnode-run` and runs `examples/tmux-example.json` headless (the
+    PnTmuxMonitor node enumerates; "no server running" is the expected
+    no-tmux status, not an error). New functional test
+    **`tests/test_node_dialog_shell_companion.py`** drives the editor,
+    adds a PnTmuxMonitor, and asserts the companion-only `last-error`
+    status row exists (the auto dialog skips non-writable props, so its
+    presence proves `pn_plugin_gui_init` ran). **Screenshot-confirmed** the
+    dialog renders identically: Host entry (local-hostname hint), Session
+    combobox, Line Limit spinner, red Status row. 53/53 C unit + plugin-
+    load + companion + dial + led + shell-companion functional tests green.
 - **8.4 TODO** `plugins/image` and `plugins/sound-effects` keep a
   companion `-gui.so` if they draw.
 
 **Steps**
-1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` to
-   core-only (logic `.so`, schema for any settings UI). `plugins/image`
-   and `plugins/sound-effects` keep a companion `-gui.so` if they draw.
+1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` ✅
+   to core-only (logic `.so`, schema or companion `-gui.so` for any
+   settings UI). `plugins/image` and `plugins/sound-effects` keep a
+   companion `-gui.so` if they draw.
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
    API, and a "how to ship a server-installable plugin" checklist.
 3. Update `README.md` / `INSTALL` with the `pipnode-core` vs

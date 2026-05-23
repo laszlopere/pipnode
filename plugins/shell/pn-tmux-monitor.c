@@ -19,7 +19,6 @@
 
 #include "pn-tmux-monitor.h"
 #include "pn-message.h"
-#include "pn-node-dialog-helpers.h"
 #include "pn-shell-host.h"
 
 #include <string.h>
@@ -98,6 +97,7 @@ enum {
     PROP_LINE_LIMIT,
     PROP_BUSY,
     PROP_LAST_ERROR,
+    PROP_SESSIONS,
     N_PROPS,
 };
 
@@ -259,6 +259,13 @@ enum_result_deliver (gpointer data)
     PnTmuxMonitor    *self        = r->self;
     gboolean          want_notify_error = FALSE;
     gboolean          want_notify_busy  = FALSE;
+    /* The deliver always replaces (success) or clears (failure) the
+     * cache, so the observable session list may have changed — the
+     * settings dialog's session combo reads the GTK-free `sessions`
+     * property and repopulates on notify::sessions (the companion GUI
+     * module cannot reach the private cache across G_MODULE_BIND_LOCAL,
+     * so the property is the read seam). */
+    gboolean          want_notify_sessions = TRUE;
 
     /* A newer enumeration has already started — drop this stale
      * result rather than letting it overwrite the fresher one's
@@ -306,6 +313,8 @@ enum_result_deliver (gpointer data)
         g_object_notify_by_pspec (G_OBJECT (self), props[PROP_LAST_ERROR]);
     if (want_notify_busy)
         g_object_notify_by_pspec (G_OBJECT (self), props[PROP_BUSY]);
+    if (want_notify_sessions)
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SESSIONS]);
 
     return G_SOURCE_REMOVE;
 }
@@ -972,277 +981,6 @@ tm_dup_sessions_cache (PnTmuxMonitor *self)
     return copy;
 }
 
-static void
-session_combo_repopulate (GObject         *target,
-                          GtkComboBoxText *combo)
-{
-    PnTmuxMonitor  *node     = PN_TMUX_MONITOR (target);
-    gchar          *current  = NULL;
-    gchar         **cache;
-    gboolean        listed   = FALSE;
-
-    g_object_get (target, "tmux-session", &current, NULL);
-
-    gtk_combo_box_text_remove_all (combo);
-
-    /* Sentinel empty entry mirrors the Meshtastic device combo — gives
-     * the active-id binding something to land on for a brand-new node
-     * with no session picked yet, and lets the user explicitly
-     * unselect by picking it back. */
-    gtk_combo_box_text_append (combo, "", "(no session)");
-
-    cache = tm_dup_sessions_cache (node);
-    if (cache != NULL)
-    {
-        for (gsize i = 0; cache[i] != NULL; i++)
-        {
-            gtk_combo_box_text_append (combo, cache[i], cache[i]);
-            if (g_strcmp0 (cache[i], current) == 0)
-                listed = TRUE;
-        }
-    }
-
-    /* Preserve a previously-configured session that the host no longer
-     * lists (e.g. the worksheet was authored against a host whose
-     * session was since killed): keep showing it so the user can see
-     * what the saved value was and pick a replacement deliberately. */
-    if (!listed && current != NULL && *current != '\0')
-        gtk_combo_box_text_append (combo, current, current);
-
-    if (current != NULL)
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX (combo), current);
-
-    g_strfreev (cache);
-    g_free     (current);
-}
-
-static void
-on_tmux_host_or_busy_notify (GObject    *target,
-                             GParamSpec *pspec G_GNUC_UNUSED,
-                             gpointer    user_data)
-{
-    session_combo_repopulate (target, GTK_COMBO_BOX_TEXT (user_data));
-}
-
-/* ------------------------------------------------------------------ */
-/*  Deferred-commit host entry                                         */
-/*                                                                     */
-/*  The default introspection-driven string editor binds entry.text    */
-/*  <-> target.host bidirectionally, so every keystroke writes the     */
-/*  property — which kicks the session enumerator, flips `busy` to     */
-/*  TRUE, and triggers #PnNodeDialog::sync_busy_state to call          */
-/*  gtk_widget_set_sensitive(notebook, FALSE) on the form containing   */
-/*  the entry.  Desensitising the entry's ancestor pulls focus off     */
-/*  the entry the user is typing into — the symptom the user          */
-/*  reported as "the entry looses the focus for every entered          */
-/*  character".  Plus we'd be firing one ssh hop per keystroke.        */
-/*                                                                     */
-/*  This editor commits the entry's text to the host property only     */
-/*  on `activate` (Enter) and `focus-out-event` (the user moved on),   */
-/*  and refreshes the entry text on `notify::host` so an external      */
-/*  write (e.g. the worksheet loader) still flows in.  The notify      */
-/*  handler skips the write when the entry already shows the new      */
-/*  value, so a self-triggered notify after our own commit doesn't    */
-/*  fight the user's cursor position.                                  */
-/* ------------------------------------------------------------------ */
-
-static void
-host_entry_commit (GtkEntry *entry, GObject *target)
-{
-    const gchar *text    = gtk_entry_get_text (entry);
-    gchar       *current = NULL;
-
-    g_object_get (target, "host", &current, NULL);
-    if (g_strcmp0 (current, text) != 0)
-        g_object_set (target, "host", text, NULL);
-    g_free (current);
-}
-
-static gboolean
-on_host_entry_focus_out (GtkWidget *widget,
-                         GdkEvent  *event   G_GNUC_UNUSED,
-                         gpointer   user_data)
-{
-    host_entry_commit (GTK_ENTRY (widget), G_OBJECT (user_data));
-    return GDK_EVENT_PROPAGATE;
-}
-
-static void
-on_host_entry_activate (GtkEntry *entry, gpointer user_data)
-{
-    host_entry_commit (entry, G_OBJECT (user_data));
-}
-
-static void
-on_host_property_notify (GObject    *target,
-                         GParamSpec *pspec G_GNUC_UNUSED,
-                         gpointer    user_data)
-{
-    GtkEntry *entry   = GTK_ENTRY (user_data);
-    gchar    *current = NULL;
-
-    g_object_get (target, "host", &current, NULL);
-    if (g_strcmp0 (gtk_entry_get_text (entry),
-                   current != NULL ? current : "") != 0)
-        gtk_entry_set_text (entry, current != NULL ? current : "");
-    g_free (current);
-}
-
-static GtkWidget *
-pn_tmux_monitor_build_property_editor (PnNode     *self      G_GNUC_UNUSED,
-                                       GParamSpec *pspec,
-                                       GObject    *target,
-                                       GtkWindow  *parent    G_GNUC_UNUSED)
-{
-    const gchar  *name     = pspec->name;
-    gboolean      writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
-    GBindingFlags flags    = G_BINDING_SYNC_CREATE
-                             | (writable ? G_BINDING_BIDIRECTIONAL : 0);
-
-    if (g_strcmp0 (name, "host") == 0)
-    {
-        GtkWidget *entry   = gtk_entry_new ();
-        gchar     *current = NULL;
-
-        g_object_get (target, name, &current, NULL);
-        gtk_entry_set_text (GTK_ENTRY (entry),
-                            current != NULL ? current : "");
-        g_free (current);
-
-        gtk_widget_set_hexpand   (entry, TRUE);
-        gtk_widget_set_sensitive (entry, writable);
-
-        /* Mirror the default string editor's grey local-hostname hint
-         * (this entry is hand-rolled for deferred commit, so it does
-         * not go through pn_node_dialog_default_editor()).  Empty host
-         * == run locally, and the hint shows which machine that is. */
-        pn_node_dialog_attach_hostname_hint (GTK_ENTRY (entry));
-
-        if (writable)
-        {
-            g_signal_connect_object (entry, "activate",
-                                     G_CALLBACK (on_host_entry_activate),
-                                     target, 0);
-            g_signal_connect_object (entry, "focus-out-event",
-                                     G_CALLBACK (on_host_entry_focus_out),
-                                     target, 0);
-            g_signal_connect_object (target, "notify::host",
-                                     G_CALLBACK (on_host_property_notify),
-                                     entry, 0);
-        }
-        return entry;
-    }
-
-    if (g_strcmp0 (name, "tmux-session") == 0)
-    {
-        GtkWidget *combo = gtk_combo_box_text_new ();
-
-        session_combo_repopulate (target, GTK_COMBO_BOX_TEXT (combo));
-
-        /* Repopulate when the enumerator finishes (notify::busy
-         * transitions to FALSE just after the cache update lands)
-         * and when the user picks a new host (notify::host) so the
-         * combo follows the user's host edit without a dialog
-         * reopen.  g_signal_connect_object ties both handlers to
-         * the combo's lifetime so the dialog can close cleanly. */
-        g_signal_connect_object (target, "notify::busy",
-                                 G_CALLBACK (on_tmux_host_or_busy_notify),
-                                 combo, 0);
-        g_signal_connect_object (target, "notify::host",
-                                 G_CALLBACK (on_tmux_host_or_busy_notify),
-                                 combo, 0);
-
-        gtk_widget_set_hexpand   (combo, TRUE);
-        gtk_widget_set_sensitive (combo, writable);
-        g_object_bind_property (target, name, combo, "active-id", flags);
-        return combo;
-    }
-
-    return NULL;
-}
-
-static void
-update_status_label (GObject    *obj,
-                     GParamSpec *pspec G_GNUC_UNUSED,
-                     gpointer    user_data)
-{
-    PnTmuxMonitor *self  = PN_TMUX_MONITOR (obj);
-    GtkLabel      *label = GTK_LABEL (user_data);
-    gchar         *snapshot;
-    gchar         *markup;
-
-    g_mutex_lock (&self->mutex);
-    snapshot = (self->last_error != NULL && *self->last_error != '\0')
-               ? g_strdup (self->last_error) : NULL;
-    g_mutex_unlock (&self->mutex);
-
-    if (snapshot != NULL)
-    {
-        gchar *escaped = g_markup_escape_text (snapshot, -1);
-        markup = g_strdup_printf (
-                "<span foreground=\"red\">%s</span>", escaped);
-        g_free (escaped);
-    }
-    else
-    {
-        markup = g_strdup ("");
-    }
-
-    gtk_label_set_markup (label, markup);
-    g_free (markup);
-    g_free (snapshot);
-}
-
-static GtkWidget *
-pn_tmux_monitor_build_class_tab (PnNode    *self,
-                                 GtkWindow *parent)
-{
-    GObject   *target = G_OBJECT (self);
-    GtkWidget *grid   = pn_node_dialog_new_property_grid ();
-    GtkWidget *host_editor;
-    GtkWidget *session_editor;
-    GtkWidget *line_limit_editor;
-    GtkWidget *status_label;
-
-    host_editor = pn_tmux_monitor_build_property_editor (
-            self, props[PROP_HOST], target, parent);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 0,
-                               g_param_spec_get_nick (props[PROP_HOST]),
-                               host_editor);
-
-    session_editor = pn_tmux_monitor_build_property_editor (
-            self, props[PROP_TMUX_SESSION], target, parent);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 1,
-                               g_param_spec_get_nick (props[PROP_TMUX_SESSION]),
-                               session_editor);
-
-    line_limit_editor = pn_node_dialog_default_editor (
-            target, props[PROP_LINE_LIMIT]);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 2,
-                               g_param_spec_get_nick (props[PROP_LINE_LIMIT]),
-                               line_limit_editor);
-
-    status_label = gtk_label_new (NULL);
-    gtk_label_set_xalign     (GTK_LABEL (status_label), 0.0);
-    gtk_label_set_use_markup (GTK_LABEL (status_label), TRUE);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 3, "Status", status_label);
-
-    update_status_label (target, NULL, status_label);
-    g_signal_connect_object (target, "notify::last-error",
-                             G_CALLBACK (update_status_label),
-                             status_label, 0);
-    /* busy transitions don't change last-error directly, but the
-     * `busy → idle` flip is the exact moment a freshly-finished
-     * enumeration's status has just landed in the field — wire it
-     * too so a slow ssh that ends up clearing the error redraws the
-     * row immediately rather than waiting for the next notify. */
-    g_signal_connect_object (target, "notify::busy",
-                             G_CALLBACK (update_status_label),
-                             status_label, 0);
-
-    return grid;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Property plumbing                                                  */
 /* ------------------------------------------------------------------ */
@@ -1285,6 +1023,14 @@ pn_tmux_monitor_get_property (
             g_value_take_string (value, copy);
             break;
         }
+    case PROP_SESSIONS:
+        /* Read seam for the companion GUI module's session combo: a
+         * GTK-free copy of the latest enumerated session list (NULL
+         * until the first enumeration finishes).  Exposed as a property
+         * rather than a C accessor so it survives the BIND_LOCAL barrier
+         * between the logic .so and the separately-dlopened companion. */
+        g_value_take_boxed (value, tm_dup_sessions_cache (self));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1353,8 +1099,11 @@ pn_tmux_monitor_class_init (PnTmuxMonitorClass *klass)
     object_class->finalize     = pn_tmux_monitor_finalize;
     trigger_class->trigger     = pn_tmux_monitor_trigger;
 
-    node_class->build_property_editor = pn_tmux_monitor_build_property_editor;
-    node_class->build_class_tab       = pn_tmux_monitor_build_class_tab;
+    /* The settings-dialog vfunc slots (build_property_editor +
+     * build_class_tab) are installed by the companion GUI module
+     * pipnode_shell-gui.so via pn_plugin_gui_init() at editor startup
+     * (TODO #23, Phase 8) — this logic half stays GTK-free so it loads
+     * under pipnode-run on a server with no GTK. */
 
     node_class->palette_icon   = PN_TMUX_MONITOR_NORMAL_ICON;
     node_class->class_name     = "Tmux Monitor";
@@ -1409,6 +1158,19 @@ pn_tmux_monitor_class_init (PnTmuxMonitorClass *klass)
             "Failure reason from the most recent session enumeration, "
             "or empty when the last enumeration succeeded",
             NULL,
+            G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+    /* Read-only, not serialised (non-writable).  GTK-free read seam for
+     * the companion GUI module's session combo: the latest enumerated
+     * `tmux list-sessions` result as a string array (NULL until the
+     * first enumeration finishes).  The combo repopulates on
+     * notify::sessions; exposing the list as a property (rather than a
+     * C accessor) is what lets the separately-dlopened companion read it
+     * across the G_MODULE_BIND_LOCAL barrier. */
+    props[PROP_SESSIONS] = g_param_spec_boxed (
+            "sessions", "Sessions",
+            "Latest enumerated tmux session names on the configured host",
+            G_TYPE_STRV,
             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
