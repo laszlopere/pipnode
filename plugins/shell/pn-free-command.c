@@ -171,8 +171,14 @@ wrap_cells (JsonArray *cells)
     return row;
 }
 
-static JsonNode *
-build_table_from_output (const gchar *output)
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-free-command.c.
+ * Kept out of the public header to keep the plugin's surface clean; the test
+ * declares a matching extern prototype.  Renamed from the file-local
+ * build_table_from_output so it no longer collides with the same-named static
+ * helpers in the sibling pn-df-command.c / pn-lxc-ls-command.c, which all link
+ * into the one pipnode_shell.la. */
+JsonNode *
+pn_free_command_build_table (const gchar *output)
 {
     JsonObject  *table        = json_object_new ();
     JsonArray   *rows         = json_array_new ();
@@ -350,8 +356,8 @@ pn_free_command_trigger (PnAutoTrigger *trigger)
     pn_message_set_boolean (msg, "success", success);
     pn_message_set_string  (msg, "output",  combined);
     pn_message_set_member  (msg, "table",
-                            build_table_from_output (success ? combined
-                                                             : NULL));
+                            pn_free_command_build_table (success ? combined
+                                                                 : NULL));
 
     pn_auto_trigger_emit_on_main (trigger, msg);
 

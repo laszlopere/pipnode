@@ -192,8 +192,14 @@ wrap_cells (JsonArray *cells)
 /*  Table build                                                        */
 /* ------------------------------------------------------------------ */
 
-static JsonNode *
-build_table_from_output (const gchar *output)
+/* Exposed (non-static) for unit testing — see tests/unit/test-pn-lxc-ls-command.c.
+ * Kept out of the public header to keep the plugin's surface clean; the test
+ * declares a matching extern prototype.  Renamed from the file-local
+ * build_table_from_output so it no longer collides with the same-named static
+ * helpers in the sibling pn-free-command.c / pn-df-command.c, which all link
+ * into the one pipnode_shell.la. */
+JsonNode *
+pn_lxc_ls_command_build_table (const gchar *output)
 {
     JsonObject  *table     = json_object_new ();
     JsonArray   *rows      = json_array_new ();
@@ -262,12 +268,16 @@ build_table_from_output (const gchar *output)
             gchar      **words = split_whitespace (line);
             JsonArray   *cells;
             gchar       *row_id;
+            guint        n_words;
 
             if (words[0] == NULL)
             {
                 g_strfreev (words);
                 continue;
             }
+
+            for (n_words = 0; words[n_words] != NULL; n_words++)
+                ;
 
             row_id = sanitise_id (words[0]);
             if (*row_id == '\0')
@@ -282,10 +292,16 @@ build_table_from_output (const gchar *output)
                 gchar *text;
                 gchar *cell_name;
 
-                if (c + 1 == n_columns)
+                /* A row shorter than the header pads the missing trailing
+                 * cells with "".  Guard on n_words so we never index
+                 * words[] past its NULL terminator (nor hand join_tail a
+                 * @start beyond the token run). */
+                if (c >= n_words)
+                    text = g_strdup ("");
+                else if (c + 1 == n_columns)
                     text = join_tail (words, c);
                 else
-                    text = g_strdup (words[c] != NULL ? words[c] : "");
+                    text = g_strdup (words[c]);
 
                 cell_name = g_strdup_printf ("%s.%s", row_id, column_ids[c]);
                 json_array_add_object_element (cells,
@@ -368,8 +384,8 @@ pn_lxc_ls_command_trigger (PnAutoTrigger *trigger)
     pn_message_set_boolean (msg, "success", success);
     pn_message_set_string  (msg, "output",  combined);
     pn_message_set_member  (msg, "table",
-                            build_table_from_output (success ? combined
-                                                             : NULL));
+                            pn_lxc_ls_command_build_table (success ? combined
+                                                                   : NULL));
 
     pn_auto_trigger_emit_on_main (trigger, msg);
 
