@@ -23,18 +23,6 @@
 #include <gmodule.h>
 #include <string.h>
 
-/* Headless split (TODO #23): PnPreferences lives in the GTK GUI tier and
- * its header pulls <gtk/gtk.h>, but the core factory only needs to ask
- * whether the user disabled a plugin.  Forward-declare just that slice so
- * this translation unit stays GTK-free; the symbols resolve from the gui
- * library at link time (both libraries are linked into the binaries).
- * Phase 5/6 replaces this with a core-side plugin-policy seam so a
- * headless-only build needs no GUI symbols at all. */
-typedef struct _PnPreferences PnPreferences;
-PnPreferences *pn_preferences_get_default       (void);
-gboolean       pn_preferences_is_plugin_disabled (PnPreferences *self,
-                                                  const gchar   *basename);
-
 #include "pn-ambient.h"
 #include "pn-analog-meter.h"
 #include "pn-auto-injector.h"
@@ -145,6 +133,14 @@ struct _PnNodeFactory
      * pointer is borrowed from the plugin's static const PnPluginInfo
      * (lifetime = process, since the .so is made resident). */
     GHashTable *loaded_plugins;
+
+    /* Optional plugin-load policy hook (TODO #23, Phase 5).  When set,
+     * load_plugin() consults it by basename and skips plugins it rejects.
+     * The editor installs one backed by PnPreferences; the headless
+     * runner leaves it NULL, so every discovered plugin loads. */
+    PnPluginFilterFunc plugin_filter;
+    gpointer           plugin_filter_data;
+    GDestroyNotify     plugin_filter_destroy;
 };
 
 G_DEFINE_TYPE (PnNodeFactory, pn_node_factory, G_TYPE_OBJECT)
@@ -294,6 +290,9 @@ pn_node_factory_finalize (GObject *object)
     g_clear_pointer (&self->loaded_basenames, g_hash_table_unref);
     g_clear_pointer (&self->loaded_plugins,   g_hash_table_unref);
 
+    if (self->plugin_filter_destroy != NULL && self->plugin_filter_data != NULL)
+        self->plugin_filter_destroy (self->plugin_filter_data);
+
     G_OBJECT_CLASS (pn_node_factory_parent_class)->finalize (object);
 }
 
@@ -333,6 +332,22 @@ pn_node_factory_get_default (void)
         register_builtins (singleton);
     }
     return singleton;
+}
+
+void
+pn_node_factory_set_plugin_filter (PnNodeFactory      *self,
+                                   PnPluginFilterFunc  filter,
+                                   gpointer            user_data,
+                                   GDestroyNotify      user_data_destroy)
+{
+    g_return_if_fail (PN_IS_NODE_FACTORY (self));
+
+    if (self->plugin_filter_destroy != NULL && self->plugin_filter_data != NULL)
+        self->plugin_filter_destroy (self->plugin_filter_data);
+
+    self->plugin_filter         = filter;
+    self->plugin_filter_data    = user_data;
+    self->plugin_filter_destroy = user_data_destroy;
 }
 
 gboolean
@@ -546,21 +561,23 @@ pn_node_factory_load_plugin (PnNodeFactory *self,
 
     canonical = canonicalise_plugin_path (path);
 
-    /* Disabled by the user in Preferences -- skip silently.  The
-     * dedup tables stay untouched: that way a later call to
+    /* Rejected by the host's policy hook -- skip silently.  The dedup
+     * tables stay untouched: that way a later call to
      * pn_node_factory_list_plugins() still surfaces the basename so
      * the Preferences dialog can show (and un-check) the row.  We
      * check the basename rather than the canonical path because the
-     * Preferences UI keys on the user-visible filename, which
-     * survives the install vs build-tree path distinction. */
+     * policy (the editor's PnPreferences-backed filter) keys on the
+     * user-visible filename, which survives the install vs build-tree
+     * path distinction.  A headless run installs no filter, so this is
+     * skipped entirely and every discovered plugin loads. */
+    if (self->plugin_filter != NULL)
     {
-        gchar       *basename = g_path_get_basename (canonical);
-        PnPreferences *prefs  = pn_preferences_get_default ();
+        gchar *basename = g_path_get_basename (canonical);
 
-        if (pn_preferences_is_plugin_disabled (prefs, basename))
+        if (self->plugin_filter (basename, self->plugin_filter_data))
         {
             g_message ("pipnode: plugin \"%s\" skipped "
-                       "(disabled in Preferences)", basename);
+                       "(disabled by host policy)", basename);
             g_free (basename);
             g_free (canonical);
             return TRUE;

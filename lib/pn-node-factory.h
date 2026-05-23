@@ -185,6 +185,37 @@ typedef enum
 } PnNodeFactoryPluginError;
 
 /**
+ * PnPluginFilterFunc:
+ * @basename: the plugin module's filename (e.g. "pipnode_network.so")
+ * @user_data: the pointer passed to pn_node_factory_set_plugin_filter()
+ *
+ * Predicate consulted by the loader for each discovered plugin.  Return
+ * %TRUE to skip the plugin (it is not opened), %FALSE to load it.
+ */
+typedef gboolean (*PnPluginFilterFunc) (const gchar *basename,
+                                        gpointer     user_data);
+
+/**
+ * pn_node_factory_set_plugin_filter:
+ * @self: the factory
+ * @filter: (nullable) (scope notified): policy predicate, or %NULL to clear
+ * @user_data: (nullable): passed through to @filter
+ * @user_data_destroy: (nullable): called on @user_data when the filter is
+ *   replaced or the factory is finalized
+ *
+ * Installs a plugin-load policy hook.  pn_node_factory_load_plugin()
+ * calls @filter with each discovered plugin's basename and silently skips
+ * the plugin when it returns %TRUE.  This keeps the GTK-bound preferences
+ * machinery out of the GTK-free core: the editor installs a filter that
+ * consults #PnPreferences, while the headless runner installs none and so
+ * loads every discovered plugin (TODO #23, Phase 5).
+ */
+void pn_node_factory_set_plugin_filter (PnNodeFactory      *self,
+                                        PnPluginFilterFunc  filter,
+                                        gpointer            user_data,
+                                        GDestroyNotify      user_data_destroy);
+
+/**
  * pn_node_factory_load_plugin:
  * @self:  the factory
  * @path:  filesystem path to a plugin .so / .dylib / .dll

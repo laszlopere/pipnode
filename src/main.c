@@ -20,6 +20,20 @@
 #include "pn-application.h"
 #include "pn-node-factory.h"
 #include "pn-gui.h"
+#include "pn-preferences.h"
+
+/* Editor plugin-load policy: skip plugins the user disabled in
+ * Preferences.  Installed on the factory before the discovery scan so the
+ * GTK-free core never has to reach into the GTK-bound PnPreferences itself
+ * (TODO #23, Phase 5).  pipnode-run installs no filter, so it loads every
+ * discovered plugin. */
+static gboolean
+editor_plugin_disabled (const gchar *basename, gpointer user_data)
+{
+    (void) user_data;
+    return pn_preferences_is_plugin_disabled (pn_preferences_get_default (),
+                                              basename);
+}
 
 int
 main (
@@ -27,15 +41,19 @@ main (
         char **argv)
 {
     PnApplication *app;
+    PnNodeFactory *factory;
     int status;
 
     /* Build the singleton (which lazily registers the built-in node
-     * types) and then auto-discover plugins from PIPNODE_PLUGIN_PATH,
-     * the per-user data directory, and the system pkglibdir.  Done
-     * before g_application_run() so the palette construction in
-     * PnWindow already sees the plugin types when the first window
-     * is built. */
-    pn_node_factory_load_plugins_default (pn_node_factory_get_default ());
+     * types), install the preferences-backed plugin filter, and then
+     * auto-discover plugins from PIPNODE_PLUGIN_PATH, the per-user data
+     * directory, and the system pkglibdir.  Done before
+     * g_application_run() so the palette construction in PnWindow already
+     * sees the plugin types when the first window is built. */
+    factory = pn_node_factory_get_default ();
+    pn_node_factory_set_plugin_filter (factory, editor_plugin_disabled,
+                                       NULL, NULL);
+    pn_node_factory_load_plugins_default (factory);
 
     /* Editor only: install the gui-tier vfunc slots (cairo painters +
      * settings dialogs) onto the dual-nature node classes whose logic
