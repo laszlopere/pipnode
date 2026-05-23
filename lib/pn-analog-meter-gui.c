@@ -33,7 +33,6 @@
 
 #include "pn-analog-meter-gui.h"
 #include "pn-analog-meter.h"
-#include "pn-node-dialog-helpers.h"
 
 #include <gtk/gtk.h>
 #include <math.h>
@@ -965,70 +964,13 @@ pn_analog_meter_paint_plot (
 
 /* ------------------------------------------------------------------ */
 /*  Settings dialog                                                    */
+/*                                                                     */
+/*  The three-tab grouping (Data | Scale | Colours) is now declared    */
+/*  as a GTK-free #PnSettingsSchema on the class in the core           */
+/*  pn-analog-meter.c (Phase 7.4); the dialog framework's renderer     */
+/*  builds the same notebook pages this file's build_class_tabs used    */
+/*  to.  This file is the meter's painter only.                        */
 /* ------------------------------------------------------------------ */
-
-static GtkWidget *
-build_am_page (GObject *target, const gchar *const *names)
-{
-    GtkWidget    *grid  = pn_node_dialog_new_property_grid ();
-    GObjectClass *klass = G_OBJECT_GET_CLASS (target);
-    guint         row   = 0;
-    guint         i;
-
-    for (i = 0; names[i] != NULL; i++)
-    {
-        GParamSpec  *pspec  = g_object_class_find_property (klass, names[i]);
-        GtkWidget   *editor;
-        const gchar *nick;
-
-        if (pspec == NULL || (pspec->flags & G_PARAM_WRITABLE) == 0)
-            continue;
-
-        editor = pn_node_dialog_default_editor (target, pspec);
-        nick   = g_param_spec_get_nick (pspec);
-        pn_node_dialog_attach_row (GTK_GRID (grid), row,
-                                   nick != NULL ? nick : names[i],
-                                   editor);
-        row += 1;
-    }
-
-    return grid;
-}
-
-static void
-pn_analog_meter_build_class_tabs (
-        PnNode      *self,
-        GtkNotebook *notebook,
-        GtkWindow   *parent G_GNUC_UNUSED)
-{
-    GObject *target = G_OBJECT (self);
-
-    static const gchar *const data_props[] = {
-        "key", "unit", "mode", "accuracy-class", NULL
-    };
-    static const gchar *const scale_props[] = {
-        "min-value", "max-value",
-        "start-angle", "end-angle",
-        "major-ticks", "minor-ticks-per-major",
-        NULL
-    };
-    static const gchar *const color_props[] = {
-        "frame-color", "face-color",
-        "scale-color", "needle-color",
-        "label-color",
-        NULL
-    };
-
-    pn_node_dialog_append_page (notebook,
-                                build_am_page (target, data_props),
-                                "Data");
-    pn_node_dialog_append_page (notebook,
-                                build_am_page (target, scale_props),
-                                "Scale");
-    pn_node_dialog_append_page (notebook,
-                                build_am_page (target, color_props),
-                                "Colours");
-}
 
 /* ------------------------------------------------------------------ */
 /*  vfunc installation                                                 */
@@ -1041,7 +983,6 @@ pn_analog_meter_gui_install (void)
             PN_NODE_CLASS (g_type_class_ref (PN_TYPE_ANALOG_METER));
 
     node_class->paint_plot       = pn_analog_meter_paint_plot;
-    node_class->build_class_tabs = pn_analog_meter_build_class_tabs;
     /* The case has rounded corners -- the standard rectangular drop
      * shadow leaks past them at the corners and reads as a slightly
      * mis-aligned ghost around the otherwise-flush plastic body.    */

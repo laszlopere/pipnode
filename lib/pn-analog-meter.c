@@ -35,6 +35,7 @@
 #include "pn-analog-meter.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <math.h>
 
@@ -792,6 +793,41 @@ pn_analog_meter_class_init (PnAnalogMeterClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.4): group the writable
+     * properties into three sibling pages (Data | Scale | Colours) so the
+     * dialog reads Class | Node | Data | Scale | Colours rather than one
+     * over-tall grid.  GTK-free data held on the class; the GUI tier's
+     * renderer turns it into the same tabs the old pn-analog-meter-gui.c
+     * build_class_tabs produced, every editor still the type-driven
+     * default (PN_EDITOR_AUTO — enum combos for mode / accuracy-class,
+     * colour buttons for the *-color rows). */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Data");
+        pn_settings_schema_row (schema, "key",            PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "unit",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "mode",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "accuracy-class", PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Scale");
+        pn_settings_schema_row (schema, "min-value",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "max-value",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "start-angle",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "end-angle",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "major-ticks",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "minor-ticks-per-major", PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Colours");
+        pn_settings_schema_row (schema, "frame-color",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "face-color",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "scale-color",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "needle-color", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "label-color",  PN_EDITOR_AUTO);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

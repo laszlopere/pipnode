@@ -34,7 +34,6 @@
 
 #include "pn-dial-gui.h"
 #include "pn-dial.h"
-#include "pn-node-dialog-helpers.h"
 
 #include <gtk/gtk.h>
 #include <math.h>
@@ -719,105 +718,15 @@ pn_dial_paint_plot (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog: PnNodeClass.build_class_tabs override             */
+/*  Settings dialog                                                    */
 /*                                                                     */
-/*  The default introspection-driven tab would lay out one row per     */
-/*  writable property in a single grid -- with the dial's 21           */
-/*  properties that is tall enough that the settings dialog no longer  */
-/*  fits on a 1080 px screen.  Contribute four sibling pages           */
-/*  (Data, Scale, Zones, Colours) directly to the dialog's top-level   */
-/*  notebook via the multi-tab hook so the dialog reads as             */
-/*                                                                     */
-/*      Class | Node | Data | Scale | Zones | Colours                  */
-/*                                                                     */
-/*  with each page only as tall as its own row set.  Editors are      */
-/*  built through pn_node_dialog_default_editor() so they match the   */
-/*  look of every other auto-generated property tab.                  */
+/*  The dial's four-tab grouping (Data | Scale | Zones | Colours) is   */
+/*  now declared as a GTK-free #PnSettingsSchema on the class in the   */
+/*  core pn-dial.c (Phase 7.4); the dialog framework's renderer turns  */
+/*  it into the same notebook pages this file's build_class_tabs used  */
+/*  to build by hand.  Nothing dialog-related lives here any more —    */
+/*  this file is the dial's painter only.                              */
 /* ------------------------------------------------------------------ */
-
-/** Build a property grid containing one row per element of @names,
- *  looking each name up on @target's class.  Names that do not
- *  resolve to a writable property are silently skipped -- which lets
- *  the four category arrays below be authored as plain lists of
- *  property names without having to keep a parallel "this row is
- *  visible" flag in sync with the property table. */
-static GtkWidget *
-build_dial_page (
-        GObject     *target,
-        const gchar *const *names)
-{
-    GtkWidget   *grid  = pn_node_dialog_new_property_grid ();
-    GObjectClass *klass = G_OBJECT_GET_CLASS (target);
-    guint        row   = 0;
-    guint        i;
-
-    for (i = 0; names[i] != NULL; i++)
-    {
-        GParamSpec *pspec  = g_object_class_find_property (klass, names[i]);
-        GtkWidget  *editor;
-        const gchar *nick;
-
-        if (pspec == NULL || (pspec->flags & G_PARAM_WRITABLE) == 0)
-            continue;
-
-        editor = pn_node_dialog_default_editor (target, pspec);
-        nick   = g_param_spec_get_nick (pspec);
-        pn_node_dialog_attach_row (GTK_GRID (grid), row,
-                                   nick != NULL ? nick : names[i],
-                                   editor);
-        row += 1;
-    }
-
-    return grid;
-}
-
-static void
-pn_dial_build_class_tabs (
-        PnNode      *self,
-        GtkNotebook *notebook,
-        GtkWindow   *parent G_GNUC_UNUSED)
-{
-    GObject *target = G_OBJECT (self);
-
-    /* The four category lists.  Order within each list is the order  */
-    /* the rows appear on the page -- chosen to read top-down the way */
-    /* a user would fill the dial in (binding first, then the         */
-    /* geometry of the scale, then the optional zones, then the paint */
-    /* colours that finish the look).                                  */
-    static const gchar *const data_props[] = {
-        "key", "label", "unit", NULL
-    };
-    static const gchar *const scale_props[] = {
-        "min-value", "max-value",
-        "start-angle", "end-angle",
-        "major-ticks", "minor-ticks-per-major",
-        NULL
-    };
-    static const gchar *const zone_props[] = {
-        "green-start",  "green-end",  "green-color",
-        "yellow-start", "yellow-end", "yellow-color",
-        "red-start",    "red-end",    "red-color",
-        NULL
-    };
-    static const gchar *const color_props[] = {
-        "face-color", "scale-color",
-        "needle-color", "label-color",
-        NULL
-    };
-
-    pn_node_dialog_append_page (notebook,
-                                build_dial_page (target, data_props),
-                                "Data");
-    pn_node_dialog_append_page (notebook,
-                                build_dial_page (target, scale_props),
-                                "Scale");
-    pn_node_dialog_append_page (notebook,
-                                build_dial_page (target, zone_props),
-                                "Zones");
-    pn_node_dialog_append_page (notebook,
-                                build_dial_page (target, color_props),
-                                "Colours");
-}
 
 /* ------------------------------------------------------------------ */
 /*  vfunc installation                                                 */
@@ -829,7 +738,6 @@ pn_dial_gui_install (void)
     PnNodeClass *node_class = PN_NODE_CLASS (g_type_class_ref (PN_TYPE_DIAL));
 
     node_class->paint_plot       = pn_dial_paint_plot;
-    node_class->build_class_tabs = pn_dial_build_class_tabs;
     /* The dial face is circular -- the standard rectangular drop shadow
      * leaks out of the corners and reads as a rectangular ghost around
      * the otherwise-round dial. */

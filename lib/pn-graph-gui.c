@@ -38,7 +38,6 @@
 
 #include "pn-graph-gui.h"
 #include "pn-graph.h"
-#include "pn-node-dialog-helpers.h"
 
 #include <gtk/gtk.h>
 #include <math.h>
@@ -1371,65 +1370,14 @@ pn_graph_paint_plot (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog: two themed pages instead of one tall tab          */
+/*  Settings dialog                                                    */
+/*                                                                     */
+/*  The two-page grouping (Appearance | Data) is now declared as a     */
+/*  GTK-free #PnSettingsSchema on the class in the core pn-graph.c      */
+/*  (Phase 7.4); the dialog framework's renderer builds the same       */
+/*  notebook pages this file's build_class_tabs used to.  This file    */
+/*  is the graph's painter only.                                       */
 /* ------------------------------------------------------------------ */
-
-static GtkWidget *
-build_graph_page (GObject *target, const gchar *const *names)
-{
-    GtkWidget    *grid  = pn_node_dialog_new_property_grid ();
-    GObjectClass *klass = G_OBJECT_GET_CLASS (target);
-    guint         row   = 0;
-    guint         i;
-
-    for (i = 0; names[i] != NULL; i++)
-    {
-        GParamSpec  *pspec = g_object_class_find_property (klass, names[i]);
-        GtkWidget   *editor;
-        const gchar *nick;
-
-        if (pspec == NULL || (pspec->flags & G_PARAM_WRITABLE) == 0)
-            continue;
-
-        editor = pn_node_dialog_default_editor (target, pspec);
-        nick   = g_param_spec_get_nick (pspec);
-        pn_node_dialog_attach_row (GTK_GRID (grid), row,
-                                   nick != NULL ? nick : names[i],
-                                   editor);
-        row += 1;
-    }
-
-    return grid;
-}
-
-static void
-pn_graph_build_class_tabs (
-        PnNode      *self,
-        GtkNotebook *notebook,
-        GtkWindow   *parent G_GNUC_UNUSED)
-{
-    GObject *target = G_OBJECT (self);
-
-    static const gchar *const appearance_props[] = {
-        "draw-style",
-        "line-color", "line-width",
-        "axis-color", "background-color",
-        "show-grid",
-        NULL
-    };
-    static const gchar *const data_props[] = {
-        "key", "resolution", "x-buckets", "data-view",
-        "log-y", "y-from-zero",
-        NULL
-    };
-
-    pn_node_dialog_append_page (notebook,
-                                build_graph_page (target, appearance_props),
-                                "Appearance");
-    pn_node_dialog_append_page (notebook,
-                                build_graph_page (target, data_props),
-                                "Data");
-}
 
 /* ------------------------------------------------------------------ */
 /*  vfunc installation                                                 */
@@ -1441,7 +1389,6 @@ pn_graph_gui_install (void)
     PnNodeClass *node_class = PN_NODE_CLASS (g_type_class_ref (PN_TYPE_GRAPH));
 
     node_class->paint_plot       = pn_graph_paint_plot;
-    node_class->build_class_tabs = pn_graph_build_class_tabs;
 
     /* The class ref is intentionally held for the process lifetime —
      * the same lifetime the factory keeps it alive for — so the slots

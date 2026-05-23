@@ -20,6 +20,7 @@
 #include "pn-dial.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <math.h>
 
@@ -865,6 +866,51 @@ pn_dial_class_init (PnDialClass *klass)
             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.4): the dial has 21 writable
+     * properties — a single auto tab is taller than a 1080 px screen — so
+     * group them into four sibling pages.  This is GTK-free data held on
+     * the class; the GUI tier's renderer turns it into the same four tabs
+     * the old pn-dial-gui.c build_class_tabs produced (Class | Node |
+     * Data | Scale | Zones | Colours), with every editor still the
+     * type-driven default (PN_EDITOR_AUTO).  Order within each tab reads
+     * top-down the way a user fills the dial in: binding, then the scale
+     * geometry, then the optional zones, then the paint colours. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Data");
+        pn_settings_schema_row (schema, "key",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "label", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "unit",  PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Scale");
+        pn_settings_schema_row (schema, "min-value",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "max-value",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "start-angle",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "end-angle",             PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "major-ticks",           PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "minor-ticks-per-major", PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Zones");
+        pn_settings_schema_row (schema, "green-start",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "green-end",    PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "green-color",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "yellow-start", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "yellow-end",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "yellow-color", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "red-start",    PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "red-end",      PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "red-color",    PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Colours");
+        pn_settings_schema_row (schema, "face-color",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "scale-color",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "needle-color", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "label-color",  PN_EDITOR_AUTO);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

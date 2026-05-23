@@ -20,6 +20,7 @@
 #include "pn-graph.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <math.h>
 
@@ -1160,6 +1161,35 @@ pn_graph_class_init (PnGraphClass *klass)
             G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.4): two themed pages
+     * (Appearance | Data) instead of one tall auto tab.  GTK-free data
+     * held on the class; the GUI tier's renderer turns it into the same
+     * pages the old pn-graph-gui.c build_class_tabs produced, every
+     * editor still the type-driven default (PN_EDITOR_AUTO — enum combos
+     * for draw-style / data-view, a colour button for each *-color row,
+     * check buttons for the booleans). */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Appearance");
+        pn_settings_schema_row (schema, "draw-style",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "line-color",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "line-width",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "axis-color",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "background-color", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "show-grid",        PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Data");
+        pn_settings_schema_row (schema, "key",         PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "resolution",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "x-buckets",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "data-view",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "log-y",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "y-from-zero", PN_EDITOR_AUTO);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

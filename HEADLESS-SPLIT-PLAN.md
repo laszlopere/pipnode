@@ -962,10 +962,26 @@ list-of-records) falls through to the Phase 6 companion / imperative
   `.so` + `pipnode-run` still GTK-free; net 53 unit + 10/11 functional
   (the lone fail `test_debug_view_toggle.py` is a pre-existing AT-SPI-bus
   environment failure, identical with the edit stashed).
-- **7.4** port tab-grouping: **Dial (4), Analog-Meter (3), Graph (2)** —
-  move grouping from each `*-gui.c` `build_class_tabs` into a schema in
-  the **core** `.c`, delete the gui `build_class_tabs`. (They keep their
-  `-gui.c` for *painting* only.) D-Bus assert tab titles + `pn-prop-*`.
+- **7.4 DONE** port tab-grouping: **Dial (4), Analog-Meter (3), Graph (2)**.
+  Each node's tab grouping moved from its `*-gui.c` `build_class_tabs` into
+  a `PnSettingsSchema` built in `_class_init` of the **core** `.c` (right
+  after `g_object_class_install_properties`, via
+  `pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema)`),
+  every row `PN_EDITOR_AUTO` so editors stay the type-driven default
+  (enum combos, colour buttons, checks — byte-identical to the old hand
+  build, which also used `pn_node_dialog_default_editor`). The gui files
+  lost `build_class_tabs`, its `build_*_page` helper, the `node_class->
+  build_class_tabs = …` line, and the now-unused
+  `#include "pn-node-dialog-helpers.h"` — they are *painters only* now.
+  Tabs: Dial = Data/Scale/Zones/Colours; Analog-Meter = Data/Scale/
+  Colours; Graph = Appearance/Data. **Verified:** clean build no warnings;
+  core `.so` still GTK-free (schema is pure data); 53/53 unit + 11/11
+  functional (incl. `test_node_dialog_dial.py`, which asserts the dial's
+  six themed tabs + `pn-prop-*` editor bindings + live needle data — now
+  built via the renderer); throwaway D-Bus check confirmed Analog-Meter →
+  `Class|Node|Data|Scale|Colours` and Graph → `Class|Node|Appearance|Data`.
+  These three are the first nodes whose dialogs the Phase-7 renderer
+  actually builds.
 - **7.5** port **Expression/Expression2** (full-width multiline via row
   flag), **Led** (conditional sensitivity on `mode == flash`), and
   **Rewrite** via a new `PN_EDITOR_CODE` kind → GtkSourceView in the
