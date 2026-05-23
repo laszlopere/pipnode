@@ -267,7 +267,7 @@ pn_query_class_init (PnQueryClass *klass)
     object_class->finalize     = pn_query_finalize;
     node_class->receive        = pn_query_receive;
 
-    node_class->class_name     = "Query";
+    node_class->class_name     = "JMESPath";
     node_class->icon           = "\xef\x81\x9b";  /* fa-crosshairs U+F05B */
     node_class->color          = (PnColor){ 0.30, 0.66, 0.62, 1.0 };
     node_class->category       = "Filters";
@@ -312,7 +312,7 @@ pn_query_init (PnQuery *self)
     self->result_field = g_strdup ("result");
     self->source_field = g_strdup ("");
 
-    pn_node_set_class_name (node, "Query");
+    pn_node_set_class_name (node, "JMESPath");
     pn_node_set_icon       (node, "\xef\x81\x9b");  /* fa-crosshairs U+F05B */
     pn_node_set_color      (node, &teal);
     pn_node_set_has_input  (node, TRUE);
