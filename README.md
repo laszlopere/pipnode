@@ -41,6 +41,30 @@ libsoup 3, GnuTLS, PLplot, and libmosquitto; WebKit2GTK is optional. Exact
 version requirements live in `configure.ac`, and `INSTALL` has notes on
 optional voice/TTS data.
 
+## Running headless (servers)
+
+The editor (`pipnode-editor`) is the GTK application. A second binary,
+`pipnode-run`, executes a saved worksheet **without the GUI** — load JSON,
+run the flow, emit messages — so a worksheet can run on a server or under
+cron/systemd:
+
+```sh
+pipnode-run my-flow.json            # run until interrupted
+pipnode-run --timeout=30 my-flow.json
+```
+
+Pipnode is built as two libraries: a GTK-free **core** (`libpipnode-core`)
+with the flow engine and all node logic, and a **GUI** tier
+(`libpipnode-gui`) with the editor, canvas rendering and dialogs.
+`pipnode-run` and `libpipnode-core` pull **no GTK at runtime**, so a host
+with no display can execute flows. Bundled plugins are either core-only
+(network, image, Tasmota) or two-tier — a headless logic `.so` plus an
+editor-only `-gui.so` companion (shell, sound-effects) — so they install
+and run on a server too. A distribution can therefore ship a `pipnode-core`
+package with no GTK dependency alongside the full `pipnode-gui`; see
+`INSTALL` for the packaging split and `PLUGINS` for writing
+server-installable plugins.
+
 ## Writing plugins
 
 Plugins are the supported way to add node types (and, over time, other

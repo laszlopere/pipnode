@@ -963,7 +963,143 @@ ABI v2 refuse to load against an ABI v1 host (the version check
 catches the mismatch up-front and surfaces a clear `GError`).
 
 
-16. COMPANION GUI MODULE: SERVER-INSTALLABLE PLUGINS (ABI v3)
+16. DECLARATIVE SETTINGS SCHEMA (THE GTK-FREE DEFAULT PATH)
+----------------------------------------------------------
+
+The dialog hooks in section 15 are imperative: they hand you a
+`GtkNotebook` / `GtkWidget` and you build the UI in C against GTK.
+That is exactly what makes a plugin that uses them pull the GTK tier
+into every host -- including a headless server (the problem section 17
+solves).  But the great majority of real dialog customisations are not
+"build me an arbitrary widget tree"; they are small, declarable tweaks:
+group properties into tabs, force a particular editor for one property,
+offer a fixed choice list, grey a row out unless another property has a
+certain value.  None of that needs GTK at author time -- only data.
+
+A `PnSettingsSchema` is that data: a GTK-free, declarative description
+of a node type's dialog, built imperatively in `_class_init` and
+attached to the class.  The headless core only ever holds the
+description; the GUI tier turns it into GtkWidgets when the editor opens
+the dialog.  A node or plugin whose dialog needs are covered by the
+schema therefore stays entirely in the core tier -- ONE GTK-free `.so`,
+no `-gui.so` companion (section 17), and it still shows a fully
+customised dialog in the editor.  This is the "default path" of the
+headless split; the companion is the escape hatch for what the schema
+cannot express.
+
+The schema is stored as per-`GType` qdata, so attaching one changes
+neither the `PnNodeClass` struct layout nor the plugin ABI.  The header
+is `<pipnode/pn-settings-schema.h>`.
+
+16.1 The builder API
+--------------------
+
+```c
+PnSettingsSchema *pn_settings_schema_new   (void);
+
+/* Open a named tab; later rows attach to it.  Naming >= 1 tab REPLACES
+ * the class's single auto property tab with one page per named tab
+ * (the declarative counterpart of build_class_tabs).  Name no tab and
+ * the single auto tab is kept and you only customise individual rows. */
+void pn_settings_schema_tab (PnSettingsSchema *self, const gchar *title);
+
+/* Append a row for a property.  PN_EDITOR_AUTO infers the editor from
+ * the property type (right for plain tab grouping); the other kinds
+ * force one: ENTRY, MULTILINE, SPIN, CHECK, COMBO, COLOR, FILE, CODE
+ * (GtkSourceView), LABEL (read-only).  A prop that resolves to nothing
+ * writable is silently skipped at render time. */
+void pn_settings_schema_row (PnSettingsSchema *self,
+                             const gchar *prop, PnEditorKind kind);
+
+/* Attach an explicit, non-enum choice list to a row and force a combo
+ * (for strings, each entry is both the label and the stored value). */
+void pn_settings_schema_choices (PnSettingsSchema *self,
+                                 const gchar *prop,
+                                 const gchar *const *choices);
+
+/* Per-row layout: PN_ROW_FLAG_FULL_WIDTH (span both columns, no label
+ * cell) and/or PN_ROW_FLAG_READONLY (always disabled). */
+void pn_settings_schema_row_flags (PnSettingsSchema *self,
+                                   const gchar *prop, PnRowFlags flags);
+
+/* Sensitivity dependencies: enable a row only while a controller
+ * property equals a value (parsed against the controller's type -- an
+ * enum by nick/name, a bool by true/false/1/0, a number by value) ... */
+void pn_settings_schema_enable_when_eq (PnSettingsSchema *self,
+                                        const gchar *prop,
+                                        const gchar *when_prop,
+                                        const gchar *value);
+/* ... or only while a controller is "truthy" (nonzero / TRUE / non-empty). */
+void pn_settings_schema_enable_when_truthy (PnSettingsSchema *self,
+                                            const gchar *prop,
+                                            const gchar *when_prop);
+
+/* Attach the finished schema to the class; takes the caller's ref. */
+void pn_node_class_set_settings_schema (PnNodeClass *klass,
+                                        PnSettingsSchema *schema);
+```
+
+16.2 Worked example -- one greyed-out row, no tabs
+--------------------------------------------------
+
+The in-tree LED node's `hold-ms` field only does anything in Flash
+mode, so it is greyed out otherwise.  This used to be hand-wired in a
+GTK `build_property_editor`; as a schema it needs no GTK, so LED's
+drawing companion shrinks and the logic half carries the whole dialog
+description:
+
+```c
+/* in pn_led_class_init, with klass the PnLedClass */
+PnSettingsSchema *schema = pn_settings_schema_new ();
+
+pn_settings_schema_row (schema, "hold-ms", PN_EDITOR_AUTO);
+pn_settings_schema_enable_when_eq (schema, "hold-ms",
+                                   "mode", "Flash");   /* PnLedMode nick */
+
+pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+```
+
+No tab is named, so this keeps LED's single auto tab and only adjusts
+the one row.  Name tabs instead when you want to group properties:
+
+```c
+PnSettingsSchema *schema = pn_settings_schema_new ();
+
+pn_settings_schema_tab (schema, "General");
+pn_settings_schema_row (schema, "label",   PN_EDITOR_AUTO);
+pn_settings_schema_row (schema, "mode",    PN_EDITOR_AUTO);
+
+pn_settings_schema_tab (schema, "Appearance");
+pn_settings_schema_row (schema, "color",   PN_EDITOR_COLOR);
+pn_settings_schema_row (schema, "size",    PN_EDITOR_SPIN);
+
+pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+```
+
+16.3 When the schema is not enough
+----------------------------------
+
+The schema deliberately does NOT cover everything.  A combo whose
+entries are discovered at runtime (a sysfs device walk, a `tmux
+list-sessions`), a live status row that updates while the dialog is
+open, a one-shot "Download" button with a progress label, a custom
+list/table editor -- those need real code and so need either the
+imperative vfuncs of section 15 (fine for a desktop-only plugin) or, to
+stay server-installable, the companion module of section 17.  The two
+paths compose: an imperative `build_*` vfunc on a class always WINS over
+that class's schema, so you can describe the static rows as data and
+override only the one dynamic row in a companion.
+
+16.4 ABI note
+-------------
+
+The schema lives in qdata, not in the `PnNodeClass` struct, so using it
+does not change the plugin ABI and needs no new `PN_PLUGIN_ABI_VERSION`.
+A host too old to know about schemas simply ignores the qdata and draws
+the auto dialog; a schema-aware host renders it.
+
+
+17. COMPANION GUI MODULE: SERVER-INSTALLABLE PLUGINS (ABI v3)
 ------------------------------------------------------------
 
 The dialog hooks in section 15 (and the cairo painter vfuncs
@@ -974,6 +1110,11 @@ has to link the GTK tier (`libpipnode-gui`), which means its single
 loads it -- including the headless runner `pipnode-run` on a server
 with no display.  That is fine for a desktop-only plugin but defeats
 the point of the headless core.
+
+Reach for this only when the declarative schema (section 16) cannot
+express your dialog -- a runtime-discovered combo, a live status row, a
+"Download" button, a custom table editor, or any cairo drawing.  If the
+schema covers you, prefer it: one GTK-free `.so`, no companion.
 
 ABI v3 lets you split a plugin the same way the in-tree dual-nature
 nodes are split: logic in one GTK-free `.so`, drawing and dialogs in
@@ -1033,24 +1174,33 @@ GObject properties (`g_object_get` / `g_object_bind_property`) and the
 property, expose it as one from the logic half (which also keeps the
 headless side inspectable).
 
-The reference split lives in `tests/plugins/echo/`: `pn-echo.c`
+The minimal reference split lives in `tests/plugins/echo/`: `pn-echo.c`
 (logic, core-only) plus `pn-echo-gui.c` (companion).  Its Makefile.am
 shows the two `-module` builds, and the pair is verified by
 `tests/test_plugin_load.py` (logic under `pipnode-run`, no GTK) and
 `tests/test_plugin_gui_companion.py` (companion under the editor).
 
+Two BUNDLED plugins ship as real two-tier examples (section 18):
+`plugins/shell/` (the Tmux Monitor node's companion adds a live session
+combobox + a runtime status row) and `plugins/sound-effects/` (the
+SciFi Sound node's companion is a whole libsoup clip-download manager).
+The latter also shows the common case where the two halves share a
+GTK-free helper file (`pn-sci-fi-clips.c`) compiled into BOTH modules,
+because the editor opens the companion `G_MODULE_BIND_LOCAL` and so a
+logic-half symbol is invisible to it.
 
-17. REFERENCE PLUGINS IN THE TREE
+
+18. REFERENCE PLUGINS IN THE TREE
 --------------------------------
 
 The source tree carries a handful of plugins you can read for
 worked examples; they all build out of the box from a fresh
-`./configure && make`.  Two are worth pointing out here.
+`./configure && make`.  Pick the one whose shape matches yours.
 
   - `tests/plugins/echo/`
         A minimal `noinst` plugin used by the plugin tests to
         verify the loader path end-to-end.  It is the reference
-        TWO-TIER plugin (section 16): the GTK-free logic half
+        TWO-TIER plugin (section 17): the GTK-free logic half
         `pn-echo.c` defines a single `PnEcho` pass-through node
         and exports `pn_plugin_init` (linked core-only, loaded by
         `pipnode-run`); the companion `pn-echo-gui.c` exports
@@ -1058,18 +1208,31 @@ worked examples; they all build out of the box from a fresh
         dialog (combo editor + extra "Stats" page) for the editor.
         Read this first if you are writing your first plugin.
 
-  - `plugins/network/`
-        The bundled "pipnode-network" plugin.  Installed by
-        `make install` into `$pkglibdir/plugins/`, contains
-        the `PnPing` and `PnDns` node types, and exists in
-        large part to dogfood the plugin ABI on the project's
-        own first-party node types.  Read this when you need
-        a worked example of a plugin that registers more than
-        one type, links into autotools, and is meant to ship
-        as part of the install.
+  - `plugins/network/`, `plugins/tasmota/`
+        Bundled CORE-ONLY plugins: every node is pure logic, so the
+        whole plugin is a single GTK-free `.so` that links
+        `libpipnode-core` and installs on a headless server.  Read
+        these for a plugin that registers several node types, links
+        into autotools, and ships as part of the install.  (`image/`
+        is the same shape and additionally pulls the allowed
+        gdk-pixbuf core dep.)
+
+  - `plugins/shell/`, `plugins/sound-effects/`
+        Bundled TWO-TIER plugins (section 17): a GTK-free logic
+        `.so` plus a `-gui.so` companion for the one node whose
+        dialog the schema cannot describe (a live `tmux` session
+        combo; an async libsoup clip-download manager).  Read these
+        for the real-world two-`.so` Makefile.am, the
+        `g_type_from_name` type lookup, and -- in sound-effects --
+        a helper file shared by both halves.
+
+  - Built-in nodes using the schema (section 16): `lib/pn-led.c`
+        (one greyed-out row) and `lib/pn-dial.c` /
+        `lib/pn-analog-meter.c` (tabbed schemas).  Not plugins, but
+        the clearest worked examples of `PnSettingsSchema`.
 
 
-18. QUICK CHECKLIST
+19. QUICK CHECKLIST
 -------------------
 
 Before publishing a plugin, walk through this list:
@@ -1102,18 +1265,32 @@ Before publishing a plugin, walk through this list:
 
 If every box is ticked, you are done.
 
-For a plugin that draws or shows a custom settings dialog and that
-you also want to run on a headless server, add (section 16):
+To make a plugin SERVER-INSTALLABLE (it runs under `pipnode-run` on a
+host with no GTK), walk this extra list:
 
-  [ ] Logic `.so` links `libpipnode-core` only and leaves the GTK
-      vfunc slots NULL; verify with
-      `objdump -p myplugin.so | grep NEEDED` showing no gtk/cairo.
+  [ ] No node sets a GTK vfunc (`build_property_editor`,
+      `build_class_tab`, `build_class_tabs`, `build_extra_pages`,
+      `paint_*`) and the plugin includes no `<gtk/...>` /
+      `<cairo.h>` / GtkSourceView headers.
+  [ ] Makefile.am links `libpipnode-core` (not `-gui`) and uses
+      `$(GLIB_CFLAGS)` rather than `$(GTK_CFLAGS)`; add
+      `$(GDK_PIXBUF_*)` only if you handle image-message pixbufs.
+  [ ] `objdump -p myplugin.so | grep NEEDED` shows
+      `libpipnode-core` and no gtk/gdk/cairo/pango.
+  [ ] Verified the `.so` loads under `pipnode-run` and a worksheet
+      using your node runs headless.
+
+  If your node DOES need a custom dialog, first try to express it as a
+  declarative schema (section 16) -- that keeps everything in the one
+  core `.so`.  Only when the schema cannot describe it do you split off
+  a companion (section 17):
+
   [ ] Companion `myplugin-gui.so` links the GTK tier, exports
       `pn_plugin_gui_init`, and resolves its types with
       `g_type_from_name` (never the logic header's type macro).
 
 
-19. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
+20. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
 
 The pipnode core (the `src/` application and the `lib/` host library)
 is licensed under the GNU GPL version 3 or later.  Because a plugin

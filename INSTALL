@@ -1,6 +1,10 @@
 Pipnode runtime dependencies
 ============================
 
+The rest of this file lists optional runtime data (fonts, TTS voices).
+For the GUI vs. headless split and how to package it, see "Runtime tiers
+and packaging" at the end.
+
 Node icons are drawn with Pango and rely on fontconfig finding the
 FontAwesome face -- glyphs in the U+F000..U+F8FF Private Use Area
 have no fallback in standard system fonts and would otherwise render
@@ -98,3 +102,70 @@ A round-trip smoke test:
         | aplay -q -
 
 If you hear the sentence, the TTS node is ready to use.
+
+
+Runtime tiers and packaging
+===========================
+
+Pipnode separates its GUI from its flow engine at runtime, so the same
+build serves both a desktop install and a headless server.
+
+Two binaries:
+
+  * pipnode-editor -- the GTK application (the visual editor).
+  * pipnode-run    -- runs a saved worksheet with NO GUI: load JSON,
+                      run the flow, emit messages.  Debug-node output
+                      goes to stdout, status to stderr.  Useful under
+                      cron/systemd on a machine with no display.
+
+Two libraries:
+
+  * libpipnode-core -- GTK-free.  The flow engine, the message bus, the
+                       node factory, and ALL node logic (receive()).
+                       Depends only on GLib/GObject/GIO, JSON-GLib,
+                       libsoup, GModule and (for image data) gdk-pixbuf.
+  * libpipnode-gui  -- links core and adds the editor, the canvas
+                       renderer, every node's cairo drawing, the settings
+                       dialogs, GtkSourceView and (optional) WebKit.
+                       This is the tier that needs GTK, cairo, pango,
+                       PLplot, GtkSourceView.
+
+pipnode-run links libpipnode-core ALONE; verify with:
+
+    objdump -p $(command -v pipnode-run) | grep NEEDED
+
+It lists no libgtk/libgdk/cairo/pango.  So a server can execute
+worksheets without the GTK stack installed at all.  (The split is a
+runtime + packaging property: the project is always BUILT on a host that
+has the full GTK stack -- there is no --disable-gui build switch.)
+
+Splitting into distribution packages
+------------------------------------
+
+One GTK-equipped build can be cut into:
+
+  * pipnode-core  -- pipnode-run, libpipnode-core, and the core-only
+                     bundled plugins (network, image, Tasmota, plus the
+                     logic .so of any two-tier plugin).  Dependencies:
+                     GLib, JSON-GLib, libsoup, gdk-pixbuf, libmosquitto,
+                     GnuTLS.  NO GTK.  This is all a headless server needs.
+  * pipnode-gui   -- pipnode-editor, libpipnode-gui, and the companion
+                     "<plugin>-gui.so" modules.  Depends on pipnode-core
+                     plus GTK 3, GtkSourceView, PLplot and (optionally)
+                     WebKit2GTK.  Pulls in fonts-font-awesome for the
+                     node glyphs.
+
+Bundled plugins follow the same rule.  A plugin is either:
+
+  * core-only: a single GTK-free <plugin>.so that links libpipnode-core
+    (network, image, tasmota) -- belongs in pipnode-core; or
+  * two-tier: a GTK-free <plugin>.so PLUS an editor-only <plugin>-gui.so
+    companion (shell, sound-effects) -- the .so belongs in pipnode-core,
+    the -gui.so in pipnode-gui.
+
+The core loader scans the plugin directory for <plugin>.so and skips any
+"<plugin>-gui.so"; the editor additionally loads the matching companion.
+So a pipnode-core-only install simply has no -gui.so files present, and
+every node still runs (it just shows the host's default dialog if its
+custom dialog lived in the companion).  See PLUGINS for the full plugin
+model and a checklist for shipping a server-installable plugin.

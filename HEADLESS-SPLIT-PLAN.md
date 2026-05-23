@@ -1024,10 +1024,11 @@ visual breaks); ported classes carry no GTK and load under `pipnode-run`;
 
 ---
 
-### Phase 8 — Re-tier bundled plugins + docs + packaging (D4)
+### Phase 8 — Re-tier bundled plugins + docs + packaging (D4) — **DONE**
 
 **Objective:** move network / shell / tasmota to core-only where they no
-longer need GTK; finalise documentation and packaging.
+longer need GTK; finalise documentation and packaging. **All sub-phases
+(8.1–8.4) and the docs/packaging steps (2–4) are done — see below.**
 
 **Sub-phases (regression net green at each):**
 - **8.1 DONE — `plugins/network` re-tiered to core-only.** Every node in
@@ -1186,21 +1187,45 @@ longer need GTK; finalise documentation and packaging.
 1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` ✅,
    `plugins/image` ✅, `plugins/sound-effects` ✅ to core-only (logic
    `.so`, schema or companion `-gui.so` for any settings UI). **All
-   bundled plugins are now re-tiered** — the remaining Phase 8 work is
-   docs + packaging (steps 2–4).
-2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
-   API, and a "how to ship a server-installable plugin" checklist.
-3. Update `README.md` / `INSTALL` with the `pipnode-core` vs
-   `pipnode-gui` package split (one GTK-equipped build produces both;
-   there is no `--disable-gui` build — D5).
-4. Provide distro packaging guidance: `pipnode-core` (no GTK depends),
-   `pipnode-gui` (depends on core + GTK), `pipnode-plugin-*` split into
-   core/gui sub-packages where applicable.
+   bundled plugins are now re-tiered.**
+2. ✅ **DONE — `PLUGINS` updated.** New **§16 "Declarative settings
+   schema"** documents the Phase-7 `PnSettingsSchema` API (builder
+   functions, the `PnEditorKind`/`PnRowFlags` enums, the LED greyed-row
+   and a tabbed worked example, and the "schema is the GTK-free default,
+   companion is the escape hatch" framing) — the schema API had been
+   undocumented. The companion section renumbered to **§17** and now opens
+   by pointing at the schema first; **§18 reference plugins** lists the
+   bundled core-only (network/tasmota/image) and two-tier
+   (shell/sound-effects) examples plus the schema-using built-ins; and the
+   **§19 checklist** gained a "make a plugin server-installable" block
+   (objdump NEEDED check, core.la/GLIB flip, schema-before-companion).
+   Sections renumbered 16→17…19→20; all `section N` cross-refs fixed.
+3. ✅ **DONE — `README.md` + `INSTALL` updated.** README gained a
+   "Running headless (servers)" section (the `pipnode-run` invocation, the
+   core/gui library split, the core-only-vs-two-tier plugin shapes, and
+   the `pipnode-core`/`pipnode-gui` packaging pointer). INSTALL gained a
+   "Runtime tiers and packaging" section (the two binaries, the two
+   libraries + their exact deps, the `objdump -p pipnode-run` no-GTK
+   check, and the no-`--disable-gui`/D5 note).
+4. ✅ **DONE — distro packaging guidance** written into INSTALL's new
+   section: a `pipnode-core` package (pipnode-run + libpipnode-core + the
+   core-only plugins + every two-tier plugin's logic `.so`; deps GLib /
+   JSON-GLib / libsoup / gdk-pixbuf / mosquitto / GnuTLS, **no GTK**) and
+   a `pipnode-gui` package (pipnode-editor + libpipnode-gui + the
+   `*-gui.so` companions; deps core + GTK/GtkSourceView/PLplot/WebKit),
+   with the rule for which half of a plugin lands in which package and why
+   a core-only install still runs every node.
 
-**Verification:** on a clean container with **no GTK installed**,
-installing only the `pipnode-core` package + bundled core plugins +
-`pipnode-run` runs a worksheet (the binaries pull no GTK at runtime). The
-build itself is always done on a GTK-equipped host (D5).
+**Verification:** `objdump -p` confirms `pipnode-run` + `libpipnode-core`
++ every core-only / logic `.so` carry no GTK in `DT_NEEDED` (done
+throughout Phases 5–8), so a `pipnode-core`-only install on a GTK-less
+host runs a worksheet. The build itself is always done on a GTK-equipped
+host (D5).
+
+**Phase 8 COMPLETE.** All bundled plugins re-tiered (8.1–8.4) and the
+docs/packaging steps (2–4) landed. The only deferred item in the whole
+plan is Phase 7.6 (migrating the remaining schema-expressible built-in
+dialogs), and Phase 9 (full-GUI nodes) is future scope.
 
 ---
 
