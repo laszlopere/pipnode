@@ -32,7 +32,6 @@ pnhelp_DATA = \
 	help/PnLed.html \
 	help/PnMeshtastic.html \
 	help/PnNotify.html \
-	help/PnOllama.html \
 	help/PnQuery.html \
 	help/PnRate.html \
 	help/PnRewrite.html \

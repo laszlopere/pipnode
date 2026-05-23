@@ -34,7 +34,6 @@
 #include "pn-led-gui.h"
 #include "pn-meshtastic-gui.h"
 #include "pn-notify-gui.h"
-#include "pn-ollama-gui.h"
 #include "pn-rate-gui.h"
 #include "pn-set-gui.h"
 #include "pn-sound-gui.h"
@@ -62,7 +61,6 @@ pn_gui_install_builtin_nodes (void)
     pn_led_gui_install ();
     pn_meshtastic_gui_install ();
     pn_notify_gui_install ();
-    pn_ollama_gui_install ();
     pn_rate_gui_install ();
     pn_set_gui_install ();
     pn_sound_gui_install ();

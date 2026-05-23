@@ -1234,14 +1234,18 @@ worked examples; they all build out of the box from a fresh
         Temperature, Ambient Temperature, Memory) each sample /proc,
         /sys, or a remote sensor and emit a numeric reading.
 
-  - `plugins/shell/`, `plugins/sound-effects/`
+  - `plugins/shell/`, `plugins/sound-effects/`, `plugins/ollama/`
         Bundled TWO-TIER plugins (section 17): a GTK-free logic
         `.so` plus a `-gui.so` companion for the one node whose
         dialog the schema cannot describe (a live `tmux` session
-        combo; an async libsoup clip-download manager).  Read these
-        for the real-world two-`.so` Makefile.am, the
-        `g_type_from_name` type lookup, and -- in sound-effects --
-        a helper file shared by both halves.
+        combo; an async libsoup clip-download manager; an Ollama
+        model picker populated from `/api/tags` with a Refresh
+        button).  Read these for the real-world two-`.so`
+        Makefile.am, the `g_type_from_name` type lookup, and -- in
+        sound-effects -- a helper file shared by both halves.
+        `ollama/` is the simplest of the three: the GTK-only
+        `/api/tags` query is used by nothing but the dialog, so it
+        lives wholly in the companion rather than being shared.
 
   - Built-in nodes using the schema (section 16): `lib/pn-led.c`
         (one greyed-out row) and `lib/pn-dial.c` /

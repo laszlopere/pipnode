@@ -413,100 +413,12 @@ pn_ollama_receive (
     g_object_unref (msg);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Model combo: query /api/tags                                       */
-/* ------------------------------------------------------------------ */
-
-static int
-ptr_array_strcmp (gconstpointer a, gconstpointer b)
-{
-    return g_strcmp0 (*(const gchar * const *) a,
-                      *(const gchar * const *) b);
-}
-
-/** Synchronously enumerate the model names installed on
- *  @hostname:@port via GET /api/tags.  Returns a NULL-terminated
- *  string array the caller owns (free with g_strfreev), or an empty
- *  array when the host is unreachable / not running Ollama.  Declared
- *  in the public header so the gui settings dialog can populate the
- *  model combo; the network query itself is GTK-free. */
-gchar **
-pn_ollama_list_models (
-        const gchar *hostname,
-        gint         port)
-{
-    SoupSession *session;
-    SoupMessage *msg;
-    GError      *error = NULL;
-    GBytes      *bytes;
-    GPtrArray   *names;
-    JsonParser  *parser;
-    gchar       *url;
-    const gchar *host;
-
-    names = g_ptr_array_new_with_free_func (g_free);
-    host  = (hostname && *hostname) ? hostname : PN_OLLAMA_HTTP_LOCAL_FALLBACK;
-    url   = g_strdup_printf ("http://%s:%d/api/tags", host, port);
-
-    /* Dedicated synchronous session with a short timeout so the
-     * settings dialog does not hang when the host is unreachable. */
-    session = soup_session_new ();
-    g_object_set (session, "timeout", (guint) 2, NULL);
-
-    msg = soup_message_new (SOUP_METHOD_GET, url);
-    g_free (url);
-
-    if (msg != NULL)
-        bytes = soup_session_send_and_read (session, msg, NULL, &error);
-    else
-        bytes = NULL;
-
-    if (bytes != NULL
-        && msg != NULL
-        && soup_message_get_status (msg) >= 200
-        && soup_message_get_status (msg) <  300)
-    {
-        gsize        len = 0;
-        const gchar *body = g_bytes_get_data (bytes, &len);
-
-        parser = json_parser_new ();
-        if (json_parser_load_from_data (parser, body, (gssize) len, NULL))
-        {
-            JsonNode   *root = json_parser_get_root (parser);
-            JsonObject *obj  = root ? json_node_get_object (root) : NULL;
-            JsonArray  *arr  = NULL;
-
-            if (obj != NULL && json_object_has_member (obj, "models"))
-                arr = json_object_get_array_member (obj, "models");
-
-            if (arr != NULL)
-            {
-                guint n = json_array_get_length (arr);
-                guint i;
-                for (i = 0; i < n; i++)
-                {
-                    JsonObject *m = json_array_get_object_element (arr, i);
-                    const gchar *name = m && json_object_has_member (m, "name")
-                                            ? json_object_get_string_member (m, "name")
-                                            : NULL;
-                    if (name && *name)
-                        g_ptr_array_add (names, g_strdup (name));
-                }
-            }
-        }
-        g_object_unref (parser);
-    }
-
-    g_clear_pointer (&bytes, g_bytes_unref);
-    g_clear_object  (&msg);
-    g_clear_object  (&session);
-    g_clear_error   (&error);
-
-    g_ptr_array_sort (names, ptr_array_strcmp);
-    g_ptr_array_add (names, NULL);
-
-    return (gchar **) g_ptr_array_free (names, FALSE);
-}
+/* The /api/tags model enumeration (pn_ollama_list_models) used to live
+ * here so the public header could expose it to the gui settings dialog.
+ * It is only ever called by that dialog, so since the Ollama node became
+ * a two-tier plugin it lives entirely in the companion module
+ * (plugins/ollama/pn-ollama-gui.c) — the logic half never queries the
+ * model list. */
 
 /* ------------------------------------------------------------------ */
 /*  Property plumbing                                                  */

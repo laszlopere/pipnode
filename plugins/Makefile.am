@@ -1,1 +1,1 @@
-SUBDIRS = network shell tasmota sound-effects image host-monitoring
+SUBDIRS = network shell tasmota sound-effects image host-monitoring ollama

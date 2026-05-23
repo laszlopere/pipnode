@@ -132,6 +132,7 @@ AC_CONFIG_FILES([
     plugins/sound-effects/Makefile
     plugins/image/Makefile
     plugins/host-monitoring/Makefile
+    plugins/ollama/Makefile
     src/Makefile
     tests/Makefile
     tests/unit/Makefile

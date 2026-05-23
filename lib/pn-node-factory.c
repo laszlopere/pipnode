@@ -46,7 +46,6 @@
 #include "pn-led.h"
 #include "pn-meshtastic.h"
 #include "pn-notify.h"
-#include "pn-ollama.h"
 #include "pn-query.h"
 #include "pn-rate.h"
 #include "pn-rewrite.h"
@@ -239,7 +238,12 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_THRESHOLD);
     pn_node_factory_register (self, PN_TYPE_THROTTLE);
     pn_node_factory_register (self, PN_TYPE_WATCHDOG);
-    pn_node_factory_register (self, PN_TYPE_OLLAMA);
+
+    /* Ollama (the LLM filter) has moved out of the host binary into the
+     * bundled "pipnode-ollama" plugin under plugins/ollama — a two-tier
+     * plugin whose GTK-free logic .so registers the node through the
+     * standard pn_plugin_init() entry point at startup, with a companion
+     * -gui.so the editor loads for the model-picker dialog. */
 
     /* Sinks. */
     pn_node_factory_register (self, PN_TYPE_DEBUG);
