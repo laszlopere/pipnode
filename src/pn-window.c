@@ -23,6 +23,7 @@
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
 #include "pn-document-settings-dialog.h"
+#include "pn-node-dialog.h"
 
 #include <json-glib/json-glib.h>
 
@@ -122,6 +123,15 @@ struct _PnWindow
     /** Path of the worksheet currently associated with the
      *  window, or %NULL if it has never been saved. */
     gchar *current_path;
+
+    /** Live #PnNodeDialog opened by the DBus test surface
+     *  (pn_window_open_node_dialog), or %NULL when no test dialog is
+     *  open.  Production menu-driven dialogs are not tracked here —
+     *  this exists only so a functional test can open a node's
+     *  settings dialog, introspect its tabs, drive its editors, and
+     *  close it again over D-Bus.  A weak pointer so the field clears
+     *  itself if the dialog is destroyed by other means. */
+    GtkWidget *test_node_dialog;
 };
 
 G_DEFINE_TYPE (PnWindow, pn_window, GTK_TYPE_APPLICATION_WINDOW)
@@ -3483,6 +3493,232 @@ pn_window_get_debug_pane_allocation (
 
     if (width)  *width  = alloc.width;
     if (height) *height = alloc.height;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Test surface: node settings dialog                                 */
+/*                                                                     */
+/*  Lets a functional test pop up a node's #PnNodeDialog, read its     */
+/*  notebook tab structure, and drive the per-property editor widgets  */
+/*  the same way a user would — the load-bearing regression net for    */
+/*  the headless core / GTK split, where the dialog-building vfuncs     */
+/*  (build_class_tab[s]) move into the GUI tier.                        */
+/* ------------------------------------------------------------------ */
+
+/** Depth-first search for the first descendant of @widget whose
+ *  runtime type is (or derives from) @type. */
+static GtkWidget *
+find_descendant_by_type (GtkWidget *widget, GType type)
+{
+    GList     *kids, *l;
+    GtkWidget *found = NULL;
+
+    if (widget == NULL)
+        return NULL;
+    if (G_TYPE_CHECK_INSTANCE_TYPE (widget, type))
+        return widget;
+    if (!GTK_IS_CONTAINER (widget))
+        return NULL;
+
+    kids = gtk_container_get_children (GTK_CONTAINER (widget));
+    for (l = kids; l != NULL && found == NULL; l = l->next)
+        found = find_descendant_by_type (GTK_WIDGET (l->data), type);
+    g_list_free (kids);
+    return found;
+}
+
+/** Depth-first search for the first descendant of @widget whose
+ *  #GtkWidget name equals @name.  Unnamed widgets report their class
+ *  name from gtk_widget_get_name(), which never collides with the
+ *  "pn-prop-*" names the dialog stamps onto its editors. */
+static GtkWidget *
+find_descendant_by_name (GtkWidget *widget, const gchar *name)
+{
+    GList     *kids, *l;
+    GtkWidget *found = NULL;
+
+    if (widget == NULL)
+        return NULL;
+    if (g_strcmp0 (gtk_widget_get_name (widget), name) == 0)
+        return widget;
+    if (!GTK_IS_CONTAINER (widget))
+        return NULL;
+
+    kids = gtk_container_get_children (GTK_CONTAINER (widget));
+    for (l = kids; l != NULL && found == NULL; l = l->next)
+        found = find_descendant_by_name (GTK_WIDGET (l->data), name);
+    g_list_free (kids);
+    return found;
+}
+
+/** Locate the editor widget the dialog built for property @prop. */
+static GtkWidget *
+dialog_editor_for (PnWindow *self, const gchar *prop)
+{
+    GtkWidget *editor;
+    gchar     *wname;
+
+    if (self->test_node_dialog == NULL || prop == NULL)
+        return NULL;
+
+    wname  = g_strconcat ("pn-prop-", prop, NULL);
+    editor = find_descendant_by_name (self->test_node_dialog, wname);
+    g_free (wname);
+    return editor;
+}
+
+gboolean
+pn_window_open_node_dialog (PnWindow *self, guint index)
+{
+    PnWorksheet *worksheet;
+    PnNodeStore *nodes;
+    PnNode      *node;
+    GtkWidget   *dialog;
+
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    /* Only one test dialog at a time: drop any previous one first. */
+    pn_window_close_node_dialog (self);
+
+    worksheet = pn_window_get_worksheet (self);
+    if (worksheet == NULL)
+        return FALSE;
+
+    nodes = pn_worksheet_get_nodes (worksheet);
+    node  = pn_node_store_get_node (nodes, index);
+    if (node == NULL)
+        return FALSE;
+
+    /* Same construction the worksheet's context menu uses — non-modal,
+     * destroyed on response — so we exercise the real dialog code. */
+    dialog = pn_node_dialog_new (GTK_WINDOW (self), node);
+    g_signal_connect_swapped (dialog, "response",
+                              G_CALLBACK (gtk_widget_destroy), dialog);
+    gtk_widget_show_all (dialog);
+    /* Raise it to the front so the slow/visible test mode is actually
+     * watchable even when other windows are stacked above the editor. */
+    gtk_window_present (GTK_WINDOW (dialog));
+
+    self->test_node_dialog = dialog;
+    g_object_add_weak_pointer (G_OBJECT (dialog),
+                               (gpointer *) &self->test_node_dialog);
+    return TRUE;
+}
+
+gboolean
+pn_window_close_node_dialog (PnWindow *self)
+{
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    if (self->test_node_dialog == NULL)
+        return FALSE;
+
+    /* The weak pointer registered in open_node_dialog nulls the field. */
+    gtk_widget_destroy (self->test_node_dialog);
+    return TRUE;
+}
+
+gchar **
+pn_window_get_dialog_page_titles (PnWindow *self)
+{
+    GtkWidget *notebook;
+    GPtrArray *titles;
+    gint       n, i;
+
+    g_return_val_if_fail (PN_IS_WINDOW (self), NULL);
+
+    if (self->test_node_dialog == NULL)
+        return NULL;
+
+    notebook = find_descendant_by_type (self->test_node_dialog,
+                                        GTK_TYPE_NOTEBOOK);
+    if (notebook == NULL)
+        return NULL;
+
+    titles = g_ptr_array_new ();
+    n = gtk_notebook_get_n_pages (GTK_NOTEBOOK (notebook));
+    for (i = 0; i < n; i++)
+    {
+        GtkWidget   *page = gtk_notebook_get_nth_page (
+                GTK_NOTEBOOK (notebook), i);
+        const gchar *text = gtk_notebook_get_tab_label_text (
+                GTK_NOTEBOOK (notebook), page);
+        g_ptr_array_add (titles, g_strdup (text != NULL ? text : ""));
+    }
+    g_ptr_array_add (titles, NULL);  /* NULL-terminate for strv */
+    return (gchar **) g_ptr_array_free (titles, FALSE);
+}
+
+gboolean
+pn_window_select_dialog_page (PnWindow *self, guint index)
+{
+    GtkWidget *notebook;
+
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    if (self->test_node_dialog == NULL)
+        return FALSE;
+
+    notebook = find_descendant_by_type (self->test_node_dialog,
+                                        GTK_TYPE_NOTEBOOK);
+    if (notebook == NULL)
+        return FALSE;
+
+    if ((gint) index >= gtk_notebook_get_n_pages (GTK_NOTEBOOK (notebook)))
+        return FALSE;
+
+    gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), (gint) index);
+    return TRUE;
+}
+
+gchar *
+pn_window_get_dialog_editor_text (PnWindow *self, const gchar *prop)
+{
+    GtkWidget *editor;
+
+    g_return_val_if_fail (PN_IS_WINDOW (self), NULL);
+
+    editor = dialog_editor_for (self, prop);
+    if (editor == NULL)
+        return NULL;
+
+    /* #GtkSpinButton is a #GtkEntry, so the entry branch covers both
+     * string entries and numeric spinners (reporting the spinner's
+     * formatted text). */
+    if (GTK_IS_ENTRY (editor))
+        return g_strdup (gtk_entry_get_text (GTK_ENTRY (editor)));
+
+    return NULL;
+}
+
+gboolean
+pn_window_set_dialog_editor_text (PnWindow    *self,
+                                  const gchar *prop,
+                                  const gchar *text)
+{
+    GtkWidget *editor;
+
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    editor = dialog_editor_for (self, prop);
+    if (editor == NULL)
+        return FALSE;
+
+    /* Driving the widget the way a user would makes the bidirectional
+     * g_object_bind_property write straight through to the node. */
+    if (GTK_IS_SPIN_BUTTON (editor))
+    {
+        gtk_spin_button_set_value (
+                GTK_SPIN_BUTTON (editor),
+                g_ascii_strtod (text != NULL ? text : "0", NULL));
+        return TRUE;
+    }
+    if (GTK_IS_ENTRY (editor))
+    {
+        gtk_entry_set_text (GTK_ENTRY (editor), text != NULL ? text : "");
+        return TRUE;
+    }
+    return FALSE;
 }
 
 gboolean

@@ -114,6 +114,79 @@ void         pn_window_get_debug_pane_allocation (PnWindow *self,
                                                   gint     *width,
                                                   gint     *height);
 
+/**
+ * pn_window_open_node_dialog:
+ * @self:  the window
+ * @index: zero-based index of the node in the active worksheet
+ *
+ * Pops up the #PnNodeDialog for the node at @index — the same
+ * non-modal dialog the worksheet's context menu opens — and tracks it
+ * so the other dialog test calls can introspect and drive it.  Any
+ * previously-opened test dialog is closed first.  Returns %FALSE when
+ * there is no active worksheet or @index is out of range.
+ */
+gboolean     pn_window_open_node_dialog (PnWindow *self, guint index);
+
+/**
+ * pn_window_close_node_dialog:
+ * @self: the window
+ *
+ * Destroys the test dialog opened by pn_window_open_node_dialog().
+ * Returns %FALSE when no test dialog is open.
+ */
+gboolean     pn_window_close_node_dialog (PnWindow *self);
+
+/**
+ * pn_window_get_dialog_page_titles:
+ * @self: the window
+ *
+ * Returns: (transfer full) (nullable): a %NULL-terminated array of the
+ *   open dialog's notebook tab titles, in order, or %NULL when no test
+ *   dialog is open.  Free with g_strfreev().
+ */
+gchar      **pn_window_get_dialog_page_titles (PnWindow *self);
+
+/**
+ * pn_window_select_dialog_page:
+ * @self:  the window
+ * @index: zero-based notebook page index
+ *
+ * Switches the open test dialog's notebook to page @index so the
+ * corresponding tab becomes visible — used by the slow/visible test
+ * mode to walk the tabs and to surface the page an editor lives on
+ * before driving it.  Returns %FALSE when no test dialog is open or
+ * @index is out of range.
+ */
+gboolean     pn_window_select_dialog_page (PnWindow *self, guint index);
+
+/**
+ * pn_window_get_dialog_editor_text:
+ * @self: the window
+ * @prop: the GObject property name whose editor to read
+ *
+ * Returns: (transfer full) (nullable): the text shown in the editor
+ *   widget the dialog built for @prop (entries and numeric spinners),
+ *   or %NULL when no test dialog is open, the editor is not found, or
+ *   the editor is not text-shaped.  Free with g_free().
+ */
+gchar       *pn_window_get_dialog_editor_text (PnWindow    *self,
+                                               const gchar *prop);
+
+/**
+ * pn_window_set_dialog_editor_text:
+ * @self: the window
+ * @prop: the GObject property name whose editor to drive
+ * @text: the value to type into the editor
+ *
+ * Drives the editor widget for @prop as a user would, letting the
+ * dialog's bidirectional binding write the value through to the node.
+ * Spinners parse @text as a number.  Returns %FALSE when no test
+ * dialog is open, the editor is not found, or it is not text-shaped.
+ */
+gboolean     pn_window_set_dialog_editor_text (PnWindow    *self,
+                                               const gchar *prop,
+                                               const gchar *text);
+
 G_END_DECLS
 
 #endif /* PN_WINDOW_H */

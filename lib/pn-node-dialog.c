@@ -544,8 +544,8 @@ pn_node_dialog_attach_hostname_hint (GtkEntry *entry)
                             (gpointer) hint);
 }
 
-GtkWidget *
-pn_node_dialog_default_editor (
+static GtkWidget *
+default_editor_impl (
         GObject    *target,
         GParamSpec *pspec)
 {
@@ -722,6 +722,32 @@ pn_node_dialog_default_editor (
         g_value_unset (&value);
         return label;
     }
+}
+
+GtkWidget *
+pn_node_dialog_default_editor (
+        GObject    *target,
+        GParamSpec *pspec)
+{
+    GtkWidget *editor = default_editor_impl (target, pspec);
+
+    /* Stamp the editor widget with a stable, property-derived
+     * #GtkWidget name so a functional test can locate the editor for
+     * a given property by name and drive it the way a user would.
+     * Purely additive — no CSS in the tree targets these names, so it
+     * changes nothing the user sees.  Set here, in the single builder
+     * every default-editor caller funnels through (the auto-generated
+     * tabs, #PnDial's build_class_tabs, and any plugin override that
+     * delegates back to us), so naming coverage matches editor
+     * coverage without touching each call site. */
+    if (editor != NULL && pspec != NULL && pspec->name != NULL)
+    {
+        gchar *wname = g_strconcat ("pn-prop-", pspec->name, NULL);
+        gtk_widget_set_name (editor, wname);
+        g_free (wname);
+    }
+
+    return editor;
 }
 
 /* ------------------------------------------------------------------ */

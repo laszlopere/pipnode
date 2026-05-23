@@ -20,6 +20,9 @@
 #include "pn-application.h"
 #include "pn-window.h"
 #include "pn-worksheet.h"
+#include "pn-node-factory.h"
+#include "pn-flow.h"
+#include "pn-wire.h"
 
 #include <gio/gio.h>
 
@@ -132,6 +135,51 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='i' name='width'  direction='out'/>"
     "      <arg type='i' name='height' direction='out'/>"
     "    </method>"
+    "    <method name='GetNodeProperty'>"
+    "      <arg type='u' name='index' direction='in'/>"
+    "      <arg type='s' name='prop'  direction='in'/>"
+    "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
+    "    <method name='SetNodeProperty'>"
+    "      <arg type='u' name='index' direction='in'/>"
+    "      <arg type='s' name='prop'  direction='in'/>"
+    "      <arg type='s' name='value' direction='in'/>"
+    "      <arg type='b' name='ok'    direction='out'/>"
+    "    </method>"
+    "    <method name='AddNode'>"
+    "      <arg type='s' name='type'  direction='in'/>"
+    "      <arg type='d' name='x'     direction='in'/>"
+    "      <arg type='d' name='y'     direction='in'/>"
+    "      <arg type='i' name='index' direction='out'/>"
+    "    </method>"
+    "    <method name='ConnectNodes'>"
+    "      <arg type='u' name='source'    direction='in'/>"
+    "      <arg type='u' name='target'    direction='in'/>"
+    "      <arg type='b' name='connected' direction='out'/>"
+    "    </method>"
+    "    <method name='OpenNodeDialog'>"
+    "      <arg type='u' name='index'  direction='in'/>"
+    "      <arg type='b' name='opened' direction='out'/>"
+    "    </method>"
+    "    <method name='CloseNodeDialog'>"
+    "      <arg type='b' name='closed' direction='out'/>"
+    "    </method>"
+    "    <method name='GetDialogPageTitles'>"
+    "      <arg type='as' name='titles' direction='out'/>"
+    "    </method>"
+    "    <method name='SelectDialogPage'>"
+    "      <arg type='u' name='index'    direction='in'/>"
+    "      <arg type='b' name='selected' direction='out'/>"
+    "    </method>"
+    "    <method name='GetDialogEditorText'>"
+    "      <arg type='s' name='prop' direction='in'/>"
+    "      <arg type='s' name='text' direction='out'/>"
+    "    </method>"
+    "    <method name='SetDialogEditorText'>"
+    "      <arg type='s' name='prop' direction='in'/>"
+    "      <arg type='s' name='text' direction='in'/>"
+    "      <arg type='b' name='ok'   direction='out'/>"
+    "    </method>"
     "  </interface>"
     "</node>";
 
@@ -156,6 +204,87 @@ node_index_of (PnNodeStore *nodes, PnNode *node)
             return (gint) i;
     }
     return -1;
+}
+
+/** Render a node property's #GValue as a stable, locale-independent
+ *  string for the GetNodeProperty test method.  Common fundamental
+ *  types are formatted explicitly so a test can compare against an
+ *  exact (numbers) or canonical (booleans) form; anything else falls
+ *  back to g_strdup_value_contents(). */
+static gchar *
+node_value_to_string (const GValue *v)
+{
+    GType t = G_VALUE_TYPE (v);
+
+    if (t == G_TYPE_STRING)
+    {
+        const gchar *s = g_value_get_string (v);
+        return g_strdup (s != NULL ? s : "");
+    }
+    if (t == G_TYPE_BOOLEAN)
+        return g_strdup (g_value_get_boolean (v) ? "true" : "false");
+    if (t == G_TYPE_INT)
+        return g_strdup_printf ("%d", g_value_get_int (v));
+    if (t == G_TYPE_UINT)
+        return g_strdup_printf ("%u", g_value_get_uint (v));
+    if (t == G_TYPE_DOUBLE)
+    {
+        gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (buf, sizeof buf, g_value_get_double (v));
+        return g_strdup (buf);
+    }
+    if (t == G_TYPE_FLOAT)
+    {
+        gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (buf, sizeof buf, (double) g_value_get_float (v));
+        return g_strdup (buf);
+    }
+
+    return g_strdup_value_contents (v);
+}
+
+/** Parse @text into @value (already inited to the target type) for the
+ *  SetNodeProperty test method.  Handles the fundamental types a node
+ *  property is likely to use; returns %FALSE for an unsupported type so
+ *  the caller can report a clear error rather than set a bogus value. */
+static gboolean
+node_value_from_string (GValue *value, const gchar *text)
+{
+    GType t = G_VALUE_TYPE (value);
+
+    if (text == NULL)
+        text = "";
+
+    if (t == G_TYPE_STRING)
+        g_value_set_string (value, text);
+    else if (t == G_TYPE_BOOLEAN)
+        g_value_set_boolean (value,
+                             g_ascii_strcasecmp (text, "true") == 0 ||
+                             g_strcmp0 (text, "1") == 0);
+    else if (t == G_TYPE_INT)
+        g_value_set_int (value, (gint) g_ascii_strtoll (text, NULL, 10));
+    else if (t == G_TYPE_UINT)
+        g_value_set_uint (value, (guint) g_ascii_strtoull (text, NULL, 10));
+    else if (t == G_TYPE_DOUBLE)
+        g_value_set_double (value, g_ascii_strtod (text, NULL));
+    else if (t == G_TYPE_FLOAT)
+        g_value_set_float (value, (gfloat) g_ascii_strtod (text, NULL));
+    else if (G_TYPE_IS_ENUM (t))
+    {
+        GEnumClass *ec  = g_type_class_ref (t);
+        GEnumValue *ev  = g_enum_get_value_by_nick (ec, text);
+        if (ev == NULL)
+            ev = g_enum_get_value_by_name (ec, text);
+        if (ev != NULL)
+            g_value_set_enum (value, ev->value);
+        g_type_class_unref (ec);
+        if (ev == NULL)
+            return FALSE;
+    }
+    else
+        return FALSE;
+
+    return TRUE;
 }
 
 static void
@@ -569,6 +698,315 @@ handle_worksheet_method_call (
         pn_window_get_debug_pane_allocation (PN_WINDOW (win), &w, &h);
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(ii)", w, h));
+    }
+    else if (g_strcmp0 (method_name, "GetNodeProperty") == 0)
+    {
+        guint        index;
+        const gchar *prop = NULL;
+        PnNode      *node;
+        GParamSpec  *pspec;
+        GValue       value = G_VALUE_INIT;
+        gchar       *str;
+
+        g_variant_get (parameters, "(u&s)", &index, &prop);
+
+        node = pn_node_store_get_node (nodes, index);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Node index %u out of range", index);
+            return;
+        }
+
+        pspec = g_object_class_find_property (
+                G_OBJECT_GET_CLASS (node), prop);
+        if (!pspec)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Node %u has no property '%s'", index, prop);
+            return;
+        }
+
+        g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
+        g_object_get_property (G_OBJECT (node), prop, &value);
+        str = node_value_to_string (&value);
+        g_value_unset (&value);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", str));
+        g_free (str);
+    }
+    else if (g_strcmp0 (method_name, "SetNodeProperty") == 0)
+    {
+        guint        index;
+        const gchar *prop = NULL;
+        const gchar *text = NULL;
+        PnNode      *node;
+        GParamSpec  *pspec;
+        GValue       value = G_VALUE_INIT;
+
+        g_variant_get (parameters, "(u&s&s)", &index, &prop, &text);
+
+        node = pn_node_store_get_node (nodes, index);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Node index %u out of range", index);
+            return;
+        }
+
+        pspec = g_object_class_find_property (
+                G_OBJECT_GET_CLASS (node), prop);
+        if (!pspec || (pspec->flags & G_PARAM_WRITABLE) == 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Node %u has no writable property '%s'", index, prop);
+            return;
+        }
+
+        g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
+        if (!node_value_from_string (&value, text))
+        {
+            g_value_unset (&value);
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Cannot parse '%s' for property '%s'", text, prop);
+            return;
+        }
+
+        g_object_set_property (G_OBJECT (node), prop, &value);
+        g_value_unset (&value);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", TRUE));
+    }
+    else if (g_strcmp0 (method_name, "AddNode") == 0)
+    {
+        const gchar *type_name = NULL;
+        gdouble      x, y;
+        GType        type;
+        PnNode      *node;
+        PnPoint      pos;
+        gint         idx = -1;
+        guint        i, n;
+
+        g_variant_get (parameters, "(&sdd)", &type_name, &x, &y);
+
+        type = pn_node_factory_lookup (
+                pn_node_factory_get_default (), type_name);
+        if (type == G_TYPE_INVALID || !g_type_is_a (type, PN_TYPE_NODE))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Unknown node type '%s'", type_name);
+            return;
+        }
+
+        /* Same path as a palette drop: build through the factory, place
+         * it, and add it to the flow so every view stays in sync. */
+        node = pn_node_factory_create_for_type (
+                pn_node_factory_get_default (), type);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Could not create node of type '%s'", type_name);
+            return;
+        }
+
+        pos.x = x;
+        pos.y = y;
+        pn_node_set_position (node, &pos);
+        pn_flow_add_node (pn_worksheet_get_flow (worksheet), node);
+
+        n = pn_node_store_get_length (nodes);
+        for (i = 0; i < n; i++)
+            if (pn_node_store_get_node (nodes, i) == node)
+            {
+                idx = (gint) i;
+                break;
+            }
+        g_object_unref (node);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(i)", idx));
+    }
+    else if (g_strcmp0 (method_name, "ConnectNodes") == 0)
+    {
+        guint   src, dst;
+        PnNode *source, *target;
+        PnWire *wire;
+
+        g_variant_get (parameters, "(uu)", &src, &dst);
+
+        source = pn_node_store_get_node (nodes, src);
+        target = pn_node_store_get_node (nodes, dst);
+        if (!source || !target || source == target)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Bad wire endpoints (source=%u, target=%u)", src, dst);
+            return;
+        }
+
+        /* Constructing the wire wires up routing (it connects the
+         * source's "message" signal); adding it to the store makes it
+         * persist and show on the canvas. */
+        wire = pn_wire_new (source, target);
+        pn_wire_store_add (wires, wire);
+        g_object_unref (wire);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", TRUE));
+    }
+    else if (g_strcmp0 (method_name, "OpenNodeDialog") == 0)
+    {
+        GtkWindow *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        guint      index;
+        gboolean   ok;
+
+        g_variant_get (parameters, "(u)", &index);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        ok = pn_window_open_node_dialog (PN_WINDOW (win), index);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "CloseNodeDialog") == 0)
+    {
+        GtkWindow *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        gboolean   ok;
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        ok = pn_window_close_node_dialog (PN_WINDOW (win));
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "GetDialogPageTitles") == 0)
+    {
+        GtkWindow       *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        gchar          **titles;
+        GVariantBuilder  builder;
+        gchar          **p;
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        titles = pn_window_get_dialog_page_titles (PN_WINDOW (win));
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
+        for (p = titles; p != NULL && *p != NULL; p++)
+            g_variant_builder_add (&builder, "s", *p);
+        g_strfreev (titles);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(as)", &builder));
+    }
+    else if (g_strcmp0 (method_name, "SelectDialogPage") == 0)
+    {
+        GtkWindow *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        guint      index;
+        gboolean   ok;
+
+        g_variant_get (parameters, "(u)", &index);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        ok = pn_window_select_dialog_page (PN_WINDOW (win), index);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "GetDialogEditorText") == 0)
+    {
+        GtkWindow   *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        const gchar *prop = NULL;
+        gchar       *text;
+
+        g_variant_get (parameters, "(&s)", &prop);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        text = pn_window_get_dialog_editor_text (PN_WINDOW (win), prop);
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(s)", text != NULL ? text : ""));
+        g_free (text);
+    }
+    else if (g_strcmp0 (method_name, "SetDialogEditorText") == 0)
+    {
+        GtkWindow   *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        const gchar *prop = NULL;
+        const gchar *text = NULL;
+        gboolean     ok;
+
+        g_variant_get (parameters, "(&s&s)", &prop, &text);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        ok = pn_window_set_dialog_editor_text (PN_WINDOW (win), prop, text);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
     }
     else
     {

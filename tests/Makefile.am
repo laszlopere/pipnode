@@ -9,6 +9,7 @@ TESTS = \
 	test_debug_focus.py \
 	test_https_tunnel.py \
 	test_multi_worksheet.py \
+	test_node_dialog_dial.py \
 	test_plugin_load.py
 
 EXTRA_DIST = $(TESTS)

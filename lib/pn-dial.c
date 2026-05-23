@@ -165,6 +165,7 @@ enum {
     PROP_GREEN_COLOR,
     PROP_YELLOW_COLOR,
     PROP_RED_COLOR,
+    PROP_VALUE,
     N_PROPS,
 };
 
@@ -430,6 +431,10 @@ pn_dial_receive (PnNode *node, PnMessage *message)
         return;
 
     self->target_value = value;
+    /* Surface the freshly-received value on the read-only "value"
+     * property so inspectors and functional tests can observe what the
+     * dial is pointing at without reaching into its private state. */
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_VALUE]);
     start_anim (self);
 }
 
@@ -1231,6 +1236,7 @@ pn_dial_get_property (
     case PROP_GREEN_COLOR:           g_value_set_boxed   (value, &self->green_color);        break;
     case PROP_YELLOW_COLOR:          g_value_set_boxed   (value, &self->yellow_color);       break;
     case PROP_RED_COLOR:             g_value_set_boxed   (value, &self->red_color);          break;
+    case PROP_VALUE:                 g_value_set_double  (value, self->target_value);        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1582,6 +1588,16 @@ pn_dial_class_init (PnDialClass *klass)
             "Stroke colour of the red zone arc",
             GDK_TYPE_RGBA,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Read-only: the most recent value the needle was sent to.  Exists
+     * for inspection and functional tests; G_PARAM_READABLE-only keeps
+     * it out of the settings dialog and out of the saved file (the
+     * serialiser persists only read/write properties). */
+    props[PROP_VALUE] = g_param_spec_double (
+            "value", "Value",
+            "Most recent value received on the input (read-only)",
+            -G_MAXDOUBLE, G_MAXDOUBLE, 0.0,
+            G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
