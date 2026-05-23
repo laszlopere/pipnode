@@ -44,6 +44,19 @@ GtkWidget *pn_palette_new (void);
  */
 const gchar *pn_palette_drag_target_name (void);
 
+/**
+ * pn_palette_get_drag_node_type:
+ * @self: the palette
+ *
+ * Returns the #GType of the node currently being dragged out of the
+ * palette, or %G_TYPE_INVALID when no palette drag is in progress.
+ * Lets a same-app drop site (the worksheet) learn the dragged type
+ * during drag-motion without a selection round-trip — fetching the
+ * payload via gtk_drag_get_data() while the DnD pointer grab is held
+ * can spin a nested main loop and lock up the display.
+ */
+GType pn_palette_get_drag_node_type (PnPalette *self);
+
 G_END_DECLS
 
 #endif /* PN_PALETTE_H */

@@ -72,6 +72,12 @@ struct _PnPalette
      * the index page from the top.  Replaced by every popup
      * invocation; freed in finalize. */
     gchar              *pending_anchor;
+
+    /* #GType of the row currently being dragged out of the palette, or
+     * %G_TYPE_INVALID when no drag is in flight.  Set in drag-begin and
+     * cleared in drag-end so a same-app drop site can read the dragged
+     * type during drag-motion (see pn_palette_get_drag_node_type). */
+    GType               drag_type;
 };
 
 enum
@@ -142,12 +148,13 @@ on_tree_drag_begin (
         gpointer        user_data)
 {
     GtkTreeView      *tree = GTK_TREE_VIEW (widget);
+    PnPalette        *self = PN_PALETTE (user_data);
     GtkTreeSelection *sel;
     GtkTreeModel     *model;
     GtkTreeIter       iter;
     gchar            *type_name = NULL;
 
-    (void) user_data;
+    self->drag_type = G_TYPE_INVALID;
 
     sel = gtk_tree_view_get_selection (tree);
     if (!gtk_tree_selection_get_selected (sel, &model, &iter))
@@ -160,8 +167,49 @@ on_tree_drag_begin (
 
     if (type_name == NULL || *type_name == '\0')
         gtk_drag_cancel (context);
+    else
+        /* Stash the dragged type so a same-app drop site can read it
+         * during drag-motion without a selection round-trip. */
+        self->drag_type = g_type_from_name (type_name);
 
     g_free (type_name);
+}
+
+/** Suppress GtkTreeView's default drag icon — a snapshot of the dragged
+ *  row — so only the worksheet's red wireframe follows the cursor.  The
+ *  tree view sets that icon in its own "drag-begin" class handler, so
+ *  this runs connected with g_signal_connect_after() to override it with
+ *  a 1x1 transparent surface (no built-in "hide the icon" call exists). */
+static void
+on_tree_drag_begin_hide_icon (
+        GtkWidget      *widget,
+        GdkDragContext *context,
+        gpointer        user_data)
+{
+    cairo_surface_t *blank;
+
+    (void) widget;
+    (void) user_data;
+
+    blank = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 1, 1);
+    gtk_drag_set_icon_surface (context, blank);
+    cairo_surface_destroy (blank);
+}
+
+/** Clear the stashed drag type once the drag ends (dropped, cancelled,
+ *  or failed) so a later drag-motion peek cannot read a stale type. */
+static void
+on_tree_drag_end (
+        GtkWidget      *widget,
+        GdkDragContext *context,
+        gpointer        user_data)
+{
+    PnPalette *self = PN_PALETTE (user_data);
+
+    (void) widget;
+    (void) context;
+
+    self->drag_type = G_TYPE_INVALID;
 }
 
 /* ------------------------------------------------------------------ */
@@ -596,7 +644,13 @@ build_tree_view (PnPalette *self)
     g_signal_connect (tree, "drag-data-get",
                       G_CALLBACK (on_tree_drag_data_get), NULL);
     g_signal_connect (tree, "drag-begin",
-                      G_CALLBACK (on_tree_drag_begin),    NULL);
+                      G_CALLBACK (on_tree_drag_begin),    self);
+    /* Runs after the tree view's own drag-begin so it can replace the
+     * default row-snapshot drag icon with a blank one. */
+    g_signal_connect_after (tree, "drag-begin",
+                      G_CALLBACK (on_tree_drag_begin_hide_icon), NULL);
+    g_signal_connect (tree, "drag-end",
+                      G_CALLBACK (on_tree_drag_end),      self);
 
     return tree;
 }
@@ -829,4 +883,12 @@ const gchar *
 pn_palette_drag_target_name (void)
 {
     return PN_PALETTE_DRAG_TARGET;
+}
+
+GType
+pn_palette_get_drag_node_type (PnPalette *self)
+{
+    g_return_val_if_fail (PN_IS_PALETTE (self), G_TYPE_INVALID);
+
+    return self->drag_type;
 }

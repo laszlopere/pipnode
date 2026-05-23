@@ -131,6 +131,22 @@ struct _PnWorksheet
     double  drag_offset_y;
     GArray *drag_anchors;
 
+    /** Palette drag-preview state.  While a palette item is dragged
+     *  over this worksheet, the painter traces a thin red wireframe of
+     *  the node that a drop would create — its outline, icon, and name,
+     *  all in red with no fill — so the user sees where and what they
+     *  are about to drop.  @drag_preview_node is a throwaway instance
+     *  built from the dragged #GType (owned here), measured by the
+     *  painter for its size/icon/name; %NULL when no palette drag is
+     *  hovering.  The dragged type is read straight off the source
+     *  #PnPalette during drag-motion (no selection round-trip — that
+     *  would risk freezing the display while the DnD grab is held).
+     *  @drag_preview_x/y are the last pointer position in widget
+     *  space. */
+    PnNode  *drag_preview_node;
+    gint     drag_preview_x;
+    gint     drag_preview_y;
+
     /** Rubber-band selection state.  marquee_active is %TRUE while
      *  the user is sweeping out a selection rectangle with the
      *  primary button held down; the corners run from (x0, y0) at
@@ -857,6 +873,107 @@ draw_node (
         }
     }
     (void) full_h;
+}
+
+/** Paint the drag-preview wireframe: a thin red, no-fill sketch of the
+ *  node a palette drop would create at the current cursor position.
+ *  Traces the body outline and icon-panel separator, then paints the
+ *  icon glyph and the (ellipsized) name in red — mirroring draw_node()'s
+ *  geometry so the ghost reads as the node that will land.  The
+ *  footprint is centred under the cursor and tracks it smoothly; unlike
+ *  the committed drop it is *not* snapped to the grid. */
+static void
+draw_node_wireframe (
+        PnWorksheet *self,
+        cairo_t     *cr)
+{
+    PnNode        *node  = self->drag_preview_node;
+    const gchar   *icon  = pn_node_get_icon       (node);
+    const gchar   *name  = pn_node_get_name       (node);
+    const gchar   *label = (name != NULL && *name != '\0')
+                               ? name
+                               : pn_node_get_class_name (node);
+    const double   header_h = pn_node_get_header_height (node);
+    /* Node-RED red, matching the selection halo. */
+    const double   rr = 0.85, rg = 0.15, rb = 0.15;
+    double         dw, dh;
+    double         wx, wy, x, y;
+
+    pn_node_get_size (node, &dw, &dh);
+
+    /* Track the cursor smoothly — the ghost is *not* snapped to the
+     * grid; the snap happens only when the node is actually placed on
+     * drop (see on_drag_data_received), so the preview shows where the
+     * pointer is, not where the node will land. */
+    wx = widget_to_world_x (self, (double) self->drag_preview_x);
+    wy = widget_to_world_y (self, (double) self->drag_preview_y);
+    x  = wx - dw / 2.0;
+    y  = wy - dh / 2.0;
+
+    if (icon  == NULL) icon  = "";
+    if (label == NULL) label = "";
+
+    cairo_save (cr);
+    cairo_set_source_rgb (cr, rr, rg, rb);
+    cairo_set_line_width (cr, 1.0);
+
+    /* Body outline (header only — matches the selection halo and keeps
+     * a tall plot node's extension out of the ghost). */
+    rounded_rect_path (cr, x, y, dw, header_h, PN_NODE_RADIUS);
+    cairo_stroke (cr);
+
+    /* Icon-panel separator, so the sketch reads as a node at a glance. */
+    cairo_move_to (cr, x + PN_NODE_ICON_WIDTH + 0.5, y);
+    cairo_line_to (cr, x + PN_NODE_ICON_WIDTH + 0.5, y + header_h);
+    cairo_stroke (cr);
+
+    /* Icon glyph, centred in the icon panel. */
+    {
+        PangoLayout          *layout = pango_cairo_create_layout (cr);
+        PangoFontDescription *desc   =
+                pango_font_description_from_string ("Sans, FontAwesome Bold 16");
+        int pw, ph;
+
+        pango_layout_set_font_description (layout, desc);
+        pango_font_description_free (desc);
+        pango_layout_set_text (layout, icon, -1);
+        pango_layout_get_pixel_size (layout, &pw, &ph);
+
+        cairo_move_to (cr,
+                       x + (PN_NODE_ICON_WIDTH - pw) / 2.0,
+                       y + (header_h           - ph) / 2.0);
+        pango_cairo_show_layout (cr, layout);
+        g_object_unref (layout);
+    }
+
+    /* Name, in the label area right of the icon panel — centred and
+     * end-ellipsized exactly as the painted node does it. */
+    {
+        PangoLayout          *layout = pango_cairo_create_layout (cr);
+        PangoFontDescription *desc   = pango_font_description_from_string ("Sans");
+        const double          right_dec =
+                PN_NODE_GET_CLASS (node)->paint_right_decoration_width;
+        const double          area_x  = x + PN_NODE_ICON_WIDTH;
+        const double          area_w  = dw - PN_NODE_ICON_WIDTH - right_dec;
+        const double          pad     = PN_NODE_LABEL_PADDING;
+        const double          inner_w = area_w - 2.0 * pad;
+        int pw, ph;
+
+        pango_font_description_set_absolute_size (desc, 12.0 * PANGO_SCALE);
+        pango_layout_set_font_description (layout, desc);
+        pango_font_description_free (desc);
+        pango_layout_set_text       (layout, label, -1);
+        pango_layout_set_width      (layout, (int) (inner_w * PANGO_SCALE));
+        pango_layout_set_ellipsize  (layout, PANGO_ELLIPSIZE_END);
+        pango_layout_set_alignment  (layout, PANGO_ALIGN_CENTER);
+        pango_layout_get_pixel_size (layout, &pw, &ph);
+
+        cairo_move_to (cr, area_x + pad, y + (header_h - ph) / 2.0);
+        pango_cairo_show_layout (cr, layout);
+        g_object_unref (layout);
+    }
+
+    cairo_restore (cr);
 }
 
 /** Draw a Node-RED-style wire: a horizontal cubic bezier from the
@@ -2449,6 +2566,12 @@ pn_worksheet_draw (
                 }
             }
         }
+
+        /* Drag-preview wireframe: the red ghost of the node a palette
+         * drop would create, traced on top of the existing bodies so
+         * the user sees where and what they are about to drop. */
+        if (self->drag_preview_node != NULL)
+            draw_node_wireframe (self, cr);
 
         /* Message-flow lights, painted last so they sit on top of the
          * node bodies and fly into the centre of the target node.  No-op
@@ -4405,6 +4528,19 @@ handle_file_uri_drop (
 /*  Drop target — receive new nodes from the palette                  */
 /* ------------------------------------------------------------------ */
 
+/** Tear down any live drag-preview wireframe and repaint over it.
+ *  Called when the drag leaves the worksheet and just before a drop is
+ *  committed, so the red ghost never lingers behind the real node. */
+static void
+drag_preview_clear (PnWorksheet *self)
+{
+    if (self->drag_preview_node != NULL)
+    {
+        g_clear_object (&self->drag_preview_node);
+        gtk_widget_queue_draw (GTK_WIDGET (self));
+    }
+}
+
 static void
 on_drag_data_received (
         GtkWidget        *widget,
@@ -4425,6 +4561,11 @@ on_drag_data_received (
     PnPoint       pos;
 
     (void) user_data;
+
+    /* The drop is committing — drop any preview ghost so it can't
+     * linger behind the real node (drag-leave usually clears it first,
+     * but be defensive). */
+    drag_preview_clear (self);
 
     /* A desktop file drop is a different payload shape (a uri-list, not
      * a node-type name) handled entirely by its own routine. */
@@ -4488,6 +4629,81 @@ on_drag_data_received (
     g_object_unref (node);
 
     gtk_drag_finish (context, TRUE, FALSE, time);
+}
+
+/** Track a palette drag hovering over the worksheet so the painter can
+ *  ghost the node under the cursor.  The dragged node type is read
+ *  straight off the source #PnPalette (this is a same-app drag), so no
+ *  selection round-trip is needed — fetching the payload with
+ *  gtk_drag_get_data() here would risk spinning a nested main loop
+ *  while the DnD pointer grab is held and freezing the display.  Only a
+ *  palette node-type drag gets a wireframe; a cross-app file-URI drag
+ *  has no source widget here and is left to the default highlight.
+ *  Returns %FALSE so the GTK_DEST_DEFAULT_MOTION machinery still sets
+ *  the drag status. */
+static gboolean
+on_drag_motion (
+        GtkWidget      *widget,
+        GdkDragContext *context,
+        gint            x,
+        gint            y,
+        guint           time,
+        gpointer        user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (widget);
+    GtkWidget   *src;
+    GType        type = G_TYPE_INVALID;
+
+    (void) time;
+    (void) user_data;
+
+    /* Walk up from the drag source to its palette (the source widget is
+     * the palette's tree view); a cross-app drag has no source widget. */
+    src = gtk_drag_get_source_widget (context);
+    while (src != NULL && !PN_IS_PALETTE (src))
+        src = gtk_widget_get_parent (src);
+    if (src != NULL)
+        type = pn_palette_get_drag_node_type (PN_PALETTE (src));
+
+    if (type == G_TYPE_INVALID || !g_type_is_a (type, PN_TYPE_NODE))
+    {
+        drag_preview_clear (self);   /* not a node drag — no ghost */
+        return FALSE;
+    }
+
+    self->drag_preview_x = x;
+    self->drag_preview_y = y;
+
+    /* Build the throwaway instance the painter measures, rebuilding
+     * only if the dragged type changed (it does not within one drag,
+     * but stays correct across drags). */
+    if (self->drag_preview_node == NULL ||
+        G_OBJECT_TYPE (self->drag_preview_node) != type)
+    {
+        g_clear_object (&self->drag_preview_node);
+        self->drag_preview_node = pn_node_factory_create_for_type (
+                pn_node_factory_get_default (), type);
+    }
+
+    gtk_widget_queue_draw (widget);
+    return FALSE;
+}
+
+/** Drop the preview when the drag leaves (GTK also emits this just
+ *  before a drop, which is exactly when the ghost should give way to
+ *  the committed node). */
+static void
+on_drag_leave (
+        GtkWidget      *widget,
+        GdkDragContext *context,
+        guint           time,
+        gpointer        user_data)
+{
+    (void) context;
+    (void) time;
+    (void) user_data;
+
+    drag_preview_clear (PN_WORKSHEET (widget));
 }
 
 /* ------------------------------------------------------------------ */
@@ -4928,6 +5144,7 @@ pn_worksheet_finalize (GObject *object)
     PnWorksheet *self = PN_WORKSHEET (object);
 
     g_clear_object  (&self->drag_pivot);
+    g_clear_object  (&self->drag_preview_node);
     g_clear_object  (&self->wire_source);
     g_clear_object  (&self->pressed_inject);
     g_clear_pointer (&self->drag_anchors, g_array_unref);
@@ -5323,6 +5540,16 @@ pn_worksheet_init (PnWorksheet *self)
 
         g_signal_connect (self, "drag-data-received",
                           G_CALLBACK (on_drag_data_received), NULL);
+
+        /* Drag-preview wireframe: motion tracks the cursor and reads
+         * the dragged node-type off the source palette, leave tears the
+         * ghost down.  Both return %FALSE so the GTK_DEST_DEFAULT_ALL
+         * highlight/status/drop handling still runs underneath, and the
+         * real node is still created by on_drag_data_received on drop. */
+        g_signal_connect (self, "drag-motion",
+                          G_CALLBACK (on_drag_motion), NULL);
+        g_signal_connect (self, "drag-leave",
+                          G_CALLBACK (on_drag_leave), NULL);
     }
 
     /* Repaint live when the grid-rendering preferences change.
