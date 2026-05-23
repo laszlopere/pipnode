@@ -136,6 +136,117 @@ PnGraph *pn_graph_new (void);
  * so headless tests observe series creation through this accessor. */
 guint    pn_graph_get_series_count (PnGraph *self);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The PLplot/cairo plot painter lives in the gui-tier file           */
+/*  pn-graph-gui.c, but it has to walk the same per-topic time-bucket  */
+/*  rings and raw-sample rings that receive() fills in the core file.  */
+/*  Those rings are plain data (no GTK / no PLplot), so the structs    */
+/*  and the data-extraction accessors are published here and shared    */
+/*  across the tier boundary.  The collected snapshot is owned by the  */
+/*  caller (free with g_free); the pointed-to series structs and topic */
+/*  strings remain owned by the node and are valid for the duration of */
+/*  the paint call.                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Capacity of the per-series time-bucket ring (largest X-bucket count
+ * the configured window can be split into) and the raw-sample ring used
+ * by the distribution view.  The painter sizes its stack scratch arrays
+ * to these caps, so they live in the public header alongside the ring
+ * struct rather than only in the core .c. */
+#define PN_GRAPH_MAX_BINS  200
+#define PN_GRAPH_SAMPLES   2048
+
+/* One time bucket: a circular-buffer slot indexed by
+ * monotonic_time / bin_width_us.  @epoch is the absolute bin index this
+ * slot currently represents (G_MININT64 when never used), so a stale
+ * slot can be detected and lazily reset before it is touched again. */
+typedef struct
+{
+    gint64   epoch;
+    guint64  count;
+    gdouble  sum;
+    gdouble  sum_sq;
+    gdouble  min;
+    gdouble  max;
+} PnGraphBin;
+
+/* One raw observation kept verbatim for the distribution view, stamped
+ * with the same monotonic clock the time-bin ring uses. */
+typedef struct
+{
+    gint64  time_us;
+    gdouble value;
+} PnGraphSample;
+
+/* Per-topic series: its time-bucket ring + raw-sample ring + a stable
+ * arrival-order index (used as the Z-axis slot in 3D mode and to seed
+ * the auto-assigned series colour). */
+typedef struct
+{
+    PnGraphBin     ring[PN_GRAPH_MAX_BINS];
+
+    PnGraphSample  samples[PN_GRAPH_SAMPLES];
+    guint          sample_head;
+    guint          sample_count;
+
+    guint          arrival_idx;
+} PnGraphSeries;
+
+/* A (topic, series) pair, used to walk the series in arrival order on
+ * every paint.  Both pointers are borrowed from the node's hashtable. */
+typedef struct
+{
+    const gchar         *topic;
+    const PnGraphSeries *series;
+} PnGraphSeriesView;
+
+/* Scalar drawing configuration, snapshotted by value for one paint.
+ * The colours are #PnColor (layout-identical to GdkRGBA). */
+typedef struct
+{
+    PnGraphResolution  resolution;
+    guint              n_bins;
+    PnGraphView        view;
+    PnGraphStyle       style;
+
+    PnColor            line_color;
+    PnColor            axis_color;
+    PnColor            background_color;
+    guint              line_width;
+    gboolean           show_grid;
+    gboolean           log_y;
+    gboolean           y_from_zero;
+} PnGraphPaintState;
+
+/**
+ * pn_graph_get_paint_state:
+ * @self: graph instance
+ * @out:  (out): caller-provided snapshot filled with the current scalar
+ *        drawing configuration.
+ */
+void pn_graph_get_paint_state (PnGraph *self, PnGraphPaintState *out);
+
+/**
+ * pn_graph_collect_series_sorted:
+ * @self:  graph instance
+ * @out_n: (out): number of series written
+ *
+ * Returns: (transfer container): a newly-allocated array of
+ * #PnGraphSeriesView in arrival order (free with g_free), or %NULL when
+ * no series exist.  The series structs and topic strings are owned by
+ * the node.
+ */
+PnGraphSeriesView *pn_graph_collect_series_sorted (PnGraph *self,
+                                                   guint   *out_n);
+
+/* Window length in seconds for @r, and the active bin width in
+ * microseconds (always at least 1).  Pure helpers the painter shares
+ * with the receive path. */
+guint  pn_graph_resolution_seconds (PnGraphResolution r);
+gint64 pn_graph_bin_width_us       (PnGraph *self);
+
 G_END_DECLS
 
 #endif /* PN_GRAPH_H */

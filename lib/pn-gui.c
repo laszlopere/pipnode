@@ -21,6 +21,7 @@
 
 #include "pn-analog-meter-gui.h"
 #include "pn-dial-gui.h"
+#include "pn-graph-gui.h"
 #include "pn-knob-gui.h"
 #include "pn-led-gui.h"
 #include "pn-switch-gui.h"
@@ -33,6 +34,7 @@ pn_gui_install_builtin_nodes (void)
      * gui-only vfunc slots onto the core-registered class. */
     pn_analog_meter_gui_install ();
     pn_dial_gui_install ();
+    pn_graph_gui_install ();
     pn_knob_gui_install ();
     pn_led_gui_install ();
     pn_switch_gui_install ();
