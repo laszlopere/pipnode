@@ -13,6 +13,26 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnFileDrop — logic tier (headless core).                           */
+/*                                                                     */
+/*  This file holds the GTK-free half of the FileDrop source node: the */
+/*  GType, the two appearance colour properties, the intrinsic size    */
+/*  (get_size / get_header_height, driven by the dropped image's       */
+/*  aspect ratio) and the drop-emit logic — pn_filedrop_drop_file()    */
+/*  loads the dropped path into a #GdkPixbuf (gdk-pixbuf is an allowed  */
+/*  core image-data dep), keeps it for the preview, and emits the      */
+/*  corresponding #PnImageMessage / #PnMessage.  The GTK drag-and-drop */
+/*  that routes a desktop drop to this node lives in the gui-tier      */
+/*  worksheet (pn-worksheet.c), which calls the public                 */
+/*  pn_filedrop_drop_file().  The cairo drop-area painter lives in the */
+/*  companion gui-tier file pn-filedrop-gui.c, which installs that      */
+/*  paint vfunc slot onto this class at editor startup (see            */
+/*  pn_filedrop_gui_install) and reads the preview state through the    */
+/*  GTK-free pn_filedrop_get_paint_state() seam.  The headless runtime */
+/*  registers and runs this node without ever pulling GTK.             */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -21,7 +41,8 @@
 #include "pn-image-message.h"
 #include "pn-message.h"
 
-#include <gtk/gtk.h>
+#include <gio/gio.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -69,8 +90,8 @@ struct _PnFileDrop
 
     /* Appearance — drop-area fill and frame.  Both serialise like any
      * other writable property and only affect painting. */
-    GdkRGBA    area_color;
-    GdkRGBA    border_color;
+    PnColor    area_color;
+    PnColor    border_color;
 };
 
 G_DEFINE_TYPE (PnFileDrop, pn_filedrop, PN_TYPE_NODE)
@@ -131,150 +152,29 @@ pn_filedrop_get_header_height (PnNode *node)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                           */
+/*  GUI paint-state seam (GTK-free)                                    */
+/*                                                                     */
+/*  The cairo drop-area painter lives in the gui tier (pn-filedrop-    */
+/*  gui.c) and cannot see this file's private instance struct.  It     */
+/*  reads everything it needs through this one snapshot accessor: the  */
+/*  borrowed preview pixbuf (or %NULL), the borrowed last-drop         */
+/*  filename hint (or %NULL), and the two appearance colours by value. */
+/*  gdk-pixbuf is an allowed core dep, so the pixbuf can ride the      */
+/*  snapshot as a plain (borrowed) pointer with no GTK involvement.    */
 /* ------------------------------------------------------------------ */
 
-/** Centre @text horizontally and vertically inside the rectangle
- *  (@x, @y, @w, @h), painted in a muted grey.  Used for the
- *  "Drop a file here" placeholder and the non-image filename label. */
-static void
-paint_centered_text (
-        cairo_t     *cr,
-        const gchar *text,
-        double       x,
-        double       y,
-        double       w,
-        double       h)
+void
+pn_filedrop_get_paint_state (
+        PnFileDrop            *self,
+        PnFileDropPaintState  *out)
 {
-    cairo_text_extents_t ext;
+    g_return_if_fail (PN_IS_FILEDROP (self));
+    g_return_if_fail (out != NULL);
 
-    cairo_save (cr);
-    cairo_select_font_face (cr, "Sans",
-                            CAIRO_FONT_SLANT_NORMAL,
-                            CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size (cr, 13.0);
-    cairo_set_source_rgba (cr, 0.45, 0.45, 0.48, 1.0);
-
-    cairo_text_extents (cr, text, &ext);
-    cairo_move_to (cr,
-                   x + (w - ext.width)  / 2.0 - ext.x_bearing,
-                   y + (h - ext.height) / 2.0 - ext.y_bearing);
-    cairo_show_text (cr, text);
-    cairo_restore (cr);
-}
-
-/** Paint the dropped image so it *covers* the content rectangle
- *  (@cx, @cy, @cw, @ch): aspect ratio preserved, scaled so the image
- *  fills the whole box with no gap, centred so any overflow is cropped
- *  evenly.  Because the drop area is sized to the image's own aspect
- *  ratio (see filedrop_area_height), cover and fit coincide and nothing
- *  is cropped in the common case; cover only crops in the clamped
- *  extreme-aspect case, where it is still preferable to a white margin.
- *  The caller is expected to have clipped to the same rectangle.  */
-static void
-paint_pixbuf_cover (
-        cairo_t   *cr,
-        GdkPixbuf *pixbuf,
-        double     cx,
-        double     cy,
-        double     cw,
-        double     ch)
-{
-    const double iw = (double) gdk_pixbuf_get_width  (pixbuf);
-    const double ih = (double) gdk_pixbuf_get_height (pixbuf);
-    double       scale, dw, dh, ox, oy;
-
-    if (iw <= 0.0 || ih <= 0.0 || cw <= 0.0 || ch <= 0.0)
-        return;
-
-    /* Cover: the larger of the two ratios fills the box completely. */
-    scale = MAX (cw / iw, ch / ih);
-    dw    = iw * scale;
-    dh    = ih * scale;
-    ox    = cx + (cw - dw) / 2.0;
-    oy    = cy + (ch - dh) / 2.0;
-
-    cairo_save (cr);
-    cairo_translate (cr, ox, oy);
-    cairo_scale (cr, scale, scale);
-    gdk_cairo_set_source_pixbuf (cr, pixbuf, 0.0, 0.0);
-    /* GOOD is a sensible quality/speed trade-off for the down-scale
-     * that the typical (larger-than-area) photo needs. */
-    cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
-    cairo_paint (cr);
-    cairo_restore (cr);
-}
-
-/** PnNodeClass::paint_plot — draw the drop-area rectangle and whatever
- *  preview / hint belongs in it, anchored at (@x, @y) with size
- *  @w × @h.  Mirrors the Graph node's "fill the rectangle even when
- *  empty so it reads as a deliberate area" approach. */
-static void
-pn_filedrop_paint_plot (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnFileDrop *self = PN_FILEDROP (node);
-
-    /* Base fill.  When an image is present it is painted over this
-     * edge-to-edge, so the area colour only ever shows in the empty
-     * state. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->area_color);
-    cairo_fill (cr);
-    cairo_restore (cr);
-
-    if (self->pixbuf != NULL)
-    {
-        /* Fill the whole rectangle with the image — no padding, no
-         * white margin; the rectangle already carries the image's
-         * aspect ratio, so the picture covers it exactly. */
-        cairo_save (cr);
-        cairo_rectangle (cr, x, y, w, h);
-        cairo_clip (cr);
-        paint_pixbuf_cover (cr, self->pixbuf, x, y, w, h);
-        cairo_restore (cr);
-    }
-    else
-    {
-        /* Dashed inner outline + centred hint so an empty target
-         * advertises itself as a place to drop something. */
-        const double cx = x + PN_FILEDROP_PADDING;
-        const double cy = y + PN_FILEDROP_PADDING;
-        const double cw = w - 2.0 * PN_FILEDROP_PADDING;
-        const double ch = h - 2.0 * PN_FILEDROP_PADDING;
-
-        cairo_save (cr);
-        cairo_set_source_rgba (cr, 0.62, 0.62, 0.66, 1.0);
-        cairo_set_line_width (cr, 1.0);
-        {
-            const double dashes[] = { 4.0, 3.0 };
-            cairo_set_dash (cr, dashes, 2, 0.0);
-        }
-        cairo_rectangle (cr, cx, cy, cw, ch);
-        cairo_stroke (cr);
-        cairo_restore (cr);
-
-        paint_centered_text (cr,
-                             self->last_filename != NULL
-                                 ? self->last_filename
-                                 : "Drop a file here",
-                             cx, cy, cw, ch);
-    }
-
-    /* Frame last, so it edges the image (or the empty area) cleanly on
-     * top of whatever was drawn. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->border_color);
-    cairo_set_line_width (cr, 1.0);
-    cairo_stroke (cr);
-    cairo_restore (cr);
+    out->pixbuf        = self->pixbuf;        /* borrowed */
+    out->last_filename = self->last_filename; /* borrowed */
+    out->area_color    = self->area_color;
+    out->border_color  = self->border_color;
 }
 
 /* ------------------------------------------------------------------ */
@@ -434,8 +334,8 @@ pn_filedrop_set_property (
     {
     case PROP_AREA_COLOR:
         {
-            const GdkRGBA *c = g_value_get_boxed (value);
-            if (c != NULL && !gdk_rgba_equal (c, &self->area_color))
+            const PnColor *c = g_value_get_boxed (value);
+            if (c != NULL && !pn_color_equal (c, &self->area_color))
             {
                 self->area_color = *c;
                 g_object_notify_by_pspec (object, props[PROP_AREA_COLOR]);
@@ -445,8 +345,8 @@ pn_filedrop_set_property (
         break;
     case PROP_BORDER_COLOR:
         {
-            const GdkRGBA *c = g_value_get_boxed (value);
-            if (c != NULL && !gdk_rgba_equal (c, &self->border_color))
+            const PnColor *c = g_value_get_boxed (value);
+            if (c != NULL && !pn_color_equal (c, &self->border_color))
             {
                 self->border_color = *c;
                 g_object_notify_by_pspec (object, props[PROP_BORDER_COLOR]);
@@ -486,14 +386,9 @@ pn_filedrop_class_init (PnFileDropClass *klass)
 
     node_class->get_size          = pn_filedrop_get_size;
     node_class->get_header_height = pn_filedrop_get_header_height;
-    node_class->paint_plot        = pn_filedrop_paint_plot;
-    /* A primary press on the drop area lifts it into the centred zoom
-     * overlay, the same gesture that enlarges a Graph's plot; click the
-     * enlarged rectangle to drop it back.  (File drops are routed by the
-     * worksheet's drag-and-drop handler, not by a click, so this does not
-     * interfere with dropping files onto the node.)  Keep the preview's
-     * aspect ratio when enlarged so the maximised image is not stretched. */
-    node_class->paint_plot_zoom_keep_aspect = TRUE;
+    /* The cairo paint_plot painter and its companion
+     * paint_plot_zoom_keep_aspect flag are installed by the gui tier
+     * (pn_filedrop_gui_install); the headless core leaves them NULL. */
 
     node_class->class_name = "FileDrop";
     node_class->icon       = "\xef\x80\x9c";  /* fa-inbox U+F01C */
@@ -505,13 +400,13 @@ pn_filedrop_class_init (PnFileDropClass *klass)
     props[PROP_AREA_COLOR] = g_param_spec_boxed (
             "area-color", "Area colour",
             "Fill colour of the drop-area rectangle drawn below the header",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_BORDER_COLOR] = g_param_spec_boxed (
             "border-color", "Border colour",
             "Colour of the 1 px frame around the drop area",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
@@ -521,16 +416,16 @@ static void
 pn_filedrop_init (PnFileDrop *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.36, 0.60, 0.74, 1.0 };
+    PnColor  color = { 0.36, 0.60, 0.74, 1.0 };
 
     self->pixbuf        = NULL;
     self->last_filename = NULL;
-    self->area_color    = (GdkRGBA){ 1.0, 1.0, 1.0, 1.0 };   /* white */
-    self->border_color  = (GdkRGBA){ 70.0/255.0, 70.0/255.0, 70.0/255.0, 1.0 };
+    self->area_color    = (PnColor){ 1.0, 1.0, 1.0, 1.0 };   /* white */
+    self->border_color  = (PnColor){ 70.0/255.0, 70.0/255.0, 70.0/255.0, 1.0 };
 
     pn_node_set_class_name (node, "FileDrop");
     pn_node_set_icon       (node, "\xef\x80\x9c");  /* fa-inbox U+F01C */
-    pn_node_set_color (node, (const PnColor *)&color);
+    pn_node_set_color (node, &color);
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 }

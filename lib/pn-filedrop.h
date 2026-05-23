@@ -18,6 +18,8 @@
 
 #include "pn-node.h"
 
+#include <gdk-pixbuf/gdk-pixbuf.h>
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -59,6 +61,29 @@ PnFileDrop *pn_filedrop_new (void);
  */
 void        pn_filedrop_drop_file (PnFileDrop  *self,
                                    const gchar *path);
+
+/* ------------------------------------------------------------------ */
+/*  GUI paint-state seam (GTK-free)                                    */
+/*                                                                     */
+/*  The cairo drop-area painter lives in the gui tier                  */
+/*  (pn-filedrop-gui.c) and reads the node's preview state through     */
+/*  this one snapshot rather than reaching into the private instance   */
+/*  struct.  The pixbuf and filename are borrowed (owned by the node), */
+/*  valid only for the duration of the paint call.  gdk-pixbuf is an   */
+/*  allowed core image-data dep, so the pixbuf rides the snapshot as a */
+/*  plain pointer with no GTK involvement.                             */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    GdkPixbuf   *pixbuf;        /* borrowed; %NULL when no image preview */
+    const gchar *last_filename; /* borrowed; %NULL before the first drop */
+    PnColor      area_color;
+    PnColor      border_color;
+} PnFileDropPaintState;
+
+void        pn_filedrop_get_paint_state (PnFileDrop           *self,
+                                         PnFileDropPaintState *out);
 
 G_END_DECLS
 
