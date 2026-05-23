@@ -18,6 +18,54 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 5 DONE — the two binaries are wired to the two tiers;
+  `pipnode-run` links core only.** Four increments cleared the carried
+  debt and made `libpipnode-core` fully self-contained:
+  - **5.1 — split Table-View (the missed 24th dual node).** `PnTableView`
+    was misclassified in §6 as a "pure widget, not a node," but it is a
+    full sink `PnNode` with `receive()` logic, so its `pn_table_view_
+    get_type` stayed in the gui lib — one of core's three undefined gui
+    symbols. Split it the established Table way: core keeps the GType, the
+    five colour properties (migrated `GDK_TYPE_RGBA`→`PN_TYPE_COLOR` — the
+    **last node-body `GdkRGBA` pspec in the tree**), `receive` + the JSON
+    cell parser, the snapshot, the repaint throttle, `get_size`/
+    `get_header_height` and the scroll vfunc; the painter moved to
+    `pn-table-view-gui.c` behind the published read seam
+    (`PnTableViewRow`, `PnTableViewPaintState`, `pn_table_view_get_paint_
+    state`/`peek_header`/`peek_rows` + the scroll get/clamp pair).
+  - **5.2 — plugin-policy seam.** The core factory consulted
+    `PnPreferences` directly (forward-declared) to skip user-disabled
+    plugins — core's other two undefined gui symbols. Replaced with a
+    GTK-free hook, `pn_node_factory_set_plugin_filter()`; the **editor**
+    installs a `PnPreferences`-backed filter in `src/main.c` before the
+    discovery scan, `pipnode-run` installs none (loads every plugin).
+    `libpipnode-core.so` now has **zero undefined gui/gtk symbols**.
+  - **5.3 — retired the `pn-flow.c` legacy `GdkRGBA` by-name clause**
+    (`pn_flow_legacy_rgba_type()` + the two call sites); every colour
+    property is `PN_TYPE_COLOR` now, on-disk form unchanged.
+  - **5.4 — core-only linkage.** `libpipnode-core` builds with
+    `-no-undefined`; `pipnode-run` and the unit tests link core ALONE,
+    dropping `libpipnode-gui`, the GTK flags and `-Wl,--no-as-needed`
+    (the unit tests keep `GTK_LIBS` only for `test-pn-color`'s
+    `gdk_rgba` cross-check, which `--as-needed` drops elsewhere).
+  - **Prerequisite fix (committed first): the auto/default property
+    editor now builds a `GtkColorButton` for `PN_TYPE_COLOR`.** The
+    Phase-1/4 migration moved every colour property to `PN_TYPE_COLOR`,
+    but `default_editor_impl` only matched `GDK_TYPE_RGBA` and so silently
+    dropped colour rows to the read-only-label fallback (the dial D-Bus
+    test only checks string/numeric bindings; the spot-checks covered
+    canvas rendering). Added a `PN_TYPE_COLOR` branch binding through a
+    `PnColor`↔`GdkRGBA` `GBinding` transform; kept the `GDK_TYPE_RGBA`
+    branch for legacy plugins.
+  - **Verified:** `objdump -p src/.libs/pipnode-run` `NEEDED` is
+    libpipnode-core, libgobject, libglib, libc — **no gtk/gdk/cairo/
+    pango/webkit/plplot/gtksourceview and no libpipnode-gui**; core links
+    `-no-undefined` clean; 52/52 C unit tests, the D-Bus dial test and the
+    plugin-load test PASS; **screenshot-confirmed** the dial Colours tab
+    renders GtkColorButtons and a TableView draws ("waiting for table") in
+    the editor while loading headless in `pipnode-run`. Phase 5 = commits
+    4b9ca1f, a308bfe, e0de30e, f44f688, b1e6512.
+
 - **Phase 4 DONE — the final four dual nodes split; ALL 23 of 23 are now
   core + gui.** Rate, Rewrite, Filedrop and File-Viewer (the special-case
   nodes) followed the established pattern: the GTK-free logic half (GType,
@@ -711,19 +759,32 @@ still pass (logic unchanged); editor still draws the node identically
 
 ---
 
-### Phase 5 — Wire the two binaries to the two tiers
+### Phase 5 — Wire the two binaries to the two tiers — **DONE** (see §0)
 
 **Objective:** `pipnode-run` links core only; `pipnode-editor` links core
 + gui.
 
-**Steps**
-1. `src/Makefile.am`: `pipnode_run_LDADD` → core only, drop `GTK_CFLAGS`
-   from `pipnode_run_CFLAGS`. `pipnode_editor` → core + gui.
-2. Audit `src/pn-run.c` for any stray GTK include (TODO #23 says it's
-   already clean — confirm).
+**Result:** done in four increments (5.1–5.4, see §0). The central work
+was making `libpipnode-core` self-contained: splitting the missed 24th
+dual node (Table-View), replacing the factory's direct `PnPreferences`
+calls with a core-side plugin-policy hook, and retiring the `pn-flow`
+legacy `GdkRGBA` clause — clearing core's three undefined gui symbols.
+Then `pipnode-run` + the unit tests dropped to core-only linkage and core
+gained `-no-undefined`. `src/pn-run.c` was already GTK-free (confirmed).
 
-**Verification:** `ldd src/pipnode-run | grep -i gtk` is empty; it runs a
-worksheet headless. `pipnode-editor` unchanged for the user.
+**Steps (as executed)**
+1. `src/Makefile.am`: `pipnode_run_LDADD` → core only (+ `GLIB_LIBS`),
+   `pipnode_run_CFLAGS` `GTK_CFLAGS`→`GLIB_CFLAGS`, dropped
+   `-Wl,--no-as-needed`. `pipnode_editor` unchanged (core + gui).
+2. `lib/Makefile.am`: core builds `-no-undefined`; moved
+   `pn-table-view.{c,h}` to core, added `pn-table-view-gui.{c,h}` to gui.
+3. `tests/unit/Makefile.am`: core-only linkage, dropped gui +
+   `-Wl,--no-as-needed`.
+
+**Verification:** `objdump -p src/.libs/pipnode-run` `NEEDED` carries no
+`libgtk`/`libgui`; it runs a worksheet headless; the editor is unchanged
+for the user (screenshot-confirmed). 52/52 unit tests + dial + plugin-load
+PASS.
 
 ---
 
@@ -897,8 +958,13 @@ Editor infra: `pn-node-dialog.c` (the auto-dialog framework; Phase 7's
 schema renderer lands here), `pn-document-settings-dialog.c`,
 `pn-preferences.c`, `pn-preferences-dialog.c`, `pn-palette.c`,
 `pn-help-browser.c` (webkit), `pn-worksheet.c` (the canvas renderer).
-Pure widget: `pn-table-view.c` (the `GtkWidget` `pn-table.c` draws into;
-not a node).
+
+> **Correction (Phase 5):** `pn-table-view.c` was listed here as a "pure
+> widget, not a node" — that was wrong. `PnTableView` is a full sink
+> `PnNode` with `receive()` logic (it renders the latest received
+> `data.table`), so it is the **24th dual node** and was split in Phase
+> 5.1 (logic → core, cairo painter → `pn-table-view-gui.c`). The true
+> final tally is **44 core · 24 dual · 7 gui**.
 
 ### Open decisions for the Phase 2 review gate
 
