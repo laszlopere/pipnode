@@ -20,6 +20,7 @@
 #include "pn-node-dialog.h"
 #include "pn-node-dialog-helpers.h"
 #include "pn-node.h"
+#include "pn-settings-renderer.h"
 
 #include <glib/gi18n.h>
 
@@ -899,6 +900,30 @@ dispatch_property_editor (
                                                    pspec, target, parent);
     }
 
+    /* Schema-row override (Phase 7.3): a class may describe this row
+     * declaratively (editor kind / choices / flags / conditional
+     * sensitivity) instead of shipping a build_property_editor vfunc.
+     * Consult the schema attached to the property's OWNER type — the
+     * class whose author wrote the row — and let the GTK-free schema
+     * renderer build the editor.  pn_settings_render_editor() itself
+     * falls back to the host default for an %PN_EDITOR_AUTO row or a
+     * property the schema does not mention, so this stays a no-op for a
+     * schema-less class and never regresses the type-driven default
+     * (the lesson of the Phase-5 colour-editor regression). */
+    if (editor == NULL && PN_IS_NODE (target))
+    {
+        gpointer owner = g_type_class_peek (pspec->owner_type);
+
+        if (owner != NULL && PN_IS_NODE_CLASS (owner))
+        {
+            PnSettingsSchema *schema =
+                pn_node_class_get_settings_schema (PN_NODE_CLASS (owner));
+
+            if (schema != NULL)
+                editor = pn_settings_render_editor (target, pspec, schema);
+        }
+    }
+
     if (editor == NULL)
         editor = pn_node_dialog_default_editor (target, pspec);
 
@@ -1245,6 +1270,30 @@ populate_notebook (PnNodeDialog *self)
 
             if (klass != NULL && klass->build_class_tab != NULL)
                 page = klass->build_class_tab (self->node, parent);
+
+            /* Schema-tabs (Phase 7.3): a class with no build_class_tab*
+             * vfunc may still group its settings into named tabs
+             * declaratively.  render_class appends those pages straight
+             * onto the notebook and returns the count it added; >0 means
+             * it owned this class's tabs, so we skip the auto tab the
+             * same way build_class_tabs does.  Returns 0 (a no-op) for a
+             * schema-less class or one whose schema declares no tab —
+             * which then customises individual auto-tab rows instead, via
+             * the schema-row path in dispatch_property_editor(). */
+            if (page == NULL && klass != NULL)
+            {
+                PnSettingsSchema *schema =
+                    pn_node_class_get_settings_schema (klass);
+
+                if (schema != NULL && pn_settings_schema_has_tabs (schema)
+                    && pn_settings_schema_render_class (
+                           schema, self->node,
+                           GTK_NOTEBOOK (self->notebook), parent) > 0)
+                {
+                    g_type_class_unref (klass);
+                    continue;
+                }
+            }
 
             g_type_class_unref (klass);
 
