@@ -1,0 +1,104 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnHttpsTunnelReceiver",
+      "uuid" : "5092d4ff-88be-43fe-9cb9-42b41bc2b1b9",
+      "name" : "HTTPS Tunnel Receiver 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "port" : 8443,
+        "username" : "test",
+        "password" : "test",
+        "cert-path" : "/home/pipas/.local/share/pipnode/default-cert.pem",
+        "key-path" : "/home/pipas/.local/share/pipnode/default-key.pem"
+      }
+    },
+    {
+      "type" : "PnHttpsTunnelSender",
+      "uuid" : "56d98ebf-dd35-4f94-9044-3713960a638a",
+      "name" : "HTTPS Tunnel Sender 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "url" : "https://127.0.0.1:8443/",
+        "username" : "test",
+        "password" : "test",
+        "verify-tls" : false
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "ae863ccc-b1b3-4518-9497-11ad01b3e21e",
+      "name" : "AutoRandom 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "period" : 3,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 1.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "91c9352e-3154-48bc-aa67-2865081e71f0",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "8b5dc046-bd3f-4b71-bfb1-e453b19744f4",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "color" : "rgb(51,217,77)",
+        "hold-ms" : 250,
+        "mode" : "Flash"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "5092d4ff-88be-43fe-9cb9-42b41bc2b1b9",
+      "target_id" : "91c9352e-3154-48bc-aa67-2865081e71f0"
+    },
+    {
+      "source_id" : "5092d4ff-88be-43fe-9cb9-42b41bc2b1b9",
+      "target_id" : "8b5dc046-bd3f-4b71-bfb1-e453b19744f4"
+    },
+    {
+      "source_id" : "ae863ccc-b1b3-4518-9497-11ad01b3e21e",
+      "target_id" : "56d98ebf-dd35-4f94-9044-3713960a638a"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
