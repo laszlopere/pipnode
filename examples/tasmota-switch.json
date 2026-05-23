@@ -123,50 +123,6 @@
         "target" : "Debug View",
         "format" : "JSON"
       }
-    },
-    {
-      "type" : "PnStaircase",
-      "uuid" : "9984e467-0680-419c-b25d-3a94a4ebbec7",
-      "name" : "Staircase 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 240.0,
-        "y" : 60.0
-      },
-      "properties" : {
-        "on-time-ms" : 5000,
-        "retriggerable" : true
-      }
-    },
-    {
-      "type" : "PnInject",
-      "uuid" : "9fb2ff66-9baa-467f-9c2d-d14d96840605",
-      "name" : "Injector 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 60.0,
-        "y" : 60.0
-      },
-      "properties" : {
-        "text" : "Injector activated.",
-        "value" : 1.0,
-        "success" : true
-      }
-    },
-    {
-      "type" : "PnLed",
-      "uuid" : "5de34aa4-0701-4e5e-8a99-04bbcd7672be",
-      "name" : "LED 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 420.0,
-        "y" : 60.0
-      },
-      "properties" : {
-        "color" : "rgb(28,113,216)",
-        "hold-ms" : 250,
-        "mode" : "Steady (level)"
-      }
     }
   ],
   "connections" : [
@@ -201,14 +157,6 @@
     {
       "source_id" : "139800b0-73fb-438d-b157-7939b176107b",
       "target_id" : "4c1021ee-14fe-4afe-b2da-fa3f7eff6596"
-    },
-    {
-      "source_id" : "9984e467-0680-419c-b25d-3a94a4ebbec7",
-      "target_id" : "5de34aa4-0701-4e5e-8a99-04bbcd7672be"
-    },
-    {
-      "source_id" : "9fb2ff66-9baa-467f-9c2d-d14d96840605",
-      "target_id" : "9984e467-0680-419c-b25d-3a94a4ebbec7"
     }
   ],
   "sheets" : [

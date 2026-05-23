@@ -1,0 +1,123 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnStaircase",
+      "uuid" : "0d7bdde2-b3ae-4c18-a622-89c4167a1ce7",
+      "name" : "Staircase 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "on-time-ms" : 5000,
+        "retriggerable" : true
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "ab136d5d-8da4-4b6e-97bd-90b741ff0bbb",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 1.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "e48b78f7-5a88-4522-a17f-6fd87db03861",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 387.11572265625,
+        "y" : 42.44696044921875
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnTasmotaRelayCommand",
+      "uuid" : "f18e0839-3d5a-4e86-8407-88f3716f0144",
+      "name" : "Tasmota Relay Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "switch-name" : "sonoff19"
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "de86598f-419f-4093-b92a-8b07eea63e9c",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 580.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "ac694a71-e211-4e45-9f2b-fe9d8b7e94a3",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 580.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "0d7bdde2-b3ae-4c18-a622-89c4167a1ce7",
+      "target_id" : "e48b78f7-5a88-4522-a17f-6fd87db03861"
+    },
+    {
+      "source_id" : "ab136d5d-8da4-4b6e-97bd-90b741ff0bbb",
+      "target_id" : "0d7bdde2-b3ae-4c18-a622-89c4167a1ce7"
+    },
+    {
+      "source_id" : "0d7bdde2-b3ae-4c18-a622-89c4167a1ce7",
+      "target_id" : "f18e0839-3d5a-4e86-8407-88f3716f0144"
+    },
+    {
+      "source_id" : "f18e0839-3d5a-4e86-8407-88f3716f0144",
+      "target_id" : "de86598f-419f-4093-b92a-8b07eea63e9c"
+    },
+    {
+      "source_id" : "f18e0839-3d5a-4e86-8407-88f3716f0144",
+      "target_id" : "ac694a71-e211-4e45-9f2b-fe9d8b7e94a3"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

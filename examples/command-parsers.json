@@ -1,0 +1,67 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFreeCommand",
+      "uuid" : "fe4a06f6-63b2-47e7-8cc2-cd3b70768c10",
+      "name" : "Free Command 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 80.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 5,
+        "host" : ""
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "0ce47fde-7bf1-44cd-939f-46740e0011b9",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnTableView",
+      "uuid" : "117f0da7-6ba8-4264-b9de-f15fc04b0e42",
+      "name" : "Table View 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "background-color" : "rgb(255,255,255)",
+        "header-background-color" : "rgb(235,235,235)",
+        "grid-color" : "rgb(140,140,140)",
+        "text-color" : "rgb(26,26,26)",
+        "header-text-color" : "rgb(26,26,26)",
+        "alternate-row-background" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "fe4a06f6-63b2-47e7-8cc2-cd3b70768c10",
+      "target_id" : "0ce47fde-7bf1-44cd-939f-46740e0011b9"
+    },
+    {
+      "source_id" : "fe4a06f6-63b2-47e7-8cc2-cd3b70768c10",
+      "target_id" : "117f0da7-6ba8-4264-b9de-f15fc04b0e42"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
