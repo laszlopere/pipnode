@@ -1202,6 +1202,50 @@ because the editor opens the companion `G_MODULE_BIND_LOCAL` and so a
 logic-half symbol is invisible to it.
 
 
+17a. WHEN A NODE STAYS A BUILT-IN INSTEAD
+-----------------------------------------
+
+The two-tier split pays off when the companion's dependency on the
+logic half is *small and cleanly separable*: a read seam (one or two
+GObject properties the painter / dialog reads through `g_object_get`),
+a self-contained helper used only by the dialog (the Ollama node's
+`/api/tags` query — `plugins/ollama/`), or a modest GTK-free helper the
+two halves share by compiling it into both (`pn-sci-fi-clips.c`).  When
+the dialog instead reuses a *large IO/protocol layer that is entangled
+with the node's own runtime*, neither escape hatch is a good trade, and
+the node is better left built into libpipnode with its dialog in the gui
+tier (installed from `pn-gui.c` via the in-tree
+`pn_<node>_gui_install()` idiom — the pre-plugin equivalent of a
+companion).
+
+The in-tree example is the **Meshtastic** node (`lib/pn-meshtastic.c` +
+`lib/pn-meshtastic-gui.c`).  Its settings dialog does not just read
+scalar state: the channel combo runs a live serial handshake against the
+selected device to enumerate channels (`pn_meshtastic_list_channels` ->
+`serial_open` + `run_handshake` + the `mesh_session` / protobuf layer,
+~700 lines) and *also* reads the running worker's live channel cache.
+That protocol layer is shared with the node's own worker thread, so a
+clean companion split would force one of:
+
+  - extracting the whole ~700-line GTK-free serial/protobuf layer into a
+    shared module compiled into BOTH `.so` (the `pn-sci-fi-clips.c`
+    pattern, but an order of magnitude larger and interleaved with node
+    code), or
+
+  - dropping the dialog's on-demand handshake and exposing only the
+    cached channel list as a read-only property — a user-visible
+    regression (you could no longer pick a channel on a node that has
+    not connected yet).
+
+The device-path combo, by contrast, is a self-contained sysfs walk
+(`pn_meshtastic_list_devices`) that would move to a companion with no
+trouble — but it is the cheap part.  Because the expensive part has no
+clean seam and the only payoff is being a separately-installable `.so`,
+Meshtastic stays a built-in.  Reach for a companion only when the seam
+is cheap; when it is not, a built-in node with a gui-tier dialog is the
+right shape.
+
+
 18. REFERENCE PLUGINS IN THE TREE
 --------------------------------
 
