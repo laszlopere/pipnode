@@ -140,6 +140,12 @@ static guint signals[N_SIGNALS];
 #define PN_NODE_DEFAULT_WIDTH   140.0
 #define PN_NODE_DEFAULT_HEIGHT   40.0
 
+/*  Vertical gap painted between a node's header and the body its       */
+/*  paint_plot painter draws below it.  Lives here (not in the painter) */
+/*  so the client-area report and the worksheet's plot rectangle agree  */
+/*  on the same baseline (see pn_node_get_client_area / node_plot_rect).*/
+#define PN_NODE_PLOT_GAP          4.0
+
 static void
 pn_node_default_get_size (
         PnNode *self,
@@ -156,6 +162,47 @@ pn_node_default_get_header_height (PnNode *self)
 {
     (void) self;
     return PN_NODE_DEFAULT_HEIGHT;
+}
+
+static gboolean
+pn_node_default_get_client_area (
+        PnNode *self,
+        double *out_x,
+        double *out_y,
+        double *out_w,
+        double *out_h)
+{
+    double w, h, hh, body_h;
+
+    pn_node_get_size          (self, &w, &h);
+    hh     = pn_node_get_header_height (self);
+    body_h = h - hh - PN_NODE_PLOT_GAP;
+
+    /* A node has a client area when its footprint extends below the
+     * header — the body it fills with its own content (a table's grid,
+     * a graph's plot, a gauge face), past the header→body gap.  This is
+     * pure geometry (get_size / get_header_height), so it gives the same
+     * answer in the GTK editor and the headless core — and in the editor
+     * it coincides with "installs a paint_plot painter", since every
+     * such node extends its height to make room for the body.  A
+     * header-only node (Debug, Comparator, an LED whose 40 px footprint
+     * is all header) reports an empty rectangle. */
+    if (body_h <= 0.0)
+    {
+        if (out_x != NULL) *out_x = 0.0;
+        if (out_y != NULL) *out_y = 0.0;
+        if (out_w != NULL) *out_w = 0.0;
+        if (out_h != NULL) *out_h = 0.0;
+        return FALSE;
+    }
+
+    /* Node-local: the region under the header, past the header→body
+     * gap — exactly the rectangle the worksheet hands paint_plot. */
+    if (out_x != NULL) *out_x = 0.0;
+    if (out_y != NULL) *out_y = hh + PN_NODE_PLOT_GAP;
+    if (out_w != NULL) *out_w = w;
+    if (out_h != NULL) *out_h = body_h;
+    return TRUE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -401,6 +448,7 @@ pn_node_class_init (PnNodeClass *klass)
      * subclasses override for nodes that paint outside that box. */
     klass->get_size          = pn_node_default_get_size;
     klass->get_header_height = pn_node_default_get_header_height;
+    klass->get_client_area   = pn_node_default_get_client_area;
 }
 
 static void
@@ -585,6 +633,24 @@ pn_node_get_header_height (PnNode *self)
     if (klass->get_header_height != NULL)
         return klass->get_header_height (self);
     return pn_node_default_get_header_height (self);
+}
+
+gboolean
+pn_node_get_client_area (
+        PnNode *self,
+        double *out_x,
+        double *out_y,
+        double *out_w,
+        double *out_h)
+{
+    PnNodeClass *klass;
+
+    g_return_val_if_fail (PN_IS_NODE (self), FALSE);
+
+    klass = PN_NODE_GET_CLASS (self);
+    if (klass->get_client_area != NULL)
+        return klass->get_client_area (self, out_x, out_y, out_w, out_h);
+    return pn_node_default_get_client_area (self, out_x, out_y, out_w, out_h);
 }
 
 void

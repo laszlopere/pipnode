@@ -111,6 +111,32 @@ test_rows_accumulate_and_trim (void)
     g_object_unref (node);
 }
 
+/* A table draws a grid below its standard header, so it reports a
+ * client area: the worksheet's palette drag-preview outlines it.  The
+ * rectangle is node-local (offset from the node origin) and sits under
+ * the header past the 4 px header→body gap. */
+static void
+test_reports_client_area (void)
+{
+    PnTable *table = pn_table_new ();
+    PnNode  *node  = PN_NODE (table);
+    double   x = -1.0, y = -1.0, w = -1.0, h = -1.0;
+    double   full_w, full_h, hh;
+
+    PN_CHECK (pn_node_get_client_area (node, &x, &y, &w, &h));
+
+    pn_node_get_size (node, &full_w, &full_h);
+    hh = pn_node_get_header_height (node);
+
+    PN_CHECK_NEAR (x, 0.0,               0.01);
+    PN_CHECK_NEAR (y, hh + 4.0,          0.01);
+    PN_CHECK_NEAR (w, full_w,            0.01);
+    PN_CHECK_NEAR (h, full_h - hh - 4.0, 0.01);
+    PN_CHECK (h > 0.0);
+
+    g_object_unref (table);
+}
+
 static void
 test_limit_default_and_round_trip (void)
 {
@@ -138,5 +164,6 @@ main (int argc, char **argv)
     pn_test_add ("no_columns_is_noop",        test_no_columns_is_noop);
     pn_test_add ("rows_accumulate_and_trim",  test_rows_accumulate_and_trim);
     pn_test_add ("limit_default_round_trip",  test_limit_default_and_round_trip);
+    pn_test_add ("reports_client_area",       test_reports_client_area);
     return pn_test_run ();
 }

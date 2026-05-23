@@ -456,6 +456,38 @@ struct _PnNodeClass
     void (*build_extra_pages) (PnNode      *self,
                                GtkNotebook *notebook,
                                GtkWindow   *dialog_parent);
+
+    /**
+     * PnNodeClass::get_client_area:
+     * @self:  node instance
+     * @out_x: (out) (optional): client-area left edge, in node-local
+     *         coordinates (an offset from the node's top-left origin)
+     * @out_y: (out) (optional): client-area top edge, node-local
+     * @out_w: (out) (optional): client-area width in worksheet pixels
+     * @out_h: (out) (optional): client-area height in worksheet pixels
+     *
+     * Reports the node's "client area" — the rectangular region below
+     * the header that the node fills with its own content (a table's
+     * grid, a graph's plot, a text view's body), as distinct from the
+     * standard Node-RED-style header every node draws.  Returns %TRUE
+     * and fills the rectangle (relative to the node origin) for a node
+     * that has a body; %FALSE for a header-only node (Debug, Comparator,
+     * …), in which case the out-parameters are zeroed.
+     *
+     * The default derives this from pure geometry: when #get_size
+     * reports a footprint taller than #get_header_height (past the
+     * header→body gap) the surplus below the header is the client area —
+     * exactly the rectangle the worksheet hands #PnNodeClass.paint_plot
+     * for a node that installs one.  A node whose body is not that simple
+     * under-the-header rectangle can override this to describe its own.
+     * Appended at the end of the vtable in plugin ABI v4 so existing
+     * field offsets stay stable.
+     */
+    gboolean (*get_client_area) (PnNode *self,
+                                 double *out_x,
+                                 double *out_y,
+                                 double *out_w,
+                                 double *out_h);
 };
 
 /**
@@ -736,6 +768,27 @@ void            pn_node_get_size       (PnNode *self,
  * past the header.
  */
 double          pn_node_get_header_height (PnNode *self);
+
+/**
+ * pn_node_get_client_area:
+ * @self:  the node
+ * @out_x: (out) (optional): client-area left, in node-local coordinates
+ * @out_y: (out) (optional): client-area top, node-local
+ * @out_w: (out) (optional): client-area width
+ * @out_h: (out) (optional): client-area height
+ *
+ * Convenience wrapper around #PnNodeClass.get_client_area.  Returns
+ * %TRUE and fills the node-local client-area rectangle when the node
+ * has a body below its header (table, graph, text view, …); %FALSE with
+ * the out-parameters zeroed for a header-only node.  Add the node's
+ * position to the returned (x, y) to place the rectangle on the
+ * worksheet.
+ */
+gboolean        pn_node_get_client_area (PnNode *self,
+                                         double *out_x,
+                                         double *out_y,
+                                         double *out_w,
+                                         double *out_h);
 
 /**
  * pn_node_request_repaint:

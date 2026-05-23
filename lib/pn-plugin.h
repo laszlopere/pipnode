@@ -102,8 +102,16 @@ G_BEGIN_DECLS
  *       companion contract (a v2 monolithic plugin that set the dialog
  *       vfuncs from #pn_plugin_init still works, but is rebuilt against
  *       v3 to load).
+ *   4 — appended one optional rendering vfunc to #PnNodeClass,
+ *       #get_client_area, reporting the node's body rectangle below the
+ *       header (a table grid, a graph plot) so the worksheet's palette
+ *       drag-preview can outline the full footprint a drop would occupy.
+ *       Appended at the end of the vtable, so existing field offsets are
+ *       unchanged; the bump exists only so a stale plugin built against
+ *       the smaller v3 #PnNodeClass is rebuilt rather than loaded against
+ *       the grown class.
  */
-#define PN_PLUGIN_ABI_VERSION 3
+#define PN_PLUGIN_ABI_VERSION 4
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

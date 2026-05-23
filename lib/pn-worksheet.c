@@ -877,11 +877,15 @@ draw_node (
 
 /** Paint the drag-preview wireframe: a thin red, no-fill sketch of the
  *  node a palette drop would create at the current cursor position.
- *  Traces the body outline and icon-panel separator, then paints the
+ *  Traces the header outline and icon-panel separator, then paints the
  *  icon glyph and the (ellipsized) name in red — mirroring draw_node()'s
- *  geometry so the ghost reads as the node that will land.  The
- *  footprint is centred under the cursor and tracks it smoothly; unlike
- *  the committed drop it is *not* snapped to the grid. */
+ *  geometry so the ghost reads as the node that will land.  Nodes that
+ *  report a client area (pn_node_get_client_area — a table's grid, a
+ *  graph's plot) additionally get that body outlined below the header,
+ *  so the ghost shows the full footprint a drop would occupy; header-
+ *  only nodes (Debug, …) get the header outline alone.  The footprint
+ *  is centred under the cursor and tracks it smoothly; unlike the
+ *  committed drop it is *not* snapped to the grid. */
 static void
 draw_node_wireframe (
         PnWorksheet *self,
@@ -917,8 +921,8 @@ draw_node_wireframe (
     cairo_set_source_rgb (cr, rr, rg, rb);
     cairo_set_line_width (cr, 1.0);
 
-    /* Body outline (header only — matches the selection halo and keeps
-     * a tall plot node's extension out of the ghost). */
+    /* Header outline (the standard Node-RED-style top of every node;
+     * any client-area body is traced separately below). */
     rounded_rect_path (cr, x, y, dw, header_h, PN_NODE_RADIUS);
     cairo_stroke (cr);
 
@@ -973,6 +977,21 @@ draw_node_wireframe (
         g_object_unref (layout);
     }
 
+    /* Client area: a thin rectangle around the body a node draws below
+     * its header — a table's grid, a graph's plot, a text view's body.
+     * Reported in node-local coordinates by pn_node_get_client_area, so
+     * it is offset from this ghost's top-left.  Header-only nodes (Debug,
+     * Comparator, …) report none and get just the header outline above. */
+    {
+        double cx, cy, cw, ch;
+
+        if (pn_node_get_client_area (node, &cx, &cy, &cw, &ch))
+        {
+            cairo_rectangle (cr, x + cx, y + cy, cw, ch);
+            cairo_stroke (cr);
+        }
+    }
+
     cairo_restore (cr);
 }
 
@@ -1007,7 +1026,10 @@ draw_wire (
  *  #PnNodeClass.paint_plot vfunc — the region under the header where
  *  the painter would normally draw.  Centralised so the zoom
  *  hit-test, the "from" rect of the zoom animation, and the painter
- *  all agree on the same geometry. */
+ *  all agree on the same geometry — which is the node's client area
+ *  (pn_node_get_client_area, reported in node-local coordinates)
+ *  translated by the node's position.  Only ever called for nodes that
+ *  do have a client area, so the reported rect is always valid here. */
 static void
 node_plot_rect (
         PnNode *node,
@@ -1016,16 +1038,15 @@ node_plot_rect (
         double *out_w,
         double *out_h)
 {
-    const PnPoint *p  = pn_node_get_position (node);
-    const double   hh = pn_node_get_header_height (node);
-    double         w, h;
+    const PnPoint *p = pn_node_get_position (node);
+    double         cx = 0.0, cy = 0.0, cw = 0.0, ch = 0.0;
 
-    pn_node_get_size (node, &w, &h);
+    pn_node_get_client_area (node, &cx, &cy, &cw, &ch);
 
-    if (out_x) *out_x = p->x;
-    if (out_y) *out_y = p->y + hh + 4.0;
-    if (out_w) *out_w = w;
-    if (out_h) *out_h = h - hh - 4.0;
+    if (out_x) *out_x = p->x + cx;
+    if (out_y) *out_y = p->y + cy;
+    if (out_w) *out_w = cw;
+    if (out_h) *out_h = ch;
 }
 
 /** The rectangle the zoomed plot lands in once the animation has

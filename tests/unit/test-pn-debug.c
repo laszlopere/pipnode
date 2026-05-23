@@ -150,6 +150,25 @@ test_json_is_pretty_envelope (void)
     g_object_unref (node);
 }
 
+/* Debug is a header-only node — its output goes to the debug view, not
+ * to a body drawn on the worksheet — so it reports no client area, and
+ * the palette drag-preview outlines its header alone. */
+static void
+test_has_no_client_area (void)
+{
+    PnNode *node = g_object_new (PN_TYPE_DEBUG, NULL);
+    double  x = -1.0, y = -1.0, w = -1.0, h = -1.0;
+
+    PN_CHECK_FALSE (pn_node_get_client_area (node, &x, &y, &w, &h));
+    /* The out-parameters are zeroed when there is no client area. */
+    PN_CHECK_NEAR (x, 0.0, 0.01);
+    PN_CHECK_NEAR (y, 0.0, 0.01);
+    PN_CHECK_NEAR (w, 0.0, 0.01);
+    PN_CHECK_NEAR (h, 0.0, 0.01);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -158,5 +177,6 @@ main (int argc, char **argv)
     pn_test_add ("text_blank_no_output",   test_text_blank_without_output);
     pn_test_add ("oneliner_has_fields",    test_oneliner_has_fields);
     pn_test_add ("json_pretty_envelope",   test_json_is_pretty_envelope);
+    pn_test_add ("has_no_client_area",     test_has_no_client_area);
     return pn_test_run ();
 }
