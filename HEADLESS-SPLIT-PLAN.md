@@ -18,6 +18,69 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 4 continues — the nine dialog-only dual nodes split
+  (Expression, Expression2, Filter, Meshtastic, Notify, Ollama, Set,
+  Sound, Tts; 19 of 23 dual nodes done).** These nodes confine their GTK
+  to a settings-dialog vfunc (`build_property_editor` and/or
+  `build_class_tab`) with **no cairo painter**, so the cut is purely the
+  dialog: the GTK-free logic half (GType, all properties, `receive` +
+  parsers + state, lifecycle) stays in `libpipnode-core`; only the dialog
+  vfunc(s) + their helper callbacks move to a new gui-tier
+  `pn-<name>-gui.c` exporting `pn_<name>_gui_install()`, wired into
+  `pn_gui_install_builtin_nodes()`. **None of the nine has a colour
+  property**, so there was no `GDK_TYPE_RGBA` → `PnColor` pspec migration
+  in this batch.
+  - **Expression (4.11) / Expression2 (4.12):** the full-width expression
+    editor tab → gui; the editor resolves its pspec via
+    `g_object_class_find_property` (no core seam). Evaluation/AST logic
+    stays core.
+  - **Filter (4.13) / Set (4.17):** the structured per-rule / per-
+    assignment row editors (PnFilterRow/PnSetRow + serialise/rebuild) →
+    gui; both read/write their single `rules` / `props` JSON string
+    property purely via `g_object_get/g_object_set`, so no core seam. The
+    rule-match / assignment logic + compiled caches stay core. (Still the
+    Phase 7 schema candidates.)
+  - **Meshtastic (4.14):** both dialog vfuncs (device/channel combos +
+    the runtime status row) → gui; the status row reads busy / device /
+    hw-model / last-busy-path / last-error through their read-only GObject
+    properties and the dialog-only `format_hw_model()` table (its only
+    caller) moved with it. The serial worker / protobuf + the public
+    `pn_meshtastic_list_devices/list_channels/get_channel_cache` stay
+    core.
+  - **Notify (4.15):** the editable icon-name combo (curated freedesktop
+    list) → gui, binding the `icon` property directly; the GDBus
+    notification path stays core.
+  - **Ollama (4.16):** the model combo + Refresh button → gui; its one
+    core dependency, the GTK-free `/api/tags` enumeration
+    `pn_ollama_list_models`, stays core and is now in the public header
+    so the gui can call it (hostname/port/model read via properties).
+  - **Sound (4.18):** the system-sound combo + GtkFileChooserButton
+    composite editor → gui (reads/writes `sound`, calls the public
+    `pn_sound_list_system_sounds` / `pn_sound_preview`). **Carried debt
+    note:** removing `<gtk/gtk.h>` from core exposed that the
+    GSubprocess playback had been getting `<gio/gio.h>` transitively
+    through gtk — added the explicit gio include (gio is already a core
+    dep). Same fix applied to Tts.
+  - **Tts (4.19):** both dialog vfuncs (engine/voice/sink combos + status
+    row + the debounced audio-preview) → gui. Needed the only **read seam
+    of this batch**: a GTK-free engine-table accessor set
+    (`pn_tts_n_engines` / `pn_tts_engine_id` / `_label` / `_installed` /
+    `_label_for_id` / `_list_voices`) plus exposing `pn_tts_speak` in the
+    header for the preview, so the dialog enumerates the file-static
+    engine table and auditions without touching core internals. The
+    already-exported parsers (`pn_tts_derive_voice_label`,
+    `pn_tts_voice_index_for`) and all spawn/queue logic stay core; its
+    unit test (which drives those parsers) needed no change.
+  - **Verified per node:** whole tree builds clean (exit 0, no new
+    warnings), 52/52 C unit tests, the D-Bus dial test PASS, the core
+    `.so` `DT_NEEDED` stays GTK-free and each core `pn-<name>.o` carries
+    zero `cairo_`/`gtk_`/`gdk_rgba_`/`pango_` refs.
+  - **Carried debt still stands** (retires as the rest split): the
+    `-Wl,--no-as-needed` on `pipnode-run`, the by-name `GdkRGBA` clause in
+    `pn-flow.c`, and the `GDK_TYPE_RGBA` pspecs in the **4 remaining dual
+    nodes** (Rate, Rewrite, Filedrop, File-Viewer). **Next:** those four,
+    then Phase 5 (point `pipnode-run` at core only).
+
 - **Phase 4 continues — Dial, Graph, Table, Chat, Text-View,
   Weather-Report split (10 of 23 dual nodes done).** Six more cairo-drawing
   dual nodes split the established way: the GTK-free logic half (GType,

@@ -88,6 +88,44 @@ gchar *pn_tts_derive_voice_label (const gchar *engine_id, const gchar *id);
  * @n_voices is 0. */
 guint  pn_tts_voice_index_for    (const gchar *who, guint n_voices);
 
+/* ------------------------------------------------------------------ */
+/*  Engine-table seam (GTK-free)                                        */
+/*                                                                     */
+/*  The engine table is core data the receive/speak path needs; these  */
+/*  read-only accessors let the gui-tier settings dialog enumerate it  */
+/*  to build the engine/voice combos without reaching into the core    */
+/*  instance's private struct or the file-static table.                */
+/* ------------------------------------------------------------------ */
+
+/* Number of built-in TTS engines. */
+guint        pn_tts_n_engines        (void);
+
+/* Stable id (e.g. "piper") and human label (e.g. "Piper") for engine
+ * @index in [0, pn_tts_n_engines()).  The returned strings are owned by
+ * the engine table and must not be freed.  Out-of-range returns NULL. */
+const gchar *pn_tts_engine_id        (guint index);
+const gchar *pn_tts_engine_label     (guint index);
+
+/* TRUE when the engine at @index has its CLI binary on $PATH. */
+gboolean     pn_tts_engine_installed (guint index);
+
+/* Human label for the engine identified by @id, or NULL when @id is not
+ * a known engine.  Owned by the engine table; do not free. */
+const gchar *pn_tts_engine_label_for_id (const gchar *id);
+
+/* Voice ids for the engine identified by @id, or NULL when the engine
+ * is unknown or has no enumerable voice selector.  Caller owns the
+ * array (free with g_strfreev). */
+gchar      **pn_tts_engine_list_voices  (const gchar *id);
+
+/* Speak @text on @self using the configured engine/voice (or
+ * @voice_override when non-NULL/non-empty for this call only).  Used by
+ * the settings dialog's audio preview; the production speak path is the
+ * node's own receive(). */
+void         pn_tts_speak (PnTts       *self,
+                           const gchar *text,
+                           const gchar *voice_override);
+
 G_END_DECLS
 
 #endif /* PN_TTS_H */

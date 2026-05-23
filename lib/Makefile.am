@@ -136,6 +136,8 @@ libpipnode_core_la_SOURCES = \
 	pn-threshold.h \
 	pn-throttle.c \
 	pn-throttle.h \
+	pn-tts.c \
+	pn-tts.h \
 	pn-var-store.c \
 	pn-var-store.h \
 	pn-watchdog.c \
@@ -236,8 +238,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-table-view.h \
 	pn-text-view-gui.c \
 	pn-text-view-gui.h \
-	pn-tts.c \
-	pn-tts.h \
+	pn-tts-gui.c \
+	pn-tts-gui.h \
 	pn-weather-report-gui.c \
 	pn-weather-report-gui.h \
 	pn-worksheet.c \
@@ -335,6 +337,7 @@ pipnode_core_headers = \
 	pn-text-view.h \
 	pn-threshold.h \
 	pn-throttle.h \
+	pn-tts.h \
 	pn-var-store.h \
 	pn-watchdog.h \
 	pn-weather.h \
@@ -375,7 +378,7 @@ pipnode_gui_headers = \
 	pn-table-gui.h \
 	pn-table-view.h \
 	pn-text-view-gui.h \
-	pn-tts.h \
+	pn-tts-gui.h \
 	pn-weather-report-gui.h \
 	pn-worksheet.h
 
