@@ -18,7 +18,8 @@
 #endif
 
 #include "pn-sound.h"
-#include <gtk/gtk.h>
+
+#include <gio/gio.h>
 
 #define PN_SOUND_NORMAL_ICON  "\xef\x80\xa8"        /* fa-volume-up U+F028 */
 #define PN_SOUND_WARNING_ICON "\xe2\x9d\x97"        /* ❗ U+2757 */
@@ -302,219 +303,6 @@ pn_sound_finalize (GObject *object)
     G_OBJECT_CLASS (pn_sound_parent_class)->finalize (object);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Settings dialog: PnNodeClass.build_property_editor override        */
-/*                                                                     */
-/*  Composite editor for #PnSound:sound: a combo of freedesktop sound  */
-/*  ids next to a #GtkFileChooserButton.  Both halves drive the same   */
-/*  underlying string property — picking a combo entry stores the      */
-/*  bare id, picking a file stores its absolute path.  Both halves     */
-/*  also listen for external changes so the visible state always       */
-/*  reflects the property.  Pre-2.0 this lived as a PN_IS_SOUND        */
-/*  branch in the host's pn-node-dialog.c; the per-class vfunc keeps   */
-/*  it next to the rest of the node and lets the host dialog remain    */
-/*  ignorant of every concrete subclass.                               */
-/* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    GObject              *target;       /* borrowed */
-    const gchar          *property;     /* pspec->name */
-    GtkComboBox          *combo;
-    GtkFileChooserButton *chooser;
-    gulong                notify_handler;
-    gboolean              updating;
-} PnSoundBinding;
-
-static void
-sound_binding_free (gpointer data)
-{
-    PnSoundBinding *bind = data;
-
-    if (bind->target != NULL && bind->notify_handler != 0)
-        g_signal_handler_disconnect (bind->target, bind->notify_handler);
-
-    g_free (bind);
-}
-
-static void
-sound_binding_pull (PnSoundBinding *bind)
-{
-    gchar *value = NULL;
-
-    if (bind->updating)
-        return;
-
-    g_object_get (bind->target, bind->property, &value, NULL);
-
-    bind->updating = TRUE;
-
-    if (value != NULL && value[0] == '/')
-    {
-        gtk_combo_box_set_active_id (bind->combo, NULL);
-        gtk_file_chooser_set_filename (
-                GTK_FILE_CHOOSER (bind->chooser), value);
-    }
-    else
-    {
-        /* Clearing the chooser through the public API is awkward; the
-         * chooser keeps showing the previously-picked file label even
-         * after we deselect it, but that does not affect the property
-         * state — the combo is the authority while a system id is in
-         * effect. */
-        gtk_file_chooser_unselect_all (
-                GTK_FILE_CHOOSER (bind->chooser));
-        gtk_combo_box_set_active_id (bind->combo,
-                                     (value != NULL && *value != '\0')
-                                         ? value : NULL);
-    }
-
-    bind->updating = FALSE;
-    g_free (value);
-}
-
-static void
-on_sound_target_notify (
-        GObject    *object,
-        GParamSpec *pspec,
-        gpointer    user_data)
-{
-    (void) object;
-    (void) pspec;
-
-    sound_binding_pull (user_data);
-}
-
-static void
-on_sound_combo_changed (
-        GtkComboBox *combo,
-        gpointer     user_data)
-{
-    PnSoundBinding *bind = user_data;
-    const gchar    *id;
-
-    if (bind->updating)
-        return;
-
-    id = gtk_combo_box_get_active_id (combo);
-    if (id == NULL)
-        return;
-
-    bind->updating = TRUE;
-    g_object_set (bind->target, bind->property, id, NULL);
-    /* The chooser may still show a previously-picked path; clear it
-     * so the visible state matches the system-id we just selected. */
-    gtk_file_chooser_unselect_all (GTK_FILE_CHOOSER (bind->chooser));
-    bind->updating = FALSE;
-
-    /* Audition the freshly-picked clip so the user can hear what
-     * they just chose without wiring up a message source. */
-    if (PN_IS_SOUND (bind->target))
-        pn_sound_preview (PN_SOUND (bind->target));
-}
-
-static void
-on_sound_file_set (
-        GtkFileChooserButton *chooser,
-        gpointer              user_data)
-{
-    PnSoundBinding *bind = user_data;
-    gchar          *path;
-
-    if (bind->updating)
-        return;
-
-    path = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (chooser));
-    if (path == NULL)
-        return;
-
-    bind->updating = TRUE;
-    g_object_set (bind->target, bind->property, path, NULL);
-    /* A picked file overrides the combo selection; clear it so the
-     * UI does not look like both are simultaneously active. */
-    gtk_combo_box_set_active_id (bind->combo, NULL);
-    bind->updating = FALSE;
-
-    g_free (path);
-}
-
-static GtkWidget *
-build_sound_editor (
-        GObject    *target,
-        GParamSpec *pspec)
-{
-    const gchar    *name     = pspec->name;
-    gboolean        writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
-    GtkWidget      *box      = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget      *combo    = gtk_combo_box_text_new ();
-    GtkWidget      *chooser  = gtk_file_chooser_button_new (
-            "Choose a sound file", GTK_FILE_CHOOSER_ACTION_OPEN);
-    PnSoundBinding *bind;
-    gchar         **ids;
-    gchar         **p;
-    gchar          *signal_name;
-
-    ids = pn_sound_list_system_sounds ();
-    for (p = ids; *p != NULL; p++)
-        gtk_combo_box_text_append (GTK_COMBO_BOX_TEXT (combo),
-                                   *p, *p);
-    g_strfreev (ids);
-
-    {
-        GtkFileFilter *filter = gtk_file_filter_new ();
-        gtk_file_filter_set_name (filter, "Audio files");
-        gtk_file_filter_add_mime_type (filter, "audio/*");
-        gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (chooser), filter);
-    }
-
-    gtk_widget_set_hexpand (combo,   TRUE);
-    gtk_widget_set_hexpand (chooser, TRUE);
-
-    gtk_box_pack_start (GTK_BOX (box), combo,   TRUE, TRUE, 0);
-    gtk_box_pack_start (GTK_BOX (box), chooser, TRUE, TRUE, 0);
-
-    bind = g_new0 (PnSoundBinding, 1);
-    bind->target   = target;
-    bind->property = name;
-    bind->combo    = GTK_COMBO_BOX (combo);
-    bind->chooser  = GTK_FILE_CHOOSER_BUTTON (chooser);
-
-    sound_binding_pull (bind);
-
-    signal_name = g_strdup_printf ("notify::%s", name);
-    bind->notify_handler = g_signal_connect (
-            target, signal_name,
-            G_CALLBACK (on_sound_target_notify), bind);
-    g_free (signal_name);
-
-    if (writable)
-    {
-        g_signal_connect (combo,   "changed",
-                          G_CALLBACK (on_sound_combo_changed), bind);
-        g_signal_connect (chooser, "file-set",
-                          G_CALLBACK (on_sound_file_set),      bind);
-    }
-
-    gtk_widget_set_sensitive (box, writable);
-
-    g_object_set_data_full (G_OBJECT (box),
-                            "pn-sound-binding",
-                            bind, sound_binding_free);
-
-    return box;
-}
-
-static GtkWidget *
-pn_sound_build_property_editor (PnNode      *self      G_GNUC_UNUSED,
-                                GParamSpec  *pspec,
-                                GObject     *target,
-                                GtkWindow   *parent    G_GNUC_UNUSED)
-{
-    if (g_strcmp0 (pspec->name, "sound") == 0)
-        return build_sound_editor (target, pspec);
-    return NULL;
-}
-
 static void
 pn_sound_class_init (PnSoundClass *klass)
 {
@@ -526,7 +314,8 @@ pn_sound_class_init (PnSoundClass *klass)
     object_class->finalize     = pn_sound_finalize;
     node_class->receive        = pn_sound_receive;
 
-    node_class->build_property_editor = pn_sound_build_property_editor;
+    /* build_property_editor installed by the gui tier
+     * (pn_sound_gui_install). */
 
     /* Instance icon flips between speaker and ❗ depending on whether
      * a sound has been chosen.  Pin a stable glyph for the palette. */

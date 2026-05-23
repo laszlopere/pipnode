@@ -32,6 +32,7 @@
 #include "pn-notify-gui.h"
 #include "pn-ollama-gui.h"
 #include "pn-set-gui.h"
+#include "pn-sound-gui.h"
 #include "pn-switch-gui.h"
 #include "pn-table-gui.h"
 #include "pn-text-view-gui.h"
@@ -56,6 +57,7 @@ pn_gui_install_builtin_nodes (void)
     pn_notify_gui_install ();
     pn_ollama_gui_install ();
     pn_set_gui_install ();
+    pn_sound_gui_install ();
     pn_switch_gui_install ();
     pn_table_gui_install ();
     pn_text_view_gui_install ();
