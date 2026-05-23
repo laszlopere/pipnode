@@ -1131,23 +1131,63 @@ longer need GTK; finalise documentation and packaging.
   wins over the stale installed GTK copy) and runs `examples/image-test.json`
   headless (exit 0); 53/53 C unit + plugin-load + companion functional
   tests green. No companion `-gui.so` — these nodes have no settings UI.
-- **8.4b TODO — `plugins/sound-effects` → two-tier split (the 8.3 shell
-  pattern).** `pn-sci-fi-sound.c` carries a heavy `build_class_tabs` dialog
-  (dynamic category/clip combos populated from a downloaded sound-pack
-  library, per-pack checkbox grid, async Download/Delete/Preview buttons +
-  `gtk_message_dialog` confirms) that is **not** schema-expressible — so it
-  needs the Phase-6 companion `-gui.so` (D2), exactly like shell: split the
-  dialog into `pn-sci-fi-sound-gui.c` (exports `pn_plugin_gui_init`), add a
-  read seam for the combos (the shell precedent used a read-only
-  `G_TYPE_STRV` property since C accessors are invisible across
-  `G_MODULE_BIND_LOCAL`), and build `pipnode_sound_effects.so` (logic,
-  core-only) + `pipnode_sound_effects-gui.so` (companion).
+- **8.4b DONE — `plugins/sound-effects` is now a two-tier plugin.**
+  `pn-sci-fi-sound.c` carried a heavy `build_class_tabs` dialog (category/
+  clip combos, a per-pack checkbox grid, async Download/Delete buttons that
+  fetch a Star Trek effects set off a fan-site mirror via libsoup, a
+  `gtk_message_dialog` confirm, an audition button) — **not** schema-
+  expressible — so it took the Phase-6 companion `-gui.so` (D2), like shell.
+  - **Seam = a shared GTK-free helper file, not a property.** Unlike shell
+    (whose combo needed *dynamic node state* and so used a read-only
+    `G_TYPE_STRV` seam), everything the dialog reads here is **filesystem
+    cache state**, not node state — the clip cache the gui can scan itself
+    any time. So the cut needed no node-side read seam. The four stateless,
+    GTK-free, soup-free helpers both halves share (cache dir, the path-
+    traversal-safe `resolve_path`, player discovery, argv build) moved to a
+    new **`pn-sci-fi-clips.c`** compiled into BOTH modules (the editor opens
+    the companion `G_MODULE_BIND_LOCAL`, so a logic symbol is invisible to
+    it; each module carries its own copy — single-sourcing the security-
+    sensitive `resolve_path` is the reason it is shared rather than dup 'd).
+  - **Logic `pn-sci-fi-sound.c` (core-only):** GType + `clip`/`dead-period`
+    properties + `receive()` playback. **The SoupSession/GCancellable left
+    the node entirely** — they were only ever used by the download path, so
+    they moved into the companion's per-download struct; the node now pulls
+    no libsoup (and, `--as-needed`, not even json-glib). `build_class_tabs`
+    is no longer set in `_class_init` (left NULL for the companion to fill).
+  - **Companion `pn-sci-fi-sound-gui.c`:** the category table + classify,
+    the pack counts/delete, the whole libsoup download manager (now owning
+    its own session), both dialog tabs, and a self-contained **preview that
+    spawns its own player** (no overlap guard — a deliberate audition always
+    plays — rather than reaching across BIND_LOCAL into the node). Drives
+    the node through `clip`/`dead-period` properties only; resolves the type
+    by `g_type_from_name("PnSciFiSound")` and installs `build_class_tabs`
+    via `pn_plugin_gui_init`. The dead `sci_fi_sound_list_local` helper was
+    dropped.
+  - **Makefile.am:** same two-module shape as shell — `pipnode_sound_
+    effects.so` (logic: GLIB/JSON/GMODULE CFLAGS, core.la) +
+    `pipnode_sound_effects-gui.so` (companion: GTK/JSON/GMODULE/LIBSOUP,
+    gui.la+core.la); `pn-sci-fi-clips.c` listed in both `_SOURCES`.
+  - **Verified:** logic `.so` `DT_NEEDED` = libpipnode-core, gio, gobject,
+    glib, libc — **no gtk/gdk/cairo/pango/soup**; companion needs
+    libpipnode-gui + libgtk-3 + libsoup-3. Logic exports `pn_plugin_init`
+    only, companion `pn_plugin_gui_init` only. The logic half loads under
+    the core-only `pipnode-run` (the `-gui.so` is skipped by the core
+    loader) and runs `examples/sound-effects.json` headless (exit 0). New
+    functional test **`tests/test_node_dialog_sound_effects_companion.py`**
+    drives the editor, adds a PnSciFiSound, and asserts the dialog carries
+    the companion-only "Playback" + "Sound packs" tabs (via
+    `GetDialogPageTitles`). 53/53 C unit + plugin-load + echo-companion +
+    shell-companion + sound-effects-companion tests green. (Like the shell
+    companion test, it stays a standalone committed file, not in
+    `tests/Makefile.am` `TESTS` — the shared `TESTS_ENVIRONMENT` pins
+    `PIPNODE_PLUGIN_DIR` to the echo plugin.)
 
 **Steps**
 1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` ✅,
-   `plugins/image` ✅ to core-only (logic `.so`, schema or companion
-   `-gui.so` for any settings UI). `plugins/sound-effects` still TODO —
-   needs a companion `-gui.so` for its async download dialog.
+   `plugins/image` ✅, `plugins/sound-effects` ✅ to core-only (logic
+   `.so`, schema or companion `-gui.so` for any settings UI). **All
+   bundled plugins are now re-tiered** — the remaining Phase 8 work is
+   docs + packaging (steps 2–4).
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
    API, and a "how to ship a server-installable plugin" checklist.
 3. Update `README.md` / `INSTALL` with the `pipnode-core` vs
