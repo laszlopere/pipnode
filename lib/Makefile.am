@@ -70,6 +70,8 @@ libpipnode_core_la_SOURCES = \
 	pn-jmespath.h \
 	pn-json-path.c \
 	pn-json-path.h \
+	pn-knob.c \
+	pn-knob.h \
 	pn-led.c \
 	pn-led.h \
 	pn-load.c \
@@ -170,8 +172,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-gui.h \
 	pn-help-browser.c \
 	pn-help-browser.h \
-	pn-knob.c \
-	pn-knob.h \
+	pn-knob-gui.c \
+	pn-knob-gui.h \
 	pn-led-gui.c \
 	pn-led-gui.h \
 	pn-meshtastic.c \
@@ -270,6 +272,7 @@ pipnode_core_headers = \
 	pn-inject.h \
 	pn-jmespath.h \
 	pn-json-path.h \
+	pn-knob.h \
 	pn-led.h \
 	pn-load.h \
 	pn-memory.h \
@@ -309,7 +312,7 @@ pipnode_gui_headers = \
 	pn-graph.h \
 	pn-gui.h \
 	pn-help-browser.h \
-	pn-knob.h \
+	pn-knob-gui.h \
 	pn-led-gui.h \
 	pn-meshtastic.h \
 	pn-node-dialog.h \

@@ -93,6 +93,27 @@ gboolean pn_knob_hit_knob (PnKnob *self, double px, double py);
  */
 void pn_knob_scroll (PnKnob *self, double dy);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The current value and range bounds live in the private instance    */
+/*  struct.  The cairo painter — which the gui tier installs onto this  */
+/*  class (see pn_knob_gui_install in pn-knob-gui.c) — reads the        */
+/*  derived pointer position through this accessor rather than reaching */
+/*  into the struct, so the drawing code can live in a separate         */
+/*  translation unit.                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_knob_get_value_fraction:
+ * @self: the knob node
+ *
+ * Returns the knob's normalised pointer position in [0, 1]: 0 at the
+ * minimum bound, 1 at the maximum.  Collapses to 0 for a zero-width
+ * range.  Used by the gui-tier dial painter.
+ */
+gdouble pn_knob_get_value_fraction (PnKnob *self);
+
 G_END_DECLS
 
 #endif /* PN_KNOB_H */

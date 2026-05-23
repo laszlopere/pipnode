@@ -13,23 +13,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#ifndef PN_KNOB_GUI_H
+#define PN_KNOB_GUI_H
 
-#include "pn-gui.h"
+#include <glib.h>
 
-#include "pn-knob-gui.h"
-#include "pn-led-gui.h"
-#include "pn-switch-gui.h"
+G_BEGIN_DECLS
 
-void
-pn_gui_install_builtin_nodes (void)
-{
-    /* Dual-nature built-ins whose drawing + dialog have been split out
-     * to the gui tier (TODO #23, Phase 4).  Each entry installs the
-     * gui-only vfunc slots onto the core-registered class. */
-    pn_knob_gui_install ();
-    pn_led_gui_install ();
-    pn_switch_gui_install ();
-}
+/* pn_knob_gui_install:
+ *
+ * Install the gui-tier vfunc slots — the cairo dial header decoration
+ * and its reserved label margin — onto the already-registered #PnKnob
+ * class.  Called once at editor startup (via
+ * pn_gui_install_builtin_nodes()), after the factory has registered the
+ * built-in node types.  The headless runtime never calls this, so the
+ * Knob logic runs without GTK while the editor still draws the dial.  */
+void pn_knob_gui_install (void);
+
+G_END_DECLS
+
+#endif /* PN_KNOB_GUI_H */

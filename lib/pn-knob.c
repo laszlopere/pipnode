@@ -13,15 +13,26 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+/* ------------------------------------------------------------------ */
+/*  PnKnob — logic tier (headless core).                               */
+/*                                                                     */
+/*  This file holds the GTK-free half of the Knob node: the GType, its  */
+/*  range + value properties, the wheel-rotation emit, the startup-     */
+/*  announce one-shot, get_size, the knob hit-test and the read seam    */
+/*  the GUI tier paints from.  The cairo dial drawing lives in the      */
+/*  companion gui-tier file pn-knob-gui.c, which installs the paint      */
+/*  vfunc slots onto this class at editor startup (see                  */
+/*  pn_knob_gui_install).  The headless runtime registers and runs this */
+/*  node without ever pulling GTK.                                      */
+/* ------------------------------------------------------------------ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
 #include "pn-knob.h"
-#include <gtk/gtk.h>
 #include "pn-message.h"
 
-#include <math.h>
 #include <json-glib/json-glib.h>
 
 /* fa-dot-circle U+F192 -- a ringed disc that reads as a rotary knob,
@@ -37,6 +48,11 @@
 /*  mirroring PnSwitch's right-decoration approach so the standard     */
 /*  Node-RED header (icon panel + centred label) stays untouched and  */
 /*  the output port keeps its usual position on the right.            */
+/*                                                                     */
+/*  The node's intrinsic size and the knob hit-test geometry live      */
+/*  here (both GTK-free); the cairo painter, the pointer sweep angles   */
+/*  and the reserved label margin live with the painter in the gui     */
+/*  companion pn-knob-gui.c.                                            */
 /* ------------------------------------------------------------------ */
 
 #define PN_KNOB_NODE_WIDTH      170.0
@@ -45,23 +61,12 @@
 #define PN_KNOB_RIGHT_PAD        12.0
 #define PN_KNOB_RADIUS           13.0
 
-#define PN_KNOB_RESERVED_RIGHT  (2.0 * PN_KNOB_RADIUS + PN_KNOB_RIGHT_PAD + 6.0)
-
 /* Wheel detents required to drive the knob across the whole range.
  * One scroll notch therefore moves the value by (max-min)/TICKS. */
 #define PN_KNOB_SCROLL_TICKS     24.0
 
 #define PN_KNOB_DEFAULT_MIN       0.0
 #define PN_KNOB_DEFAULT_MAX       1.0
-
-/* The knob's pointer sweeps 270 degrees with the dead zone at the
- * bottom: minimum parks the indicator at the 7-o'clock position,
- * maximum at 5-o'clock, passing straight up (12-o'clock) at the
- * midpoint.  Expressed as cairo angles (0 = +x, growing clockwise on
- * screen because y points down): the sweep runs from 135 degrees
- * clockwise through the top to 135+270 degrees. */
-#define PN_KNOB_SWEEP_START     (0.75 * G_PI)
-#define PN_KNOB_SWEEP_EXTENT    (1.5  * G_PI)
 
 struct _PnKnob
 {
@@ -146,86 +151,18 @@ emit_value_message (PnKnob *self)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                            */
+/*  GUI read seam                                                       */
+/*                                                                     */
+/*  The cairo painter lives in the gui tier (pn-knob-gui.c) and cannot  */
+/*  see this file's private instance struct, so it reads the knob's     */
+/*  normalised pointer position through this GTK-free accessor.         */
 /* ------------------------------------------------------------------ */
 
-/** Paint a rotary knob -- a recessed sweep track, a domed body lit
- *  from the upper-left, and a pointer line marking the current
- *  position.  Drawn concentric on (@cx, @cy) with radius @r, with the
- *  pointer at normalised position @t in [0, 1]. */
-static void
-paint_knob (
-        cairo_t *cr,
-        double   cx,
-        double   cy,
-        double   r,
-        double   t)
+gdouble
+pn_knob_get_value_fraction (PnKnob *self)
 {
-    const double track_r  = r + 2.0;
-    const double angle     = PN_KNOB_SWEEP_START + t * PN_KNOB_SWEEP_EXTENT;
-    const double pointer_r = r - 3.0;
-
-    /* Sweep track -- a thin dark arc behind the body marking the range
-     * of travel, with the dead zone left open at the bottom so the
-     * knob reads as a real rotary control with end stops. */
-    cairo_set_line_width (cr, 2.0);
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.35);
-    cairo_new_sub_path (cr);
-    cairo_arc (cr, cx, cy, track_r,
-               PN_KNOB_SWEEP_START,
-               PN_KNOB_SWEEP_START + PN_KNOB_SWEEP_EXTENT);
-    cairo_stroke (cr);
-
-    /* Body -- a near-white disc with a radial gradient lit from the
-     * upper-left so it reads as a physical domed knob, matching the
-     * PnSwitch thumb's material. */
-    {
-        cairo_pattern_t *grad = cairo_pattern_create_radial (
-                cx - r * 0.30, cy - r * 0.30, r * 0.10,
-                cx, cy, r);
-        cairo_pattern_add_color_stop_rgb (grad, 0.0, 1.00, 1.00, 1.00);
-        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.78, 0.78, 0.80);
-        cairo_set_source (cr, grad);
-        cairo_arc (cr, cx, cy, r, 0.0, 2.0 * G_PI);
-        cairo_fill (cr);
-        cairo_pattern_destroy (grad);
-    }
-
-    /* Rim hairline seals the body against the track. */
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
-    cairo_set_line_width (cr, 0.8);
-    cairo_arc (cr, cx, cy, r - 0.4, 0.0, 2.0 * G_PI);
-    cairo_stroke (cr);
-
-    /* Pointer -- a short stroke from near the centre out to the rim,
-     * marking the current position.  Capped round so it reads as a
-     * moulded indicator notch rather than a bare line. */
-    cairo_set_source_rgb (cr, 0.16, 0.18, 0.20);
-    cairo_set_line_width (cr, 2.4);
-    cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
-    cairo_move_to (cr,
-                   cx + cos (angle) * (r * 0.30),
-                   cy + sin (angle) * (r * 0.30));
-    cairo_line_to (cr,
-                   cx + cos (angle) * pointer_r,
-                   cy + sin (angle) * pointer_r);
-    cairo_stroke (cr);
-}
-
-static void
-pn_knob_paint_header_overlay (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
-{
-    PnKnob      *self = PN_KNOB (node);
-    const double cx   = x + w - PN_KNOB_RIGHT_PAD - PN_KNOB_RADIUS;
-    const double cy   = y + h * 0.5;
-
-    paint_knob (cr, cx, cy, PN_KNOB_RADIUS, value_fraction (self));
+    g_return_val_if_fail (PN_IS_KNOB (self), 0.0);
+    return value_fraction (self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -464,9 +401,11 @@ pn_knob_class_init (PnKnobClass *klass)
     object_class->constructed  = pn_knob_constructed;
     object_class->dispose      = pn_knob_dispose;
 
-    node_class->get_size             = pn_knob_get_size;
-    node_class->paint_header_overlay = pn_knob_paint_header_overlay;
-    node_class->paint_right_decoration_width = PN_KNOB_RESERVED_RIGHT;
+    /* Logic + intrinsic geometry stay in the core class.  The cairo
+     * dial decoration (paint_header_overlay) and its reserved label
+     * margin (paint_right_decoration_width) are installed by the gui
+     * tier — see pn_knob_gui_install() in pn-knob-gui.c. */
+    node_class->get_size = pn_knob_get_size;
 
     node_class->palette_icon = PN_KNOB_ICON;
     node_class->class_name   = "Knob";
