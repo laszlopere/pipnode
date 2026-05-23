@@ -18,7 +18,6 @@
 #endif
 
 #include "pn-text-view.h"
-#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <math.h>
@@ -51,8 +50,8 @@ struct _PnTextView
 
     /* Visual properties.  Defaults are a classic green-on-black
      * terminal scheme. */
-    GdkRGBA  background_color;
-    GdkRGBA  text_color;
+    PnColor  background_color;
+    PnColor  text_color;
     gdouble  font_size;
 
     /* Latest snapshot of `data.output` split into lines, replaced on
@@ -215,89 +214,48 @@ pn_text_view_receive (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Painting                                                           */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The gui-tier cairo painter (pn-text-view-gui.c) reads the scalar    */
+/*  drawing config through a snapshot and the line snapshot through a    */
+/*  borrowed-pointer accessor.  Scroll clamping crosses back: the       */
+/*  painter knows the live extents, so it pins the stored offset.       */
 /* ------------------------------------------------------------------ */
 
-static void
-pn_text_view_paint_plot (
-        PnNode  *node,
-        cairo_t *cr,
-        double   x,
-        double   y,
-        double   w,
-        double   h)
+void
+pn_text_view_get_paint_state (PnTextView *self, PnTextViewPaintState *out)
 {
-    PnTextView  *self    = PN_TEXT_VIEW (node);
-    const double scale   = MIN (1.0,
-                                (w / PN_TEXT_VIEW_WIDTH) * 0.6 + 0.4);
-    const double font_px = self->font_size            * scale;
-    const double line_h  = (self->font_size + 2.0)    * scale;
-    const double inset   = PN_TEXT_VIEW_INSET;
-    const double inner_x = x + inset;
-    int          visible_lines;
-    int          max_offset;
-    guint        i;
-    guint        shown;
+    g_return_if_fail (PN_IS_TEXT_VIEW (self));
+    g_return_if_fail (out != NULL);
 
-    /* Background. */
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    gdk_cairo_set_source_rgba (cr, &self->background_color);
-    cairo_fill (cr);
-    cairo_restore (cr);
+    out->background_color = self->background_color;
+    out->text_color       = self->text_color;
+    out->font_size        = self->font_size;
+}
 
-    cairo_save (cr);
-    cairo_rectangle (cr, x, y, w, h);
-    cairo_clip (cr);
+const gchar *const *
+pn_text_view_peek_lines (PnTextView *self, guint *n_out)
+{
+    g_return_val_if_fail (PN_IS_TEXT_VIEW (self), NULL);
+    if (n_out != NULL)
+        *n_out = self->n_lines;
+    return (const gchar *const *) self->lines;
+}
 
-    cairo_select_font_face (cr, "monospace",
-                            CAIRO_FONT_SLANT_NORMAL,
-                            CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size (cr, font_px);
-    gdk_cairo_set_source_rgba (cr, &self->text_color);
+int
+pn_text_view_get_scroll_offset (PnTextView *self)
+{
+    g_return_val_if_fail (PN_IS_TEXT_VIEW (self), 0);
+    return self->scroll_offset;
+}
 
-    /* Empty state: nothing received, or the latest message had no
-     * string `output`.  Render a faint "waiting for output" hint in
-     * italic so the sink reads as "waiting for input" rather than as
-     * broken -- mirrors PnTableView's empty-state contract. */
-    if (self->n_lines == 0)
-    {
-        cairo_select_font_face (cr, "monospace",
-                                CAIRO_FONT_SLANT_ITALIC,
-                                CAIRO_FONT_WEIGHT_NORMAL);
-        cairo_move_to (cr, inner_x, y + font_px + 6.0);
-        cairo_show_text (cr, "waiting for output");
-        cairo_restore (cr);
-        return;
-    }
-
-    visible_lines = (int) floor ((h - 2.0) / line_h);
-    if (visible_lines < 0) visible_lines = 0;
-
-    max_offset = (int) self->n_lines - visible_lines;
+void
+pn_text_view_clamp_scroll_offset (PnTextView *self, int max_offset)
+{
+    g_return_if_fail (PN_IS_TEXT_VIEW (self));
     if (max_offset < 0) max_offset = 0;
-    if (self->scroll_offset > max_offset)
-        self->scroll_offset = max_offset;
-    if (self->scroll_offset < 0)
-        self->scroll_offset = 0;
-
-    shown = 0;
-    for (i = (guint) self->scroll_offset;
-         i < self->n_lines && (int) shown < visible_lines;
-         i++)
-    {
-        const gchar *line = self->lines[i];
-        const double ly   = y + (shown + 1) * line_h;
-
-        if (line == NULL)
-            line = "";
-
-        cairo_move_to (cr, inner_x, ly);
-        cairo_show_text (cr, line);
-        shown++;
-    }
-
-    cairo_restore (cr);
+    if (self->scroll_offset > max_offset) self->scroll_offset = max_offset;
+    if (self->scroll_offset < 0)          self->scroll_offset = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -386,14 +344,14 @@ pn_text_view_set_property (
     {
     case PROP_BACKGROUND_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->background_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
     }
     case PROP_TEXT_COLOR:
     {
-        const GdkRGBA *c = g_value_get_boxed (value);
+        const PnColor *c = g_value_get_boxed (value);
         if (c != NULL) self->text_color = *c;
         pn_node_request_repaint (PN_NODE (self));
         break;
@@ -436,8 +394,11 @@ pn_text_view_class_init (PnTextViewClass *klass)
     node_class->receive           = pn_text_view_receive;
     node_class->get_size          = pn_text_view_get_size;
     node_class->get_header_height = pn_text_view_get_header_height;
-    node_class->paint_plot        = pn_text_view_paint_plot;
     node_class->scroll            = pn_text_view_scroll;
+    /* The cairo text painter (paint_plot) is installed onto this class by
+     * the gui tier — pn_text_view_gui_install() in pn-text-view-gui.c —
+     * so the headless core carries no GTK/cairo.  The scroll vfunc stays
+     * here: it only nudges an int. */
 
     node_class->class_name        = "Text View";
     /* fa-terminal U+F120 -- a glyph in the FA-4 range the bundled
@@ -452,13 +413,13 @@ pn_text_view_class_init (PnTextViewClass *klass)
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
             "background-color", "Background colour",
             "Fill colour of the text rectangle behind the lines",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_TEXT_COLOR] = g_param_spec_boxed (
             "text-color", "Text colour",
             "Colour of the rendered output text",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_FONT_SIZE] = g_param_spec_double (
@@ -474,11 +435,11 @@ static void
 pn_text_view_init (PnTextView *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  green = { 0.18, 0.78, 0.30, 1.0 };
+    PnColor  green = { 0.18, 0.78, 0.30, 1.0 };
 
     /* Classic terminal: green-on-black. */
-    self->background_color = (GdkRGBA) { 0.0, 0.0, 0.0, 1.0 };
-    self->text_color       = (GdkRGBA) { 0.0, 1.0, 0.0, 1.0 };
+    self->background_color = (PnColor) { 0.0, 0.0, 0.0, 1.0 };
+    self->text_color       = (PnColor) { 0.0, 1.0, 0.0, 1.0 };
     self->font_size        = PN_TEXT_VIEW_FONT_PX;
 
     self->lines              = NULL;
@@ -489,7 +450,7 @@ pn_text_view_init (PnTextView *self)
 
     pn_node_set_class_name (node, "Text View");
     pn_node_set_icon       (node, "\xef\x84\xa0");  /* fa-terminal */
-    pn_node_set_color (node, (const PnColor *)&green);
+    pn_node_set_color (node, &green);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }

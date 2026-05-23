@@ -52,6 +52,45 @@ G_DECLARE_FINAL_TYPE (PnTextView, pn_text_view, PN, TEXT_VIEW, PnNode)
 
 PnTextView *pn_text_view_new (void);
 
+/* ------------------------------------------------------------------ */
+/*  GUI read seam (GTK-free)                                           */
+/*                                                                     */
+/*  The cairo text painter lives in the gui-tier file                  */
+/*  pn-text-view-gui.c, but it has to read the same line snapshot +     */
+/*  colours the core fills.  Those are plain data (no GTK), so a scalar */
+/*  snapshot and a borrowed-pointer line accessor are published here.   */
+/*  Scroll clamping crosses back: the painter knows the live extents,  */
+/*  so it pins the stored offset before reading it.                     */
+/* ------------------------------------------------------------------ */
+
+/* Scalar drawing configuration snapshotted by value for one paint.  The
+ * colours are #PnColor (layout-identical to GdkRGBA). */
+typedef struct
+{
+    PnColor  background_color;
+    PnColor  text_color;
+    gdouble  font_size;
+} PnTextViewPaintState;
+
+/**
+ * pn_text_view_get_paint_state:
+ * @self: text-view instance
+ * @out:  (out): caller-provided snapshot filled with the current scalar
+ *        drawing configuration.
+ */
+void pn_text_view_get_paint_state (PnTextView           *self,
+                                   PnTextViewPaintState *out);
+
+/* The current line snapshot (borrowed): an array of @n_out lines,
+ * replaced on every receive. */
+const gchar *const *pn_text_view_peek_lines (PnTextView *self, guint *n_out);
+
+/* Scroll bookkeeping (GTK-free, both only touch an int).  The painter
+ * computes the maximum offset from the live line height + visible-line
+ * count, clamps the stored value, then reads it back. */
+int  pn_text_view_get_scroll_offset   (PnTextView *self);
+void pn_text_view_clamp_scroll_offset (PnTextView *self, int max_offset);
+
 G_END_DECLS
 
 #endif /* PN_TEXT_VIEW_H */
