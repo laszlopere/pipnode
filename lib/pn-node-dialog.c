@@ -544,6 +544,44 @@ pn_node_dialog_attach_hostname_hint (GtkEntry *entry)
                             (gpointer) hint);
 }
 
+/* PnColor <-> GdkRGBA #GBinding transforms.  The two boxed types are
+ * layout-identical (see pn-color.h), so each direction copies the four
+ * channels straight across through the matching pointer cast.  Used to
+ * drive a #GtkColorButton ("rgba" is a #GdkRGBA) from a #PnColor node
+ * property -- every in-tree colour property is #PnColor since the
+ * TODO #23 de-GTK migration. */
+static gboolean
+pn_color_to_rgba_value (
+        GBinding     *binding G_GNUC_UNUSED,
+        const GValue *from,
+        GValue       *to,
+        gpointer      user_data G_GNUC_UNUSED)
+{
+    const PnColor *c    = g_value_get_boxed (from);
+    GdkRGBA        rgba = { 0.0, 0.0, 0.0, 0.0 };
+
+    if (c != NULL)
+        rgba = *(const GdkRGBA *) c;
+    g_value_set_boxed (to, &rgba);
+    return TRUE;
+}
+
+static gboolean
+pn_rgba_to_color_value (
+        GBinding     *binding G_GNUC_UNUSED,
+        const GValue *from,
+        GValue       *to,
+        gpointer      user_data G_GNUC_UNUSED)
+{
+    const GdkRGBA *rgba = g_value_get_boxed (from);
+    PnColor        c    = { 0.0, 0.0, 0.0, 0.0 };
+
+    if (rgba != NULL)
+        c = *(const PnColor *) rgba;
+    g_value_set_boxed (to, &c);
+    return TRUE;
+}
+
 static GtkWidget *
 default_editor_impl (
         GObject    *target,
@@ -603,6 +641,24 @@ default_editor_impl (
         return check;
     }
 
+    /* In-tree colour properties are #PnColor since the TODO #23 de-GTK
+     * migration; the #GtkColorButton's "rgba" is a #GdkRGBA, so the
+     * binding transforms across the layout-identical boxed types. */
+    if (ptype == PN_TYPE_COLOR)
+    {
+        GtkWidget *btn = gtk_color_button_new ();
+        gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER (btn), TRUE);
+        gtk_widget_set_sensitive (btn, writable);
+        g_object_bind_property_full (target, name, btn, "rgba", flags,
+                                     pn_color_to_rgba_value,
+                                     pn_rgba_to_color_value,
+                                     NULL, NULL);
+        return btn;
+    }
+
+    /* Legacy GdkRGBA colour properties (a plugin compiled against the
+     * pre-migration header may still ship one) keep their direct
+     * binding -- the ABI stays additive. */
     if (ptype == GDK_TYPE_RGBA)
     {
         GtkWidget *btn = gtk_color_button_new ();
