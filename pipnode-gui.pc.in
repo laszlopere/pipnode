@@ -1,0 +1,17 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+datarootdir=@datarootdir@
+datadir=@datadir@
+
+plugindir=${libdir}/pipnode/plugins
+helpdir=${datadir}/pipnode/help
+aclocaldir=${datadir}/aclocal
+
+Name: pipnode-gui
+Description: Pipnode GTK GUI library (worksheet, dialogs, drawing) for plugin developers
+Version: @VERSION@
+Requires: pipnode-core >= @VERSION@ gtk+-3.0 >= 3.22 gtksourceview-4 >= 4.0
+Libs: -L${libdir} -lpipnode-gui
+Cflags: -I${includedir} -I${includedir}/pipnode

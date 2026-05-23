@@ -18,6 +18,39 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 3 increment 3.2 DONE — the build is split into two libraries.**
+  `lib/Makefile.am` now builds `libpipnode-core.la` (43 sources, the §6
+  core tier) and `libpipnode-gui.la` (31 sources, dual + gui tiers,
+  `LIBADD libpipnode-core.la`). Core compiles with **no GTK on the command
+  line** — its `CFLAGS` are only `GLIB`/`JSON_GLIB`/`LIBSOUP`/`GMODULE`/
+  `GDK_PIXBUF`. **Verified: `objdump -p libpipnode-core.so` `DT_NEEDED` is
+  json-glib, soup, gio, gmodule, gobject, glib, m, c — zero gtk/gdk-widget/
+  cairo/pango/webkit/plplot/gtksourceview** (gdk-pixbuf is even
+  `--as-needed`-dropped, since image-message treats the pixbuf as an opaque
+  GObject). The gui lib correctly needs core + gtk + plplot + webkit.
+  - `configure.ac`: explicit `PKG_CHECK_MODULES([GLIB], glib/gobject/gio)`
+    + `[GDK_PIXBUF]`; generates `pipnode-core.pc` + `pipnode-gui.pc` +
+    `pipnode.pc` (now a compat alias requiring `pipnode-gui`, so existing
+    GTK plugins keep building; the m4 plugin macro still reads it).
+  - All consumers repoint from the gone `libpipnode.la` to
+    `libpipnode-gui.la` + explicit `libpipnode-core.la` (src binaries,
+    `tests/unit`, the 5 bundled plugins, the echo test plugin).
+  - **Intermediate scaffolding:** the core factory still hard-registers the
+    GUI-tier node GTypes (and consults `PnPreferences`), so `libpipnode-
+    core.so` carries undefined gui symbols. Under Debian/Ubuntu's default
+    `--as-needed` that drops gui from the headless `pipnode-run` link, so
+    `pipnode-run` + `tests/unit` use `-Wl,--no-as-needed` to keep gui
+    linked. This goes away in Phase 4/5/6 (dual logic → core; gui nodes
+    self-register; pipnode-run core-only). For now both binaries link both
+    libraries and every node still works in both.
+  - Whole tree builds (exit 0); 52/52 unit tests + the D-Bus dial test
+    green; all 5 plugins build; `pipnode-run` loads + runs a worksheet;
+    the three `.pc` files validate. **Next: Phase 4 — split the dual-node
+    sources (logic→core, drawing+dialog→gui), starting with the simplest
+    (LED) as the pattern.** That also lets the §6 colour-pspec migration
+    (`GDK_TYPE_RGBA`→`PN_TYPE_COLOR`) and the by-name clause in pn-flow
+    finally retire.
+
 - **Phase 3 STARTED — increment 3.1: core serializer + factory de-GTK'd
   (prereq for the library split).** Splitting `lib/` into a GTK-free core
   needs the two core files that still pulled GTK to stop:
@@ -339,10 +372,17 @@ moves.
 
 ---
 
-### Phase 3 — Split the build into two libraries
+### Phase 3 — Split the build into two libraries — **DONE** (see §0)
 
 **Objective:** produce `libpipnode-core.la` (GObject + json-glib + soup)
 and `libpipnode-gui.la` (links core + the GTK stack).
+
+**Result:** done in two increments — 3.1 freed the core serializer/factory
+from GTK; 3.2 built the two libraries. `libpipnode-core.so`'s `DT_NEEDED`
+is GTK-free (verified by `objdump`). The `--disable-gui` server build (the
+optional bullet in step 1) is deferred to Phase 5, when `pipnode-run` goes
+core-only and the core↔gui symbol debt is gone; doing it now would be
+moot while the dual logic still lives in the gui tier.
 
 **Steps**
 1. `configure.ac`: keep GTK/webkit/sourceview/plplot detection but make

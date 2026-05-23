@@ -45,7 +45,7 @@ pipnode_network_la_CFLAGS = \
 pipnode_network_la_LDFLAGS = -module -avoid-version -shared
 
 pipnode_network_la_LIBADD = \
-	$(top_builddir)/lib/libpipnode.la \
+	$(top_builddir)/lib/libpipnode-gui.la \
 	$(GTK_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS) \

@@ -18,16 +18,12 @@ helpdir=${datadir}/pipnode/help
 
 # Autoconf macro directory.  Plugin projects whose own configure.ac
 # uses PIPNODE_PLUGIN_CHECK pick up the macro from here via
-# ACLOCAL_AMFLAGS = -I `pkg-config --variable=aclocaldir pipnode`.
+# ACLOCAL_AMFLAGS = -I `pkg-config --variable=aclocaldir pipnode-core`.
 aclocaldir=${datadir}/aclocal
 
-# Compatibility metapackage (headless split, TODO #23).  The library is
-# now split into pipnode-core (GTK-free) and pipnode-gui (the GTK tier);
-# this module pulls the full GUI stack so existing GTK plugins that ask
-# for `pipnode` keep building unchanged.  New headless plugins should
-# Require pipnode-core instead.
-Name: pipnode
-Description: Pipnode host library (compatibility alias for pipnode-gui)
+Name: pipnode-core
+Description: Pipnode headless core library (GTK-free) for plugin developers
 Version: @VERSION@
-Requires: pipnode-gui >= @VERSION@
+Requires: glib-2.0 >= 2.40 gobject-2.0 >= 2.40 gio-2.0 >= 2.40 json-glib-1.0 >= 1.0 gmodule-2.0 >= 2.40 libsoup-3.0 >= 3.0 gdk-pixbuf-2.0 >= 2.36
+Libs: -L${libdir} -lpipnode-core
 Cflags: -I${includedir} -I${includedir}/pipnode

@@ -16,6 +16,20 @@ LT_INIT
 AC_PROG_CC
 AC_PROG_INSTALL
 
+# --- Core tier dependencies (headless split, TODO #23) ----------------
+# The GTK-free core library (libpipnode-core) links only these.  glib /
+# gobject / gio are the base; we check them explicitly rather than relying
+# on GTK's transitive closure so the core compiles and links with no GTK
+# on the command line.
+PKG_CHECK_MODULES([GLIB], [glib-2.0 >= 2.40 gobject-2.0 >= 2.40 gio-2.0 >= 2.40])
+
+# gdk-pixbuf is an allowed *core* image-data dependency (see the headless
+# split plan, §6 decision 1): PnImageMessage carries a GdkPixbuf so image
+# messages flow between logic nodes headlessly.  It pulls no GTK/GDK widget
+# toolkit code, so it does not compromise the "no graphics toolkit" rule.
+PKG_CHECK_MODULES([GDK_PIXBUF], [gdk-pixbuf-2.0 >= 2.36])
+
+# --- GUI tier dependencies --------------------------------------------
 # Check for GTK+ 3
 PKG_CHECK_MODULES([GTK], [gtk+-3.0 >= 3.22])
 
@@ -107,6 +121,8 @@ AC_SUBST([GIT_VERSION])
 AC_CONFIG_FILES([
     Makefile
     pipnode.pc
+    pipnode-core.pc
+    pipnode-gui.pc
     data/Makefile
     lib/Makefile
     plugins/Makefile

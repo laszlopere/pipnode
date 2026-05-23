@@ -11,9 +11,12 @@ ACLOCAL_AMFLAGS = -I m4
 # from its own configure.ac without hand-rolling the include / link
 # flags or hard-coding $libdir/pipnode/plugins for the install target.
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = pipnode.pc
+# Headless split (TODO #23): pipnode-core (GTK-free) + pipnode-gui (GTK
+# tier) + pipnode (compatibility alias for pipnode-gui).
+pkgconfig_DATA = pipnode-core.pc pipnode-gui.pc pipnode.pc
 
 aclocaldir = $(datadir)/aclocal
 aclocal_DATA = m4/pipnode-plugin.m4
 
-EXTRA_DIST = pipnode.pc.in m4/pipnode-plugin.m4 PLUGINS
+EXTRA_DIST = pipnode-core.pc.in pipnode-gui.pc.in pipnode.pc.in \
+	m4/pipnode-plugin.m4 PLUGINS

@@ -13,14 +13,21 @@ AM_CPPFLAGS = \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS)
 
-# The public node headers still transitively include <gtk/gtk.h> (the
-# coupling TODO #23 will break), so the tests need GTK_CFLAGS to compile
-# even though they never call into GTK at runtime.  JSON_GLIB_CFLAGS adds
-# the json-glib include path used by pn-message.h.  All of libpipnode's
-# transitive link-time dependencies come in through the .la below; no
-# display is ever opened because gtk_init() is never called.
+# Most node logic headers are GTK-free since the Phase-1 de-GTK; the
+# dual/gui nodes some tests exercise (e.g. PnDial) still need GTK_CFLAGS
+# to compile, and live in libpipnode-gui.  Both libraries are listed
+# explicitly: the tests call core symbols (PnMessage, PnNode, the
+# parsers) directly, so libpipnode-core must be on the link line (not
+# just transitively via gui) under --as-needed.  No display is ever
+# opened because gtk_init() is never called.
+# --no-as-needed keeps libpipnode-gui linked for the pure-core tests too:
+# every test links libpipnode-core, which (until the Phase 4/6 split)
+# carries undefined GUI-tier node symbols that gui must resolve.
+AM_LDFLAGS = -Wl,--no-as-needed
+
 LDADD = \
-	$(top_builddir)/lib/libpipnode.la \
+	$(top_builddir)/lib/libpipnode-gui.la \
+	$(top_builddir)/lib/libpipnode-core.la \
 	$(GTK_LIBS) \
 	$(JSON_GLIB_LIBS)
 
