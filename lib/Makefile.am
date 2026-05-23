@@ -13,13 +13,12 @@
 #       (until the Phase 4 dual-node split) the dual-nature visual nodes
 #       whose cairo drawing + settings dialogs still pull GTK.
 #
-# The two libraries are mutually referential for now: the core factory
-# still hard-registers the GUI-tier node GTypes (pn_*_get_type) and asks
-# PnPreferences whether a plugin is disabled.  Those symbols resolve from
-# the gui library, which every current binary links alongside core; the
-# core-only headless wiring (so pipnode-run needs no GUI symbols) is
-# Phase 4/5 work.  Hence core carries undefined references and is *not*
-# built with -no-undefined.
+# Core is fully self-contained (TODO #23, Phase 5): it no longer hard-
+# references any gui symbol — the GUI-tier node GTypes are split out
+# (logic in core, painters/dialogs installed by the gui tier) and the
+# plugin-disabled policy is a core-side hook the editor fills in.  So core
+# links with -no-undefined and pipnode-run / the unit tests link it alone,
+# never pulling the GTK stack.  The gui library still LIBADDs core.
 
 lib_LTLIBRARIES = libpipnode-core.la libpipnode-gui.la
 
@@ -182,7 +181,7 @@ libpipnode_core_la_LIBADD = \
 	$(GDK_PIXBUF_LIBS) \
 	-lm
 
-libpipnode_core_la_LDFLAGS = -version-info 0:0:0
+libpipnode_core_la_LDFLAGS = -version-info 0:0:0 -no-undefined
 
 # ---------------------------------------------------------------------
 # GUI tier — links core + the full GTK stack.

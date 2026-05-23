@@ -13,20 +13,15 @@ AM_CPPFLAGS = \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS)
 
-# Most node logic headers are GTK-free since the Phase-1 de-GTK; the
-# dual/gui nodes some tests exercise (e.g. PnDial) still need GTK_CFLAGS
-# to compile, and live in libpipnode-gui.  Both libraries are listed
-# explicitly: the tests call core symbols (PnMessage, PnNode, the
-# parsers) directly, so libpipnode-core must be on the link line (not
-# just transitively via gui) under --as-needed.  No display is ever
-# opened because gtk_init() is never called.
-# --no-as-needed keeps libpipnode-gui linked for the pure-core tests too:
-# every test links libpipnode-core, which (until the Phase 4/6 split)
-# carries undefined GUI-tier node symbols that gui must resolve.
-AM_LDFLAGS = -Wl,--no-as-needed
-
+# Every test exercises GTK-free core logic, so they link libpipnode-core
+# ONLY — core is self-contained since Phase 5 (no undefined gui symbols),
+# so the gui library and -Wl,--no-as-needed are no longer needed.  The one
+# exception is test-pn-color, which cross-checks PnColor against
+# gdk_rgba_parse/to_string: GTK_LIBS stays on the line for it (and --as-
+# needed drops it from every test that does not reference a gdk symbol).
+# GTK_CFLAGS stays in AM_CPPFLAGS for that test's <gtk/gtk.h> include.  No
+# display is ever opened because gtk_init() is never called.
 LDADD = \
-	$(top_builddir)/lib/libpipnode-gui.la \
 	$(top_builddir)/lib/libpipnode-core.la \
 	$(GTK_LIBS) \
 	$(JSON_GLIB_LIBS)
