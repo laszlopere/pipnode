@@ -31,6 +31,7 @@ struct _PnApplication
     GtkApplication parent_instance;
 
     gboolean opt_version;
+    gboolean opt_no_plugins;
     gchar   *opt_file;
     gchar   *opt_dbus_name;
     gchar  **opt_remaining;
@@ -1150,6 +1151,13 @@ pn_application_handle_local_options (
         g_application_set_application_id (app, self->opt_dbus_name);
     }
 
+    /* --no-plugins is also parsed here so it appears in --help and is
+     * accepted rather than rejected as unknown, but it is acted on in
+     * main() before g_application_run(): plugin discovery has to finish
+     * before the first window builds its palette, which is well ahead of
+     * this local-options hook.  main() therefore pre-scans argv for the
+     * flag; nothing more is needed here. */
+
     g_clear_pointer (&self->startup_file, g_free);
 
     if (self->opt_file && *self->opt_file)
@@ -1237,6 +1245,8 @@ pn_application_new (void)
         static GOptionEntry entries[] = {
             { "version", 'V', 0, G_OPTION_ARG_NONE, NULL,
               "Print version and exit", NULL },
+            { "no-plugins", 0, 0, G_OPTION_ARG_NONE, NULL,
+              "Do not load any plugins for this session", NULL },
             { "file", 'f', 0, G_OPTION_ARG_FILENAME, NULL,
               "Open the worksheet at FILE on startup", "FILE" },
             { "dbus-name", 'D', 0, G_OPTION_ARG_STRING, NULL,
@@ -1250,9 +1260,10 @@ pn_application_new (void)
         };
 
         entries[0].arg_data = &app->opt_version;
-        entries[1].arg_data = &app->opt_file;
-        entries[2].arg_data = &app->opt_dbus_name;
-        entries[3].arg_data = &app->opt_remaining;
+        entries[1].arg_data = &app->opt_no_plugins;
+        entries[2].arg_data = &app->opt_file;
+        entries[3].arg_data = &app->opt_dbus_name;
+        entries[4].arg_data = &app->opt_remaining;
 
         g_application_add_main_option_entries (G_APPLICATION (app), entries);
     }

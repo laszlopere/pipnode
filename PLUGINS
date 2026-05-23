@@ -506,6 +506,18 @@ treated as "no plugins here" and produces no warning.  An
 unreadable plugin file inside an existing directory does
 produce a warning but does not abort the rest of the scan.
 
+The GUI editor accepts `--no-plugins` to skip the scan
+entirely for one session — no directory is searched and no
+`.so` (logic or companion) is dlopened, so the palette shows
+the built-in nodes only.  It is the quickest way to tell
+whether a problem comes from a plugin, and a reliable escape
+hatch when a stale or broken plugin would otherwise hang the
+editor on the dlopen scan.  The flag is process-wide and
+one-shot: it leaves the per-plugin opt-outs in Preferences
+untouched, so the next ordinary start-up loads plugins as
+before.  `pipnode-run` has no such flag — it always loads the
+plugins a worksheet needs.
+
 
 8. HOW A PLUGIN IS LOADED AT RUN TIME
 -------------------------------------

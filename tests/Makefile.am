@@ -12,7 +12,8 @@ TESTS = \
 	test_node_dialog_dial.py \
 	test_node_dialog_led.py \
 	test_plugin_load.py \
-	test_plugin_gui_companion.py
+	test_plugin_gui_companion.py \
+	test_no_plugins_flag.py
 
 EXTRA_DIST = $(TESTS)
 
