@@ -18,6 +18,23 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 2 DONE — tier boundary re-measured (see §6 table).** A direct-
+  call scan (`gtk_`/`gdk_`/`cairo_`/`pango_`/`webkit_`/`gtk_source_`
+  tokens, not transitive includes) cross-checked against each file's flow
+  role classified all 74 `lib/pn-*.c` into **43 core · 23 dual · 8 gui** —
+  comfortably above TODO #23's pre-Phase-1 ~35 estimate, confirming the
+  header de-GTK paid off. Heuristic edge cases resolved by inspection:
+  `pn-color.c`'s lone `gdk_` is a comment (core); `pn-flow.c` keeps a
+  *temporary* GTK include + `GDK_TYPE_RGBA` serializer branch by design
+  (core-destined, cleaned in Phase 4); the 11 "dialog-only" dual nodes
+  have their GTK confined to a settings-dialog vfunc (clean Phase-4 cut /
+  Phase-7 schema candidates); `pn-knob.c` is dual despite no `receive()`
+  (manual source with core emit logic); and `filedrop`/`file-viewer` are
+  `PnNode`s, so their GType+property half stays core-loadable (dual, not
+  pure gui). Three open decisions recorded for the review gate — the
+  notable one: **may core link `gdk-pixbuf`** for `PnImageMessage` (no GTK
+  footprint; recommend yes). No code moved; classification only.
+
 - **Phase 1 DONE — the type headers are de-GTK'd (ABI-stable).** The
   proven recipe is now applied to the real tree:
   - New `lib/pn-color.[ch]`: `PnColor` (4×`double` r,g,b,a, same member
@@ -273,11 +290,14 @@ wired into `run-unit-tests.sh`, so the property can't silently regress.
 
 ---
 
-### Phase 2 — Re-measure the tier boundary
+### Phase 2 — Re-measure the tier boundary — **DONE** (see §0 + §6 table)
 
 **Objective:** with `pn-node.h` no longer dragging GTK in transitively,
 get the *true* list of GTK-free `.c` files (the pre-Phase-1 token scan
 over-counts; TODO #23 estimated ~35 of 71 are genuinely clean).
+
+**Result:** **43 core · 23 dual · 8 gui** of 74 `lib/pn-*.c`; full table +
+three open decisions in §6. Awaiting the review gate before Phase 3.
 
 **Steps**
 1. After Phase 1, scan each `lib/pn-*.c` for *direct* `gtk_`/`gdk_`/
@@ -468,10 +488,91 @@ out-of-process / web GUI only if remote dashboards become a requirement.
 | Hidden transitive GTK use in "core" files | Phase 2 re-measurement uses direct-call scan; Phase 3 verification asserts `ldd` has no `libgtk`. |
 | Schema can't express some dialog | That's expected — it falls through to the imperative `build_*` companion hooks; schema is the 80% path, not the only path. |
 
-## 6. Appendix — file tier classification
+## 6. Appendix — file tier classification (Phase 2 result)
 
-_(populate in Phase 2 after the header de-GTK re-measurement)_
+Method: direct-call scan over `lib/pn-*.c` for `gtk_`/`gdk_`/`cairo_`/
+`pango_`/`webkit_`/`gtk_source_` tokens (not transitive includes), cross-
+checked against each file's flow role (`receive()` / `emit` / source). The
+post-Phase-1 count is **43 core · 23 dual · 8 gui** of 74 files — above the
+TODO #23 pre-Phase-1 estimate of ~35 clean, confirming the header de-GTK
+landed.
 
-| File | Tier (core / gui / dual) | Notes |
-|------|--------------------------|-------|
-| _TBD_ | | |
+Tier meanings (per D1/D3): **core** = compiles into `libpipnode-core` with
+zero GTK; **dual** = a `PnNode` whose logic/`receive`/source half is core
+and whose cairo drawing + settings dialog move to the gui tier (split in
+Phase 4 / schema'd in Phase 7); **gui** = editor infrastructure or a pure
+widget with no `PnNode` flow role — moves wholesale to `libpipnode-gui`.
+
+### Core (43) — move wholesale to `libpipnode-core`
+
+Infra: `pn-node.c`, `pn-node-factory.c`, `pn-node-store.c`, `pn-message.c`,
+`pn-image-message.c` ⚠, `pn-wire.c`, `pn-wire-store.c`, `pn-connections.c`,
+`pn-edge.c`, `pn-var-store.c`, `pn-load.c`, `pn-color.c`, `pn-flow.c` ⚠.
+
+Logic nodes / helpers: `pn-ambient.c`, `pn-auto-injector.c`,
+`pn-auto-random.c`, `pn-auto-trigger.c`, `pn-comparator.c`, `pn-cpu.c`,
+`pn-debug.c`, `pn-dedup.c`, `pn-delay.c`, `pn-disk-io.c`, `pn-expr-parser.c`,
+`pn-format.c`, `pn-http.c`, `pn-inject.c`, `pn-jmespath.c`, `pn-json-path.c`,
+`pn-memory.c`, `pn-net-io.c`, `pn-query.c`, `pn-rtc.c`, `pn-staircase.c`,
+`pn-stats.c`, `pn-subst.c`, `pn-table-model.c`, `pn-temp.c`,
+`pn-threshold.c`, `pn-throttle.c`, `pn-watchdog.c`, `pn-weather.c`,
+`pn-ws.c`.
+
+⚠ `pn-color.c` — its only `gdk_` token is a comment; truly GTK-free.
+⚠ `pn-flow.c` — carries a **temporary** `#include <gtk/gtk.h>` + a
+`GDK_TYPE_RGBA` serializer branch for the dual nodes' own colour props;
+both vanish in Phase 4 when those props become `PnColor`. Core-destined.
+⚠ `pn-image-message.c` — code is GTK-free but `pn-image-message.h` carries
+a `GdkPixbuf *` (pulls `gdk-pixbuf-2.0`, which is **not** GTK but is a
+graphics dep). **OPEN DECISION** (see below).
+
+### Dual (23) — split per Phase 4: logic→core, drawing+dialog→gui
+
+Cairo-drawing nodes (10): `pn-analog-meter.c`, `pn-chat.c`, `pn-dial.c`,
+`pn-graph.c`, `pn-knob.c` †, `pn-led.c`, `pn-switch.c`, `pn-table.c`,
+`pn-text-view.c`, `pn-weather-report.c`.
+
+Dialog-only nodes (11) — GTK confined to a settings-dialog vfunc, so a
+clean cut (and prime candidates for the Phase 7 schema): `pn-expression.c`,
+`pn-expression2.c`, `pn-filter.c`, `pn-meshtastic.c`, `pn-notify.c`,
+`pn-ollama.c`, `pn-rate.c` ‡, `pn-rewrite.c` §, `pn-set.c`, `pn-sound.c`,
+`pn-tts.c`.
+
+Display-only nodes (2): `pn-filedrop.c` (source — emits a dropped file/
+image msg), `pn-file-viewer.c` (sink — receives & previews). Both are
+`PnNode`s, so the **core half is just GType + property storage** (+ the
+viewer's trivial `receive`) to keep worksheets loadable headless; drawing +
+drag-drop go to gui.
+
+† `pn-knob.c` has no `receive()` (it's a manual source) but holds core
+emit/startup-announce logic — dual, not gui.
+‡ `pn-rate.c` also uses pango for its readout text.
+§ `pn-rewrite.c`'s `webkit_`/`gtk_source_` tokens are its dialog code
+editor — dialog-tier, splits cleanly.
+
+### GUI (8) — move wholesale to `libpipnode-gui` (no `PnNode` flow role)
+
+Editor infra: `pn-node-dialog.c` (the auto-dialog framework; Phase 7's
+schema renderer lands here), `pn-document-settings-dialog.c`,
+`pn-preferences.c`, `pn-preferences-dialog.c`, `pn-palette.c`,
+`pn-help-browser.c` (webkit), `pn-worksheet.c` (the canvas renderer).
+Pure widget: `pn-table-view.c` (the `GtkWidget` `pn-table.c` draws into;
+not a node).
+
+### Open decisions for the Phase 2 review gate
+
+1. **`gdk-pixbuf` in core?** `PnImageMessage` carries a `GdkPixbuf *`.
+   `gdk-pixbuf-2.0` pulls no GTK/GDK widget code but is still a graphics
+   library, so strict D1 ("zero graphics") is ambiguous here. Options:
+   (a) permit `gdk-pixbuf` in core (it's how image messages flow between
+   logic nodes headlessly); (b) carry the pixels as an opaque ref +
+   `(width,height,stride,format)` and decode only in the gui tier;
+   (c) move `pn-image-message` to gui (loses headless image flow — likely
+   wrong). **Recommend (a)** — pragmatic, keeps image nodes headless-
+   loadable, and `gdk-pixbuf` has no toolkit footprint. Decide before
+   Phase 3 wires the core dep set.
+2. **Display-only dual nodes** (`filedrop`, `file-viewer`): confirm the
+   agreed shape is "core registers the GType + props so headless load
+   succeeds; all visuals in gui." (Assumed above.)
+3. **`pn-flow.c` temp GTK**: tracked — removed in Phase 4 with the dual
+   nodes' colour-prop migration to `PnColor`. No action in Phase 3.
