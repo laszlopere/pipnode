@@ -44,6 +44,12 @@ G_DECLARE_FINAL_TYPE (PnTable, pn_table, PN, TABLE, PnNode)
 
 PnTable *pn_table_new (void);
 
+/* Number of rows currently buffered.  Read-only inspection seam:
+ * receive() appends one row per message and trims to #limit, but the
+ * row store is private, so headless tests observe accumulation and
+ * trimming through this accessor. */
+guint    pn_table_get_row_count (PnTable *self);
+
 G_END_DECLS
 
 #endif /* PN_TABLE_H */

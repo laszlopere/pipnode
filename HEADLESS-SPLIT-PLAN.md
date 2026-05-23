@@ -18,6 +18,23 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Dual-node logic characterized (Phase 0 fill-out).** Added headless
+  unit tests for the four dual-nature nodes that previously had none —
+  `test-pn-dial.c`, `test-pn-graph.c`, `test-pn-table.c`,
+  `test-pn-chat.c` — locking down the `receive()` contract that Phase 4
+  will move into the core tier: sink-ness (none forward), key/path
+  resolution and gating (empty key / missing / unparseable value is a
+  safe no-op), per-topic series fan-out and its `PN_GRAPH_MAX_SERIES`
+  cap, row/bubble accumulation and `#limit` trimming, the Dial's raw
+  (un-clamped) read-only `value`, and Chat's self-loop suppression +
+  focus flag. Because the binned/buffered state is private, three tiny
+  read-only inspection seams were added (`pn_table_get_row_count`,
+  `pn_graph_get_series_count`, `pn_chat_get_bubble_count`) — additive,
+  GTK-free, logic-tier accessors that survive the split. All four wired
+  into `tests/unit/Makefile.am`; `./run-unit-tests.sh` green (47/47).
+  Remaining Phase 0 gap: the TODO #24 IO-parser extraction (Temp/Http/
+  Tts/Weather/Net-IO) and the `pipnode-run`-level golden tests.
+
 - **Phase 1 viability proven (de-GTK header, ABI-stable).** A throwaway
   proof-of-concept confirmed both TODO #23 build-time blockers are
   solvable without breaking the plugin ABI:

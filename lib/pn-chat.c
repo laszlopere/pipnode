@@ -1527,3 +1527,10 @@ pn_chat_new (void)
 {
     return g_object_new (PN_TYPE_CHAT, NULL);
 }
+
+guint
+pn_chat_get_bubble_count (PnChat *self)
+{
+    g_return_val_if_fail (PN_IS_CHAT (self), 0);
+    return g_queue_get_length (self->bubbles);
+}

@@ -52,6 +52,10 @@ check_PROGRAMS = \
 	test-pn-text-view \
 	test-pn-rate \
 	test-pn-led \
+	test-pn-dial \
+	test-pn-graph \
+	test-pn-table \
+	test-pn-chat \
 	test-pn-analog-meter \
 	test-pn-load \
 	test-pn-memory \
@@ -96,6 +100,10 @@ test_pn_debug_SOURCES         = test-pn-debug.c         pntest.c pntest.h
 test_pn_text_view_SOURCES     = test-pn-text-view.c     pntest.c pntest.h
 test_pn_rate_SOURCES          = test-pn-rate.c          pntest.c pntest.h
 test_pn_led_SOURCES           = test-pn-led.c           pntest.c pntest.h
+test_pn_dial_SOURCES          = test-pn-dial.c          pntest.c pntest.h
+test_pn_graph_SOURCES         = test-pn-graph.c         pntest.c pntest.h
+test_pn_table_SOURCES         = test-pn-table.c         pntest.c pntest.h
+test_pn_chat_SOURCES          = test-pn-chat.c          pntest.c pntest.h
 test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
 test_pn_load_SOURCES          = test-pn-load.c          pntest.c pntest.h
 test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h

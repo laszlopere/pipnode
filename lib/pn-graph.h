@@ -130,6 +130,12 @@ GType pn_graph_mode_get_type (void) G_GNUC_CONST;
 
 PnGraph *pn_graph_new (void);
 
+/* Number of distinct per-topic series currently tracked.  Read-only
+ * inspection seam: receive() lazily creates one series per message
+ * topic (up to PN_GRAPH_MAX_SERIES), but the series table is private,
+ * so headless tests observe series creation through this accessor. */
+guint    pn_graph_get_series_count (PnGraph *self);
+
 G_END_DECLS
 
 #endif /* PN_GRAPH_H */

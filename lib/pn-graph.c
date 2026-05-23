@@ -2928,3 +2928,10 @@ pn_graph_new (void)
 {
     return g_object_new (PN_TYPE_GRAPH, NULL);
 }
+
+guint
+pn_graph_get_series_count (PnGraph *self)
+{
+    g_return_val_if_fail (PN_IS_GRAPH (self), 0);
+    return (self->series != NULL) ? g_hash_table_size (self->series) : 0;
+}

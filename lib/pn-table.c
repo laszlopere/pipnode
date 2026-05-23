@@ -950,3 +950,10 @@ pn_table_new (void)
 {
     return g_object_new (PN_TYPE_TABLE, NULL);
 }
+
+guint
+pn_table_get_row_count (PnTable *self)
+{
+    g_return_val_if_fail (PN_IS_TABLE (self), 0);
+    return g_queue_get_length (self->rows);
+}

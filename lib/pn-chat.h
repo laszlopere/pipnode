@@ -177,6 +177,12 @@ gboolean  pn_chat_handle_key_press (PnChat      *self,
  */
 void      pn_chat_submit (PnChat *self);
 
+/* Number of bubbles currently buffered.  Read-only inspection seam:
+ * receive() and pn_chat_submit() append bubbles and trim to #limit,
+ * but the bubble store is private, so headless tests observe the
+ * result through this accessor. */
+guint     pn_chat_get_bubble_count (PnChat *self);
+
 G_END_DECLS
 
 #endif /* PN_CHAT_H */
