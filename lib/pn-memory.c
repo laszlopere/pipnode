@@ -583,7 +583,7 @@ pn_memory_class_init (PnMemoryClass *klass)
     node_class->palette_icon   = PN_MEMORY_ICON;
     node_class->class_name     = "Memory";
     node_class->icon           = PN_MEMORY_ICON;
-    node_class->color          = (GdkRGBA){ 0.62, 0.50, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.62, 0.50, 0.78, 1.0 };
     node_class->category       = "Host monitoring";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
@@ -620,7 +620,7 @@ static void
 pn_memory_init (PnMemory *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  violet = { 0.62, 0.50, 0.78, 1.0 };
+    PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->hostname = g_strdup (PN_MEMORY_DEFAULT_HOST);

@@ -317,7 +317,7 @@ pn_expression2_class_init (PnExpression2Class *klass)
 
     node_class->class_name     = "Expression 2";
     node_class->icon           = "\xef\x87\xac";  /* fa-calculator U+F1EC */
-    node_class->color          = (GdkRGBA){ 0.55, 0.45, 0.80, 1.0 };
+    node_class->color          = (PnColor){ 0.55, 0.45, 0.80, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -342,7 +342,7 @@ static void
 pn_expression2_init (PnExpression2 *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  purple = { 0.55, 0.45, 0.80, 1.0 };
+    PnColor  purple = { 0.55, 0.45, 0.80, 1.0 };
 
     self->parser = pn_expr_parser_new ();
     self->vars   = pn_var_store_new ();

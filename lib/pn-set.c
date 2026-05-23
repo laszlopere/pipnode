@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-set.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <json-glib/json-glib.h>
@@ -951,7 +952,7 @@ pn_set_class_init (PnSetClass *klass)
 
     node_class->class_name     = "Set";
     node_class->icon           = "\xef\x80\xac";  /* fa-tags U+F02C */
-    node_class->color          = (GdkRGBA){ 0.62, 0.45, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.62, 0.45, 0.78, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -970,7 +971,7 @@ static void
 pn_set_init (PnSet *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  violet = { 0.62, 0.45, 0.78, 1.0 };
+    PnColor  violet = { 0.62, 0.45, 0.78, 1.0 };
 
     self->props_json = g_strdup ("[]");
     self->compiled   = g_array_new (FALSE, FALSE, sizeof (CompiledSet));

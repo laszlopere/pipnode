@@ -57,7 +57,7 @@ G_DEFINE_BOXED_TYPE (PnPoint, pn_point, pn_point_copy, pn_point_free)
 
 typedef struct
 {
-    GdkRGBA  color;
+    PnColor  color;
     gchar   *class_name;
     gchar   *name;
     gchar   *icon;
@@ -302,7 +302,7 @@ pn_node_class_init (PnNodeClass *klass)
     props[PROP_COLOR] = g_param_spec_boxed (
             "color", "Color",
             "Body fill colour of the node",
-            GDK_TYPE_RGBA,
+            PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_CLASS_NAME] = g_param_spec_string (
@@ -594,7 +594,7 @@ pn_node_request_repaint (PnNode *self)
     g_signal_emit (self, signals[SIG_REPAINT_NEEDED], 0);
 }
 
-const GdkRGBA *
+const PnColor *
 pn_node_get_color (PnNode *self)
 {
     PnNodePrivate *priv;
@@ -606,7 +606,7 @@ pn_node_get_color (PnNode *self)
 void
 pn_node_set_color (
         PnNode        *self,
-        const GdkRGBA *color)
+        const PnColor *color)
 {
     PnNodePrivate *priv;
 
@@ -614,7 +614,7 @@ pn_node_set_color (
     g_return_if_fail (color != NULL);
 
     priv = pn_node_get_instance_private (self);
-    if (gdk_rgba_equal (&priv->color, color))
+    if (pn_color_equal (&priv->color, color))
         return;
 
     priv->color = *color;
@@ -658,7 +658,7 @@ pn_node_class_get_icon (PnNodeClass *klass)
     return klass->icon;
 }
 
-const GdkRGBA *
+const PnColor *
 pn_node_class_get_color (PnNodeClass *klass)
 {
     g_return_val_if_fail (PN_IS_NODE_CLASS (klass), NULL);

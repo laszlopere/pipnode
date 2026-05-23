@@ -77,8 +77,8 @@ static void
 test_color_round_trips (void)
 {
     PnNode  *node = PN_NODE (pn_led_new ());
-    GdkRGBA  in   = { 0.10, 0.20, 0.30, 1.0 };
-    GdkRGBA *out  = NULL;
+    PnColor  in   = { 0.10, 0.20, 0.30, 1.0 };
+    PnColor *out  = NULL;
 
     g_object_set (node, "color", &in, NULL);
     g_object_get (node, "color", &out, NULL);

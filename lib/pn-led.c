@@ -577,7 +577,7 @@ pn_led_class_init (PnLedClass *klass)
     /* fa-lightbulb-o U+F0EB -- a glyph that is in the bundled
      * FontAwesome subset and reads as a small status indicator. */
     node_class->icon       = "\xef\x83\xab";
-    node_class->color      = (GdkRGBA){ 0.40, 0.55, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.40, 0.55, 0.70, 1.0 };
     node_class->category   = "Sinks";
     node_class->has_input  = TRUE;
     node_class->has_output = FALSE;
@@ -632,7 +632,7 @@ pn_led_init (PnLed *self)
     pn_node_set_has_output (node, FALSE);
     {
         GdkRGBA body = { 0.40, 0.55, 0.70, 1.0 };
-        pn_node_set_color (node, &body);
+        pn_node_set_color (node, (const PnColor *)&body);
     }
 }
 

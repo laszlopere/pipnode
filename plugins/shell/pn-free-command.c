@@ -436,7 +436,7 @@ pn_free_command_class_init (PnFreeCommandClass *klass)
     node_class->palette_icon   = PN_FREE_COMMAND_ICON;
     node_class->class_name     = "Free Command";
     node_class->icon           = PN_FREE_COMMAND_ICON;
-    node_class->color          = (GdkRGBA){ 0.42, 0.62, 0.86, 1.0 };
+    node_class->color          = (PnColor){ 0.42, 0.62, 0.86, 1.0 };
     node_class->category       = "Shell";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
@@ -460,7 +460,7 @@ static void
 pn_free_command_init (PnFreeCommand *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  blue = { 0.42, 0.62, 0.86, 1.0 };
+    PnColor  blue = { 0.42, 0.62, 0.86, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->host = g_strdup (PN_SHELL_HOST_DEFAULT);

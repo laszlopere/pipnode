@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-switch.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <json-glib/json-glib.h>
@@ -523,7 +524,7 @@ pn_switch_class_init (PnSwitchClass *klass)
     node_class->palette_icon = PN_SWITCH_ICON;
     node_class->class_name   = "Switch";
     node_class->icon         = PN_SWITCH_ICON;
-    node_class->color        = (GdkRGBA){ 0.30, 0.66, 0.66, 1.0 };
+    node_class->color        = (PnColor){ 0.30, 0.66, 0.66, 1.0 };
     node_class->category     = "Sources";
     node_class->has_input    = TRUE;
     node_class->has_output   = TRUE;
@@ -558,7 +559,7 @@ pn_switch_init (PnSwitch *self)
     pn_node_set_has_output (node, TRUE);
 
     {
-        GdkRGBA teal = { 0.30, 0.66, 0.66, 1.0 };
+        PnColor teal = { 0.30, 0.66, 0.66, 1.0 };
         pn_node_set_color (node, &teal);
     }
 }

@@ -260,7 +260,7 @@ pn_dedup_class_init (PnDedupClass *klass)
 
     node_class->class_name     = "Dedup";
     node_class->icon           = "\xef\x89\x8d";  /* fa-clone U+F24D */
-    node_class->color          = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -287,7 +287,7 @@ static void
 pn_dedup_init (PnDedup *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.76, 0.27, 1.0 };
+    PnColor  yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     self->key     = g_strdup ("data/value");
     self->timeout = PN_DEDUP_TIMEOUT_DEF;

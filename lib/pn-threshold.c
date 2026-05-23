@@ -212,7 +212,7 @@ pn_threshold_class_init (PnThresholdClass *klass)
 
     node_class->class_name     = "Threshold";
     node_class->icon           = "\xef\x85\x88";  /* fa-level-up U+F148 */
-    node_class->color          = (GdkRGBA){ 0.92, 0.78, 0.30, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -238,7 +238,7 @@ static void
 pn_threshold_init (PnThreshold *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.78, 0.30, 1.0 };
+    PnColor  yellow = { 0.92, 0.78, 0.30, 1.0 };
 
     self->threshold  = PN_THRESHOLD_DEF;
     self->hysteresis = PN_HYSTERESIS_DEF;

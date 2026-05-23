@@ -2100,13 +2100,13 @@ apply_visual_state (
 
     if (configured && self->last_error == NULL)
     {
-        GdkRGBA teal = { 0.30, 0.66, 0.55, 1.0 };
+        PnColor teal = { 0.30, 0.66, 0.55, 1.0 };
         pn_node_set_color (node, &teal);
         pn_node_set_icon  (node, PN_MESHTASTIC_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_MESHTASTIC_WARNING_ICON);
     }
@@ -2545,7 +2545,7 @@ pn_meshtastic_class_init (PnMeshtasticClass *klass)
 
     node_class->class_name     = "Meshtastic";
     node_class->icon           = "\xef\x89\xba";  /* fa-commenting U+F27A */
-    node_class->color          = (GdkRGBA){ 0.30, 0.66, 0.55, 1.0 };
+    node_class->color          = (PnColor){ 0.30, 0.66, 0.55, 1.0 };
     node_class->category       = "Network";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;

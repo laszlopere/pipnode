@@ -62,7 +62,7 @@ test_cosmetic_change_stays_clean (void)
     pn_node_set_icon (node, "\xef\x80\x97");
     PN_CHECK_FALSE (pn_flow_is_modified (flow));
 
-    GdkRGBA green = { 0.36, 0.66, 0.36, 1.0 };
+    PnColor green = { 0.36, 0.66, 0.36, 1.0 };
     pn_node_set_color (node, &green);
     PN_CHECK_FALSE (pn_flow_is_modified (flow));
 

@@ -103,7 +103,7 @@ pn_edge_class_init (PnEdgeClass *klass)
 
     node_class->class_name = "Edge";
     node_class->icon       = "\xef\x83\xa7";  /* fa-bolt U+F0E7 */
-    node_class->color      = (GdkRGBA){ 0.92, 0.78, 0.30, 1.0 };
+    node_class->color      = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
     node_class->category   = "Filters";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -115,7 +115,7 @@ pn_edge_init (PnEdge *self)
     PnNode *node = PN_NODE (self);
 
     /* A muted yellow body, lightning bolt to suggest edge detection. */
-    GdkRGBA yellow = { 0.92, 0.78, 0.30, 1.0 };
+    PnColor yellow = { 0.92, 0.78, 0.30, 1.0 };
 
     self->has_previous = FALSE;
     self->previous     = FALSE;

@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-knob.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <math.h>
@@ -470,7 +471,7 @@ pn_knob_class_init (PnKnobClass *klass)
     node_class->palette_icon = PN_KNOB_ICON;
     node_class->class_name   = "Knob";
     node_class->icon         = PN_KNOB_ICON;
-    node_class->color        = (GdkRGBA){ 0.50, 0.45, 0.72, 1.0 };
+    node_class->color        = (PnColor){ 0.50, 0.45, 0.72, 1.0 };
     node_class->category     = "Sources";
     node_class->has_input    = FALSE;
     node_class->has_output   = TRUE;
@@ -517,7 +518,7 @@ pn_knob_init (PnKnob *self)
     pn_node_set_has_output (node, TRUE);
 
     {
-        GdkRGBA indigo = { 0.50, 0.45, 0.72, 1.0 };
+        PnColor indigo = { 0.50, 0.45, 0.72, 1.0 };
         pn_node_set_color (node, &indigo);
     }
 }

@@ -427,7 +427,7 @@ pn_node_factory_get_palette_icon (PnNodeFactory *self, GType type)
                                    : pn_node_class_get_icon (k);
 }
 
-const GdkRGBA *
+const PnColor *
 pn_node_factory_get_color (PnNodeFactory *self, GType type)
 {
     PnNodeClass *k = factory_klass (self, type);

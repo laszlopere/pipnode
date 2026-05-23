@@ -28,6 +28,13 @@
 
 #include <json-glib/json-glib.h>
 
+/* TEMPORARY (headless split, TODO #23): the base node "color" property is
+ * now PN_TYPE_COLOR and (de)serialises GTK-free via pn_color_*().  The
+ * dual-nature visual nodes still declare their own GDK_TYPE_RGBA colour
+ * properties, so the serializer keeps a GdkRGBA fallback branch and this
+ * GTK include until those move to PnColor in the Phase 4 node split. */
+#include <gtk/gtk.h>
+
 /* ------------------------------------------------------------------ */
 /*  PnFlow                                                             */
 /*                                                                     */
@@ -677,6 +684,21 @@ gvalue_to_json (const GValue *value)
         return out;
     }
 
+    if (type == PN_TYPE_COLOR)
+    {
+        const PnColor *c = g_value_get_boxed (value);
+        out = json_node_new (JSON_NODE_VALUE);
+        if (c != NULL)
+        {
+            gchar *s = pn_color_to_string (c);
+            json_node_set_string (out, s);
+            g_free (s);
+        }
+        else
+            json_node_set_string (out, "");
+        return out;
+    }
+
     if (type == GDK_TYPE_RGBA)
     {
         const GdkRGBA *rgba = g_value_get_boxed (value);
@@ -775,6 +797,21 @@ json_to_gvalue (
 
         g_value_set_enum (out_value, ev->value);
         g_type_class_unref (klass);
+        return TRUE;
+    }
+
+    if (type == PN_TYPE_COLOR)
+    {
+        PnColor c;
+
+        if (!JSON_NODE_HOLDS_VALUE (json) ||
+            json_node_get_value_type (json) != G_TYPE_STRING)
+            return FALSE;
+
+        if (!pn_color_parse (&c, json_node_get_string (json)))
+            return FALSE;
+
+        g_value_set_boxed (out_value, &c);
         return TRUE;
     }
 

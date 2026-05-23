@@ -57,7 +57,7 @@ pn_image_laplacian_class_init (PnImageLaplacianClass *klass)
     node_class->receive    = pn_image_laplacian_receive;
     node_class->class_name = "Laplacian Edge";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_EDGE;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -67,7 +67,7 @@ static void
 pn_image_laplacian_init (PnImageLaplacian *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     pn_node_set_class_name (node, "Laplacian Edge");
     pn_node_set_icon       (node, "\xef\x83\x90");

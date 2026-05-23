@@ -110,13 +110,13 @@ apply_visual_state (PnHttpsTunnelReceiver *self)
 
     if (running)
     {
-        GdkRGBA green = { 0.36, 0.66, 0.36, 1.0 };
+        PnColor green = { 0.36, 0.66, 0.36, 1.0 };
         pn_node_set_color (node, &green);
         pn_node_set_icon  (node, PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_HTTPS_TUNNEL_RECEIVER_WARNING_ICON);
     }
@@ -824,7 +824,7 @@ pn_https_tunnel_receiver_class_init (PnHttpsTunnelReceiverClass *klass)
     node_class->palette_icon   = PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON;
     node_class->class_name     = "HTTPS Tunnel Receiver";
     node_class->icon           = PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON;
-    node_class->color          = (GdkRGBA){ 0.36, 0.66, 0.36, 1.0 };
+    node_class->color          = (PnColor){ 0.36, 0.66, 0.36, 1.0 };
     node_class->category       = "Network";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;

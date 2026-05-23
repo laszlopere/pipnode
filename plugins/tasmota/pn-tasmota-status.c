@@ -76,7 +76,7 @@ pn_tasmota_status_class_init (PnTasmotaStatusClass *klass)
     node_class->palette_icon  = PN_TASMOTA_STATUS_ICON;
     node_class->class_name    = "Tasmota Status";
     node_class->icon          = PN_TASMOTA_STATUS_ICON;
-    node_class->color         = (GdkRGBA){ 0.42, 0.55, 0.72, 1.0 };
+    node_class->color         = (PnColor){ 0.42, 0.55, 0.72, 1.0 };
     node_class->category      = "Tasmota";
     node_class->has_input     = TRUE;
     node_class->has_output    = TRUE;
@@ -86,7 +86,7 @@ static void
 pn_tasmota_status_init (PnTasmotaStatus *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  steel = { 0.42, 0.55, 0.72, 1.0 };
+    PnColor  steel = { 0.42, 0.55, 0.72, 1.0 };
 
     pn_node_set_class_name (node, "Tasmota Status");
     pn_node_set_icon       (node, PN_TASMOTA_STATUS_ICON);

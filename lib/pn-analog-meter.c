@@ -1602,7 +1602,7 @@ pn_analog_meter_class_init (PnAnalogMeterClass *klass)
      * read a single numeric value off the message, so palette-grouping
      * them by colour helps the eye spot a worksheet's metering row at
      * a glance. */
-    node_class->color             = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color             = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = FALSE;
@@ -1762,7 +1762,7 @@ pn_analog_meter_init (PnAnalogMeter *self)
 
     {
         GdkRGBA yellow = { 0.92, 0.76, 0.27, 1.0 };
-        pn_node_set_color (node, &yellow);
+        pn_node_set_color (node, (const PnColor *)&yellow);
     }
     pn_node_set_class_name (node, "AnalogMeter");
     pn_node_set_icon       (node, "\xef\x83\xa4");

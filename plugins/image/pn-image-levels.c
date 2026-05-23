@@ -174,7 +174,7 @@ pn_image_levels_class_init (PnImageLevelsClass *klass)
     node_class->receive    = pn_image_levels_receive;
     node_class->class_name = "Levels";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_ADJUST;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -205,7 +205,7 @@ static void
 pn_image_levels_init (PnImageLevels *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->black = 0;
     self->white = 255;

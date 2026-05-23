@@ -369,7 +369,7 @@ pn_stats_class_init (PnStatsClass *klass)
 
     node_class->class_name     = "Stats";
     node_class->icon           = "\xef\x82\x80";  /* fa-bar-chart U+F080 */
-    node_class->color          = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -401,7 +401,7 @@ static void
 pn_stats_init (PnStats *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.76, 0.27, 1.0 };
+    PnColor  yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     self->window   = PN_STATS_WINDOW_DEF;
     self->bins     = PN_STATS_BINS_DEF;

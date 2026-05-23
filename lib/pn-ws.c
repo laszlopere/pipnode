@@ -36,7 +36,7 @@
  * PnWebsocketClass.normal_color zero-initialised.  Teal for "live
  * stream" — visually distinct from the HTTP green so a glance at the
  * canvas tells request/response from push. */
-static const GdkRGBA PN_WS_DEFAULT_COLOR = { 0.30, 0.62, 0.70, 1.0 };
+static const PnColor PN_WS_DEFAULT_COLOR = { 0.30, 0.62, 0.70, 1.0 };
 
 typedef struct
 {
@@ -138,7 +138,7 @@ pn_ws_apply_visual_state (
                 ? klass->normal_icon
                 : PN_WS_NORMAL_ICON;
 
-        const GdkRGBA *color = (klass->normal_color.alpha > 0.0)
+        const PnColor *color = (klass->normal_color.alpha > 0.0)
                 ? &klass->normal_color
                 : &PN_WS_DEFAULT_COLOR;
 
@@ -147,7 +147,7 @@ pn_ws_apply_visual_state (
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_WS_WARNING_ICON);
     }

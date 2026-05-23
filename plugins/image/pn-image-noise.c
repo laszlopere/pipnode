@@ -121,7 +121,7 @@ pn_image_noise_class_init (PnImageNoiseClass *klass)
     node_class->receive    = pn_image_noise_receive;
     node_class->class_name = "Add Noise";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_STYLIZE;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -139,7 +139,7 @@ static void
 pn_image_noise_init (PnImageNoise *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->amount = 0.2;
 

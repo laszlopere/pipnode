@@ -262,7 +262,7 @@ pn_staircase_class_init (PnStaircaseClass *klass)
 
     node_class->class_name     = "Staircase";
     node_class->icon           = "\xef\x87\x9a";  /* fa-history U+F1DA */
-    node_class->color          = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -290,7 +290,7 @@ static void
 pn_staircase_init (PnStaircase *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.76, 0.27, 1.0 };
+    PnColor  yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     self->on_time_ms    = PN_STAIRCASE_MS_DEF;
     self->retriggerable = PN_STAIRCASE_RETRIGGER_DEF;

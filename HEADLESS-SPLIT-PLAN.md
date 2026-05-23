@@ -18,6 +18,45 @@ a phase until the previous phase's verification passes.
 
 What has been done toward this plan, newest first:
 
+- **Phase 1 DONE — the type headers are de-GTK'd (ABI-stable).** The
+  proven recipe is now applied to the real tree:
+  - New `lib/pn-color.[ch]`: `PnColor` (4×`double` r,g,b,a, same member
+    names as `GdkRGBA`) as a boxed `PN_TYPE_COLOR`, with
+    `pn_color_parse()` / `pn_color_to_string()` (byte-compatible with
+    `gdk_rgba_to_string()` so saved worksheets round-trip unchanged),
+    `pn_color_equal()` / `_copy` / `_free`.  Pure gobject — no GDK.
+  - `lib/pn-node.h` (the plugin/class ABI) no longer includes
+    `<gtk/gtk.h>` / `<gdk/gdk.h>`: it pulls `<glib-object.h>` +
+    `pn-color.h`, forward-declares the pointer-only `cairo_t` /
+    `GtkWidget` / `GtkWindow` / `GtkNotebook` (struct tags matching GTK's
+    so the GUI tier's real headers coexist), and the vtable's by-value
+    `GdkRGBA color` + the three `pn_node*_color` signatures are now
+    `PnColor`.  **`pn-node.c` compiles GTK-free.**
+  - Base colour surface migrated: `pn-node.c` (storage/property/accessors
+    → `PnColor`, `PROP_COLOR` spec → `PN_TYPE_COLOR`, `gdk_rgba_equal` →
+    `pn_color_equal`), `pn-node-factory.[ch]`, and the `pn-http`/`pn-ws`
+    base classes (dropped their `<gdk/gdk.h>`, `normal_color` → PnColor).
+  - `pn-flow.c` serializer gained a `PN_TYPE_COLOR` branch
+    (`pn_color_to_string`/`parse`) for the base node colour; it keeps the
+    `GDK_TYPE_RGBA` branch (and a temporary GTK include) for the
+    dual-nodes' own colour properties, which move to PnColor in Phase 4.
+  - ~110 logic/image/plugin files: mechanical `GdkRGBA` → `PnColor`
+    rename (they only ever used it as the class body colour).  The
+    dual/GUI "boundary" files (chat, dial, graph, table(-view),
+    text-view, analog-meter, led, filedrop, file-viewer, weather-report,
+    node-dialog, worksheet) keep `GdkRGBA` internally and cast
+    `PnColor* <-> GdkRGBA*` at the base-colour touchpoints; the dual
+    nodes that lost their transitive GTK (drawing via cairo / dialog
+    widgets) gained an explicit `#include <gtk/gtk.h>` (correct for the
+    still-monolithic Phase 1 lib; Phase 4 splits them properly).
+  - New permanent guard `tests/unit/test-pn-color.c`: compile-time
+    `G_STATIC_ASSERT`s that `PnColor` is layout-identical to `GdkRGBA`,
+    plus parser/serializer **cross-checks against gdk_rgba_parse/
+    to_string** (the risk-register mitigation) and the lenient-superset
+    forms.  `./run-unit-tests.sh` green at **52/52**; full tree builds
+    with **zero warnings**; `tests/test_node_dialog_dial.py` green.  No
+    behaviour change.  Phase 2 (re-measure the tier boundary) is next.
+
 - **IO-node parsers extracted + tested (TODO #24, Phase 0 fill-out).**
   The pure parse/aggregate logic of the auto-trigger IO nodes — whose
   receive/trigger logic is core-bound but was untestable headless
@@ -189,7 +228,7 @@ provably behavior-preserving. This is the TODO #23 / #24 prerequisite.
 
 ---
 
-### Phase 1 — De-GTK the type headers (ABI-stable)
+### Phase 1 — De-GTK the type headers (ABI-stable) — **DONE** (see §0)
 
 **Objective:** remove `#include <gtk/gtk.h>` from the headers that define
 the plugin/class ABI, so a pure-logic translation unit compiles against

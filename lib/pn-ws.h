@@ -16,8 +16,6 @@
 #ifndef PN_WS_H
 #define PN_WS_H
 
-#include <gdk/gdk.h>
-
 #include "pn-node.h"
 
 G_BEGIN_DECLS
@@ -78,7 +76,7 @@ struct _PnWebsocketClass
      * a colour distinctive from the base WebSocket teal.  Leaving this
      * zero-initialised falls back to the base class default.
      */
-    GdkRGBA normal_color;
+    PnColor normal_color;
 
     /**
      * PnWebsocketClass::is_configured:

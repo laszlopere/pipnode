@@ -221,7 +221,7 @@ pn_format_class_init (PnFormatClass *klass)
 
     node_class->class_name     = "Format";
     node_class->icon           = "\xef\x84\xa1";  /* fa-code U+F121 */
-    node_class->color          = (GdkRGBA){ 0.40, 0.66, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.40, 0.66, 0.78, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -247,7 +247,7 @@ static void
 pn_format_init (PnFormat *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  blue = { 0.40, 0.66, 0.78, 1.0 };
+    PnColor  blue = { 0.40, 0.66, 0.78, 1.0 };
 
     self->success_text = g_strdup ("");
     self->failure_text = g_strdup ("");

@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-chat.h"
+#include <gtk/gtk.h>
 #include "pn-json-path.h"
 #include "pn-message.h"
 
@@ -1393,7 +1394,7 @@ pn_chat_class_init (PnChatClass *klass)
 
     node_class->class_name        = "Chat";
     node_class->icon              = "\xef\x82\x86";  /* fa-comments U+F086 */
-    node_class->color             = (GdkRGBA){ 0.40, 0.55, 0.80, 1.0 };
+    node_class->color             = (PnColor){ 0.40, 0.55, 0.80, 1.0 };
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = TRUE;
@@ -1513,7 +1514,7 @@ pn_chat_init (PnChat *self)
 
     pn_node_set_class_name (node, "Chat");
     pn_node_set_icon       (node, "\xef\x82\x86");  /* fa-comments U+F086 */
-    pn_node_set_color      (node, &body_color);
+    pn_node_set_color (node, (const PnColor *)&body_color);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }

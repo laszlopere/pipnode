@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-ollama.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <json-glib/json-glib.h>
@@ -98,13 +99,13 @@ apply_visual_state (
 
     if (configured)
     {
-        GdkRGBA indigo = { 0.42, 0.36, 0.72, 1.0 };
+        PnColor indigo = { 0.42, 0.36, 0.72, 1.0 };
         pn_node_set_color (node, &indigo);
         pn_node_set_icon  (node, PN_OLLAMA_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_OLLAMA_WARNING_ICON);
     }
@@ -829,7 +830,7 @@ pn_ollama_class_init (PnOllamaClass *klass)
     node_class->palette_icon = PN_OLLAMA_ICON;
     node_class->class_name   = "Ollama";
     node_class->icon         = PN_OLLAMA_ICON;
-    node_class->color        = (GdkRGBA){ 0.42, 0.36, 0.72, 1.0 };
+    node_class->color        = (PnColor){ 0.42, 0.36, 0.72, 1.0 };
     node_class->category     = "Filters";
     node_class->has_input    = TRUE;
     node_class->has_output   = TRUE;

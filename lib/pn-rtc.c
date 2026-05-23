@@ -83,7 +83,7 @@ pn_rtc_class_init (PnRtcClass *klass)
 
     node_class->class_name = "Clock";
     node_class->icon       = "\xef\x80\x97";  /* fa-clock-o U+F017 */
-    node_class->color      = (GdkRGBA){ 0.95, 0.78, 0.40, 1.0 };
+    node_class->color      = (PnColor){ 0.95, 0.78, 0.40, 1.0 };
     node_class->category   = "Sources";
     node_class->has_input  = FALSE;
     node_class->has_output = TRUE;
@@ -97,7 +97,7 @@ pn_rtc_init (PnRtc *self)
     /* Defaults that identify this node visually.  Amber colour, alarm
      * clock glyph, source-only ports.  Period inherits from
      * #PnAutoTrigger (default 1 second). */
-    GdkRGBA amber = { 0.95, 0.78, 0.40, 1.0 };
+    PnColor amber = { 0.95, 0.78, 0.40, 1.0 };
 
     pn_node_set_class_name (node, "Clock");
     pn_node_set_icon       (node, "\xef\x80\x97");  /* fa-clock-o U+F017 */

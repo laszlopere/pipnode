@@ -561,13 +561,13 @@ apply_visual_state (PnTts *self)
 
     if (self->last_error == NULL)
     {
-        GdkRGBA violet = { 0.55, 0.42, 0.78, 1.0 };
+        PnColor violet = { 0.55, 0.42, 0.78, 1.0 };
         pn_node_set_color (node, &violet);
         pn_node_set_icon  (node, PN_TTS_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_TTS_WARNING_ICON);
     }
@@ -1209,7 +1209,7 @@ pn_tts_class_init (PnTtsClass *klass)
 
     node_class->class_name     = "Text to Speech";
     node_class->icon           = PN_TTS_NORMAL_ICON;
-    node_class->color          = (GdkRGBA){ 0.55, 0.42, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.55, 0.42, 0.78, 1.0 };
     node_class->category       = "Sinks";
     node_class->has_input      = TRUE;
     node_class->has_output     = FALSE;

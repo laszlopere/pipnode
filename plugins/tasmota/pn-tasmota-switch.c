@@ -81,13 +81,13 @@ pn_tasmota_switch_apply_visual_state (PnSwitch *base)
 
     if (configured)
     {
-        GdkRGBA steel = { 0.42, 0.55, 0.72, 1.0 };
+        PnColor steel = { 0.42, 0.55, 0.72, 1.0 };
         pn_node_set_color (node, &steel);
         pn_node_set_icon  (node, PN_TASMOTA_SWITCH_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_TASMOTA_SWITCH_WARNING_ICON);
     }
@@ -380,7 +380,7 @@ pn_tasmota_switch_class_init (PnTasmotaSwitchClass *klass)
     node_class->palette_icon = PN_TASMOTA_SWITCH_ICON;
     node_class->class_name   = "Tasmota Switch";
     node_class->icon         = PN_TASMOTA_SWITCH_ICON;
-    node_class->color        = (GdkRGBA){ 0.42, 0.55, 0.72, 1.0 };
+    node_class->color        = (PnColor){ 0.42, 0.55, 0.72, 1.0 };
     node_class->category     = "Tasmota";
     node_class->has_input    = TRUE;
     node_class->has_output   = TRUE;

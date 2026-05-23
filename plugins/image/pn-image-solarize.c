@@ -119,7 +119,7 @@ pn_image_solarize_class_init (PnImageSolarizeClass *klass)
     node_class->receive    = pn_image_solarize_receive;
     node_class->class_name = "Solarize";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_ADJUST;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -138,7 +138,7 @@ static void
 pn_image_solarize_init (PnImageSolarize *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->threshold = 128;
 

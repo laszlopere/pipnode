@@ -122,7 +122,7 @@ pn_image_saturation_class_init (PnImageSaturationClass *klass)
     node_class->receive    = pn_image_saturation_receive;
     node_class->class_name = "Saturation";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_ADJUST;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -141,7 +141,7 @@ static void
 pn_image_saturation_init (PnImageSaturation *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->amount = 1.0;
 

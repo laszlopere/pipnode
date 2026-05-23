@@ -16,8 +16,6 @@
 #ifndef PN_HTTP_H
 #define PN_HTTP_H
 
-#include <gdk/gdk.h>
-
 #include "pn-auto-trigger.h"
 
 G_BEGIN_DECLS
@@ -69,7 +67,7 @@ struct _PnHttpClass
      * class falls back to its own default if this is left at the
      * zero-initialised value (alpha 0).
      */
-    GdkRGBA normal_color;
+    PnColor normal_color;
 
     /**
      * PnHttpClass::is_configured:

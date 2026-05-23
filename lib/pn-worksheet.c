@@ -525,7 +525,8 @@ draw_node (
         PnWorksheet *self)
 {
     const PnPoint *pos       = pn_node_get_position   (node);
-    const GdkRGBA *col       = pn_node_get_color      (node);
+    /* PnColor is layout-identical to GdkRGBA (see pn-color.h). */
+    const GdkRGBA *col       = (const GdkRGBA *) pn_node_get_color (node);
     const gchar   *icon      = pn_node_get_icon       (node);
     const gchar   *name      = pn_node_get_name       (node);
     const gchar   *label     = (name != NULL && *name != '\0')

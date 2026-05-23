@@ -61,13 +61,13 @@ apply_visual_state (
 
     if (configured)
     {
-        GdkRGBA teal = { 0.30, 0.66, 0.66, 1.0 };
+        PnColor teal = { 0.30, 0.66, 0.66, 1.0 };
         pn_node_set_color (node, &teal);
         pn_node_set_icon  (node, PN_INJECT_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_INJECT_WARNING_ICON);
     }
@@ -189,7 +189,7 @@ pn_inject_class_init (PnInjectClass *klass)
     node_class->palette_icon   = PN_INJECT_NORMAL_ICON;
     node_class->class_name     = "Injector";
     node_class->icon           = PN_INJECT_NORMAL_ICON;
-    node_class->color          = (GdkRGBA){ 0.30, 0.66, 0.66, 1.0 };
+    node_class->color          = (PnColor){ 0.30, 0.66, 0.66, 1.0 };
     node_class->category       = "Sources";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;

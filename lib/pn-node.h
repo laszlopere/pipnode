@@ -16,10 +16,24 @@
 #ifndef PN_NODE_H
 #define PN_NODE_H
 
-#include <gtk/gtk.h>
-#include <gdk/gdk.h>
+#include <glib-object.h>
+
+#include "pn-color.h"
 
 G_BEGIN_DECLS
+
+/* Headless-core invariant: this header — the plugin/class ABI — must
+ * compile against gobject alone, so it pulls in neither GTK nor GDK.
+ * The few toolkit types that appear in the class vtable are referenced
+ * by pointer only, so opaque forward declarations suffice here; the GUI
+ * tier (which does include <gtk/gtk.h> / cairo) sees these resolve to
+ * the real types in the same translation unit because the struct tags
+ * match GTK's own.  The one by-value colour slot uses #PnColor, which is
+ * layout-identical to #GdkRGBA (see pn-color.h). */
+typedef struct _cairo       cairo_t;
+typedef struct _GtkWidget   GtkWidget;
+typedef struct _GtkWindow   GtkWindow;
+typedef struct _GtkNotebook GtkNotebook;
 
 /* ------------------------------------------------------------------ */
 /*  PnPoint                                                            */
@@ -125,7 +139,7 @@ struct _PnNodeClass
      * Subclasses that leave this zero-initialised get the parent's
      * colour at runtime.  Read via pn_node_class_get_color().
      */
-    GdkRGBA color;
+    PnColor color;
 
     /**
      * PnNodeClass.has_input:
@@ -457,8 +471,8 @@ PnNode         *pn_node_new            (void);
  * pointer into the node's internal storage; copy with pn_point_copy()
  * if you need to outlive the node. */
 
-const GdkRGBA  *pn_node_get_color      (PnNode *self);
-void            pn_node_set_color      (PnNode *self, const GdkRGBA *color);
+const PnColor  *pn_node_get_color      (PnNode *self);
+void            pn_node_set_color      (PnNode *self, const PnColor *color);
 
 const gchar    *pn_node_get_class_name (PnNode *self);
 void            pn_node_set_class_name (PnNode *self, const gchar *class_name);
@@ -472,7 +486,7 @@ const gchar    *pn_node_class_get_plugin_name (PnNodeClass *klass);
 const gchar    *pn_node_class_get_category    (PnNodeClass *klass);
 const gchar    *pn_node_class_get_class_name  (PnNodeClass *klass);
 const gchar    *pn_node_class_get_icon        (PnNodeClass *klass);
-const GdkRGBA  *pn_node_class_get_color       (PnNodeClass *klass);
+const PnColor  *pn_node_class_get_color       (PnNodeClass *klass);
 gboolean        pn_node_class_get_has_input   (PnNodeClass *klass);
 gboolean        pn_node_class_get_has_output  (PnNodeClass *klass);
 

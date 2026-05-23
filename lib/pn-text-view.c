@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-text-view.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <math.h>
@@ -443,7 +444,7 @@ pn_text_view_class_init (PnTextViewClass *klass)
      * icon font supports.  Same FA-4 ceiling (no codepoints past
      * U+F2FF) the shell-plugin icons document applies here. */
     node_class->icon              = "\xef\x84\xa0";
-    node_class->color             = (GdkRGBA){ 0.18, 0.78, 0.30, 1.0 };
+    node_class->color             = (PnColor){ 0.18, 0.78, 0.30, 1.0 };
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = TRUE;
@@ -488,7 +489,7 @@ pn_text_view_init (PnTextView *self)
 
     pn_node_set_class_name (node, "Text View");
     pn_node_set_icon       (node, "\xef\x84\xa0");  /* fa-terminal */
-    pn_node_set_color      (node, &green);
+    pn_node_set_color (node, (const PnColor *)&green);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }

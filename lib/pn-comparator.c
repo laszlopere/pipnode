@@ -222,7 +222,7 @@ pn_comparator_class_init (PnComparatorClass *klass)
 
     node_class->class_name     = "Comparator";
     node_class->icon           = "\xef\x89\x8e";  /* fa-balance-scale U+F24E */
-    node_class->color          = (GdkRGBA){ 0.92, 0.78, 0.30, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.78, 0.30, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -242,7 +242,7 @@ static void
 pn_comparator_init (PnComparator *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.78, 0.30, 1.0 };
+    PnColor  yellow = { 0.92, 0.78, 0.30, 1.0 };
 
     self->hysteresis = PN_HYSTERESIS_DEF;
     self->has_a      = FALSE;

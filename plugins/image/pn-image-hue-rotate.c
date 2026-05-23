@@ -112,7 +112,7 @@ pn_image_hue_rotate_class_init (PnImageHueRotateClass *klass)
     node_class->receive    = pn_image_hue_rotate_receive;
     node_class->class_name = "Hue Rotate";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_ADJUST;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -130,7 +130,7 @@ static void
 pn_image_hue_rotate_init (PnImageHueRotate *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->degrees = 0.0;
 

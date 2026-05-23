@@ -104,7 +104,7 @@ pn_tasmota_temperature_class_init (PnTasmotaTemperatureClass *klass)
     node_class->palette_icon  = PN_TASMOTA_TEMPERATURE_ICON;
     node_class->class_name    = "Tasmota Temperature";
     node_class->icon          = PN_TASMOTA_TEMPERATURE_ICON;
-    node_class->color         = (GdkRGBA){ 0.85, 0.45, 0.30, 1.0 };
+    node_class->color         = (PnColor){ 0.85, 0.45, 0.30, 1.0 };
     node_class->category      = "Tasmota";
     node_class->has_input     = TRUE;
     node_class->has_output    = TRUE;
@@ -114,7 +114,7 @@ static void
 pn_tasmota_temperature_init (PnTasmotaTemperature *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  red  = { 0.85, 0.45, 0.30, 1.0 };
+    PnColor  red  = { 0.85, 0.45, 0.30, 1.0 };
 
     pn_node_set_class_name (node, "Tasmota Temperature");
     pn_node_set_icon       (node, PN_TASMOTA_TEMPERATURE_ICON);

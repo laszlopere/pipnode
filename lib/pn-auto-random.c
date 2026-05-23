@@ -410,7 +410,7 @@ pn_auto_random_class_init (PnAutoRandomClass *klass)
     /* Coral / salmon — clearly distinct from #PnAutoInjector's
      * orange and #PnInject's teal so the three sources do not blur
      * together in a glance at the canvas. */
-    node_class->color          = (GdkRGBA){ 0.86, 0.44, 0.39, 1.0 };
+    node_class->color          = (PnColor){ 0.86, 0.44, 0.39, 1.0 };
     node_class->category       = "Sources";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
@@ -455,7 +455,7 @@ static void
 pn_auto_random_init (PnAutoRandom *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  coral = { 0.86, 0.44, 0.39, 1.0 };
+    PnColor  coral = { 0.86, 0.44, 0.39, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->output       = g_strdup (PN_AUTO_RANDOM_DEFAULT_OUTPUT);

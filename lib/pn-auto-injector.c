@@ -206,7 +206,7 @@ pn_auto_injector_class_init (PnAutoInjectorClass *klass)
     node_class->palette_icon   = PN_AUTO_INJECTOR_ICON;
     node_class->class_name     = "AutoInjector";
     node_class->icon           = PN_AUTO_INJECTOR_ICON;
-    node_class->color          = (GdkRGBA){ 0.93, 0.55, 0.18, 1.0 };
+    node_class->color          = (PnColor){ 0.93, 0.55, 0.18, 1.0 };
     node_class->category       = "Sources";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
@@ -237,7 +237,7 @@ static void
 pn_auto_injector_init (PnAutoInjector *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  orange = { 0.93, 0.55, 0.18, 1.0 };
+    PnColor  orange = { 0.93, 0.55, 0.18, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->output  = g_strdup (PN_AUTO_INJECTOR_DEFAULT_OUTPUT);

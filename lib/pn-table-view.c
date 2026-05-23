@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-table-view.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <math.h>
@@ -774,7 +775,7 @@ pn_table_view_class_init (PnTableViewClass *klass)
 
     node_class->class_name        = "Table View";
     node_class->icon              = "\xef\x83\x8e";  /* fa-table U+F0CE */
-    node_class->color             = (GdkRGBA){ 0.27, 0.71, 0.85, 1.0 };
+    node_class->color             = (PnColor){ 0.27, 0.71, 0.85, 1.0 };
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = FALSE;
@@ -844,7 +845,7 @@ pn_table_view_init (PnTableView *self)
 
     pn_node_set_class_name (node, "Table View");
     pn_node_set_icon       (node, "\xef\x83\x8e");  /* fa-table */
-    pn_node_set_color      (node, &cyan);
+    pn_node_set_color (node, (const PnColor *)&cyan);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 }

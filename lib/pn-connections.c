@@ -424,7 +424,7 @@ pn_connections_class_init (PnConnectionsClass *klass)
     node_class->palette_icon   = PN_CONNECTIONS_ICON;
     node_class->class_name     = "Net Connections";
     node_class->icon           = PN_CONNECTIONS_ICON;
-    node_class->color          = (GdkRGBA){ 0.62, 0.50, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.62, 0.50, 0.78, 1.0 };
     node_class->category       = "Host monitoring";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
@@ -449,7 +449,7 @@ static void
 pn_connections_init (PnConnections *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  violet = { 0.62, 0.50, 0.78, 1.0 };
+    PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->hostname = g_strdup (PN_CONNECTIONS_DEFAULT_HOST);

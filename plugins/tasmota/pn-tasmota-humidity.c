@@ -92,7 +92,7 @@ pn_tasmota_humidity_class_init (PnTasmotaHumidityClass *klass)
     node_class->palette_icon  = PN_TASMOTA_HUMIDITY_ICON;
     node_class->class_name    = "Tasmota Humidity";
     node_class->icon          = PN_TASMOTA_HUMIDITY_ICON;
-    node_class->color         = (GdkRGBA){ 0.30, 0.55, 0.85, 1.0 };
+    node_class->color         = (PnColor){ 0.30, 0.55, 0.85, 1.0 };
     node_class->category      = "Tasmota";
     node_class->has_input     = TRUE;
     node_class->has_output    = TRUE;
@@ -102,7 +102,7 @@ static void
 pn_tasmota_humidity_init (PnTasmotaHumidity *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  blue = { 0.30, 0.55, 0.85, 1.0 };
+    PnColor  blue = { 0.30, 0.55, 0.85, 1.0 };
 
     pn_node_set_class_name (node, "Tasmota Humidity");
     pn_node_set_icon       (node, PN_TASMOTA_HUMIDITY_ICON);

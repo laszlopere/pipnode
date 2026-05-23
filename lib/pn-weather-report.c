@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-weather-report.h"
+#include <gtk/gtk.h>
 #include "pn-message.h"
 
 #include <pango/pangocairo.h>
@@ -1359,7 +1360,7 @@ pn_weather_report_class_init (PnWeatherReportClass *klass)
     node_class->palette_icon = PN_WR_ICON;
     node_class->class_name   = "Weather Report";
     node_class->icon         = PN_WR_ICON;
-    node_class->color        = (GdkRGBA){ 0.30, 0.60, 0.85, 1.0 };
+    node_class->color        = (PnColor){ 0.30, 0.60, 0.85, 1.0 };
     node_class->category     = "Sinks";
     node_class->has_input    = TRUE;
     node_class->has_output   = FALSE;
@@ -1457,7 +1458,7 @@ pn_weather_report_init (PnWeatherReport *self)
 
     pn_node_set_class_name (node, "Weather Report");
     pn_node_set_icon       (node, PN_WR_ICON);
-    pn_node_set_color      (node, &sky);
+    pn_node_set_color (node, (const PnColor *)&sky);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 

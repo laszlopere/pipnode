@@ -68,7 +68,7 @@ pn_image_sepia_class_init (PnImageSepiaClass *klass)
     node_class->receive    = pn_image_sepia_receive;
     node_class->class_name = "Sepia";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_COLOR;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -78,7 +78,7 @@ static void
 pn_image_sepia_init (PnImageSepia *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     pn_node_set_class_name (node, "Sepia");
     pn_node_set_icon       (node, "\xef\x83\x90");

@@ -439,7 +439,7 @@ pn_file_viewer_class_init (PnFileViewerClass *klass)
 
     node_class->class_name = "FileViewer";
     node_class->icon       = "\xef\x80\xbe";  /* fa-image U+F03E */
-    node_class->color      = (GdkRGBA){ 0.36, 0.60, 0.74, 1.0 };
+    node_class->color      = (PnColor){ 0.36, 0.60, 0.74, 1.0 };
     node_class->category   = "Sinks";
     node_class->has_input  = TRUE;
     node_class->has_output = FALSE;
@@ -472,7 +472,7 @@ pn_file_viewer_init (PnFileViewer *self)
 
     pn_node_set_class_name (node, "FileViewer");
     pn_node_set_icon       (node, "\xef\x80\xbe");  /* fa-image U+F03E */
-    pn_node_set_color      (node, &color);
+    pn_node_set_color (node, (const PnColor *)&color);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 }

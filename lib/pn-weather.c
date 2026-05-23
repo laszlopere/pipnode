@@ -732,12 +732,12 @@ pn_weather_class_init (PnWeatherClass *klass)
     node_class->palette_icon = PN_WEATHER_ICON;
     node_class->class_name   = "Weather";
     node_class->icon         = PN_WEATHER_ICON;
-    node_class->color        = (GdkRGBA){ 0.30, 0.60, 0.85, 1.0 };
+    node_class->color        = (PnColor){ 0.30, 0.60, 0.85, 1.0 };
     node_class->category     = "Network";
     node_class->has_input    = FALSE;
     node_class->has_output   = TRUE;
     http_class->normal_icon  = PN_WEATHER_ICON;
-    http_class->normal_color = (GdkRGBA){ 0.30, 0.60, 0.85, 1.0 };
+    http_class->normal_color = (PnColor){ 0.30, 0.60, 0.85, 1.0 };
 
     props[PROP_CITY] = g_param_spec_string (
             "city", "City",
@@ -754,7 +754,7 @@ static void
 pn_weather_init (PnWeather *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  sky  = { 0.30, 0.60, 0.85, 1.0 };
+    PnColor  sky  = { 0.30, 0.60, 0.85, 1.0 };
 
     g_mutex_init (&self->mutex);
     self->city = g_strdup ("");

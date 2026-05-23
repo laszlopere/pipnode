@@ -975,7 +975,9 @@ build_class_metadata_tab (PnNode *node)
     }
 
     {
-        const GdkRGBA *color = pn_node_class_get_color (klass);
+        /* PnColor is layout-identical to GdkRGBA (see pn-color.h); the
+         * GUI tier casts at the gdk boundary. */
+        const GdkRGBA *color = (const GdkRGBA *) pn_node_class_get_color (klass);
         GtkWidget     *label = gtk_label_new ("Color");
         GtkWidget     *btn   = gtk_color_button_new_with_rgba (
                 color != NULL ? color : &(GdkRGBA){ 0.0, 0.0, 0.0, 0.0 });

@@ -121,7 +121,7 @@ const gchar   *pn_node_factory_get_class_name   (PnNodeFactory *self, GType type
 const gchar   *pn_node_factory_get_category     (PnNodeFactory *self, GType type);
 const gchar   *pn_node_factory_get_icon         (PnNodeFactory *self, GType type);
 const gchar   *pn_node_factory_get_palette_icon (PnNodeFactory *self, GType type);
-const GdkRGBA *pn_node_factory_get_color        (PnNodeFactory *self, GType type);
+const PnColor *pn_node_factory_get_color        (PnNodeFactory *self, GType type);
 gboolean       pn_node_factory_get_has_input    (PnNodeFactory *self, GType type);
 gboolean       pn_node_factory_get_has_output   (PnNodeFactory *self, GType type);
 const gchar   *pn_node_factory_get_plugin_name  (PnNodeFactory *self, GType type);

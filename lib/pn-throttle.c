@@ -138,7 +138,7 @@ pn_throttle_class_init (PnThrottleClass *klass)
 
     node_class->class_name     = "Throttle";
     node_class->icon           = "\xef\x83\xa4";  /* fa-tachometer U+F0E4 */
-    node_class->color          = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -158,7 +158,7 @@ static void
 pn_throttle_init (PnThrottle *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.76, 0.27, 1.0 };
+    PnColor  yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     self->interval = PN_THROTTLE_INTERVAL_DEF;
     self->has_last = FALSE;

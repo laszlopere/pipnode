@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-sound.h"
+#include <gtk/gtk.h>
 
 #define PN_SOUND_NORMAL_ICON  "\xef\x80\xa8"        /* fa-volume-up U+F028 */
 #define PN_SOUND_WARNING_ICON "\xe2\x9d\x97"        /* ❗ U+2757 */
@@ -78,13 +79,13 @@ apply_visual_state (
 
     if (configured)
     {
-        GdkRGBA violet = { 0.55, 0.42, 0.78, 1.0 };
+        PnColor violet = { 0.55, 0.42, 0.78, 1.0 };
         pn_node_set_color (node, &violet);
         pn_node_set_icon  (node, PN_SOUND_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_SOUND_WARNING_ICON);
     }
@@ -532,7 +533,7 @@ pn_sound_class_init (PnSoundClass *klass)
     node_class->palette_icon   = PN_SOUND_NORMAL_ICON;
     node_class->class_name     = "Sound";
     node_class->icon           = PN_SOUND_NORMAL_ICON;
-    node_class->color          = (GdkRGBA){ 0.55, 0.42, 0.78, 1.0 };
+    node_class->color          = (PnColor){ 0.55, 0.42, 0.78, 1.0 };
     node_class->category       = "Sinks";
     node_class->has_input      = TRUE;
     node_class->has_output     = FALSE;

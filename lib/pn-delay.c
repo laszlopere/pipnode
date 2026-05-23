@@ -207,7 +207,7 @@ pn_delay_class_init (PnDelayClass *klass)
 
     node_class->class_name     = "Delay";
     node_class->icon           = "\xef\x89\x92";  /* fa-hourglass-half U+F252 */
-    node_class->color          = (GdkRGBA){ 0.92, 0.76, 0.27, 1.0 };
+    node_class->color          = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -227,7 +227,7 @@ static void
 pn_delay_init (PnDelay *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  yellow = { 0.92, 0.76, 0.27, 1.0 };
+    PnColor  yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     self->delay_ms = PN_DELAY_MS_DEF;
     self->pending  = g_hash_table_new (g_direct_hash, g_direct_equal);

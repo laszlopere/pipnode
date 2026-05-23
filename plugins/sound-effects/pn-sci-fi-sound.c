@@ -313,13 +313,13 @@ apply_visual_state (PnSciFiSound *self, gboolean configured)
 
     if (configured)
     {
-        GdkRGBA warp = { 0.20, 0.55, 0.85, 1.0 };
+        PnColor warp = { 0.20, 0.55, 0.85, 1.0 };
         pn_node_set_color (node, &warp);
         pn_node_set_icon  (node, PN_SCI_FI_SOUND_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_SCI_FI_SOUND_WARNING_ICON);
     }
@@ -1550,7 +1550,7 @@ pn_sci_fi_sound_class_init (PnSciFiSoundClass *klass)
     node_class->palette_icon = PN_SCI_FI_SOUND_NORMAL_ICON;
     node_class->class_name   = "SciFi Sound";
     node_class->icon         = PN_SCI_FI_SOUND_NORMAL_ICON;
-    node_class->color        = (GdkRGBA){ 0.20, 0.55, 0.85, 1.0 };
+    node_class->color        = (PnColor){ 0.20, 0.55, 0.85, 1.0 };
     node_class->category     = "Sinks";
     node_class->has_input    = TRUE;
     node_class->has_output   = FALSE;

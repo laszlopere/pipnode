@@ -18,6 +18,8 @@ libpipnode_la_SOURCES = \
 	pn-comparator.h \
 	pn-connections.c \
 	pn-connections.h \
+	pn-color.c \
+	pn-color.h \
 	pn-cpu.c \
 	pn-cpu.h \
 	pn-debug.c \
@@ -185,6 +187,7 @@ pipnodeinclude_HEADERS = \
 	pn-ambient.h \
 	pn-analog-meter.h \
 	pn-chat.h \
+	pn-color.h \
 	pn-comparator.h \
 	pn-connections.h \
 	pn-cpu.h \

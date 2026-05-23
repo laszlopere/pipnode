@@ -269,7 +269,7 @@ pn_query_class_init (PnQueryClass *klass)
 
     node_class->class_name     = "Query";
     node_class->icon           = "\xef\x81\x9b";  /* fa-crosshairs U+F05B */
-    node_class->color          = (GdkRGBA){ 0.30, 0.66, 0.62, 1.0 };
+    node_class->color          = (PnColor){ 0.30, 0.66, 0.62, 1.0 };
     node_class->category       = "Filters";
     node_class->has_input      = TRUE;
     node_class->has_output     = TRUE;
@@ -306,7 +306,7 @@ static void
 pn_query_init (PnQuery *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  teal = { 0.30, 0.66, 0.62, 1.0 };
+    PnColor  teal = { 0.30, 0.66, 0.62, 1.0 };
 
     self->expression   = g_strdup ("");
     self->result_field = g_strdup ("result");

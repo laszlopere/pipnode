@@ -497,7 +497,7 @@ pn_filedrop_class_init (PnFileDropClass *klass)
 
     node_class->class_name = "FileDrop";
     node_class->icon       = "\xef\x80\x9c";  /* fa-inbox U+F01C */
-    node_class->color      = (GdkRGBA){ 0.36, 0.60, 0.74, 1.0 };
+    node_class->color      = (PnColor){ 0.36, 0.60, 0.74, 1.0 };
     node_class->category   = "Sources";
     node_class->has_input  = FALSE;
     node_class->has_output = TRUE;
@@ -530,7 +530,7 @@ pn_filedrop_init (PnFileDrop *self)
 
     pn_node_set_class_name (node, "FileDrop");
     pn_node_set_icon       (node, "\xef\x80\x9c");  /* fa-inbox U+F01C */
-    pn_node_set_color      (node, &color);
+    pn_node_set_color (node, (const PnColor *)&color);
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 }

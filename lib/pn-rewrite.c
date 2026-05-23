@@ -451,7 +451,7 @@ pn_rewrite_class_init (PnRewriteClass *klass)
 
     node_class->class_name = "Rewrite";
     node_class->icon       = "\xef\x81\x84";  /* fa-edit U+F044 */
-    node_class->color      = (GdkRGBA){ 0.55, 0.50, 0.80, 1.0 };
+    node_class->color      = (PnColor){ 0.55, 0.50, 0.80, 1.0 };
     node_class->category   = "Filters";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -472,7 +472,7 @@ static void
 pn_rewrite_init (PnRewrite *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  violet = { 0.55, 0.50, 0.80, 1.0 };
+    PnColor  violet = { 0.55, 0.50, 0.80, 1.0 };
 
     self->template_text = g_strdup (PN_REWRITE_DEFAULT_TEMPLATE);
 

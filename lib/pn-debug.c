@@ -405,7 +405,7 @@ pn_debug_class_init (PnDebugClass *klass)
 
     node_class->class_name     = "Debug Print";
     node_class->icon           = "\xef\x86\x88";  /* fa-bug U+F188 */
-    node_class->color          = (GdkRGBA){ 0.34, 0.66, 0.49, 1.0 };
+    node_class->color          = (PnColor){ 0.34, 0.66, 0.49, 1.0 };
     node_class->category       = "Sinks";
     node_class->has_input      = TRUE;
     node_class->has_output     = FALSE;
@@ -457,7 +457,7 @@ static void
 pn_debug_init (PnDebug *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  green = { 0.34, 0.66, 0.49, 1.0 };
+    PnColor  green = { 0.34, 0.66, 0.49, 1.0 };
 
     self->target = PN_DEBUG_TARGET_STDERR;
     self->format = PN_DEBUG_FORMAT_JSON;

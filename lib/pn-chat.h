@@ -20,6 +20,13 @@
 
 G_BEGIN_DECLS
 
+/* Headless-core invariant (TODO #23): this header must compile against
+ * gobject alone, so the GUI-only key handler below takes #GdkEventKey by
+ * pointer through an opaque forward declaration rather than pulling GDK.
+ * The struct tag matches GDK's own, so the real <gdk/gdk.h> definition
+ * coexists with this in the GUI-tier translation units that include both. */
+typedef struct _GdkEventKey GdkEventKey;
+
 /* ------------------------------------------------------------------ */
 /*  PnChat                                                             */
 /*                                                                     */

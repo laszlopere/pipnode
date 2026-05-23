@@ -131,7 +131,7 @@ pn_image_gaussian_blur_class_init (PnImageGaussianBlurClass *klass)
     node_class->receive    = pn_image_gaussian_blur_receive;
     node_class->class_name = "Gaussian Blur";
     node_class->icon       = "\xef\x83\x90";  /* fa-magic U+F0D0 */
-    node_class->color      = (GdkRGBA){ 0.50, 0.45, 0.70, 1.0 };
+    node_class->color      = (PnColor){ 0.50, 0.45, 0.70, 1.0 };
     node_class->category   = PN_IMAGE_CATEGORY_BLUR;
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -149,7 +149,7 @@ static void
 pn_image_gaussian_blur_init (PnImageGaussianBlur *self)
 {
     PnNode  *node  = PN_NODE (self);
-    GdkRGBA  color = { 0.50, 0.45, 0.70, 1.0 };
+    PnColor  color = { 0.50, 0.45, 0.70, 1.0 };
 
     self->radius = 2.0;
 

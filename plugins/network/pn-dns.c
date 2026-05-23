@@ -66,13 +66,13 @@ apply_visual_state (
 
     if (configured)
     {
-        GdkRGBA blue = { 0.42, 0.62, 0.86, 1.0 };
+        PnColor blue = { 0.42, 0.62, 0.86, 1.0 };
         pn_node_set_color (node, &blue);
         pn_node_set_icon  (node, PN_DNS_NORMAL_ICON);
     }
     else
     {
-        GdkRGBA red = { 0.86, 0.30, 0.28, 1.0 };
+        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_DNS_WARNING_ICON);
     }
@@ -435,7 +435,7 @@ pn_dns_class_init (PnDnsClass *klass)
     node_class->palette_icon   = PN_DNS_NORMAL_ICON;
     node_class->class_name     = "DNS Check";
     node_class->icon           = PN_DNS_NORMAL_ICON;
-    node_class->color          = (GdkRGBA){ 0.42, 0.62, 0.86, 1.0 };
+    node_class->color          = (PnColor){ 0.42, 0.62, 0.86, 1.0 };
     node_class->category       = "Network";
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;

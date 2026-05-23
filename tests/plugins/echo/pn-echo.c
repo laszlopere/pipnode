@@ -206,7 +206,7 @@ pn_echo_class_init (PnEchoClass *klass)
 
     node_class->class_name = "Echo";
     node_class->icon       = "\xef\x81\xb1";  /* fa-share U+F064 */
-    node_class->color      = (GdkRGBA){ 0.55, 0.65, 0.95, 1.0 };
+    node_class->color      = (PnColor){ 0.55, 0.65, 0.95, 1.0 };
     node_class->category   = "Filters";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -226,7 +226,7 @@ static void
 pn_echo_init (PnEcho *self)
 {
     PnNode  *node = PN_NODE (self);
-    GdkRGBA  blue = { 0.55, 0.65, 0.95, 1.0 };
+    PnColor  blue = { 0.55, 0.65, 0.95, 1.0 };
 
     self->device = g_strdup ("loop");
 

@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-notify.h"
+#include <gtk/gtk.h>
 #include "pn-json-path.h"
 #include "pn-message.h"
 #include "pn-subst.h"
@@ -546,7 +547,7 @@ pn_notify_class_init (PnNotifyClass *klass)
     node_class->palette_icon = PN_NOTIFY_ICON;
     node_class->class_name   = "Notify";
     node_class->icon         = PN_NOTIFY_ICON;
-    node_class->color        = (GdkRGBA){ 0.95, 0.55, 0.30, 1.0 };
+    node_class->color        = (PnColor){ 0.95, 0.55, 0.30, 1.0 };
     node_class->category     = "Sinks";
     node_class->has_input    = TRUE;
     node_class->has_output   = FALSE;
@@ -608,7 +609,7 @@ static void
 pn_notify_init (PnNotify *self)
 {
     PnNode  *node   = PN_NODE (self);
-    GdkRGBA  orange = { 0.95, 0.55, 0.30, 1.0 };
+    PnColor  orange = { 0.95, 0.55, 0.30, 1.0 };
 
     self->summary    = g_strdup (PN_NOTIFY_DEFAULT_SUMMARY);
     self->body       = g_strdup (PN_NOTIFY_DEFAULT_BODY);
