@@ -130,26 +130,26 @@ GTK/GDK/cairo, replace GdkRGBA with our own color type+parser); (2) whether
 visual nodes' logic must remain loadable headless or they become GUI-only;
 (3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
 in the same pass.
-STATUS (see HEADLESS-SPLIT-PLAN.md §0 for detail): Phases 0-6 DONE. The lib is
-split into GTK-free libpipnode-core + libpipnode-gui; all 24 dual nodes are
-split; pipnode-run links core only and is verified GTK-free; the plugin ABI
-(now v3) gained a companion GUI module (pn_plugin_gui_init in <plugin>-gui.so)
-so a plugin ships GTK-free logic the server installs + bespoke GUI the editor
-alone loads (reference: tests/plugins/echo split + test_plugin_gui_companion.py).
-Decisions settled: (1) strict zero-graphics core (glib/gio/json-glib/libsoup/
-gmodule + gdk-pixbuf only); (2) visual nodes' logic stays headless-loadable;
-(3) re-tier bundled plugins = Phase 8. No --disable-gui build switch (decision
-D5). Phase 7 (declarative settings schema) IN PROGRESS: GTK-free builder-API
-PnSettingsSchema in core (lib/pn-settings-schema.[ch], stored via per-type
-qdata so no PnNodeClass-ABI / plugin-ABI change) + a schema->GtkWidget renderer
-in the gui tier (lib/pn-settings-renderer.[ch]); escape-hatch build_* vfuncs
-still win. v1 = tab grouping + editor-kind/choices + conditional sensitivity
-(+ a CODE editor kind for GtkSourceView); list-of-records (Filter/Set) deferred
-to 7.6. Sub-phases: 7.1 schema core DONE, 7.2 renderer DONE (gui-tier
-lib/pn-settings-renderer.[ch], additive/no-op until wired), 7.3 dialog wiring
-(no-op) NEXT, 7.4 port Dial/Analog-Meter/Graph tab grouping, 7.5 port
-Expression(2)/Led/Rewrite. See HEADLESS-SPLIT-PLAN.md Phase 7 for the full
-breakdown.
+STATUS: DONE. The lib is split into a GTK-free libpipnode-core + libpipnode-gui;
+all 24 dual-nature nodes are split (logic -> core, drawing/dialog -> gui);
+pipnode-run links core only and is verified GTK-free (objdump DT_NEEDED). The
+plugin ABI (now v3) gained a companion GUI module (pn_plugin_gui_init in
+<plugin>-gui.so) so a plugin ships GTK-free logic the server installs + bespoke
+GUI the editor alone loads. A declarative GTK-free settings schema
+(PnSettingsSchema, stored via per-type qdata so no ABI change) lets most nodes
+customise their dialog with no GTK at all; the imperative build_* vfuncs remain
+the escape hatch and always win. All bundled plugins re-tiered: network/tasmota/
+image are core-only single .so; shell + sound-effects are two-tier (logic .so +
+companion -gui.so). Docs updated (PLUGINS schema/companion model + server-
+installable checklist; README "Running headless"; INSTALL "Runtime tiers and
+packaging" with the pipnode-core vs pipnode-gui distribution split). Decisions
+settled: (1) strict zero-graphics core (glib/gio/json-glib/libsoup/gmodule +
+gdk-pixbuf only); (2) visual nodes' logic stays headless-loadable; (3) bundled
+plugins re-tiered; no --disable-gui build switch (D5). DROPPED as out of scope
+(decided 2026-05-23): the list-of-records schema editor kind (Filter/Set would
+keep their imperative dialogs -- their logic is already headless) and full-GUI
+plugin nodes. The temporary HEADLESS-SPLIT-PLAN.md has been removed now that the
+work is complete.
 
 (24) DONE (follow-up complete): the pure parsers/aggregators of the IO
 nodes are now exported non-static and unit-tested on canned fixtures --

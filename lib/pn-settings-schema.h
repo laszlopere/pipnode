@@ -30,7 +30,7 @@ G_BEGIN_DECLS
 /*  class.  The headless core only ever holds the *data*; the GUI tier */
 /*  (lib/pn-settings-renderer.c) turns it into GtkWidgets when the      */
 /*  editor opens a node dialog.  This is the "default path" of decision */
-/*  D2 in the headless split (HEADLESS-SPLIT-PLAN.md Phase 7): a node   */
+/*  D2 in the headless split (see PLUGINS section 16): a node           */
 /*  or plugin that only needs the common dialog customisations — tab    */
 /*  grouping, an explicit editor kind, a choice list, a row greyed out  */
 /*  by another property — needs no GTK and no `-gui.so` companion at    */

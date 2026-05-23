@@ -4,9 +4,9 @@
 #       the factory, flow/serializer, message, all pure-logic nodes and
 #       parsers, and the IO/auto-trigger nodes.  Links only glib/gobject/
 #       gio, json-glib, gmodule, libsoup and gdk-pixbuf (the allowed core
-#       image-data dep — see HEADLESS-SPLIT-PLAN.md §6 decision 1).  No
-#       gtk/gdk widget toolkit, cairo, pango, webkit, gtksourceview or
-#       plplot.  A server installs only this.
+#       image-data dep: PnImageMessage carries a GdkPixbuf, which has no
+#       GTK widget footprint).  No gtk/gdk widget toolkit, cairo, pango,
+#       webkit, gtksourceview or plplot.  A server installs only this.
 #
 #   libpipnode-gui.la   — links core + the GTK stack.  Worksheet renderer,
 #       palette, node/preferences/document dialogs, the help browser, and
