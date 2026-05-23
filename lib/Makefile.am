@@ -110,6 +110,8 @@ libpipnode_core_la_SOURCES = \
 	pn-ollama.h \
 	pn-query.c \
 	pn-query.h \
+	pn-rate.c \
+	pn-rate.h \
 	pn-rtc.c \
 	pn-rtc.h \
 	pn-set.c \
@@ -222,8 +224,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-preferences.h \
 	pn-preferences-dialog.c \
 	pn-preferences-dialog.h \
-	pn-rate.c \
-	pn-rate.h \
+	pn-rate-gui.c \
+	pn-rate-gui.h \
 	pn-rewrite.c \
 	pn-rewrite.h \
 	pn-set-gui.c \
@@ -324,6 +326,7 @@ pipnode_core_headers = \
 	pn-notify.h \
 	pn-ollama.h \
 	pn-query.h \
+	pn-rate.h \
 	pn-rtc.h \
 	pn-set.h \
 	pn-sound.h \
@@ -370,7 +373,7 @@ pipnode_gui_headers = \
 	pn-palette.h \
 	pn-preferences.h \
 	pn-preferences-dialog.h \
-	pn-rate.h \
+	pn-rate-gui.h \
 	pn-rewrite.h \
 	pn-set-gui.h \
 	pn-sound-gui.h \
