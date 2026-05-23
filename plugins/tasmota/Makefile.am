@@ -34,8 +34,15 @@ pipnode_tasmota_la_SOURCES = \
 	pn-tasmota-voltage.c \
 	pn-tasmota-voltage.h
 
+# Core-only plugin (TODO #23, Phase 8): every node here is pure logic.
+# The sensor nodes subclass the *core* logic half of #PnAnalogMeter and
+# the relay/switch nodes subclass #PnSwitch (both split in Phase 4), so
+# the painter/dialog vfunc slots are installed by the gui tier onto the
+# base classes at editor startup and inherited by these subclasses — the
+# plugin itself carries no GTK and links libpipnode-core ALONE, loading
+# under pipnode-run with no GTK present.
 pipnode_tasmota_la_CFLAGS = \
-	$(GTK_CFLAGS) \
+	$(GLIB_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(GMODULE_CFLAGS) \
 	-I$(top_srcdir)/lib
@@ -43,8 +50,8 @@ pipnode_tasmota_la_CFLAGS = \
 pipnode_tasmota_la_LDFLAGS = -module -avoid-version -shared
 
 pipnode_tasmota_la_LIBADD = \
-	$(top_builddir)/lib/libpipnode-gui.la \
-	$(GTK_LIBS) \
+	$(top_builddir)/lib/libpipnode-core.la \
+	$(GLIB_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS)
 

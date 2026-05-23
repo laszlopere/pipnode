@@ -1047,11 +1047,30 @@ longer need GTK; finalise documentation and packaging.
   53/53 C unit tests + plugin-load + companion + dial functional tests
   green. This is the Phase-8 pattern for a plugin with no GUI footprint:
   flip two Makefile variables, no companion `-gui.so` needed.
-- **8.2 TODO — `plugins/tasmota`.** Also zero GTK includes, but
-  `pn-tasmota-energy-meter.c` subclasses the (now core) `PnAnalogMeter`
-  and sets `build_class_tabs = NULL` — confirm the inherited dual-node
-  split leaves the energy-meter logic core-loadable before flipping the
-  Makefile.
+- **8.2 DONE — `plugins/tasmota` re-tiered to core-only.** Zero GTK
+  includes; the sensor nodes subclass the **core logic half** of
+  `PnAnalogMeter` (via the abstract `PnTasmotaEnergyMeter`) and the relay
+  nodes subclass `PnSwitch` — both base classes were split in Phase 4, so
+  `pn-analog-meter.h`/`pn-switch.h` are core headers and the only refs are
+  core enum values (`PN_ANALOG_METER_MODE_*`) + setting the GTK-free
+  `build_class_tabs` vfunc slot to NULL. **Confirmed safe re the schema:**
+  Phase 7.4 moved AnalogMeter's tabs from `build_class_tabs` (gui) to a
+  `PnSettingsSchema` set via `g_type_set_qdata` in core `_class_init`;
+  `pn_node_class_get_settings_schema` uses `g_type_get_qdata` which does
+  **not** walk the parent chain, so the tasmota subclasses inherit no
+  schema (they have none of their own) and show no duplicate Data/Scale/
+  Colours tabs — the exact behaviour the old `build_class_tabs = NULL`
+  enforced (that line is now a harmless no-op since the inherited slot is
+  already NULL). The painters are installed by the gui tier onto the base
+  classes at editor startup and inherited by these subclasses, so the
+  plugin carries no GTK. Same pure `Makefile.am` flip as 8.1 (GTK_CFLAGS→
+  GLIB_CFLAGS, gui.la+GTK_LIBS→core.la+GLIB_LIBS), no source edits.
+  **Verified:** `pipnode_tasmota.so` `DT_NEEDED` = libpipnode-core,
+  json-glib, gobject, glib, libc — no gtk/gdk/cairo/pango; loads under the
+  core-only `pipnode-run` (build copy wins over the installed GTK one via
+  the basename dedup + PIPNODE_PLUGIN_PATH precedence) and runs
+  `examples/tasmota-switch.json` headless (Tasmota Switch emits); 53/53 C
+  unit + plugin-load + companion + dial green.
 - **8.3 TODO — `plugins/shell`.** The hardest: `pn-tmux-monitor.c` has a
   real imperative settings dialog (`build_property_editor` +
   `build_class_tab`, includes `pn-node-dialog-helpers.h`) — it needs a
@@ -1062,7 +1081,7 @@ longer need GTK; finalise documentation and packaging.
   companion `-gui.so` if they draw.
 
 **Steps**
-1. Re-tier `plugins/network` ✅, `plugins/shell`, `plugins/tasmota` to
+1. Re-tier `plugins/network` ✅, `plugins/tasmota` ✅, `plugins/shell` to
    core-only (logic `.so`, schema for any settings UI). `plugins/image`
    and `plugins/sound-effects` keep a companion `-gui.so` if they draw.
 2. Update `PLUGINS`: the two-tier model, `pn_plugin_gui_init`, the schema
