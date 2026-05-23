@@ -10,6 +10,7 @@ TESTS = \
 	test_https_tunnel.py \
 	test_multi_worksheet.py \
 	test_node_dialog_dial.py \
+	test_node_dialog_led.py \
 	test_plugin_load.py \
 	test_plugin_gui_companion.py
 

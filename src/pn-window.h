@@ -173,6 +173,21 @@ gchar       *pn_window_get_dialog_editor_text (PnWindow    *self,
                                                const gchar *prop);
 
 /**
+ * pn_window_get_dialog_editor_sensitive:
+ * @self:  the window
+ * @prop:  the GObject property name whose editor to inspect
+ * @found: (out) (optional): set %TRUE when an editor for @prop exists
+ *
+ * Returns: whether the editor widget the dialog built for @prop is
+ *   sensitive (greyed-out test, e.g. PnLed's `hold-ms` row tracking
+ *   `mode`).  Returns %FALSE with @found %FALSE when no test dialog is
+ *   open or the editor is not found — check @found to disambiguate.
+ */
+gboolean     pn_window_get_dialog_editor_sensitive (PnWindow    *self,
+                                                    const gchar *prop,
+                                                    gboolean    *found);
+
+/**
  * pn_window_set_dialog_editor_text:
  * @self: the window
  * @prop: the GObject property name whose editor to drive

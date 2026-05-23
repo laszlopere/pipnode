@@ -31,7 +31,6 @@
 
 #include "pn-led-gui.h"
 #include "pn-led.h"
-#include "pn-node-dialog-helpers.h"
 
 #include <gtk/gtk.h>
 #include <math.h>
@@ -242,61 +241,13 @@ pn_led_paint_header_overlay (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Settings dialog: PnNodeClass.build_property_editor override        */
+/*  Settings dialog                                                    */
 /*                                                                     */
-/*  Hold (ms) only governs the Flash mode self-extinguish timer; in    */
-/*  Steady mode the lamp follows data.value and the field does         */
-/*  nothing.  Rather than hide it (which would also drop the hint that  */
-/*  it exists), we grey the spin button out whenever the mode is       */
-/*  Steady and re-enable it on Flash, tracking the mode live so the    */
-/*  field dims the instant the user switches the Mode dropdown.         */
+/*  The `hold-ms` row's "sensitive only when mode == Flash" rule is    */
+/*  now a GTK-free enable-when in the core pn-led.c PnSettingsSchema    */
+/*  (Phase 7.5); the dialog framework's renderer applies it.  This     */
+/*  file is the LED's painter only.                                    */
 /* ------------------------------------------------------------------ */
-
-static void
-sync_hold_editor_sensitivity (GtkWidget *hold_editor, GObject *led)
-{
-    PnLedMode mode;
-
-    g_object_get (led, "mode", &mode, NULL);
-    gtk_widget_set_sensitive (hold_editor, mode == PN_LED_MODE_FLASH);
-}
-
-static void
-on_mode_notify_sync_hold (
-        GObject    *target,
-        GParamSpec *pspec,
-        gpointer    hold_editor)
-{
-    (void) pspec;
-    sync_hold_editor_sensitivity (GTK_WIDGET (hold_editor), target);
-}
-
-static GtkWidget *
-pn_led_build_property_editor (
-        PnNode     *self,
-        GParamSpec *pspec,
-        GObject    *target,
-        GtkWindow  *parent G_GNUC_UNUSED)
-{
-    if (g_strcmp0 (pspec->name, "hold-ms") == 0)
-    {
-        GtkWidget *editor = pn_node_dialog_default_editor (target, pspec);
-
-        /* Set the initial greyed/enabled state from the node's current
-         * mode, then follow every later mode change.  connect_object
-         * ties the handler's lifetime to the editor widget, so it
-         * auto-disconnects when the dialog (and this row) is destroyed
-         * -- no manual teardown needed. */
-        sync_hold_editor_sensitivity (editor, G_OBJECT (self));
-        g_signal_connect_object (target, "notify::mode",
-                                 G_CALLBACK (on_mode_notify_sync_hold),
-                                 editor, 0);
-        return editor;
-    }
-
-    /* Every other property uses the host's default editor. */
-    return NULL;
-}
 
 /* ------------------------------------------------------------------ */
 /*  vfunc installation                                                 */
@@ -309,7 +260,6 @@ pn_led_gui_install (void)
 
     node_class->paint_header_overlay         = pn_led_paint_header_overlay;
     node_class->paint_right_decoration_width = PN_LED_RESERVED_RIGHT;
-    node_class->build_property_editor        = pn_led_build_property_editor;
 
     /* The class ref is intentionally held for the process lifetime —
      * the same lifetime the factory keeps it alive for — so the slots

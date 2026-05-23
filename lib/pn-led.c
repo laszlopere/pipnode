@@ -32,6 +32,7 @@
 
 #include "pn-led.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -393,6 +394,25 @@ pn_led_class_init (PnLedClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (Phase 7.5): `hold-ms` only governs the
+     * Flash-mode self-extinguish timer; in Steady mode the lamp follows
+     * data.value and the field does nothing.  Grey it out unless mode is
+     * Flash, tracked live — previously hand-wired in pn-led-gui.c's
+     * build_property_editor, now declared as data so it needs no GTK.
+     * No named tab: this only customises one row of the auto "Led" tab,
+     * which the renderer reaches through the schema-row path; the editor
+     * kind stays AUTO (the same spin button).  "Flash" is the PnLedMode
+     * enum nick for PN_LED_MODE_FLASH. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_row (schema, "hold-ms", PN_EDITOR_AUTO);
+        pn_settings_schema_enable_when_eq (schema, "hold-ms",
+                                           "mode", "Flash");
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
 }
 
 static void

@@ -3692,6 +3692,26 @@ pn_window_get_dialog_editor_text (PnWindow *self, const gchar *prop)
 }
 
 gboolean
+pn_window_get_dialog_editor_sensitive (PnWindow    *self,
+                                       const gchar *prop,
+                                       gboolean    *found)
+{
+    GtkWidget *editor;
+
+    if (found != NULL)
+        *found = FALSE;
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    editor = dialog_editor_for (self, prop);
+    if (editor == NULL)
+        return FALSE;
+
+    if (found != NULL)
+        *found = TRUE;
+    return gtk_widget_get_sensitive (editor);
+}
+
+gboolean
 pn_window_set_dialog_editor_text (PnWindow    *self,
                                   const gchar *prop,
                                   const gchar *text)

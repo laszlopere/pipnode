@@ -175,6 +175,10 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='prop' direction='in'/>"
     "      <arg type='s' name='text' direction='out'/>"
     "    </method>"
+    "    <method name='GetDialogEditorSensitive'>"
+    "      <arg type='s' name='prop'      direction='in'/>"
+    "      <arg type='b' name='sensitive' direction='out'/>"
+    "    </method>"
     "    <method name='SetDialogEditorText'>"
     "      <arg type='s' name='prop' direction='in'/>"
     "      <arg type='s' name='text' direction='in'/>"
@@ -984,6 +988,39 @@ handle_worksheet_method_call (
                 invocation,
                 g_variant_new ("(s)", text != NULL ? text : ""));
         g_free (text);
+    }
+    else if (g_strcmp0 (method_name, "GetDialogEditorSensitive") == 0)
+    {
+        GtkWindow   *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        const gchar *prop = NULL;
+        gboolean     found = FALSE;
+        gboolean     sensitive;
+
+        g_variant_get (parameters, "(&s)", &prop);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        sensitive = pn_window_get_dialog_editor_sensitive (
+                PN_WINDOW (win), prop, &found);
+        if (!found)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No editor for property '%s'", prop);
+            return;
+        }
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", sensitive));
     }
     else if (g_strcmp0 (method_name, "SetDialogEditorText") == 0)
     {
