@@ -9,19 +9,15 @@ pnhelpdir = $(pkgdatadir)/help
 pnhelp_DATA = \
 	help/help.css \
 	help/help-index.html \
-	help/PnAmbient.html \
 	help/PnAnalogMeter.html \
 	help/PnAutoInjector.html \
 	help/PnAutoRandom.html \
 	help/PnChat.html \
 	help/PnComparator.html \
-	help/PnConnections.html \
-	help/PnCpu.html \
 	help/PnDebug.html \
 	help/PnDedup.html \
 	help/PnDelay.html \
 	help/PnDial.html \
-	help/PnDiskIo.html \
 	help/PnEdge.html \
 	help/PnExpression.html \
 	help/PnExpression2.html \
@@ -34,10 +30,7 @@ pnhelp_DATA = \
 	help/PnInject.html \
 	help/PnKnob.html \
 	help/PnLed.html \
-	help/PnLoad.html \
-	help/PnMemory.html \
 	help/PnMeshtastic.html \
-	help/PnNetIo.html \
 	help/PnNotify.html \
 	help/PnOllama.html \
 	help/PnQuery.html \
@@ -52,7 +45,6 @@ pnhelp_DATA = \
 	help/PnTable.html \
 	help/PnTableModel.html \
 	help/PnTableView.html \
-	help/PnTemp.html \
 	help/PnTextView.html \
 	help/PnThreshold.html \
 	help/PnThrottle.html \

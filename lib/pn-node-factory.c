@@ -23,19 +23,15 @@
 #include <gmodule.h>
 #include <string.h>
 
-#include "pn-ambient.h"
 #include "pn-analog-meter.h"
 #include "pn-auto-injector.h"
 #include "pn-auto-random.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
-#include "pn-connections.h"
-#include "pn-cpu.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
 #include "pn-delay.h"
 #include "pn-dial.h"
-#include "pn-disk-io.h"
 #include "pn-edge.h"
 #include "pn-expression.h"
 #include "pn-expression2.h"
@@ -48,10 +44,7 @@
 #include "pn-inject.h"
 #include "pn-knob.h"
 #include "pn-led.h"
-#include "pn-load.h"
-#include "pn-memory.h"
 #include "pn-meshtastic.h"
-#include "pn-net-io.h"
 #include "pn-notify.h"
 #include "pn-ollama.h"
 #include "pn-query.h"
@@ -66,7 +59,6 @@
 #include "pn-table.h"
 #include "pn-table-model.h"
 #include "pn-table-view.h"
-#include "pn-temp.h"
 #include "pn-text-view.h"
 #include "pn-threshold.h"
 #include "pn-throttle.h"
@@ -207,14 +199,15 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_KNOB);
     pn_node_factory_register (self, PN_TYPE_AUTO_INJECTOR);
     pn_node_factory_register (self, PN_TYPE_AUTO_RANDOM);
-    pn_node_factory_register (self, PN_TYPE_LOAD);
-    pn_node_factory_register (self, PN_TYPE_CONNECTIONS);
-    pn_node_factory_register (self, PN_TYPE_DISK_IO);
-    pn_node_factory_register (self, PN_TYPE_NET_IO);
-    pn_node_factory_register (self, PN_TYPE_CPU);
-    pn_node_factory_register (self, PN_TYPE_TEMP);
-    pn_node_factory_register (self, PN_TYPE_AMBIENT);
-    pn_node_factory_register (self, PN_TYPE_MEMORY);
+
+    /* Host monitoring.  System Load, Net Connections, Disk I/O,
+     * Network I/O, CPU, CPU Temperature, Ambient Temperature and
+     * Memory have moved out of the host binary into the bundled
+     * "pipnode-host-monitoring" plugin under plugins/host-monitoring —
+     * they are still registered with the same factory through the
+     * standard pn_plugin_init() entry point, just from a separately-
+     * built .so the host loads at startup via
+     * pn_node_factory_load_plugins_default(). */
 
     /* Network.  Ping and DNS Check have moved out of the host
      * binary into the bundled "pipnode-network" plugin under

@@ -27,8 +27,6 @@ lib_LTLIBRARIES = libpipnode-core.la libpipnode-gui.la
 # ---------------------------------------------------------------------
 libpipnode_core_la_SOURCES = \
 	pn-plugin.h \
-	pn-ambient.c \
-	pn-ambient.h \
 	pn-analog-meter.c \
 	pn-analog-meter.h \
 	pn-auto-injector.c \
@@ -43,10 +41,6 @@ libpipnode_core_la_SOURCES = \
 	pn-color.h \
 	pn-comparator.c \
 	pn-comparator.h \
-	pn-connections.c \
-	pn-connections.h \
-	pn-cpu.c \
-	pn-cpu.h \
 	pn-debug.c \
 	pn-debug.h \
 	pn-dedup.c \
@@ -55,8 +49,6 @@ libpipnode_core_la_SOURCES = \
 	pn-delay.h \
 	pn-dial.c \
 	pn-dial.h \
-	pn-disk-io.c \
-	pn-disk-io.h \
 	pn-edge.c \
 	pn-edge.h \
 	pn-expr-parser.c \
@@ -91,16 +83,10 @@ libpipnode_core_la_SOURCES = \
 	pn-knob.h \
 	pn-led.c \
 	pn-led.h \
-	pn-load.c \
-	pn-load.h \
-	pn-memory.c \
-	pn-memory.h \
 	pn-meshtastic.c \
 	pn-meshtastic.h \
 	pn-message.c \
 	pn-message.h \
-	pn-net-io.c \
-	pn-net-io.h \
 	pn-node.c \
 	pn-node.h \
 	pn-node-factory.c \
@@ -139,8 +125,6 @@ libpipnode_core_la_SOURCES = \
 	pn-table.h \
 	pn-table-view.c \
 	pn-table-view.h \
-	pn-temp.c \
-	pn-temp.h \
 	pn-text-view.c \
 	pn-text-view.h \
 	pn-threshold.c \
@@ -290,7 +274,6 @@ pipnodeincludedir = $(includedir)/pipnode
 
 pipnode_core_headers = \
 	pn-plugin.h \
-	pn-ambient.h \
 	pn-analog-meter.h \
 	pn-auto-injector.h \
 	pn-auto-random.h \
@@ -298,13 +281,10 @@ pipnode_core_headers = \
 	pn-chat.h \
 	pn-color.h \
 	pn-comparator.h \
-	pn-connections.h \
-	pn-cpu.h \
 	pn-debug.h \
 	pn-dedup.h \
 	pn-delay.h \
 	pn-dial.h \
-	pn-disk-io.h \
 	pn-edge.h \
 	pn-expr-parser.h \
 	pn-expression.h \
@@ -322,11 +302,8 @@ pipnode_core_headers = \
 	pn-json-path.h \
 	pn-knob.h \
 	pn-led.h \
-	pn-load.h \
-	pn-memory.h \
 	pn-meshtastic.h \
 	pn-message.h \
-	pn-net-io.h \
 	pn-node.h \
 	pn-node-factory.h \
 	pn-node-store.h \
@@ -346,7 +323,6 @@ pipnode_core_headers = \
 	pn-table-model.h \
 	pn-table.h \
 	pn-table-view.h \
-	pn-temp.h \
 	pn-text-view.h \
 	pn-threshold.h \
 	pn-throttle.h \

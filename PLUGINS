@@ -1220,14 +1220,19 @@ worked examples; they all build out of the box from a fresh
         dialog (combo editor + extra "Stats" page) for the editor.
         Read this first if you are writing your first plugin.
 
-  - `plugins/network/`, `plugins/tasmota/`
+  - `plugins/network/`, `plugins/tasmota/`,
+    `plugins/host-monitoring/`
         Bundled CORE-ONLY plugins: every node is pure logic, so the
         whole plugin is a single GTK-free `.so` that links
         `libpipnode-core` and installs on a headless server.  Read
         these for a plugin that registers several node types, links
         into autotools, and ships as part of the install.  (`image/`
         is the same shape and additionally pulls the allowed
-        gdk-pixbuf core dep.)
+        gdk-pixbuf core dep.)  `host-monitoring/` is the plain
+        many-nodes-one-`.so` case: its eight "Host monitoring" probes
+        (System Load, Net Connections, Disk I/O, Network I/O, CPU, CPU
+        Temperature, Ambient Temperature, Memory) each sample /proc,
+        /sys, or a remote sensor and emit a numeric reading.
 
   - `plugins/shell/`, `plugins/sound-effects/`
         Bundled TWO-TIER plugins (section 17): a GTK-free logic

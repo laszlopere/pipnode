@@ -10,6 +10,7 @@
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/lib \
 	-I$(top_srcdir)/plugins/shell \
+	-I$(top_srcdir)/plugins/host-monitoring \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS)
 
@@ -115,15 +116,25 @@ test_pn_graph_SOURCES         = test-pn-graph.c         pntest.c pntest.h
 test_pn_table_SOURCES         = test-pn-table.c         pntest.c pntest.h
 test_pn_chat_SOURCES          = test-pn-chat.c          pntest.c pntest.h
 test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
-test_pn_load_SOURCES          = test-pn-load.c          pntest.c pntest.h
-test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h
-test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h
-test_pn_temp_SOURCES          = test-pn-temp.c          pntest.c pntest.h
+# The host-monitoring nodes live in their own loadable module
+# (pipnode_host_monitoring.la), not in libpipnode, so their /proc and
+# /sys parsers reach the test binary by compiling the node .c directly —
+# the same arrangement the shell-plugin node tests below use.
+test_pn_load_SOURCES          = test-pn-load.c          pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-load.c
+test_pn_memory_SOURCES        = test-pn-memory.c        pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-memory.c
+test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-cpu.c
+test_pn_temp_SOURCES          = test-pn-temp.c          pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-temp.c
 test_pn_http_SOURCES          = test-pn-http.c          pntest.c pntest.h
 test_pn_weather_SOURCES       = test-pn-weather.c       pntest.c pntest.h
 test_pn_tts_SOURCES           = test-pn-tts.c           pntest.c pntest.h
-test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h
-test_pn_disk_io_SOURCES       = test-pn-disk-io.c        pntest.c pntest.h
+test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-net-io.c
+test_pn_disk_io_SOURCES       = test-pn-disk-io.c        pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-disk-io.c
 test_pn_var_store_SOURCES     = test-pn-var-store.c     pntest.c pntest.h
 test_pn_expr_parser_SOURCES   = test-pn-expr-parser.c   pntest.c pntest.h
 test_pn_json_path_SOURCES     = test-pn-json-path.c     pntest.c pntest.h

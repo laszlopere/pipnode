@@ -131,6 +131,7 @@ AC_CONFIG_FILES([
     plugins/tasmota/Makefile
     plugins/sound-effects/Makefile
     plugins/image/Makefile
+    plugins/host-monitoring/Makefile
     src/Makefile
     tests/Makefile
     tests/unit/Makefile
