@@ -875,30 +875,77 @@ clear `GError` (existing behavior).
 
 ### Phase 7 — Declarative settings schema (D2 default path)
 
-**Objective:** the common dialog customisations (custom editor per
-property, list/table editors, multi-tab grouping) become **data** held in
-core, so most plugins need no GTK at all. Only bespoke UI falls through
-to the Phase 6 companion.
+**Objective:** the common dialog customisations (per-property editor kind,
+explicit choices, multi-tab grouping, conditional sensitivity) become
+**data** held in core, so a settings-only plugin needs NO `-gui.so` at
+all. Only genuinely bespoke UI (dynamic combos, status rows, downloads,
+list-of-records) falls through to the Phase 6 companion / imperative
+`build_*` vfuncs.
 
-**Steps**
-1. Design a core, GTK-free schema describing settings UI: per-property
-   editor kind (entry / spin + range / combo + choices / file path /
-   multiline / list-of-records / read-only label), tab grouping, and the
-   existing hints (`multiline`, `hostname_hint`). This generalises the
-   qdata hints already on param specs (`pn_param_spec_set_multiline`,
-   `pn_param_spec_set_hostname_hint`).
-2. Let a node/plugin attach a schema in `_class_init` (pure data, no
-   widgets).
-3. In the gui tier, write a **schema → GtkWidget renderer** that the node
-   dialog uses; it reproduces today's auto-generated tab plus the
-   declarative customisations. Keep the imperative `build_*` vfuncs as
-   the escape hatch for what the schema can't express.
-4. Port the in-tree structured editors (`PnFilter`, `PnSet` rule lists,
-   `PnDial`'s 4-tab grouping) to the schema where they fit; leave
-   genuinely bespoke ones on the imperative hooks.
+**Decisions settled (2026-05-23, design review):**
+- **Builder API** (not a static struct table): a `PnSettingsSchema` built
+  imperatively in `_class_init` (`pn_settings_schema_new` +
+  `_tab`/`_row`/`_choices`/...). Pure data, no widgets, GTK-free.
+- **Storage via per-type `g_type_set_qdata`** (same mechanism as the
+  existing `multiline`/`hostname_hint` hints) — so the `PnNodeClass`
+  struct (ABI header) is UNTOUCHED and there is **no plugin ABI bump**.
+  Old plugins (no schema) keep exactly today's behaviour.
+- **v1 capabilities:** (a) tab grouping, (b) editor-kind + non-enum
+  choices + layout flags (full-width), (c) conditional sensitivity
+  (grey-out a row based on another property). **List-of-records is
+  DEFERRED** to 7.6/later (Filter/Set stay imperative for now).
+- **Additive, port incrementally** — schema API + renderer first (net
+  stays green; insertion is a no-op until a node declares a schema), then
+  one node per commit, screenshot-diffing each dialog.
+- **Escape hatches always win:** `build_class_tabs` > `build_class_tab` >
+  schema-tabs > auto-tab; and `build_property_editor` > schema-row >
+  default-by-GType. The auto path keeps calling the UNCHANGED
+  `default_editor_impl` (schema only overrides on a non-AUTO row) — this
+  avoids re-treading the Phase-5 silent colour-editor regression.
 
-**Verification:** the ported nodes' dialogs look/behave the same in the
-editor; their classes carry no GTK and load under `pipnode-run`.
+**Architecture:**
+- **core** `lib/pn-settings-schema.[ch]` — `PnSettingsSchema`
+  (`PN_TYPE_SETTINGS_SCHEMA`, refcounted), the builder API, the
+  `PnEditorKind` enum (`AUTO/ENTRY/MULTILINE/SPIN/CHECK/COMBO/COLOR/FILE/
+  LABEL`, + `CODE` added in 7.5 for GtkSourceView), and
+  `pn_node_class_{set,get}_settings_schema` (qdata-backed). GTK-free,
+  links into `libpipnode-core`.
+- **gui** `lib/pn-settings-renderer.[ch]` — `pn_settings_schema_render_
+  class()` (emits tabs) + `pn_settings_render_editor()` (schema-aware
+  single editor, falls back to `pn_node_dialog_default_editor`).
+  Conditional sensitivity wired via `g_signal_connect_object(target,
+  "notify::<when>", …, editor, …)` so it auto-disconnects with the editor.
+- **wiring** in `pn-node-dialog.c`: `populate_notebook` consults the
+  schema at the two precedence points above; condition refs are STRINGS
+  parsed against the controller pspec (enum nick/name, `true`/`1`,
+  number).
+
+**Sub-phases (regression net green at each):**
+- **7.1** core `pn-settings-schema.[ch]` + builder + qdata storage; unit
+  test `tests/unit/test-pn-settings-schema.c`; verify `libpipnode-core.so`
+  DT_NEEDED still GTK-free.
+- **7.2** gui `pn-settings-renderer.[ch]` (renderer + schema-aware editor).
+- **7.3** wire renderer into `pn-node-dialog.c` (no-op until a schema
+  exists — net unchanged).
+- **7.4** port tab-grouping: **Dial (4), Analog-Meter (3), Graph (2)** —
+  move grouping from each `*-gui.c` `build_class_tabs` into a schema in
+  the **core** `.c`, delete the gui `build_class_tabs`. (They keep their
+  `-gui.c` for *painting* only.) D-Bus assert tab titles + `pn-prop-*`.
+- **7.5** port **Expression/Expression2** (full-width multiline via row
+  flag), **Led** (conditional sensitivity on `mode == flash`), and
+  **Rewrite** via a new `PN_EDITOR_CODE` kind → GtkSourceView in the
+  renderer. D-Bus assert Led `hold-ms` sensitivity toggles with `mode`.
+- **7.6 (deferred/optional)** list-of-records editor kind → port
+  **Filter/Set**.
+
+**Left imperative (escape hatch, unchanged):** Tts, Rate, Sound, Notify,
+Meshtastic, Ollama, TmuxMonitor, SciFiSound (dynamic combos / status rows
+/ downloads); Filter/Set until 7.6.
+
+**Verification:** ported nodes' dialogs look/behave identically (screenshot
+diff per node — the colour-editor regression proves D-Bus tests alone miss
+visual breaks); ported classes carry no GTK and load under `pipnode-run`;
+`make check` (52 unit + functional) green throughout.
 
 ---
 

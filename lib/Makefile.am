@@ -121,6 +121,8 @@ libpipnode_core_la_SOURCES = \
 	pn-rtc.h \
 	pn-set.c \
 	pn-set.h \
+	pn-settings-schema.c \
+	pn-settings-schema.h \
 	pn-sound.c \
 	pn-sound.h \
 	pn-staircase.c \
@@ -339,6 +341,7 @@ pipnode_core_headers = \
 	pn-rewrite.h \
 	pn-rtc.h \
 	pn-set.h \
+	pn-settings-schema.h \
 	pn-sound.h \
 	pn-staircase.h \
 	pn-stats.h \

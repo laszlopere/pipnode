@@ -78,9 +78,11 @@ check_PROGRAMS = \
 	test-pn-free-command \
 	test-pn-df-command \
 	test-pn-lxc-ls-command \
-	test-pn-color
+	test-pn-color \
+	test-pn-settings-schema
 
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
+test_pn_settings_schema_SOURCES = test-pn-settings-schema.c pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h
