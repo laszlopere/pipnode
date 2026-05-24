@@ -306,6 +306,15 @@ def check_panel_widgets(engine: "Engine", tmpdir: str) -> None:
     if CD_OFF in order:
         fail("off-band Countdown leaked into the layout")
 
+    # A designed layout is "positioned" and carries each widget's band x,
+    # offset so the leftmost sits at 0 — the applet uses these to mirror the
+    # editor's spacing/grouping (band x 0 and 100 -> x 0 and 100).
+    if layout.get("positioned") is not True:
+        fail(f"GetLayout did not mark a designed layout positioned: {layout!r}")
+    xs = {w["uuid"]: w.get("x") for w in layout["widgets"]}
+    if xs.get(CD_BAND) != 0.0 or xs.get(LED_BAND) != 100.0:
+        fail(f"GetLayout widget x positions wrong (expected 0 and 100): {xs!r}")
+
     # Drive the single Panel Input: the Countdown shows 120 s and the
     # steady LED latches on, each pushed as a WidgetChanged keyed by UUID.
     engine.set_input(layout_path, 120.0)
@@ -330,9 +339,12 @@ def check_panel_widgets(engine: "Engine", tmpdir: str) -> None:
     with open(fb_path, "w", encoding="utf-8") as fh:
         json.dump(FALLBACK_WORKSHEET, fh)
     engine.run_worksheet(fb_path)
-    fb_order = [w["uuid"] for w in engine.get_layout(fb_path).get("widgets", [])]
+    fb_layout = engine.get_layout(fb_path)
+    fb_order = [w["uuid"] for w in fb_layout.get("widgets", [])]
     if fb_order != [CD_FALLBACK]:
         fail(f"fallback layout did not list the lone Countdown: {fb_order!r}")
+    if fb_layout.get("positioned") is not False:
+        fail(f"fallback layout should not be positioned: {fb_layout!r}")
 
     engine.close_worksheet(layout_path)
     engine.close_worksheet(fb_path)

@@ -1,8 +1,8 @@
 [Xfce Panel]
 Type=X-XFCE-PanelPlugin
 Encoding=UTF-8
-Name=Pipnode Deadline
-Comment=Count down to a deadline from the panel
+Name=Pipnode Panel
+Comment=Mirror a pipnode worksheet's panel widgets in the panel
 Icon=org.pipas.pipnode
 X-XFCE-Module=pipnode-deadline
 X-XFCE-Internal=FALSE

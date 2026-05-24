@@ -14,7 +14,7 @@
  */
 
 /* ------------------------------------------------------------------ */
-/*  Pipnode Deadline — XFCE panel applet                              */
+/*  Pipnode Panel — XFCE panel applet                                 */
 /*                                                                     */
 /*  A panel button that *runs* a pipnode worksheet, not just a         */
 /*  launcher.  Each applet instance owns one worksheet (a .json        */
@@ -113,28 +113,36 @@ static const gchar EMPTY_WORKSHEET[] =
     "}\n";
 
 /* One mirrored widget: a panel-widgets drawing area plus the kind of node
- * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp).
- * The widget itself is owned by the applet's @box; this struct only tracks
- * which node it represents. */
+ * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp),
+ * its place in the row (@order) and its band x (@x).  The widget itself is
+ * owned by the applet's @fixed; this struct only tracks the node. */
 typedef struct
 {
     GtkWidget *widget;
     gchar      kind;
+    gint       order;
+    gdouble    x;       /* band x (offset so leftmost is 0); 0 when packed */
 } AppletWidget;
+
+/* Gap between widgets when the worksheet has no designed layout and they
+ * are packed tightly left to right. */
+#define PN_APPLET_PACK_GAP 4
 
 typedef struct
 {
     XfcePanelPlugin *plugin;
-    GtkWidget       *button;   /* panel button (owned by the plugin)   */
-    GtkWidget       *box;      /* horizontal row holding icon + widgets */
-    GtkWidget       *image;    /* icon, shown only when no widgets      */
+    GtkWidget       *button;   /* panel button (owned by the plugin)     */
+    GtkWidget       *fixed;    /* free-positioning row of widgets + icon  */
+    GtkWidget       *image;    /* icon, shown only when no widgets        */
     gint             icon_size;/* panel icon size, applied to new widgets */
 
-    GHashTable      *widgets;  /* node UUID (owned) -> AppletWidget*    */
+    GHashTable      *widgets;  /* node UUID (owned) -> AppletWidget*      */
+    GPtrArray       *order;    /* AppletWidget* (borrowed), row order     */
+    gboolean         positioned; /* honour band x, or pack tightly?       */
 
-    gchar           *path;     /* this instance's worksheet file        */
-    GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy        */
-    GCancellable    *cancel;   /* cancels in-flight async D-Bus work    */
+    gchar           *path;     /* this instance's worksheet file          */
+    GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy          */
+    GCancellable    *cancel;   /* cancels in-flight async D-Bus work      */
 } PipnodeDeadline;
 
 /* ------------------------------------------------------------------ */
@@ -282,7 +290,8 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
     }
 }
 
-/* Build a fresh widget of @kind, sized to the panel, packed into the row. */
+/* Build a fresh widget of @kind, sized to the panel, placed on the row.
+ * relayout() moves it to its final spot once positions are known. */
 static AppletWidget *
 applet_widget_new (PipnodeDeadline *self, gchar kind)
 {
@@ -300,9 +309,40 @@ applet_widget_new (PipnodeDeadline *self, gchar kind)
         pn_led_lamp_set_size (PN_LED_LAMP (e->widget), self->icon_size);
     }
 
-    gtk_box_pack_start (GTK_BOX (self->box), e->widget, FALSE, FALSE, 0);
+    gtk_fixed_put (GTK_FIXED (self->fixed), e->widget, 0, 0);
     gtk_widget_show (e->widget);
     return e;
+}
+
+/* Place the row's widgets.  When the worksheet carries a designed band
+ * layout we honour each widget's band x (so the panel mirrors the editor's
+ * spacing and grouping); otherwise we pack them tightly left to right.
+ * Both leave the widgets at y 0 — they are all one strip tall. */
+static void
+relayout (PipnodeDeadline *self)
+{
+    guint i;
+    gint  pack_x = 0;
+
+    for (i = 0; i < self->order->len; i++)
+    {
+        AppletWidget *e = g_ptr_array_index (self->order, i);
+        gint          x;
+
+        if (self->positioned)
+        {
+            x = (gint) (e->x + 0.5);
+        }
+        else
+        {
+            gint nat = 0;
+            gtk_widget_get_preferred_width (e->widget, NULL, &nat);
+            x = pack_x;
+            pack_x += nat + PN_APPLET_PACK_GAP;
+        }
+
+        gtk_fixed_move (GTK_FIXED (self->fixed), e->widget, x, 0);
+    }
 }
 
 /* Reconcile the live widget row against the engine's layout JSON:
@@ -340,10 +380,13 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
     widgets = json_object_has_member (obj, "widgets")
               ? json_object_get_array_member (obj, "widgets") : NULL;
     len     = widgets != NULL ? json_array_get_length (widgets) : 0;
+    self->positioned = json_object_has_member (obj, "positioned")
+                       && json_object_get_boolean_member (obj, "positioned");
 
     /* uuids present in this layout — keys borrowed from the parser, valid
-     * until it is freed below. */
+     * until it is freed below.  @order is rebuilt in array order. */
     desired = g_hash_table_new (g_str_hash, g_str_equal);
+    g_ptr_array_set_size (self->order, 0);
 
     for (i = 0; i < len; i++)
     {
@@ -379,8 +422,11 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
             g_hash_table_insert (self->widgets, g_strdup (uuid), e);
         }
 
+        e->order = (gint) i;
+        e->x     = json_object_has_member (w, "x")
+                   ? json_object_get_double_member (w, "x") : 0.0;
         apply_widget_state (e, state);
-        gtk_box_reorder_child (GTK_BOX (self->box), e->widget, (gint) i);
+        g_ptr_array_add (self->order, e);
     }
 
     /* Drop any widget whose node is no longer in the layout. */
@@ -407,6 +453,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
     g_hash_table_destroy (desired);
     g_object_unref (parser);
 
+    relayout (self);
     update_empty_state (self);
 }
 
@@ -643,7 +690,8 @@ on_size_changed (XfcePanelPlugin  *plugin,
     self->icon_size = xfce_panel_plugin_get_icon_size (plugin);
     gtk_image_set_pixel_size (GTK_IMAGE (self->image), self->icon_size);
     resize_widgets (self);
-    return TRUE;   /* handled */
+    relayout (self);   /* widths changed → repack / refit positions */
+    return TRUE;       /* handled */
 }
 
 static void
@@ -655,6 +703,7 @@ on_free_data (XfcePanelPlugin  *plugin,
     g_cancellable_cancel (self->cancel);
     g_clear_object (&self->cancel);
     g_clear_object (&self->engine);
+    g_clear_pointer (&self->order, g_ptr_array_unref);
     g_clear_pointer (&self->widgets, g_hash_table_destroy);
     g_clear_pointer (&self->path, g_free);
 
@@ -674,21 +723,23 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
     self->icon_size = xfce_panel_plugin_get_icon_size (plugin);
     self->widgets   = g_hash_table_new_full (g_str_hash, g_str_equal,
                                              g_free, applet_widget_free);
+    self->order     = g_ptr_array_new ();
 
-    /* Flat, panel-styled button holding a row: the icon (shown only when
-     * the worksheet has no panel widgets) followed by one widget per
-     * mirrored Countdown / LED node. */
+    /* Flat, panel-styled button holding a free-positioned row: the icon
+     * (shown only when the worksheet has no panel widgets) plus one widget
+     * per mirrored Countdown / LED node, placed by relayout() to mirror the
+     * editor's band spacing. */
     self->button = xfce_panel_create_button ();
     flatten_button (self->button);
-    self->box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    self->fixed = gtk_fixed_new ();
     self->image = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
                                                 GTK_ICON_SIZE_BUTTON);
     gtk_image_set_pixel_size (GTK_IMAGE (self->image), self->icon_size);
-    gtk_box_pack_start (GTK_BOX (self->box), self->image, FALSE, FALSE, 0);
-    gtk_container_add (GTK_CONTAINER (self->button), self->box);
+    gtk_fixed_put (GTK_FIXED (self->fixed), self->image, 0, 0);
+    gtk_container_add (GTK_CONTAINER (self->button), self->fixed);
 
     gtk_widget_set_tooltip_text (self->button,
-                                 "Pipnode — click to send, "
+                                 "Pipnode panel — click to send, "
                                  "right-click → Properties to edit");
 
     gtk_container_add (GTK_CONTAINER (plugin), self->button);

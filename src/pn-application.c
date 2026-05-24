@@ -1457,14 +1457,18 @@ engine_layout_entry_cmp (gconstpointer a, gconstpointer b)
     return g_strcmp0 (ea->uuid, eb->uuid);
 }
 
-/** The applet's widget set + order for @win, as JSON:
- *    { "widgets": [ { "uuid", "order", "state": {…} }, … ] }
+/** The applet's widget set, order and placement for @win, as JSON:
+ *    { "positioned": <bool>,
+ *      "widgets": [ { "uuid", "order", "x", "state": {…} }, … ] }
  *
  *  Widgets are the representable nodes the layout editor snapped onto the
  *  panel band (a saved position whose y sits within the band), left to
- *  right by x.  When the document carries no panel layout at all (never
- *  arranged), fall back to every representable node in node-store order so
- *  the applet is not blank. */
+ *  right by x.  "positioned" is %TRUE when the placement is the user's own
+ *  band layout: then "x" is the widget's band x (offset so the leftmost is
+ *  0), so the applet can mirror the spacing and grouping, not just order.
+ *  When the document carries no panel layout at all (never arranged), fall
+ *  back to every representable node in node-store order, "positioned" is
+ *  %FALSE and "x" is 0 (the applet packs them) so the applet is not blank. */
 static gchar *
 engine_build_layout_json (PnWindow *win)
 {
@@ -1474,6 +1478,7 @@ engine_build_layout_json (PnWindow *win)
     GArray      *entries;
     GList       *placed;
     gboolean     have_layout;
+    gdouble      min_x = 0.0;
     JsonBuilder *b;
     guint        i, n;
 
@@ -1522,8 +1527,16 @@ engine_build_layout_json (PnWindow *win)
     if (have_layout)
         g_array_sort (entries, engine_layout_entry_cmp);
 
+    /* After the sort the first entry carries the smallest band x; offset
+     * every placement by it so the leftmost widget lands at 0 and no panel
+     * space is wasted on a left margin. */
+    if (have_layout && entries->len > 0)
+        min_x = g_array_index (entries, EngineLayoutEntry, 0).x;
+
     b = json_builder_new ();
     json_builder_begin_object (b);
+    json_builder_set_member_name (b, "positioned");
+    json_builder_add_boolean_value (b, have_layout);
     json_builder_set_member_name (b, "widgets");
     json_builder_begin_array (b);
     for (i = 0; i < entries->len; i++)
@@ -1535,6 +1548,8 @@ engine_build_layout_json (PnWindow *win)
         json_builder_add_string_value (b, e->uuid);
         json_builder_set_member_name (b, "order");
         json_builder_add_int_value (b, i);
+        json_builder_set_member_name (b, "x");
+        json_builder_add_double_value (b, have_layout ? e->x - min_x : 0.0);
         json_builder_set_member_name (b, "state");
         json_builder_begin_object (b);
         engine_add_widget_state (b, e->node);
