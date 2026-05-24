@@ -20,6 +20,7 @@
 #include "pn-window.h"
 #include "pn-help-browser.h"
 #include "pn-palette.h"
+#include "pn-panel-editor.h"
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
 #include "pn-document-settings-dialog.h"
@@ -53,6 +54,15 @@ struct _PnWindow
     GtkWidget   *notebook;
     GtkWidget   *worksheet;       /* alias for the active page's PnWorksheet */
     GtkWidget   *statusbar;
+
+    /* The single panel-applet GUI layout editor tab, or %NULL when none
+     * is open.  Unlike the worksheet tabs this page is not backed by a
+     * #PnFlow sheet — it is a standalone #PnPanelEditor the window owns
+     * directly — so the sheet-list signals leave it untouched and the
+     * pointer is the one-instance guard: the "+" tab menu greys out its
+     * "Add Panel Applet Layout" entry while it is non-%NULL, and the
+     * tab's close button clears it so a fresh one can be created. */
+    GtkWidget   *panel_editor_page;
 
     GtkWidget *menu_save;
     GtkWidget *menu_undo;
@@ -179,6 +189,13 @@ static void       on_notebook_switch_page       (GtkNotebook *notebook,
                                                  guint        page_num,
                                                  gpointer     user_data);
 static void       on_new_sheet_clicked          (GtkButton   *button,
+                                                 gpointer     user_data);
+static void       on_add_tab_button_clicked     (GtkButton   *button,
+                                                 gpointer     user_data);
+static void       on_add_panel_editor_activate  (GtkMenuItem *item,
+                                                 gpointer     user_data);
+static void       pn_window_add_panel_editor_tab (PnWindow   *self);
+static void       on_panel_editor_close_clicked (GtkButton   *button,
                                                  gpointer     user_data);
 static gboolean   on_tab_label_button_press     (GtkWidget   *event_box,
                                                  GdkEventButton *event,
@@ -1226,6 +1243,18 @@ action_new (
      * sheet-list resets to a single "Worksheet" sheet. */
     pn_flow_clear (self->flow);
     g_clear_pointer (&self->current_path, g_free);
+
+    /* The panel editor tab is not a flow sheet, so the clear above does
+     * not touch it — drop it explicitly so "New" yields a truly empty
+     * document. */
+    if (self->panel_editor_page != NULL)
+    {
+        gint idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
+                                          self->panel_editor_page);
+        if (idx >= 0)
+            gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
+        self->panel_editor_page = NULL;
+    }
 
     update_window_title (self);
     status_set (self, "New worksheet");
@@ -3259,15 +3288,25 @@ on_notebook_switch_page (
     self->worksheet = (GtkWidget *) ws;
 
     /* Refresh Cut/Copy sensitivity to track the active sheet's
-     * selection (each sheet has its own selection). */
+     * selection (each sheet has its own selection).  A non-worksheet
+     * page (the panel editor tab) has nothing to cut or copy, so grey
+     * both out while it is shown. */
     if (ws != NULL)
+    {
         on_worksheet_selection_changed (ws, self);
 
-    /* Tell the flow which sheet is now active so the next save
-     * persists the change. */
-    if (ws != NULL)
+        /* Tell the flow which sheet is now active so the next save
+         * persists the change. */
         pn_flow_set_active_sheet (self->flow,
                                   pn_worksheet_get_sheet_name (ws));
+    }
+    else
+    {
+        gtk_widget_set_sensitive (self->menu_cut,  FALSE);
+        gtk_widget_set_sensitive (self->menu_copy, FALSE);
+        gtk_widget_set_sensitive (self->btn_cut,   FALSE);
+        gtk_widget_set_sensitive (self->btn_copy,  FALSE);
+    }
 }
 
 /** Modal one-line text prompt shared by New Sheet and Rename Sheet.
@@ -3387,6 +3426,135 @@ on_new_sheet_clicked (GtkButton *button, gpointer user_data)
                             GTK_NOTEBOOK (self->notebook), page));
     }
     g_free (name);
+}
+
+/* The trailing "+" tab button opens a small menu rather than acting
+ * directly, so the user can add either a node-flow sheet or the single
+ * panel-applet GUI layout editor.  The menu is rebuilt on every click,
+ * which lets the panel entry reflect the live one-instance state without
+ * the window having to hold onto a menu-item handle. */
+static void
+on_add_tab_button_clicked (GtkButton *button, gpointer user_data)
+{
+    PnWindow  *self = PN_WINDOW (user_data);
+    GtkWidget *menu;
+    GtkWidget *sheet_item;
+    GtkWidget *panel_item;
+
+    menu = gtk_menu_new ();
+
+    sheet_item = gtk_menu_item_new_with_mnemonic ("Add _Sheet");
+    g_signal_connect (sheet_item, "activate",
+                      G_CALLBACK (on_new_sheet_clicked), self);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), sheet_item);
+
+    panel_item = gtk_menu_item_new_with_mnemonic ("Add _Panel Applet Layout");
+    /* Only one panel editor at a time: grey the entry out while a tab
+     * already exists.  The close button re-enables it by clearing
+     * self->panel_editor_page. */
+    gtk_widget_set_sensitive (panel_item, self->panel_editor_page == NULL);
+    g_signal_connect (panel_item, "activate",
+                      G_CALLBACK (on_add_panel_editor_activate), self);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), panel_item);
+
+    gtk_widget_show_all (menu);
+    gtk_menu_popup_at_widget (GTK_MENU (menu),
+                              GTK_WIDGET (button),
+                              GDK_GRAVITY_SOUTH_WEST,
+                              GDK_GRAVITY_NORTH_WEST,
+                              NULL);
+}
+
+static void
+on_add_panel_editor_activate (GtkMenuItem *item, gpointer user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) item;
+
+    pn_window_add_panel_editor_tab (self);
+}
+
+/* Close handler for the panel editor tab's "✕" button.  Pulls the page
+ * out of the notebook and clears the one-instance guard so the "+" menu
+ * offers the entry again. */
+static void
+on_panel_editor_close_clicked (GtkButton *button, gpointer user_data)
+{
+    PnWindow  *self = PN_WINDOW (user_data);
+    GtkWidget *page = g_object_get_data (G_OBJECT (button), "pn-panel-page");
+    gint       idx;
+
+    if (page == NULL)
+        return;
+
+    idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook), page);
+    if (idx >= 0)
+        gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
+
+    if (page == self->panel_editor_page)
+        self->panel_editor_page = NULL;
+
+    status_set (self, "Closed panel applet layout");
+}
+
+/* Append (or, if one somehow already exists, just reveal) the single
+ * panel-applet GUI layout editor tab.  The page is a scrolled window
+ * wrapping a #PnPanelEditor; its tab label carries a close button. */
+static void
+pn_window_add_panel_editor_tab (PnWindow *self)
+{
+    GtkWidget *scrolled;
+    GtkWidget *editor;
+    GtkWidget *label_box;
+    GtkWidget *label;
+    GtkWidget *close_btn;
+    gint       index;
+
+    if (self->panel_editor_page != NULL)
+    {
+        gtk_notebook_set_current_page (
+                GTK_NOTEBOOK (self->notebook),
+                gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
+                                       self->panel_editor_page));
+        return;
+    }
+
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (
+            GTK_SCROLLED_WINDOW (scrolled),
+            GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+
+    editor = pn_panel_editor_new ();
+    gtk_container_add (GTK_CONTAINER (scrolled), editor);
+
+    /* Tab label: a title plus a close button, so the user can dismiss
+     * the editor and create a new one later (unlike the worksheet tabs,
+     * which are removed through the sheet context menu). */
+    label_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    label = gtk_label_new ("Panel Applet");
+    gtk_box_pack_start (GTK_BOX (label_box), label, FALSE, FALSE, 0);
+
+    close_btn = gtk_button_new_from_icon_name ("window-close-symbolic",
+                                               GTK_ICON_SIZE_MENU);
+    gtk_button_set_relief (GTK_BUTTON (close_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_focus_on_click (close_btn, FALSE);
+    gtk_widget_set_tooltip_text (close_btn, "Close the panel applet layout");
+    g_object_set_data (G_OBJECT (close_btn), "pn-panel-page", scrolled);
+    g_signal_connect (close_btn, "clicked",
+                      G_CALLBACK (on_panel_editor_close_clicked), self);
+    gtk_box_pack_start (GTK_BOX (label_box), close_btn, FALSE, FALSE, 0);
+    gtk_widget_show_all (label_box);
+
+    index = gtk_notebook_append_page (GTK_NOTEBOOK (self->notebook),
+                                      scrolled, label_box);
+    gtk_notebook_set_tab_reorderable (GTK_NOTEBOOK (self->notebook),
+                                      scrolled, TRUE);
+
+    self->panel_editor_page = scrolled;
+
+    gtk_widget_show_all (scrolled);
+    gtk_notebook_set_current_page (GTK_NOTEBOOK (self->notebook), index);
+    status_set (self, "Added panel applet layout");
 }
 
 static void
@@ -3848,10 +4016,11 @@ pn_window_constructed (GObject *object)
      * GNOME Builder editor place theirs. */
     new_sheet_btn = gtk_button_new_from_icon_name (
             "list-add-symbolic", GTK_ICON_SIZE_MENU);
-    gtk_widget_set_tooltip_text (new_sheet_btn, "Add a new sheet");
+    gtk_widget_set_tooltip_text (new_sheet_btn,
+                                 "Add a sheet or panel applet layout");
     gtk_button_set_relief       (GTK_BUTTON (new_sheet_btn), GTK_RELIEF_NONE);
     g_signal_connect (new_sheet_btn, "clicked",
-                      G_CALLBACK (on_new_sheet_clicked), self);
+                      G_CALLBACK (on_add_tab_button_clicked), self);
     gtk_widget_show (new_sheet_btn);
     gtk_notebook_set_action_widget (GTK_NOTEBOOK (self->notebook),
                                     new_sheet_btn, GTK_PACK_END);

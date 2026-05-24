@@ -215,6 +215,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-notify-gui.h \
 	pn-palette.c \
 	pn-palette.h \
+	pn-panel-editor.c \
+	pn-panel-editor.h \
 	pn-preferences.c \
 	pn-preferences.h \
 	pn-preferences-dialog.c \
@@ -363,6 +365,7 @@ pipnode_gui_headers = \
 	pn-node-dialog-helpers.h \
 	pn-notify-gui.h \
 	pn-palette.h \
+	pn-panel-editor.h \
 	pn-preferences.h \
 	pn-preferences-dialog.h \
 	pn-rate-gui.h \
