@@ -157,12 +157,22 @@ struct _PnWorksheet
     double   marquee_x1;
     double   marquee_y1;
 
-    /** Wire-creation state.  wire_source is %NULL when no wire draw
-     *  is in progress; otherwise it owns a reference to the node
-     *  whose output port the user is dragging from, and
-     *  wire_cursor_{x,y} hold the current pointer position so the
-     *  painter can draw a tentative line. */
+    /** Wire-creation state.  A drag can be pulled from either end of a
+     *  prospective wire, so exactly one of #wire_source / #wire_dest is
+     *  non-%NULL while a drag is in progress (both %NULL when idle):
+     *
+     *    - #wire_source owns a ref to the node whose *output* port the
+     *      user grabbed; the drag runs toward an input port (the
+     *      original direction).
+     *    - #wire_dest owns a ref to the node whose *input* port the user
+     *      grabbed, and #wire_dest_input is which of its inputs; the drag
+     *      runs toward an output port (the reverse direction).
+     *
+     *  Either way #wire_cursor_{x,y} hold the current pointer position so
+     *  the painter can draw a tentative line to the loose end. */
     PnNode *wire_source;
+    PnNode *wire_dest;
+    gint    wire_dest_input;
     double  wire_cursor_x;
     double  wire_cursor_y;
 
@@ -2529,6 +2539,20 @@ pn_worksheet_draw (
                        self->wire_cursor_x,   self->wire_cursor_y);
         }
 
+        /* In-progress wire being dragged from an input port toward the
+         * cursor.  The cursor stands in for the not-yet-chosen output
+         * end, so it takes draw_wire's source slot to keep the curve
+         * flowing the natural left-to-right way. */
+        if (self->wire_dest != NULL)
+        {
+            const PnPoint *pt = pn_node_get_position (self->wire_dest);
+
+            draw_wire (cr,
+                       self->wire_cursor_x, self->wire_cursor_y,
+                       pt->x, input_port_y (self->wire_dest,
+                                            self->wire_dest_input));
+        }
+
         /* Bodies.  Skip nodes that live on another sheet — invisible
          * here, painted by the per-sheet widget that owns them — and
          * nodes outside the clip (their Pango layout is the dominant
@@ -4209,6 +4233,7 @@ on_button_press (
              * does not snap the node to a stale offset. */
             drag_end (self);
             g_clear_object (&self->wire_source);
+            g_clear_object (&self->wire_dest);
 
             g_signal_connect_swapped (dialog, "response",
                                       G_CALLBACK (gtk_widget_destroy),
@@ -4219,15 +4244,31 @@ on_button_press (
     }
 
     /* Port hit takes priority over body hit so the user can pull a
-     * wire out of a port without first dragging the node. */
-    port_node = hit_test_port (self, wx, wy, &port_kind, NULL);
-    if (port_node != NULL && port_kind == PN_PORT_OUTPUT)
+     * wire out of a port without first dragging the node.  A drag may
+     * start from either end: from an output it runs toward an input
+     * (wire_source), from an input it runs toward an output
+     * (wire_dest) — both resolve to the same source-output→target-input
+     * wire on release. */
     {
-        self->wire_source   = g_object_ref (port_node);
-        self->wire_cursor_x = wx;
-        self->wire_cursor_y = wy;
-        gtk_widget_queue_draw (widget);
-        return GDK_EVENT_STOP;
+        gint port_input = 0;
+        port_node = hit_test_port (self, wx, wy, &port_kind, &port_input);
+        if (port_node != NULL && port_kind == PN_PORT_OUTPUT)
+        {
+            self->wire_source   = g_object_ref (port_node);
+            self->wire_cursor_x = wx;
+            self->wire_cursor_y = wy;
+            gtk_widget_queue_draw (widget);
+            return GDK_EVENT_STOP;
+        }
+        if (port_node != NULL && port_kind == PN_PORT_INPUT)
+        {
+            self->wire_dest       = g_object_ref (port_node);
+            self->wire_dest_input = port_input;
+            self->wire_cursor_x   = wx;
+            self->wire_cursor_y   = wy;
+            gtk_widget_queue_draw (widget);
+            return GDK_EVENT_STOP;
+        }
     }
 
     body_hit = hit_test_node (self, wx, wy);
@@ -4269,7 +4310,7 @@ on_motion_notify (
 
     (void) user_data;
 
-    if (self->wire_source != NULL)
+    if (self->wire_source != NULL || self->wire_dest != NULL)
     {
         self->wire_cursor_x = wx;
         self->wire_cursor_y = wy;
@@ -4387,6 +4428,36 @@ on_button_release (
         }
 
         g_clear_object (&self->wire_source);
+        gtk_widget_queue_draw (widget);
+        return GDK_EVENT_STOP;
+    }
+
+    /* Reverse drag: started on an input port, so the release must land
+     * on a different node's output port.  The committed wire still runs
+     * source-output → target-input, so the dropped-on output becomes the
+     * source and the grabbed input stays the target.  Same self-loop,
+     * cross-sheet, and duplicate guards as the forward direction. */
+    if (self->wire_dest != NULL)
+    {
+        PnPortKind   kind;
+        const double wx     = widget_to_world_x (self, event->x);
+        const double wy     = widget_to_world_y (self, event->y);
+        PnNode      *source = hit_test_port (self, wx, wy, &kind, NULL);
+
+        if (source != NULL && kind == PN_PORT_OUTPUT &&
+            source != self->wire_dest &&
+            node_on_sheet (self, source) &&
+            node_on_sheet (self, self->wire_dest) &&
+            !wire_exists (self, source, self->wire_dest,
+                          self->wire_dest_input))
+        {
+            PnWire *wire = pn_wire_new_full (source, self->wire_dest,
+                                             self->wire_dest_input);
+            pn_wire_store_add (self->wires, wire);
+            g_object_unref (wire);
+        }
+
+        g_clear_object (&self->wire_dest);
         gtk_widget_queue_draw (widget);
         return GDK_EVENT_STOP;
     }
@@ -5167,6 +5238,7 @@ pn_worksheet_finalize (GObject *object)
     g_clear_object  (&self->drag_pivot);
     g_clear_object  (&self->drag_preview_node);
     g_clear_object  (&self->wire_source);
+    g_clear_object  (&self->wire_dest);
     g_clear_object  (&self->pressed_inject);
     g_clear_pointer (&self->drag_anchors, g_array_unref);
     g_clear_pointer (&self->selection, g_hash_table_unref);

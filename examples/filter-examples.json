@@ -1,0 +1,204 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFilter",
+      "uuid" : "db6a2ff0-9126-4f64-8901-69d08e0ae530",
+      "name" : "Filter 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"value\",\"op\":\">\",\"literal\":5.0}]"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "357d7637-a328-4c51-8c13-f09b5a35d111",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "a56be9d1-f8ae-4810-a14b-742462949757",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDelay",
+      "uuid" : "3e71b6a4-f894-44d9-9d09-5831f876b252",
+      "name" : "Delay 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "delay-ms" : 1000
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "cddb9e68-0376-4599-a3db-107b2a5a406e",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnThrottle",
+      "uuid" : "0373c3c3-2115-465a-909a-c6b95a66a32a",
+      "name" : "Throttle 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "interval" : 1
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "a90dddee-5d0a-44f9-a28e-aba9b5eb6380",
+      "name" : "Injector 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "16fc089f-6499-4666-9b12-72e3ed0722a9",
+      "name" : "a",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 2.9166666666666665
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "83096cc0-f2d0-477c-b3ea-edcb1e9f3a0a",
+      "name" : "b",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 10.0
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "f369e627-3e1c-464f-956c-6da262a2dcc7",
+      "name" : "a + b",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "expression" : "value1 + value2"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "202b601d-a7c0-426a-a6f1-b91818e1de83",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 500.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "357d7637-a328-4c51-8c13-f09b5a35d111",
+      "target_id" : "db6a2ff0-9126-4f64-8901-69d08e0ae530"
+    },
+    {
+      "source_id" : "db6a2ff0-9126-4f64-8901-69d08e0ae530",
+      "target_id" : "a56be9d1-f8ae-4810-a14b-742462949757"
+    },
+    {
+      "source_id" : "cddb9e68-0376-4599-a3db-107b2a5a406e",
+      "target_id" : "3e71b6a4-f894-44d9-9d09-5831f876b252"
+    },
+    {
+      "source_id" : "3e71b6a4-f894-44d9-9d09-5831f876b252",
+      "target_id" : "a56be9d1-f8ae-4810-a14b-742462949757"
+    },
+    {
+      "source_id" : "a90dddee-5d0a-44f9-a28e-aba9b5eb6380",
+      "target_id" : "0373c3c3-2115-465a-909a-c6b95a66a32a"
+    },
+    {
+      "source_id" : "0373c3c3-2115-465a-909a-c6b95a66a32a",
+      "target_id" : "a56be9d1-f8ae-4810-a14b-742462949757"
+    },
+    {
+      "source_id" : "16fc089f-6499-4666-9b12-72e3ed0722a9",
+      "target_id" : "f369e627-3e1c-464f-956c-6da262a2dcc7"
+    },
+    {
+      "source_id" : "83096cc0-f2d0-477c-b3ea-edcb1e9f3a0a",
+      "target_id" : "f369e627-3e1c-464f-956c-6da262a2dcc7",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "f369e627-3e1c-464f-956c-6da262a2dcc7",
+      "target_id" : "202b601d-a7c0-426a-a6f1-b91818e1de83"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
