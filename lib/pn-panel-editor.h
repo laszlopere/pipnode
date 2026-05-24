@@ -45,8 +45,9 @@ G_DECLARE_FINAL_TYPE (PnPanelEditor,
  * across every sheet of @flow: it is populated for all existing countdown
  * nodes on creation, and it grows and shrinks automatically as countdown
  * nodes are added to or removed from the flow.  Each readout mirrors its
- * node's current value live.  Layout editing beyond this preview is not
- * implemented yet.
+ * node's current value live.  The readouts are laid out on a free-
+ * positioning canvas and can be dragged around with the mouse; positions
+ * are not yet persisted across sessions.
  *
  * Returns: (transfer floating): the new panel editor widget
  */

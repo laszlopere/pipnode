@@ -48,6 +48,12 @@
  * preview matches what lands on a real panel. */
 #define PN_PE_PREVIEW_HEIGHT 36
 
+/* Size of the free-positioning canvas.  It is deliberately larger than a
+ * typical viewport so there is room to spread widgets out; the host wraps
+ * the editor in a scrolled window, which scrolls to reach the rest. */
+#define PN_PE_CANVAS_WIDTH  1000
+#define PN_PE_CANVAS_HEIGHT  700
+
 struct _PnPanelEditor
 {
     GtkBox parent_instance;
@@ -57,15 +63,29 @@ struct _PnPanelEditor
     PnFlow      *flow;
     PnNodeStore *nodes;
 
-    /* Vertical stack of readout rows and the "nothing here yet" hint
-     * shown when there are no countdown nodes. */
-    GtkWidget *list_box;
+    /* Free-positioning canvas the readout rows are placed on, plus the
+     * "nothing here yet" hint shown when there are no countdown nodes. */
+    GtkWidget *canvas;
     GtkWidget *empty_label;
 
     /* PnCountdown node (borrowed; the store owns the ref) → its row
-     * widget (the framed #PnLedDisplay, owned by @list_box).  The map is
-     * the source of truth for the one-readout-per-node invariant. */
+     * widget (a #GtkEventBox drag handle wrapping the framed
+     * #PnLedDisplay, owned by @canvas).  The map is the source of truth
+     * for the one-readout-per-node invariant. */
     GHashTable *rows;
+
+    /* Drag state.  @drag_child is the row currently being dragged (a
+     * canvas child), or %NULL when idle; @drag_grab_x/y is the pointer's
+     * offset within that child at the moment of grab, so the row tracks
+     * the pointer without jumping. */
+    GtkWidget *drag_child;
+    gdouble    drag_grab_x;
+    gdouble    drag_grab_y;
+
+    /* Running count of rows ever placed, used to cascade the initial
+     * position of each new readout so they do not all land on top of
+     * one another. */
+    guint      cascade;
 };
 
 G_DEFINE_TYPE (PnPanelEditor, pn_panel_editor, GTK_TYPE_BOX)
@@ -101,7 +121,121 @@ panel_editor_update_empty_state (PnPanelEditor *self)
     gboolean empty = (g_hash_table_size (self->rows) == 0);
 
     gtk_widget_set_visible (self->empty_label, empty);
-    gtk_widget_set_visible (self->list_box,   !empty);
+    gtk_widget_set_visible (self->canvas,     !empty);
+}
+
+/* Begin dragging the row under the pointer.  We remember where inside the
+ * row the pointer grabbed so the row follows it without snapping its
+ * corner to the cursor, and raise the row above its siblings so it stays
+ * visible while it is moved over them. */
+static gboolean
+on_row_button_press (GtkWidget      *child,
+                     GdkEventButton *event,
+                     gpointer        user_data)
+{
+    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    GdkWindow     *win;
+
+    if (event->button != GDK_BUTTON_PRIMARY)
+        return GDK_EVENT_PROPAGATE;
+
+    self->drag_child  = child;
+    self->drag_grab_x = event->x;
+    self->drag_grab_y = event->y;
+
+    win = gtk_widget_get_window (child);
+    if (win != NULL)
+        gdk_window_raise (win);
+
+    return GDK_EVENT_STOP;
+}
+
+/* Track the pointer: move the grabbed row so the grab point stays under
+ * the cursor, clamped so the row cannot be dragged off the canvas. */
+static gboolean
+on_row_motion (GtkWidget      *child,
+               GdkEventMotion *event,
+               gpointer        user_data)
+{
+    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    gint           px, py;
+    gint           nx, ny;
+
+    if (self->drag_child != child)
+        return GDK_EVENT_PROPAGATE;
+
+    /* event->x/y are relative to @child; translate to canvas coordinates
+     * so the move is expressed in the canvas's own space. */
+    if (!gtk_widget_translate_coordinates (child, self->canvas,
+                                           (gint) event->x, (gint) event->y,
+                                           &px, &py))
+        return GDK_EVENT_PROPAGATE;
+
+    nx = px - (gint) self->drag_grab_x;
+    ny = py - (gint) self->drag_grab_y;
+
+    nx = CLAMP (nx, 0,
+                MAX (0, gtk_widget_get_allocated_width  (self->canvas)
+                            - gtk_widget_get_allocated_width  (child)));
+    ny = CLAMP (ny, 0,
+                MAX (0, gtk_widget_get_allocated_height (self->canvas)
+                            - gtk_widget_get_allocated_height (child)));
+
+    gtk_fixed_move (GTK_FIXED (self->canvas), child, nx, ny);
+    return GDK_EVENT_STOP;
+}
+
+static gboolean
+on_row_button_release (GtkWidget      *child,
+                       GdkEventButton *event,
+                       gpointer        user_data)
+{
+    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+
+    if (event->button != GDK_BUTTON_PRIMARY)
+        return GDK_EVENT_PROPAGATE;
+
+    if (self->drag_child == child)
+        self->drag_child = NULL;
+
+    return GDK_EVENT_STOP;
+}
+
+/* Give a row a move ("fleur") cursor so it reads as draggable.  Deferred
+ * to realize because the cursor is set on the row's #GdkWindow. */
+static void
+on_row_realize (GtkWidget *child, gpointer user_data)
+{
+    GdkWindow  *win = gtk_widget_get_window (child);
+    GdkDisplay *display;
+    GdkCursor  *cursor;
+
+    (void) user_data;
+    if (win == NULL)
+        return;
+
+    display = gtk_widget_get_display (child);
+    cursor  = gdk_cursor_new_from_name (display, "move");
+    if (cursor == NULL)
+        cursor = gdk_cursor_new_for_display (display, GDK_FLEUR);
+
+    gdk_window_set_cursor (win, cursor);
+    g_clear_object (&cursor);
+}
+
+/* Initial canvas position for the next readout: cascade down a column,
+ * wrapping to the next column once one fills, so a fresh editor lays the
+ * existing nodes out tidily before the user rearranges them. */
+static void
+panel_editor_next_position (PnPanelEditor *self, gint *out_x, gint *out_y)
+{
+    const gint margin  = 24;
+    const gint step_y  = PN_PE_PREVIEW_HEIGHT + 28;
+    const gint step_x  = 170;
+    gint       per_col = MAX (1, (PN_PE_CANVAS_HEIGHT - margin) / step_y);
+
+    *out_x = margin + (self->cascade / per_col) * step_x;
+    *out_y = margin + (self->cascade % per_col) * step_y;
 }
 
 /* Create the readout for @node when it is a countdown node we are not
@@ -109,8 +243,10 @@ panel_editor_update_empty_state (PnPanelEditor *self)
 static void
 panel_editor_add_node (PnPanelEditor *self, PnNode *node)
 {
+    GtkWidget *handle;
     GtkWidget *frame;
     GtkWidget *led;
+    gint       x, y;
 
     if (!PN_IS_COUNTDOWN (node))
         return;
@@ -121,7 +257,6 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
      * display. */
     frame = gtk_frame_new (NULL);
     gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
-    gtk_widget_set_halign (frame, GTK_ALIGN_CENTER);
 
     led = pn_led_display_new ();
     pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
@@ -131,6 +266,23 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
     gtk_widget_set_margin_end    (led, 6);
     gtk_container_add (GTK_CONTAINER (frame), led);
 
+    /* An event box wraps the frame as the drag handle: the LED display is
+     * a plain drawing area with no event mask, so button/motion events
+     * fall through to this parent, which we subscribe to motion as well
+     * as the default button events. */
+    handle = gtk_event_box_new ();
+    gtk_widget_add_events (handle, GDK_POINTER_MOTION_MASK);
+    gtk_container_add (GTK_CONTAINER (handle), frame);
+
+    g_signal_connect (handle, "button-press-event",
+                      G_CALLBACK (on_row_button_press), self);
+    g_signal_connect (handle, "motion-notify-event",
+                      G_CALLBACK (on_row_motion), self);
+    g_signal_connect (handle, "button-release-event",
+                      G_CALLBACK (on_row_button_release), self);
+    g_signal_connect (handle, "realize",
+                      G_CALLBACK (on_row_realize), NULL);
+
     /* Seed the current value, then track it live.  Tying the handler to
      * the readout (g_signal_connect_object) means destroying the row when
      * the node goes away also severs the connection — no manual handler
@@ -139,10 +291,12 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
     g_signal_connect_object (node, "repaint-needed",
                              G_CALLBACK (on_node_repaint_needed), led, 0);
 
-    gtk_box_pack_start (GTK_BOX (self->list_box), frame, FALSE, FALSE, 0);
-    gtk_widget_show_all (frame);
+    panel_editor_next_position (self, &x, &y);
+    gtk_fixed_put (GTK_FIXED (self->canvas), handle, x, y);
+    gtk_widget_show_all (handle);
+    self->cascade++;
 
-    g_hash_table_insert (self->rows, node, frame);
+    g_hash_table_insert (self->rows, node, handle);
     panel_editor_update_empty_state (self);
 }
 
@@ -150,14 +304,18 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
 static void
 panel_editor_remove_node (PnPanelEditor *self, PnNode *node)
 {
-    GtkWidget *frame = g_hash_table_lookup (self->rows, node);
+    GtkWidget *handle = g_hash_table_lookup (self->rows, node);
 
-    if (frame == NULL)
+    if (handle == NULL)
         return;
 
-    /* Destroying the frame destroys its #PnLedDisplay, which auto-
-     * disconnects the node's repaint-needed handler. */
-    gtk_widget_destroy (frame);
+    /* If the row was mid-drag, forget it before it is destroyed. */
+    if (self->drag_child == handle)
+        self->drag_child = NULL;
+
+    /* Destroying the handle destroys its frame and #PnLedDisplay, which
+     * auto-disconnects the node's repaint-needed handler. */
+    gtk_widget_destroy (handle);
     g_hash_table_remove (self->rows, node);
     panel_editor_update_empty_state (self);
 }
@@ -235,7 +393,6 @@ pn_panel_editor_class_init (PnPanelEditorClass *klass)
 static void
 pn_panel_editor_init (PnPanelEditor *self)
 {
-    GtkWidget *content;
     GtkWidget *title;
 
     self->rows = g_hash_table_new (g_direct_hash, g_direct_equal);
@@ -245,25 +402,26 @@ pn_panel_editor_init (PnPanelEditor *self)
     gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
 
-    /* A centred column floats in the middle of the canvas (expand=TRUE,
-     * fill=FALSE centres it vertically; halign centres it across). */
-    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_halign (content, GTK_ALIGN_CENTER);
-    gtk_box_pack_start (GTK_BOX (self), content, TRUE, FALSE, 0);
-
     title = gtk_label_new (NULL);
     gtk_label_set_markup (
             GTK_LABEL (title),
             "<span size='large' weight='bold'>Panel applet GUI editor</span>");
-    gtk_box_pack_start (GTK_BOX (content), title, FALSE, FALSE, 0);
+    gtk_widget_set_margin_top    (title, 8);
+    gtk_widget_set_margin_bottom (title, 8);
+    gtk_box_pack_start (GTK_BOX (self), title, FALSE, FALSE, 0);
 
-    /* One readout per countdown node stacks here.  Both the list and the
-     * empty hint opt out of show_all so the host's gtk_widget_show_all on
-     * the tab cannot override the explicit visibility we toggle between
-     * them in panel_editor_update_empty_state. */
-    self->list_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_no_show_all (self->list_box, TRUE);
-    gtk_box_pack_start (GTK_BOX (content), self->list_box, FALSE, FALSE, 0);
+    /* The free-positioning canvas the readouts are dragged around on.  A
+     * size request gives the host's scrolled window a generous area to
+     * scroll, so widgets can be spread well beyond one viewport.  Both the
+     * canvas and the empty hint opt out of show_all so the host's
+     * gtk_widget_show_all on the tab cannot override the explicit
+     * visibility we toggle between them in
+     * panel_editor_update_empty_state. */
+    self->canvas = gtk_fixed_new ();
+    gtk_widget_set_size_request (self->canvas,
+                                 PN_PE_CANVAS_WIDTH, PN_PE_CANVAS_HEIGHT);
+    gtk_widget_set_no_show_all (self->canvas, TRUE);
+    gtk_box_pack_start (GTK_BOX (self), self->canvas, TRUE, TRUE, 0);
 
     self->empty_label = gtk_label_new (NULL);
     gtk_label_set_markup (
@@ -271,9 +429,7 @@ pn_panel_editor_init (PnPanelEditor *self)
             "<span foreground='#888888'>"
             "No Countdown nodes yet — add one to a worksheet</span>");
     gtk_widget_set_no_show_all (self->empty_label, TRUE);
-    gtk_box_pack_start (GTK_BOX (content), self->empty_label, FALSE, FALSE, 0);
-
-    gtk_widget_show_all (content);
+    gtk_box_pack_start (GTK_BOX (self), self->empty_label, TRUE, FALSE, 0);
 
     /* Start in the empty state; attach_flow flips it as rows appear. */
     panel_editor_update_empty_state (self);
