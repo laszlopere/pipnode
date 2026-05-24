@@ -1703,6 +1703,149 @@ action_about (
     gtk_widget_show_all (dialog);
 }
 
+/** %TRUE when running inside a Flatpak sandbox.  Flatpak drops a
+ *  /.flatpak-info file into every sandbox and exports $FLATPAK_ID, so
+ *  either signal identifies the community-edition bundle. */
+static gboolean
+running_under_flatpak (void)
+{
+    return g_file_test ("/.flatpak-info", G_FILE_TEST_EXISTS)
+        || g_getenv ("FLATPAK_ID") != NULL;
+}
+
+/** Pango markup describing how this binary was built.  The text differs
+ *  per build channel: the Flatpak community edition identifies itself as
+ *  the bundled open-source collection, while a local build reports the
+ *  short git commit it was compiled from.  Caller frees. */
+static gchar *
+build_info_markup (void)
+{
+    if (running_under_flatpak ())
+        return g_strdup (
+            "<b>Pipnode Flatpak community edition.</b>\n"
+            "The community edition is the open-source Pipnode bundle: the "
+            "GPL core together with all of the open-source plugins, packaged "
+            "as a single sandboxed Flatpak that runs on any distribution.");
+
+#ifdef GIT_VERSION
+    return g_markup_printf_escaped (
+            "<b>Custom build</b> (git %s).\n"
+            "Compiled locally from source.",
+            GIT_VERSION);
+#else
+    return g_strdup (
+            "<b>Custom build.</b>\n"
+            "Compiled locally from source.");
+#endif
+}
+
+/** Append a left-aligned, wrapped #GtkLabel of Pango @markup to @box —
+ *  the paragraph style used by the Release Notes dialog (links inside
+ *  the markup stay clickable, as in the About dialog). */
+static void
+notes_add_markup (GtkBox *box, const gchar *markup)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    gtk_label_set_markup (GTK_LABEL (label), markup);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_justify (GTK_LABEL (label), GTK_JUSTIFY_LEFT);
+    gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 58);
+    gtk_box_pack_start (box, label, FALSE, FALSE, 0);
+}
+
+static void
+action_release_notes (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    PnWindow  *self = PN_WINDOW (user_data);
+    GtkWidget *dialog;
+    GtkWidget *scrolled;
+    GtkWidget *box;
+    gchar     *markup;
+    (void) item;
+
+    dialog = gtk_dialog_new_with_buttons (
+            "Release Notes",
+            GTK_WINDOW (self),
+            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+            "_Close", GTK_RESPONSE_CLOSE,
+            NULL);
+    gtk_window_set_default_size (GTK_WINDOW (dialog), 540, 580);
+
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_box_pack_start (
+            GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dialog))),
+            scrolled, TRUE, TRUE, 0);
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top (box, 16);
+    gtk_widget_set_margin_bottom (box, 16);
+    gtk_widget_set_margin_start (box, 22);
+    gtk_widget_set_margin_end (box, 22);
+    /* GtkScrolledWindow wraps a non-scrollable child in a viewport. */
+    gtk_container_add (GTK_CONTAINER (scrolled), box);
+
+    /*  Version heading. */
+    markup = g_markup_printf_escaped (
+            "<span size='x-large' weight='bold'>Pipnode %s</span>\n"
+            "<span alpha='70%%'>First public release — 24 May 2026</span>",
+            PACKAGE_VERSION);
+    notes_add_markup (GTK_BOX (box), markup);
+    g_free (markup);
+
+    /*  Build channel — differs between Flatpak and a local build. */
+    markup = build_info_markup ();
+    notes_add_markup (GTK_BOX (box), markup);
+    g_free (markup);
+
+    notes_add_markup (GTK_BOX (box),
+            "A desktop visual flow editor for Linux. Drop nodes onto a "
+            "worksheet, wire them together, and build dataflows — network "
+            "probes, MQTT, sensors, gauges, image processing, local LLM "
+            "calls and more — without writing glue code.");
+
+    notes_add_markup (GTK_BOX (box),
+            "<b>Early but stable.</b>\n"
+            "This release is tested and usable for real work: it does not "
+            "crash in normal use, and the GUI is complete and unobtrusive — "
+            "no dead buttons or placeholder panes. Together, the bundled "
+            "nodes and the editor are enough to build and run genuinely "
+            "useful flows day to day.");
+
+    notes_add_markup (GTK_BOX (box),
+            "<b>Not yet mature.</b>\n"
+            "The public surface is not frozen. The set of nodes, their names "
+            "and behaviour, the messages passed between them, and the plugin "
+            "ABI may all change in future 0.x releases — possibly without a "
+            "migration path. For now, treat saved worksheets and third-party "
+            "plugins as tied to this version.");
+
+    notes_add_markup (GTK_BOX (box),
+            "<b>What's inside</b>\n"
+            "• JSON worksheets with live message flow and a debug view\n"
+            "• A broad node catalogue: flow/logic, transforms, gauges and "
+            "meters, HTTP/MQTT/WebSocket, sensors, image processing, shell, "
+            "weather and more\n"
+            "• A headless runner (<tt>pipnode-run</tt>) for servers\n"
+            "• A first-class plugin system (open-core: GPLv3 + plugin "
+            "exception)");
+
+    notes_add_markup (GTK_BOX (box),
+            "The full changelog is in "
+            "<a href=\"https://github.com/laszlopere/pipnode/blob/master/"
+            "CHANGELOG.md\">CHANGELOG.md</a>.");
+
+    g_signal_connect (dialog, "response",
+                      G_CALLBACK (gtk_widget_destroy), NULL);
+
+    gtk_widget_show_all (dialog);
+}
+
 /** Open a #PnHelpBrowser parented to the main window.
  *
  *  When @anchor is non-%NULL it is interpreted as a node type name
@@ -2409,6 +2552,10 @@ create_menubar (PnWindow *self)
         create_image_menu_item ("help-contents", "_Contents", accel_group,
                                 GDK_KEY_F1, 0,
                                 G_CALLBACK (action_help_contents), self));
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu),
+        create_image_menu_item ("text-x-generic", "Release _Notes", NULL,
+                                0, 0,
+                                G_CALLBACK (action_release_notes), self));
     gtk_menu_shell_append (GTK_MENU_SHELL (menu),
         create_image_menu_item ("help-about", "_About", NULL,
                                 0, 0,
