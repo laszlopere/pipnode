@@ -49,6 +49,20 @@ void       pn_led_display_set_seconds    (PnLedDisplay *self,
 void       pn_led_display_set_day_digits (PnLedDisplay *self,
                                           guint         digits);
 
+/* Colour of a lit seven-segment bar (and the colon dots).  Mirrors the
+ * Countdown node's segment-color; defaults to the classic LED red. */
+void       pn_led_display_set_segment_color (PnLedDisplay *self,
+                                             gdouble       red,
+                                             gdouble       green,
+                                             gdouble       blue);
+
+/* Colour of an unlit seven-segment bar — the off-state ghost.  Mirrors
+ * the Countdown node's unlit-segment-color; defaults to a dim red. */
+void       pn_led_display_set_unlit_color   (PnLedDisplay *self,
+                                             gdouble       red,
+                                             gdouble       green,
+                                             gdouble       blue);
+
 /* Set the overall pixel height the readout should occupy (typically the
  * panel's icon size); the digit geometry is derived from it. */
 void       pn_led_display_set_height     (PnLedDisplay *self,

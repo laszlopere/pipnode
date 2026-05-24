@@ -78,6 +78,12 @@ struct _PnLedDisplay
     gint64 seconds;     /* value being shown, clamped at zero          */
     guint  day_digits;  /* cells reserved for the days field           */
     gint   height;      /* requested overall pixel height              */
+
+    /* Segment colours, defaulting to the LED_* constants above but
+     * overridable so the panel editor can mirror the Countdown node's
+     * configured lit / unlit colours (pn_led_display_set_*_color). */
+    gdouble lit_r,   lit_g,   lit_b;     /* lit seven-segment bar       */
+    gdouble unlit_r, unlit_g, unlit_b;   /* unlit off-state ghost bar   */
 };
 
 G_DEFINE_TYPE (PnLedDisplay, pn_led_display, GTK_TYPE_DRAWING_AREA)
@@ -154,25 +160,24 @@ v_seg (cairo_t *cr, double cx, double y1, double y2, double t)
     cairo_close_path (cr);
 }
 
-/* Fill the current path as one bar: lit bars are filled solid and given
- * a faint translucent halo stroke; unlit bars are a dark ghost. */
+/* Fill the current path as one bar: lit bars are filled solid in the
+ * configured lit colour and given a faint translucent halo stroke; unlit
+ * bars are painted in the configured off-state ghost colour. */
 static void
-seg_fill (cairo_t *cr, gboolean on)
+seg_fill (PnLedDisplay *self, cairo_t *cr, gboolean on)
 {
     if (on)
     {
-        cairo_set_source_rgba (cr, LED_LIT_R, LED_LIT_G, LED_LIT_B, 1.0);
+        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
         cairo_fill_preserve (cr);
-        cairo_set_source_rgba (cr, LED_LIT_R, LED_LIT_G, LED_LIT_B, 0.30);
+        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 0.30);
         cairo_set_line_width (cr, 1.5);
         cairo_stroke (cr);
     }
     else
     {
-        cairo_set_source_rgba (cr,
-                               LED_LIT_R * LED_DIM,
-                               LED_LIT_G * LED_DIM,
-                               LED_LIT_B * LED_DIM, 1.0);
+        cairo_set_source_rgba (cr, self->unlit_r, self->unlit_g,
+                               self->unlit_b, 1.0);
         cairo_fill (cr);
     }
 }
@@ -180,8 +185,8 @@ seg_fill (cairo_t *cr, gboolean on)
 /* Draw one seven-segment digit in the cell at (x,y) of size (D,H).  A
  * @val outside 0..9 lights no segments (a blank cell). */
 static void
-draw_digit (cairo_t *cr, double x, double y, double D, double H, double t,
-            int val)
+draw_digit (PnLedDisplay *self, cairo_t *cr,
+            double x, double y, double D, double H, double t, int val)
 {
     double inset = t * 0.6;
     double xl    = x + inset;
@@ -192,24 +197,26 @@ draw_digit (cairo_t *cr, double x, double y, double D, double H, double t,
     double g     = t * 0.35;
     guint  mask  = (val >= 0 && val <= 9) ? seg_masks[val] : 0;
 
-    h_seg (cr, xl + g, xr - g, yt, t); seg_fill (cr, (mask & 0x01) != 0); /* a */
-    v_seg (cr, xr, yt + g, ym - g, t); seg_fill (cr, (mask & 0x02) != 0); /* b */
-    v_seg (cr, xr, ym + g, yb - g, t); seg_fill (cr, (mask & 0x04) != 0); /* c */
-    h_seg (cr, xl + g, xr - g, yb, t); seg_fill (cr, (mask & 0x08) != 0); /* d */
-    v_seg (cr, xl, ym + g, yb - g, t); seg_fill (cr, (mask & 0x10) != 0); /* e */
-    v_seg (cr, xl, yt + g, ym - g, t); seg_fill (cr, (mask & 0x20) != 0); /* f */
-    h_seg (cr, xl + g, xr - g, ym, t); seg_fill (cr, (mask & 0x40) != 0); /* g */
+    h_seg (cr, xl + g, xr - g, yt, t); seg_fill (self, cr, (mask & 0x01) != 0); /* a */
+    v_seg (cr, xr, yt + g, ym - g, t); seg_fill (self, cr, (mask & 0x02) != 0); /* b */
+    v_seg (cr, xr, ym + g, yb - g, t); seg_fill (self, cr, (mask & 0x04) != 0); /* c */
+    h_seg (cr, xl + g, xr - g, yb, t); seg_fill (self, cr, (mask & 0x08) != 0); /* d */
+    v_seg (cr, xl, ym + g, yb - g, t); seg_fill (self, cr, (mask & 0x10) != 0); /* e */
+    v_seg (cr, xl, yt + g, ym - g, t); seg_fill (self, cr, (mask & 0x20) != 0); /* f */
+    h_seg (cr, xl + g, xr - g, ym, t); seg_fill (self, cr, (mask & 0x40) != 0); /* g */
 }
 
-/* Draw the two always-lit colon dots in a colon column centred at @cx. */
+/* Draw the two always-lit colon dots in a colon column centred at @cx,
+ * in the configured lit colour. */
 static void
-draw_colon (cairo_t *cr, double cx, double y, double H, double t)
+draw_colon (PnLedDisplay *self, cairo_t *cr, double cx, double y,
+            double H, double t)
 {
     double r  = t * 0.62;
     double y1 = y + H * 0.34;
     double y2 = y + H * 0.66;
 
-    cairo_set_source_rgba (cr, LED_LIT_R, LED_LIT_G, LED_LIT_B, 1.0);
+    cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
     cairo_arc (cr, cx, y1, r, 0.0, 2.0 * M_PI);
     cairo_fill (cr);
     cairo_arc (cr, cx, y2, r, 0.0, 2.0 * M_PI);
@@ -338,7 +345,7 @@ pn_led_display_draw (GtkWidget *widget, cairo_t *cr)
         int    d   = (int) ((daysv / div) % 10);
 
         if (i > 0) x_cur += s_intra;
-        draw_digit (cr, x_cur, y, D, H, t, d);
+        draw_digit (self, cr, x_cur, y, D, H, t, d);
         x_cur += D;
     }
 
@@ -346,18 +353,18 @@ pn_led_display_draw (GtkWidget *widget, cairo_t *cr)
     x_cur += s_group;
 
     /* Hours, colon, minutes, colon, seconds. */
-    draw_digit (cr, x_cur, y, D, H, t, hh[0]); x_cur += D + s_intra;
-    draw_digit (cr, x_cur, y, D, H, t, hh[1]); x_cur += D + s_intra;
-    draw_colon (cr, x_cur + colon_w * 0.5, y, H, t);
+    draw_digit (self, cr, x_cur, y, D, H, t, hh[0]); x_cur += D + s_intra;
+    draw_digit (self, cr, x_cur, y, D, H, t, hh[1]); x_cur += D + s_intra;
+    draw_colon (self, cr, x_cur + colon_w * 0.5, y, H, t);
     x_cur += colon_w + s_intra;
 
-    draw_digit (cr, x_cur, y, D, H, t, mm[0]); x_cur += D + s_intra;
-    draw_digit (cr, x_cur, y, D, H, t, mm[1]); x_cur += D + s_intra;
-    draw_colon (cr, x_cur + colon_w * 0.5, y, H, t);
+    draw_digit (self, cr, x_cur, y, D, H, t, mm[0]); x_cur += D + s_intra;
+    draw_digit (self, cr, x_cur, y, D, H, t, mm[1]); x_cur += D + s_intra;
+    draw_colon (self, cr, x_cur + colon_w * 0.5, y, H, t);
     x_cur += colon_w + s_intra;
 
-    draw_digit (cr, x_cur, y, D, H, t, ss[0]); x_cur += D + s_intra;
-    draw_digit (cr, x_cur, y, D, H, t, ss[1]);
+    draw_digit (self, cr, x_cur, y, D, H, t, ss[0]); x_cur += D + s_intra;
+    draw_digit (self, cr, x_cur, y, D, H, t, ss[1]);
 
     return FALSE;
 }
@@ -412,6 +419,15 @@ pn_led_display_init (PnLedDisplay *self)
     self->day_digits = 3;
     self->height     = 24;   /* matches PnLedLamp's default so a mixed row
                               * of applet widgets stands one height */
+
+    /* Classic LED red lit, dim red ghost — the Countdown node's defaults. */
+    self->lit_r   = LED_LIT_R;
+    self->lit_g   = LED_LIT_G;
+    self->lit_b   = LED_LIT_B;
+    self->unlit_r = LED_LIT_R * LED_DIM;
+    self->unlit_g = LED_LIT_G * LED_DIM;
+    self->unlit_b = LED_LIT_B * LED_DIM;
+
     gtk_widget_set_has_window (GTK_WIDGET (self), FALSE);
 }
 
@@ -455,6 +471,37 @@ pn_led_display_set_day_digits (PnLedDisplay *self, guint digits)
 
     self->day_digits = digits;
     gtk_widget_queue_resize (GTK_WIDGET (self));   /* width changes */
+}
+
+void
+pn_led_display_set_segment_color (PnLedDisplay *self,
+                                  gdouble red, gdouble green, gdouble blue)
+{
+    g_return_if_fail (PN_IS_LED_DISPLAY (self));
+
+    if (red == self->lit_r && green == self->lit_g && blue == self->lit_b)
+        return;
+
+    self->lit_r = red;
+    self->lit_g = green;
+    self->lit_b = blue;
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+void
+pn_led_display_set_unlit_color (PnLedDisplay *self,
+                                gdouble red, gdouble green, gdouble blue)
+{
+    g_return_if_fail (PN_IS_LED_DISPLAY (self));
+
+    if (red == self->unlit_r && green == self->unlit_g &&
+        blue == self->unlit_b)
+        return;
+
+    self->unlit_r = red;
+    self->unlit_g = green;
+    self->unlit_b = blue;
+    gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 void
