@@ -25,6 +25,7 @@
 
 #include "pn-analog-meter-gui.h"
 #include "pn-chat-gui.h"
+#include "pn-countdown-gui.h"
 #include "pn-dial-gui.h"
 #include "pn-file-viewer-gui.h"
 #include "pn-filedrop-gui.h"
@@ -52,6 +53,7 @@ pn_gui_install_builtin_nodes (void)
      * gui-only vfunc slots onto the core-registered class. */
     pn_analog_meter_gui_install ();
     pn_chat_gui_install ();
+    pn_countdown_gui_install ();
     pn_dial_gui_install ();
     pn_file_viewer_gui_install ();
     pn_filedrop_gui_install ();

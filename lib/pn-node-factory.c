@@ -28,6 +28,7 @@
 #include "pn-auto-random.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
+#include "pn-countdown.h"
 #include "pn-deadline.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
@@ -254,6 +255,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_DIAL);
     pn_node_factory_register (self, PN_TYPE_ANALOG_METER);
     pn_node_factory_register (self, PN_TYPE_LED);
+    pn_node_factory_register (self, PN_TYPE_COUNTDOWN);
     pn_node_factory_register (self, PN_TYPE_TABLE);
     pn_node_factory_register (self, PN_TYPE_TABLE_VIEW);
     pn_node_factory_register (self, PN_TYPE_TEXT_VIEW);

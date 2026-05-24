@@ -41,6 +41,8 @@ libpipnode_core_la_SOURCES = \
 	pn-color.h \
 	pn-comparator.c \
 	pn-comparator.h \
+	pn-countdown.c \
+	pn-countdown.h \
 	pn-deadline.c \
 	pn-deadline.h \
 	pn-debug.c \
@@ -179,6 +181,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.c \
 	pn-chat-gui.h \
+	pn-countdown-gui.c \
+	pn-countdown-gui.h \
 	pn-dial-gui.c \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.c \
@@ -279,6 +283,7 @@ pipnode_core_headers = \
 	pn-chat.h \
 	pn-color.h \
 	pn-comparator.h \
+	pn-countdown.h \
 	pn-debug.h \
 	pn-dedup.h \
 	pn-delay.h \
@@ -336,6 +341,7 @@ pipnode_gui_headers = \
 	pipnode.h \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \
+	pn-countdown-gui.h \
 	pn-dial-gui.h \
 	pn-document-settings-dialog.h \
 	pn-file-viewer-gui.h \

@@ -53,6 +53,10 @@ controlsandlogic_DATA = \
 	controls-and-logic/knob.json \
 	controls-and-logic/notify-test.json
 
+timedir = $(pkgdatadir)/examples/time
+time_DATA = \
+	time/time-left.json
+
 miscdir = $(pkgdatadir)/examples/misc
 misc_DATA = \
 	misc/untitled.json
@@ -64,4 +68,5 @@ EXTRA_DIST = \
 	$(systemmonitoring_DATA) \
 	$(speechandsound_DATA) \
 	$(controlsandlogic_DATA) \
+	$(time_DATA) \
 	$(misc_DATA)

@@ -1,0 +1,83 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "bbd81f5e-6d74-4e68-b657-42460a4b74c6",
+      "name" : "Clock",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "309b9713-44c2-447a-910f-7e72dbb160bd",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 400.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDeadline",
+      "uuid" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e",
+      "name" : "Release",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "target" : "2026-05-24 23:00:00",
+        "timezone" : "EDT — Eastern Daylight Time"
+      }
+    },
+    {
+      "type" : "PnCountdown",
+      "uuid" : "4e1e17f1-00da-4d6b-a0a0-be78557b8d22",
+      "name" : "Rick and Morty countdown",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "day-digits" : 3,
+        "show-labels" : true,
+        "background-color" : "rgb(0,0,0)",
+        "segment-color" : "rgb(237,51,59)",
+        "label-color" : "rgb(255,255,255)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "bbd81f5e-6d74-4e68-b657-42460a4b74c6",
+      "target_id" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e"
+    },
+    {
+      "source_id" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e",
+      "target_id" : "309b9713-44c2-447a-910f-7e72dbb160bd"
+    },
+    {
+      "source_id" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e",
+      "target_id" : "4e1e17f1-00da-4d6b-a0a0-be78557b8d22"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

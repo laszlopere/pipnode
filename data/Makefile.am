@@ -14,6 +14,7 @@ pnhelp_DATA = \
 	help/PnAutoRandom.html \
 	help/PnChat.html \
 	help/PnComparator.html \
+	help/PnCountdown.html \
 	help/PnDeadline.html \
 	help/PnDebug.html \
 	help/PnDedup.html \

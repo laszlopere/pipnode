@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Countdown (PnCountdown) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnCountdown">Countdown</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnCountdown</code>.
+</p>
+<p>
+Paints a digital countdown clock &mdash; a black panel of seven-segment
+LED digits laid out as
+<code>DAYS&nbsp;&nbsp;HOURS:MINUTES:SECONDS</code>, the look of a
+wall-mounted event countdown display. Each incoming message must carry a
+numeric <code>value</code> holding the <strong>seconds remaining</strong>
+until the target instant &mdash; exactly what the
+<a href="PnDeadline.html">Deadline</a> node emits. The node breaks that
+total into days, hours, minutes and seconds and lights the digits
+accordingly.
+</p>
+<p>
+When <code>value</code> is zero or negative (the deadline has passed), or
+before any message has arrived, the display shows
+<strong>all zeroes</strong>. Being a sink, the node never forwards a
+message; a non-numeric <code>value</code> is ignored and leaves the
+current reading untouched.
+</p>
+<p>
+A typical chain is <a href="PnRtc.html">Clock</a> &rarr;
+<a href="PnDeadline.html">Deadline</a> &rarr; Countdown: the Clock ticks
+the current epoch once a second, the Deadline turns it into the seconds
+remaining, and the Countdown paints the result. The display repaints only
+when the visible digits actually change, so a once-a-second feed drives
+exactly one redraw per second.
+</p>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td><code>day-digits</code></td>
+      <td>How many seven-segment cells the days field uses (1&ndash;6).
+          Three (the default) counts up to 999 days; a days count larger
+          than the field can show saturates at all nines rather than
+          wrapping.</td></tr>
+  <tr><td><code>show-labels</code></td>
+      <td>Draw the <code>DAYS</code> / <code>HOURS</code> /
+          <code>MINUTES</code> / <code>SECONDS</code> captions above their
+          digit groups.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the panel face behind the digits &mdash; the
+          near-black face of an LED clock by default.</td></tr>
+  <tr><td><code>segment-color</code></td>
+      <td>Colour of a lit segment bar &mdash; the classic LED red by
+          default. Unlit segments are drawn as a dim ghost of this
+          colour.</td></tr>
+  <tr><td><code>label-color</code></td>
+      <td>Colour of the <code>DAYS</code> / <code>HOURS</code> /
+          <code>MINUTES</code> / <code>SECONDS</code> captions &mdash; a
+          soft off-white by default.</td></tr>
+</table>
+
+</body>
+</html>
