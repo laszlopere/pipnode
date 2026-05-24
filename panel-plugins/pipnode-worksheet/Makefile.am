@@ -15,7 +15,9 @@ plugindir = $(LIBXFCE4PANEL_PLUGINDIR)
 plugin_LTLIBRARIES = libpipnode-worksheet.la
 
 libpipnode_worksheet_la_SOURCES = \
-	pipnode-worksheet-plugin.c
+	pipnode-worksheet-plugin.c \
+	pn-led-display.c \
+	pn-led-display.h
 
 libpipnode_worksheet_la_CFLAGS = \
 	$(LIBXFCE4PANEL_CFLAGS) \

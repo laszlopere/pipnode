@@ -26,7 +26,10 @@
 /*  editor/node crash can never take down xfce4-panel):                */
 /*    - on load it asks the engine to RunWorksheet its file;           */
 /*    - it shows a PnPanelDisplay node's value on the button, updated  */
-/*      live via the engine's ValueChanged signal;                     */
+/*      live via the engine's ValueChanged signal — a numeric value    */
+/*      renders on a tiny seven-segment LED readout (PnLedDisplay, a    */
+/*      panel-sized echo of the Countdown node), other text in a plain  */
+/*      label;                                                          */
 /*    - a left-click drives a PnPanelInput node (SetInput);            */
 /*    - the right-click "Properties" item opens the worksheet for      */
 /*      editing (PresentEditor) — the same running flow, shown.        */
@@ -36,6 +39,8 @@
 #include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <libxfce4panel/libxfce4panel.h>
+
+#include "pn-led-display.h"
 
 /* The freedesktop/themed icon name shipped by the main app
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
@@ -72,7 +77,8 @@ typedef struct
     XfcePanelPlugin *plugin;
     GtkWidget       *button;   /* panel button (owned by the plugin) */
     GtkWidget       *image;    /* icon inside the button             */
-    GtkWidget       *label;    /* Panel Display value, shown when set */
+    GtkWidget       *led;      /* seven-segment readout, numeric values */
+    GtkWidget       *label;    /* text Panel Display values fall back here */
 
     gchar           *path;     /* this instance's worksheet file     */
     GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy     */
@@ -134,20 +140,36 @@ ensure_worksheet (const gchar *path,
 /*  Button display                                                      */
 /* ------------------------------------------------------------------ */
 
-/* Show @text from the worksheet's Panel Display next to the icon; an
- * empty string hides the label so a display-less worksheet keeps the
- * button icon-only. */
+/* Show @text from the worksheet's Panel Display on the button.  A
+ * numeric value is read as a count of seconds remaining and drawn on the
+ * seven-segment LED readout as "ddd hh:mm:ss" (a panel-sized Countdown);
+ * non-numeric text falls back to a plain label.  Either way the leading
+ * icon is hidden once a value is showing; an empty string restores the
+ * icon-only button, so a display-less worksheet keeps just the icon. */
 static void
 set_display_text (PipnodeWorksheet *self, const gchar *text)
 {
-    if (text != NULL && *text != '\0')
+    gint64 seconds;
+
+    if (text == NULL || *text == '\0')
     {
-        gtk_label_set_text (GTK_LABEL (self->label), text);
-        gtk_widget_show (self->label);
+        gtk_widget_hide (self->led);
+        gtk_widget_hide (self->label);
+        gtk_widget_show (self->image);
+    }
+    else if (pn_led_display_parse_seconds (text, &seconds))
+    {
+        pn_led_display_set_seconds (PN_LED_DISPLAY (self->led), seconds);
+        gtk_widget_hide (self->label);
+        gtk_widget_hide (self->image);
+        gtk_widget_show (self->led);
     }
     else
     {
-        gtk_widget_hide (self->label);
+        gtk_label_set_text (GTK_LABEL (self->label), text);
+        gtk_widget_hide (self->led);
+        gtk_widget_hide (self->image);
+        gtk_widget_show (self->label);
     }
 }
 
@@ -292,9 +314,11 @@ on_size_changed (XfcePanelPlugin  *plugin,
                  gint              size,
                  PipnodeWorksheet *self)
 {
+    gint icon_size = xfce_panel_plugin_get_icon_size (plugin);
+
     (void) size;
-    gtk_image_set_pixel_size (GTK_IMAGE (self->image),
-                              xfce_panel_plugin_get_icon_size (plugin));
+    gtk_image_set_pixel_size (GTK_IMAGE (self->image), icon_size);
+    pn_led_display_set_height (PN_LED_DISPLAY (self->led), icon_size);
     return TRUE;   /* handled */
 }
 
@@ -330,8 +354,10 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
     box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
     self->image = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
                                                 GTK_ICON_SIZE_BUTTON);
+    self->led   = pn_led_display_new ();
     self->label = gtk_label_new (NULL);
     gtk_box_pack_start (GTK_BOX (box), self->image, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), self->led,   FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (box), self->label, FALSE, FALSE, 0);
     gtk_container_add (GTK_CONTAINER (self->button), box);
 
@@ -357,8 +383,12 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
     g_signal_connect (plugin, "free-data",
                       G_CALLBACK (on_free_data), self);
 
+    pn_led_display_set_height (PN_LED_DISPLAY (self->led),
+                               xfce_panel_plugin_get_icon_size (plugin));
+
     gtk_widget_show_all (self->button);
-    gtk_widget_hide (self->label);   /* shown once a value arrives */
+    gtk_widget_hide (self->led);     /* shown once a numeric value arrives */
+    gtk_widget_hide (self->label);   /* shown once a text value arrives */
 
     /* Make sure the file exists, then connect to the engine
      * asynchronously so the panel never blocks on D-Bus. */

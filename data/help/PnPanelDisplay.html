@@ -34,9 +34,14 @@ data-bag members in this order:
   <li>otherwise the message <code>topic</code>, then the empty string.</li>
 </ul>
 <p>
-The node has no output port: it is a terminal display.  An empty string
-hides the applet label, so a display that has not received anything yet
-leaves the button showing just the pipnode icon.
+The node has no output port: it is a terminal display.  A numeric value is
+read as a count of seconds remaining and shown on the applet's tiny
+seven-segment <em>LED readout</em> as <code>ddd&nbsp;hh:mm:ss</code> &mdash; a
+panel-sized echo of the <a href="PnCountdown.html">Countdown</a> node, red
+digits on a near-black face, refreshed live as values arrive.  Non-numeric
+text falls back to a plain label.  An empty string hides both, so a display
+that has not received anything yet leaves the button showing just the pipnode
+icon.
 </p>
 <p>
 A worksheet needs no Panel Display to be useful, but a panel applet that

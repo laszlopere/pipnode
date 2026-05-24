@@ -81,8 +81,12 @@ each worksheet in a hidden window whose flow ticks the whole time. Picking
 closing the editor autosaves and hides it, the flow keeps running.
 
 Two core nodes bridge the flow to the panel: a **Panel Display** sink (its last
-value becomes the button label, pushed live) and a **Panel Input** source (a
-click drives it). The engine is the desktop-session counterpart of the headless
+value is shown on the button, pushed live) and a **Panel Input** source (a
+click drives it). A numeric Panel Display value is read as seconds remaining
+and drawn on a tiny seven-segment **LED readout** as `ddd hh:mm:ss` — a
+panel-sized echo of the Countdown node, refreshed live — while any other text
+falls back to a plain label. The engine is the desktop-session
+counterpart of the headless
 `pipnode-run` server tool. The applet is built only when `libxfce4panel-2.0` is
 present at configure time.
 
