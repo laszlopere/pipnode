@@ -1783,6 +1783,158 @@ resolve_help_path (const gchar *filename)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Bundled example worksheets                                         */
+/*                                                                     */
+/*  The samples install as $pkgdatadir/examples/<category>/<name>.json */
+/*  (see examples/Makefile.am) and live at $SRCDIR/examples/ in the    */
+/*  tree, so the same search order resolve_help_path() uses applies:   */
+/*                                                                     */
+/*    1. $PIPNODE_EXAMPLES_PATH   colon-separated dev override         */
+/*    2. $XDG_DATA_HOME/pipnode/examples/   per-user installs          */
+/*    3. $SRCDIR/examples/               in-tree, run from `make`       */
+/*    4. $PKGDATADIR/examples/           system install                */
+/* ------------------------------------------------------------------ */
+
+/** Return @dir if it names an existing directory (freshly allocated,
+ *  caller frees), or %NULL otherwise. */
+static gchar *
+examples_try (const gchar *dir)
+{
+    if (dir == NULL || *dir == '\0')
+        return NULL;
+    if (g_file_test (dir, G_FILE_TEST_IS_DIR))
+        return g_strdup (dir);
+    return NULL;
+}
+
+/** Locate the directory that holds the per-category example sub-dirs,
+ *  trying the dev override, the per-user dir, the in-tree copy and the
+ *  system install in turn.  Returns %NULL when none exist. */
+static gchar *
+resolve_examples_dir (void)
+{
+    const gchar *env;
+    gchar       *path;
+    gchar       *cand;
+
+    env = g_getenv ("PIPNODE_EXAMPLES_PATH");
+    if (env != NULL && *env != '\0')
+    {
+        gchar **parts = g_strsplit (env, G_SEARCHPATH_SEPARATOR_S, -1);
+        guint   i;
+
+        for (i = 0; parts[i] != NULL; i++)
+        {
+            path = examples_try (parts[i]);
+            if (path != NULL)
+            {
+                g_strfreev (parts);
+                return path;
+            }
+        }
+        g_strfreev (parts);
+    }
+
+    cand = g_build_filename (g_get_user_data_dir (), "pipnode",
+                             "examples", NULL);
+    path = examples_try (cand);
+    g_free (cand);
+    if (path != NULL)
+        return path;
+
+#ifdef SRCDIR
+    cand = g_build_filename (SRCDIR, "examples", NULL);
+    path = examples_try (cand);
+    g_free (cand);
+    if (path != NULL)
+        return path;
+#endif
+
+#ifdef PKGDATADIR
+    cand = g_build_filename (PKGDATADIR, "examples", NULL);
+    path = examples_try (cand);
+    g_free (cand);
+    if (path != NULL)
+        return path;
+#endif
+
+    return NULL;
+}
+
+/** Turn a kebab/snake slug into a menu-friendly label: "home-automation"
+ *  -> "Home Automation", "bloom-glow" -> "Bloom Glow".  Caller frees. */
+static gchar *
+prettify_slug (const gchar *raw)
+{
+    gchar   *s = g_strdup (raw);
+    gchar   *p;
+    gboolean at_word_start = TRUE;
+
+    for (p = s; *p != '\0'; p++)
+    {
+        if (*p == '-' || *p == '_')
+        {
+            *p = ' ';
+            at_word_start = TRUE;
+        }
+        else
+        {
+            if (at_word_start && g_ascii_isalpha (*p))
+                *p = g_ascii_toupper (*p);
+            at_word_start = FALSE;
+        }
+    }
+    return s;
+}
+
+/** g_ptr_array_sort comparator for an array of owned strings. */
+static gint
+slug_cmp (gconstpointer a, gconstpointer b)
+{
+    return g_strcmp0 (*(const gchar * const *) a,
+                      *(const gchar * const *) b);
+}
+
+/** Open the example whose path is stashed on the activated menu item.
+ *  The worksheet is loaded but current_path is left cleared so a
+ *  subsequent Save prompts for a destination instead of trying to
+ *  overwrite the read-only installed sample. */
+static void
+action_open_example (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    PnWindow    *self  = PN_WINDOW (user_data);
+    const gchar *path  = g_object_get_data (G_OBJECT (item), "example-path");
+    GError      *error = NULL;
+
+    if (path == NULL)
+        return;
+
+    if (!confirm_discard_changes (self))
+        return;
+
+    if (!pn_flow_load_from_file (self->flow, path, &error))
+    {
+        GtkWidget *err = gtk_message_dialog_new (
+                GTK_WINDOW (self),
+                GTK_DIALOG_MODAL,
+                GTK_MESSAGE_ERROR,
+                GTK_BUTTONS_CLOSE,
+                "Could not open example:\n%s",
+                error->message);
+        gtk_dialog_run (GTK_DIALOG (err));
+        gtk_widget_destroy (err);
+        g_error_free (error);
+        return;
+    }
+
+    g_clear_pointer (&self->current_path, g_free);
+    update_window_title (self);
+    status_set (self, "Opened example");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Menu bar                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -1819,6 +1971,149 @@ create_image_menu_item (
 
 G_GNUC_END_IGNORE_DEPRECATIONS
 
+/** Build the "Open Example" item: a submenu with one sub-menu per
+ *  category directory, each listing its example worksheets.  Scanning
+ *  happens once, at menu-construction time.  When no examples are found
+ *  (uninstalled and run outside the tree) the item is returned
+ *  insensitive so the File menu still has a stable shape. */
+static GtkWidget *
+create_examples_menu_item (PnWindow *self)
+{
+    GtkWidget   *item;
+    GtkWidget   *submenu;
+    gchar       *root;
+    GDir        *dir;
+    const gchar *entry;
+    GPtrArray   *cats;
+    guint        i;
+    gboolean     any = FALSE;
+
+    /* An image menu item (deprecated, but the rest of the File menu
+     * uses the same widget): "accessories-dictionary" is a book that
+     * reads as a library of ready-made worksheets and stays distinct
+     * from the open-folder icon "Open…" carries.  (Picked over app
+     * icons like gnome-books, which GTK's icon-theme lookup can't
+     * resolve and would render as the broken-image placeholder.) */
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+    item = gtk_image_menu_item_new_with_mnemonic ("Open E_xample");
+    gtk_image_menu_item_set_image (
+            GTK_IMAGE_MENU_ITEM (item),
+            gtk_image_new_from_icon_name ("accessories-dictionary",
+                                          GTK_ICON_SIZE_MENU));
+    gtk_image_menu_item_set_always_show_image (
+            GTK_IMAGE_MENU_ITEM (item), TRUE);
+    G_GNUC_END_IGNORE_DEPRECATIONS
+
+    root = resolve_examples_dir ();
+    if (root == NULL)
+    {
+        gtk_widget_set_sensitive (item, FALSE);
+        return item;
+    }
+
+    dir = g_dir_open (root, 0, NULL);
+    if (dir == NULL)
+    {
+        g_free (root);
+        gtk_widget_set_sensitive (item, FALSE);
+        return item;
+    }
+
+    /* Collect category sub-directories and sort them, so the menu order
+     * is stable regardless of the order g_dir_read_name happens to
+     * return entries in. */
+    cats = g_ptr_array_new_with_free_func (g_free);
+    while ((entry = g_dir_read_name (dir)) != NULL)
+    {
+        gchar *child = g_build_filename (root, entry, NULL);
+        if (g_file_test (child, G_FILE_TEST_IS_DIR))
+            g_ptr_array_add (cats, g_strdup (entry));
+        g_free (child);
+    }
+    g_dir_close (dir);
+    g_ptr_array_sort (cats, slug_cmp);
+
+    submenu = gtk_menu_new ();
+
+    for (i = 0; i < cats->len; i++)
+    {
+        const gchar *catname = g_ptr_array_index (cats, i);
+        gchar       *catpath = g_build_filename (root, catname, NULL);
+        GDir        *cdir    = g_dir_open (catpath, 0, NULL);
+        GPtrArray   *files;
+        const gchar *fn;
+        guint        j;
+
+        if (cdir == NULL)
+        {
+            g_free (catpath);
+            continue;
+        }
+
+        files = g_ptr_array_new_with_free_func (g_free);
+        while ((fn = g_dir_read_name (cdir)) != NULL)
+            if (g_str_has_suffix (fn, ".json"))
+                g_ptr_array_add (files, g_strdup (fn));
+        g_dir_close (cdir);
+        g_ptr_array_sort (files, slug_cmp);
+
+        if (files->len > 0)
+        {
+            gchar     *catlabel = prettify_slug (catname);
+            GtkWidget *cat_item = gtk_menu_item_new_with_label (catlabel);
+            GtkWidget *cat_menu = gtk_menu_new ();
+
+            g_free (catlabel);
+
+            for (j = 0; j < files->len; j++)
+            {
+                const gchar *file  = g_ptr_array_index (files, j);
+                gchar       *stem  = g_strdup (file);
+                gchar       *dot   = g_strrstr (stem, ".json");
+                gchar       *label;
+                gchar       *full  = g_build_filename (catpath, file, NULL);
+                GtkWidget   *leaf;
+
+                if (dot != NULL)
+                    *dot = '\0';            /* drop the .json extension */
+                label = prettify_slug (stem);
+                leaf  = gtk_menu_item_new_with_label (label);
+
+                /* The leaf owns its absolute path; action_open_example
+                 * reads it back on activate. */
+                g_object_set_data_full (G_OBJECT (leaf), "example-path",
+                                        full, g_free);
+                g_signal_connect (leaf, "activate",
+                                  G_CALLBACK (action_open_example), self);
+                gtk_menu_shell_append (GTK_MENU_SHELL (cat_menu), leaf);
+
+                g_free (stem);
+                g_free (label);
+            }
+
+            gtk_menu_item_set_submenu (GTK_MENU_ITEM (cat_item), cat_menu);
+            gtk_menu_shell_append (GTK_MENU_SHELL (submenu), cat_item);
+            any = TRUE;
+        }
+
+        g_ptr_array_free (files, TRUE);
+        g_free (catpath);
+    }
+
+    g_ptr_array_free (cats, TRUE);
+    g_free (root);
+
+    if (!any)
+    {
+        gtk_widget_destroy (submenu);
+        gtk_widget_set_sensitive (item, FALSE);
+        return item;
+    }
+
+    gtk_menu_item_set_submenu (GTK_MENU_ITEM (item), submenu);
+    return item;
+}
+
 static GtkWidget *
 create_menubar (PnWindow *self)
 {
@@ -1844,6 +2139,8 @@ create_menubar (PnWindow *self)
         create_image_menu_item ("document-open", "_Open…", accel_group,
                                 GDK_KEY_o, GDK_CONTROL_MASK,
                                 G_CALLBACK (action_open), self));
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu),
+                           create_examples_menu_item (self));
     self->menu_save = create_image_menu_item (
             "document-save", "_Save", accel_group,
             GDK_KEY_s, GDK_CONTROL_MASK,
