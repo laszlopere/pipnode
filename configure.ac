@@ -1,4 +1,4 @@
-AC_INIT([pipnode], [0.1.0], [laszlopere@gmail.com])
+AC_INIT([pipnode], [0.2.0-dev], [laszlopere@gmail.com])
 AC_COPYRIGHT([Copyright (C) 2024-2026 Laszlo Pere.
 GPL-3.0-or-later WITH the Pipnode Plugin Exception; see COPYING and
 LICENSE.PLUGIN-EXCEPTION.])
