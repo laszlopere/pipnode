@@ -68,7 +68,8 @@ struct _PnCountdown
     guint     day_digits;        /* digit cells reserved for the days field */
     gboolean  show_labels;       /* draw the DAYS/HOURS/MINUTES/SECONDS caps */
     PnColor   background_color;
-    PnColor   segment_color;
+    PnColor   segment_color;          /* lit seven-segment bar */
+    PnColor   unlit_segment_color;    /* the off-state ghost bar */
     PnColor   label_color;       /* the caption text colour */
 
     /* Live state.  @remaining is the most-recent data.value seen, floored
@@ -88,6 +89,7 @@ enum
     PROP_SHOW_LABELS,
     PROP_BACKGROUND_COLOR,
     PROP_SEGMENT_COLOR,
+    PROP_UNLIT_SEGMENT_COLOR,
     PROP_LABEL_COLOR,
     N_PROPS,
 };
@@ -169,9 +171,10 @@ pn_countdown_get_paint_state (PnCountdown           *self,
 
     out->day_digits       = self->day_digits;
     out->show_labels      = self->show_labels;
-    out->background_color = self->background_color;
-    out->segment_color    = self->segment_color;
-    out->label_color      = self->label_color;
+    out->background_color     = self->background_color;
+    out->segment_color        = self->segment_color;
+    out->unlit_segment_color  = self->unlit_segment_color;
+    out->label_color          = self->label_color;
 }
 
 /* ------------------------------------------------------------------ */
@@ -218,6 +221,9 @@ pn_countdown_get_property (GObject    *object,
         break;
     case PROP_SEGMENT_COLOR:
         g_value_set_boxed (value, &self->segment_color);
+        break;
+    case PROP_UNLIT_SEGMENT_COLOR:
+        g_value_set_boxed (value, &self->unlit_segment_color);
         break;
     case PROP_LABEL_COLOR:
         g_value_set_boxed (value, &self->label_color);
@@ -279,6 +285,10 @@ pn_countdown_set_property (GObject      *object,
     case PROP_SEGMENT_COLOR:
         set_color_prop (self, &self->segment_color, value,
                         PROP_SEGMENT_COLOR);
+        break;
+    case PROP_UNLIT_SEGMENT_COLOR:
+        set_color_prop (self, &self->unlit_segment_color, value,
+                        PROP_UNLIT_SEGMENT_COLOR);
         break;
     case PROP_LABEL_COLOR:
         set_color_prop (self, &self->label_color, value,
@@ -346,8 +356,14 @@ pn_countdown_class_init (PnCountdownClass *klass)
     props[PROP_SEGMENT_COLOR] = g_param_spec_boxed (
             "segment-color", "Segment colour",
             "Colour of a lit seven-segment bar — the classic LED red by "
-            "default.  Unlit segments are painted as a dim ghost of this "
-            "colour.",
+            "default.",
+            PN_TYPE_COLOR,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_UNLIT_SEGMENT_COLOR] = g_param_spec_boxed (
+            "unlit-segment-color", "Unlit segment colour",
+            "Colour of an unlit seven-segment bar — the dark off-state "
+            "ghost of a digit, a dim red over the black face by default.",
             PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -372,9 +388,10 @@ pn_countdown_class_init (PnCountdownClass *klass)
         pn_settings_schema_row (schema, "show-labels", PN_EDITOR_AUTO);
 
         pn_settings_schema_tab (schema, "Colours");
-        pn_settings_schema_row (schema, "background-color", PN_EDITOR_AUTO);
-        pn_settings_schema_row (schema, "segment-color",    PN_EDITOR_AUTO);
-        pn_settings_schema_row (schema, "label-color",      PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "background-color",     PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "segment-color",        PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "unlit-segment-color",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "label-color",          PN_EDITOR_AUTO);
 
         pn_node_class_set_settings_schema (node_class, schema);
     }
@@ -387,9 +404,13 @@ pn_countdown_init (PnCountdown *self)
 
     self->day_digits       = 3;
     self->show_labels      = TRUE;
-    self->background_color = (PnColor){ 0.04, 0.04, 0.05, 1.0 };
-    self->segment_color    = (PnColor){ 0.92, 0.12, 0.08, 1.0 };
-    self->label_color      = (PnColor){ 0.82, 0.84, 0.86, 0.92 };
+    self->background_color     = (PnColor){ 0.04, 0.04, 0.05, 1.0 };
+    self->segment_color        = (PnColor){ 0.92, 0.12, 0.08, 1.0 };
+    /* Off-state ghost: the lit red dimmed to 16 %, matching the dim bar
+     * the painter used to derive from the lit colour before this became a
+     * configurable property. */
+    self->unlit_segment_color  = (PnColor){ 0.1472, 0.0192, 0.0128, 1.0 };
+    self->label_color          = (PnColor){ 0.82, 0.84, 0.86, 0.92 };
 
     self->remaining = 0;
     self->has_value = FALSE;

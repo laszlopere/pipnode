@@ -56,8 +56,9 @@
       "properties" : {
         "day-digits" : 3,
         "show-labels" : true,
-        "background-color" : "rgb(0,0,0)",
+        "background-color" : "rgba(191,64,64,0)",
         "segment-color" : "rgb(237,51,59)",
+        "unlit-segment-color" : "rgb(99,2,2)",
         "label-color" : "rgb(255,255,255)"
       }
     },

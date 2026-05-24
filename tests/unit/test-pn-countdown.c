@@ -196,23 +196,30 @@ test_properties_round_trip (void)
     PnCountdownPaintState st;
     guint                 dd = 0;
     gboolean              labels = TRUE;
+    PnColor               unlit_in = { 0.30, 0.05, 0.05, 1.0 };
+    PnColor              *unlit_out = NULL;
 
     g_object_set (cd,
-                  "day-digits",  4,
-                  "show-labels", FALSE,
+                  "day-digits",          4,
+                  "show-labels",         FALSE,
+                  "unlit-segment-color", &unlit_in,
                   NULL);
     g_object_get (cd,
-                  "day-digits",  &dd,
-                  "show-labels", &labels,
+                  "day-digits",          &dd,
+                  "show-labels",         &labels,
+                  "unlit-segment-color", &unlit_out,
                   NULL);
 
     PN_CHECK_CMPINT (dd, ==, 4);
     PN_CHECK        (labels == FALSE);
+    PN_CHECK        (pn_color_equal (unlit_out, &unlit_in));
 
     pn_countdown_get_paint_state (cd, &st);
     PN_CHECK_CMPINT (st.day_digits, ==, 4);
     PN_CHECK        (st.show_labels == FALSE);
+    PN_CHECK        (pn_color_equal (&st.unlit_segment_color, &unlit_in));
 
+    pn_color_free (unlit_out);
     g_object_unref (cd);
 }
 

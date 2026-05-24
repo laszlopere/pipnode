@@ -256,8 +256,8 @@ pn_countdown_paint_plot (PnNode  *node,
     nd = dd + 6;                       /* days + HH + MM + SS digit cells */
 
     lit = st.segment_color;
-    /* Unlit segment: a dim ghost of the lit colour over the black face. */
-    dim = (PnColor){ lit.red * 0.16, lit.green * 0.16, lit.blue * 0.16, 1.0 };
+    /* Unlit segment: the configured off-state ghost over the black face. */
+    dim = st.unlit_segment_color;
 
     /* ---- panel: a dark bezel framing the screen face. ---- */
     rounded_rect (cr, x, y, w, h, 9.0);

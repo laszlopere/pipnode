@@ -80,7 +80,8 @@ typedef struct
     gboolean  show_labels;   /* draw the DAYS/HOURS/… captions         */
 
     PnColor   background_color;
-    PnColor   segment_color;
+    PnColor   segment_color;        /* lit seven-segment bar             */
+    PnColor   unlit_segment_color;  /* dark off-state ghost bar          */
     PnColor   label_color;
 } PnCountdownPaintState;
 
