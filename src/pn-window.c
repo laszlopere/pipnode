@@ -4287,6 +4287,14 @@ pn_window_get_worksheet (PnWindow *self)
     return pn_window_active_worksheet (self);
 }
 
+PnFlow *
+pn_window_get_flow (PnWindow *self)
+{
+    g_return_val_if_fail (PN_IS_WINDOW (self), NULL);
+
+    return self->flow;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Test surface                                                       */
 /*                                                                     */

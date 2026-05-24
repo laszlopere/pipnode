@@ -47,6 +47,12 @@ PnWindow    *pn_window_new_panel    (PnApplication *app);
 
 PnWorksheet *pn_window_get_worksheet (PnWindow *self);
 
+/* The window's document flow — its single node store spans every sheet.
+ * Unlike pn_window_get_worksheet (the *active* tab, NULL when the panel
+ * editor tab is active), this is always available, so the engine reads the
+ * nodes here rather than depending on which tab the user is looking at. */
+PnFlow      *pn_window_get_flow      (PnWindow *self);
+
 gboolean     pn_window_load_file     (PnWindow      *self,
                                       const gchar   *path,
                                       GError       **error);

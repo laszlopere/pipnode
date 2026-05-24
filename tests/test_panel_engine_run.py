@@ -137,6 +137,10 @@ LAYOUT_WORKSHEET = {
         LED_BAND: {"x": 100.0, "y": 24.0},
         CD_OFF:   {"x": 0.0,   "y": 200.0},
     },
+    # Saved with the panel-editor tab open: the engine must still report the
+    # layout, reading the flow rather than the (then non-worksheet) active
+    # tab — a regression that once blanked the applet to its icon.
+    "panel_editor_open": True,
     "sheets": ["Worksheet"],
     "active_sheet": "Worksheet",
 }

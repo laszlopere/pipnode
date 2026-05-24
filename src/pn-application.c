@@ -1153,22 +1153,24 @@ static const gchar engine_introspection_xml[] =
  * knows which worksheet to name in the ValueChanged D-Bus signal. */
 #define PN_ENGINE_PATH_QDATA  "pn-engine-worksheet-path"
 
-/** First node of @type in @win's active worksheet, or %NULL. */
+/** First node of @type in @win's document, or %NULL.  Reads the flow's
+ *  node store (spanning all sheets) rather than the active tab, so it works
+ *  even when the panel-editor tab is the one on screen. */
 static PnNode *
 engine_find_node (PnWindow *win, GType type)
 {
-    PnWorksheet *ws;
+    PnFlow      *flow;
     PnNodeStore *nodes;
     guint        i, n;
 
     if (win == NULL)
         return NULL;
 
-    ws = pn_window_get_worksheet (win);
-    if (ws == NULL)
+    flow = pn_window_get_flow (win);
+    if (flow == NULL)
         return NULL;
 
-    nodes = pn_worksheet_get_nodes (ws);
+    nodes = pn_flow_get_nodes (flow);
     n     = pn_node_store_get_length (nodes);
     for (i = 0; i < n; i++)
     {
@@ -1186,18 +1188,18 @@ engine_send_event_to_inputs (PnWindow    *win,
                              const gchar *event,
                              guint        button)
 {
-    PnWorksheet *ws;
+    PnFlow      *flow;
     PnNodeStore *nodes;
     guint        i, n;
 
     if (win == NULL)
         return;
 
-    ws = pn_window_get_worksheet (win);
-    if (ws == NULL)
+    flow = pn_window_get_flow (win);
+    if (flow == NULL)
         return;
 
-    nodes = pn_worksheet_get_nodes (ws);
+    nodes = pn_flow_get_nodes (flow);
     n     = pn_node_store_get_length (nodes);
     for (i = 0; i < n; i++)
     {
@@ -1253,14 +1255,14 @@ engine_wire_displays (
         PnWindow      *win,
         const gchar   *path)
 {
-    PnWorksheet *ws = pn_window_get_worksheet (win);
+    PnFlow      *flow = pn_window_get_flow (win);
     PnNodeStore *nodes;
     guint        i, n;
 
-    if (ws == NULL)
+    if (flow == NULL)
         return;
 
-    nodes = pn_worksheet_get_nodes (ws);
+    nodes = pn_flow_get_nodes (flow);
     n     = pn_node_store_get_length (nodes);
     for (i = 0; i < n; i++)
     {
@@ -1472,9 +1474,8 @@ engine_layout_entry_cmp (gconstpointer a, gconstpointer b)
 static gchar *
 engine_build_layout_json (PnWindow *win)
 {
-    PnWorksheet *ws    = win != NULL ? pn_window_get_worksheet (win) : NULL;
+    PnFlow      *flow = win != NULL ? pn_window_get_flow (win) : NULL;
     PnNodeStore *nodes;
-    PnFlow      *flow;
     GArray      *entries;
     GList       *placed;
     gboolean     have_layout;
@@ -1482,11 +1483,10 @@ engine_build_layout_json (PnWindow *win)
     JsonBuilder *b;
     guint        i, n;
 
-    if (ws == NULL)
+    if (flow == NULL)
         return g_strdup ("{\"widgets\":[]}");
 
-    nodes = pn_worksheet_get_nodes (ws);
-    flow  = pn_worksheet_get_flow (ws);
+    nodes = pn_flow_get_nodes (flow);
 
     placed      = pn_flow_list_panel_positions (flow);
     have_layout = (placed != NULL);
@@ -1643,17 +1643,15 @@ engine_wire_panel_widgets (
         PnWindow      *win,
         const gchar   *path)
 {
-    PnWorksheet     *ws = pn_window_get_worksheet (win);
+    PnFlow          *flow = pn_window_get_flow (win);
     PnNodeStore     *nodes;
-    PnFlow          *flow;
     EngineWidgetCtx *ctx;
     guint            i, n;
 
-    if (ws == NULL)
+    if (flow == NULL)
         return;
 
-    nodes = pn_worksheet_get_nodes (ws);
-    flow  = pn_worksheet_get_flow (ws);
+    nodes = pn_flow_get_nodes (flow);
 
     /* Legacy Panel Display -> ValueChanged channel, kept alongside. */
     engine_wire_displays (self, win, path);
@@ -1692,15 +1690,15 @@ engine_wire_panel_widgets (
 static void
 engine_unwire_panel_widgets (PnWindow *win)
 {
-    PnWorksheet     *ws  = pn_window_get_worksheet (win);
-    EngineWidgetCtx *ctx = g_object_get_data (G_OBJECT (win),
-                                              PN_ENGINE_WIDGET_CTX_QDATA);
+    PnFlow          *flow = pn_window_get_flow (win);
+    EngineWidgetCtx *ctx  = g_object_get_data (G_OBJECT (win),
+                                               PN_ENGINE_WIDGET_CTX_QDATA);
 
-    if (ws == NULL || ctx == NULL)
+    if (flow == NULL || ctx == NULL)
         return;
 
-    g_signal_handlers_disconnect_by_data (pn_worksheet_get_nodes (ws), ctx);
-    g_signal_handlers_disconnect_by_data (pn_worksheet_get_flow (ws),  ctx);
+    g_signal_handlers_disconnect_by_data (pn_flow_get_nodes (flow), ctx);
+    g_signal_handlers_disconnect_by_data (flow,                     ctx);
 }
 
 /* Cover the app-shutdown path, where windows are destroyed without going
