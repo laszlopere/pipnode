@@ -48,6 +48,8 @@
 #include "pn-led.h"
 #include "pn-meshtastic.h"
 #include "pn-notify.h"
+#include "pn-panel-display.h"
+#include "pn-panel-input.h"
 #include "pn-query.h"
 #include "pn-rate.h"
 #include "pn-rewrite.h"
@@ -198,6 +200,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_FILEDROP);
     pn_node_factory_register (self, PN_TYPE_SWITCH);
     pn_node_factory_register (self, PN_TYPE_KNOB);
+    pn_node_factory_register (self, PN_TYPE_PANEL_INPUT);
     pn_node_factory_register (self, PN_TYPE_AUTO_INJECTOR);
     pn_node_factory_register (self, PN_TYPE_AUTO_RANDOM);
 
@@ -256,6 +259,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_ANALOG_METER);
     pn_node_factory_register (self, PN_TYPE_LED);
     pn_node_factory_register (self, PN_TYPE_COUNTDOWN);
+    pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
     pn_node_factory_register (self, PN_TYPE_TABLE);
     pn_node_factory_register (self, PN_TYPE_TABLE_VIEW);
     pn_node_factory_register (self, PN_TYPE_TEXT_VIEW);

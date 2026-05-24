@@ -99,6 +99,10 @@ libpipnode_core_la_SOURCES = \
 	pn-node-store.h \
 	pn-notify.c \
 	pn-notify.h \
+	pn-panel-display.c \
+	pn-panel-display.h \
+	pn-panel-input.c \
+	pn-panel-input.h \
 	pn-query.c \
 	pn-query.h \
 	pn-rate.c \
@@ -311,6 +315,8 @@ pipnode_core_headers = \
 	pn-node-factory.h \
 	pn-node-store.h \
 	pn-notify.h \
+	pn-panel-display.h \
+	pn-panel-input.h \
 	pn-query.h \
 	pn-rate.h \
 	pn-rewrite.h \
