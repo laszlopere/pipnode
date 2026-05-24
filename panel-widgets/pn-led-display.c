@@ -26,7 +26,6 @@
 /* ------------------------------------------------------------------ */
 
 #include "pn-led-display.h"
-#include "pn-applet-frame.h"
 
 #include <math.h>
 
@@ -59,8 +58,7 @@ static const guint8 seg_masks[10] = {
 #define LED_COLON_RATIO  0.50   /* colon column width / D                */
 
 /* Segment colours, matching the Countdown node's defaults: classic LED
- * red digits over the shared applet frame, dim red unlit ghosts.  The
- * face and bezel come from pn-applet-frame.h. */
+ * red digits on a transparent background, dim red unlit ghosts. */
 #define LED_LIT_R   0.92
 #define LED_LIT_G   0.12
 #define LED_LIT_B   0.08
@@ -307,9 +305,8 @@ pn_led_display_draw (GtkWidget *widget, cairo_t *cr)
 
     gtk_widget_get_allocation (widget, &alloc);
 
-    /* Shared applet frame: dark-brown face inside a raised bezel rim. */
-    pn_applet_frame_draw (cr, alloc.width, alloc.height);
-
+    /* No frame or background: the digits are drawn straight onto the
+     * transparent allocation, so the panel shows through behind them. */
     D       = digit_width_fit (self, alloc.width, alloc.height);
     H       = D * LED_H_RATIO;
     t       = D * LED_THICK_RATIO;

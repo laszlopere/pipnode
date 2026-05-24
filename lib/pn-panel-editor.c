@@ -352,9 +352,8 @@ panel_editor_build_widget (PnNode *node)
 {
     if (PN_IS_COUNTDOWN (node))
     {
-        /* The readout paints its own dark-brown frame (pn-applet-frame.h),
-         * the same one the lamp draws, so no extra GtkFrame is needed and
-         * both applet widgets stand the same height on the canvas. */
+        /* The readout draws on a transparent background (no frame), so the
+         * canvas shows through behind it just as the panel does. */
         GtkWidget *led = pn_led_display_new ();
 
         pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);

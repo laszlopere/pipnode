@@ -20,7 +20,6 @@
 noinst_LTLIBRARIES = libpipnode-panel-widgets.la
 
 libpipnode_panel_widgets_la_SOURCES = \
-	pn-applet-frame.h \
 	pn-led-display.c \
 	pn-led-display.h \
 	pn-led-lamp.c \

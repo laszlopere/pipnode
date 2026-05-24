@@ -113,20 +113,14 @@ static const gchar EMPTY_WORKSHEET[] =
     "}\n";
 
 /* One mirrored widget: a panel-widgets drawing area plus the kind of node
- * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp),
- * its place in the row (@order) and its band x (@x).  The widget itself is
- * owned by the applet's @fixed; this struct only tracks the node. */
+ * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp).
+ * The widget itself is owned by the applet's @fixed; this struct only tracks
+ * the node.  Row order is the engine's layout order, held by @order. */
 typedef struct
 {
     GtkWidget *widget;
     gchar      kind;
-    gint       order;
-    gdouble    x;       /* band x (offset so leftmost is 0); 0 when packed */
 } AppletWidget;
-
-/* Gap between widgets when the worksheet has no designed layout and they
- * are packed tightly left to right. */
-#define PN_APPLET_PACK_GAP 4
 
 typedef struct
 {
@@ -135,10 +129,10 @@ typedef struct
     GtkWidget       *fixed;    /* free-positioning row of widgets + icon  */
     GtkWidget       *image;    /* icon, shown only when no widgets        */
     gint             icon_size;/* panel icon size, applied to new widgets */
+    gint             row_h;    /* fixed's allocated height; centres the row */
 
     GHashTable      *widgets;  /* node UUID (owned) -> AppletWidget*      */
     GPtrArray       *order;    /* AppletWidget* (borrowed), row order     */
-    gboolean         positioned; /* honour band x, or pack tightly?       */
 
     gchar           *path;     /* this instance's worksheet file          */
     GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy          */
@@ -290,6 +284,21 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
     }
 }
 
+/* Mirrored readouts render half again the panel's icon size: a panel-height
+ * countdown is hard to read, so we trade a little vertical slack for legibility
+ * (the row centres the taller widget, see relayout()). */
+#define PN_APPLET_WIDGET_SIZE(self) ((self)->icon_size * 3 / 2)
+
+/* Size one mirrored widget to @size pixels, per its kind. */
+static void
+size_widget (AppletWidget *e, gint size)
+{
+    if (e->kind == 'c')
+        pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
+    else
+        pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
+}
+
 /* Build a fresh widget of @kind, sized to the panel, placed on the row.
  * relayout() moves it to its final spot once positions are known. */
 static AppletWidget *
@@ -297,27 +306,32 @@ applet_widget_new (PipnodeDeadline *self, gchar kind)
 {
     AppletWidget *e = g_slice_new0 (AppletWidget);
 
-    e->kind = kind;
-    if (kind == 'c')
-    {
-        e->widget = pn_led_display_new ();
-        pn_led_display_set_height (PN_LED_DISPLAY (e->widget), self->icon_size);
-    }
-    else
-    {
-        e->widget = pn_led_lamp_new ();
-        pn_led_lamp_set_size (PN_LED_LAMP (e->widget), self->icon_size);
-    }
+    e->kind   = kind;
+    e->widget = (kind == 'c') ? pn_led_display_new () : pn_led_lamp_new ();
+    size_widget (e, PN_APPLET_WIDGET_SIZE (self));
 
     gtk_fixed_put (GTK_FIXED (self->fixed), e->widget, 0, 0);
     gtk_widget_show (e->widget);
     return e;
 }
 
-/* Place the row's widgets.  When the worksheet carries a designed band
- * layout we honour each widget's band x (so the panel mirrors the editor's
- * spacing and grouping); otherwise we pack them tightly left to right.
- * Both leave the widgets at y 0 — they are all one strip tall. */
+/* Vertically centre @child within the row, returning the y it was placed at.
+ * Shorter-than-row widgets sit mid-band rather than clinging to the top. */
+static void
+center_in_row (PipnodeDeadline *self, GtkWidget *child, gint x)
+{
+    gint h = 0;
+
+    gtk_widget_get_preferred_height (child, NULL, &h);
+    gtk_fixed_move (GTK_FIXED (self->fixed), child, x,
+                    self->row_h > h ? (self->row_h - h) / 2 : 0);
+}
+
+/* Place the row's widgets edge to edge in layout order: each starts where
+ * the previous ended, so the panel shows one tight strip with no gaps,
+ * however the editor spaced or grouped them on the band.  The applet mirrors
+ * only the order, not the spacing.  Each widget — and the fallback icon — is
+ * centred vertically in the row's allocated height (see on_fixed_allocate). */
 static void
 relayout (PipnodeDeadline *self)
 {
@@ -326,23 +340,15 @@ relayout (PipnodeDeadline *self)
 
     for (i = 0; i < self->order->len; i++)
     {
-        AppletWidget *e = g_ptr_array_index (self->order, i);
-        gint          x;
+        AppletWidget *e   = g_ptr_array_index (self->order, i);
+        gint          nat = 0;
 
-        if (self->positioned)
-        {
-            x = (gint) (e->x + 0.5);
-        }
-        else
-        {
-            gint nat = 0;
-            gtk_widget_get_preferred_width (e->widget, NULL, &nat);
-            x = pack_x;
-            pack_x += nat + PN_APPLET_PACK_GAP;
-        }
-
-        gtk_fixed_move (GTK_FIXED (self->fixed), e->widget, x, 0);
+        gtk_widget_get_preferred_width (e->widget, NULL, &nat);
+        center_in_row (self, e->widget, pack_x);
+        pack_x += nat;
     }
+
+    center_in_row (self, self->image, 0);
 }
 
 /* Reconcile the live widget row against the engine's layout JSON:
@@ -380,8 +386,6 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
     widgets = json_object_has_member (obj, "widgets")
               ? json_object_get_array_member (obj, "widgets") : NULL;
     len     = widgets != NULL ? json_array_get_length (widgets) : 0;
-    self->positioned = json_object_has_member (obj, "positioned")
-                       && json_object_get_boolean_member (obj, "positioned");
 
     /* uuids present in this layout — keys borrowed from the parser, valid
      * until it is freed below.  @order is rebuilt in array order. */
@@ -422,9 +426,6 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
             g_hash_table_insert (self->widgets, g_strdup (uuid), e);
         }
 
-        e->order = (gint) i;
-        e->x     = json_object_has_member (w, "x")
-                   ? json_object_get_double_member (w, "x") : 0.0;
         apply_widget_state (e, state);
         g_ptr_array_add (self->order, e);
     }
@@ -671,14 +672,24 @@ resize_widgets (PipnodeDeadline *self)
 
     g_hash_table_iter_init (&it, self->widgets);
     while (g_hash_table_iter_next (&it, &key, &val))
-    {
-        AppletWidget *e = val;
-        if (e->kind == 'c')
-            pn_led_display_set_height (PN_LED_DISPLAY (e->widget),
-                                       self->icon_size);
-        else
-            pn_led_lamp_set_size (PN_LED_LAMP (e->widget), self->icon_size);
-    }
+        size_widget (val, PN_APPLET_WIDGET_SIZE (self));
+}
+
+/* The row's height is only known once the panel allocates it, so re-centre
+ * the widgets here whenever it changes.  gtk_fixed_move() queues a resize, so
+ * we must act only on a genuine height change or we would loop forever. */
+static void
+on_fixed_allocate (GtkWidget     *fixed,
+                   GtkAllocation *alloc,
+                   PipnodeDeadline *self)
+{
+    (void) fixed;
+
+    if (alloc->height == self->row_h)
+        return;
+
+    self->row_h = alloc->height;
+    relayout (self);
 }
 
 static gboolean
@@ -757,6 +768,8 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
                       G_CALLBACK (on_configure_plugin), self);
     g_signal_connect (plugin, "size-changed",
                       G_CALLBACK (on_size_changed), self);
+    g_signal_connect (self->fixed, "size-allocate",
+                      G_CALLBACK (on_fixed_allocate), self);
     g_signal_connect (plugin, "free-data",
                       G_CALLBACK (on_free_data), self);
 
