@@ -127,6 +127,78 @@ test_dotted_path_creates_nested (void)
     g_object_unref (node);
 }
 
+/* Swallows the warning compile_props() logs for a malformed props
+ * string so the expected-failure case below does not spew to stderr.
+ * (The harness does not run under g_test_init(), so the
+ * g_test_expect_message() machinery is unavailable here.) */
+static void
+swallow_log (const gchar    *domain,
+             GLogLevelFlags  level,
+             const gchar    *message,
+             gpointer        user_data)
+{
+    (void) domain; (void) level; (void) message; (void) user_data;
+}
+
+static void
+test_invalid_props_passthrough (void)
+{
+    guint      emits;
+    PnNode    *node = g_object_new (PN_TYPE_SET, NULL);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    GLogFunc   prev;
+
+    /* Malformed props JSON compiles to no rules rather than throwing:
+     * the node degrades to a pass-through instead of dropping traffic. */
+    prev = g_log_set_default_handler (swallow_log, NULL);
+    g_object_set (node, "props", "{ not json", NULL);
+    g_log_set_default_handler (prev, NULL);
+
+    emits = 0;
+    g_signal_connect (node, "message",
+                      G_CALLBACK (pn_test_count_emits), &emits);
+
+    pn_message_set_double (msg, "value", 9.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 9.0, 1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_dotted_path_merges_into_existing (void)
+{
+    guint       emits;
+    /* Two assignments under the same parent: the first materialises
+     * data.a = { x }, the second must descend into that object and add
+     * b alongside x rather than replacing the whole object. */
+    PnNode     *node = make_node (
+            "[{\"path\":\"a.x\",\"literal\":1.0},"
+            " {\"path\":\"a.b\",\"literal\":2.0}]", &emits);
+    PnMessage  *msg  = pn_message_new (NULL, NULL);
+    JsonNode   *a;
+
+    pn_node_receive_message (node, msg);
+    PN_CHECK_CMPINT (emits, ==, 1);
+
+    a = pn_message_get_member (msg, "a");
+    PN_CHECK (a != NULL && JSON_NODE_HOLDS_OBJECT (a));
+    if (a != NULL && JSON_NODE_HOLDS_OBJECT (a))
+    {
+        JsonObject *a_obj = json_node_get_object (a);
+        PN_CHECK (json_object_has_member (a_obj, "x"));   /* survived  */
+        PN_CHECK (json_object_has_member (a_obj, "b"));   /* added     */
+        PN_CHECK_NEAR (json_object_get_double_member (a_obj, "x"), 1.0, 1e-9);
+        PN_CHECK_NEAR (json_object_get_double_member (a_obj, "b"), 2.0, 1e-9);
+    }
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -135,5 +207,7 @@ main (int argc, char **argv)
     pn_test_add ("assigns_literals",       test_assigns_typed_literals);
     pn_test_add ("overwrites_member",      test_overwrites_existing_member);
     pn_test_add ("dotted_path_nested",     test_dotted_path_creates_nested);
+    pn_test_add ("invalid_props_passthru", test_invalid_props_passthrough);
+    pn_test_add ("dotted_path_merges",     test_dotted_path_merges_into_existing);
     return pn_test_run ();
 }

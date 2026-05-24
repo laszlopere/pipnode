@@ -60,6 +60,17 @@ test_label_piper_no_lang_prefix (void)
 }
 
 static void
+test_label_piper_prefix_without_suffix (void)
+{
+    /* The lang-prefix strip and the ".onnx" strip are independent: a
+     * bare id with the "<lang>_<COUNTRY>-" prefix but no .onnx suffix
+     * still collapses to "speaker-quality". */
+    gchar *l = pn_tts_derive_voice_label ("piper", "en_US-amy-low");
+    PN_CHECK_CMPSTR (l, ==, "amy-low");
+    g_free (l);
+}
+
+static void
 test_label_non_piper_verbatim (void)
 {
     /* Other engines name voices directly, so the id passes through. */
@@ -102,15 +113,41 @@ test_voice_index_edge_cases (void)
     PN_CHECK_CMPINT (pn_tts_voice_index_for (NULL, 4),    ==, 0u);
 }
 
+static void
+test_engine_table_seam (void)
+{
+    /* The read-only engine-table accessors are the GTK-free seam the
+     * gui settings dialog builds its engine combo from (TODO #23).
+     * Pin the table's identity: piper leads the list, ids and labels
+     * pair up, and out-of-range / unknown lookups are NULL rather than
+     * a crash. */
+    PN_CHECK_CMPINT (pn_tts_n_engines (), ==, 5u);
+
+    PN_CHECK_CMPSTR (pn_tts_engine_id    (0), ==, "piper");
+    PN_CHECK_CMPSTR (pn_tts_engine_label (0), ==, "Piper");
+
+    /* The index'd and the by-id label lookups agree for the same row. */
+    PN_CHECK_CMPSTR (pn_tts_engine_label_for_id ("piper"), ==, "Piper");
+    PN_CHECK_CMPSTR (pn_tts_engine_label_for_id ("espeak-ng"), ==, "eSpeak NG");
+
+    /* Out-of-range index and unknown / NULL id all return NULL. */
+    PN_CHECK (pn_tts_engine_id    (pn_tts_n_engines ()) == NULL);
+    PN_CHECK (pn_tts_engine_label (pn_tts_n_engines ()) == NULL);
+    PN_CHECK (pn_tts_engine_label_for_id ("nonesuch") == NULL);
+    PN_CHECK (pn_tts_engine_label_for_id (NULL) == NULL);
+}
+
 int
 main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-tts");
     pn_test_add ("label_piper_full_path",     test_label_piper_full_path);
     pn_test_add ("label_piper_no_lang_prefix", test_label_piper_no_lang_prefix);
+    pn_test_add ("label_piper_prefix_no_suffix", test_label_piper_prefix_without_suffix);
     pn_test_add ("label_non_piper_verbatim",  test_label_non_piper_verbatim);
     pn_test_add ("voice_index_deterministic", test_voice_index_deterministic);
     pn_test_add ("voice_index_in_range",      test_voice_index_in_range);
     pn_test_add ("voice_index_edge_cases",    test_voice_index_edge_cases);
+    pn_test_add ("engine_table_seam",         test_engine_table_seam);
     return pn_test_run ();
 }

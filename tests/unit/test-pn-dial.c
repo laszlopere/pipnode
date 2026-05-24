@@ -130,6 +130,75 @@ test_missing_value_is_noop (void)
 }
 
 static void
+test_reads_custom_key_path (void)
+{
+    PnNode    *node = PN_NODE (pn_dial_new ());
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* Point the dial at a non-default path; the needle then reads the
+     * value sitting there rather than at data.value. */
+    g_object_set (node, "key", "data/rpm", NULL);
+    pn_message_set_double (msg, "rpm", 3000.0);
+    pn_node_receive_message (node, msg);
+    PN_CHECK_NEAR (dial_value (node), 3000.0, 1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_string_value_drives_needle (void)
+{
+    PnNode    *node = PN_NODE (pn_dial_new ());
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* A numeric quantity arriving as a JSON string (as JSON-RPC feeds
+     * often do) is parsed and still moves the needle. */
+    pn_message_set_string (msg, "value", "55");
+    pn_node_receive_message (node, msg);
+    PN_CHECK_NEAR (dial_value (node), 55.0, 1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* Bumped by every notify::value, so a test can count how many times the
+ * needle was actually retargeted. */
+static void
+on_value_notify (GObject *obj, GParamSpec *pspec, gpointer user_data)
+{
+    (void) obj; (void) pspec;
+    (*(guint *) user_data)++;
+}
+
+static void
+test_repeated_value_deduplicated (void)
+{
+    PnNode    *node    = PN_NODE (pn_dial_new ());
+    guint      notifies = 0;
+    PnMessage *msg;
+
+    g_signal_connect (node, "notify::value",
+                      G_CALLBACK (on_value_notify), &notifies);
+
+    /* First reading retargets the needle and notifies once. */
+    msg = pn_message_new (NULL, NULL);
+    pn_message_set_double (msg, "value", 42.0);
+    pn_node_receive_message (node, msg);
+    g_object_unref (msg);
+    PN_CHECK_CMPINT (notifies, ==, 1);
+
+    /* The same reading again is a no-op: no retarget, no extra notify. */
+    msg = pn_message_new (NULL, NULL);
+    pn_message_set_double (msg, "value", 42.0);
+    pn_node_receive_message (node, msg);
+    g_object_unref (msg);
+    PN_CHECK_CMPINT (notifies, ==, 1);
+
+    g_object_unref (node);
+}
+
+static void
 test_empty_key_gates_receive (void)
 {
     PnNode    *node = PN_NODE (pn_dial_new ());
@@ -155,6 +224,9 @@ main (int argc, char **argv)
     pn_test_add ("surfaces_received_value", test_surfaces_received_value);
     pn_test_add ("value_is_raw_not_clamped", test_value_is_raw_not_clamped);
     pn_test_add ("missing_value_is_noop",   test_missing_value_is_noop);
+    pn_test_add ("reads_custom_key",        test_reads_custom_key_path);
+    pn_test_add ("string_value_drives",     test_string_value_drives_needle);
+    pn_test_add ("repeated_value_dedup",    test_repeated_value_deduplicated);
     pn_test_add ("empty_key_gates_receive", test_empty_key_gates_receive);
     return pn_test_run ();
 }

@@ -70,6 +70,59 @@ test_drops_consecutive_duplicates (void)
     g_object_unref (node);
 }
 
+/* Send a message carrying data.id = @id (and an unrelated data.value) so
+ * a test can prove the dedup identity is taken from the configured key,
+ * not from data.value. */
+static void
+send_id (PnNode *node, const gchar *id, gdouble value)
+{
+    PnMessage *msg = pn_message_new (NULL, NULL);
+
+    pn_message_set_string (msg, "id", id);
+    pn_message_set_double (msg, "value", value);
+    pn_node_receive_message (node, msg);
+    g_object_unref (msg);
+}
+
+static void
+test_custom_key_dedups_on_that_path (void)
+{
+    guint   emits;
+    PnNode *node = make_node ("data/id", &emits);
+
+    /* Identity is data.id, so data.value moving while id repeats is
+     * still a duplicate — the dedup follows the configured key. */
+    send_id (node, "x", 1.0);          /* first id=x -> forwarded */
+    PN_CHECK_CMPINT (emits, ==, 1);
+
+    send_id (node, "x", 2.0);          /* id repeats -> dropped   */
+    PN_CHECK_CMPINT (emits, ==, 1);
+
+    send_id (node, "y", 2.0);          /* new id    -> forwarded  */
+    PN_CHECK_CMPINT (emits, ==, 2);
+
+    g_object_unref (node);
+}
+
+static void
+test_missing_value_is_dropped (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("data/value", &emits);   /* default key */
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* The watched path is absent from the message: there is no identity
+     * to dedup against, so the node drops it rather than forwarding a
+     * message it cannot reason about. */
+    pn_message_set_string (msg, "output", "no value here");
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 0);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
 static void
 test_empty_key_forwards_nothing (void)
 {
@@ -90,6 +143,8 @@ main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-dedup");
     pn_test_add ("drops_duplicates",       test_drops_consecutive_duplicates);
+    pn_test_add ("custom_key_dedups",      test_custom_key_dedups_on_that_path);
+    pn_test_add ("missing_value_dropped",  test_missing_value_is_dropped);
     pn_test_add ("empty_key_drops_all",    test_empty_key_forwards_nothing);
     return pn_test_run ();
 }

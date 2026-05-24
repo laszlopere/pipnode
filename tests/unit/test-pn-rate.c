@@ -71,6 +71,12 @@ test_icon_name_lookup (void)
     PN_CHECK_CMPSTR (pn_currency_get_icon_name (PN_CURRENCY_ETH), ==, "eth");
     PN_CHECK_CMPSTR (pn_currency_get_icon_name (PN_CURRENCY_USD), ==, "usd");
     PN_CHECK_CMPSTR (pn_currency_get_icon_name (PN_CURRENCY_XRP), ==, "xrp");
+
+    /* An out-of-range enum value falls back to the USD row rather than
+     * dereferencing past the table — the documented safety net that
+     * lets every caller use the result unconditionally. */
+    PN_CHECK_CMPSTR (pn_currency_get_icon_name ((PnCurrency) 99999),
+                     ==, "usd");
 }
 
 static void
@@ -118,6 +124,56 @@ test_applies_configured_rate (void)
 }
 
 static void
+test_converts_integer_value (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (&cap);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* An integer data.value (stored as a JSON int, not a double) must
+     * convert just like a double — receive() accepts both numeric
+     * types.  4 × 3 = 12, emitted back as a double. */
+    g_object_set (node, "to", PN_CURRENCY_BTC, "rate", 3.0, NULL);
+
+    pn_message_set_int (msg, "value", 4);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 12.0, 1e-9);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "rate"),  3.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "currency"), ==, "BTC");
+
+    g_clear_object (&cap.last);
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_leaves_non_numeric_value_alone (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (&cap);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* A non-numeric data.value is not something to convert: it passes
+     * through untouched (no multiply, no type clobber) while the
+     * conversion metadata is still stamped on alongside it. */
+    g_object_set (node, "to", PN_CURRENCY_ETH, "rate", 5.0, NULL);
+
+    pn_message_set_string (msg, "value", "hello");
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "value"), ==, "hello");
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "rate"), 5.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "currency"), ==, "ETH");
+
+    g_clear_object (&cap.last);
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
 test_stamps_even_without_value (void)
 {
     Capture    cap;
@@ -146,6 +202,8 @@ main (int argc, char **argv)
     pn_test_add ("icon_name_lookup",       test_icon_name_lookup);
     pn_test_add ("default_passthrough",    test_default_rate_passes_value_through);
     pn_test_add ("applies_rate",           test_applies_configured_rate);
+    pn_test_add ("converts_integer",       test_converts_integer_value);
+    pn_test_add ("non_numeric_value",      test_leaves_non_numeric_value_alone);
     pn_test_add ("stamps_without_value",   test_stamps_even_without_value);
     return pn_test_run ();
 }

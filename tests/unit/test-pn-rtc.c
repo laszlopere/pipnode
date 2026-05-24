@@ -92,6 +92,20 @@ test_convenience_members (void)
     output = pn_test_str (d.last, "output");
     PN_CHECK (output != NULL && g_str_has_prefix (output, "The time is "));
 
+    /* The spoken sentence and the numeric fields come from a single
+     * timestamp snapshot, so the "HH:MM:SS." it renders must match the
+     * hour/minute/second members exactly — no rollover between them. */
+    if (output != NULL)
+    {
+        gchar *expected = g_strdup_printf (
+                "The time is %02d:%02d:%02d.",
+                (int) pn_test_num (d.last, "hour"),
+                (int) pn_test_num (d.last, "minute"),
+                (int) pn_test_num (d.last, "second"));
+        PN_CHECK_CMPSTR (output, ==, expected);
+        g_free (expected);
+    }
+
     pn_timer_destroy (node, &d);
 }
 

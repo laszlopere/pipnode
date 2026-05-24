@@ -123,6 +123,46 @@ test_passthrough_without_value (void)
 }
 
 static void
+test_integer_value_drives_latch (void)
+{
+    guint      emits;
+    PnNode    *node = make_node (&emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* An integer "value" (JSON int, not double) drives the latch just
+     * like a double — read_value_member accepts both numeric types. */
+    pn_message_set_int (msg, "value", 1);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK        (switch_on (node));
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_non_numeric_value_passes_through (void)
+{
+    guint      emits;
+    PnNode    *node = make_node (&emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* A "value" that is present but not numeric cannot drive the latch:
+     * it is treated like a message with no usable value, so it passes
+     * through unchanged and the latch stays in its default off position. */
+    pn_message_set_string (msg, "value", "on");
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_FALSE  (switch_on (node));
+    PN_CHECK_CMPSTR (pn_test_str (msg, "value"), ==, "on");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
 test_announces_state_once_on_startup (void)
 {
     guint   emits;
@@ -175,6 +215,8 @@ main (int argc, char **argv)
     pn_test_add ("latch_drops_noops",      test_latches_and_drops_noops);
     pn_test_add ("midpoint_is_off",        test_midpoint_counts_as_off);
     pn_test_add ("passthrough_no_value",   test_passthrough_without_value);
+    pn_test_add ("integer_drives_latch",   test_integer_value_drives_latch);
+    pn_test_add ("non_numeric_passes",     test_non_numeric_value_passes_through);
     pn_test_add ("startup_announce",       test_announces_state_once_on_startup);
     pn_test_add ("startup_opt_out",        test_announce_opt_out_is_silent);
     return pn_test_run ();
