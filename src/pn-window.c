@@ -1543,23 +1543,164 @@ action_document_settings (
     pn_document_settings_dialog_present (GTK_WINDOW (self), self->flow);
 }
 
+/** Locate the application icon PNG so the About dialog can show it
+ *  whether running from the build tree or an install.  The icon ships
+ *  as $(datadir)/icons/hicolor/256x256/apps/org.pipas.pipnode.png (see
+ *  data/Makefile.am); PKGDATADIR is $(datadir)/pipnode, so its parent
+ *  is $(datadir).  Returns a freshly-allocated path the caller frees,
+ *  or %NULL.  We load from file rather than by themed icon name because
+ *  the icon is only on the icon-theme search path after `make install`
+ *  (or inside the Flatpak), not when running straight from the tree. */
+static gchar *
+resolve_logo_path (void)
+{
+    gchar *path;
+
+#ifdef SRCDIR
+    path = g_build_filename (SRCDIR, "data", "icons", "hicolor",
+                             "256x256", "apps", "org.pipas.pipnode.png",
+                             NULL);
+    if (g_file_test (path, G_FILE_TEST_EXISTS))
+        return path;
+    g_free (path);
+#endif
+
+#ifdef PKGDATADIR
+    {
+        gchar *datadir = g_path_get_dirname (PKGDATADIR);
+        path = g_build_filename (datadir, "icons", "hicolor", "256x256",
+                                 "apps", "org.pipas.pipnode.png", NULL);
+        g_free (datadir);
+        if (g_file_test (path, G_FILE_TEST_EXISTS))
+            return path;
+        g_free (path);
+    }
+#endif
+
+    return NULL;
+}
+
+/** Append a centred #GtkLabel carrying Pango markup to @box.  When
+ *  @markup contains <a href="…"> spans GtkLabel renders them as
+ *  hyperlinks and its built-in activate-link handler opens them in the
+ *  browser, so no extra wiring is needed. */
+static void
+about_add_markup (GtkBox *box, const gchar *markup)
+{
+    GtkWidget *label = gtk_label_new (NULL);
+
+    gtk_label_set_markup (GTK_LABEL (label), markup);
+    gtk_label_set_justify (GTK_LABEL (label), GTK_JUSTIFY_CENTER);
+    gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 50);
+    gtk_box_pack_start (box, label, FALSE, FALSE, 0);
+}
+
 static void
 action_about (
         GtkMenuItem *item,
         gpointer     user_data)
 {
-    PnWindow *self = PN_WINDOW (user_data);
-    const gchar *authors[] = { "Pipas", NULL };
+    PnWindow  *self = PN_WINDOW (user_data);
+    GtkWidget *dialog;
+    GtkWidget *box;
+    gchar     *logo_path;
+    gchar     *markup;
     (void) item;
 
-    gtk_show_about_dialog (
+    /*  A hand-built dialog rather than GtkAboutDialog: we want the
+     *  GitHub/Sponsor/Discussions pointers as real paragraphs with
+     *  clickable links (not buried in a Credits sub-page), a custom
+     *  licence note describing the plugin exception, and no dead
+     *  "License" button. */
+    dialog = gtk_dialog_new_with_buttons (
+            "About Pipnode",
             GTK_WINDOW (self),
-            "program-name", "Pipnode",
-            "version",      PACKAGE_VERSION,
-            "comments",     "A desktop visual flow editor inspired by Node-RED.",
-            "authors",      authors,
-            "license-type", GTK_LICENSE_GPL_3_0,
+            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+            "_Close", GTK_RESPONSE_CLOSE,
             NULL);
+    gtk_window_set_resizable (GTK_WINDOW (dialog), FALSE);
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top (box, 18);
+    gtk_widget_set_margin_bottom (box, 12);
+    gtk_widget_set_margin_start (box, 28);
+    gtk_widget_set_margin_end (box, 28);
+    gtk_container_add (
+            GTK_CONTAINER (gtk_dialog_get_content_area (GTK_DIALOG (dialog))),
+            box);
+
+    /*  Application icon, scaled down from the 256px hicolor asset. */
+    logo_path = resolve_logo_path ();
+    if (logo_path != NULL)
+    {
+        GdkPixbuf *pix = gdk_pixbuf_new_from_file_at_size (logo_path,
+                                                           128, 128, NULL);
+        if (pix != NULL)
+        {
+            GtkWidget *image = gtk_image_new_from_pixbuf (pix);
+            gtk_widget_set_margin_bottom (image, 6);
+            gtk_box_pack_start (GTK_BOX (box), image, FALSE, FALSE, 0);
+            g_object_unref (pix);
+        }
+        g_free (logo_path);
+    }
+
+    /*  Name + version. */
+    markup = g_markup_printf_escaped (
+            "<span size='xx-large' weight='bold'>Pipnode</span>\n"
+            "<span size='small' alpha='75%%'>%s</span>",
+            PACKAGE_VERSION);
+    about_add_markup (GTK_BOX (box), markup);
+    g_free (markup);
+
+    about_add_markup (GTK_BOX (box),
+            "Pipnode is an interactive environment for building dataflows "
+            "visually: drop nodes onto a worksheet, wire them together, and "
+            "watch your data come alive in real time. It is flexible, highly "
+            "customizable and thoroughly modular — a first-class plugin "
+            "system lets the node catalogue grow to fit whatever you are "
+            "building, without ever touching the core.");
+
+    /*  Project pointers — readable paragraphs, each with an inline link. */
+    about_add_markup (GTK_BOX (box),
+            "You can get the full source code, browse the latest releases "
+            "and report issues on the project's "
+            "<a href=\"https://github.com/laszlopere/pipnode\">"
+            "GitHub page</a>.");
+    about_add_markup (GTK_BOX (box),
+            "Pipnode is developed in the open and kept alive by the people "
+            "who use it. If you find it useful, please consider "
+            "<a href=\"https://github.com/sponsors/laszlopere\">"
+            "sponsoring it on GitHub</a> — even the smallest one-off "
+            "contribution is highly appreciated and helps keep the project "
+            "going.");
+    about_add_markup (GTK_BOX (box),
+            "Have an idea or a feature wish? Share it on the "
+            "<a href=\"https://github.com/laszlopere/pipnode/discussions\">"
+            "discussion forum</a> — feedback from people who use Pipnode "
+            "shapes where it goes next.");
+
+    /*  Licence note: GPLv3 plus the plugin exception (open-core). */
+    about_add_markup (GTK_BOX (box),
+            "<span size='small'>This is a free, open-source program, "
+            "released under the "
+            "<a href=\"https://github.com/laszlopere/pipnode/blob/master/LICENSE\">"
+            "GNU General Public License v3</a>. As an open-core project it "
+            "also grants an "
+            "<a href=\"https://github.com/laszlopere/pipnode/blob/master/"
+            "LICENSE.PLUGIN-EXCEPTION\">exception permitting proprietary "
+            "plugins</a>, so you are free to build and ship closed-source "
+            "nodes on top of it.</span>");
+
+    about_add_markup (GTK_BOX (box),
+            "<span size='small' alpha='65%'>"
+            "Copyright © 2024-2026 Laszlo Pere</span>");
+
+    g_signal_connect (dialog, "response",
+                      G_CALLBACK (gtk_widget_destroy), NULL);
+
+    gtk_widget_show_all (dialog);
 }
 
 /** Open a #PnHelpBrowser parented to the main window.
