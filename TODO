@@ -173,3 +173,28 @@ Net-IO) -- declare them non-static in their headers, per the pn-disk-io /
 pn-net-io precedent -- and add full-node tests driven by run_once_sync. Ties
 into #23 (the headless/GTK split): the same nodes are the ones whose logic
 should remain loadable and testable headless.
+
+(25) DONE Run an XFCE panel applet's worksheet without the editor as a
+throwaway process, and without hosting the flow inside xfce4-panel itself (a
+node/plugin crash must never take down the panel). The worksheet now runs in a
+background "engine": pipnode-editor started as a D-Bus service
+(--gapplication-service, auto-activated via data/dbus-1/services/
+org.pipas.pipnode.service). Each worksheet lives in a panel-backed PnWindow
+(pn_window_new_panel) that is built but kept hidden -- its flow ticks off the
+main loop; "Edit" just gtk_window_present()s it; closing autosaves and hides
+rather than destroying, so the flow survives. The engine exposes
+org.pipas.pipnode.Engine (RunWorksheet/GetDisplayValue/SetInput/PresentEditor/
+CloseWorksheet + the ValueChanged signal, keyed by worksheet path) alongside the
+existing test-only org.pipas.pipnode.Worksheet interface. Two new core nodes
+bridge the flow to the panel: Panel Display (PnPanelDisplay, a sink whose last
+value the applet shows) and Panel Input (PnPanelInput, a source a click drives).
+The applet (panel-plugins/pipnode-worksheet) is now a thin GDBus client linking
+NO pipnode library. Tests: tests/test_panel_engine_run.py + unit tests
+test-pn-panel-{display,input}.c. The headless CLI (pipnode-run) stays the
+server tool; the engine is the desktop-session runtime.
+
+Uniqueness: only the engine (--gapplication-service) and test instances
+(--dbus-name) take the org.pipas.pipnode name as a single addressable instance;
+a normal `pipnode-editor [--file X]` launch is G_APPLICATION_NON_UNIQUE (decided
+in main.c::argv_wants_unique), so it runs as its own process and never forwards
+the file to the engine.

@@ -68,6 +68,24 @@ package with no GTK dependency alongside the full `pipnode-gui`; see
 `INSTALL` for the packaging split and `PLUGINS` for writing
 server-installable plugins.
 
+## XFCE panel applets
+
+A worksheet can also drive an **XFCE panel applet** — a button on the panel
+that runs a flow and shows a value. The applet
+(`panel-plugins/pipnode-worksheet`) is a thin D-Bus client linking **no**
+pipnode library, so a node or plugin crash can never take down `xfce4-panel`.
+The flow runs in a background **engine** — `pipnode-editor` started as a D-Bus
+service (`--gapplication-service`, auto-activated on first use) — which holds
+each worksheet in a hidden window whose flow ticks the whole time. Picking
+**Properties** on the applet opens that *same running* worksheet for editing;
+closing the editor autosaves and hides it, the flow keeps running.
+
+Two core nodes bridge the flow to the panel: a **Panel Display** sink (its last
+value becomes the button label, pushed live) and a **Panel Input** source (a
+click drives it). The engine is the desktop-session counterpart of the headless
+`pipnode-run` server tool. The applet is built only when `libxfce4panel-2.0` is
+present at configure time.
+
 ## Writing plugins
 
 Plugins are the supported way to add node types (and, over time, other
