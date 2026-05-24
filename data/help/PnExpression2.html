@@ -48,22 +48,38 @@ received before forwarding it.
   <li><strong>Operators:</strong> <code>+</code> <code>-</code>
       <code>*</code> <code>/</code> with the usual precedence,
       parentheses for grouping, and unary minus.</li>
+  <li><strong>Comparisons:</strong> <code>&lt;</code> <code>&gt;</code>
+      <code>&lt;=</code> <code>&gt;=</code> <code>==</code>
+      <code>!=</code>. These bind looser than the arithmetic operators
+      and evaluate to <code>1.0</code> (true) or <code>0.0</code>
+      (false), e.g. <code>value1 &gt; value2</code>.</li>
   <li><strong>Functions</strong> (one argument):
       <code>sin</code>, <code>cos</code>, <code>tan</code>,
       <code>log</code> (natural log), <code>log10</code>,
       <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
       <code>floor</code>, <code>ceil</code>.</li>
+  <li><strong>Statements:</strong> several lines, one statement each
+      (blank lines ignored). A line may be a bare expression or an
+      assignment <code>name = expr</code> that binds <code>name</code>
+      for later lines; <code>data.value</code> takes the
+      <strong>last</strong> statement's value, and every assigned name
+      is also written to the outgoing message as a numeric member.</li>
 </ul>
 
 <pre>expression: value1 + value2
 expression: (value1 - value2) / value2 * 100
-expression: sqrt(value1 * value1 + value2 * value2)</pre>
+expression: sqrt(value1 * value1 + value2 * value2)
+
+multi-line, binding an intermediate name and emitting it too:
+    delta = value1 - value2
+    delta / value2 * 100         (-> data.value, plus data.delta)</pre>
 
 <h5>Output</h5>
 <p>
 On success the node sets <code>data.value</code> to the computed
 number, <code>data.success</code> to true, and <code>data.output</code>
-to the formatted result. If the expression cannot be parsed, or it
+to the formatted result; any names assigned by the expression are added
+as numeric members too. If the expression cannot be parsed, or it
 references an input that has not produced a message yet (so e.g.
 <code>value2</code> is still unknown), the message is still forwarded
 but flagged: <code>data.success</code> is set to false and the reason

@@ -81,6 +81,17 @@ expr_recompile (PnExpression *self)
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
+/** Write one program-assigned name onto the outgoing message as a
+ *  numeric data-bag member, so a multi-statement expression can emit
+ *  several computed fields, not just data.value. */
+static void
+surface_assignment (const gchar *name,
+                    gdouble      value,
+                    gpointer     user_data)
+{
+    pn_message_set_double (PN_MESSAGE (user_data), name, value);
+}
+
 static void
 pn_expression_receive (
         PnNode    *node,
@@ -131,6 +142,11 @@ pn_expression_receive (
     if (pn_var_store_evaluate (self->vars, self->ast, &result, &error))
     {
         gchar *out = g_strdup_printf ("%g", result);
+
+        /* Surface any names the program assigned first, then let the
+         * final expression's result own the reserved data.value. */
+        pn_var_store_foreach_assignment (self->vars, surface_assignment,
+                                         message);
 
         pn_message_set_double  (message, "value",   result);
         pn_message_set_boolean (message, "success", TRUE);
@@ -244,8 +260,13 @@ pn_expression_class_init (PnExpressionClass *klass)
             "Algebraic expression evaluated on each message, e.g. "
             "\"(12.3 * value) + 1\". Numeric data-bag members are bound "
             "as variables (incl. data.value as `value`); the result is "
-            "written to data.value. Functions: sin, cos, tan, log, "
-            "log10, exp, sqrt, abs, floor, ceil.",
+            "written to data.value. Comparisons (< > <= >= == !=) yield "
+            "1.0 (true) or 0.0 (false). Functions: sin, cos, tan, log, "
+            "log10, exp, sqrt, abs, floor, ceil. Write several "
+            "newline-separated statements to compute step by step; "
+            "`name = expr` binds a variable for later lines and is also "
+            "written to the outgoing message, and data.value is the last "
+            "statement's value.",
             "value",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);

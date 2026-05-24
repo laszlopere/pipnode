@@ -40,6 +40,12 @@ convert a Celsius reading to Fahrenheit.
   <li><strong>Operators:</strong> <code>+</code> <code>-</code>
       <code>*</code> <code>/</code> with the usual precedence,
       parentheses for grouping, and unary minus.</li>
+  <li><strong>Comparisons:</strong> <code>&lt;</code> <code>&gt;</code>
+      <code>&lt;=</code> <code>&gt;=</code> <code>==</code>
+      <code>!=</code>. These bind looser than the arithmetic operators
+      and evaluate to <code>1.0</code> (true) or <code>0.0</code>
+      (false), so a comparison result can feed straight into further
+      arithmetic &mdash; e.g. <code>(value &gt; 100) * 5</code>.</li>
   <li><strong>Functions</strong> (one argument):
       <code>sin</code>, <code>cos</code>, <code>tan</code>,
       <code>log</code> (natural log), <code>log10</code>,
@@ -47,15 +53,40 @@ convert a Celsius reading to Fahrenheit.
       <code>floor</code>, <code>ceil</code>.</li>
 </ul>
 
+<h5>Statements and assignment</h5>
+<p>
+The expression may hold <strong>several statements, one per line</strong>
+(blank lines are ignored). A statement is either a bare expression or an
+<strong>assignment</strong> <code>name = expr</code>, which binds
+<code>name</code> for use by later lines. All statements are evaluated in
+order and <code>data.value</code> takes the value of the
+<strong>last</strong> one &mdash; so a multi-line expression usually ends
+with a bare expression.
+</p>
+<p>
+Each assigned name is <strong>also written to the outgoing message</strong>
+as a numeric data-bag member, so one Calculator can emit several computed
+fields. (The reserved <code>value</code>, <code>success</code> and
+<code>output</code> members are always set from the final result, so
+assigning them has no lasting effect.)
+</p>
+
 <pre>expression: (12.3 * value1) + (1 / 2)
 expression: sin(value) + 1
-expression: (value - 32) * 5 / 9</pre>
+expression: (value - 32) * 5 / 9
+expression: value &gt;= 100        (1 when at/above the threshold, else 0)
+
+multi-line, binding intermediate names and emitting several fields:
+    fahrenheit = value * 1.8 + 32
+    kelvin     = value + 273.15
+    fahrenheit                    (-> data.value, plus data.fahrenheit, data.kelvin)</pre>
 
 <h5>Output</h5>
 <p>
 On success the node sets <code>data.value</code> to the computed
 number, <code>data.success</code> to true, and <code>data.output</code>
-to the formatted result. If the expression cannot be parsed (a syntax
+to the formatted result; any names assigned by the expression are added
+as numeric members too. If the expression cannot be parsed (a syntax
 error in the property) or evaluated (an unknown variable or function),
 the message is still forwarded but flagged: <code>data.success</code>
 is set to false and the reason is placed in <code>data.error</code> and

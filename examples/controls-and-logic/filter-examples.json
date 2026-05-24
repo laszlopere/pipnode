@@ -27,7 +27,7 @@
       "properties" : {
         "min" : 0.0,
         "max" : 10.0,
-        "value" : 0.0
+        "value" : 6.2500000000000009
       }
     },
     {
@@ -156,6 +156,49 @@
         "target" : "Debug View",
         "format" : "JSON"
       }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "f3f01f59-1d77-49cd-a267-106ec4925a74",
+      "name" : "Injector",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 460.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.40999999999999998,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "172775db-2032-4351-b4f4-8f08183dc212",
+      "name" : "Injector",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 520.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.01,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "c434a3a6-e9e0-4707-8870-8f91b43438d0",
+      "name" : ">",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 500.0
+      },
+      "properties" : {
+        "expression" : "v1 = value1\nv2 = value2\nsum = value1 + value2\nvalue1 < value2"
+      }
     }
   ],
   "connections" : [
@@ -195,6 +238,19 @@
     {
       "source_id" : "f369e627-3e1c-464f-956c-6da262a2dcc7",
       "target_id" : "202b601d-a7c0-426a-a6f1-b91818e1de83"
+    },
+    {
+      "source_id" : "c434a3a6-e9e0-4707-8870-8f91b43438d0",
+      "target_id" : "202b601d-a7c0-426a-a6f1-b91818e1de83"
+    },
+    {
+      "source_id" : "f3f01f59-1d77-49cd-a267-106ec4925a74",
+      "target_id" : "c434a3a6-e9e0-4707-8870-8f91b43438d0"
+    },
+    {
+      "source_id" : "172775db-2032-4351-b4f4-8f08183dc212",
+      "target_id" : "c434a3a6-e9e0-4707-8870-8f91b43438d0",
+      "target_input" : 1
     }
   ],
   "sheets" : [

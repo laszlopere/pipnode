@@ -27,6 +27,12 @@ struct _PnVarStore
 
     /* name (gchar*, owned) -> value (gdouble*, owned) */
     GHashTable *vars;
+
+    /* Names bound by an in-expression assignment during the current
+     * evaluation (a subset of @vars), so a caller can tell program
+     * outputs apart from the inputs it pre-bound.  Same ownership and
+     * lifetime as @vars; cleared together by pn_var_store_clear(). */
+    GHashTable *assigned;
 };
 
 G_DEFINE_TYPE (PnVarStore, pn_var_store, G_TYPE_OBJECT)
@@ -81,7 +87,8 @@ pn_var_store_finalize (GObject *object)
 {
     PnVarStore *self = PN_VAR_STORE (object);
 
-    g_clear_pointer (&self->vars, g_hash_table_unref);
+    g_clear_pointer (&self->vars,     g_hash_table_unref);
+    g_clear_pointer (&self->assigned, g_hash_table_unref);
 
     G_OBJECT_CLASS (pn_var_store_parent_class)->finalize (object);
 }
@@ -97,6 +104,8 @@ pn_var_store_init (PnVarStore *self)
 {
     self->vars = g_hash_table_new_full (g_str_hash, g_str_equal,
                                         g_free, g_free);
+    self->assigned = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                            g_free, g_free);
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,6 +133,41 @@ pn_var_store_set (PnVarStore  *self,
     g_hash_table_insert (self->vars, g_strdup (name), boxed);
 }
 
+void
+pn_var_store_assign (PnVarStore  *self,
+                     const gchar *name,
+                     gdouble      value)
+{
+    gdouble *boxed;
+
+    g_return_if_fail (PN_IS_VAR_STORE (self));
+    g_return_if_fail (name != NULL);
+
+    /* Bind it like any variable so later statements can read it, and
+     * also note it as an assignment so callers can surface it. */
+    pn_var_store_set (self, name, value);
+
+    boxed  = g_new (gdouble, 1);
+    *boxed = value;
+    g_hash_table_insert (self->assigned, g_strdup (name), boxed);
+}
+
+void
+pn_var_store_foreach_assignment (PnVarStore            *self,
+                                 PnVarStoreForeachFunc  func,
+                                 gpointer               user_data)
+{
+    GHashTableIter  iter;
+    gpointer        k, v;
+
+    g_return_if_fail (PN_IS_VAR_STORE (self));
+    g_return_if_fail (func != NULL);
+
+    g_hash_table_iter_init (&iter, self->assigned);
+    while (g_hash_table_iter_next (&iter, &k, &v))
+        func ((const gchar *) k, *(const gdouble *) v, user_data);
+}
+
 gboolean
 pn_var_store_get (PnVarStore  *self,
                   const gchar *name,
@@ -148,6 +192,7 @@ pn_var_store_clear (PnVarStore *self)
 {
     g_return_if_fail (PN_IS_VAR_STORE (self));
     g_hash_table_remove_all (self->vars);
+    g_hash_table_remove_all (self->assigned);
 }
 
 gboolean
@@ -210,6 +255,16 @@ pn_var_store_evaluate (PnVarStore       *self,
             case '-': *out_value = a - b; return TRUE;
             case '*': *out_value = a * b; return TRUE;
             case '/': *out_value = a / b; return TRUE;  /* IEEE inf/nan on /0 */
+
+            /* Comparisons yield a boolean encoded as 1.0 (true) / 0.0
+             * (false); op codes are assigned in pn-expr-parser.h. */
+            case '<': *out_value = (a <  b) ? 1.0 : 0.0; return TRUE;
+            case '>': *out_value = (a >  b) ? 1.0 : 0.0; return TRUE;
+            case 'L': *out_value = (a <= b) ? 1.0 : 0.0; return TRUE;
+            case 'G': *out_value = (a >= b) ? 1.0 : 0.0; return TRUE;
+            case '=': *out_value = (a == b) ? 1.0 : 0.0; return TRUE;
+            case '!': *out_value = (a != b) ? 1.0 : 0.0; return TRUE;
+
             default:
                 g_set_error (error, PN_VAR_STORE_ERROR,
                              PN_VAR_STORE_ERROR_BAD_AST,
@@ -235,6 +290,28 @@ pn_var_store_evaluate (PnVarStore       *self,
 
             *out_value = fn (arg);
             return TRUE;
+        }
+
+    case PN_EXPR_NODE_ASSIGN:
+        {
+            gdouble v;
+            if (!pn_var_store_evaluate (self, node->left, &v, error))
+                return FALSE;
+            /* Binds the name (for later statements) and records it as an
+             * assignment; an assignment's own value is the value bound. */
+            pn_var_store_assign (self, node->name, v);
+            *out_value = v;
+            return TRUE;
+        }
+
+    case PN_EXPR_NODE_SEQ:
+        {
+            gdouble discard;
+            /* Evaluate the statement for its effect (typically a binding)
+             * and discard its value; the sequence's value is the rest. */
+            if (!pn_var_store_evaluate (self, node->left, &discard, error))
+                return FALSE;
+            return pn_var_store_evaluate (self, node->right, out_value, error);
         }
 
     default:

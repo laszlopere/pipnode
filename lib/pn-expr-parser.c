@@ -73,6 +73,14 @@ typedef enum
     TOK_MINUS,
     TOK_STAR,
     TOK_SLASH,
+    TOK_LT,        /* <  */
+    TOK_GT,        /* >  */
+    TOK_LE,        /* <= */
+    TOK_GE,        /* >= */
+    TOK_EQ,        /* == */
+    TOK_NE,        /* != */
+    TOK_ASSIGN,    /* =  (statement-level assignment) */
+    TOK_NEWLINE,   /* one or more newlines: statement separator */
     TOK_LPAREN,
     TOK_RPAREN,
     TOK_ERROR,
@@ -129,10 +137,24 @@ lex_advance (Ctx *c)
 {
     const gchar *p = c->p;
 
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+    /* Spaces and tabs are insignificant; newlines are not — they
+     * separate statements, so they get their own token. */
+    while (*p == ' ' || *p == '\t')
         p++;
 
     c->tok_start = p;
+
+    /* A run of newlines (with any spaces/tabs between them) collapses to
+     * a single separator token, so blank lines never produce empty
+     * statements. */
+    if (*p == '\n' || *p == '\r')
+    {
+        while (*p == '\n' || *p == '\r' || *p == ' ' || *p == '\t')
+            p++;
+        c->tok = TOK_NEWLINE;
+        c->p   = p;
+        return;
+    }
 
     if (*p == '\0')
     {
@@ -180,6 +202,32 @@ lex_advance (Ctx *c)
     case '/': c->tok = TOK_SLASH;  c->p = p + 1; return;
     case '(': c->tok = TOK_LPAREN; c->p = p + 1; return;
     case ')': c->tok = TOK_RPAREN; c->p = p + 1; return;
+
+    /* Comparisons: '<' and '>' stand alone or take a trailing '=';
+     * '!=' must be two characters — a lone '!' is an error, since the
+     * language has no logical-not.  ('=' is handled separately: '==' is
+     * equality, a lone '=' is assignment.) */
+    case '<':
+        if (p[1] == '=') { c->tok = TOK_LE; c->p = p + 2; }
+        else             { c->tok = TOK_LT; c->p = p + 1; }
+        return;
+    case '>':
+        if (p[1] == '=') { c->tok = TOK_GE; c->p = p + 2; }
+        else             { c->tok = TOK_GT; c->p = p + 1; }
+        return;
+    case '=':
+        /* "==" is equality; a lone "=" is statement-level assignment. */
+        if (p[1] == '=') { c->tok = TOK_EQ;     c->p = p + 2; }
+        else             { c->tok = TOK_ASSIGN; c->p = p + 1; }
+        return;
+    case '!':
+        if (p[1] == '=') { c->tok = TOK_NE; c->p = p + 2; return; }
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_SYNTAX,
+                       "expected '!=' but found a single '!' at position %d",
+                       (gint) (p - c->input) + 1);
+        c->tok = TOK_ERROR;
+        return;
+
     default:
         ctx_set_error (c, PN_EXPR_PARSER_ERROR_SYNTAX,
                        "unexpected character '%c' at position %d",
@@ -189,16 +237,40 @@ lex_advance (Ctx *c)
     }
 }
 
+/** Return the token *after* the current one without disturbing @c.  The
+ *  scanner state is all pointers, so a struct copy is a cheap snapshot;
+ *  the copy gets no error sink since a peek never reports failures.
+ *  Used to tell an assignment (`IDENT =`) from an expression that merely
+ *  begins with an identifier. */
+static TokenType
+lex_peek (Ctx *c)
+{
+    Ctx tmp = *c;
+    tmp.error  = NULL;
+    tmp.failed = FALSE;
+    lex_advance (&tmp);
+    return tmp.tok;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Recursive-descent parser                                          */
 /*                                                                     */
-/*    expression := term   (('+' | '-') term)*                         */
+/*    program    := NEWLINE* statement (NEWLINE statement)* NEWLINE*    */
+/*    statement  := IDENT '=' expression          // assignment        */
+/*                | expression                                         */
+/*    expression := additive (CMP additive)*    // CMP: < > <= >= == != */
+/*    additive   := term   (('+' | '-') term)*                         */
 /*    term       := factor (('*' | '/') factor)*                       */
 /*    factor     := NUMBER                                             */
 /*                | IDENT '(' expression ')'   // function call        */
 /*                | IDENT                       // variable            */
 /*                | '(' expression ')'                                 */
 /*                | ('+' | '-') factor          // unary sign          */
+/*                                                                     */
+/*  Comparisons sit at the lowest precedence level and are left-       */
+/*  associative like the arithmetic operators; each yields 1.0/0.0.    */
+/*  A program is one or more newline-separated statements; its value   */
+/*  is that of the last statement (see pn-var-store evaluation).       */
 /* ------------------------------------------------------------------ */
 
 static PnExprNode *parse_expression (Ctx *c);
@@ -337,7 +409,7 @@ parse_term (Ctx *c)
 }
 
 static PnExprNode *
-parse_expression (Ctx *c)
+parse_additive (Ctx *c)
 {
     PnExprNode *left = parse_term (c);
     if (left == NULL)
@@ -364,6 +436,149 @@ parse_expression (Ctx *c)
     }
 
     return left;
+}
+
+/** Map a comparison token to the single-character operator code carried
+ *  in PnExprNode.op (see the header), or '\0' if @tok is not one. */
+static gchar
+comparison_op (TokenType tok)
+{
+    switch (tok)
+    {
+    case TOK_LT: return '<';
+    case TOK_GT: return '>';
+    case TOK_LE: return 'L';
+    case TOK_GE: return 'G';
+    case TOK_EQ: return '=';
+    case TOK_NE: return '!';
+    default:     return '\0';
+    }
+}
+
+static PnExprNode *
+parse_expression (Ctx *c)
+{
+    PnExprNode *left = parse_additive (c);
+    if (left == NULL)
+        return NULL;
+
+    for (gchar op; (op = comparison_op (c->tok)) != '\0'; )
+    {
+        PnExprNode *right, *n;
+
+        lex_advance (c);
+        right = parse_additive (c);
+        if (right == NULL)
+        {
+            pn_expr_node_free (left);
+            return NULL;
+        }
+
+        n = node_new (PN_EXPR_NODE_BINARY);
+        n->op    = op;
+        n->left  = left;
+        n->right = right;
+        left = n;
+    }
+
+    return left;
+}
+
+/** A statement is either `IDENT '=' expression` (an assignment) or a
+ *  bare expression.  The two are told apart with a one-token peek: an
+ *  identifier immediately followed by '=' starts an assignment; anything
+ *  else (incl. `IDENT(`, `IDENT ==`, `IDENT +`) is an expression. */
+static PnExprNode *
+parse_statement (Ctx *c)
+{
+    if (c->tok == TOK_IDENT && lex_peek (c) == TOK_ASSIGN)
+    {
+        gchar      *name = g_strndup (c->ident_start, c->ident_len);
+        PnExprNode *value, *n;
+
+        lex_advance (c);    /* consume the identifier */
+        lex_advance (c);    /* consume '='            */
+
+        value = parse_expression (c);
+        if (value == NULL)
+        {
+            g_free (name);
+            return NULL;
+        }
+
+        n = node_new (PN_EXPR_NODE_ASSIGN);
+        n->name = name;     /* transfer ownership */
+        n->left = value;
+        return n;
+    }
+
+    return parse_expression (c);
+}
+
+/** Parse the whole program: one or more statements separated by newline
+ *  tokens, with blank lines (and leading/trailing newlines) ignored.
+ *  Folds them into a right-leaning PN_EXPR_NODE_SEQ chain whose value is
+ *  the last statement's; a single statement needs no SEQ wrapper. */
+static PnExprNode *
+parse_program (Ctx *c)
+{
+    GPtrArray  *stmts;
+    PnExprNode *result;
+    guint       i;
+
+    /* Skip blank lines before the first statement. */
+    while (c->tok == TOK_NEWLINE)
+        lex_advance (c);
+
+    if (c->tok == TOK_END)
+    {
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_UNEXPECTED_EOF,
+                       "unexpected end of expression");
+        return NULL;
+    }
+
+    stmts = g_ptr_array_new_with_free_func ((GDestroyNotify) pn_expr_node_free);
+
+    for (;;)
+    {
+        PnExprNode *stmt = parse_statement (c);
+        if (stmt == NULL)
+        {
+            g_ptr_array_unref (stmts);
+            return NULL;
+        }
+        g_ptr_array_add (stmts, stmt);
+
+        /* A separator means another statement may follow; the end of
+         * input (directly, or after a trailing newline) finishes. */
+        if (c->tok == TOK_NEWLINE)
+        {
+            lex_advance (c);
+            if (c->tok == TOK_END)
+                break;
+            continue;
+        }
+        if (c->tok == TOK_END)
+            break;
+
+        /* A complete statement followed by anything but a separator. */
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN,
+                       "unexpected token at position %d", ctx_column (c));
+        g_ptr_array_unref (stmts);
+        return NULL;
+    }
+
+    result = g_ptr_array_index (stmts, stmts->len - 1);
+    for (i = stmts->len - 1; i > 0; i--)
+    {
+        PnExprNode *seq = node_new (PN_EXPR_NODE_SEQ);
+        seq->left  = g_ptr_array_index (stmts, i - 1);
+        seq->right = result;
+        result = seq;
+    }
+
+    g_ptr_array_free (stmts, FALSE);   /* free the array, keep the nodes */
+    return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -413,18 +628,11 @@ pn_expr_parser_parse (PnExprParser *self,
     if (c.tok == TOK_ERROR)
         return NULL;
 
-    root = parse_expression (&c);
+    /* parse_program consumes the whole input through TOK_END (rejecting
+     * any trailing junk itself), so there is no post-check here. */
+    root = parse_program (&c);
     if (root == NULL)
         return NULL;
-
-    if (c.tok != TOK_END)
-    {
-        ctx_set_error (&c, PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN,
-                       "unexpected trailing input at position %d",
-                       ctx_column (&c));
-        pn_expr_node_free (root);
-        return NULL;
-    }
 
     return root;
 }

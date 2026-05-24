@@ -100,6 +100,61 @@ test_binds_integer_member (void)
 }
 
 static void
+test_eval_comparison_boolean (void)
+{
+    guint      emits;
+    /* A comparison expression: the node stamps data.value with the
+     * boolean result encoded as 1.0 (true) / 0.0 (false). */
+    PnNode    *node = make_node ("value > 10", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (msg, "value", 21.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK        (pn_test_bool (msg, "success"));
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 1.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (msg, "output"), ==, "1");
+
+    /* Same node, a value that fails the test -> 0.0. */
+    pn_message_set_double (msg, "value", 3.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 2);
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 0.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (msg, "output"), ==, "0");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_multi_statement_surfaces_assignments (void)
+{
+    guint      emits;
+    /* Three statements: two assignments plus a final bare expression.
+     * data.value is the last line; the assigned names are also written
+     * onto the outgoing message as numeric members. */
+    PnNode    *node = make_node ("f = value * 1.8 + 32\nk = value + 273.15\nf",
+                                 &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (msg, "value", 100.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK        (pn_test_bool (msg, "success"));
+    /* data.value == the last statement (f). */
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 212.0, 1e-9);
+    /* Both assigned names surfaced as data-bag members. */
+    PN_CHECK_NEAR   (pn_test_num (msg, "f"), 212.0,    1e-9);
+    PN_CHECK_NEAR   (pn_test_num (msg, "k"), 373.15,   1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
 test_eval_failure_preserves_value (void)
 {
     guint      emits;
@@ -151,6 +206,8 @@ main (int argc, char **argv)
     pn_test_add ("eval_arithmetic",            test_eval_arithmetic);
     pn_test_add ("eval_siblings",              test_eval_siblings);
     pn_test_add ("binds_integer_member",       test_binds_integer_member);
+    pn_test_add ("eval_comparison_boolean",    test_eval_comparison_boolean);
+    pn_test_add ("multi_statement_surfaces",   test_multi_statement_surfaces_assignments);
     pn_test_add ("eval_failure_keeps_value",   test_eval_failure_preserves_value);
     pn_test_add ("no_expression_forwards",     test_no_expression_forwards_failure);
     return pn_test_run ();

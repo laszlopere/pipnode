@@ -63,6 +63,46 @@ PnVarStore *pn_var_store_new (void);
 void pn_var_store_set (PnVarStore *self, const gchar *name, gdouble value);
 
 /**
+ * pn_var_store_assign:
+ * @self:  the store
+ * @name:  variable name
+ * @value: value to bind
+ *
+ * Like pn_var_store_set(), but additionally records @name as an
+ * assignment made during the current evaluation.  The evaluator calls
+ * this for `name = expr` statements so a caller can later tell program
+ * outputs (visited by pn_var_store_foreach_assignment()) apart from the
+ * input variables it pre-bound with pn_var_store_set().  The record is
+ * dropped by pn_var_store_clear() along with the binding.
+ */
+void pn_var_store_assign (PnVarStore *self, const gchar *name, gdouble value);
+
+/**
+ * PnVarStoreForeachFunc:
+ * @name:      the bound name
+ * @value:     its current value
+ * @user_data: caller data passed through
+ *
+ * Callback for pn_var_store_foreach_assignment().
+ */
+typedef void (*PnVarStoreForeachFunc) (const gchar *name,
+                                       gdouble      value,
+                                       gpointer     user_data);
+
+/**
+ * pn_var_store_foreach_assignment:
+ * @self:      the store
+ * @func:      (scope call): called once per assigned name
+ * @user_data: passed through to @func
+ *
+ * Invokes @func for every name bound by an assignment since the last
+ * pn_var_store_clear() (in unspecified order).
+ */
+void pn_var_store_foreach_assignment (PnVarStore            *self,
+                                      PnVarStoreForeachFunc  func,
+                                      gpointer               user_data);
+
+/**
  * pn_var_store_get:
  * @self:      the store
  * @name:      variable name
@@ -90,7 +130,11 @@ void pn_var_store_clear (PnVarStore *self);
  *
  * Recursively walks @node, resolving variables against @self and
  * dispatching function calls (sin, cos, tan, log, log10, exp, sqrt,
- * abs, floor, ceil) to the C math library.  An unbound variable or an
+ * abs, floor, ceil) to the C math library.  Comparison operators
+ * (`< > <= >= == !=`) evaluate to 1.0 (true) or 0.0 (false).  An
+ * assignment statement binds its name (via pn_var_store_assign()) and
+ * evaluates to the bound value; a statement sequence evaluates each in
+ * order and yields the value of the last.  An unbound variable or an
  * unknown function name fails the whole evaluation.
  *
  * Returns: %TRUE on success (and writes @out_value); %FALSE with

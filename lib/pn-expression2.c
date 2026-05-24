@@ -123,6 +123,17 @@ harvest_numbers (JsonObject *data)
     return t;
 }
 
+/** Write one program-assigned name onto the outgoing message as a
+ *  numeric data-bag member, so a multi-statement expression can emit
+ *  several computed fields, not just data.value. */
+static void
+surface_assignment (const gchar *name,
+                    gdouble      value,
+                    gpointer     user_data)
+{
+    pn_message_set_double (PN_MESSAGE (user_data), name, value);
+}
+
 static void
 pn_expression2_receive (
         PnNode    *node,
@@ -181,6 +192,11 @@ pn_expression2_receive (
     if (pn_var_store_evaluate (self->vars, self->ast, &result, &error))
     {
         gchar *out = g_strdup_printf ("%g", result);
+
+        /* Surface any names the program assigned first, then let the
+         * final expression's result own the reserved data.value. */
+        pn_var_store_foreach_assignment (self->vars, surface_assignment,
+                                         message);
 
         pn_message_set_double  (message, "value",   result);
         pn_message_set_boolean (message, "success", TRUE);
@@ -300,8 +316,12 @@ pn_expression2_class_init (PnExpression2Class *klass)
             "with a \"1\" suffix and input 2 with a \"2\" suffix "
             "(data.value as `value1`/`value2`, a sibling data.temp as "
             "`temp1`/`temp2`, ...); the result is written to data.value. "
-            "Functions: sin, cos, tan, log, log10, exp, sqrt, abs, "
-            "floor, ceil.",
+            "Comparisons (< > <= >= == !=) yield 1.0 (true) or 0.0 "
+            "(false). Functions: sin, cos, tan, log, log10, exp, sqrt, "
+            "abs, floor, ceil. Write several newline-separated statements "
+            "to compute step by step; `name = expr` binds a variable for "
+            "later lines and is also written to the outgoing message, and "
+            "data.value is the last statement's value.",
             "value1 + value2",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);

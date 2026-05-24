@@ -227,6 +227,108 @@ test_left_associative_division (void)
     g_object_unref (p);
 }
 
+/* Comparison operators yield a boolean encoded as 1.0 (true) / 0.0
+ * (false).  One true and one false case per operator pins the whole set
+ * (< > <= >= == !=), including the tie-breaking behaviour of <= / >= and
+ * the exact-equality of == / != on the doubles the evaluator works in. */
+static void
+test_comparisons (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 < 2",  &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 < 1",  &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "3 > 2",  &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 > 3",  &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 <= 2", &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "3 <= 2", &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 >= 2", &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 >= 2", &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 == 2", &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 == 3", &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 != 3", &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 != 2", &ok), 0.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Comparisons bind looser than arithmetic, are left-associative, work
+ * over variables, and (being plain numbers) compose with arithmetic and
+ * parentheses like any other value. */
+static void
+test_comparison_precedence (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    pn_var_store_set (vars, "value", 5.0);
+
+    /* Arithmetic on both sides resolves before the comparison. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 + 1 == 2",  &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 * 3 > 5",   &ok), 1.0, 1e-9); PN_CHECK (ok);
+    /* Left-associative: (1 < 2) == 1  ->  1 == 1  ->  1. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 < 2 == 1",  &ok), 1.0, 1e-9); PN_CHECK (ok);
+    /* Variable comparison, and a boolean reused as an ordinary number. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "value >= 10", &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "(value > 3) * 10", &ok), 10.0, 1e-9); PN_CHECK (ok);
+    /* Parentheses override the looser comparison precedence. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "(1 < 2) + (3 < 2)", &ok), 1.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* A program may be several newline-separated statements; assignments
+ * bind names for later lines and the program's value is the last
+ * statement's.  Blank lines and a trailing newline are ignored. */
+static void
+test_statements_and_assignment (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    pn_var_store_set (vars, "value", 10.0);
+
+    /* Assignments feed later lines; value is the last statement. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "a = 2\nb = 3\na + b", &ok), 5.0, 1e-9);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "x = value * 2\nx + 1", &ok), 21.0, 1e-9);
+    PN_CHECK (ok);
+    /* Reassignment: a later line may rebind a name using its own value. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "x = 1\nx = x + 4\nx", &ok), 5.0, 1e-9);
+    PN_CHECK (ok);
+    /* A bare assignment evaluates to the value it bound. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "y = 7", &ok), 7.0, 1e-9);
+    PN_CHECK (ok);
+    /* The assigned value can be a comparison (1.0/0.0). */
+    PN_CHECK_NEAR (parse_eval (p, vars, "flag = value > 5\nflag", &ok), 1.0, 1e-9);
+    PN_CHECK (ok);
+    /* `name ==` is a comparison, not an assignment: the peek that finds
+     * an assignment must see a lone '=', not the '==' of equality. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "value == 10", &ok), 1.0, 1e-9);
+    PN_CHECK (ok);
+    /* Blank lines (incl. leading/trailing) are ignored. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "\n\na = 1\n\nb = 2\n\na + b\n\n", &ok),
+                   3.0, 1e-9);
+    PN_CHECK (ok);
+    /* A single trailing newline is fine and changes nothing. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "value\n", &ok), 10.0, 1e-9);
+    PN_CHECK (ok);
+
+    /* An error in any statement (here an unbound variable in the first
+     * line) fails the whole program. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "missing + 1\n5", &ok), 0.0, 1e-9);
+    PN_CHECK_FALSE (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
 /* Runtime (evaluation-time) semantics that parse cleanly but are decided
  * by the evaluator: an unset variable and an unknown function are errors
  * with their own codes, while division by zero is NOT an error — it
@@ -297,6 +399,13 @@ test_parse_error_codes (void)
     check_parse_error (p, "(1 + 2",  PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
     check_parse_error (p, "sin(1",   PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
     check_parse_error (p, "1 % 2",   PN_EXPR_PARSER_ERROR_SYNTAX);
+    /* '=' assigns, but only to an identifier: a number on the left
+     * parses as a complete statement, leaving the '=' as junk after it. */
+    check_parse_error (p, "1 = 2",   PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    /* A lone '!' is rejected by the lexer: there is '!=' but no not. */
+    check_parse_error (p, "1 ! 2",   PN_EXPR_PARSER_ERROR_SYNTAX);
+    /* An assignment with no value runs out of input. */
+    check_parse_error (p, "x =",     PN_EXPR_PARSER_ERROR_UNEXPECTED_EOF);
 
     g_object_unref (p);
 }
@@ -354,6 +463,9 @@ main (int argc, char **argv)
     pn_test_add ("unary_chains",          test_unary_chains);
     pn_test_add ("identifier_forms",      test_identifier_forms);
     pn_test_add ("left_assoc_division",   test_left_associative_division);
+    pn_test_add ("comparisons",           test_comparisons);
+    pn_test_add ("comparison_precedence", test_comparison_precedence);
+    pn_test_add ("statements_assignment", test_statements_and_assignment);
     pn_test_add ("eval_semantics",        test_eval_semantics);
     pn_test_add ("parse_error_codes",     test_parse_error_codes);
     pn_test_add ("parse_errors",          test_parse_errors);
