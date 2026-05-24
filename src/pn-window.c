@@ -31,6 +31,13 @@ struct _PnWindow
 {
     GtkApplicationWindow parent_instance;
 
+    /* Panel-backed mode (set at construction by pn_window_new_panel):
+     * the window is built hidden and its flow runs for an XFCE panel
+     * applet via the background engine.  Closing it autosaves and hides
+     * rather than prompting and destroying, so the worksheet keeps
+     * running after the editor window is dismissed. */
+    gboolean panel_backed;
+
     GtkWidget *menubar;
     GtkWidget *toolbar;
 
@@ -1369,6 +1376,15 @@ save_current (PnWindow *self)
         return save_to_path (self, self->current_path);
 
     return save_as_dialog (self);
+}
+
+void
+pn_window_autosave (PnWindow *self)
+{
+    g_return_if_fail (PN_IS_WINDOW (self));
+
+    if (self->current_path != NULL && pn_flow_is_modified (self->flow))
+        save_to_path (self, self->current_path);
 }
 
 /* Guard any operation that would throw away the current worksheet —
@@ -3747,6 +3763,18 @@ on_window_delete_event (
     (void) event;
     (void) user_data;
 
+    /* A panel-backed window is a view onto a flow that must keep running
+     * after the user closes it.  Autosave silently (the worksheet always
+     * has a path, and a panel applet should survive an engine restart
+     * with the user's edits) then hide instead of destroying, and veto
+     * the close so the window and its flow live on. */
+    if (self->panel_backed)
+    {
+        pn_window_autosave (self);
+        gtk_widget_hide (GTK_WIDGET (self));
+        return TRUE;
+    }
+
     /* "delete-event" semantics are the inverse of the helper: returning
      * %TRUE vetoes the close, %FALSE lets it proceed.  Veto exactly when
      * the user did not agree to discard or save the changes. */
@@ -3867,6 +3895,14 @@ pn_window_constructed (GObject *object)
 
     gtk_widget_show_all (GTK_WIDGET (self));
 
+    /* Panel-backed windows are built but never shown until the engine
+     * present()s them for an "Edit…" request.  show_all above marked the
+     * child widgets visible (so a later present shows the full editor);
+     * hiding the toplevel again before we yield to the main loop means
+     * the window is never actually mapped — the flow still runs. */
+    if (self->panel_backed)
+        gtk_widget_hide (GTK_WIDGET (self));
+
     /* The debug pane is opt-in via View → Debug View; start hidden. */
     if (self->debug_pane != NULL)
         gtk_widget_hide (self->debug_pane);
@@ -3902,13 +3938,74 @@ pn_window_finalize (GObject *object)
     G_OBJECT_CLASS (pn_window_parent_class)->finalize (object);
 }
 
+enum {
+    PROP_0,
+    PROP_PANEL_BACKED,
+    N_PROPS,
+};
+
+static GParamSpec *props[N_PROPS];
+
+static void
+pn_window_get_property (
+        GObject    *object,
+        guint       prop_id,
+        GValue     *value,
+        GParamSpec *pspec)
+{
+    PnWindow *self = PN_WINDOW (object);
+
+    switch (prop_id)
+    {
+    case PROP_PANEL_BACKED:
+        g_value_set_boolean (value, self->panel_backed);
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void
+pn_window_set_property (
+        GObject      *object,
+        guint         prop_id,
+        const GValue *value,
+        GParamSpec   *pspec)
+{
+    PnWindow *self = PN_WINDOW (object);
+
+    switch (prop_id)
+    {
+    case PROP_PANEL_BACKED:
+        /* Construct-only: read by pn_window_constructed to decide
+         * whether to keep the toplevel hidden. */
+        self->panel_backed = g_value_get_boolean (value);
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
 static void
 pn_window_class_init (PnWindowClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-    object_class->constructed = pn_window_constructed;
-    object_class->finalize    = pn_window_finalize;
+    object_class->constructed  = pn_window_constructed;
+    object_class->finalize     = pn_window_finalize;
+    object_class->get_property = pn_window_get_property;
+    object_class->set_property = pn_window_set_property;
+
+    props[PROP_PANEL_BACKED] = g_param_spec_boolean (
+            "panel-backed", "Panel-backed",
+            "Whether the window backs an XFCE panel applet: built hidden, "
+            "autosaves and hides on close instead of prompting and "
+            "destroying, so its flow keeps running for the panel.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
+            G_PARAM_STATIC_STRINGS);
+
+    g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
 static void
@@ -3926,6 +4023,15 @@ pn_window_new (PnApplication *app)
 {
     return g_object_new (PN_TYPE_WINDOW,
                          "application", app,
+                         NULL);
+}
+
+PnWindow *
+pn_window_new_panel (PnApplication *app)
+{
+    return g_object_new (PN_TYPE_WINDOW,
+                         "application",   app,
+                         "panel-backed",  TRUE,
                          NULL);
 }
 

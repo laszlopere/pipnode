@@ -21,8 +21,11 @@
 #include "pn-window.h"
 #include "pn-worksheet.h"
 #include "pn-node-factory.h"
+#include "pn-node-store.h"
 #include "pn-flow.h"
 #include "pn-wire.h"
+#include "pn-panel-display.h"
+#include "pn-panel-input.h"
 
 #include <gio/gio.h>
 
@@ -45,6 +48,16 @@ struct _PnApplication
      *  interface installed at the application's object path.  Zero
      *  while no interface is registered. */
     guint dbus_worksheet_reg_id;
+
+    /** Registration id for the org.pipas.pipnode.Engine D-Bus interface
+     *  (the panel-applet control surface), installed at the same object
+     *  path.  Zero while no interface is registered. */
+    guint dbus_engine_reg_id;
+
+    /** Worksheets the engine is running for panel applets: file path
+     *  (owned key) -> panel-backed #PnWindow (borrowed; owned by the
+     *  GtkApplication).  %NULL until the first RunWorksheet. */
+    GHashTable *worksheets;
 };
 
 G_DEFINE_TYPE (PnApplication, pn_application, GTK_TYPE_APPLICATION)
@@ -1063,6 +1076,292 @@ static const GDBusInterfaceVTable worksheet_vtable = {
 
 static GDBusNodeInfo *worksheet_introspection_data = NULL;
 
+/* ================================================================== */
+/*  org.pipas.pipnode.Engine — XFCE panel applet control surface       */
+/*                                                                     */
+/*  A panel applet runs its worksheet in this process (the background  */
+/*  engine, pipnode-editor --gapplication-service) and drives it over  */
+/*  D-Bus, keyed by the worksheet's file path.  Each worksheet lives   */
+/*  in a panel-backed PnWindow whose flow runs off the main loop while */
+/*  the window stays hidden; PresentEditor present()s it for editing.  */
+/*  Panel I/O nodes bridge the running flow to the applet: a           */
+/*  PnPanelDisplay's text is read out (GetDisplayValue) and pushed     */
+/*  (the ValueChanged signal), and a PnPanelInput is driven by         */
+/*  SetInput when the applet is clicked.                               */
+/* ================================================================== */
+
+static const gchar engine_introspection_xml[] =
+    "<node>"
+    "  <interface name='org.pipas.pipnode.Engine'>"
+    "    <method name='RunWorksheet'>"
+    "      <arg type='s' name='path'  direction='in'/>"
+    "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
+    "    <method name='GetDisplayValue'>"
+    "      <arg type='s' name='path'  direction='in'/>"
+    "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
+    "    <method name='SetInput'>"
+    "      <arg type='s' name='path'  direction='in'/>"
+    "      <arg type='d' name='value' direction='in'/>"
+    "    </method>"
+    "    <method name='PresentEditor'>"
+    "      <arg type='s' name='path'  direction='in'/>"
+    "    </method>"
+    "    <method name='CloseWorksheet'>"
+    "      <arg type='s' name='path'  direction='in'/>"
+    "    </method>"
+    "    <signal name='ValueChanged'>"
+    "      <arg type='s' name='path'/>"
+    "      <arg type='s' name='value'/>"
+    "    </signal>"
+    "  </interface>"
+    "</node>";
+
+/* Path stashed on each PnPanelDisplay so its value-changed handler
+ * knows which worksheet to name in the ValueChanged D-Bus signal. */
+#define PN_ENGINE_PATH_QDATA  "pn-engine-worksheet-path"
+
+/** First node of @type in @win's active worksheet, or %NULL. */
+static PnNode *
+engine_find_node (PnWindow *win, GType type)
+{
+    PnWorksheet *ws;
+    PnNodeStore *nodes;
+    guint        i, n;
+
+    if (win == NULL)
+        return NULL;
+
+    ws = pn_window_get_worksheet (win);
+    if (ws == NULL)
+        return NULL;
+
+    nodes = pn_worksheet_get_nodes (ws);
+    n     = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (node != NULL && g_type_is_a (G_OBJECT_TYPE (node), type))
+            return node;
+    }
+    return NULL;
+}
+
+/** Current Panel Display string for @win; "" when there is none.
+ *  Caller frees. */
+static gchar *
+engine_display_value (PnWindow *win)
+{
+    PnNode *node = engine_find_node (win, PN_TYPE_PANEL_DISPLAY);
+
+    if (node == NULL)
+        return g_strdup ("");
+    return pn_panel_display_dup_text (PN_PANEL_DISPLAY (node));
+}
+
+/** Forward a Panel Display change to the applet as a ValueChanged
+ *  signal, naming the worksheet by the path stashed on the node. */
+static void
+on_panel_display_value_changed (
+        PnPanelDisplay *display,
+        const gchar    *text,
+        gpointer        user_data)
+{
+    GApplication    *app  = G_APPLICATION (user_data);
+    GDBusConnection *conn = g_application_get_dbus_connection (app);
+    const gchar     *obj  = g_application_get_dbus_object_path (app);
+    const gchar     *path;
+
+    if (conn == NULL || obj == NULL)
+        return;
+
+    path = g_object_get_data (G_OBJECT (display), PN_ENGINE_PATH_QDATA);
+    if (path == NULL)
+        return;
+
+    g_dbus_connection_emit_signal (
+            conn, NULL, obj, "org.pipas.pipnode.Engine", "ValueChanged",
+            g_variant_new ("(ss)", path, text != NULL ? text : ""),
+            NULL);
+}
+
+/** Tag and connect every Panel Display in @win so its changes reach the
+ *  applet over D-Bus. */
+static void
+engine_wire_displays (
+        PnApplication *self,
+        PnWindow      *win,
+        const gchar   *path)
+{
+    PnWorksheet *ws = pn_window_get_worksheet (win);
+    PnNodeStore *nodes;
+    guint        i, n;
+
+    if (ws == NULL)
+        return;
+
+    nodes = pn_worksheet_get_nodes (ws);
+    n     = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+
+        if (!PN_IS_PANEL_DISPLAY (node))
+            continue;
+
+        g_object_set_data_full (G_OBJECT (node), PN_ENGINE_PATH_QDATA,
+                                g_strdup (path), g_free);
+        g_signal_connect (node, "value-changed",
+                          G_CALLBACK (on_panel_display_value_changed), self);
+    }
+}
+
+/** Return the panel-backed window for @path, creating and loading it on
+ *  first use.  %NULL with @error set when the worksheet fails to load. */
+static PnWindow *
+engine_ensure_worksheet (
+        PnApplication *self,
+        const gchar   *path,
+        GError       **error)
+{
+    PnWindow *win = g_hash_table_lookup (self->worksheets, path);
+
+    if (win != NULL)
+        return win;
+
+    win = pn_window_new_panel (self);
+    if (!pn_window_load_file (win, path, error))
+    {
+        gtk_widget_destroy (GTK_WIDGET (win));
+        return NULL;
+    }
+
+    g_hash_table_insert (self->worksheets, g_strdup (path), win);
+    engine_wire_displays (self, win, path);
+    return win;
+}
+
+static void
+handle_engine_method_call (
+        GDBusConnection       *connection,
+        const gchar           *sender,
+        const gchar           *object_path,
+        const gchar           *interface_name,
+        const gchar           *method_name,
+        GVariant              *parameters,
+        GDBusMethodInvocation *invocation,
+        gpointer               user_data)
+{
+    PnApplication *self = PN_APPLICATION (user_data);
+    const gchar   *path = NULL;
+
+    (void) connection;
+    (void) sender;
+    (void) object_path;
+    (void) interface_name;
+
+    if (g_strcmp0 (method_name, "RunWorksheet") == 0)
+    {
+        GError   *err = NULL;
+        PnWindow *win;
+        gchar    *value;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win = engine_ensure_worksheet (self, path, &err);
+        if (win == NULL)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Could not run worksheet '%s': %s", path,
+                    err != NULL ? err->message : "(unknown error)");
+            g_clear_error (&err);
+            return;
+        }
+
+        value = engine_display_value (win);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", value));
+        g_free (value);
+    }
+    else if (g_strcmp0 (method_name, "GetDisplayValue") == 0)
+    {
+        PnWindow *win;
+        gchar    *value;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win   = g_hash_table_lookup (self->worksheets, path);
+        value = engine_display_value (win);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", value));
+        g_free (value);
+    }
+    else if (g_strcmp0 (method_name, "SetInput") == 0)
+    {
+        PnWindow *win;
+        PnNode   *node;
+        gdouble   value;
+
+        g_variant_get (parameters, "(&sd)", &path, &value);
+        win  = g_hash_table_lookup (self->worksheets, path);
+        node = engine_find_node (win, PN_TYPE_PANEL_INPUT);
+        if (node != NULL)
+            pn_panel_input_send (PN_PANEL_INPUT (node), value);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "PresentEditor") == 0)
+    {
+        GError   *err = NULL;
+        PnWindow *win;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win = engine_ensure_worksheet (self, path, &err);
+        if (win == NULL)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "Could not open worksheet '%s': %s", path,
+                    err != NULL ? err->message : "(unknown error)");
+            g_clear_error (&err);
+            return;
+        }
+
+        gtk_window_present (GTK_WINDOW (win));
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "CloseWorksheet") == 0)
+    {
+        PnWindow *win;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win = g_hash_table_lookup (self->worksheets, path);
+        if (win != NULL)
+        {
+            /* Drop it for good: autosave, forget, then destroy (which
+             * stops the flow).  Remove from the table first so nothing
+             * re-resolves it mid-teardown. */
+            pn_window_autosave (win);
+            g_hash_table_remove (self->worksheets, path);
+            gtk_widget_destroy (GTK_WIDGET (win));
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else
+    {
+        g_dbus_method_invocation_return_error (
+                invocation, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_METHOD,
+                "Unknown method %s", method_name);
+    }
+}
+
+static const GDBusInterfaceVTable engine_vtable = {
+    handle_engine_method_call,
+    NULL,
+    NULL
+};
+
+static GDBusNodeInfo *engine_introspection_data = NULL;
+
 static gboolean
 pn_application_dbus_register (
         GApplication    *app,
@@ -1091,7 +1390,26 @@ pn_application_dbus_register (
                 NULL,
                 error);
 
-    return self->dbus_worksheet_reg_id > 0;
+    if (self->dbus_worksheet_reg_id == 0)
+        return FALSE;
+
+    /* Second interface on the same object: the panel-applet engine. */
+    if (!engine_introspection_data)
+        engine_introspection_data =
+                g_dbus_node_info_new_for_xml (
+                        engine_introspection_xml, NULL);
+
+    self->dbus_engine_reg_id =
+        g_dbus_connection_register_object (
+                connection,
+                object_path,
+                engine_introspection_data->interfaces[0],
+                &engine_vtable,
+                app,
+                NULL,
+                error);
+
+    return self->dbus_engine_reg_id > 0;
 }
 
 static void
@@ -1109,8 +1427,28 @@ pn_application_dbus_unregister (
         self->dbus_worksheet_reg_id = 0;
     }
 
+    if (self->dbus_engine_reg_id)
+    {
+        g_dbus_connection_unregister_object (
+                connection, self->dbus_engine_reg_id);
+        self->dbus_engine_reg_id = 0;
+    }
+
     G_APPLICATION_CLASS (pn_application_parent_class)->
             dbus_unregister (app, connection, object_path);
+}
+
+/* Started as a background service (--gapplication-service): hold the
+ * application so it lives on as the panel engine even with no windows on
+ * screen, ready to serve applets over D-Bus.  A normally-launched editor
+ * leaves the flag clear and quits with its last window as before. */
+static void
+pn_application_startup (GApplication *app)
+{
+    G_APPLICATION_CLASS (pn_application_parent_class)->startup (app);
+
+    if (g_application_get_flags (app) & G_APPLICATION_IS_SERVICE)
+        g_application_hold (app);
 }
 
 /* --- Application lifecycle --- */
@@ -1207,6 +1545,7 @@ pn_application_finalize (GObject *object)
     g_clear_pointer (&self->opt_dbus_name, g_free);
     g_clear_pointer (&self->opt_remaining, g_strfreev);
     g_clear_pointer (&self->startup_file,  g_free);
+    g_clear_pointer (&self->worksheets,    g_hash_table_destroy);
 
     G_OBJECT_CLASS (pn_application_parent_class)->finalize (object);
 }
@@ -1220,6 +1559,7 @@ pn_application_class_init (PnApplicationClass *klass)
     object_class->finalize = pn_application_finalize;
 
     app_class->handle_local_options = pn_application_handle_local_options;
+    app_class->startup              = pn_application_startup;
     app_class->activate             = pn_application_activate;
     app_class->dbus_register        = pn_application_dbus_register;
     app_class->dbus_unregister      = pn_application_dbus_unregister;
@@ -1228,17 +1568,30 @@ pn_application_class_init (PnApplicationClass *klass)
 static void
 pn_application_init (PnApplication *self)
 {
-    (void) self;
+    /* path -> panel-backed PnWindow.  Keys owned; values borrowed (the
+     * GtkApplication owns the windows). */
+    self->worksheets = g_hash_table_new_full (
+            g_str_hash, g_str_equal, g_free, NULL);
 }
 
 PnApplication *
-pn_application_new (void)
+pn_application_new (gboolean unique)
 {
-    PnApplication *app;
+    PnApplication    *app;
+    GApplicationFlags flags = G_APPLICATION_DEFAULT_FLAGS;
+
+    /* A normal launch is non-unique: it runs as its own independent
+     * process, registers no shared name, and handles its own options, so
+     * opening a file is never forwarded to (or pops a window in) the
+     * background engine.  Only the engine (--gapplication-service) and
+     * the test instances (--dbus-name) take the well-known name as a
+     * single, addressable instance. */
+    if (!unique)
+        flags |= G_APPLICATION_NON_UNIQUE;
 
     app = g_object_new (PN_TYPE_APPLICATION,
                         "application-id", "org.pipas.pipnode",
-                        "flags", G_APPLICATION_DEFAULT_FLAGS,
+                        "flags", flags,
                         NULL);
 
     {

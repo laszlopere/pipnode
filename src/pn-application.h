@@ -27,7 +27,15 @@ G_DECLARE_FINAL_TYPE (PnApplication,
                       PN, APPLICATION,
                       GtkApplication)
 
-PnApplication *pn_application_new (void);
+/**
+ * pn_application_new:
+ * @unique: %TRUE to register the well-known D-Bus name as a single
+ *   instance (the background engine via --gapplication-service, or a
+ *   test instance via --dbus-name); %FALSE for a normal launch, which
+ *   runs as its own independent, non-unique process so opening a file
+ *   never lands in the engine.
+ */
+PnApplication *pn_application_new (gboolean unique);
 
 G_END_DECLS
 

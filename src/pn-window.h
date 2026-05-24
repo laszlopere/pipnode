@@ -30,11 +30,37 @@ G_DECLARE_FINAL_TYPE (PnWindow,
                       GtkApplicationWindow)
 
 PnWindow    *pn_window_new          (PnApplication *app);
+
+/**
+ * pn_window_new_panel:
+ * @app: the application that owns the window
+ *
+ * Creates a window in "panel-backed" mode for the background engine
+ * (pipnode-editor --gapplication-service).  Unlike pn_window_new() the
+ * window is built but kept hidden — its flow runs off the main loop the
+ * whole time, but nothing appears on screen until the engine
+ * gtk_window_present()s it for an "Edit…" request.  Closing such a
+ * window autosaves it and hides it again rather than prompting and
+ * destroying, so the running worksheet survives the editor being closed.
+ */
+PnWindow    *pn_window_new_panel    (PnApplication *app);
+
 PnWorksheet *pn_window_get_worksheet (PnWindow *self);
 
 gboolean     pn_window_load_file     (PnWindow      *self,
                                       const gchar   *path,
                                       GError       **error);
+
+/**
+ * pn_window_autosave:
+ * @self: the window
+ *
+ * Silently persists the worksheet to its current file when it has
+ * unsaved changes and a known path (no dialogs).  Used by the panel
+ * engine to save a worksheet before dropping it, mirroring the
+ * autosave a panel-backed window does on close.
+ */
+void         pn_window_autosave      (PnWindow *self);
 
 /* ------------------------------------------------------------------ */
 /*  Test surface                                                       */

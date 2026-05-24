@@ -58,6 +58,36 @@ argv_has_no_plugins (int argc, char **argv)
     return FALSE;
 }
 
+/* Pre-scan argv (same reasons as argv_has_no_plugins: the decision is
+ * needed before g_application_run, ahead of the option parser) for the
+ * flags that make this instance take the shared D-Bus name as a single,
+ * addressable instance: --gapplication-service (the background engine) or
+ * --dbus-name/-D (a test instance).  Matches the bare flag, "--opt=val",
+ * and the attached short form "-Dval".  Everything else is a normal
+ * launch that runs as its own non-unique process. */
+static gboolean
+argv_wants_unique (int argc, char **argv)
+{
+    int i;
+
+    for (i = 1; i < argc; i++)
+    {
+        const char *a = argv[i];
+
+        if (g_strcmp0 (a, "--") == 0)
+            break;
+        if (g_strcmp0 (a, "--gapplication-service") == 0)
+            return TRUE;
+        if (g_strcmp0 (a, "--dbus-name") == 0 ||
+            g_str_has_prefix (a, "--dbus-name="))
+            return TRUE;
+        if (g_strcmp0 (a, "-D") == 0 ||
+            (a[0] == '-' && a[1] == 'D' && a[2] != '\0'))
+            return TRUE;
+    }
+    return FALSE;
+}
+
 int
 main (
         int    argc,
@@ -105,7 +135,7 @@ main (
     if (!no_plugins)
         pn_gui_load_plugin_companions (factory);
 
-    app = pn_application_new ();
+    app = pn_application_new (argv_wants_unique (argc, argv));
     status = g_application_run (G_APPLICATION (app), argc, argv);
     g_object_unref (app);
 
