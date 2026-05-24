@@ -200,6 +200,10 @@ static void       on_panel_editor_close_clicked (GtkButton   *button,
 static gboolean   on_tab_label_button_press     (GtkWidget   *event_box,
                                                  GdkEventButton *event,
                                                  gpointer     user_data);
+static void       on_sheet_tab_close_clicked    (GtkButton   *button,
+                                                 gpointer     user_data);
+static void       pn_window_delete_sheet        (PnWindow    *self,
+                                                 const gchar *name);
 
 /* ------------------------------------------------------------------ */
 /*  Worksheet → status bar forwarder                                   */
@@ -3191,7 +3195,9 @@ pn_window_append_sheet_tab (
     GtkWidget *scrolled;
     GtkWidget *worksheet;
     GtkWidget *label;
+    GtkWidget *label_box;
     GtkWidget *event_box;
+    GtkWidget *close_btn;
     gint       index;
 
     tab_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
@@ -3218,13 +3224,14 @@ pn_window_append_sheet_tab (
      * without re-walking the container hierarchy on every event. */
     g_object_set_data (G_OBJECT (tab_box), "pn-worksheet", worksheet);
 
-    /* Tab label wrapped in an event box so right-click can pop the
-     * sheet context menu (rename / delete / reorder). */
+    /* Tab label: the title wrapped in an event box (so right-click can
+     * pop the sheet context menu — rename / delete / reorder) sitting
+     * beside a close button, mirroring the panel-applet tab so sheets can
+     * be dismissed with a click as well as through the menu. */
     label = gtk_label_new (sheet_name);
     event_box = gtk_event_box_new ();
     gtk_event_box_set_visible_window (GTK_EVENT_BOX (event_box), FALSE);
     gtk_container_add (GTK_CONTAINER (event_box), label);
-    gtk_widget_show_all (event_box);
     g_object_set_data (G_OBJECT (event_box), "pn-tab-label",  label);
     g_object_set_data (G_OBJECT (event_box), "pn-window",     self);
     g_object_set_data (G_OBJECT (event_box), "pn-sheet-page", tab_box);
@@ -3232,8 +3239,25 @@ pn_window_append_sheet_tab (
     g_signal_connect (event_box, "button-press-event",
                       G_CALLBACK (on_tab_label_button_press), self);
 
+    close_btn = gtk_button_new_from_icon_name ("window-close-symbolic",
+                                               GTK_ICON_SIZE_MENU);
+    gtk_button_set_relief (GTK_BUTTON (close_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_focus_on_click (close_btn, FALSE);
+    gtk_widget_set_tooltip_text (close_btn, "Close this sheet");
+    g_object_set_data (G_OBJECT (close_btn), "pn-sheet-page", tab_box);
+    g_signal_connect (close_btn, "clicked",
+                      G_CALLBACK (on_sheet_tab_close_clicked), self);
+
+    label_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_box_pack_start (GTK_BOX (label_box), event_box, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (label_box), close_btn, FALSE, FALSE, 0);
+    /* on_flow_sheet_renamed reaches the title through the tab-label
+     * widget the notebook reports, which is now this box. */
+    g_object_set_data (G_OBJECT (label_box), "pn-tab-label", label);
+    gtk_widget_show_all (label_box);
+
     index = gtk_notebook_append_page (GTK_NOTEBOOK (self->notebook),
-                                      tab_box, event_box);
+                                      tab_box, label_box);
     gtk_notebook_set_tab_reorderable (GTK_NOTEBOOK (self->notebook),
                                       tab_box, TRUE);
 
@@ -3605,16 +3629,17 @@ sheet_action_rename (GtkMenuItem *item, gpointer user_data)
     g_free (to);
 }
 
+/* Confirm and delete the sheet @name and every node it contains.  Shared
+ * by the tab context menu's Delete item and the tab's close button.
+ * Refuses to drop the last remaining sheet, since a worksheet always
+ * carries at least one. */
 static void
-sheet_action_delete (GtkMenuItem *item, gpointer user_data)
+pn_window_delete_sheet (PnWindow *self, const gchar *name)
 {
-    PnWindow    *self = PN_WINDOW (user_data);
-    const gchar *name;
-    GtkWidget   *confirm;
-    gint         response;
-    guint        n = 0;
+    GtkWidget *confirm;
+    gint       response;
+    guint      n = 0;
 
-    name = g_object_get_data (G_OBJECT (item), "pn-sheet-name");
     if (name == NULL)
         return;
 
@@ -3644,6 +3669,36 @@ sheet_action_delete (GtkMenuItem *item, gpointer user_data)
 
     if (response == GTK_RESPONSE_OK)
         (void) pn_flow_remove_sheet (self->flow, name);
+}
+
+static void
+sheet_action_delete (GtkMenuItem *item, gpointer user_data)
+{
+    PnWindow    *self = PN_WINDOW (user_data);
+    const gchar *name = g_object_get_data (G_OBJECT (item), "pn-sheet-name");
+
+    pn_window_delete_sheet (self, name);
+}
+
+/* Close handler for a worksheet tab's "✕" button.  The button carries a
+ * borrowed pointer to its page; the page's worksheet reports the current
+ * sheet name (so a rename since the tab was built is respected), which we
+ * hand to the same confirm-and-delete path as the context menu's Delete. */
+static void
+on_sheet_tab_close_clicked (GtkButton *button, gpointer user_data)
+{
+    PnWindow    *self = PN_WINDOW (user_data);
+    GtkWidget   *page;
+    PnWorksheet *ws;
+
+    page = g_object_get_data (G_OBJECT (button), "pn-sheet-page");
+    if (page == NULL)
+        return;
+    ws = g_object_get_data (G_OBJECT (page), "pn-worksheet");
+    if (ws == NULL)
+        return;
+
+    pn_window_delete_sheet (self, pn_worksheet_get_sheet_name (ws));
 }
 
 /** Move the sheet @name one slot left or right in the tab order. */
