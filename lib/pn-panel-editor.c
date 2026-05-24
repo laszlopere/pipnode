@@ -54,6 +54,13 @@
 #define PN_PE_CANVAS_WIDTH  1000
 #define PN_PE_CANVAS_HEIGHT  700
 
+/* Geometry of the panel band — a horizontal strip standing in for the
+ * real XFCE panel, drawn as two thin dashed edges across the canvas.  Its
+ * top sits at the cascade margin so the first readout lands inside it, and
+ * its depth allows for the readout height plus its bezel/margins. */
+#define PN_PE_PANEL_TOP     24
+#define PN_PE_PANEL_HEIGHT  (PN_PE_PREVIEW_HEIGHT + 12)
+
 struct _PnPanelEditor
 {
     GtkBox parent_instance;
@@ -420,6 +427,37 @@ pn_panel_editor_dispose (GObject *object)
     G_OBJECT_CLASS (pn_panel_editor_parent_class)->dispose (object);
 }
 
+/* Paint the panel band behind the readouts: two thin dashed horizontal
+ * lines spanning the canvas, marking the top and bottom edges of the strip
+ * that stands in for the real XFCE panel.  Connected without _after so it
+ * runs before GtkFixed propagates the draw to its children, leaving the
+ * readouts on top of the guide. */
+static gboolean
+on_canvas_draw (GtkWidget *canvas, cairo_t *cr, gpointer user_data)
+{
+    static const double dashes[] = { 6.0, 4.0 };
+    int    width  = gtk_widget_get_allocated_width (canvas);
+    /* +0.5 lands the 1px stroke on the pixel grid for a crisp line. */
+    double top    = PN_PE_PANEL_TOP + 0.5;
+    double bottom = PN_PE_PANEL_TOP + PN_PE_PANEL_HEIGHT + 0.5;
+
+    (void) user_data;
+
+    cairo_save (cr);
+    cairo_set_line_width (cr, 1.0);
+    cairo_set_dash (cr, dashes, G_N_ELEMENTS (dashes), 0.0);
+    cairo_set_source_rgba (cr, 0.8, 0.0, 0.0, 0.8);
+
+    cairo_move_to (cr, 0.0,    top);
+    cairo_line_to (cr, width,  top);
+    cairo_move_to (cr, 0.0,    bottom);
+    cairo_line_to (cr, width,  bottom);
+    cairo_stroke (cr);
+    cairo_restore (cr);
+
+    return GDK_EVENT_PROPAGATE; /* let GtkFixed paint the readouts */
+}
+
 static void
 pn_panel_editor_class_init (PnPanelEditorClass *klass)
 {
@@ -431,22 +469,12 @@ pn_panel_editor_class_init (PnPanelEditorClass *klass)
 static void
 pn_panel_editor_init (PnPanelEditor *self)
 {
-    GtkWidget *title;
-
     self->rows = g_hash_table_new (g_direct_hash, g_direct_equal);
 
     gtk_orientable_set_orientation (GTK_ORIENTABLE (self),
                                     GTK_ORIENTATION_VERTICAL);
     gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
-
-    title = gtk_label_new (NULL);
-    gtk_label_set_markup (
-            GTK_LABEL (title),
-            "<span size='large' weight='bold'>Panel applet GUI editor</span>");
-    gtk_widget_set_margin_top    (title, 8);
-    gtk_widget_set_margin_bottom (title, 8);
-    gtk_box_pack_start (GTK_BOX (self), title, FALSE, FALSE, 0);
 
     /* The free-positioning canvas the readouts are dragged around on.  A
      * size request gives the host's scrolled window a generous area to
@@ -459,6 +487,8 @@ pn_panel_editor_init (PnPanelEditor *self)
     gtk_widget_set_size_request (self->canvas,
                                  PN_PE_CANVAS_WIDTH, PN_PE_CANVAS_HEIGHT);
     gtk_widget_set_no_show_all (self->canvas, TRUE);
+    g_signal_connect (self->canvas, "draw",
+                      G_CALLBACK (on_canvas_draw), NULL);
     gtk_box_pack_start (GTK_BOX (self), self->canvas, TRUE, TRUE, 0);
 
     self->empty_label = gtk_label_new (NULL);
