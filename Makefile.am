@@ -4,7 +4,9 @@ if BUILD_PANEL_PLUGINS
 PANEL_PLUGINS_SUBDIR = panel-plugins
 endif
 
-SUBDIRS = data examples lib plugins src tests $(PANEL_PLUGINS_SUBDIR)
+# panel-widgets builds before lib: libpipnode-gui embeds the convenience
+# library so the editor's PnPanelEditor can preview applet widgets.
+SUBDIRS = data examples panel-widgets lib plugins src tests $(PANEL_PLUGINS_SUBDIR)
 
 ACLOCAL_AMFLAGS = -I m4
 

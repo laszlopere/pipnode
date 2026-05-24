@@ -245,6 +245,7 @@ libpipnode_gui_la_SOURCES = \
 	pn-worksheet.h
 
 libpipnode_gui_la_CFLAGS = \
+	-I$(top_srcdir)/panel-widgets \
 	$(GTK_CFLAGS) \
 	$(GTKSOURCEVIEW_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
@@ -260,6 +261,7 @@ libpipnode_gui_la_CFLAGS = \
 
 libpipnode_gui_la_LIBADD = \
 	libpipnode-core.la \
+	$(top_builddir)/panel-widgets/libpipnode-panel-widgets.la \
 	$(GTK_LIBS) \
 	$(GTKSOURCEVIEW_LIBS) \
 	$(JSON_GLIB_LIBS) \

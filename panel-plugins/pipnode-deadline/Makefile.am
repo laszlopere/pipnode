@@ -5,8 +5,12 @@
 # dlopen()s on demand.
 #
 # It is a pure D-Bus client: it links GTK / GLib / libxfce4panel only
-# (GDBus comes via GTK's gio-2.0 dependency) and NO pipnode library, so
-# an engine/node crash can never take down xfce4-panel.
+# (GDBus comes via GTK's gio-2.0 dependency) and NO pipnode runtime
+# library, so an engine/node crash can never take down xfce4-panel.  The
+# only pipnode code it embeds is the GTK/Cairo-only panel-widgets
+# convenience library (PnLedDisplay and friends), statically linked in;
+# it shares those widgets with the editor's panel-layout editor but pulls
+# in none of the node runtime, so the isolation above is preserved.
 #
 # Install into the running panel's own module/descriptor dirs (derived
 # from libxfce4panel-2.0.pc in configure.ac), NOT pipnode's --prefix: the
@@ -16,11 +20,10 @@ plugindir = $(LIBXFCE4PANEL_PLUGINDIR)
 plugin_LTLIBRARIES = libpipnode-deadline.la
 
 libpipnode_deadline_la_SOURCES = \
-	pipnode-deadline-plugin.c \
-	pn-led-display.c \
-	pn-led-display.h
+	pipnode-deadline-plugin.c
 
 libpipnode_deadline_la_CFLAGS = \
+	-I$(top_srcdir)/panel-widgets \
 	$(LIBXFCE4PANEL_CFLAGS) \
 	$(GTK_CFLAGS) \
 	$(GLIB_CFLAGS) \
@@ -36,6 +39,7 @@ libpipnode_deadline_la_LDFLAGS = \
 	-export-symbols-regex '^xfce_panel_module_(preinit|init|construct)'
 
 libpipnode_deadline_la_LIBADD = \
+	$(top_builddir)/panel-widgets/libpipnode-panel-widgets.la \
 	$(LIBXFCE4PANEL_LIBS) \
 	$(GTK_LIBS) \
 	$(GLIB_LIBS)

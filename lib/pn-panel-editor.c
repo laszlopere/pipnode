@@ -18,166 +18,98 @@
 #endif
 
 #include "pn-panel-editor.h"
-#include "pn-preferences.h"
-
-#include <pango/pangocairo.h>
+#include "pn-led-display.h"
 
 /* ------------------------------------------------------------------ */
 /*  PnPanelEditor                                                      */
 /*                                                                     */
-/*  Placeholder GtkDrawingArea-derived widget that will eventually     */
-/*  host the panel-applet GUI layout editor — the visual counterpart   */
-/*  to the node-wiring #PnWorksheet, but for laying out the widgets a   */
-/*  flow drives rather than the dataflow itself.  Other GUI-layout      */
-/*  editors (desktop, web, mobile) are planned to follow the same       */
-/*  shape.  At this stage the widget only paints a mock of an XFCE      */
-/*  panel with an empty applet slot and a caption; it owns no model     */
-/*  and carries no editing interactions.                               */
+/*  Placeholder panel-applet GUI layout editor — the visual            */
+/*  counterpart to the node-wiring #PnWorksheet, but for laying out     */
+/*  the widgets a flow drives rather than the dataflow itself.  Other   */
+/*  GUI-layout editors (desktop, web, mobile) are planned to follow     */
+/*  the same shape.                                                     */
+/*                                                                     */
+/*  At this stage it carries no layout model or editing interactions;   */
+/*  it previews the shared panel-applet widget toolkit by embedding a   */
+/*  live #PnLedDisplay (the seven-segment deadline readout, the very    */
+/*  same widget the XFCE panel applet renders) framed as it appears in  */
+/*  the panel, with a caption.  #PnLedDisplay comes from the GTK/Cairo-  */
+/*  only panel-widgets convenience library, which both this editor and   */
+/*  the applet embed — so the two stay pixel-identical without the       */
+/*  applet ever linking the node runtime.                               */
 /* ------------------------------------------------------------------ */
 
-/* Mock panel geometry, in widget pixels.  The strip is centred in the
- * drawing area; the slot is the highlighted "drop here" cell inside it. */
-#define PN_PE_PANEL_WIDTH   420.0
-#define PN_PE_PANEL_HEIGHT   48.0
-#define PN_PE_SLOT_SIZE      36.0
-#define PN_PE_SLOT_PAD        6.0
+/* Pixel height of the previewed readout — a typical XFCE panel icon
+ * size, so the preview matches what lands on a real panel. */
+#define PN_PE_PREVIEW_HEIGHT 36
+
+/* Sample countdown shown in the preview: 5 days, 13:24:36 remaining, so
+ * every field of the "ddd hh:mm:ss" readout shows a non-zero digit. */
+#define PN_PE_SAMPLE_SECONDS ((gint64) (5 * 86400 + 13 * 3600 + 24 * 60 + 36))
 
 struct _PnPanelEditor
 {
-    GtkDrawingArea parent_instance;
+    GtkBox parent_instance;
 };
 
-G_DEFINE_TYPE (PnPanelEditor, pn_panel_editor, GTK_TYPE_DRAWING_AREA)
-
-/* Lay a Pango layout out centred horizontally at (cx) with its top at
- * (top_y); returns the height consumed so the caller can stack lines. */
-static double
-draw_centered_text (cairo_t      *cr,
-                    double        cx,
-                    double        top_y,
-                    const gchar  *markup)
-{
-    PangoLayout *layout;
-    int          tw = 0, th = 0;
-
-    layout = pango_cairo_create_layout (cr);
-    pango_layout_set_markup (layout, markup, -1);
-    pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
-    pango_layout_get_pixel_size (layout, &tw, &th);
-
-    cairo_move_to (cr, cx - tw / 2.0, top_y);
-    pango_cairo_show_layout (cr, layout);
-
-    g_object_unref (layout);
-    return th;
-}
-
-static gboolean
-pn_panel_editor_draw (GtkWidget *widget,
-                      cairo_t   *cr)
-{
-    PnPreferences *prefs  = pn_preferences_get_default ();
-    const int      width  = gtk_widget_get_allocated_width  (widget);
-    const int      height = gtk_widget_get_allocated_height (widget);
-    const double   cx     = width  / 2.0;
-    const double   cy     = height / 2.0;
-    GdkRGBA        bg;
-    double         px, py, slot_x, slot_y;
-    double         caption_y;
-    int            i;
-
-    /* Background, matching the node worksheet so the two editors feel
-     * like part of the same canvas family. */
-    pn_preferences_get_background_color (prefs, &bg);
-    cairo_set_source_rgba (cr, bg.red, bg.green, bg.blue, bg.alpha);
-    cairo_paint (cr);
-
-    /* --- Mock XFCE panel strip, centred --- */
-    px = cx - PN_PE_PANEL_WIDTH  / 2.0;
-    py = cy - PN_PE_PANEL_HEIGHT / 2.0;
-
-    cairo_set_source_rgba (cr, 0.20, 0.20, 0.22, 0.92);
-    cairo_rectangle (cr, px, py, PN_PE_PANEL_WIDTH, PN_PE_PANEL_HEIGHT);
-    cairo_fill (cr);
-
-    /* A couple of greyed-out placeholder applets on the left, then the
-     * highlighted dashed slot where the pipnode applet would land. */
-    slot_y = py + (PN_PE_PANEL_HEIGHT - PN_PE_SLOT_SIZE) / 2.0;
-    slot_x = px + PN_PE_SLOT_PAD;
-
-    cairo_set_source_rgba (cr, 0.45, 0.45, 0.48, 1.0);
-    for (i = 0; i < 3; i++)
-    {
-        cairo_rectangle (cr, slot_x, slot_y, PN_PE_SLOT_SIZE, PN_PE_SLOT_SIZE);
-        cairo_fill (cr);
-        slot_x += PN_PE_SLOT_SIZE + PN_PE_SLOT_PAD;
-    }
-
-    /* Highlighted "drop your applet here" slot, dashed outline. */
-    cairo_set_source_rgba (cr, 0.30, 0.60, 0.95, 0.25);
-    cairo_rectangle (cr, slot_x, slot_y, PN_PE_SLOT_SIZE, PN_PE_SLOT_SIZE);
-    cairo_fill (cr);
-
-    cairo_set_source_rgba (cr, 0.30, 0.60, 0.95, 1.0);
-    cairo_set_line_width (cr, 2.0);
-    {
-        const double dashes[] = { 4.0, 3.0 };
-        cairo_set_dash (cr, dashes, 2, 0.0);
-    }
-    cairo_rectangle (cr, slot_x + 1.0, slot_y + 1.0,
-                     PN_PE_SLOT_SIZE - 2.0, PN_PE_SLOT_SIZE - 2.0);
-    cairo_stroke (cr);
-    cairo_set_dash (cr, NULL, 0, 0.0);
-
-    /* --- Caption beneath the strip --- */
-    caption_y = py + PN_PE_PANEL_HEIGHT + 24.0;
-    caption_y += draw_centered_text (
-            cr, cx, caption_y,
-            "<span size='large' weight='bold'>Panel applet GUI editor</span>");
-    caption_y += 6.0;
-    (void) draw_centered_text (
-            cr, cx, caption_y,
-            "<span foreground='#888888'>"
-            "Placeholder — layout editing coming soon</span>");
-
-    return FALSE;
-}
-
-static void
-pn_panel_editor_get_preferred_width (GtkWidget *widget,
-                                     gint      *minimum,
-                                     gint      *natural)
-{
-    (void) widget;
-    *minimum = 320;
-    *natural = (gint) (PN_PE_PANEL_WIDTH + 120.0);
-}
-
-static void
-pn_panel_editor_get_preferred_height (GtkWidget *widget,
-                                      gint      *minimum,
-                                      gint      *natural)
-{
-    (void) widget;
-    *minimum = 200;
-    *natural = 320;
-}
+G_DEFINE_TYPE (PnPanelEditor, pn_panel_editor, GTK_TYPE_BOX)
 
 static void
 pn_panel_editor_class_init (PnPanelEditorClass *klass)
 {
-    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
-
-    widget_class->draw                 = pn_panel_editor_draw;
-    widget_class->get_preferred_width  = pn_panel_editor_get_preferred_width;
-    widget_class->get_preferred_height = pn_panel_editor_get_preferred_height;
+    (void) klass;
 }
 
 static void
 pn_panel_editor_init (PnPanelEditor *self)
 {
+    GtkWidget *content;
+    GtkWidget *title;
+    GtkWidget *frame;
+    GtkWidget *led;
+    GtkWidget *subtitle;
+
+    gtk_orientable_set_orientation (GTK_ORIENTABLE (self),
+                                    GTK_ORIENTATION_VERTICAL);
     gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
     gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
+
+    /* Centre the preview both ways: a centred inner column packed with
+     * expand=TRUE, fill=FALSE floats in the middle of the canvas. */
+    content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_halign (content, GTK_ALIGN_CENTER);
+    gtk_box_pack_start (GTK_BOX (self), content, TRUE, FALSE, 0);
+
+    title = gtk_label_new (NULL);
+    gtk_label_set_markup (
+            GTK_LABEL (title),
+            "<span size='large' weight='bold'>Panel applet GUI editor</span>");
+    gtk_box_pack_start (GTK_BOX (content), title, FALSE, FALSE, 0);
+
+    /* The live applet readout, framed with a bezel so it reads as a
+     * panel-mounted display. */
+    frame = gtk_frame_new (NULL);
+    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
+    gtk_widget_set_halign (frame, GTK_ALIGN_CENTER);
+
+    led = pn_led_display_new ();
+    pn_led_display_set_height  (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
+    pn_led_display_set_seconds (PN_LED_DISPLAY (led), PN_PE_SAMPLE_SECONDS);
+    gtk_widget_set_margin_top    (led, 4);
+    gtk_widget_set_margin_bottom (led, 4);
+    gtk_widget_set_margin_start  (led, 6);
+    gtk_widget_set_margin_end    (led, 6);
+    gtk_container_add (GTK_CONTAINER (frame), led);
+    gtk_box_pack_start (GTK_BOX (content), frame, FALSE, FALSE, 0);
+
+    subtitle = gtk_label_new (NULL);
+    gtk_label_set_markup (
+            GTK_LABEL (subtitle),
+            "<span foreground='#888888'>"
+            "Deadline applet preview — layout editing coming soon</span>");
+    gtk_box_pack_start (GTK_BOX (content), subtitle, FALSE, FALSE, 0);
+
+    gtk_widget_show_all (content);
 }
 
 GtkWidget *

@@ -25,7 +25,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (PnPanelEditor,
                       pn_panel_editor,
                       PN, PANEL_EDITOR,
-                      GtkDrawingArea)
+                      GtkBox)
 
 /**
  * pn_panel_editor_new:
@@ -36,9 +36,10 @@ G_DECLARE_FINAL_TYPE (PnPanelEditor,
  * desktop, web, mobile) that will eventually let the user lay out the
  * widgets a pipnode flow drives — distinct from the node-wiring
  * #PnWorksheet, which edits the dataflow itself.  At this stage the
- * widget is a placeholder: it paints a mock of an XFCE panel with an
- * empty applet slot and a caption, and carries no editing behaviour
- * yet.
+ * widget previews the panel-applet widget toolkit: it embeds a live
+ * #PnLedDisplay (the seven-segment deadline readout shared with the
+ * XFCE panel applet) framed as it would appear in the panel, with a
+ * caption.  Real layout editing is not implemented yet.
  *
  * Returns: (transfer floating): the new panel editor widget
  */
