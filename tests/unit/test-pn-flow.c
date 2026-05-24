@@ -389,7 +389,8 @@ test_panel_position_disk_roundtrip (void)
 }
 
 /* Opening the editor marks the flow dirty; re-opening an already-open
- * editor does not.  Closing it marks dirty and discards the layout. */
+ * editor does not.  Closing it marks dirty too, but the layout outlives
+ * the editor tab — it is document data that drives the real panel. */
 static void
 test_panel_editor_open_flag (void)
 {
@@ -409,21 +410,23 @@ test_panel_editor_open_flag (void)
     pn_flow_set_panel_editor_open (flow, FALSE);
     PN_CHECK_FALSE (pn_flow_get_panel_editor_open (flow));
     PN_CHECK (pn_flow_is_modified (flow));
-    /* Closing destroyed the layout. */
-    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, "abc", NULL, NULL));
+    /* Closing the editor keeps the layout. */
+    PN_CHECK (pn_flow_get_panel_position (flow, "abc", NULL, NULL));
 
     g_object_unref (flow);
 }
 
-/* A document saved with the editor closed carries nothing panel-related:
- * neither the open flag nor any placement survives the round-trip. */
+/* A document saved with the editor closed drops the open flag but keeps
+ * the panel layout: the placements drive the real panel applet whether or
+ * not the editor tab happens to be open. */
 static void
-test_panel_editor_closed_saves_nothing (void)
+test_panel_layout_persists_when_closed (void)
 {
     PnFlow *flow = pn_flow_new ();
     PnNode *node = PN_NODE (pn_inject_new ());
     gchar  *uuid;
     gchar  *path = NULL;
+    gdouble x = 0.0, y = 0.0;
     gint    fd;
 
     pn_flow_add_node (flow, node);
@@ -443,7 +446,9 @@ test_panel_editor_closed_saves_nothing (void)
     flow = pn_flow_new ();
     PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
     PN_CHECK_FALSE (pn_flow_get_panel_editor_open (flow));
-    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, uuid, NULL, NULL));
+    PN_CHECK (pn_flow_get_panel_position (flow, uuid, &x, &y));
+    PN_CHECK (x == 30.0);
+    PN_CHECK (y == 40.0);
 
     g_remove (path);
     g_free (path);
@@ -471,6 +476,6 @@ main (int argc, char **argv)
     pn_test_add ("panel_pos_marks_dirty", test_panel_position_marks_dirty);
     pn_test_add ("panel_pos_disk",        test_panel_position_disk_roundtrip);
     pn_test_add ("panel_editor_open_flag", test_panel_editor_open_flag);
-    pn_test_add ("panel_editor_closed",   test_panel_editor_closed_saves_nothing);
+    pn_test_add ("panel_layout_persists", test_panel_layout_persists_when_closed);
     return pn_test_run ();
 }

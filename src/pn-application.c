@@ -26,8 +26,13 @@
 #include "pn-wire.h"
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
+#include "pn-countdown.h"
+#include "pn-led.h"
+#include "pn-color.h"
+#include "pn-panel-geometry.h"
 
 #include <gio/gio.h>
+#include <json-glib/json-glib.h>
 
 struct _PnApplication
 {
@@ -1085,10 +1090,17 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /*  in a panel-backed PnWindow whose flow runs off the main loop while */
 /*  the window stays hidden; PresentEditor present()s it for editing.  */
 /*  Panel I/O nodes bridge the running flow to the applet: a           */
-/*  PnPanelDisplay's text is read out (GetDisplayValue) and pushed     */
-/*  (the ValueChanged signal); a PnPanelInput is driven with a value   */
-/*  (SetInput) or told of an applet mouse event (SendEvent, fanned out */
-/*  to every Panel Input).                                             */
+/*  PnPanelInput is driven with a value (SetInput) or told of an       */
+/*  applet mouse event (SendEvent, fanned out to every Panel Input).   */
+/*                                                                     */
+/*  The display side mirrors the visual layout editor (PnPanelEditor)  */
+/*  headlessly: every PnCountdown / PnLed the user snapped onto the    */
+/*  panel band becomes a counterpart widget in the real applet.  The   */
+/*  applet asks for the widget set and order (GetLayout) and follows   */
+/*  it (LayoutChanged); each node's live state is pushed per widget,    */
+/*  keyed by node UUID (WidgetChanged), as JSON.  The older single-    */
+/*  value PnPanelDisplay bridge (GetDisplayValue + ValueChanged) is    */
+/*  kept as a legacy channel alongside it.                             */
 /* ================================================================== */
 
 static const gchar engine_introspection_xml[] =
@@ -1101,6 +1113,10 @@ static const gchar engine_introspection_xml[] =
     "    <method name='GetDisplayValue'>"
     "      <arg type='s' name='path'  direction='in'/>"
     "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
+    "    <method name='GetLayout'>"
+    "      <arg type='s' name='path'   direction='in'/>"
+    "      <arg type='s' name='layout' direction='out'/>"
     "    </method>"
     "    <method name='SetInput'>"
     "      <arg type='s' name='path'  direction='in'/>"
@@ -1120,6 +1136,15 @@ static const gchar engine_introspection_xml[] =
     "    <signal name='ValueChanged'>"
     "      <arg type='s' name='path'/>"
     "      <arg type='s' name='value'/>"
+    "    </signal>"
+    "    <signal name='LayoutChanged'>"
+    "      <arg type='s' name='path'/>"
+    "      <arg type='s' name='layout'/>"
+    "    </signal>"
+    "    <signal name='WidgetChanged'>"
+    "      <arg type='s' name='path'/>"
+    "      <arg type='s' name='uuid'/>"
+    "      <arg type='s' name='state'/>"
     "    </signal>"
     "  </interface>"
     "</node>";
@@ -1251,6 +1276,427 @@ engine_wire_displays (
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Per-node panel widget mirroring                                     */
+/*                                                                     */
+/*  The engine plays the headless role PnPanelEditor plays in the      */
+/*  editor: it watches the flow's nodes and pushes each representable   */
+/*  one (a PnCountdown -> seven-segment readout, a PnLed -> lamp) to a  */
+/*  counterpart widget in the real applet.  A widget is "on the panel"  */
+/*  when the layout editor snapped it onto the band; band membership is */
+/*  derived from each node's saved (x, y) using the shared geometry, so */
+/*  it stays in lock-step with the editor's snap target.               */
+/* ------------------------------------------------------------------ */
+
+/* Context carried into the per-worksheet signal handlers (node-store
+ * add/remove, the flow's panel-layout-changed, and each widget node's
+ * repaint-needed): everything they need to name the worksheet and rebuild
+ * its layout.  Owned by the window it is stashed on; freed with it. */
+typedef struct
+{
+    PnApplication *app;   /* the engine; not reffed (outlives the worksheet) */
+    PnWindow      *win;   /* the worksheet window that owns this ctx         */
+    gchar         *path;  /* worksheet file path (owned)                     */
+} EngineWidgetCtx;
+
+#define PN_ENGINE_WIDGET_CTX_QDATA  "pn-engine-widget-ctx"
+
+static void on_engine_window_destroy (GtkWidget *win, gpointer user_data);
+
+static void
+engine_widget_ctx_free (gpointer data)
+{
+    EngineWidgetCtx *ctx = data;
+
+    g_free (ctx->path);
+    g_slice_free (EngineWidgetCtx, ctx);
+}
+
+/** A node the applet mirrors: a countdown readout or an indicator lamp. */
+static gboolean
+engine_is_widget_node (PnNode *node)
+{
+    return PN_IS_COUNTDOWN (node) || PN_IS_LED (node);
+}
+
+/** Emit an Engine signal, sinking @params even when the bus is absent. */
+static void
+engine_emit_signal (PnApplication *app,
+                    const gchar   *signal_name,
+                    GVariant      *params)
+{
+    GApplication    *gapp = G_APPLICATION (app);
+    GDBusConnection *conn = g_application_get_dbus_connection (gapp);
+    const gchar     *obj  = g_application_get_dbus_object_path (gapp);
+
+    if (conn == NULL || obj == NULL)
+    {
+        /* No bus (e.g. a non-service run): drop the floating @params. */
+        g_variant_unref (g_variant_ref_sink (params));
+        return;
+    }
+
+    g_dbus_connection_emit_signal (
+            conn, NULL, obj, "org.pipas.pipnode.Engine", signal_name,
+            params, NULL);
+}
+
+/** Append an [r, g, b] array (alpha dropped — widgets paint opaque). */
+static void
+engine_add_color_array (JsonBuilder *b, const PnColor *c)
+{
+    json_builder_begin_array (b);
+    json_builder_add_double_value (b, c->red);
+    json_builder_add_double_value (b, c->green);
+    json_builder_add_double_value (b, c->blue);
+    json_builder_end_array (b);
+}
+
+/** Fill the open object @b with @node's render state, mirroring exactly
+ *  what PnPanelEditor pushes into the corresponding panel widget.  Returns
+ *  the widget kind ("countdown"/"led"), or %NULL when @node is not a
+ *  representable widget. */
+static const gchar *
+engine_add_widget_state (JsonBuilder *b, PnNode *node)
+{
+    if (PN_IS_COUNTDOWN (node))
+    {
+        PnCountdownPaintState st;
+        gint64                seconds;
+
+        pn_countdown_get_paint_state (PN_COUNTDOWN (node), &st);
+        seconds = st.days * G_GINT64_CONSTANT (86400)
+                + (gint64) st.hours * 3600
+                + (gint64) st.minutes * 60
+                + st.seconds;
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "countdown");
+        json_builder_set_member_name (b, "seconds");
+        json_builder_add_int_value (b, seconds);
+        json_builder_set_member_name (b, "day_digits");
+        json_builder_add_int_value (b, st.day_digits);
+        json_builder_set_member_name (b, "segment_color");
+        engine_add_color_array (b, &st.segment_color);
+        json_builder_set_member_name (b, "unlit_color");
+        engine_add_color_array (b, &st.unlit_segment_color);
+        return "countdown";
+    }
+
+    if (PN_IS_LED (node))
+    {
+        PnColor color;
+
+        pn_led_peek_color (PN_LED (node), &color);
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "led");
+        json_builder_set_member_name (b, "lit");
+        json_builder_add_boolean_value (b, pn_led_get_lit (PN_LED (node)));
+        json_builder_set_member_name (b, "color");
+        engine_add_color_array (b, &color);
+        return "led";
+    }
+
+    return NULL;
+}
+
+/** Serialize the JsonBuilder's root to a string and tear it all down. */
+static gchar *
+engine_builder_to_string (JsonBuilder *b)
+{
+    JsonNode      *root = json_builder_get_root (b);
+    JsonGenerator *gen  = json_generator_new ();
+    gchar         *out;
+
+    json_generator_set_root (gen, root);
+    out = json_generator_to_data (gen, NULL);
+
+    json_node_free (root);
+    g_object_unref (gen);
+    g_object_unref (b);
+    return out;
+}
+
+/** @node's render state as a standalone JSON object string (the
+ *  WidgetChanged payload, and the per-widget "state" in the layout). */
+static gchar *
+engine_widget_state_json (PnNode *node)
+{
+    JsonBuilder *b = json_builder_new ();
+
+    json_builder_begin_object (b);
+    if (engine_add_widget_state (b, node) == NULL)
+    {
+        json_builder_end_object (b);
+        g_object_unref (b);
+        return g_strdup ("{}");
+    }
+    json_builder_end_object (b);
+
+    return engine_builder_to_string (b);
+}
+
+/* One representable node placed for the layout, with the x it sorts by. */
+typedef struct
+{
+    PnNode      *node;
+    const gchar *uuid;
+    gdouble      x;
+} EngineLayoutEntry;
+
+/** Left-to-right by x; ties broken by UUID so the order is stable. */
+static gint
+engine_layout_entry_cmp (gconstpointer a, gconstpointer b)
+{
+    const EngineLayoutEntry *ea = a;
+    const EngineLayoutEntry *eb = b;
+
+    if (ea->x < eb->x) return -1;
+    if (ea->x > eb->x) return 1;
+    return g_strcmp0 (ea->uuid, eb->uuid);
+}
+
+/** The applet's widget set + order for @win, as JSON:
+ *    { "widgets": [ { "uuid", "order", "state": {…} }, … ] }
+ *
+ *  Widgets are the representable nodes the layout editor snapped onto the
+ *  panel band (a saved position whose y sits within the band), left to
+ *  right by x.  When the document carries no panel layout at all (never
+ *  arranged), fall back to every representable node in node-store order so
+ *  the applet is not blank. */
+static gchar *
+engine_build_layout_json (PnWindow *win)
+{
+    PnWorksheet *ws    = win != NULL ? pn_window_get_worksheet (win) : NULL;
+    PnNodeStore *nodes;
+    PnFlow      *flow;
+    GArray      *entries;
+    GList       *placed;
+    gboolean     have_layout;
+    JsonBuilder *b;
+    guint        i, n;
+
+    if (ws == NULL)
+        return g_strdup ("{\"widgets\":[]}");
+
+    nodes = pn_worksheet_get_nodes (ws);
+    flow  = pn_worksheet_get_flow (ws);
+
+    placed      = pn_flow_list_panel_positions (flow);
+    have_layout = (placed != NULL);
+    g_list_free_full (placed, g_free);
+
+    entries = g_array_new (FALSE, FALSE, sizeof (EngineLayoutEntry));
+    n       = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode           *node = pn_node_store_get_node (nodes, i);
+        EngineLayoutEntry e;
+        gdouble           x = 0.0, y = 0.0;
+
+        if (!engine_is_widget_node (node))
+            continue;
+
+        if (have_layout)
+        {
+            /* On the panel iff snapped to the band — same geometry the
+             * editor snaps to (band height == widget height). */
+            if (!pn_flow_get_panel_position (flow, pn_node_get_uuid (node),
+                                             &x, &y))
+                continue;
+            if (ABS (y - PN_PE_PANEL_TOP) > PN_PE_PANEL_HEIGHT / 2.0)
+                continue;
+        }
+        else
+        {
+            x = (gdouble) i;   /* fallback: keep node-store order */
+        }
+
+        e.node = node;
+        e.uuid = pn_node_get_uuid (node);
+        e.x    = x;
+        g_array_append_val (entries, e);
+    }
+
+    if (have_layout)
+        g_array_sort (entries, engine_layout_entry_cmp);
+
+    b = json_builder_new ();
+    json_builder_begin_object (b);
+    json_builder_set_member_name (b, "widgets");
+    json_builder_begin_array (b);
+    for (i = 0; i < entries->len; i++)
+    {
+        EngineLayoutEntry *e = &g_array_index (entries, EngineLayoutEntry, i);
+
+        json_builder_begin_object (b);
+        json_builder_set_member_name (b, "uuid");
+        json_builder_add_string_value (b, e->uuid);
+        json_builder_set_member_name (b, "order");
+        json_builder_add_int_value (b, i);
+        json_builder_set_member_name (b, "state");
+        json_builder_begin_object (b);
+        engine_add_widget_state (b, e->node);
+        json_builder_end_object (b);
+        json_builder_end_object (b);
+    }
+    json_builder_end_array (b);
+    json_builder_end_object (b);
+
+    g_array_free (entries, TRUE);
+    return engine_builder_to_string (b);
+}
+
+/** repaint-needed on a widget node → push its fresh state to the applet. */
+static void
+on_panel_widget_repaint (PnNode *node, gpointer user_data)
+{
+    EngineWidgetCtx *ctx  = user_data;
+    gchar           *json = engine_widget_state_json (node);
+
+    engine_emit_signal (ctx->app, "WidgetChanged",
+                        g_variant_new ("(sss)", ctx->path,
+                                       pn_node_get_uuid (node), json));
+    g_free (json);
+}
+
+/** Re-publish the whole layout for ctx's worksheet to the applet. */
+static void
+engine_emit_layout_changed (EngineWidgetCtx *ctx)
+{
+    gchar *json = engine_build_layout_json (ctx->win);
+
+    engine_emit_signal (ctx->app, "LayoutChanged",
+                        g_variant_new ("(ss)", ctx->path, json));
+    g_free (json);
+}
+
+/** Follow a widget node's live value to the applet. */
+static void
+engine_wire_widget_node (EngineWidgetCtx *ctx, PnNode *node)
+{
+    g_signal_connect (node, "repaint-needed",
+                      G_CALLBACK (on_panel_widget_repaint), ctx);
+}
+
+/* A node appeared at runtime: start mirroring it and refresh the layout. */
+static void
+on_engine_node_added (PnNodeStore *store,
+                      PnNode      *node,
+                      guint        index,
+                      gpointer     user_data)
+{
+    EngineWidgetCtx *ctx = user_data;
+
+    (void) store; (void) index;
+    if (!engine_is_widget_node (node))
+        return;
+    engine_wire_widget_node (ctx, node);
+    engine_emit_layout_changed (ctx);
+}
+
+/* A node went away: its repaint handler dies with it; refresh the layout. */
+static void
+on_engine_node_removed (PnNodeStore *store,
+                        PnNode      *node,
+                        guint        index,
+                        gpointer     user_data)
+{
+    EngineWidgetCtx *ctx = user_data;
+
+    (void) store; (void) index;
+    if (!engine_is_widget_node (node))
+        return;
+    engine_emit_layout_changed (ctx);
+}
+
+/* The user dragged a widget in the presented editor (it shares this same
+ * hidden flow), changing what is on the band: re-publish the layout. */
+static void
+on_engine_panel_layout_changed (PnFlow *flow, gpointer user_data)
+{
+    (void) flow;
+    engine_emit_layout_changed ((EngineWidgetCtx *) user_data);
+}
+
+/** Wire @win so the applet mirrors it: per-node widget state, layout
+ *  changes, plus the legacy single-value Panel Display channel. */
+static void
+engine_wire_panel_widgets (
+        PnApplication *self,
+        PnWindow      *win,
+        const gchar   *path)
+{
+    PnWorksheet     *ws = pn_window_get_worksheet (win);
+    PnNodeStore     *nodes;
+    PnFlow          *flow;
+    EngineWidgetCtx *ctx;
+    guint            i, n;
+
+    if (ws == NULL)
+        return;
+
+    nodes = pn_worksheet_get_nodes (ws);
+    flow  = pn_worksheet_get_flow (ws);
+
+    /* Legacy Panel Display -> ValueChanged channel, kept alongside. */
+    engine_wire_displays (self, win, path);
+
+    ctx       = g_slice_new0 (EngineWidgetCtx);
+    ctx->app  = self;
+    ctx->win  = win;
+    ctx->path = g_strdup (path);
+    g_object_set_data_full (G_OBJECT (win), PN_ENGINE_WIDGET_CTX_QDATA,
+                            ctx, engine_widget_ctx_free);
+
+    n = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (engine_is_widget_node (node))
+            engine_wire_widget_node (ctx, node);
+    }
+
+    g_signal_connect (nodes, "node-added",
+                      G_CALLBACK (on_engine_node_added), ctx);
+    g_signal_connect (nodes, "node-removed",
+                      G_CALLBACK (on_engine_node_removed), ctx);
+    g_signal_connect (flow, "panel-layout-changed",
+                      G_CALLBACK (on_engine_panel_layout_changed), ctx);
+
+    g_signal_connect (win, "destroy",
+                      G_CALLBACK (on_engine_window_destroy), NULL);
+}
+
+/** Stop mirroring @win before it is torn down: drop the store/flow
+ *  subscriptions so node-removed emitted during teardown cannot fire into
+ *  a half-destroyed worksheet.  Per-node repaint handlers die with the
+ *  nodes.  The ctx itself is freed when the window's qdata is cleared.
+ *  Idempotent: safe to call from CloseWorksheet and again on destroy. */
+static void
+engine_unwire_panel_widgets (PnWindow *win)
+{
+    PnWorksheet     *ws  = pn_window_get_worksheet (win);
+    EngineWidgetCtx *ctx = g_object_get_data (G_OBJECT (win),
+                                              PN_ENGINE_WIDGET_CTX_QDATA);
+
+    if (ws == NULL || ctx == NULL)
+        return;
+
+    g_signal_handlers_disconnect_by_data (pn_worksheet_get_nodes (ws), ctx);
+    g_signal_handlers_disconnect_by_data (pn_worksheet_get_flow (ws),  ctx);
+}
+
+/* Cover the app-shutdown path, where windows are destroyed without going
+ * through CloseWorksheet. */
+static void
+on_engine_window_destroy (GtkWidget *win, gpointer user_data)
+{
+    (void) user_data;
+    engine_unwire_panel_widgets (PN_WINDOW (win));
+}
+
 /** Return the panel-backed window for @path, creating and loading it on
  *  first use.  %NULL with @error set when the worksheet fails to load. */
 static PnWindow *
@@ -1272,7 +1718,7 @@ engine_ensure_worksheet (
     }
 
     g_hash_table_insert (self->worksheets, g_strdup (path), win);
-    engine_wire_displays (self, win, path);
+    engine_wire_panel_widgets (self, win, path);
     return win;
 }
 
@@ -1330,6 +1776,18 @@ handle_engine_method_call (
                 invocation, g_variant_new ("(s)", value));
         g_free (value);
     }
+    else if (g_strcmp0 (method_name, "GetLayout") == 0)
+    {
+        PnWindow *win;
+        gchar    *layout;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win    = g_hash_table_lookup (self->worksheets, path);
+        layout = engine_build_layout_json (win);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", layout));
+        g_free (layout);
+    }
     else if (g_strcmp0 (method_name, "SetInput") == 0)
     {
         PnWindow *win;
@@ -1384,8 +1842,11 @@ handle_engine_method_call (
         {
             /* Drop it for good: autosave, forget, then destroy (which
              * stops the flow).  Remove from the table first so nothing
-             * re-resolves it mid-teardown. */
+             * re-resolves it mid-teardown, and drop the mirroring
+             * subscriptions so the node-removed cascade during teardown
+             * cannot fire into a half-destroyed worksheet. */
             pn_window_autosave (win);
+            engine_unwire_panel_widgets (win);
             g_hash_table_remove (self->worksheets, path);
             gtk_widget_destroy (GTK_WIDGET (win));
         }

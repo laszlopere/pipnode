@@ -105,6 +105,7 @@ enum {
     SIG_ACTIVE_SHEET_CHANGED,
     SIG_MODIFIED_CHANGED,
     SIG_PANEL_EDITOR_VISIBLE,
+    SIG_PANEL_LAYOUT_CHANGED,
     N_SIGNALS,
 };
 
@@ -478,7 +479,29 @@ pn_flow_set_panel_position (PnFlow      *self,
     pos->x = x;
     pos->y = y;
 
+    g_signal_emit (self, signals[SIG_PANEL_LAYOUT_CHANGED], 0);
     pn_flow_set_modified (self, TRUE);
+}
+
+/* Every UUID with a stored panel placement, as freshly-allocated strings
+ * (transfer full: free with g_list_free_full(list, g_free)).  The headless
+ * engine uses this to learn which nodes the layout editor placed without
+ * reaching into the private @panel_layout table; order is unspecified, so
+ * callers that need left-to-right band order sort by x themselves. */
+GList *
+pn_flow_list_panel_positions (PnFlow *self)
+{
+    GList      *out = NULL;
+    GHashTableIter iter;
+    gpointer    key;
+
+    g_return_val_if_fail (PN_IS_FLOW (self), NULL);
+
+    g_hash_table_iter_init (&iter, self->panel_layout);
+    while (g_hash_table_iter_next (&iter, &key, NULL))
+        out = g_list_prepend (out, g_strdup ((const gchar *) key));
+
+    return out;
 }
 
 gboolean
@@ -499,10 +522,10 @@ pn_flow_set_panel_editor_open (PnFlow *self, gboolean open)
 
     self->panel_editor_open = open;
 
-    /* Closing the editor destroys its contents: drop every stored widget
-     * placement so nothing panel-related is written on the next save. */
-    if (!open)
-        g_hash_table_remove_all (self->panel_layout);
+    /* The placements outlive the editor tab: they are document data that
+     * drives the real panel applet (the engine mirrors every band-snapped
+     * Countdown/LED widget), so closing the editor no longer discards the
+     * layout.  pn_flow_clear still empties it when the whole document goes. */
 
     g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0, open);
     pn_flow_set_modified (self, TRUE);
@@ -1956,17 +1979,20 @@ flow_build_root (
         }
         g_mutex_unlock (&self->globals_mutex);
 
-        /* Panel-applet editor: persisted only while it is open.  Closing
-         * it discards its contents (see pn_flow_set_panel_editor_open),
-         * so a closed editor leaves no trace in the file at all. */
+        /* Panel-applet editor tab open/closed is a view-state flag, saved
+         * only while open so reopening the file restores the tab. */
         if (self->panel_editor_open)
-        {
             json_object_set_boolean_member (obj, "panel_editor_open", TRUE);
 
-            /* Layout: a UUID-keyed object of { x, y } canvas placements.
-             * Entries for nodes no longer in the flow are pruned so
-             * deleting a node cleans up its placement, and the keys are
-             * sorted for stable diffs.  Omitted when nothing was placed. */
+        /* Panel layout persists regardless of whether the editor tab is
+         * open: it is real document data driving the panel applet (each
+         * band-snapped Countdown/LED is mirrored to a real panel widget).
+         *
+         * Layout: a UUID-keyed object of { x, y } canvas placements.
+         * Entries for nodes no longer in the flow are pruned so deleting a
+         * node cleans up its placement, and the keys are sorted for stable
+         * diffs.  Omitted when nothing was placed. */
+        {
             if (g_hash_table_size (self->panel_layout) > 0)
             {
                 GHashTable *live = g_hash_table_new (g_str_hash, g_str_equal);
@@ -2430,6 +2456,16 @@ pn_flow_class_init (PnFlowClass *klass)
             G_SIGNAL_RUN_LAST,
             0, NULL, NULL, NULL,
             G_TYPE_NONE, 1, G_TYPE_BOOLEAN);
+
+    /* A panel-applet widget placement changed (added, moved, or snapped in
+     * or out of the band).  The headless engine mirrors band-snapped
+     * widgets to the real panel, so it re-publishes the layout in response. */
+    signals[SIG_PANEL_LAYOUT_CHANGED] = g_signal_new (
+            "panel-layout-changed",
+            PN_TYPE_FLOW,
+            G_SIGNAL_RUN_LAST,
+            0, NULL, NULL, NULL,
+            G_TYPE_NONE, 0);
 }
 
 static void

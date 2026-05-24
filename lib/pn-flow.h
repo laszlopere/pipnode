@@ -212,12 +212,24 @@ gboolean     pn_flow_get_panel_position (PnFlow      *self,
  *
  * Stores @uuid's panel-editor placement, marking the flow modified when
  * the stored value actually changes (so re-clicking a widget without
- * moving it leaves the document clean).
+ * moving it leaves the document clean).  Emits #PnFlow::panel-layout-changed
+ * on a real change so the headless engine can re-publish the panel layout.
  */
 void         pn_flow_set_panel_position (PnFlow      *self,
                                          const gchar *uuid,
                                          gdouble      x,
                                          gdouble      y);
+
+/**
+ * pn_flow_list_panel_positions:
+ * @self: the flow
+ *
+ * Returns: (transfer full) (element-type utf8): every UUID that has a stored
+ *   panel placement, as freshly-allocated strings.  Free with
+ *   g_list_free_full(list, g_free).  Order is unspecified.  Lets the headless
+ *   engine enumerate the laid-out widgets without access to the private store.
+ */
+GList       *pn_flow_list_panel_positions (PnFlow *self);
 
 /**
  * pn_flow_get_panel_editor_open:

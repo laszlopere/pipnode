@@ -16,43 +16,47 @@
 /* ------------------------------------------------------------------ */
 /*  Pipnode Deadline — XFCE panel applet                              */
 /*                                                                     */
-/*  A panel button that *runs* a pipnode deadline worksheet, not just  */
-/*  a launcher.  Each applet instance owns one worksheet (a .json      */
+/*  A panel button that *runs* a pipnode worksheet, not just a         */
+/*  launcher.  Each applet instance owns one worksheet (a .json        */
 /*  document) under ~/.config/pipnode/panel/<unique-id>.json, executed */
 /*  by the background engine — pipnode-editor running as a D-Bus       */
-/*  service (org.pipas.pipnode), auto-started on first use.  The       */
-/*  shipped starter flow counts down to a target date, but the applet  */
-/*  runs whatever flow the worksheet holds.                            */
+/*  service (org.pipas.pipnode), auto-started on first use.            */
 /*                                                                     */
-/*  The applet is a thin D-Bus client (no pipnode libraries, so an     */
-/*  editor/node crash can never take down xfce4-panel):                */
-/*    - on load it asks the engine to RunWorksheet its file;           */
-/*    - it shows a PnPanelDisplay node's value on the button, updated  */
-/*      live via the engine's ValueChanged signal — a numeric value    */
-/*      renders on a tiny seven-segment LED readout (PnLedDisplay, a    */
-/*      panel-sized echo of the Countdown node), other text in a plain  */
-/*      label;                                                          */
+/*  The applet is a live mirror of the worksheet's panel layout: every */
+/*  Countdown / LED node the user snapped onto the panel band in the   */
+/*  editor shows here as a counterpart widget — a seven-segment        */
+/*  PnLedDisplay readout or a PnLedLamp indicator.  The applet asks    */
+/*  the engine for the widget set and order (GetLayout) and follows it */
+/*  (LayoutChanged); each node's live value arrives keyed by node UUID */
+/*  (WidgetChanged) as JSON and is pushed into its widget.             */
+/*                                                                     */
+/*  It is a thin D-Bus client: it links GTK / GLib / json-glib /       */
+/*  libxfce4panel only (GDBus comes via gio) and NO pipnode runtime    */
+/*  library, so an engine/node crash can never take down xfce4-panel.  */
+/*  The only pipnode code it embeds is the GTK/Cairo-only panel-widgets */
+/*  convenience library (PnLedDisplay, PnLedLamp), statically linked.   */
 /*    - a mouse click drives the PnPanelInput node(s): the click is     */
-/*      forwarded (SendEvent) tagged with the button, so the flow       */
-/*      sees which button was clicked;                                  */
-/*    - the right-click "Properties" item opens the worksheet for      */
-/*      editing (PresentEditor) — the same running flow, shown.        */
+/*      forwarded (SendEvent) tagged with the button;                  */
+/*    - right-click "Properties" opens the worksheet for editing       */
+/*      (PresentEditor) — the same running flow, shown.                */
 /* ------------------------------------------------------------------ */
 
 #include <gtk/gtk.h>
 #include <gio/gio.h>
 #include <glib/gstdio.h>
+#include <json-glib/json-glib.h>
 #include <libxfce4panel/libxfce4panel.h>
 
 #include "pn-led-display.h"
+#include "pn-led-lamp.h"
 
 /* The freedesktop/themed icon name shipped by the main app
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
 #define PIPNODE_ICON_NAME "org.pipas.pipnode"
 
 /* Flatten the panel button in every state: no border, background or
- * box-shadow on hover/focus/active, so the applet shows just its icon
- * and value with no frame or highlight when the mouse is over it. */
+ * box-shadow on hover/focus/active, so the applet shows just its widgets
+ * with no frame or highlight when the mouse is over it. */
 static const gchar BUTTON_CSS[] =
     "button, button:hover, button:active, button:checked, button:focus {"
     "  background: none;"
@@ -88,8 +92,8 @@ flatten_button (GtkWidget *button)
 
 /* Starter worksheet shipped with the applet: a new applet instance is
  * seeded with a copy of this so the user begins with a working flow
- * (a deadline countdown plus a click-driven Panel Input) rather than a
- * blank sheet.  Installed to pipnode's datadir; see ensure_worksheet(). */
+ * rather than a blank sheet.  Installed to pipnode's datadir; see
+ * ensure_worksheet(). */
 #define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-deadline-default.json"
 
 /* A blank pipnode document, matching the on-disk format produced by
@@ -108,17 +112,29 @@ static const gchar EMPTY_WORKSHEET[] =
     "  \"active_sheet\" : \"Worksheet\"\n"
     "}\n";
 
+/* One mirrored widget: a panel-widgets drawing area plus the kind of node
+ * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp).
+ * The widget itself is owned by the applet's @box; this struct only tracks
+ * which node it represents. */
+typedef struct
+{
+    GtkWidget *widget;
+    gchar      kind;
+} AppletWidget;
+
 typedef struct
 {
     XfcePanelPlugin *plugin;
-    GtkWidget       *button;   /* panel button (owned by the plugin) */
-    GtkWidget       *image;    /* icon inside the button             */
-    GtkWidget       *led;      /* seven-segment readout, numeric values */
-    GtkWidget       *label;    /* text Panel Display values fall back here */
+    GtkWidget       *button;   /* panel button (owned by the plugin)   */
+    GtkWidget       *box;      /* horizontal row holding icon + widgets */
+    GtkWidget       *image;    /* icon, shown only when no widgets      */
+    gint             icon_size;/* panel icon size, applied to new widgets */
 
-    gchar           *path;     /* this instance's worksheet file     */
-    GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy     */
-    GCancellable    *cancel;   /* cancels in-flight async D-Bus work */
+    GHashTable      *widgets;  /* node UUID (owned) -> AppletWidget*    */
+
+    gchar           *path;     /* this instance's worksheet file        */
+    GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy        */
+    GCancellable    *cancel;   /* cancels in-flight async D-Bus work    */
 } PipnodeDeadline;
 
 /* ------------------------------------------------------------------ */
@@ -189,45 +205,262 @@ ensure_worksheet (const gchar *path,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Button display                                                      */
+/*  Mirrored widgets                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Show @text from the worksheet's Panel Display on the button.  A
- * numeric value is read as a count of seconds remaining and drawn on the
- * seven-segment LED readout as "ddd hh:mm:ss" (a panel-sized Countdown);
- * non-numeric text falls back to a plain label.  Either way the leading
- * icon is hidden once a value is showing; an empty string restores the
- * icon-only button, so a display-less worksheet keeps just the icon. */
 static void
-set_display_text (PipnodeDeadline *self, const gchar *text)
+applet_widget_free (gpointer data)
 {
-    gint64 seconds;
+    /* The GtkWidget is owned by @box and torn down with it; free only the
+     * tracking struct. */
+    g_slice_free (AppletWidget, data);
+}
 
-    if (text == NULL || *text == '\0')
+/* Show the icon only while the worksheet contributes no widgets. */
+static void
+update_empty_state (PipnodeDeadline *self)
+{
+    gtk_widget_set_visible (self->image,
+                            g_hash_table_size (self->widgets) == 0);
+}
+
+/* Read an [r, g, b] JSON array member into @rgb.  Returns FALSE when the
+ * member is missing or malformed, so the caller keeps the widget default. */
+static gboolean
+read_rgb (JsonObject *obj, const gchar *member, gdouble rgb[3])
+{
+    JsonArray *arr;
+
+    if (obj == NULL || !json_object_has_member (obj, member))
+        return FALSE;
+
+    arr = json_object_get_array_member (obj, member);
+    if (arr == NULL || json_array_get_length (arr) < 3)
+        return FALSE;
+
+    rgb[0] = json_array_get_double_element (arr, 0);
+    rgb[1] = json_array_get_double_element (arr, 1);
+    rgb[2] = json_array_get_double_element (arr, 2);
+    return TRUE;
+}
+
+/* Push a node's render state (the WidgetChanged payload, or a layout
+ * widget's inline "state") into its widget. */
+static void
+apply_widget_state (AppletWidget *e, JsonObject *state)
+{
+    gdouble rgb[3];
+
+    if (state == NULL)
+        return;
+
+    if (e->kind == 'c')
     {
-        gtk_widget_hide (self->led);
-        gtk_widget_hide (self->label);
-        gtk_widget_show (self->image);
-    }
-    else if (pn_led_display_parse_seconds (text, &seconds))
-    {
-        pn_led_display_set_seconds (PN_LED_DISPLAY (self->led), seconds);
-        gtk_widget_hide (self->label);
-        gtk_widget_hide (self->image);
-        gtk_widget_show (self->led);
+        PnLedDisplay *led = PN_LED_DISPLAY (e->widget);
+
+        if (json_object_has_member (state, "seconds"))
+            pn_led_display_set_seconds (
+                    led, json_object_get_int_member (state, "seconds"));
+        if (json_object_has_member (state, "day_digits"))
+            pn_led_display_set_day_digits (
+                    led, (guint) json_object_get_int_member (state,
+                                                             "day_digits"));
+        if (read_rgb (state, "segment_color", rgb))
+            pn_led_display_set_segment_color (led, rgb[0], rgb[1], rgb[2]);
+        if (read_rgb (state, "unlit_color", rgb))
+            pn_led_display_set_unlit_color (led, rgb[0], rgb[1], rgb[2]);
     }
     else
     {
-        gtk_label_set_text (GTK_LABEL (self->label), text);
-        gtk_widget_hide (self->led);
-        gtk_widget_hide (self->image);
-        gtk_widget_show (self->label);
+        PnLedLamp *lamp = PN_LED_LAMP (e->widget);
+
+        if (json_object_has_member (state, "lit"))
+            pn_led_lamp_set_lit (
+                    lamp, json_object_get_boolean_member (state, "lit"));
+        if (read_rgb (state, "color", rgb))
+            pn_led_lamp_set_color (lamp, rgb[0], rgb[1], rgb[2]);
     }
+}
+
+/* Build a fresh widget of @kind, sized to the panel, packed into the row. */
+static AppletWidget *
+applet_widget_new (PipnodeDeadline *self, gchar kind)
+{
+    AppletWidget *e = g_slice_new0 (AppletWidget);
+
+    e->kind = kind;
+    if (kind == 'c')
+    {
+        e->widget = pn_led_display_new ();
+        pn_led_display_set_height (PN_LED_DISPLAY (e->widget), self->icon_size);
+    }
+    else
+    {
+        e->widget = pn_led_lamp_new ();
+        pn_led_lamp_set_size (PN_LED_LAMP (e->widget), self->icon_size);
+    }
+
+    gtk_box_pack_start (GTK_BOX (self->box), e->widget, FALSE, FALSE, 0);
+    gtk_widget_show (e->widget);
+    return e;
+}
+
+/* Reconcile the live widget row against the engine's layout JSON:
+ *   { "widgets": [ { "uuid", "order", "state": { "kind", … } }, … ] }
+ * Create widgets that are new, drop widgets that vanished, recreate any
+ * whose kind changed, apply each one's inline state, and order them to
+ * match the array (the hidden icon floats harmlessly among them). */
+static void
+reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
+{
+    JsonParser *parser = json_parser_new ();
+    GError     *error  = NULL;
+    JsonNode   *root;
+    JsonObject *obj;
+    JsonArray  *widgets;
+    GHashTable *desired;
+    guint       i, len;
+
+    if (!json_parser_load_from_data (parser, layout_json, -1, &error))
+    {
+        g_warning ("pipnode-deadline: bad layout JSON: %s", error->message);
+        g_clear_error (&error);
+        g_object_unref (parser);
+        return;
+    }
+
+    root = json_parser_get_root (parser);
+    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    {
+        g_object_unref (parser);
+        return;
+    }
+
+    obj     = json_node_get_object (root);
+    widgets = json_object_has_member (obj, "widgets")
+              ? json_object_get_array_member (obj, "widgets") : NULL;
+    len     = widgets != NULL ? json_array_get_length (widgets) : 0;
+
+    /* uuids present in this layout — keys borrowed from the parser, valid
+     * until it is freed below. */
+    desired = g_hash_table_new (g_str_hash, g_str_equal);
+
+    for (i = 0; i < len; i++)
+    {
+        JsonObject   *w = json_array_get_object_element (widgets, i);
+        const gchar  *uuid;
+        JsonObject   *state;
+        const gchar  *kind_s;
+        gchar         kind;
+        AppletWidget *e;
+
+        if (w == NULL || !json_object_has_member (w, "uuid"))
+            continue;
+
+        uuid  = json_object_get_string_member (w, "uuid");
+        state = json_object_has_member (w, "state")
+                ? json_object_get_object_member (w, "state") : NULL;
+        kind_s = (state != NULL && json_object_has_member (state, "kind"))
+                 ? json_object_get_string_member (state, "kind") : "";
+        kind   = (g_strcmp0 (kind_s, "led") == 0) ? 'l' : 'c';
+
+        g_hash_table_add (desired, (gpointer) uuid);
+
+        e = g_hash_table_lookup (self->widgets, uuid);
+        if (e != NULL && e->kind != kind)
+        {
+            gtk_widget_destroy (e->widget);
+            g_hash_table_remove (self->widgets, uuid);
+            e = NULL;
+        }
+        if (e == NULL)
+        {
+            e = applet_widget_new (self, kind);
+            g_hash_table_insert (self->widgets, g_strdup (uuid), e);
+        }
+
+        apply_widget_state (e, state);
+        gtk_box_reorder_child (GTK_BOX (self->box), e->widget, (gint) i);
+    }
+
+    /* Drop any widget whose node is no longer in the layout. */
+    {
+        GHashTableIter it;
+        gpointer       key, val;
+        GList         *stale = NULL, *l;
+
+        g_hash_table_iter_init (&it, self->widgets);
+        while (g_hash_table_iter_next (&it, &key, &val))
+            if (!g_hash_table_contains (desired, key))
+                stale = g_list_prepend (stale, key);
+
+        for (l = stale; l != NULL; l = l->next)
+        {
+            AppletWidget *e = g_hash_table_lookup (self->widgets, l->data);
+            if (e != NULL)
+                gtk_widget_destroy (e->widget);
+            g_hash_table_remove (self->widgets, l->data);
+        }
+        g_list_free (stale);
+    }
+
+    g_hash_table_destroy (desired);
+    g_object_unref (parser);
+
+    update_empty_state (self);
+}
+
+/* Apply a single WidgetChanged state payload to the addressed widget. */
+static void
+update_widget (PipnodeDeadline *self, const gchar *uuid, const gchar *state_json)
+{
+    AppletWidget *e = g_hash_table_lookup (self->widgets, uuid);
+    JsonParser   *parser;
+    JsonNode     *root;
+
+    if (e == NULL)
+        return;   /* arrived before its layout entry; next reconcile fixes it */
+
+    parser = json_parser_new ();
+    if (json_parser_load_from_data (parser, state_json, -1, NULL))
+    {
+        root = json_parser_get_root (parser);
+        if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
+            apply_widget_state (e, json_node_get_object (root));
+    }
+    g_object_unref (parser);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Engine D-Bus calls                                                  */
 /* ------------------------------------------------------------------ */
+
+static void
+on_get_layout_done (GObject      *source,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+    PipnodeDeadline *self  = user_data;
+    GVariant        *reply;
+    GError          *error = NULL;
+
+    reply = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), result, &error);
+    if (reply == NULL)
+    {
+        if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("pipnode-deadline: GetLayout failed: %s",
+                       error->message);
+        g_clear_error (&error);
+        return;
+    }
+
+    {
+        const gchar *layout = NULL;
+        g_variant_get (reply, "(&s)", &layout);
+        reconcile_layout (self, layout);
+    }
+    g_variant_unref (reply);
+}
 
 static void
 on_run_worksheet_done (GObject      *source,
@@ -247,18 +480,19 @@ on_run_worksheet_done (GObject      *source,
         g_clear_error (&error);
         return;
     }
+    g_variant_unref (reply);   /* legacy display value — unused now */
 
-    {
-        const gchar *value = NULL;
-        g_variant_get (reply, "(&s)", &value);
-        set_display_text (self, value);
-    }
-    g_variant_unref (reply);
+    /* The worksheet is running; pull its panel layout to build the row. */
+    g_dbus_proxy_call (self->engine, "GetLayout",
+                       g_variant_new ("(s)", self->path),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       on_get_layout_done, self);
 }
 
-/* Engine signals arrive here; we act on ValueChanged for our own
- * worksheet (the engine multiplexes every applet on one interface, so
- * the path argument disambiguates). */
+/* Engine signals arrive here; the engine multiplexes every applet on one
+ * interface, so the path argument disambiguates which worksheet they
+ * concern.  LayoutChanged rebuilds the widget row; WidgetChanged pushes a
+ * single node's fresh state into its widget. */
 static void
 on_engine_signal (GDBusProxy *proxy,
                   const gchar *sender,
@@ -271,16 +505,25 @@ on_engine_signal (GDBusProxy *proxy,
     (void) proxy;
     (void) sender;
 
-    if (g_strcmp0 (signal_name, "ValueChanged") != 0)
-        return;
-
+    if (g_strcmp0 (signal_name, "LayoutChanged") == 0)
+    {
+        const gchar *path   = NULL;
+        const gchar *layout = NULL;
+        g_variant_get (parameters, "(&s&s)", &path, &layout);
+        if (g_strcmp0 (path, self->path) == 0)
+            reconcile_layout (self, layout);
+    }
+    else if (g_strcmp0 (signal_name, "WidgetChanged") == 0)
     {
         const gchar *path  = NULL;
-        const gchar *value = NULL;
-        g_variant_get (parameters, "(&s&s)", &path, &value);
+        const gchar *uuid  = NULL;
+        const gchar *state = NULL;
+        g_variant_get (parameters, "(&s&s&s)", &path, &uuid, &state);
         if (g_strcmp0 (path, self->path) == 0)
-            set_display_text (self, value);
+            update_widget (self, uuid, state);
     }
+    /* ValueChanged is the legacy single-value channel — ignored here, the
+     * per-widget WidgetChanged path carries displays now. */
 }
 
 static void
@@ -306,8 +549,8 @@ on_engine_ready (GObject      *source,
     g_signal_connect (self->engine, "g-signal",
                       G_CALLBACK (on_engine_signal), self);
 
-    /* Start the worksheet running (auto-activates the engine) and pick
-     * up the initial display value from the reply. */
+    /* Start the worksheet running (auto-activates the engine); the reply
+     * callback then pulls the layout. */
     g_dbus_proxy_call (self->engine, "RunWorksheet",
                        g_variant_new ("(s)", self->path),
                        G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
@@ -372,16 +615,34 @@ on_configure_plugin (XfcePanelPlugin  *plugin,
 /*  Panel lifecycle                                                    */
 /* ------------------------------------------------------------------ */
 
+/* Apply the panel's icon size to every mirrored widget. */
+static void
+resize_widgets (PipnodeDeadline *self)
+{
+    GHashTableIter it;
+    gpointer       key, val;
+
+    g_hash_table_iter_init (&it, self->widgets);
+    while (g_hash_table_iter_next (&it, &key, &val))
+    {
+        AppletWidget *e = val;
+        if (e->kind == 'c')
+            pn_led_display_set_height (PN_LED_DISPLAY (e->widget),
+                                       self->icon_size);
+        else
+            pn_led_lamp_set_size (PN_LED_LAMP (e->widget), self->icon_size);
+    }
+}
+
 static gboolean
 on_size_changed (XfcePanelPlugin  *plugin,
                  gint              size,
                  PipnodeDeadline *self)
 {
-    gint icon_size = xfce_panel_plugin_get_icon_size (plugin);
-
     (void) size;
-    gtk_image_set_pixel_size (GTK_IMAGE (self->image), icon_size);
-    pn_led_display_set_height (PN_LED_DISPLAY (self->led), icon_size);
+    self->icon_size = xfce_panel_plugin_get_icon_size (plugin);
+    gtk_image_set_pixel_size (GTK_IMAGE (self->image), self->icon_size);
+    resize_widgets (self);
     return TRUE;   /* handled */
 }
 
@@ -394,6 +655,7 @@ on_free_data (XfcePanelPlugin  *plugin,
     g_cancellable_cancel (self->cancel);
     g_clear_object (&self->cancel);
     g_clear_object (&self->engine);
+    g_clear_pointer (&self->widgets, g_hash_table_destroy);
     g_clear_pointer (&self->path, g_free);
 
     g_slice_free (PipnodeDeadline, self);
@@ -403,30 +665,30 @@ static void
 pipnode_deadline_construct (XfcePanelPlugin *plugin)
 {
     PipnodeDeadline *self;
-    GtkWidget        *box;
     GError           *error = NULL;
 
     self = g_slice_new0 (PipnodeDeadline);
-    self->plugin = plugin;
-    self->cancel = g_cancellable_new ();
-    self->path   = worksheet_path (self);
+    self->plugin    = plugin;
+    self->cancel    = g_cancellable_new ();
+    self->path      = worksheet_path (self);
+    self->icon_size = xfce_panel_plugin_get_icon_size (plugin);
+    self->widgets   = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                             g_free, applet_widget_free);
 
-    /* Flat, panel-styled button holding the icon plus a live value
-     * label (hidden until the worksheet's Panel Display emits). */
+    /* Flat, panel-styled button holding a row: the icon (shown only when
+     * the worksheet has no panel widgets) followed by one widget per
+     * mirrored Countdown / LED node. */
     self->button = xfce_panel_create_button ();
     flatten_button (self->button);
-    box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    self->box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
     self->image = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
                                                 GTK_ICON_SIZE_BUTTON);
-    self->led   = pn_led_display_new ();
-    self->label = gtk_label_new (NULL);
-    gtk_box_pack_start (GTK_BOX (box), self->image, FALSE, FALSE, 0);
-    gtk_box_pack_start (GTK_BOX (box), self->led,   FALSE, FALSE, 0);
-    gtk_box_pack_start (GTK_BOX (box), self->label, FALSE, FALSE, 0);
-    gtk_container_add (GTK_CONTAINER (self->button), box);
+    gtk_image_set_pixel_size (GTK_IMAGE (self->image), self->icon_size);
+    gtk_box_pack_start (GTK_BOX (self->box), self->image, FALSE, FALSE, 0);
+    gtk_container_add (GTK_CONTAINER (self->button), self->box);
 
     gtk_widget_set_tooltip_text (self->button,
-                                 "Pipnode deadline — click to send, "
+                                 "Pipnode — click to send, "
                                  "right-click → Properties to edit");
 
     gtk_container_add (GTK_CONTAINER (plugin), self->button);
@@ -447,12 +709,8 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
     g_signal_connect (plugin, "free-data",
                       G_CALLBACK (on_free_data), self);
 
-    pn_led_display_set_height (PN_LED_DISPLAY (self->led),
-                               xfce_panel_plugin_get_icon_size (plugin));
-
-    gtk_widget_show_all (self->button);
-    gtk_widget_hide (self->led);     /* shown once a numeric value arrives */
-    gtk_widget_hide (self->label);   /* shown once a text value arrives */
+    gtk_widget_show_all (self->button);  /* image hidden again below */
+    update_empty_state (self);
 
     /* Make sure the file exists, then connect to the engine
      * asynchronously so the panel never blocks on D-Bus. */

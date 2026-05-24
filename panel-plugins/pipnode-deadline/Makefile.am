@@ -27,6 +27,7 @@ libpipnode_deadline_la_CFLAGS = \
 	$(LIBXFCE4PANEL_CFLAGS) \
 	$(GTK_CFLAGS) \
 	$(GLIB_CFLAGS) \
+	$(JSON_GLIB_CFLAGS) \
 	-DPKGDATADIR=\"$(pkgdatadir)\"
 
 # -module        : loadable module
@@ -42,7 +43,8 @@ libpipnode_deadline_la_LIBADD = \
 	$(top_builddir)/panel-widgets/libpipnode-panel-widgets.la \
 	$(LIBXFCE4PANEL_LIBS) \
 	$(GTK_LIBS) \
-	$(GLIB_LIBS)
+	$(GLIB_LIBS) \
+	$(JSON_GLIB_LIBS)
 
 # Panel descriptor: tells xfce4-panel that this module exists.  The panel
 # turns X-XFCE-Module=pipnode-deadline into "libpipnode-deadline.so".

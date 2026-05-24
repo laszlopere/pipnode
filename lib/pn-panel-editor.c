@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-panel-editor.h"
+#include "pn-panel-geometry.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-node.h"
@@ -48,23 +49,17 @@
 /*  freely; only the shared panel-widgets library must stay node-free.  */
 /* ------------------------------------------------------------------ */
 
-/* Pixel height of each readout — a typical XFCE panel icon size, so the
- * preview matches what lands on a real panel. */
-#define PN_PE_PREVIEW_HEIGHT 36
+/* PN_PE_PREVIEW_HEIGHT and the panel-band geometry (PN_PE_PANEL_TOP /
+ * PN_PE_PANEL_HEIGHT) live in the shared pn-panel-geometry.h so the
+ * headless engine's band-membership test stays in lock-step with the snap
+ * target used here.  The band is drawn as two thin dashed edges across the
+ * canvas one widget apart, so a snapped widget fills it edge to edge. */
 
 /* Size of the free-positioning canvas.  It is deliberately larger than a
  * typical viewport so there is room to spread widgets out; the host wraps
  * the editor in a scrolled window, which scrolls to reach the rest. */
 #define PN_PE_CANVAS_WIDTH  1000
 #define PN_PE_CANVAS_HEIGHT  700
-
-/* Geometry of the panel band — a horizontal strip standing in for the
- * real XFCE panel, drawn as two thin dashed edges across the canvas.  Its
- * top sits at the cascade margin so the first readout lands inside it, and
- * its depth is exactly the applet-widget height, so the two guide lines sit
- * one widget apart and a snapped widget fills the band edge to edge. */
-#define PN_PE_PANEL_TOP     24
-#define PN_PE_PANEL_HEIGHT  PN_PE_PREVIEW_HEIGHT
 
 /* Sticky snapping of a dragged row to the panel band: it snaps when the
  * pointer-driven position comes within PN_PE_SNAP_GRAB px of the band, and

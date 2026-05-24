@@ -163,6 +163,12 @@
       "target_id" : "f482554b-701e-4dc1-ac1c-b93eb9fa007f"
     }
   ],
+  "panel_layout" : {
+    "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca" : {
+      "x" : 0.0,
+      "y" : 24.0
+    }
+  },
   "sheets" : [
     "Worksheet"
   ],

@@ -78,6 +78,92 @@ WORKSHEET = {
 }
 
 
+# --- Per-node panel widget mirroring -------------------------------------
+#
+# A worksheet that drives a Countdown and a steady LED from one Panel
+# Input, with a panel layout that snaps both onto the band but parks a
+# second Countdown off it.  Exercises GetLayout (band membership + order)
+# and the WidgetChanged per-node state signal.
+CD_BAND  = "33333333-3333-3333-3333-333333333333"
+LED_BAND = "44444444-4444-4444-4444-444444444444"
+CD_OFF   = "55555555-5555-5555-5555-555555555555"
+IN_UUID  = "66666666-6666-6666-6666-666666666666"
+
+# The band sits at PN_PE_PANEL_TOP (24) with the widget height (36); a
+# placement at y == 24 is on the band, y == 200 is well clear of it.
+LAYOUT_WORKSHEET = {
+    "format": "pipnode",
+    "version": 1,
+    "nodes": [
+        {
+            "type": "PnPanelInput",
+            "uuid": IN_UUID,
+            "name": "Panel Input 1",
+            "worksheet": "Worksheet",
+            "position": {"x": 60.0, "y": 60.0},
+            "properties": {"value": 0.0},
+        },
+        {
+            "type": "PnCountdown",
+            "uuid": CD_BAND,
+            "name": "Countdown band",
+            "worksheet": "Worksheet",
+            "position": {"x": 360.0, "y": 60.0},
+            "properties": {},
+        },
+        {
+            "type": "PnLed",
+            "uuid": LED_BAND,
+            "name": "LED band",
+            "worksheet": "Worksheet",
+            "position": {"x": 360.0, "y": 200.0},
+            "properties": {"mode": "Steady (level)"},
+        },
+        {
+            "type": "PnCountdown",
+            "uuid": CD_OFF,
+            "name": "Countdown off-band",
+            "worksheet": "Worksheet",
+            "position": {"x": 360.0, "y": 340.0},
+            "properties": {},
+        },
+    ],
+    "connections": [
+        {"source_id": IN_UUID, "target_id": CD_BAND},
+        {"source_id": IN_UUID, "target_id": LED_BAND},
+    ],
+    "panel_layout": {
+        CD_BAND:  {"x": 0.0,   "y": 24.0},
+        LED_BAND: {"x": 100.0, "y": 24.0},
+        CD_OFF:   {"x": 0.0,   "y": 200.0},
+    },
+    "sheets": ["Worksheet"],
+    "active_sheet": "Worksheet",
+}
+
+# A representable node with NO saved panel layout: the engine falls back to
+# showing every representable node so a never-arranged worksheet is not
+# blank.
+CD_FALLBACK = "77777777-7777-7777-7777-777777777777"
+FALLBACK_WORKSHEET = {
+    "format": "pipnode",
+    "version": 1,
+    "nodes": [
+        {
+            "type": "PnCountdown",
+            "uuid": CD_FALLBACK,
+            "name": "Countdown",
+            "worksheet": "Worksheet",
+            "position": {"x": 120.0, "y": 80.0},
+            "properties": {},
+        },
+    ],
+    "connections": [],
+    "sheets": ["Worksheet"],
+    "active_sheet": "Worksheet",
+}
+
+
 def fail(msg: str) -> None:
     print(f"FAIL: {msg}", file=sys.stderr)
     sys.exit(1)
@@ -134,6 +220,10 @@ class Engine:
         return self.call("GetDisplayValue",
                          GLib.Variant("(s)", (path,)), "(s)")[0]
 
+    def get_layout(self, path: str) -> dict:
+        raw = self.call("GetLayout", GLib.Variant("(s)", (path,)), "(s)")[0]
+        return json.loads(raw)
+
     def set_input(self, path: str, value: float) -> None:
         self.call("SetInput", GLib.Variant("(sd)", (path, value)), "")
 
@@ -148,8 +238,11 @@ class Engine:
         self.call("CloseWorksheet", GLib.Variant("(s)", (path,)), "")
 
     def subscribe_value_changed(self, on_signal) -> int:
+        return self.subscribe("ValueChanged", on_signal)
+
+    def subscribe(self, signal_name: str, on_signal) -> int:
         return self.bus.signal_subscribe(
-            self.bus_name, ENGINE_IFACE, "ValueChanged", self.obj_path,
+            self.bus_name, ENGINE_IFACE, signal_name, self.obj_path,
             None, Gio.DBusSignalFlags.NONE,
             lambda c, s, o, i, sig, params, user: on_signal(*params.unpack()),
             None,
@@ -184,6 +277,65 @@ def wait_for(predicate, timeout: float) -> bool:
     GLib.timeout_add(int(timeout * 1000), loop.quit)
     loop.run()
     return state["ok"] or predicate()
+
+
+def check_panel_widgets(engine: "Engine", tmpdir: str) -> None:
+    """GetLayout reports the band-snapped Countdown/LED in order (the
+    off-band one excluded), WidgetChanged carries each node's live state,
+    and a layout-less worksheet falls back to all representable nodes."""
+    layout_path = os.path.join(tmpdir, "layout.json")
+    with open(layout_path, "w", encoding="utf-8") as fh:
+        json.dump(LAYOUT_WORKSHEET, fh)
+
+    widgets: list[tuple] = []
+    engine.subscribe(
+        "WidgetChanged",
+        lambda p, u, s: widgets.append((p, u, json.loads(s))))
+
+    engine.run_worksheet(layout_path)
+
+    # Only the two band-snapped widgets, left to right by x; the off-band
+    # Countdown must not appear.
+    layout = engine.get_layout(layout_path)
+    order  = [w["uuid"] for w in layout.get("widgets", [])]
+    if order != [CD_BAND, LED_BAND]:
+        fail(f"GetLayout band membership/order wrong: {order!r}")
+    kinds = {w["uuid"]: w["state"]["kind"] for w in layout["widgets"]}
+    if kinds.get(CD_BAND) != "countdown" or kinds.get(LED_BAND) != "led":
+        fail(f"GetLayout widget kinds wrong: {kinds!r}")
+    if CD_OFF in order:
+        fail("off-band Countdown leaked into the layout")
+
+    # Drive the single Panel Input: the Countdown shows 120 s and the
+    # steady LED latches on, each pushed as a WidgetChanged keyed by UUID.
+    engine.set_input(layout_path, 120.0)
+
+    def countdown_seen() -> bool:
+        return any(p == layout_path and u == CD_BAND
+                   and s.get("seconds") == 120
+                   for p, u, s in widgets)
+
+    def led_seen() -> bool:
+        return any(p == layout_path and u == LED_BAND
+                   and s.get("lit") is True
+                   for p, u, s in widgets)
+
+    if not wait_for(lambda: countdown_seen() and led_seen(), timeout=8.0):
+        fail("WidgetChanged for the countdown (seconds=120) and the lit LED "
+             f"were not both seen; got {widgets!r}")
+
+    # A worksheet with a representable node but no saved layout: the engine
+    # falls back to showing it rather than leaving the applet blank.
+    fb_path = os.path.join(tmpdir, "fallback.json")
+    with open(fb_path, "w", encoding="utf-8") as fh:
+        json.dump(FALLBACK_WORKSHEET, fh)
+    engine.run_worksheet(fb_path)
+    fb_order = [w["uuid"] for w in engine.get_layout(fb_path).get("widgets", [])]
+    if fb_order != [CD_FALLBACK]:
+        fail(f"fallback layout did not list the lone Countdown: {fb_order!r}")
+
+    engine.close_worksheet(layout_path)
+    engine.close_worksheet(fb_path)
 
 
 def run_test() -> None:
@@ -235,6 +387,9 @@ def run_test() -> None:
         # PresentEditor must succeed (opens the running flow for editing).
         engine.present_editor(path)
 
+        # Per-node panel widget mirroring: layout + per-widget state.
+        check_panel_widgets(engine, tmpdir)
+
         # Drive a final value and close: the worksheet autosaves, so the
         # last input value is persisted to disk.
         engine.set_input(path, 55.0)
@@ -254,7 +409,9 @@ def run_test() -> None:
           "mirrored the Panel Input to the Panel Display via GetDisplayValue "
           "and the ValueChanged signal, drove it by value (SetInput) and by "
           "a mouse event (SendEvent), opened it for editing (PresentEditor), "
-          "and autosaved the last value on CloseWorksheet.")
+          "autosaved the last value on CloseWorksheet, and mirrored each "
+          "band-snapped Countdown/LED node to the applet (GetLayout membership "
+          "and order, WidgetChanged per-node state, layout-less fallback).")
 
 
 if __name__ == "__main__":
