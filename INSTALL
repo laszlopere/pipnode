@@ -169,3 +169,32 @@ So a pipnode-core-only install simply has no -gui.so files present, and
 every node still runs (it just shows the host's default dialog if its
 custom dialog lived in the companion).  See PLUGINS for the full plugin
 model and a checklist for shipping a server-installable plugin.
+
+
+Uninstalling
+============
+
+Automake generates a "make uninstall" target, so removing an installed
+build is the inverse of installing it.  Run it from the SAME build tree
+you installed from -- it deletes the files that tree's "make install"
+wrote -- with the same privileges and the same --prefix:
+
+    sudo make uninstall
+
+It recurses through every subdirectory and removes the binaries
+(pipnode-editor, pipnode-run), the libpipnode-core / libpipnode-gui
+libraries, the bundled plugins, the help pages and icons under
+$pkgdatadir, the pkg-config and aclocal developer files, and every
+bundled example worksheet under $pkgdatadir/examples/<category>/.
+
+As is standard for Automake, "make uninstall" removes files but not the
+directories it created, so empty directories such as
+$pkgdatadir/examples/ are left behind.  To prune the example tree too
+($pkgdatadir defaults to /usr/local/share/pipnode):
+
+    sudo make uninstall
+    sudo rmdir -p /usr/local/share/pipnode/examples/* 2>/dev/null
+
+It does not touch anything installed outside this build tree -- e.g. a
+stale plugin you moved aside into plugins.disabled/, or an out-of-tree
+plugin installed by its own "make install".
