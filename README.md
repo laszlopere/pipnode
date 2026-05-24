@@ -71,13 +71,13 @@ server-installable plugins.
 ## XFCE panel applets
 
 A worksheet can also drive an **XFCE panel applet** — a button on the panel
-that runs a flow and shows a value. The applet
-(`panel-plugins/pipnode-worksheet`) is a thin D-Bus client linking **no**
-pipnode library, so a node or plugin crash can never take down `xfce4-panel`.
-Each new applet is seeded with a copy of a shipped starter worksheet
-(`pipnode-worksheet-default.json`, installed under the data dir) so it begins
-with a working flow rather than a blank sheet; right-click → Properties to edit
-it. The flow runs in a background **engine** — `pipnode-editor` started as a
+that runs a flow and shows a value. The first such applet, **Deadline**
+(`panel-plugins/pipnode-deadline`), counts down to a target date; it is a thin
+D-Bus client linking **no** pipnode library, so a node or plugin crash can never
+take down `xfce4-panel`. Each new applet is seeded with a copy of a shipped
+starter worksheet (`pipnode-deadline-default.json`, installed under the data
+dir) so it begins with a working flow rather than a blank sheet; right-click →
+Properties to edit it. The flow runs in a background **engine** — `pipnode-editor` started as a
 D-Bus service (`--gapplication-service`, auto-activated on first use) — which
 holds each worksheet in a hidden window whose flow ticks the whole time. Picking
 **Properties** on the applet opens that *same running* worksheet for editing;

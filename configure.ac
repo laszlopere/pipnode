@@ -171,7 +171,7 @@ AC_CONFIG_FILES([
     tests/plugins/Makefile
     tests/plugins/echo/Makefile
     panel-plugins/Makefile
-    panel-plugins/pipnode-worksheet/Makefile
+    panel-plugins/pipnode-deadline/Makefile
 ])
 
 AC_OUTPUT

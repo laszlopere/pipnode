@@ -188,7 +188,7 @@ CloseWorksheet + the ValueChanged signal, keyed by worksheet path) alongside the
 existing test-only org.pipas.pipnode.Worksheet interface. Two new core nodes
 bridge the flow to the panel: Panel Display (PnPanelDisplay, a sink whose last
 value the applet shows) and Panel Input (PnPanelInput, a source a click drives).
-The applet (panel-plugins/pipnode-worksheet) is now a thin GDBus client linking
+The applet (panel-plugins/pipnode-deadline) is now a thin GDBus client linking
 NO pipnode library. Tests: tests/test_panel_engine_run.py + unit tests
 test-pn-panel-{display,input}.c. The headless CLI (pipnode-run) stays the
 server tool; the engine is the desktop-session runtime.
@@ -205,8 +205,8 @@ voice you find": on a fresh node, auto-detect the first available TTS engine
 for it, instead of defaulting to a fixed engine/model that may not exist on the
 machine. The auto-pick must stay overridable in the editor (keep the existing
 engine/voice selectors). Once this lands, update the bundled panel applets --
-the shipped starter worksheet panel-plugins/pipnode-worksheet/
-pipnode-worksheet-default.json currently hard-codes an absolute
+the shipped starter worksheet panel-plugins/pipnode-deadline/
+pipnode-deadline-default.json currently hard-codes an absolute
 ~/.local/share/piper/...onnx model path -- to rely on the auto-default so a new
 applet's TTS works on any machine out of the box. (Came up while wiring the
 panel applet's click -> Panel Input -> Text to Speech demo: the shipped template

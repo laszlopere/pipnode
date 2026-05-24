@@ -14,13 +14,15 @@
  */
 
 /* ------------------------------------------------------------------ */
-/*  Pipnode Worksheet — XFCE panel applet                             */
+/*  Pipnode Deadline — XFCE panel applet                              */
 /*                                                                     */
-/*  A panel button that *runs* a pipnode worksheet, not just a         */
-/*  launcher.  Each applet instance owns one worksheet (a .json        */
+/*  A panel button that *runs* a pipnode deadline worksheet, not just  */
+/*  a launcher.  Each applet instance owns one worksheet (a .json      */
 /*  document) under ~/.config/pipnode/panel/<unique-id>.json, executed */
 /*  by the background engine — pipnode-editor running as a D-Bus       */
-/*  service (org.pipas.pipnode), auto-started on first use.            */
+/*  service (org.pipas.pipnode), auto-started on first use.  The       */
+/*  shipped starter flow counts down to a target date, but the applet  */
+/*  runs whatever flow the worksheet holds.                            */
 /*                                                                     */
 /*  The applet is a thin D-Bus client (no pipnode libraries, so an     */
 /*  editor/node crash can never take down xfce4-panel):                */
@@ -31,7 +33,7 @@
 /*      panel-sized echo of the Countdown node), other text in a plain  */
 /*      label;                                                          */
 /*    - a mouse click drives the PnPanelInput node(s): the click is     */
-/*      forwarded (SendEvent) tagged with the button, so the worksheet  */
+/*      forwarded (SendEvent) tagged with the button, so the flow       */
 /*      sees which button was clicked;                                  */
 /*    - the right-click "Properties" item opens the worksheet for      */
 /*      editing (PresentEditor) — the same running flow, shown.        */
@@ -48,6 +50,35 @@
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
 #define PIPNODE_ICON_NAME "org.pipas.pipnode"
 
+/* Flatten the panel button in every state: no border, background or
+ * box-shadow on hover/focus/active, so the applet shows just its icon
+ * and value with no frame or highlight when the mouse is over it. */
+static const gchar BUTTON_CSS[] =
+    "button, button:hover, button:active, button:checked, button:focus {"
+    "  background: none;"
+    "  background-image: none;"
+    "  border: none;"
+    "  box-shadow: none;"
+    "  outline: none;"
+    "  padding: 0;"
+    "}";
+
+static void
+flatten_button (GtkWidget *button)
+{
+    GtkCssProvider  *provider;
+    GtkStyleContext *context;
+
+    provider = gtk_css_provider_new ();
+    gtk_css_provider_load_from_data (provider, BUTTON_CSS, -1, NULL);
+
+    context = gtk_widget_get_style_context (button);
+    gtk_style_context_add_provider (context,
+                                    GTK_STYLE_PROVIDER (provider),
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref (provider);
+}
+
 /* The background engine's well-known bus name, object path and the
  * panel control interface (see src/pn-application.c).  The name is
  * D-Bus-activatable, so the first call auto-starts the engine. */
@@ -57,9 +88,9 @@
 
 /* Starter worksheet shipped with the applet: a new applet instance is
  * seeded with a copy of this so the user begins with a working flow
- * (a countdown plus a click-driven Panel Input) rather than a blank
- * sheet.  Installed to pipnode's datadir; see ensure_worksheet(). */
-#define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-worksheet-default.json"
+ * (a deadline countdown plus a click-driven Panel Input) rather than a
+ * blank sheet.  Installed to pipnode's datadir; see ensure_worksheet(). */
+#define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-deadline-default.json"
 
 /* A blank pipnode document, matching the on-disk format produced by
  * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  Used as a fallback when the
@@ -88,7 +119,7 @@ typedef struct
     gchar           *path;     /* this instance's worksheet file     */
     GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy     */
     GCancellable    *cancel;   /* cancels in-flight async D-Bus work */
-} PipnodeWorksheet;
+} PipnodeDeadline;
 
 /* ------------------------------------------------------------------ */
 /*  Worksheet location / creation                                      */
@@ -97,7 +128,7 @@ typedef struct
 /* ~/.config/pipnode/panel/<unique-id>.json — one file per applet
  * instance, so two panel buttons keep distinct worksheets. */
 static gchar *
-worksheet_path (PipnodeWorksheet *self)
+worksheet_path (PipnodeDeadline *self)
 {
     gchar    *base;
     gchar    *path;
@@ -168,7 +199,7 @@ ensure_worksheet (const gchar *path,
  * icon is hidden once a value is showing; an empty string restores the
  * icon-only button, so a display-less worksheet keeps just the icon. */
 static void
-set_display_text (PipnodeWorksheet *self, const gchar *text)
+set_display_text (PipnodeDeadline *self, const gchar *text)
 {
     gint64 seconds;
 
@@ -203,7 +234,7 @@ on_run_worksheet_done (GObject      *source,
                        GAsyncResult *result,
                        gpointer      user_data)
 {
-    PipnodeWorksheet *self = user_data;
+    PipnodeDeadline *self = user_data;
     GVariant         *reply;
     GError           *error = NULL;
 
@@ -211,7 +242,7 @@ on_run_worksheet_done (GObject      *source,
     if (reply == NULL)
     {
         if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("pipnode-worksheet: RunWorksheet failed: %s",
+            g_warning ("pipnode-deadline: RunWorksheet failed: %s",
                        error->message);
         g_clear_error (&error);
         return;
@@ -235,7 +266,7 @@ on_engine_signal (GDBusProxy *proxy,
                   GVariant    *parameters,
                   gpointer     user_data)
 {
-    PipnodeWorksheet *self = user_data;
+    PipnodeDeadline *self = user_data;
 
     (void) proxy;
     (void) sender;
@@ -257,7 +288,7 @@ on_engine_ready (GObject      *source,
                  GAsyncResult *result,
                  gpointer      user_data)
 {
-    PipnodeWorksheet *self = user_data;
+    PipnodeDeadline *self = user_data;
     GError           *error = NULL;
 
     (void) source;
@@ -266,7 +297,7 @@ on_engine_ready (GObject      *source,
     if (self->engine == NULL)
     {
         if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("pipnode-worksheet: cannot reach the pipnode engine: %s",
+            g_warning ("pipnode-deadline: cannot reach the pipnode engine: %s",
                        error->message);
         g_clear_error (&error);
         return;
@@ -285,7 +316,7 @@ on_engine_ready (GObject      *source,
 
 /* Fire-and-forget engine call carrying just the worksheet path. */
 static void
-engine_call_path (PipnodeWorksheet *self, const gchar *method)
+engine_call_path (PipnodeDeadline *self, const gchar *method)
 {
     if (self->engine == NULL)
         return;
@@ -308,7 +339,7 @@ engine_call_path (PipnodeWorksheet *self, const gchar *method)
 static gboolean
 on_button_press (GtkWidget        *button,
                  GdkEventButton   *event,
-                 PipnodeWorksheet *self)
+                 PipnodeDeadline *self)
 {
     (void) button;
 
@@ -331,7 +362,7 @@ on_button_press (GtkWidget        *button,
 /* Right-click "Properties": open the running worksheet for editing. */
 static void
 on_configure_plugin (XfcePanelPlugin  *plugin,
-                     PipnodeWorksheet *self)
+                     PipnodeDeadline *self)
 {
     (void) plugin;
     engine_call_path (self, "PresentEditor");
@@ -344,7 +375,7 @@ on_configure_plugin (XfcePanelPlugin  *plugin,
 static gboolean
 on_size_changed (XfcePanelPlugin  *plugin,
                  gint              size,
-                 PipnodeWorksheet *self)
+                 PipnodeDeadline *self)
 {
     gint icon_size = xfce_panel_plugin_get_icon_size (plugin);
 
@@ -356,7 +387,7 @@ on_size_changed (XfcePanelPlugin  *plugin,
 
 static void
 on_free_data (XfcePanelPlugin  *plugin,
-              PipnodeWorksheet *self)
+              PipnodeDeadline *self)
 {
     (void) plugin;
 
@@ -365,17 +396,17 @@ on_free_data (XfcePanelPlugin  *plugin,
     g_clear_object (&self->engine);
     g_clear_pointer (&self->path, g_free);
 
-    g_slice_free (PipnodeWorksheet, self);
+    g_slice_free (PipnodeDeadline, self);
 }
 
 static void
-pipnode_worksheet_construct (XfcePanelPlugin *plugin)
+pipnode_deadline_construct (XfcePanelPlugin *plugin)
 {
-    PipnodeWorksheet *self;
+    PipnodeDeadline *self;
     GtkWidget        *box;
     GError           *error = NULL;
 
-    self = g_slice_new0 (PipnodeWorksheet);
+    self = g_slice_new0 (PipnodeDeadline);
     self->plugin = plugin;
     self->cancel = g_cancellable_new ();
     self->path   = worksheet_path (self);
@@ -383,6 +414,7 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
     /* Flat, panel-styled button holding the icon plus a live value
      * label (hidden until the worksheet's Panel Display emits). */
     self->button = xfce_panel_create_button ();
+    flatten_button (self->button);
     box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
     self->image = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
                                                 GTK_ICON_SIZE_BUTTON);
@@ -394,7 +426,7 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
     gtk_container_add (GTK_CONTAINER (self->button), box);
 
     gtk_widget_set_tooltip_text (self->button,
-                                 "Pipnode worksheet — click to send, "
+                                 "Pipnode deadline — click to send, "
                                  "right-click → Properties to edit");
 
     gtk_container_add (GTK_CONTAINER (plugin), self->button);
@@ -426,7 +458,7 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
      * asynchronously so the panel never blocks on D-Bus. */
     if (!ensure_worksheet (self->path, &error))
     {
-        g_warning ("pipnode-worksheet: could not create worksheet '%s': %s",
+        g_warning ("pipnode-deadline: could not create worksheet '%s': %s",
                    self->path, error->message);
         g_clear_error (&error);
         return;
@@ -440,4 +472,4 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
 }
 
 /* Generates the xfce_panel_module_* entry points the panel dlopen()s. */
-XFCE_PANEL_PLUGIN_REGISTER (pipnode_worksheet_construct)
+XFCE_PANEL_PLUGIN_REGISTER (pipnode_deadline_construct)
