@@ -28,6 +28,7 @@
 #include "pn-auto-random.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
+#include "pn-deadline.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
 #include "pn-delay.h"
@@ -235,6 +236,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);
+    pn_node_factory_register (self, PN_TYPE_DEADLINE);
     pn_node_factory_register (self, PN_TYPE_THRESHOLD);
     pn_node_factory_register (self, PN_TYPE_THROTTLE);
     pn_node_factory_register (self, PN_TYPE_WATCHDOG);

@@ -41,6 +41,8 @@ libpipnode_core_la_SOURCES = \
 	pn-color.h \
 	pn-comparator.c \
 	pn-comparator.h \
+	pn-deadline.c \
+	pn-deadline.h \
 	pn-debug.c \
 	pn-debug.h \
 	pn-dedup.c \
