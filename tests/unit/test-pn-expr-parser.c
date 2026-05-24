@@ -112,6 +112,195 @@ test_variables_and_functions (void)
     g_object_unref (p);
 }
 
+/* Every number form the lexer accepts: plain integer, decimal, a
+ * leading-dot fraction, and scientific notation (both signs of exp).
+ * g_ascii_strtod does the heavy lifting; this pins which prefixes the
+ * lexer is willing to hand it. */
+static void
+test_number_literals (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "12",      &ok), 12.0,  1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "12.5",    &ok), 12.5,  1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, ".5",      &ok), 0.5,   1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1e3",     &ok), 1000.0,1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "2.5e-1",  &ok), 0.25,  1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* The full built-in function table — one assertion per entry so a
+ * dropped or mis-wired row is caught.  sin/sqrt are also covered in
+ * test_variables_and_functions; repeated here so this one test pins the
+ * whole table in a single place. */
+static void
+test_all_builtin_functions (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "sin(0)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "cos(0)",      &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "tan(0)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "log(1)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "log10(1000)", &ok), 3.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "exp(0)",      &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(16)",    &ok), 4.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "abs(-7)",     &ok), 7.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "floor(2.7)",  &ok), 2.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "ceil(2.1)",   &ok), 3.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* A function argument is a full sub-expression, and calls nest. */
+static void
+test_functions_nested_and_arg_expr (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(9 + 7)",      &ok), 4.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(sqrt(16))",   &ok), 2.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "abs(floor(-2.5))", &ok), 3.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Unary signs chain and combine with binary operators and parens. */
+static void
+test_unary_chains (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "--5",       &ok),  5.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "3 - -2",    &ok),  5.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-(2 + 3)",  &ok), -5.0, 1e-9); PN_CHECK (ok);
+    /* Unary binds to the factor, so this is (-2) * 3, not -(2 * 3)
+     * — same value, but it proves the bind level via the left operand. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "-2 * 3",    &ok), -6.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Identifiers may start with / contain underscores. */
+static void
+test_identifier_forms (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    pn_var_store_set (vars, "_x",     4.0);
+    pn_var_store_set (vars, "my_var", 10.0);
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "_x + 1",     &ok),  5.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "my_var / 2", &ok),  5.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Division (like subtraction) is left-associative: 8/4/2 is (8/4)/2. */
+static void
+test_left_associative_division (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "8 / 4 / 2",    &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "100 / 10 / 2", &ok), 5.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Runtime (evaluation-time) semantics that parse cleanly but are decided
+ * by the evaluator: an unset variable and an unknown function are errors
+ * with their own codes, while division by zero is NOT an error — it
+ * yields an IEEE infinity, matching the comment in pn-var-store.c. */
+static void
+test_eval_semantics (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    GError       *err  = NULL;
+    PnExprNode   *ast;
+    gdouble       out  = 0.0;
+    gboolean      ok;
+
+    /* Unknown variable: parses, fails to evaluate with UNKNOWN_VARIABLE. */
+    ast = pn_expr_parser_parse (p, "x + 1", &err);
+    PN_CHECK (ast != NULL && err == NULL);
+    ok = pn_var_store_evaluate (vars, ast, &out, &err);
+    PN_CHECK_FALSE (ok);
+    PN_CHECK (err != NULL && err->domain == PN_VAR_STORE_ERROR &&
+              err->code == PN_VAR_STORE_ERROR_UNKNOWN_VARIABLE);
+    g_clear_error (&err);
+    pn_expr_node_free (ast);
+
+    /* Unknown function: any IDENT '(' … ')' parses, but evaluation
+     * rejects a name not in the built-in table. */
+    ast = pn_expr_parser_parse (p, "frobnicate(1)", &err);
+    PN_CHECK (ast != NULL && err == NULL);
+    ok = pn_var_store_evaluate (vars, ast, &out, &err);
+    PN_CHECK_FALSE (ok);
+    PN_CHECK (err != NULL && err->domain == PN_VAR_STORE_ERROR &&
+              err->code == PN_VAR_STORE_ERROR_UNKNOWN_FUNCTION);
+    g_clear_error (&err);
+    pn_expr_node_free (ast);
+
+    /* Division by zero is a successful evaluation yielding infinity. */
+    out = parse_eval (p, vars, "1 / 0", &ok);
+    PN_CHECK (ok);
+    PN_CHECK (isinf (out));
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Each parse failure maps to its specific error code, not just "an
+ * error".  Covers all three PnExprParserError codes plus the distinct
+ * "missing ')' after a function argument" path. */
+static void
+check_parse_error (PnExprParser *p, const gchar *expr, gint code)
+{
+    GError     *err = NULL;
+    PnExprNode *ast = pn_expr_parser_parse (p, expr, &err);
+
+    PN_CHECK (ast == NULL);
+    PN_CHECK (err != NULL && err->domain == PN_EXPR_PARSER_ERROR &&
+              err->code == code);
+    g_clear_error (&err);
+}
+
+static void
+test_parse_error_codes (void)
+{
+    PnExprParser *p = pn_expr_parser_new ();
+
+    check_parse_error (p, "1 +",     PN_EXPR_PARSER_ERROR_UNEXPECTED_EOF);
+    check_parse_error (p, "",        PN_EXPR_PARSER_ERROR_UNEXPECTED_EOF);
+    check_parse_error (p, "1 2",     PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "(1 + 2",  PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "sin(1",   PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "1 % 2",   PN_EXPR_PARSER_ERROR_SYNTAX);
+
+    g_object_unref (p);
+}
+
 static void
 test_parse_errors (void)
 {
@@ -159,6 +348,14 @@ main (int argc, char **argv)
     pn_test_add ("arithmetic_precedence", test_arithmetic_and_precedence);
     pn_test_add ("unary_sign",            test_unary_sign);
     pn_test_add ("variables_functions",   test_variables_and_functions);
+    pn_test_add ("number_literals",       test_number_literals);
+    pn_test_add ("all_builtin_functions", test_all_builtin_functions);
+    pn_test_add ("functions_nested",      test_functions_nested_and_arg_expr);
+    pn_test_add ("unary_chains",          test_unary_chains);
+    pn_test_add ("identifier_forms",      test_identifier_forms);
+    pn_test_add ("left_assoc_division",   test_left_associative_division);
+    pn_test_add ("eval_semantics",        test_eval_semantics);
+    pn_test_add ("parse_error_codes",     test_parse_error_codes);
     pn_test_add ("parse_errors",          test_parse_errors);
     return pn_test_run ();
 }

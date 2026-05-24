@@ -90,6 +90,32 @@ test_two_inputs_combined (void)
 }
 
 static void
+test_named_siblings_get_input_suffix (void)
+{
+    guint      emits;
+    /* The suffix scheme applies to every numeric member, not just
+     * "value": a member `a` on input 1 binds as `a1`, a member `b` on
+     * input 2 as `b2`. */
+    PnNode    *node = make_node ("a1 * b2", &emits);
+    PnMessage *m1   = pn_message_new (NULL, NULL);
+    PnMessage *m2   = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (m1, "a", 4.0);
+    pn_node_receive_message_on_input (node, m1, 0);   /* b2 still unbound */
+    PN_CHECK_FALSE (pn_test_bool (m1, "success"));
+
+    pn_message_set_double (m2, "b", 5.0);
+    pn_node_receive_message_on_input (node, m2, 1);   /* now a1 * b2 = 20 */
+    PN_CHECK_CMPINT (emits, ==, 2);
+    PN_CHECK_NEAR   (pn_test_num (m2, "value"), 20.0, 1e-9);
+    PN_CHECK        (pn_test_bool (m2, "success"));
+
+    g_object_unref (m1);
+    g_object_unref (m2);
+    g_object_unref (node);
+}
+
+static void
 test_invalid_expression_forwards_failure (void)
 {
     guint      emits;
@@ -115,6 +141,7 @@ main (int argc, char **argv)
     pn_test_init (&argc, &argv, "pn-expression2");
     pn_test_add ("single_input",           test_single_input_expression);
     pn_test_add ("two_inputs_combined",    test_two_inputs_combined);
+    pn_test_add ("named_siblings_suffix",  test_named_siblings_get_input_suffix);
     pn_test_add ("invalid_forwards_fail",  test_invalid_expression_forwards_failure);
     return pn_test_run ();
 }

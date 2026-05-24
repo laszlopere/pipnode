@@ -80,6 +80,49 @@ test_eval_siblings (void)
 }
 
 static void
+test_binds_integer_member (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("value * 2", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    /* An integer-typed member binds as a variable just like a double —
+     * the receive loop accepts G_TYPE_INT64 alongside G_TYPE_DOUBLE. */
+    pn_message_set_int (msg, "value", 21);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 42.0, 1e-9);
+    PN_CHECK        (pn_test_bool (msg, "success"));
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
+test_eval_failure_preserves_value (void)
+{
+    guint      emits;
+    /* A valid expression that references a variable the message does not
+     * carry: this parses fine but fails at evaluation time — a different
+     * path from the empty-expression (AST == NULL) case. */
+    PnNode    *node = make_node ("missing * 2", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (msg, "value", 7.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_FALSE  (pn_test_bool (msg, "success"));
+    PN_CHECK        (pn_test_has  (msg, "error"));
+    /* On evaluation failure data.value is left exactly as it arrived. */
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 7.0, 1e-9);
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+static void
 test_no_expression_forwards_failure (void)
 {
     guint      emits;
@@ -107,6 +150,8 @@ main (int argc, char **argv)
     pn_test_init (&argc, &argv, "pn-expression");
     pn_test_add ("eval_arithmetic",            test_eval_arithmetic);
     pn_test_add ("eval_siblings",              test_eval_siblings);
+    pn_test_add ("binds_integer_member",       test_binds_integer_member);
+    pn_test_add ("eval_failure_keeps_value",   test_eval_failure_preserves_value);
     pn_test_add ("no_expression_forwards",     test_no_expression_forwards_failure);
     return pn_test_run ();
 }
