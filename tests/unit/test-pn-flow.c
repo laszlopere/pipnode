@@ -32,6 +32,7 @@
 #include "pn-subst.h"
 
 #include <json-glib/json-glib.h>
+#include <glib/gstdio.h>
 
 /* Build a flow holding a single node and clear the dirty flag the add
  * itself raised, leaving a clean baseline for the caller to perturb. */
@@ -301,6 +302,155 @@ test_topic_template_node_and_globals (void)
     g_object_unref (flow);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Panel-applet layout                                                */
+/* ------------------------------------------------------------------ */
+
+/* set/get preserves the placement; an unplaced node misses. */
+static void
+test_panel_position_roundtrip (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    gdouble  x = -1, y = -1;
+
+    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, "abc", NULL, NULL));
+
+    pn_flow_set_panel_position (flow, "abc", 120.0, 240.0);
+    PN_CHECK (pn_flow_get_panel_position (flow, "abc", &x, &y));
+    PN_CHECK_NEAR (x, 120.0, 1e-9);
+    PN_CHECK_NEAR (y, 240.0, 1e-9);
+
+    g_object_unref (flow);
+}
+
+/* The first placement dirties the flow; re-setting the same coordinates
+ * does not, so a click that does not move a widget keeps the file clean. */
+static void
+test_panel_position_marks_dirty (void)
+{
+    PnNode *node;
+    PnFlow *flow = make_clean_flow (&node);
+
+    pn_flow_set_panel_position (flow, "abc", 10.0, 20.0);
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    pn_flow_set_modified (flow, FALSE);
+    pn_flow_set_panel_position (flow, "abc", 10.0, 20.0);   /* unchanged */
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    pn_flow_set_panel_position (flow, "abc", 11.0, 20.0);   /* moved */
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    g_object_unref (flow);
+}
+
+/* Placements survive a save/load to disk, keyed by node UUID; a placement
+ * whose node is gone is pruned on save rather than written out. */
+static void
+test_panel_position_disk_roundtrip (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_inject_new ());
+    gchar  *uuid;
+    gchar  *path = NULL;
+    gint    fd;
+    gdouble x = -1, y = -1;
+
+    pn_flow_add_node (flow, node);
+    uuid = g_strdup (pn_node_get_uuid (node));
+
+    /* Layout is only persisted while the editor is open. */
+    pn_flow_set_panel_editor_open (flow, TRUE);
+    pn_flow_set_panel_position (flow, uuid, 150.0, 275.0);
+    /* An orphan placement (no such node) must not be serialised. */
+    pn_flow_set_panel_position (flow, "no-such-node", 7.0, 9.0);
+
+    fd = g_file_open_tmp ("pn-flow-panel-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));   /* load alone is clean */
+
+    PN_CHECK (pn_flow_get_panel_editor_open (flow));   /* reopens on load */
+    PN_CHECK (pn_flow_get_panel_position (flow, uuid, &x, &y));
+    PN_CHECK_NEAR (x, 150.0, 1e-9);
+    PN_CHECK_NEAR (y, 275.0, 1e-9);
+    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, "no-such-node",
+                                                NULL, NULL));
+
+    g_remove (path);
+    g_free (path);
+    g_free (uuid);
+    g_object_unref (flow);
+}
+
+/* Opening the editor marks the flow dirty; re-opening an already-open
+ * editor does not.  Closing it marks dirty and discards the layout. */
+static void
+test_panel_editor_open_flag (void)
+{
+    PnFlow *flow = make_clean_flow (NULL);
+
+    pn_flow_set_panel_editor_open (flow, TRUE);
+    PN_CHECK (pn_flow_get_panel_editor_open (flow));
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    pn_flow_set_modified (flow, FALSE);
+    pn_flow_set_panel_editor_open (flow, TRUE);          /* already open */
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    pn_flow_set_panel_position (flow, "abc", 10.0, 20.0);
+    PN_CHECK (pn_flow_get_panel_position (flow, "abc", NULL, NULL));
+
+    pn_flow_set_panel_editor_open (flow, FALSE);
+    PN_CHECK_FALSE (pn_flow_get_panel_editor_open (flow));
+    PN_CHECK (pn_flow_is_modified (flow));
+    /* Closing destroyed the layout. */
+    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, "abc", NULL, NULL));
+
+    g_object_unref (flow);
+}
+
+/* A document saved with the editor closed carries nothing panel-related:
+ * neither the open flag nor any placement survives the round-trip. */
+static void
+test_panel_editor_closed_saves_nothing (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_inject_new ());
+    gchar  *uuid;
+    gchar  *path = NULL;
+    gint    fd;
+
+    pn_flow_add_node (flow, node);
+    uuid = g_strdup (pn_node_get_uuid (node));
+
+    /* Arrange a layout, then close the editor before saving. */
+    pn_flow_set_panel_editor_open (flow, TRUE);
+    pn_flow_set_panel_position (flow, uuid, 30.0, 40.0);
+    pn_flow_set_panel_editor_open (flow, FALSE);
+
+    fd = g_file_open_tmp ("pn-flow-panel-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+    PN_CHECK_FALSE (pn_flow_get_panel_editor_open (flow));
+    PN_CHECK_FALSE (pn_flow_get_panel_position (flow, uuid, NULL, NULL));
+
+    g_remove (path);
+    g_free (path);
+    g_free (uuid);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -317,5 +467,10 @@ main (int argc, char **argv)
     pn_test_add ("globals_subst_source",  test_globals_as_subst_source);
     pn_test_add ("globals_null_flow",     test_globals_null_flow_misses);
     pn_test_add ("topic_node_globals",    test_topic_template_node_and_globals);
+    pn_test_add ("panel_pos_roundtrip",   test_panel_position_roundtrip);
+    pn_test_add ("panel_pos_marks_dirty", test_panel_position_marks_dirty);
+    pn_test_add ("panel_pos_disk",        test_panel_position_disk_roundtrip);
+    pn_test_add ("panel_editor_open_flag", test_panel_editor_open_flag);
+    pn_test_add ("panel_editor_closed",   test_panel_editor_closed_saves_nothing);
     return pn_test_run ();
 }

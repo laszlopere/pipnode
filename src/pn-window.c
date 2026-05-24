@@ -1239,22 +1239,11 @@ action_new (
 
     /* Clearing the flow cascades: every PnWorksheet observes the
      * resulting node-removed events, the flow's sheet-removed signal
-     * pulls every non-default tab out of the notebook, and the
-     * sheet-list resets to a single "Worksheet" sheet. */
+     * pulls every non-default tab out of the notebook, the sheet-list
+     * resets to a single "Worksheet" sheet, and its
+     * panel-editor-visible-changed signal closes the panel editor tab. */
     pn_flow_clear (self->flow);
     g_clear_pointer (&self->current_path, g_free);
-
-    /* The panel editor tab is not a flow sheet, so the clear above does
-     * not touch it — drop it explicitly so "New" yields a truly empty
-     * document. */
-    if (self->panel_editor_page != NULL)
-    {
-        gint idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
-                                          self->panel_editor_page);
-        if (idx >= 0)
-            gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
-        self->panel_editor_page = NULL;
-    }
 
     update_window_title (self);
     status_set (self, "New worksheet");
@@ -3471,29 +3460,24 @@ on_add_panel_editor_activate (GtkMenuItem *item, gpointer user_data)
     PnWindow *self = PN_WINDOW (user_data);
     (void) item;
 
-    pn_window_add_panel_editor_tab (self);
+    /* Record the request on the document; the flow's
+     * panel-editor-visible-changed signal drives the actual tab creation
+     * (so opening it, loading a file that had it open, and clearing all
+     * flow through one path). */
+    pn_flow_set_panel_editor_open (self->flow, TRUE);
 }
 
-/* Close handler for the panel editor tab's "✕" button.  Pulls the page
- * out of the notebook and clears the one-instance guard so the "+" menu
+/* Close handler for the panel editor tab's "✕" button.  Records the
+ * closed state on the document; the visibility signal pulls the page out
+ * of the notebook and clears the one-instance guard so the "+" menu
  * offers the entry again. */
 static void
 on_panel_editor_close_clicked (GtkButton *button, gpointer user_data)
 {
-    PnWindow  *self = PN_WINDOW (user_data);
-    GtkWidget *page = g_object_get_data (G_OBJECT (button), "pn-panel-page");
-    gint       idx;
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) button;
 
-    if (page == NULL)
-        return;
-
-    idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook), page);
-    if (idx >= 0)
-        gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
-
-    if (page == self->panel_editor_page)
-        self->panel_editor_page = NULL;
-
+    pn_flow_set_panel_editor_open (self->flow, FALSE);
     status_set (self, "Closed panel applet layout");
 }
 
@@ -3539,7 +3523,6 @@ pn_window_add_panel_editor_tab (PnWindow *self)
     gtk_button_set_relief (GTK_BUTTON (close_btn), GTK_RELIEF_NONE);
     gtk_widget_set_focus_on_click (close_btn, FALSE);
     gtk_widget_set_tooltip_text (close_btn, "Close the panel applet layout");
-    g_object_set_data (G_OBJECT (close_btn), "pn-panel-page", scrolled);
     g_signal_connect (close_btn, "clicked",
                       G_CALLBACK (on_panel_editor_close_clicked), self);
     gtk_box_pack_start (GTK_BOX (label_box), close_btn, FALSE, FALSE, 0);
@@ -3555,6 +3538,41 @@ pn_window_add_panel_editor_tab (PnWindow *self)
     gtk_widget_show_all (scrolled);
     gtk_notebook_set_current_page (GTK_NOTEBOOK (self->notebook), index);
     status_set (self, "Added panel applet layout");
+}
+
+/* Drop the panel editor tab, if present, and clear the one-instance
+ * guard so the "+" menu offers the entry again. */
+static void
+pn_window_remove_panel_editor_tab (PnWindow *self)
+{
+    gint idx;
+
+    if (self->panel_editor_page == NULL)
+        return;
+
+    idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
+                                 self->panel_editor_page);
+    if (idx >= 0)
+        gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
+    self->panel_editor_page = NULL;
+}
+
+/* The flow's panel-editor open state changed (user action, load, or
+ * clear): bring the notebook tab into line with the document.  Routing
+ * every path through this one handler keeps the tab, the document flag,
+ * and the saved layout consistent. */
+static void
+on_flow_panel_editor_visible (PnFlow   *flow,
+                              gboolean  open,
+                              gpointer  user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) flow;
+
+    if (open)
+        pn_window_add_panel_editor_tab (self);
+    else
+        pn_window_remove_panel_editor_tab (self);
 }
 
 static void
@@ -4053,6 +4071,8 @@ pn_window_constructed (GObject *object)
                       G_CALLBACK (on_flow_active_sheet_changed), self);
     g_signal_connect (self->flow, "modified-changed",
                       G_CALLBACK (on_flow_modified_changed), self);
+    g_signal_connect (self->flow, "panel-editor-visible-changed",
+                      G_CALLBACK (on_flow_panel_editor_visible), self);
 
     self->debug_pane = create_debug_pane (self);
     gtk_paned_pack2 (GTK_PANED (self->debug_paned),

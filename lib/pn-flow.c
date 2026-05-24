@@ -76,7 +76,22 @@ struct _PnFlow
      * settings dialog edits them from the main thread. */
     GHashTable  *globals;
     GMutex       globals_mutex;
+
+    /* Panel-applet layout: node UUID (gchar*, owned) -> placement
+     * (PnPanelPos*, owned) on the #PnPanelEditor canvas.  Main-thread
+     * only (the layout editor and the save/load path), so unlike
+     * @globals it needs no lock. */
+    GHashTable  *panel_layout;
+
+    /* Whether the panel-applet GUI layout editor tab is open.  A
+     * view-state flag (not a sheet and not user data), saved into the
+     * document so reopening a file restores the editor the way the user
+     * left it.  See [[pn-panel-editor]]. */
+    gboolean     panel_editor_open;
 };
+
+/* A stored panel-editor placement; see @panel_layout above. */
+typedef struct { gdouble x, y; } PnPanelPos;
 
 G_DEFINE_TYPE (PnFlow, pn_flow, G_TYPE_OBJECT)
 
@@ -89,6 +104,7 @@ enum {
     SIG_SHEETS_REORDERED,
     SIG_ACTIVE_SHEET_CHANGED,
     SIG_MODIFIED_CHANGED,
+    SIG_PANEL_EDITOR_VISIBLE,
     N_SIGNALS,
 };
 
@@ -411,6 +427,85 @@ pn_flow_remove_global (PnFlow *self, const gchar *name)
 
     if (changed)
         pn_flow_set_modified (self, TRUE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Panel-applet layout                                                */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_flow_get_panel_position (PnFlow      *self,
+                            const gchar *uuid,
+                            gdouble     *out_x,
+                            gdouble     *out_y)
+{
+    PnPanelPos *pos;
+
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (uuid != NULL, FALSE);
+
+    pos = g_hash_table_lookup (self->panel_layout, uuid);
+    if (pos == NULL)
+        return FALSE;
+
+    if (out_x != NULL)
+        *out_x = pos->x;
+    if (out_y != NULL)
+        *out_y = pos->y;
+    return TRUE;
+}
+
+void
+pn_flow_set_panel_position (PnFlow      *self,
+                            const gchar *uuid,
+                            gdouble      x,
+                            gdouble      y)
+{
+    PnPanelPos *pos;
+
+    g_return_if_fail (PN_IS_FLOW (self));
+    g_return_if_fail (uuid != NULL && *uuid != '\0');
+
+    pos = g_hash_table_lookup (self->panel_layout, uuid);
+    if (pos != NULL && pos->x == x && pos->y == y)
+        return;                 /* unchanged — keep the document clean */
+
+    if (pos == NULL)
+    {
+        pos = g_new0 (PnPanelPos, 1);
+        g_hash_table_insert (self->panel_layout, g_strdup (uuid), pos);
+    }
+    pos->x = x;
+    pos->y = y;
+
+    pn_flow_set_modified (self, TRUE);
+}
+
+gboolean
+pn_flow_get_panel_editor_open (PnFlow *self)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    return self->panel_editor_open;
+}
+
+void
+pn_flow_set_panel_editor_open (PnFlow *self, gboolean open)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+
+    open = !!open;
+    if (self->panel_editor_open == open)
+        return;
+
+    self->panel_editor_open = open;
+
+    /* Closing the editor destroys its contents: drop every stored widget
+     * placement so nothing panel-related is written on the next save. */
+    if (!open)
+        g_hash_table_remove_all (self->panel_layout);
+
+    g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0, open);
+    pn_flow_set_modified (self, TRUE);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1108,6 +1203,16 @@ pn_flow_clear (PnFlow *self)
     g_hash_table_remove_all (self->globals);
     g_mutex_unlock (&self->globals_mutex);
 
+    g_hash_table_remove_all (self->panel_layout);
+
+    /* Close the panel-applet editor so a cleared (or about-to-be-loaded)
+     * document starts without a stale editor tab. */
+    if (self->panel_editor_open)
+    {
+        self->panel_editor_open = FALSE;
+        g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0, FALSE);
+    }
+
     /* Tell every host that all but the canonical default sheet just
      * went away.  Walk a copy so emitting "sheet-removed" in the loop
      * cannot trip over the live array. */
@@ -1535,6 +1640,43 @@ pn_flow_load_from_file (
      * those emissions so a freshly-loaded file reports as unmodified. */
     pn_flow_clear (self);
     self->loading = TRUE;
+
+    /* Panel-applet layout must be in place BEFORE the node-add cascade
+     * below: the panel editor reads each node's saved canvas position as
+     * its node-added handler fires.  pn_flow_clear above emptied the
+     * table.  Malformed entries are skipped so a hand-edited file
+     * degrades gracefully. */
+    if (json_object_has_member (obj, "panel_layout") &&
+        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, "panel_layout")))
+    {
+        JsonObject *lay     = json_object_get_object_member (obj,
+                                                             "panel_layout");
+        GList      *members = json_object_get_members (lay);
+        GList      *l;
+
+        for (l = members; l != NULL; l = l->next)
+        {
+            const gchar *uid   = l->data;
+            JsonNode    *enode  = json_object_get_member (lay, uid);
+            JsonObject  *entry;
+            PnPanelPos  *pos;
+
+            if (uid == NULL || *uid == '\0' || !JSON_NODE_HOLDS_OBJECT (enode))
+                continue;
+
+            entry = json_node_get_object (enode);
+            if (!json_object_has_member (entry, "x")
+                || !json_object_has_member (entry, "y"))
+                continue;
+
+            pos    = g_new0 (PnPanelPos, 1);
+            pos->x = json_object_get_double_member (entry, "x");
+            pos->y = json_object_get_double_member (entry, "y");
+            g_hash_table_insert (self->panel_layout, g_strdup (uid), pos);
+        }
+        g_list_free (members);
+    }
+
     for (i = 0; i < new_nodes->len; i++)
     {
         PnNode *node = new_nodes->pdata[i];
@@ -1696,12 +1838,27 @@ pn_flow_load_from_file (
         g_list_free (members);
     }
 
+    /* Panel-applet editor open/closed view-state (default closed). */
+    self->panel_editor_open = FALSE;
+    if (json_object_has_member (obj, "panel_editor_open"))
+    {
+        JsonNode *bn = json_object_get_member (obj, "panel_editor_open");
+        if (JSON_NODE_HOLDS_VALUE (bn))
+            self->panel_editor_open = json_node_get_boolean (bn);
+    }
+
     self->loading = FALSE;
     if (self->modified)
     {
         self->modified = FALSE;
         g_signal_emit (self, signals[SIG_MODIFIED_CHANGED], 0, FALSE);
     }
+
+    /* Now that the model is fully settled, tell the host to match the
+     * editor tab to the loaded state.  Emitted unconditionally so a load
+     * into a window that still shows a stale editor also closes it. */
+    g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0,
+                   self->panel_editor_open);
 
     g_ptr_array_unref  (new_wires);
     g_ptr_array_unref  (new_nodes);
@@ -1798,6 +1955,59 @@ flow_build_root (
             json_object_set_object_member (obj, "globals", globals_obj);
         }
         g_mutex_unlock (&self->globals_mutex);
+
+        /* Panel-applet editor: persisted only while it is open.  Closing
+         * it discards its contents (see pn_flow_set_panel_editor_open),
+         * so a closed editor leaves no trace in the file at all. */
+        if (self->panel_editor_open)
+        {
+            json_object_set_boolean_member (obj, "panel_editor_open", TRUE);
+
+            /* Layout: a UUID-keyed object of { x, y } canvas placements.
+             * Entries for nodes no longer in the flow are pruned so
+             * deleting a node cleans up its placement, and the keys are
+             * sorted for stable diffs.  Omitted when nothing was placed. */
+            if (g_hash_table_size (self->panel_layout) > 0)
+            {
+                GHashTable *live = g_hash_table_new (g_str_hash, g_str_equal);
+                JsonObject *lay  = json_object_new ();
+                GList      *keys = g_hash_table_get_keys (self->panel_layout);
+                GList      *l;
+                guint       k;
+
+                for (k = 0; k < pn_node_store_get_length (self->nodes); k++)
+                {
+                    const gchar *uid = pn_node_get_uuid (
+                            pn_node_store_get_node (self->nodes, k));
+                    if (uid != NULL && *uid != '\0')
+                        g_hash_table_add (live, (gpointer) uid);
+                }
+
+                keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
+                for (l = keys; l != NULL; l = l->next)
+                {
+                    const gchar      *uid = l->data;
+                    const PnPanelPos *pos;
+                    JsonObject       *entry;
+
+                    if (!g_hash_table_contains (live, uid))
+                        continue;
+
+                    pos   = g_hash_table_lookup (self->panel_layout, uid);
+                    entry = json_object_new ();
+                    json_object_set_double_member (entry, "x", pos->x);
+                    json_object_set_double_member (entry, "y", pos->y);
+                    json_object_set_object_member (lay, uid, entry);
+                }
+                g_list_free (keys);
+                g_hash_table_destroy (live);
+
+                if (json_object_get_size (lay) > 0)
+                    json_object_set_object_member (obj, "panel_layout", lay);
+                else
+                    json_object_unref (lay);
+            }
+        }
     }
 
     if (subset != NULL)
@@ -2126,6 +2336,7 @@ pn_flow_finalize (GObject *object)
     g_clear_pointer (&self->active_sheet, g_free);
     g_clear_pointer (&self->globals, g_hash_table_destroy);
     g_mutex_clear (&self->globals_mutex);
+    g_clear_pointer (&self->panel_layout, g_hash_table_destroy);
 
     G_OBJECT_CLASS (pn_flow_parent_class)->finalize (object);
 }
@@ -2209,6 +2420,16 @@ pn_flow_class_init (PnFlowClass *klass)
             G_SIGNAL_RUN_LAST,
             0, NULL, NULL, NULL,
             G_TYPE_NONE, 1, G_TYPE_BOOLEAN);
+
+    /* The panel-applet editor's open/closed state changed (carries the
+     * new state): on load and on clear the host adds or removes the
+     * editor tab to match the document. */
+    signals[SIG_PANEL_EDITOR_VISIBLE] = g_signal_new (
+            "panel-editor-visible-changed",
+            PN_TYPE_FLOW,
+            G_SIGNAL_RUN_LAST,
+            0, NULL, NULL, NULL,
+            G_TYPE_NONE, 1, G_TYPE_BOOLEAN);
 }
 
 static void
@@ -2223,6 +2444,9 @@ pn_flow_init (PnFlow *self)
     self->globals = g_hash_table_new_full (g_str_hash, g_str_equal,
                                            g_free, free_gvalue);
     g_mutex_init (&self->globals_mutex);
+
+    self->panel_layout = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                g_free, g_free);
 
     g_signal_connect (self->nodes, "node-added",
                       G_CALLBACK (on_node_added), self);

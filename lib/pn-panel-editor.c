@@ -77,10 +77,14 @@ struct _PnPanelEditor
     /* Drag state.  @drag_child is the row currently being dragged (a
      * canvas child), or %NULL when idle; @drag_grab_x/y is the pointer's
      * offset within that child at the moment of grab, so the row tracks
-     * the pointer without jumping. */
+     * the pointer without jumping; @drag_start_x/y is where the row sat
+     * at grab time, so a release that did not actually move it leaves the
+     * stored layout (and the document's modified flag) untouched. */
     GtkWidget *drag_child;
     gdouble    drag_grab_x;
     gdouble    drag_grab_y;
+    gint       drag_start_x;
+    gint       drag_start_y;
 
     /* Running count of rows ever placed, used to cascade the initial
      * position of each new readout so they do not all land on top of
@@ -142,6 +146,9 @@ on_row_button_press (GtkWidget      *child,
     self->drag_child  = child;
     self->drag_grab_x = event->x;
     self->drag_grab_y = event->y;
+    gtk_container_child_get (GTK_CONTAINER (self->canvas), child,
+                             "x", &self->drag_start_x,
+                             "y", &self->drag_start_y, NULL);
 
     win = gtk_widget_get_window (child);
     if (win != NULL)
@@ -191,12 +198,23 @@ on_row_button_release (GtkWidget      *child,
                        gpointer        user_data)
 {
     PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    gint           x, y;
+    PnNode        *node;
 
     if (event->button != GDK_BUTTON_PRIMARY)
         return GDK_EVENT_PROPAGATE;
+    if (self->drag_child != child)
+        return GDK_EVENT_PROPAGATE;
 
-    if (self->drag_child == child)
-        self->drag_child = NULL;
+    self->drag_child = NULL;
+
+    /* Persist the placement only when the row actually moved, so a plain
+     * click never dirties the document. */
+    gtk_container_child_get (GTK_CONTAINER (self->canvas), child,
+                             "x", &x, "y", &y, NULL);
+    node = g_object_get_data (G_OBJECT (child), "pn-node");
+    if (node != NULL && (x != self->drag_start_x || y != self->drag_start_y))
+        pn_flow_set_panel_position (self->flow, pn_node_get_uuid (node), x, y);
 
     return GDK_EVENT_STOP;
 }
@@ -274,6 +292,12 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
     gtk_widget_add_events (handle, GDK_POINTER_MOTION_MASK);
     gtk_container_add (GTK_CONTAINER (handle), frame);
 
+    /* The drag/release handlers recover the node from the handle to key
+     * its saved position; the store owns the node and the handle never
+     * outlives it (panel_editor_remove_node destroys the handle), so a
+     * borrowed pointer is safe. */
+    g_object_set_data (G_OBJECT (handle), "pn-node", node);
+
     g_signal_connect (handle, "button-press-event",
                       G_CALLBACK (on_row_button_press), self);
     g_signal_connect (handle, "motion-notify-event",
@@ -291,7 +315,21 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
     g_signal_connect_object (node, "repaint-needed",
                              G_CALLBACK (on_node_repaint_needed), led, 0);
 
-    panel_editor_next_position (self, &x, &y);
+    /* Prefer a position saved in the document; otherwise fall back to the
+     * cascade so a never-arranged node still lands somewhere sensible. */
+    {
+        gdouble sx, sy;
+        if (pn_flow_get_panel_position (self->flow,
+                                        pn_node_get_uuid (node), &sx, &sy))
+        {
+            x = (gint) sx;
+            y = (gint) sy;
+        }
+        else
+        {
+            panel_editor_next_position (self, &x, &y);
+        }
+    }
     gtk_fixed_put (GTK_FIXED (self->canvas), handle, x, y);
     gtk_widget_show_all (handle);
     self->cascade++;

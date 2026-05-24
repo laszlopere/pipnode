@@ -176,6 +176,70 @@ void         pn_flow_remove_global  (PnFlow       *self,
 void         pn_flow_subst_resolver_globals (PnSubstResolver *r,
                                              PnFlow          *flow);
 
+/* --- Panel-applet layout -------------------------------------------
+ *
+ * Per-node placement for the panel-applet GUI layout editor
+ * (#PnPanelEditor): a node UUID -> (x, y) on that editor's canvas,
+ * saved into the document so a hand-arranged layout survives reload.
+ * Document-scoped like the globals above, but deliberately separate:
+ * this is widget geometry, not user data, so it stays out of the
+ * Document Settings dialog.  Only nodes that have actually been placed
+ * carry an entry; unset nodes fall back to the editor's own default
+ * placement.
+ */
+
+/**
+ * pn_flow_get_panel_position:
+ * @self: the flow
+ * @uuid: the node's UUID (as from pn_node_get_uuid())
+ * @out_x: (out) (optional): receives the saved x coordinate
+ * @out_y: (out) (optional): receives the saved y coordinate
+ *
+ * Returns: %TRUE when a position has been stored for @uuid (and the
+ *   out-params, when given, were filled), %FALSE otherwise.
+ */
+gboolean     pn_flow_get_panel_position (PnFlow      *self,
+                                         const gchar *uuid,
+                                         gdouble     *out_x,
+                                         gdouble     *out_y);
+
+/**
+ * pn_flow_set_panel_position:
+ * @self: the flow
+ * @uuid: the node's UUID (non-empty)
+ * @x: canvas x coordinate
+ * @y: canvas y coordinate
+ *
+ * Stores @uuid's panel-editor placement, marking the flow modified when
+ * the stored value actually changes (so re-clicking a widget without
+ * moving it leaves the document clean).
+ */
+void         pn_flow_set_panel_position (PnFlow      *self,
+                                         const gchar *uuid,
+                                         gdouble      x,
+                                         gdouble      y);
+
+/**
+ * pn_flow_get_panel_editor_open:
+ * @self: the flow
+ *
+ * Returns: whether the document wants the panel-applet editor tab open.
+ */
+gboolean     pn_flow_get_panel_editor_open (PnFlow *self);
+
+/**
+ * pn_flow_set_panel_editor_open:
+ * @self: the flow
+ * @open: the new open/closed state
+ *
+ * Records whether the panel-applet editor tab is open and, when this
+ * changes, emits #PnFlow::panel-editor-visible-changed and marks the flow
+ * modified.  The host opens or closes the editor tab in response (the
+ * same signal fires on load and clear so a reopened file restores the
+ * editor the way it was saved).
+ */
+void         pn_flow_set_panel_editor_open (PnFlow *self, gboolean open);
+
 /**
  * pn_flow_serialize_nodes:
  * @self: the flow
