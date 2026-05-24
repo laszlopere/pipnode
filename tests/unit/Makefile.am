@@ -38,6 +38,8 @@ check_PROGRAMS = \
 	test-pn-query \
 	test-pn-edge \
 	test-pn-switch \
+	test-pn-panel-input \
+	test-pn-panel-display \
 	test-pn-set \
 	test-pn-filter \
 	test-pn-rewrite \
@@ -96,6 +98,8 @@ test_pn_throttle_SOURCES     = test-pn-throttle.c     pntest.c pntest.h
 test_pn_query_SOURCES        = test-pn-query.c        pntest.c pntest.h
 test_pn_edge_SOURCES         = test-pn-edge.c         pntest.c pntest.h
 test_pn_switch_SOURCES       = test-pn-switch.c       pntest.c pntest.h
+test_pn_panel_input_SOURCES  = test-pn-panel-input.c  pntest.c pntest.h
+test_pn_panel_display_SOURCES = test-pn-panel-display.c pntest.c pntest.h
 test_pn_set_SOURCES          = test-pn-set.c          pntest.c pntest.h
 test_pn_filter_SOURCES       = test-pn-filter.c       pntest.c pntest.h
 test_pn_rewrite_SOURCES      = test-pn-rewrite.c      pntest.c pntest.h
