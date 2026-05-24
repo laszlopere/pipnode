@@ -39,19 +39,31 @@ G_DEFINE_TYPE (PnRtc, pn_rtc, PN_TYPE_AUTO_TRIGGER)
 static void
 pn_rtc_trigger (PnAutoTrigger *self)
 {
-    PnNode    *node = PN_NODE (self);
+    PnNode    *node  = PN_NODE (self);
     PnMessage *msg;
-    GDateTime *now  = g_date_time_new_now_local ();
+    GDateTime *now   = g_date_time_new_now_local ();
+    gint64     epoch = g_date_time_to_unix (now);
     gchar     *spoken;
 
     msg = pn_message_new (node, NULL);
-    pn_message_set_int64 (msg, "epoch",  g_date_time_to_unix          (now));
+    /* "value" carries the epoch as the canonical numeric payload so the
+     * tick plugs straight into nodes that read the standard "value"
+     * member (Comparator, Expression, ...).  A Unix timestamp is well
+     * within a double's exact-integer range.  "epoch" keeps the same
+     * instant as a precise int64 for consumers that want full width. */
+    pn_message_set_double (msg, "value",  (gdouble) epoch);
+    pn_message_set_int64 (msg, "epoch",  epoch);
     pn_message_set_int   (msg, "year",   g_date_time_get_year         (now));
     pn_message_set_int   (msg, "month",  g_date_time_get_month        (now));
     pn_message_set_int   (msg, "dom",    g_date_time_get_day_of_month (now));
     pn_message_set_int   (msg, "hour",   g_date_time_get_hour         (now));
     pn_message_set_int   (msg, "minute", g_date_time_get_minute       (now));
     pn_message_set_int   (msg, "second", g_date_time_get_second       (now));
+
+    /* DST-aware abbreviation for the local zone (e.g. "CET"/"CEST"),
+     * so downstream sinks can label the instant. */
+    pn_message_set_string (msg, "timezone",
+                           g_date_time_get_timezone_abbreviation (now));
 
     /* Convenience members for downstream consumers: "success" lets a
      * #PnEdge filter chain off the tick stream, "output" gives sinks

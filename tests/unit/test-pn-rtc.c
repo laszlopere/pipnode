@@ -38,6 +38,7 @@ test_emits_time_fields (void)
     PN_CHECK_CMPINT (d.count, ==, 1);
 
     /* Every documented member is present. */
+    PN_CHECK (pn_test_has (d.last, "value"));
     PN_CHECK (pn_test_has (d.last, "epoch"));
     PN_CHECK (pn_test_has (d.last, "year"));
     PN_CHECK (pn_test_has (d.last, "month"));
@@ -45,6 +46,7 @@ test_emits_time_fields (void)
     PN_CHECK (pn_test_has (d.last, "hour"));
     PN_CHECK (pn_test_has (d.last, "minute"));
     PN_CHECK (pn_test_has (d.last, "second"));
+    PN_CHECK (pn_test_has (d.last, "timezone"));
 
     pn_timer_destroy (node, &d);
 }
@@ -72,6 +74,14 @@ test_fields_in_valid_ranges (void)
     PN_CHECK (pn_test_num (d.last, "second") >= 0.0 &&
               pn_test_num (d.last, "second") <= 60.0);   /* allow leap */
     PN_CHECK (pn_test_num (d.last, "epoch")  > 0.0);
+
+    /* "value" mirrors the epoch as the canonical numeric payload. */
+    PN_CHECK (pn_test_num (d.last, "value")  > 0.0);
+    PN_CHECK (pn_test_num (d.last, "value")  == pn_test_num (d.last, "epoch"));
+
+    /* The zone abbreviation is non-empty. */
+    PN_CHECK (pn_test_str (d.last, "timezone") != NULL &&
+              pn_test_str (d.last, "timezone")[0] != '\0');
 
     pn_timer_destroy (node, &d);
 }

@@ -16,10 +16,14 @@
 <p>
 Real-time-clock node. Emits one message per <code>period</code>
 seconds carrying the current local-time decomposition in its data
-bag: <code>epoch</code>, <code>year</code>, <code>month</code>,
+bag: <code>value</code> (the Unix epoch, also exposed as a precise
+int64 in <code>epoch</code>), <code>year</code>, <code>month</code>,
 <code>dom</code>, <code>hour</code>, <code>minute</code>,
-<code>second</code>. Useful as a heartbeat or a tick generator that
-drives downstream work on a schedule.
+<code>second</code>, and <code>timezone</code> (the DST-aware local
+zone abbreviation, e.g. <code>CET</code>/<code>CEST</code>). The
+<code>value</code> member lets the tick plug straight into nodes that
+read the standard numeric payload. Useful as a heartbeat or a tick
+generator that drives downstream work on a schedule.
 </p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
