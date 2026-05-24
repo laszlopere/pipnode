@@ -49,9 +49,30 @@ PnPanelInput *pn_panel_input_new (void);
  * Records @value as the node's current value and emits a single
  * message carrying it on the "value" data member.  Must be called from
  * the main thread.  This is the entry point the engine's SetInput
- * D-Bus method uses when the applet is clicked.
+ * D-Bus method uses to drive the input with a plain numeric value.
  */
 void pn_panel_input_send (PnPanelInput *self, gdouble value);
+
+/**
+ * pn_panel_input_send_event:
+ * @self:   the panel input node
+ * @event:  the mouse event name, e.g. "click" (also "press"/"release")
+ * @button: the mouse button, GDK numbering (1 left, 2 middle, 3 right)
+ *
+ * Emits a single message describing a mouse event on the panel applet.
+ * The message topic is "<event>/<button-name>" (e.g. "press/left") and
+ * its data bag carries the standard human-readable summary on "output"
+ * (e.g. "Applet right mouse button clicked.", the member a Text to Speech
+ * node reads aloud), the button number on "value", the button name on
+ * "button" and the event name on "event", so a worksheet can react to a
+ * specific button.  Does not touch the node's "value" property — that
+ * stays the configured startup value.
+ * Must be called from the main thread; the entry point for the engine's
+ * SendEvent D-Bus method.
+ */
+void pn_panel_input_send_event (PnPanelInput *self,
+                                const gchar  *event,
+                                guint         button);
 
 G_END_DECLS
 

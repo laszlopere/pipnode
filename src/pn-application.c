@@ -1086,8 +1086,9 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /*  the window stays hidden; PresentEditor present()s it for editing.  */
 /*  Panel I/O nodes bridge the running flow to the applet: a           */
 /*  PnPanelDisplay's text is read out (GetDisplayValue) and pushed     */
-/*  (the ValueChanged signal), and a PnPanelInput is driven by         */
-/*  SetInput when the applet is clicked.                               */
+/*  (the ValueChanged signal); a PnPanelInput is driven with a value   */
+/*  (SetInput) or told of an applet mouse event (SendEvent, fanned out */
+/*  to every Panel Input).                                             */
 /* ================================================================== */
 
 static const gchar engine_introspection_xml[] =
@@ -1104,6 +1105,11 @@ static const gchar engine_introspection_xml[] =
     "    <method name='SetInput'>"
     "      <arg type='s' name='path'  direction='in'/>"
     "      <arg type='d' name='value' direction='in'/>"
+    "    </method>"
+    "    <method name='SendEvent'>"
+    "      <arg type='s' name='path'   direction='in'/>"
+    "      <arg type='s' name='event'  direction='in'/>"
+    "      <arg type='u' name='button' direction='in'/>"
     "    </method>"
     "    <method name='PresentEditor'>"
     "      <arg type='s' name='path'  direction='in'/>"
@@ -1146,6 +1152,34 @@ engine_find_node (PnWindow *win, GType type)
             return node;
     }
     return NULL;
+}
+
+/** Report a mouse event on the applet to every Panel Input in @win, so a
+ *  worksheet with more than one input all see the click. */
+static void
+engine_send_event_to_inputs (PnWindow    *win,
+                             const gchar *event,
+                             guint        button)
+{
+    PnWorksheet *ws;
+    PnNodeStore *nodes;
+    guint        i, n;
+
+    if (win == NULL)
+        return;
+
+    ws = pn_window_get_worksheet (win);
+    if (ws == NULL)
+        return;
+
+    nodes = pn_worksheet_get_nodes (ws);
+    n     = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (PN_IS_PANEL_INPUT (node))
+            pn_panel_input_send_event (PN_PANEL_INPUT (node), event, button);
+    }
 }
 
 /** Current Panel Display string for @win; "" when there is none.
@@ -1307,6 +1341,17 @@ handle_engine_method_call (
         node = engine_find_node (win, PN_TYPE_PANEL_INPUT);
         if (node != NULL)
             pn_panel_input_send (PN_PANEL_INPUT (node), value);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "SendEvent") == 0)
+    {
+        PnWindow    *win;
+        const gchar *event  = NULL;
+        guint        button = 0;
+
+        g_variant_get (parameters, "(&s&su)", &path, &event, &button);
+        win = g_hash_table_lookup (self->worksheets, path);
+        engine_send_event_to_inputs (win, event, button);
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "PresentEditor") == 0)

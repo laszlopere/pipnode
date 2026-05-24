@@ -16,11 +16,13 @@
 /* ------------------------------------------------------------------ */
 /*  PnPanelInput — logic tier (headless core).                         */
 /*                                                                     */
-/*  GTK-free source node: the engine calls pn_panel_input_send() when  */
-/*  the panel applet is clicked, and the node emits a "value" message  */
-/*  into the worksheet.  Announces its current value once on load, the */
-/*  same startup-report PnKnob / PnSwitch do.  Renders with the        */
-/*  default node painter (no gui companion needed).                    */
+/*  GTK-free source node driven by the panel applet.  The engine calls */
+/*  pn_panel_input_send() to drive it with a plain numeric value, and  */
+/*  pn_panel_input_send_event() to report a mouse event on the applet  */
+/*  (a "<event>/<button>" topic + button identity on the data bag).    */
+/*  Announces its current value once on load, the same startup-report  */
+/*  PnKnob / PnSwitch do.  Renders with the default node painter (no   */
+/*  gui companion needed).                                             */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -242,4 +244,69 @@ pn_panel_input_send (
     }
 
     emit_value_message (self);
+}
+
+/* Human-readable name for a GDK button number; uncommon buttons (scroll,
+ * back/forward) fall through to "button<N>" written into @buf. */
+static const gchar *
+button_name (guint button, gchar *buf, gsize buf_size)
+{
+    switch (button)
+    {
+    case 1:  return "left";
+    case 2:  return "middle";
+    case 3:  return "right";
+    default:
+        g_snprintf (buf, buf_size, "button%u", button);
+        return buf;
+    }
+}
+
+void
+pn_panel_input_send_event (
+        PnPanelInput *self,
+        const gchar  *event,
+        guint         button)
+{
+    PnNode      *node = PN_NODE (self);
+    PnMessage   *msg;
+    gchar        namebuf[16];
+    const gchar *name;
+    const gchar *verb;
+    gchar       *topic;
+    gchar       *text;
+
+    g_return_if_fail (PN_IS_PANEL_INPUT (self));
+
+    if (event == NULL)
+        event = "";
+    name  = button_name (button, namebuf, sizeof namebuf);
+
+    /* "<event>/<button>", e.g. "press/left" — both the event and the
+     * button readable straight off the topic. */
+    topic = g_strdup_printf ("%s/%s", event, name);
+    msg   = pn_message_new (node, topic);
+    g_free (topic);
+
+    /* The standard human-readable summary on "output", e.g. "Applet right
+     * mouse button clicked." — the member a Text to Speech node reads aloud
+     * and a Debug / Text View shows. */
+    if (g_strcmp0 (event, "click") == 0)        verb = "clicked";
+    else if (g_strcmp0 (event, "press") == 0)   verb = "pressed";
+    else if (g_strcmp0 (event, "release") == 0) verb = "released";
+    else                                        verb = event;
+    text = g_strdup_printf ("Applet %s mouse button %s.", name, verb);
+
+    /* "value" carries the button number; the names spell out the same
+     * event/button for string-matching downstream. */
+    pn_message_set_string  (msg, "output",  text);
+    pn_message_set_double  (msg, "value",   (gdouble) button);
+    pn_message_set_string  (msg, "button",  name);
+    pn_message_set_string  (msg, "event",   event);
+    pn_message_set_boolean (msg, "success", TRUE);
+
+    g_free (text);
+
+    pn_node_emit_message (node, msg);
+    g_object_unref (msg);
 }

@@ -1,0 +1,170 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "117a74cd-a9eb-402d-b545-04317daca06c",
+      "name" : "Clock",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "a3ea66d7-7273-4dda-b914-fe0a6a607a75",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 580.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDeadline",
+      "uuid" : "902cf306-5a57-4f1c-9af2-30d71c788736",
+      "name" : "Release",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "target" : "2026-05-24 23:00:00",
+        "timezone" : "EDT — Eastern Daylight Time"
+      }
+    },
+    {
+      "type" : "PnCountdown",
+      "uuid" : "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca",
+      "name" : "Rick and Morty countdown",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 580.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "day-digits" : 3,
+        "show-labels" : true,
+        "background-color" : "rgb(0,0,0)",
+        "segment-color" : "rgb(237,51,59)",
+        "label-color" : "rgb(255,255,255)"
+      }
+    },
+    {
+      "type" : "PnPanelDisplay",
+      "uuid" : "8aac0388-4042-4184-a938-039f1d2e2963",
+      "name" : "Panel Display 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 585.51226806640625,
+        "y" : 39.39385986328125
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnPanelInput",
+      "uuid" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
+      "name" : "Panel Input 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "value" : 1.0
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "632826bc-9d6f-46ae-a934-c86484ce782c",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-lessac-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "f3b68e99-4f74-4c23-9dd0-30622fb5596e",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 340.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "f482554b-701e-4dc1-ac1c-b93eb9fa007f",
+      "name" : "Sound 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "sound" : "message",
+        "dead-period" : 0
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "117a74cd-a9eb-402d-b545-04317daca06c",
+      "target_id" : "902cf306-5a57-4f1c-9af2-30d71c788736"
+    },
+    {
+      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
+      "target_id" : "a3ea66d7-7273-4dda-b914-fe0a6a607a75"
+    },
+    {
+      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
+      "target_id" : "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca"
+    },
+    {
+      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
+      "target_id" : "8aac0388-4042-4184-a938-039f1d2e2963"
+    },
+    {
+      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
+      "target_id" : "632826bc-9d6f-46ae-a934-c86484ce782c"
+    },
+    {
+      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
+      "target_id" : "f3b68e99-4f74-4c23-9dd0-30622fb5596e"
+    },
+    {
+      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
+      "target_id" : "f482554b-701e-4dc1-ac1c-b93eb9fa007f"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

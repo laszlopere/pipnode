@@ -22,7 +22,8 @@ libpipnode_worksheet_la_SOURCES = \
 libpipnode_worksheet_la_CFLAGS = \
 	$(LIBXFCE4PANEL_CFLAGS) \
 	$(GTK_CFLAGS) \
-	$(GLIB_CFLAGS)
+	$(GLIB_CFLAGS) \
+	-DPKGDATADIR=\"$(pkgdatadir)\"
 
 # -module        : loadable module
 # -avoid-version : ship plain libpipnode-worksheet.so (no SONAME version)
@@ -42,5 +43,11 @@ libpipnode_worksheet_la_LIBADD = \
 # turns X-XFCE-Module=pipnode-worksheet into "libpipnode-worksheet.so".
 desktopdir = $(LIBXFCE4PANEL_DESKTOPDIR)
 desktop_DATA = pipnode-worksheet.desktop
+
+# Starter worksheet: a copy is instantiated for each new applet so the user
+# begins with a working flow instead of a blank sheet.  Installed into
+# pipnode's own datadir (an absolute PKGDATADIR path the applet reads), not
+# the panel's prefix.  dist_ ships it in the tarball too.
+dist_pkgdata_DATA = pipnode-worksheet-default.json
 
 EXTRA_DIST = $(desktop_DATA)

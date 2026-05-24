@@ -198,3 +198,16 @@ Uniqueness: only the engine (--gapplication-service) and test instances
 a normal `pipnode-editor [--file X]` launch is G_APPLICATION_NON_UNIQUE (decided
 in main.c::argv_wants_unique), so it runs as its own process and never forwards
 the file to the engine.
+
+(26) The Text to Speech node should default to "any engine you find" + "any
+voice you find": on a fresh node, auto-detect the first available TTS engine
+(piper/espeak-ng/espeak/festival/flite on $PATH) and the first available voice
+for it, instead of defaulting to a fixed engine/model that may not exist on the
+machine. The auto-pick must stay overridable in the editor (keep the existing
+engine/voice selectors). Once this lands, update the bundled panel applets --
+the shipped starter worksheet panel-plugins/pipnode-worksheet/
+pipnode-worksheet-default.json currently hard-codes an absolute
+~/.local/share/piper/...onnx model path -- to rely on the auto-default so a new
+applet's TTS works on any machine out of the box. (Came up while wiring the
+panel applet's click -> Panel Input -> Text to Speech demo: the shipped template
+only spoke on the author's machine.)

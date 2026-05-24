@@ -137,6 +137,10 @@ class Engine:
     def set_input(self, path: str, value: float) -> None:
         self.call("SetInput", GLib.Variant("(sd)", (path, value)), "")
 
+    def send_event(self, path: str, event: str, button: int) -> None:
+        self.call("SendEvent",
+                  GLib.Variant("(ssu)", (path, event, button)), "")
+
     def present_editor(self, path: str) -> None:
         self.call("PresentEditor", GLib.Variant("(s)", (path,)), "")
 
@@ -219,6 +223,15 @@ def run_test() -> None:
             fail(f"SetInput(99) did not reach the display; "
                  f"got {engine.get_display(path)!r}")
 
+        # A mouse click reaches the Panel Input, which emits the button
+        # number on data.value (and a human-readable sentence on data.output
+        # for a Text to Speech node); the wired Panel Display reads the value
+        # back as "3" for a right click.
+        engine.send_event(path, "click", 3)
+        if not wait_for(lambda: engine.get_display(path) == "3", timeout=8.0):
+            fail("SendEvent(click, right) did not reach the display; "
+                 f"got {engine.get_display(path)!r}")
+
         # PresentEditor must succeed (opens the running flow for editing).
         engine.present_editor(path)
 
@@ -239,8 +252,9 @@ def run_test() -> None:
 
     print("PASS: the engine ran the worksheet headless (RunWorksheet), "
           "mirrored the Panel Input to the Panel Display via GetDisplayValue "
-          "and the ValueChanged signal, opened it for editing "
-          "(PresentEditor), and autosaved the last value on CloseWorksheet.")
+          "and the ValueChanged signal, drove it by value (SetInput) and by "
+          "a mouse event (SendEvent), opened it for editing (PresentEditor), "
+          "and autosaved the last value on CloseWorksheet.")
 
 
 if __name__ == "__main__":

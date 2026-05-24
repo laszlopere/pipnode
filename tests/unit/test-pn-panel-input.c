@@ -14,8 +14,9 @@
  */
 
 /* Unit tests for PnPanelInput: a source the panel engine drives via
- * pn_panel_input_send(), emitting a "value" message into the worksheet.
- * It announces its current value once on startup (a one-shot idle, like
+ * pn_panel_input_send() (a "value" message) and pn_panel_input_send_event()
+ * (a mouse event, "<event>/<button>" topic plus button identity).  It
+ * announces its current value once on startup (a one-shot idle, like
  * PnSwitch/PnKnob) and emits on every send even when the value repeats. */
 
 #ifdef HAVE_CONFIG_H
@@ -142,6 +143,51 @@ test_send_updates_property (void)
 }
 
 static void
+test_send_event_topic_and_members (void)
+{
+    guint       emits = 0;
+    PnMessage  *last  = NULL;
+    gdouble     v     = -1.0;
+    PnNode     *node  = g_object_new (PN_TYPE_PANEL_INPUT, NULL);
+
+    g_signal_connect (node, "message",
+                      G_CALLBACK (pn_test_count_emits), &emits);
+    g_signal_connect (node, "message",
+                      G_CALLBACK (capture_last), &last);
+    drain_until (&emits, 1);                       /* startup announce */
+
+    /* A left-button click: topic "click/left", the button number on the
+     * output "value", the human-readable summary on "output", and readable
+     * button / event names. */
+    pn_panel_input_send_event (PN_PANEL_INPUT (node), "click", 1);
+    PN_CHECK_CMPINT (emits, ==, 2);
+    PN_CHECK_CMPSTR (pn_message_get_topic (last), ==, "click/left");
+    PN_CHECK_NEAR   (pn_test_num (last, "value"), 1.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (last, "button"), ==, "left");
+    PN_CHECK_CMPSTR (pn_test_str (last, "event"),  ==, "click");
+    PN_CHECK_CMPSTR (pn_test_str (last, "output"), ==,
+                     "Applet left mouse button clicked.");
+    PN_CHECK        (pn_test_bool (last, "success"));
+
+    /* A right-button click names the other button. */
+    pn_panel_input_send_event (PN_PANEL_INPUT (node), "click", 3);
+    PN_CHECK_CMPINT (emits, ==, 3);
+    PN_CHECK_CMPSTR (pn_message_get_topic (last), ==, "click/right");
+    PN_CHECK_NEAR   (pn_test_num (last, "value"), 3.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (last, "button"), ==, "right");
+    PN_CHECK_CMPSTR (pn_test_str (last, "output"), ==,
+                     "Applet right mouse button clicked.");
+
+    /* The event carries the button without disturbing the configured
+     * "value" property (still the startup default 0). */
+    g_object_get (node, "value", &v, NULL);
+    PN_CHECK_NEAR (v, 0.0, 1e-9);
+
+    g_clear_object (&last);
+    g_object_unref (node);
+}
+
+static void
 test_ports (void)
 {
     PnNode *node = g_object_new (PN_TYPE_PANEL_INPUT, NULL);
@@ -161,6 +207,7 @@ main (int argc, char **argv)
     pn_test_add ("startup_announce",     test_startup_announces_loaded_value);
     pn_test_add ("repeated_send",        test_repeated_send_emits_each_time);
     pn_test_add ("send_updates_value",   test_send_updates_property);
+    pn_test_add ("send_event",           test_send_event_topic_and_members);
     pn_test_add ("ports",                test_ports);
     return pn_test_run ();
 }

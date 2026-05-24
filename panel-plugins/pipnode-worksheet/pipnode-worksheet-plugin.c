@@ -30,7 +30,9 @@
 /*      renders on a tiny seven-segment LED readout (PnLedDisplay, a    */
 /*      panel-sized echo of the Countdown node), other text in a plain  */
 /*      label;                                                          */
-/*    - a left-click drives a PnPanelInput node (SetInput);            */
+/*    - a mouse click drives the PnPanelInput node(s): the click is     */
+/*      forwarded (SendEvent) tagged with the button, so the worksheet  */
+/*      sees which button was clicked;                                  */
 /*    - the right-click "Properties" item opens the worksheet for      */
 /*      editing (PresentEditor) — the same running flow, shown.        */
 /* ------------------------------------------------------------------ */
@@ -53,12 +55,15 @@
 #define PN_ENGINE_OBJECT "/org/pipas/pipnode"
 #define PN_ENGINE_IFACE  "org.pipas.pipnode.Engine"
 
-/* Value a left-click feeds to the worksheet's PnPanelInput.  A plain
- * "pressed" pulse; the worksheet decides what to do with it. */
-#define PN_PANEL_CLICK_VALUE 1.0
+/* Starter worksheet shipped with the applet: a new applet instance is
+ * seeded with a copy of this so the user begins with a working flow
+ * (a countdown plus a click-driven Panel Input) rather than a blank
+ * sheet.  Installed to pipnode's datadir; see ensure_worksheet(). */
+#define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-worksheet-default.json"
 
 /* A blank pipnode document, matching the on-disk format produced by
- * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  The engine reparses and
+ * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  Used as a fallback when the
+ * shipped starter worksheet is missing.  The engine reparses and
  * rewrites this on first save, so only the structure has to be valid. */
 static const gchar EMPTY_WORKSHEET[] =
     "{\n"
@@ -107,14 +112,19 @@ worksheet_path (PipnodeWorksheet *self)
     return path;
 }
 
-/* Make sure the worksheet file exists, creating an empty one (and its
- * parent directory) on first use.  Returns FALSE and sets *error on
- * failure. */
+/* Make sure the worksheet file exists, seeding a new one (and its parent
+ * directory) on first use.  The seed is a copy of the shipped starter
+ * worksheet (PN_DEFAULT_WORKSHEET) so the user begins with a working flow;
+ * if that file is missing we fall back to the embedded empty document.
+ * Returns FALSE and sets *error on failure. */
 static gboolean
 ensure_worksheet (const gchar *path,
                   GError     **error)
 {
-    gchar *dir;
+    gchar  *dir;
+    gchar  *seed     = NULL;
+    gsize   seed_len = 0;
+    gboolean ok;
 
     if (g_file_test (path, G_FILE_TEST_EXISTS))
         return TRUE;
@@ -131,9 +141,20 @@ ensure_worksheet (const gchar *path,
     }
     g_free (dir);
 
-    return g_file_set_contents (path,
-                                EMPTY_WORKSHEET, sizeof EMPTY_WORKSHEET - 1,
-                                error);
+    /* Prefer the shipped starter worksheet; the embedded empty document is
+     * the fallback when it is not installed. */
+    if (g_file_get_contents (PN_DEFAULT_WORKSHEET, &seed, &seed_len, NULL))
+    {
+        ok = g_file_set_contents (path, seed, seed_len, error);
+        g_free (seed);
+    }
+    else
+    {
+        ok = g_file_set_contents (path, EMPTY_WORKSHEET,
+                                  sizeof EMPTY_WORKSHEET - 1, error);
+    }
+
+    return ok;
 }
 
 /* ------------------------------------------------------------------ */
@@ -279,21 +300,32 @@ engine_call_path (PipnodeWorksheet *self, const gchar *method)
 /*  Interaction                                                         */
 /* ------------------------------------------------------------------ */
 
-/* Left-click: drive the worksheet's Panel Input. */
-static void
-on_button_clicked (GtkWidget        *button,
-                   PipnodeWorksheet *self)
+/* A mouse click on the applet: forward it to the worksheet's Panel Input
+ * node(s), tagged with the button, as one "click" event.  Fired on button
+ * press (which reaches us for every button, before a right-click hands off
+ * to the panel's context menu).  Returns FALSE so the panel still gets the
+ * event (the button's own click visuals, and the right-click menu). */
+static gboolean
+on_button_press (GtkWidget        *button,
+                 GdkEventButton   *event,
+                 PipnodeWorksheet *self)
 {
     (void) button;
 
     if (self->engine == NULL)
-        return;
+        return FALSE;
 
-    g_dbus_proxy_call (self->engine, "SetInput",
-                       g_variant_new ("(sd)", self->path,
-                                      (gdouble) PN_PANEL_CLICK_VALUE),
+    /* One click per press; ignore the synthetic GDK_2BUTTON_PRESS /
+     * GDK_3BUTTON_PRESS so a double-click counts as two clicks, not four. */
+    if (event->type != GDK_BUTTON_PRESS)
+        return FALSE;
+
+    g_dbus_proxy_call (self->engine, "SendEvent",
+                       g_variant_new ("(ssu)", self->path, "click",
+                                      (guint32) event->button),
                        G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
                        NULL, NULL);
+    return FALSE;
 }
 
 /* Right-click "Properties": open the running worksheet for editing. */
@@ -374,8 +406,8 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
      * menu) — fires "configure-plugin", which opens the editor. */
     xfce_panel_plugin_menu_show_configure (plugin);
 
-    g_signal_connect (self->button, "clicked",
-                      G_CALLBACK (on_button_clicked), self);
+    g_signal_connect (self->button, "button-press-event",
+                      G_CALLBACK (on_button_press), self);
     g_signal_connect (plugin, "configure-plugin",
                       G_CALLBACK (on_configure_plugin), self);
     g_signal_connect (plugin, "size-changed",

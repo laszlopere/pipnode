@@ -15,18 +15,32 @@
 </p>
 <p>
 Driven by an XFCE panel applet &mdash; the other half of the panel I/O
-contract (see <a href="PnPanelDisplay.html">Panel Display</a>).  When the
-applet button is clicked, the panel forwards the click to the background
-<em>engine</em> over D-Bus, which makes this node emit a single message
-carrying the value on its <code>data.value</code> member
-(<code>data.success</code> is set <code>true</code>) into the running
-worksheet.
+contract (see <a href="PnPanelDisplay.html">Panel Display</a>).  A mouse
+click on the applet is forwarded to the background <em>engine</em> over
+D-Bus, which makes every Panel Input in the worksheet emit a single message
+describing the click.
 </p>
 <p>
-A left-click sends a fixed &ldquo;pressed&rdquo; pulse
-(<code>data.value = 1.0</code>); what the worksheet does with it &mdash;
+The message <em>identifies the click and the button</em> several ways:
+its <strong>topic</strong> is <code>click/&lt;button&gt;</code>
+(for example <code>click/left</code> or <code>click/right</code>); the
+standard human-readable summary sits on <code>data.output</code> (for example
+<code>Applet right mouse button clicked.</code>) &mdash; the member a
+<a href="PnTts.html">Text to Speech</a> node reads aloud; and the data bag
+also carries the <strong>button number</strong> on <code>data.value</code>
+(<code>1</code> left, <code>2</code> middle, <code>3</code> right), the button
+name on <code>data.button</code> (<code>left</code> / <code>middle</code> /
+<code>right</code>) and the event name on <code>data.event</code>
+(<code>click</code>); <code>data.success</code> is <code>true</code>.  What
+the worksheet does with it &mdash; route on the topic, speak the output,
 count it, toggle a <a href="PnSwitch.html">Switch</a>, trigger an action
 &mdash; is up to its wiring.
+</p>
+<p>
+The engine can also drive the node with a plain numeric value (the
+<code>value</code> property below), carried on <code>data.value</code> with
+<code>data.success</code> set; a mouse event does not disturb that
+configured value.
 </p>
 <p>
 On startup the node emits its current value once, shortly after the

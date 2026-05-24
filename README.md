@@ -74,15 +74,20 @@ A worksheet can also drive an **XFCE panel applet** — a button on the panel
 that runs a flow and shows a value. The applet
 (`panel-plugins/pipnode-worksheet`) is a thin D-Bus client linking **no**
 pipnode library, so a node or plugin crash can never take down `xfce4-panel`.
-The flow runs in a background **engine** — `pipnode-editor` started as a D-Bus
-service (`--gapplication-service`, auto-activated on first use) — which holds
-each worksheet in a hidden window whose flow ticks the whole time. Picking
+Each new applet is seeded with a copy of a shipped starter worksheet
+(`pipnode-worksheet-default.json`, installed under the data dir) so it begins
+with a working flow rather than a blank sheet; right-click → Properties to edit
+it. The flow runs in a background **engine** — `pipnode-editor` started as a
+D-Bus service (`--gapplication-service`, auto-activated on first use) — which
+holds each worksheet in a hidden window whose flow ticks the whole time. Picking
 **Properties** on the applet opens that *same running* worksheet for editing;
 closing the editor autosaves and hides it, the flow keeps running.
 
 Two core nodes bridge the flow to the panel: a **Panel Display** sink (its last
-value is shown on the button, pushed live) and a **Panel Input** source (a
-click drives it). A numeric Panel Display value is read as seconds remaining
+value is shown on the button, pushed live) and a **Panel Input** source (each
+mouse click on the applet emits a message naming the button — the topic
+`click/left`/`click/right`/…, a human-readable sentence on `output`, and the
+button number on `value`). A numeric Panel Display value is read as seconds remaining
 and drawn on a tiny seven-segment **LED readout** as `ddd hh:mm:ss` — a
 panel-sized echo of the Countdown node, refreshed live — while any other text
 falls back to a plain label. The engine is the desktop-session
