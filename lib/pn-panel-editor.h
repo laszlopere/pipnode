@@ -18,6 +18,8 @@
 
 #include <gtk/gtk.h>
 
+#include "pn-flow.h"
+
 G_BEGIN_DECLS
 
 #define PN_TYPE_PANEL_EDITOR (pn_panel_editor_get_type ())
@@ -29,21 +31,26 @@ G_DECLARE_FINAL_TYPE (PnPanelEditor,
 
 /**
  * pn_panel_editor_new:
+ * @flow: (transfer none) (not nullable): the shared #PnFlow whose
+ *   #PnCountdown nodes this editor mirrors.  The widget keeps its own
+ *   reference; the caller still owns the flow.
  *
- * Creates a new panel-applet GUI layout editor widget.
+ * Creates a panel-applet GUI layout editor bound to @flow.
  *
  * This is the first of a planned family of GUI-layout editors (panel,
- * desktop, web, mobile) that will eventually let the user lay out the
- * widgets a pipnode flow drives — distinct from the node-wiring
- * #PnWorksheet, which edits the dataflow itself.  At this stage the
- * widget previews the panel-applet widget toolkit: it embeds a live
- * #PnLedDisplay (the seven-segment deadline readout shared with the
- * XFCE panel applet) framed as it would appear in the panel, with a
- * caption.  Real layout editing is not implemented yet.
+ * desktop, web, mobile) that lay out the widgets a flow drives — distinct
+ * from the node-wiring #PnWorksheet, which edits the dataflow itself.
+ *
+ * The editor keeps one live #PnLedDisplay readout per #PnCountdown node
+ * across every sheet of @flow: it is populated for all existing countdown
+ * nodes on creation, and it grows and shrinks automatically as countdown
+ * nodes are added to or removed from the flow.  Each readout mirrors its
+ * node's current value live.  Layout editing beyond this preview is not
+ * implemented yet.
  *
  * Returns: (transfer floating): the new panel editor widget
  */
-GtkWidget *pn_panel_editor_new (void);
+GtkWidget *pn_panel_editor_new (PnFlow *flow);
 
 G_END_DECLS
 

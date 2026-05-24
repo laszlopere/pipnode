@@ -3524,7 +3524,7 @@ pn_window_add_panel_editor_tab (PnWindow *self)
             GTK_SCROLLED_WINDOW (scrolled),
             GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 
-    editor = pn_panel_editor_new ();
+    editor = pn_panel_editor_new (self->flow);
     gtk_container_add (GTK_CONTAINER (scrolled), editor);
 
     /* Tab label: a title plus a close button, so the user can dismiss
