@@ -124,6 +124,7 @@ AC_CONFIG_FILES([
     pipnode-core.pc
     pipnode-gui.pc
     data/Makefile
+    examples/Makefile
     lib/Makefile
     plugins/Makefile
     plugins/network/Makefile

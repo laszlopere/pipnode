@@ -1,4 +1,4 @@
-SUBDIRS = data lib plugins src tests
+SUBDIRS = data examples lib plugins src tests
 
 ACLOCAL_AMFLAGS = -I m4
 
