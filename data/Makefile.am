@@ -101,3 +101,23 @@ appicon128_DATA = icons/hicolor/128x128/apps/org.pipas.pipnode.png
 EXTRA_DIST = $(pnhelp_DATA) $(pnicons_DATA) \
 	$(desktop_DATA) $(metainfo_DATA) \
 	$(appicon256_DATA) $(appicon128_DATA)
+
+# Refresh the hicolor icon cache after (un)installing the app icon, so the
+# themed name "org.pipas.pipnode" resolves immediately — otherwise a stale
+# cache shadows the freshly installed PNGs and consumers (e.g. the XFCE
+# panel applet) get the broken-image placeholder.  Skipped under DESTDIR
+# (the packager runs it); a no-op if gtk-update-icon-cache is unavailable.
+gtk_update_icon_cache = $(GTK_UPDATE_ICON_CACHE) -q -t -f
+
+install-data-hook: update-icon-cache
+uninstall-hook: update-icon-cache
+
+update-icon-cache:
+	@if test -n "$(DESTDIR)"; then \
+		echo "*** Icon cache not updated (DESTDIR set); after install run:"; \
+		echo "***   $(gtk_update_icon_cache) $(datadir)/icons/hicolor"; \
+	else \
+		echo "Updating hicolor icon cache."; \
+		$(gtk_update_icon_cache) "$(datadir)/icons/hicolor" || :; \
+	fi
+.PHONY: update-icon-cache

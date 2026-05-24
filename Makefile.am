@@ -1,4 +1,10 @@
-SUBDIRS = data examples lib plugins src tests
+# XFCE panel applets are optional (see BUILD_PANEL_PLUGINS in
+# configure.ac); only recurse into them when libxfce4panel was found.
+if BUILD_PANEL_PLUGINS
+PANEL_PLUGINS_SUBDIR = panel-plugins
+endif
+
+SUBDIRS = data examples lib plugins src tests $(PANEL_PLUGINS_SUBDIR)
 
 ACLOCAL_AMFLAGS = -I m4
 
