@@ -1,6 +1,11 @@
-# Test applet: a panel button that opens an associated pipnode worksheet
-# in pipnode-editor.  Built as an "internal" XFCE panel module, i.e. a
+# Panel applet that runs an associated pipnode worksheet via the
+# background engine (pipnode-editor as a D-Bus service) and shows its
+# value on the panel.  Built as an "internal" XFCE panel module, i.e. a
 # loadable lib<name>.so that the panel dlopen()s on demand.
+#
+# It is a pure D-Bus client: it links GTK / GLib / libxfce4panel only
+# (GDBus comes via GTK's gio-2.0 dependency) and NO pipnode library, so
+# an engine/node crash can never take down xfce4-panel.
 #
 # Install into the running panel's own module/descriptor dirs (derived
 # from libxfce4panel-2.0.pc in configure.ac), NOT pipnode's --prefix: the
@@ -15,8 +20,7 @@ libpipnode_worksheet_la_SOURCES = \
 libpipnode_worksheet_la_CFLAGS = \
 	$(LIBXFCE4PANEL_CFLAGS) \
 	$(GTK_CFLAGS) \
-	$(GLIB_CFLAGS) \
-	-DPIPNODE_EDITOR_PATH=\"$(bindir)/pipnode-editor\"
+	$(GLIB_CFLAGS)
 
 # -module        : loadable module
 # -avoid-version : ship plain libpipnode-worksheet.so (no SONAME version)

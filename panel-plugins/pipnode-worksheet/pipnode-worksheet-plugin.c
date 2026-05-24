@@ -16,19 +16,24 @@
 /* ------------------------------------------------------------------ */
 /*  Pipnode Worksheet — XFCE panel applet                             */
 /*                                                                     */
-/*  A panel button showing the pipnode icon.  Each applet instance    */
-/*  owns one pipnode worksheet (a .json document) stored under         */
-/*  ~/.config/pipnode/panel/<unique-id>.json.  Left-clicking the       */
-/*  button, or picking "Properties" from the panel's right-click       */
-/*  menu, launches pipnode-editor on that worksheet, creating an       */
-/*  empty worksheet first if it does not exist yet.                    */
+/*  A panel button that *runs* a pipnode worksheet, not just a         */
+/*  launcher.  Each applet instance owns one worksheet (a .json        */
+/*  document) under ~/.config/pipnode/panel/<unique-id>.json, executed */
+/*  by the background engine — pipnode-editor running as a D-Bus       */
+/*  service (org.pipas.pipnode), auto-started on first use.            */
 /*                                                                     */
-/*  This is a desktop-integration launcher, not a pipnode node         */
-/*  plugin: it links only GTK / GLib / libxfce4panel and spawns the    */
-/*  editor much like a .desktop "Exec=" entry would.                   */
+/*  The applet is a thin D-Bus client (no pipnode libraries, so an     */
+/*  editor/node crash can never take down xfce4-panel):                */
+/*    - on load it asks the engine to RunWorksheet its file;           */
+/*    - it shows a PnPanelDisplay node's value on the button, updated  */
+/*      live via the engine's ValueChanged signal;                     */
+/*    - a left-click drives a PnPanelInput node (SetInput);            */
+/*    - the right-click "Properties" item opens the worksheet for      */
+/*      editing (PresentEditor) — the same running flow, shown.        */
 /* ------------------------------------------------------------------ */
 
 #include <gtk/gtk.h>
+#include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <libxfce4panel/libxfce4panel.h>
 
@@ -36,8 +41,19 @@
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
 #define PIPNODE_ICON_NAME "org.pipas.pipnode"
 
+/* The background engine's well-known bus name, object path and the
+ * panel control interface (see src/pn-application.c).  The name is
+ * D-Bus-activatable, so the first call auto-starts the engine. */
+#define PN_ENGINE_BUS    "org.pipas.pipnode"
+#define PN_ENGINE_OBJECT "/org/pipas/pipnode"
+#define PN_ENGINE_IFACE  "org.pipas.pipnode.Engine"
+
+/* Value a left-click feeds to the worksheet's PnPanelInput.  A plain
+ * "pressed" pulse; the worksheet decides what to do with it. */
+#define PN_PANEL_CLICK_VALUE 1.0
+
 /* A blank pipnode document, matching the on-disk format produced by
- * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  pipnode-editor reparses and
+ * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  The engine reparses and
  * rewrites this on first save, so only the structure has to be valid. */
 static const gchar EMPTY_WORKSHEET[] =
     "{\n"
@@ -56,6 +72,11 @@ typedef struct
     XfcePanelPlugin *plugin;
     GtkWidget       *button;   /* panel button (owned by the plugin) */
     GtkWidget       *image;    /* icon inside the button             */
+    GtkWidget       *label;    /* Panel Display value, shown when set */
+
+    gchar           *path;     /* this instance's worksheet file     */
+    GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy     */
+    GCancellable    *cancel;   /* cancels in-flight async D-Bus work */
 } PipnodeWorksheet;
 
 /* ------------------------------------------------------------------ */
@@ -110,89 +131,156 @@ ensure_worksheet (const gchar *path,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Open the worksheet in pipnode-editor                               */
+/*  Button display                                                      */
+/* ------------------------------------------------------------------ */
+
+/* Show @text from the worksheet's Panel Display next to the icon; an
+ * empty string hides the label so a display-less worksheet keeps the
+ * button icon-only. */
+static void
+set_display_text (PipnodeWorksheet *self, const gchar *text)
+{
+    if (text != NULL && *text != '\0')
+    {
+        gtk_label_set_text (GTK_LABEL (self->label), text);
+        gtk_widget_show (self->label);
+    }
+    else
+    {
+        gtk_widget_hide (self->label);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Engine D-Bus calls                                                  */
 /* ------------------------------------------------------------------ */
 
 static void
-report_error (PipnodeWorksheet *self,
-              const gchar      *summary,
-              const gchar      *detail)
+on_run_worksheet_done (GObject      *source,
+                       GAsyncResult *result,
+                       gpointer      user_data)
 {
-    GtkWidget *dialog;
-    GtkWidget *toplevel;
+    PipnodeWorksheet *self = user_data;
+    GVariant         *reply;
+    GError           *error = NULL;
 
-    toplevel = gtk_widget_get_toplevel (self->button);
-
-    dialog = gtk_message_dialog_new (
-        GTK_IS_WINDOW (toplevel) ? GTK_WINDOW (toplevel) : NULL,
-        GTK_DIALOG_DESTROY_WITH_PARENT,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
-        "%s", summary);
-    if (detail != NULL)
-        gtk_message_dialog_format_secondary_text (
-            GTK_MESSAGE_DIALOG (dialog), "%s", detail);
-
-    g_signal_connect (dialog, "response",
-                      G_CALLBACK (gtk_widget_destroy), NULL);
-    gtk_widget_show_all (dialog);
-}
-
-static void
-open_worksheet (PipnodeWorksheet *self)
-{
-    GError *error = NULL;
-    gchar  *path;
-    gchar  *editor;
-    gchar  *argv[3];
-
-    path = worksheet_path (self);
-
-    if (!ensure_worksheet (path, &error))
+    reply = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), result, &error);
+    if (reply == NULL)
     {
-        report_error (self, "Could not create the worksheet.",
-                      error->message);
+        if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("pipnode-worksheet: RunWorksheet failed: %s",
+                       error->message);
         g_clear_error (&error);
-        g_free (path);
         return;
     }
 
-    /* Prefer an editor on $PATH; fall back to the install location baked
-     * in at build time. */
-    editor = g_find_program_in_path ("pipnode-editor");
-    if (editor == NULL)
-        editor = g_strdup (PIPNODE_EDITOR_PATH);
-
-    argv[0] = editor;
-    argv[1] = path;
-    argv[2] = NULL;
-
-    if (!g_spawn_async (NULL, argv, NULL,
-                        G_SPAWN_DO_NOT_REAP_CHILD,
-                        NULL, NULL, NULL, &error))
     {
-        report_error (self, "Could not launch pipnode-editor.",
-                      error->message);
-        g_clear_error (&error);
+        const gchar *value = NULL;
+        g_variant_get (reply, "(&s)", &value);
+        set_display_text (self, value);
     }
-
-    g_free (editor);
-    g_free (path);
+    g_variant_unref (reply);
 }
 
+/* Engine signals arrive here; we act on ValueChanged for our own
+ * worksheet (the engine multiplexes every applet on one interface, so
+ * the path argument disambiguates). */
+static void
+on_engine_signal (GDBusProxy *proxy,
+                  const gchar *sender,
+                  const gchar *signal_name,
+                  GVariant    *parameters,
+                  gpointer     user_data)
+{
+    PipnodeWorksheet *self = user_data;
+
+    (void) proxy;
+    (void) sender;
+
+    if (g_strcmp0 (signal_name, "ValueChanged") != 0)
+        return;
+
+    {
+        const gchar *path  = NULL;
+        const gchar *value = NULL;
+        g_variant_get (parameters, "(&s&s)", &path, &value);
+        if (g_strcmp0 (path, self->path) == 0)
+            set_display_text (self, value);
+    }
+}
+
+static void
+on_engine_ready (GObject      *source,
+                 GAsyncResult *result,
+                 gpointer      user_data)
+{
+    PipnodeWorksheet *self = user_data;
+    GError           *error = NULL;
+
+    (void) source;
+
+    self->engine = g_dbus_proxy_new_for_bus_finish (result, &error);
+    if (self->engine == NULL)
+    {
+        if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("pipnode-worksheet: cannot reach the pipnode engine: %s",
+                       error->message);
+        g_clear_error (&error);
+        return;
+    }
+
+    g_signal_connect (self->engine, "g-signal",
+                      G_CALLBACK (on_engine_signal), self);
+
+    /* Start the worksheet running (auto-activates the engine) and pick
+     * up the initial display value from the reply. */
+    g_dbus_proxy_call (self->engine, "RunWorksheet",
+                       g_variant_new ("(s)", self->path),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       on_run_worksheet_done, self);
+}
+
+/* Fire-and-forget engine call carrying just the worksheet path. */
+static void
+engine_call_path (PipnodeWorksheet *self, const gchar *method)
+{
+    if (self->engine == NULL)
+        return;
+
+    g_dbus_proxy_call (self->engine, method,
+                       g_variant_new ("(s)", self->path),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       NULL, NULL);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Interaction                                                         */
+/* ------------------------------------------------------------------ */
+
+/* Left-click: drive the worksheet's Panel Input. */
 static void
 on_button_clicked (GtkWidget        *button,
                    PipnodeWorksheet *self)
 {
     (void) button;
-    open_worksheet (self);
+
+    if (self->engine == NULL)
+        return;
+
+    g_dbus_proxy_call (self->engine, "SetInput",
+                       g_variant_new ("(sd)", self->path,
+                                      (gdouble) PN_PANEL_CLICK_VALUE),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       NULL, NULL);
 }
 
+/* Right-click "Properties": open the running worksheet for editing. */
 static void
 on_configure_plugin (XfcePanelPlugin  *plugin,
                      PipnodeWorksheet *self)
 {
     (void) plugin;
-    open_worksheet (self);
+    engine_call_path (self, "PresentEditor");
 }
 
 /* ------------------------------------------------------------------ */
@@ -215,6 +303,12 @@ on_free_data (XfcePanelPlugin  *plugin,
               PipnodeWorksheet *self)
 {
     (void) plugin;
+
+    g_cancellable_cancel (self->cancel);
+    g_clear_object (&self->cancel);
+    g_clear_object (&self->engine);
+    g_clear_pointer (&self->path, g_free);
+
     g_slice_free (PipnodeWorksheet, self);
 }
 
@@ -222,18 +316,28 @@ static void
 pipnode_worksheet_construct (XfcePanelPlugin *plugin)
 {
     PipnodeWorksheet *self;
+    GtkWidget        *box;
+    GError           *error = NULL;
 
     self = g_slice_new0 (PipnodeWorksheet);
     self->plugin = plugin;
+    self->cancel = g_cancellable_new ();
+    self->path   = worksheet_path (self);
 
-    /* Flat, panel-styled button holding the icon. */
+    /* Flat, panel-styled button holding the icon plus a live value
+     * label (hidden until the worksheet's Panel Display emits). */
     self->button = xfce_panel_create_button ();
-    self->image  = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
-                                                 GTK_ICON_SIZE_BUTTON);
-    gtk_container_add (GTK_CONTAINER (self->button), self->image);
+    box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    self->image = gtk_image_new_from_icon_name (PIPNODE_ICON_NAME,
+                                                GTK_ICON_SIZE_BUTTON);
+    self->label = gtk_label_new (NULL);
+    gtk_box_pack_start (GTK_BOX (box), self->image, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), self->label, FALSE, FALSE, 0);
+    gtk_container_add (GTK_CONTAINER (self->button), box);
 
     gtk_widget_set_tooltip_text (self->button,
-                                 "Open the Pipnode worksheet");
+                                 "Pipnode worksheet — click to send, "
+                                 "right-click → Properties to edit");
 
     gtk_container_add (GTK_CONTAINER (plugin), self->button);
 
@@ -241,7 +345,7 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
     xfce_panel_plugin_add_action_widget (plugin, self->button);
 
     /* Add the "Properties" entry to the right-click menu (the settings
-     * menu) — fires "configure-plugin" when chosen. */
+     * menu) — fires "configure-plugin", which opens the editor. */
     xfce_panel_plugin_menu_show_configure (plugin);
 
     g_signal_connect (self->button, "clicked",
@@ -254,6 +358,23 @@ pipnode_worksheet_construct (XfcePanelPlugin *plugin)
                       G_CALLBACK (on_free_data), self);
 
     gtk_widget_show_all (self->button);
+    gtk_widget_hide (self->label);   /* shown once a value arrives */
+
+    /* Make sure the file exists, then connect to the engine
+     * asynchronously so the panel never blocks on D-Bus. */
+    if (!ensure_worksheet (self->path, &error))
+    {
+        g_warning ("pipnode-worksheet: could not create worksheet '%s': %s",
+                   self->path, error->message);
+        g_clear_error (&error);
+        return;
+    }
+
+    g_dbus_proxy_new_for_bus (G_BUS_TYPE_SESSION,
+                              G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
+                              NULL,
+                              PN_ENGINE_BUS, PN_ENGINE_OBJECT, PN_ENGINE_IFACE,
+                              self->cancel, on_engine_ready, self);
 }
 
 /* Generates the xfce_panel_module_* entry points the panel dlopen()s. */
