@@ -61,9 +61,18 @@
 /* Geometry of the panel band — a horizontal strip standing in for the
  * real XFCE panel, drawn as two thin dashed edges across the canvas.  Its
  * top sits at the cascade margin so the first readout lands inside it, and
- * its depth allows for the readout height plus its bezel/margins. */
+ * its depth is exactly the applet-widget height, so the two guide lines sit
+ * one widget apart and a snapped widget fills the band edge to edge. */
 #define PN_PE_PANEL_TOP     24
-#define PN_PE_PANEL_HEIGHT  (PN_PE_PREVIEW_HEIGHT + 12)
+#define PN_PE_PANEL_HEIGHT  PN_PE_PREVIEW_HEIGHT
+
+/* Sticky snapping of a dragged row to the panel band: it snaps when the
+ * pointer-driven position comes within PN_PE_SNAP_GRAB px of the band, and
+ * stays stuck until the pointer is pulled more than PN_PE_SNAP_BREAK px
+ * away — so a widget clings to the panel yet can be torn off deliberately.
+ * BREAK is the larger of the two, which is what gives the snap its grip. */
+#define PN_PE_SNAP_GRAB     10
+#define PN_PE_SNAP_BREAK    22
 
 struct _PnPanelEditor
 {
@@ -97,6 +106,11 @@ struct _PnPanelEditor
     gdouble    drag_grab_y;
     gint       drag_start_x;
     gint       drag_start_y;
+
+    /* Whether the row being dragged is currently stuck to the panel band.
+     * Carried across motion events so the snap has hysteresis: it holds
+     * until the pointer pulls PN_PE_SNAP_BREAK px clear (see on_row_motion). */
+    gboolean   drag_snapped;
 
     /* Running count of rows ever placed, used to cascade the initial
      * position of each new readout so they do not all land on top of
@@ -161,6 +175,17 @@ panel_editor_update_empty_state (PnPanelEditor *self)
     gtk_widget_set_visible (self->canvas,     !empty);
 }
 
+/* The y at which @child sits centred in the panel band — the position it
+ * snaps to.  With the band exactly one widget tall this aligns the row's
+ * edges with the two guide lines. */
+static gint
+panel_band_snap_y (GtkWidget *child)
+{
+    gint h = gtk_widget_get_allocated_height (child);
+
+    return PN_PE_PANEL_TOP + (PN_PE_PANEL_HEIGHT - h) / 2;
+}
+
 /* Begin dragging the row under the pointer.  We remember where inside the
  * row the pointer grabbed so the row follows it without snapping its
  * corner to the cursor, and raise the row above its siblings so it stays
@@ -182,6 +207,10 @@ on_row_button_press (GtkWidget      *child,
     gtk_container_child_get (GTK_CONTAINER (self->canvas), child,
                              "x", &self->drag_start_x,
                              "y", &self->drag_start_y, NULL);
+
+    /* A row picked up already sitting in the band starts out snapped, so it
+     * clings rather than tearing off on the first stray pixel of motion. */
+    self->drag_snapped = (self->drag_start_y == panel_band_snap_y (child));
 
     win = gtk_widget_get_window (child);
     if (win != NULL)
@@ -220,6 +249,28 @@ on_row_motion (GtkWidget      *child,
     ny = CLAMP (ny, 0,
                 MAX (0, gtk_widget_get_allocated_height (self->canvas)
                             - gtk_widget_get_allocated_height (child)));
+
+    /* Sticky-snap the row's vertical position to the panel band.  @ny still
+     * tracks the pointer, so its distance from the snap line measures how
+     * far the user has pulled: once snapped we hold the row on the line
+     * until that pull exceeds the (larger) break distance, then let go. */
+    {
+        gint snap_y = panel_band_snap_y (child);
+        gint dist   = ABS (ny - snap_y);
+
+        if (self->drag_snapped)
+        {
+            if (dist > PN_PE_SNAP_BREAK)
+                self->drag_snapped = FALSE;
+            else
+                ny = snap_y;
+        }
+        else if (dist <= PN_PE_SNAP_GRAB)
+        {
+            self->drag_snapped = TRUE;
+            ny = snap_y;
+        }
+    }
 
     gtk_fixed_move (GTK_FIXED (self->canvas), child, nx, ny);
     return GDK_EVENT_STOP;
@@ -300,24 +351,18 @@ panel_editor_build_widget (PnNode *node)
 {
     if (PN_IS_COUNTDOWN (node))
     {
-        /* Framed readout, no caption — the bezel reads as a panel-mounted
-         * display. */
-        GtkWidget *frame = gtk_frame_new (NULL);
-        GtkWidget *led   = pn_led_display_new ();
+        /* The readout paints its own dark-brown frame (pn-applet-frame.h),
+         * the same one the lamp draws, so no extra GtkFrame is needed and
+         * both applet widgets stand the same height on the canvas. */
+        GtkWidget *led = pn_led_display_new ();
 
-        gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
         pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
-        gtk_widget_set_margin_top    (led, 4);
-        gtk_widget_set_margin_bottom (led, 4);
-        gtk_widget_set_margin_start  (led, 6);
-        gtk_widget_set_margin_end    (led, 6);
-        gtk_container_add (GTK_CONTAINER (frame), led);
 
         panel_editor_sync_countdown (node, PN_LED_DISPLAY (led));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_countdown_repaint_needed),
                                  led, 0);
-        return frame;
+        return led;
     }
 
     if (PN_IS_LED (node))

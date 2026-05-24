@@ -25,6 +25,7 @@
 /* ------------------------------------------------------------------ */
 
 #include "pn-led-lamp.h"
+#include "pn-applet-frame.h"
 
 #include <math.h>
 
@@ -178,9 +179,16 @@ pn_led_lamp_draw (GtkWidget *widget, cairo_t *cr)
 
     gtk_widget_get_allocation (widget, &alloc);
 
+    /* Shared applet frame: dark-brown face inside a raised bezel rim, so
+     * the lamp matches the seven-segment readout sitting beside it. */
+    pn_applet_frame_draw (cr, alloc.width, alloc.height);
+
     cx      = alloc.width  * 0.5;
     cy      = alloc.height * 0.5;
-    outer_r = MIN (alloc.width, alloc.height) * 0.5 * LAMP_BRACKET_RATIO;
+    /* Fit the bracket inside the frame's face so the lit halo and collar
+     * never run under the bezel rim. */
+    outer_r = (MIN (alloc.width, alloc.height) - 2.0 * PN_APPLET_FRAME_PAD)
+              * 0.5 * LAMP_BRACKET_RATIO;
     if (outer_r < 2.0)
         outer_r = 2.0;
 

@@ -26,6 +26,7 @@
 /* ------------------------------------------------------------------ */
 
 #include "pn-led-display.h"
+#include "pn-applet-frame.h"
 
 #include <math.h>
 
@@ -57,14 +58,9 @@ static const guint8 seg_masks[10] = {
 #define LED_GROUP_RATIO  0.55   /* gap between the days block and HH:MM:SS */
 #define LED_COLON_RATIO  0.50   /* colon column width / D                */
 
-/* LED face / segment colours, matching the Countdown node's defaults:
- * a near-black face, classic LED red digits, dim red unlit ghosts. */
-#define LED_BEZEL_R 0.12
-#define LED_BEZEL_G 0.12
-#define LED_BEZEL_B 0.13
-#define LED_FACE_R  0.04
-#define LED_FACE_G  0.04
-#define LED_FACE_B  0.05
+/* Segment colours, matching the Countdown node's defaults: classic LED
+ * red digits over the shared applet frame, dim red unlit ghosts.  The
+ * face and bezel come from pn-applet-frame.h. */
 #define LED_LIT_R   0.92
 #define LED_LIT_G   0.12
 #define LED_LIT_B   0.08
@@ -220,20 +216,6 @@ draw_colon (cairo_t *cr, double cx, double y, double H, double t)
     cairo_fill (cr);
 }
 
-/* Trace a rounded-rectangle path with corner radius @r. */
-static void
-rounded_rect (cairo_t *cr, double x, double y, double w, double h, double r)
-{
-    if (r > w * 0.5) r = w * 0.5;
-    if (r > h * 0.5) r = h * 0.5;
-    cairo_new_sub_path (cr);
-    cairo_arc (cr, x + w - r, y + r,     r, -M_PI_2, 0.0);
-    cairo_arc (cr, x + w - r, y + h - r, r, 0.0,     M_PI_2);
-    cairo_arc (cr, x + r,     y + h - r, r, M_PI_2,  M_PI);
-    cairo_arc (cr, x + r,     y + r,     r, M_PI,    1.5 * M_PI);
-    cairo_close_path (cr);
-}
-
 /* Largest value @digits seven-segment cells can show (10^digits - 1). */
 static gint64
 max_for_digits (guint digits)
@@ -318,14 +300,8 @@ pn_led_display_draw (GtkWidget *widget, cairo_t *cr)
 
     gtk_widget_get_allocation (widget, &alloc);
 
-    /* Dark bezel framing the near-black LED face. */
-    rounded_rect (cr, 0.0, 0.0, alloc.width, alloc.height, LED_PAD + 2.0);
-    cairo_set_source_rgba (cr, LED_BEZEL_R, LED_BEZEL_G, LED_BEZEL_B, 1.0);
-    cairo_fill (cr);
-    rounded_rect (cr, 1.0, 1.0, alloc.width - 2.0, alloc.height - 2.0,
-                  LED_PAD + 1.0);
-    cairo_set_source_rgba (cr, LED_FACE_R, LED_FACE_G, LED_FACE_B, 1.0);
-    cairo_fill (cr);
+    /* Shared applet frame: dark-brown face inside a raised bezel rim. */
+    pn_applet_frame_draw (cr, alloc.width, alloc.height);
 
     D       = digit_width_fit (self, alloc.width, alloc.height);
     H       = D * LED_H_RATIO;
@@ -434,7 +410,8 @@ pn_led_display_init (PnLedDisplay *self)
 {
     self->seconds    = 0;
     self->day_digits = 3;
-    self->height     = 22;
+    self->height     = 24;   /* matches PnLedLamp's default so a mixed row
+                              * of applet widgets stands one height */
     gtk_widget_set_has_window (GTK_WIDGET (self), FALSE);
 }
 
