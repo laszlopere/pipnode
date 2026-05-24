@@ -34,6 +34,8 @@ pnhelp_DATA = \
 	help/PnLed.html \
 	help/PnMeshtastic.html \
 	help/PnNotify.html \
+	help/PnPanelDisplay.html \
+	help/PnPanelInput.html \
 	help/PnQuery.html \
 	help/PnRate.html \
 	help/PnRewrite.html \
@@ -98,9 +100,22 @@ appicon256_DATA = icons/hicolor/256x256/apps/org.pipas.pipnode.png
 appicon128dir = $(datadir)/icons/hicolor/128x128/apps
 appicon128_DATA = icons/hicolor/128x128/apps/org.pipas.pipnode.png
 
+# D-Bus activation for the background engine: the first method call from
+# an XFCE panel applet auto-starts "pipnode-editor --gapplication-service".
+# Generated from the .in so the Exec carries the install-time absolute
+# path ($(bindir) is fully expanded by make for the default prefix).
+servicedir = $(datadir)/dbus-1/services
+service_DATA = org.pipas.pipnode.service
+
+org.pipas.pipnode.service: org.pipas.pipnode.service.in Makefile
+	$(AM_V_GEN)sed -e 's|@bindir[@]|$(bindir)|g' $< > $@
+
+CLEANFILES = org.pipas.pipnode.service
+
 EXTRA_DIST = $(pnhelp_DATA) $(pnicons_DATA) \
 	$(desktop_DATA) $(metainfo_DATA) \
-	$(appicon256_DATA) $(appicon128_DATA)
+	$(appicon256_DATA) $(appicon128_DATA) \
+	org.pipas.pipnode.service.in
 
 # Refresh the hicolor icon cache after (un)installing the app icon, so the
 # themed name "org.pipas.pipnode" resolves immediately — otherwise a stale

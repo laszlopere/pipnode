@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Panel Display (PnPanelDisplay) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPanelDisplay">Panel Display</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnPanelDisplay</code>.
+</p>
+<p>
+Surfaces a worksheet value on an XFCE panel applet.  It is one half of
+the panel I/O contract (see <a href="PnPanelInput.html">Panel Input</a>):
+a worksheet runs in the background <em>engine</em> &mdash;
+<code>pipnode-editor</code> started as a D-Bus service &mdash; and the
+panel button reflects whatever this node last received.
+</p>
+<p>
+On each incoming message the node derives a short display string and, if
+it differs from the current one, stores it and notifies the engine, which
+pushes it to the applet button.  The string is chosen from the standard
+data-bag members in this order:
+</p>
+<ul>
+  <li>the <code>data.text</code> string member, if present;</li>
+  <li>otherwise <code>data.value</code> formatted &mdash; a boolean as
+      <code>on</code>/<code>off</code>, integers and reals
+      locale-independently;</li>
+  <li>otherwise the message <code>topic</code>, then the empty string.</li>
+</ul>
+<p>
+The node has no output port: it is a terminal display.  An empty string
+hides the applet label, so a display that has not received anything yet
+leaves the button showing just the pipnode icon.
+</p>
+<p>
+A worksheet needs no Panel Display to be useful, but a panel applet that
+should show a value must contain exactly one for the engine to mirror.
+</p>
+
+</body>
+</html>

@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.pipas.pipnode
+Exec=@bindir@/pipnode-editor --gapplication-service

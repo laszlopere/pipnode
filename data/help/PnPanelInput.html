@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Panel Input (PnPanelInput) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPanelInput">Panel Input</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnPanelInput</code>.
+</p>
+<p>
+Driven by an XFCE panel applet &mdash; the other half of the panel I/O
+contract (see <a href="PnPanelDisplay.html">Panel Display</a>).  When the
+applet button is clicked, the panel forwards the click to the background
+<em>engine</em> over D-Bus, which makes this node emit a single message
+carrying the value on its <code>data.value</code> member
+(<code>data.success</code> is set <code>true</code>) into the running
+worksheet.
+</p>
+<p>
+A left-click sends a fixed &ldquo;pressed&rdquo; pulse
+(<code>data.value = 1.0</code>); what the worksheet does with it &mdash;
+count it, toggle a <a href="PnSwitch.html">Switch</a>, trigger an action
+&mdash; is up to its wiring.
+</p>
+<p>
+On startup the node emits its current value once, shortly after the
+worksheet loads, so downstream nodes learn the starting value without
+waiting for a click.  This mirrors how the <a href="PnKnob.html">Knob</a>
+and <a href="PnSwitch.html">Switch</a> report on load; it is a single
+shot, never re-emitted on a timer.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>value</code></td>
+      <td>Numeric value carried on the next emitted message.  Restored
+          from the worksheet on load (and announced once on startup);
+          updated each time the panel applet is clicked.</td></tr>
+</table>
+
+</body>
+</html>
