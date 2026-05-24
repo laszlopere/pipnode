@@ -60,6 +60,21 @@
         "segment-color" : "rgb(237,51,59)",
         "label-color" : "rgb(255,255,255)"
       }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "45deb477-9d1c-4ab7-9021-c35f649cab10",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "color" : "rgb(237,51,59)",
+        "hold-ms" : 250,
+        "mode" : "Flash"
+      }
     }
   ],
   "connections" : [
@@ -74,10 +89,25 @@
     {
       "source_id" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e",
       "target_id" : "4e1e17f1-00da-4d6b-a0a0-be78557b8d22"
+    },
+    {
+      "source_id" : "bbd81f5e-6d74-4e68-b657-42460a4b74c6",
+      "target_id" : "45deb477-9d1c-4ab7-9021-c35f649cab10"
     }
   ],
   "sheets" : [
     "Worksheet"
   ],
-  "active_sheet" : "Worksheet"
+  "active_sheet" : "Worksheet",
+  "panel_editor_open" : true,
+  "panel_layout" : {
+    "45deb477-9d1c-4ab7-9021-c35f649cab10" : {
+      "x" : 630.0,
+      "y" : 32.0
+    },
+    "4e1e17f1-00da-4d6b-a0a0-be78557b8d22" : {
+      "x" : 357.0,
+      "y" : 25.0
+    }
+  }
 }
