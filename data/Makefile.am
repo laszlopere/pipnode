@@ -81,4 +81,21 @@ pnicons_DATA = \
 	icons/xmr.png \
 	icons/xrp.png
 
-EXTRA_DIST = $(pnhelp_DATA) $(pnicons_DATA)
+# Desktop integration: launcher entry, AppStream metainfo and the
+# application icon installed into the standard freedesktop locations so
+# both native (make install) and Flatpak builds pick them up.
+desktopdir = $(datadir)/applications
+desktop_DATA = org.pipas.pipnode.desktop
+
+metainfodir = $(datadir)/metainfo
+metainfo_DATA = org.pipas.pipnode.metainfo.xml
+
+appicon256dir = $(datadir)/icons/hicolor/256x256/apps
+appicon256_DATA = icons/hicolor/256x256/apps/org.pipas.pipnode.png
+
+appicon128dir = $(datadir)/icons/hicolor/128x128/apps
+appicon128_DATA = icons/hicolor/128x128/apps/org.pipas.pipnode.png
+
+EXTRA_DIST = $(pnhelp_DATA) $(pnicons_DATA) \
+	$(desktop_DATA) $(metainfo_DATA) \
+	$(appicon256_DATA) $(appicon128_DATA)

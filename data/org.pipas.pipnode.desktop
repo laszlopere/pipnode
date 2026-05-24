@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Pipnode
+GenericName=Visual Dataflow Editor
+Comment=Build dataflows visually by wiring nodes together
+Exec=pipnode-editor %f
+Icon=org.pipas.pipnode
+Terminal=false
+Categories=Development;IDE;GTK;
+Keywords=dataflow;flow;nodes;node-red;automation;mqtt;iot;
+StartupNotify=true
+StartupWMClass=pipnode-editor
+MimeType=application/json;

@@ -171,6 +171,19 @@ custom dialog lived in the companion).  See PLUGINS for the full plugin
 model and a checklist for shipping a server-installable plugin.
 
 
+Flatpak (community edition)
+---------------------------
+
+Besides distro packaging, Pipnode ships a sandboxed Flatpak community
+edition built from org.pipas.pipnode.yml in the repository root.  It
+targets the org.gnome.Platform//50 runtime and bundles the libraries that
+no runtime provides (gtksourceview-4, libmosquitto, PLplot) plus the
+FontAwesome glyph font.  See FLATPAK.md for the full build, bundle and run
+instructions.  Note the sandbox runs the shell and host-monitoring nodes
+inside the sandbox rather than against the host; a native build (above)
+has no such restriction.
+
+
 Uninstalling
 ============
 

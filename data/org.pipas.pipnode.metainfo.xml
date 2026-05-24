@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2024-2026 Laszlo Pere -->
+<component type="desktop-application">
+  <id>org.pipas.pipnode</id>
+
+  <name>Pipnode</name>
+  <summary>Build dataflows visually by wiring nodes together</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <developer id="io.github.laszlopere">
+    <name>Laszlo Pere</name>
+  </developer>
+
+  <launchable type="desktop-id">org.pipas.pipnode.desktop</launchable>
+
+  <description>
+    <p>
+      Pipnode is a desktop visual flow editor for Linux, inspired by Node-RED.
+      Drag nodes onto a worksheet, wire them together, and build dataflows —
+      network probes, MQTT, sensors, gauges, image processing, LLM calls, and
+      more — without writing glue code. It is a native GTK 3 application written
+      in C, with a first-class plugin system so the node catalogue can grow
+      without forking the core.
+    </p>
+    <p>This community-edition build bundles the open-source plugins:</p>
+    <ul>
+      <li>Network — HTTP/HTTPS, WebSocket, MQTT, DNS and crypto-rate nodes</li>
+      <li>Image — blur, sharpen, colour, geometry, edge detection and more</li>
+      <li>Tasmota — smart-plug power, energy and sensor readings</li>
+      <li>Host monitoring — CPU, memory, load, disk, network and temperature</li>
+      <li>Shell — run commands, df, free and tmux session monitoring</li>
+      <li>Sound effects and Ollama (local LLM) nodes</li>
+    </ul>
+    <p>
+      Note: as a sandboxed Flatpak, the Shell and Host-monitoring nodes operate
+      inside the application sandbox rather than against the host system. For
+      full host access, use a native build from source.
+    </p>
+  </description>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Live meters and gauges driven by a worksheet</caption>
+      <image>https://raw.githubusercontent.com/laszlopere/pipnode/v0.1.0/screenshots/meters.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Image-processing pipeline</caption>
+      <image>https://raw.githubusercontent.com/laszlopere/pipnode/v0.1.0/screenshots/image-processing.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Weather dataflow</caption>
+      <image>https://raw.githubusercontent.com/laszlopere/pipnode/v0.1.0/screenshots/weather.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Talking to a local Ollama model</caption>
+      <image>https://raw.githubusercontent.com/laszlopere/pipnode/v0.1.0/screenshots/ollama.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Temperature monitoring</caption>
+      <image>https://raw.githubusercontent.com/laszlopere/pipnode/v0.1.0/screenshots/temperature.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/laszlopere/pipnode</url>
+  <url type="bugtracker">https://github.com/laszlopere/pipnode/issues</url>
+  <url type="vcs-browser">https://github.com/laszlopere/pipnode</url>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-05-24">
+      <description>
+        <p>First public Flatpak community-edition release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

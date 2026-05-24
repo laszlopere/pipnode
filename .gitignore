@@ -59,6 +59,12 @@ tests/__pycache__/
 /compile_commands.json
 /.cache/
 
+# Flatpak build artifacts
+/.flatpak-builder/
+/build-dir/
+/repo/
+/*.flatpak
+
 # Editor / OS junk
 *~
 .*.swp

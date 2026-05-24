@@ -41,6 +41,9 @@ libsoup 3, GnuTLS, PLplot, and libmosquitto; WebKit2GTK is optional. Exact
 version requirements live in `configure.ac`, and `INSTALL` has notes on
 optional voice/TTS data.
 
+To build the sandboxed **Flatpak** community edition (a single-file bundle that
+runs on any distro), see [`FLATPAK.md`](FLATPAK.md).
+
 ## Running headless (servers)
 
 The editor (`pipnode-editor`) is the GTK application. A second binary,

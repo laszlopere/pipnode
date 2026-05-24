@@ -1,0 +1,158 @@
+# Flatpak manifest for the Pipnode community edition.
+#
+# Build + bundle (needs `flatpak` and `flatpak-builder` on the host):
+#   flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50
+#   flatpak-builder --user --install --force-clean --repo=repo build-dir org.pipas.pipnode.yml
+#   flatpak build-bundle repo pipnode.flatpak org.pipas.pipnode \
+#       --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+#
+# Runtime note: the GNOME runtime provides GTK3, libsoup-3.0, json-glib,
+# gnutls and gdk-pixbuf. gtksourceview-4, plplot and libmosquitto are NOT in
+# any runtime and are built below. The in-app HTML help browser uses
+# webkit2gtk-4.1 *if the chosen runtime ships it* (`--with-webview=auto`); if
+# not, it transparently falls back to a GtkTextView renderer and the build
+# still succeeds. To check whether this runtime has WebKit for GTK3, run:
+#   flatpak run --command=pkg-config org.gnome.Sdk//50 --exists webkit2gtk-4.1 && echo yes
+app-id: org.pipas.pipnode
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: pipnode-editor
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --socket=pulseaudio          # audio playback (paplay / pactl)
+  - --share=network              # HTTP, MQTT, WebSocket, DNS, Ollama, Tasmota
+  - --filesystem=xdg-documents   # load/save worksheets (file chooser also uses the portal)
+  - --filesystem=xdg-download
+  # Pick up the host GTK theme / icon theme on real desktops
+  - --filesystem=xdg-data/themes:ro
+  - --filesystem=xdg-data/icons:ro
+  - --filesystem=~/.themes:ro
+  - --filesystem=~/.icons:ro
+  # WebKit help browser: skip the GPU DMABUF/compositing path on hosts without
+  # working DRI3 (VMs, software rendering) — fixes the libEGL DRI3 errors and
+  # the help-page / startup slowness.
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
+  - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/aclocal
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  # GTK3 source-code editor widget (Rewrite node's JSON editor).
+  # GNOME runtime ships gtksourceview-5 (GTK4), so 4.x must be bundled.
+  - name: gtksourceview4
+    buildsystem: meson
+    config-opts:
+      - --libdir=lib           # SDK meson defaults to lib64; keep everything in /app/lib
+      - -Dvapi=false
+      - -Dgir=false
+      - -Dgtk_doc=false
+      - -Dinstall_tests=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/gtksourceview/4.8/gtksourceview-4.8.4.tar.xz
+        sha256: 7ec9d18fb283d1f84a3a3eff3b7a72b09a10c9c006597b3fbabbb5958420a87d
+
+  # MQTT client library (network plugin). Client lib only; no broker/apps.
+  - name: libmosquitto
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DWITH_BROKER=OFF
+      - -DWITH_APPS=OFF
+      - -DWITH_CLIENTS=OFF
+      - -DWITH_PLUGINS=OFF
+      - -DWITH_CJSON=OFF
+      - -DDOCUMENTATION=OFF
+      - -DWITH_STATIC_LIBRARIES=OFF
+      - -DWITH_TLS=ON
+      - -DWITH_TLS_PSK=OFF
+      - -DCMAKE_INSTALL_PREFIX=/app
+      - -DCMAKE_INSTALL_LIBDIR=lib   # GNUInstallDirs picks lib64 otherwise; keep in /app/lib
+    sources:
+      - type: archive
+        url: https://mosquitto.org/files/source/mosquitto-2.0.20.tar.gz
+        sha256: ebd07d89d2a446a7f74100ad51272e4a8bf300b61634a7812e19f068f2759de8
+
+  # Scientific plotting library (graph/plot nodes). HEAVY CMake build:
+  # disable every language binding and unneeded driver, keep the
+  # double-precision C core + the cairo driver family used for GTK rendering.
+  - name: plplot
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DPL_DOUBLE=ON
+      - -DENABLE_DYNDRIVERS=OFF
+      - -DDEFAULT_NO_BINDINGS=ON
+      - -DENABLE_cxx=OFF
+      - -DENABLE_fortran=OFF
+      - -DENABLE_java=OFF
+      - -DENABLE_lua=OFF
+      - -DENABLE_octave=OFF
+      - -DENABLE_python=OFF
+      - -DENABLE_tcl=OFF
+      - -DENABLE_tk=OFF
+      - -DENABLE_ada=OFF
+      - -DENABLE_d=OFF
+      - -DENABLE_ocaml=OFF
+      - -DENABLE_qt=OFF
+      - -DPLD_cairo=ON
+      - -DPLD_xcairo=ON
+      - -DPLD_pngcairo=ON
+      - -DPLD_extcairo=ON
+      - -DPLD_memcairo=ON
+      - -DPLD_ps=OFF
+      - -DPLD_psttf=OFF
+      - -DPLD_xwin=OFF
+      - -DPLD_tk=OFF
+      - -DWITH_QHULL=OFF
+      - -DHAVE_SHAPELIB=OFF
+      - -DBUILD_DOC=OFF
+      - -DBUILD_DOX_DOC=OFF
+    sources:
+      - type: archive
+        url: https://downloads.sourceforge.net/project/plplot/plplot/5.15.0%20Source/plplot-5.15.0.tar.gz
+        sha256: b92de4d8f626a9b20c84fc94f4f6a9976edd76e33fb1eae44f6804bdcc628c7b
+
+  # Pipnode itself + all 7 bundled open-source plugins.
+  - name: pipnode
+    buildsystem: autotools
+    config-opts:
+      # HTML help browser via webkit2gtk-4.1 (present in the GNOME runtime).
+      - --with-webview=auto
+    build-options:
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig
+        # libmosquitto ships no .pc; pipnode probes header+symbol directly.
+        CPPFLAGS: -I/app/include
+        LDFLAGS: -L/app/lib
+    sources:
+      # Local working tree for iteration. For a reproducible release build,
+      # switch to a tagged checkout, e.g.:
+      #   - type: git
+      #     url: https://github.com/laszlopere/pipnode.git
+      #     tag: v0.1.0
+      - type: dir
+        path: .
+
+  # FontAwesome 4.7 — node glyph icons render with this font (Pango family
+  # "FontAwesome"). Not in the runtime; bundle it so icons work on any host.
+  # (Kept last so it never invalidates the pipnode build cache.)
+  - name: font-awesome
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 fonts/FontAwesome.otf /app/share/fonts/FontAwesome.otf
+      - install -Dm644 fonts/fontawesome-webfont.ttf /app/share/fonts/fontawesome-webfont.ttf
+    sources:
+      - type: archive
+        url: https://github.com/FortAwesome/Font-Awesome/archive/refs/tags/v4.7.0.tar.gz
+        sha256: de512ba0e1dead382bbfce372cde74b3f18971d876fffb635ee9333f0db05d43
