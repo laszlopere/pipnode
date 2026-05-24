@@ -49,6 +49,11 @@ flatpak-builder --user --force-clean --stop-at=pipnode build-dir org.pipas.pipno
 
 Then run it (see **Running** below).
 
+> If the app comes up **white/unstyled** (no grey backgrounds), a local build
+> didn't pull your GTK theme into the sandbox — install it once with
+> `flatpak install --user flathub org.gtk.Gtk3theme.<YourTheme>//3.22`. See
+> [GTK theme](#gtk-theme-why-a-local-build-can-look-unstyled) for details.
+
 ---
 
 ## Make a single-file bundle
@@ -92,6 +97,49 @@ Notes:
 
 ---
 
+## GTK theme (why a local build can look unstyled)
+
+A Flatpak can only use a GTK theme that exists **inside the sandbox**. The host's
+system themes (in `/usr/share/themes`) are not visible there, so Flatpak ships
+each theme as a separate runtime extension, `org.gtk.Gtk3theme.<Name>`, which is
+mounted into the sandbox on demand.
+
+For a **normal install** (from Flathub, or from the bundle with the Flathub
+remote configured) this is automatic: the runtime's extension point is declared
+`download-if = active-gtk-theme`, so Flatpak downloads the extension matching the
+user's active GTK theme. The app looks themed out of the box.
+
+For a **local `flatpak-builder --install` build**, that auto-download does **not**
+happen. With no matching theme in the sandbox, GTK falls back to its bare
+built-in default — an unstyled, mostly **white** look (no grey backgrounds). The
+fix is to install the extension yourself, **matching the runtime's extension-point
+version, which is `3.22` for the GNOME 50 runtime** (not the theme's own version):
+
+```sh
+# Find your active GTK theme name:
+gsettings get org.gnome.desktop.interface gtk-theme     # GNOME
+xfconf-query -c xsettings -p /Net/ThemeName             # XFCE (e.g. "Greybird")
+
+# Install the matching Gtk3 theme extension on the 3.22 branch:
+flatpak install --user flathub org.gtk.Gtk3theme.Greybird//3.22
+```
+
+> On XFCE the GTK theme is the **xsettings** value (e.g. `Greybird`), which can
+> differ from what `org.gnome.desktop.interface gtk-theme` reports. The theme the
+> sandbox actually resolves can be checked with:
+> ```sh
+> flatpak run --command=gjs org.pipas.pipnode -c \
+>   'imports.gi.versions.Gtk="3.0"; const {Gtk}=imports.gi; Gtk.init(null); \
+>    print(Gtk.Settings.get_default().gtk_theme_name)'
+> ```
+
+If your theme has no `org.gtk.Gtk3theme.*` extension on Flathub, drop a copy into
+`~/.local/share/themes/` or `~/.themes/` (both are shared read-only into the
+sandbox by the manifest), or force a runtime-provided theme that always works,
+e.g. `flatpak run --env=GTK_THEME=Adwaita org.pipas.pipnode`.
+
+---
+
 ## What the manifest builds (modules, in order)
 
 | Module | Build system | Notes |
@@ -111,8 +159,11 @@ bundle automatically.
 ## Sandbox permissions and limitations
 
 `finish-args` grants: Wayland + X11 fallback, `dri`, PulseAudio, network, the
-`xdg-documents`/`xdg-download` folders, and read-only access to host GTK/icon
-themes. WebKit is run with `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
+`xdg-documents`/`xdg-download` folders, and read-only access to the user's
+themes/icons (`~/.themes`, `~/.icons` and the `xdg-data` equivalents). Note that
+**system** GTK themes are delivered separately as `org.gtk.Gtk3theme.*`
+extensions, not through these mounts — see [GTK theme](#gtk-theme-why-a-local-build-can-look-unstyled)
+above. WebKit is run with `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
 `WEBKIT_DISABLE_COMPOSITING_MODE=1` so the help browser stays usable on
 software-rendering hosts (VMs, remote sessions, GPU-less machines).
 
