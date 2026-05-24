@@ -21,7 +21,9 @@ noinst_LTLIBRARIES = libpipnode-panel-widgets.la
 
 libpipnode_panel_widgets_la_SOURCES = \
 	pn-led-display.c \
-	pn-led-display.h
+	pn-led-display.h \
+	pn-led-lamp.c \
+	pn-led-lamp.h
 
 libpipnode_panel_widgets_la_CFLAGS = \
 	$(GTK_CFLAGS) \

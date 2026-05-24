@@ -19,9 +19,11 @@
 
 #include "pn-panel-editor.h"
 #include "pn-led-display.h"
+#include "pn-led-lamp.h"
 #include "pn-node.h"
 #include "pn-node-store.h"
 #include "pn-countdown.h"
+#include "pn-led.h"
 
 /* ------------------------------------------------------------------ */
 /*  PnPanelEditor                                                      */
@@ -31,17 +33,19 @@
 /*  drives rather than the dataflow itself.  Other GUI-layout editors   */
 /*  (desktop, web, mobile) are planned to follow the same shape.        */
 /*                                                                     */
-/*  Role split: #PnLedDisplay (from the GTK/Cairo-only panel-widgets    */
-/*  library) is a dumb readout that knows nothing about nodes; this     */
-/*  editor is the controller that binds it to the model.  It keeps one  */
-/*  readout per #PnCountdown node across the whole flow (every sheet),  */
-/*  observing the flow's single node store to create and destroy        */
-/*  readouts as countdown nodes come and go, and mirroring each node's  */
-/*  live value through its repaint-needed signal.                       */
+/*  Role split: the panel widgets (#PnLedDisplay, #PnLedLamp, from the  */
+/*  GTK/Cairo-only panel-widgets library) are dumb faces that know       */
+/*  nothing about nodes; this editor is the controller that binds them   */
+/*  to the model.  It keeps one widget per representable node across the  */
+/*  whole flow (every sheet) — a seven-segment readout for each          */
+/*  #PnCountdown, an indicator lamp for each #PnLed — observing the       */
+/*  flow's single node store to create and destroy widgets as those      */
+/*  nodes come and go, and mirroring each node's live value through its   */
+/*  repaint-needed signal.                                              */
 /*                                                                     */
 /*  This editor lives in libpipnode-gui, which links the node runtime,  */
-/*  so it may reference PnCountdown / PnFlow / PnNodeStore freely; only  */
-/*  the shared panel-widgets library must stay node-free.               */
+/*  so it may reference PnCountdown / PnLed / PnFlow / PnNodeStore       */
+/*  freely; only the shared panel-widgets library must stay node-free.  */
 /* ------------------------------------------------------------------ */
 
 /* Pixel height of each readout — a typical XFCE panel icon size, so the
@@ -75,10 +79,11 @@ struct _PnPanelEditor
     GtkWidget *canvas;
     GtkWidget *empty_label;
 
-    /* PnCountdown node (borrowed; the store owns the ref) → its row
-     * widget (a #GtkEventBox drag handle wrapping the framed
-     * #PnLedDisplay, owned by @canvas).  The map is the source of truth
-     * for the one-readout-per-node invariant. */
+    /* Represented node (borrowed; the store owns the ref) → its row
+     * widget (a #GtkEventBox drag handle wrapping the node's panel
+     * widget — a framed #PnLedDisplay or a #PnLedLamp — owned by
+     * @canvas).  The map is the source of truth for the
+     * one-widget-per-node invariant. */
     GHashTable *rows;
 
     /* Drag state.  @drag_child is the row currently being dragged (a
@@ -104,7 +109,7 @@ G_DEFINE_TYPE (PnPanelEditor, pn_panel_editor, GTK_TYPE_BOX)
 /* Push @node's current countdown value into its readout, using the same
  * day/hour/minute/second breakdown the node itself paints with. */
 static void
-panel_editor_sync_value (PnNode *node, PnLedDisplay *led)
+panel_editor_sync_countdown (PnNode *node, PnLedDisplay *led)
 {
     PnCountdownPaintState st;
     gint64                seconds;
@@ -120,9 +125,30 @@ panel_editor_sync_value (PnNode *node, PnLedDisplay *led)
  * is the row's #PnLedDisplay (this handler is connected with
  * g_signal_connect_object so it dies with the readout). */
 static void
-on_node_repaint_needed (PnNode *node, gpointer user_data)
+on_countdown_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_value (node, PN_LED_DISPLAY (user_data));
+    panel_editor_sync_countdown (node, PN_LED_DISPLAY (user_data));
+}
+
+/* Push @node's current lit state and lit colour into its lamp, reading
+ * both through the LED node's GTK-free accessors. */
+static void
+panel_editor_sync_led (PnNode *node, PnLedLamp *lamp)
+{
+    PnColor color;
+
+    pn_led_peek_color (PN_LED (node), &color);
+    pn_led_lamp_set_color (lamp, color.red, color.green, color.blue);
+    pn_led_lamp_set_lit   (lamp, pn_led_get_lit (PN_LED (node)));
+}
+
+/* repaint-needed on an LED node → refresh its lamp.  @user_data is the
+ * row's #PnLedLamp (connected with g_signal_connect_object so it dies
+ * with the lamp). */
+static void
+on_led_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_led (node, PN_LED_LAMP (user_data));
 }
 
 /* Toggle the empty-state hint to match the live readout count. */
@@ -263,41 +289,76 @@ panel_editor_next_position (PnPanelEditor *self, gint *out_x, gint *out_y)
     *out_y = margin + (self->cascade % per_col) * step_y;
 }
 
-/* Create the readout for @node when it is a countdown node we are not
- * already tracking. */
+/* Build the panel widget that mirrors @node, or %NULL when @node is not a
+ * kind the panel editor represents.  Each branch seeds the widget's
+ * current value and wires it to follow the node's repaint-needed signal
+ * live; tying that handler to the widget (g_signal_connect_object) means
+ * destroying the row when the node goes away also severs the connection —
+ * no manual handler bookkeeping, no dangling callbacks. */
+static GtkWidget *
+panel_editor_build_widget (PnNode *node)
+{
+    if (PN_IS_COUNTDOWN (node))
+    {
+        /* Framed readout, no caption — the bezel reads as a panel-mounted
+         * display. */
+        GtkWidget *frame = gtk_frame_new (NULL);
+        GtkWidget *led   = pn_led_display_new ();
+
+        gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
+        pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
+        gtk_widget_set_margin_top    (led, 4);
+        gtk_widget_set_margin_bottom (led, 4);
+        gtk_widget_set_margin_start  (led, 6);
+        gtk_widget_set_margin_end    (led, 6);
+        gtk_container_add (GTK_CONTAINER (frame), led);
+
+        panel_editor_sync_countdown (node, PN_LED_DISPLAY (led));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_countdown_repaint_needed),
+                                 led, 0);
+        return frame;
+    }
+
+    if (PN_IS_LED (node))
+    {
+        GtkWidget *lamp = pn_led_lamp_new ();
+
+        pn_led_lamp_set_size (PN_LED_LAMP (lamp), PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_led (node, PN_LED_LAMP (lamp));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_led_repaint_needed),
+                                 lamp, 0);
+        return lamp;
+    }
+
+    return NULL;
+}
+
+/* Create the panel widget for @node when it is a kind we represent and are
+ * not already tracking. */
 static void
 panel_editor_add_node (PnPanelEditor *self, PnNode *node)
 {
     GtkWidget *handle;
-    GtkWidget *frame;
-    GtkWidget *led;
+    GtkWidget *widget;
     gint       x, y;
 
-    if (!PN_IS_COUNTDOWN (node))
-        return;
     if (g_hash_table_contains (self->rows, node))
         return;
 
-    /* Framed readout, no caption — the bezel reads as a panel-mounted
-     * display. */
-    frame = gtk_frame_new (NULL);
-    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_IN);
+    widget = panel_editor_build_widget (node);
+    if (widget == NULL)
+        return;
 
-    led = pn_led_display_new ();
-    pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
-    gtk_widget_set_margin_top    (led, 4);
-    gtk_widget_set_margin_bottom (led, 4);
-    gtk_widget_set_margin_start  (led, 6);
-    gtk_widget_set_margin_end    (led, 6);
-    gtk_container_add (GTK_CONTAINER (frame), led);
-
-    /* An event box wraps the frame as the drag handle: the LED display is
-     * a plain drawing area with no event mask, so button/motion events
-     * fall through to this parent, which we subscribe to motion as well
-     * as the default button events. */
+    /* An event box wraps the widget as the drag handle: the panel widgets
+     * are plain drawing areas with no event mask, so button/motion events
+     * fall through to this parent, which we subscribe to motion as well as
+     * the default button events. */
     handle = gtk_event_box_new ();
     gtk_widget_add_events (handle, GDK_POINTER_MOTION_MASK);
-    gtk_container_add (GTK_CONTAINER (handle), frame);
+    gtk_container_add (GTK_CONTAINER (handle), widget);
 
     /* The drag/release handlers recover the node from the handle to key
      * its saved position; the store owns the node and the handle never
@@ -313,14 +374,6 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
                       G_CALLBACK (on_row_button_release), self);
     g_signal_connect (handle, "realize",
                       G_CALLBACK (on_row_realize), NULL);
-
-    /* Seed the current value, then track it live.  Tying the handler to
-     * the readout (g_signal_connect_object) means destroying the row when
-     * the node goes away also severs the connection — no manual handler
-     * bookkeeping, no dangling callbacks. */
-    panel_editor_sync_value (node, PN_LED_DISPLAY (led));
-    g_signal_connect_object (node, "repaint-needed",
-                             G_CALLBACK (on_node_repaint_needed), led, 0);
 
     /* Prefer a position saved in the document; otherwise fall back to the
      * cascade so a never-arranged node still lands somewhere sensible. */
@@ -495,7 +548,8 @@ pn_panel_editor_init (PnPanelEditor *self)
     gtk_label_set_markup (
             GTK_LABEL (self->empty_label),
             "<span foreground='#888888'>"
-            "No Countdown nodes yet — add one to a worksheet</span>");
+            "No panel widgets yet — add a Countdown or LED node "
+            "to a worksheet</span>");
     gtk_widget_set_no_show_all (self->empty_label, TRUE);
     gtk_box_pack_start (GTK_BOX (self), self->empty_label, TRUE, FALSE, 0);
 
