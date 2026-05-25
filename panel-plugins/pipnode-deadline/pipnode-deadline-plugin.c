@@ -898,8 +898,21 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
      * reloads only the applet, never the engine).  "Engine" is internal
      * jargon, so the user-facing label talks about the worksheet instead. */
     {
-        GtkWidget *restart = gtk_menu_item_new_with_label ("Reload Worksheet");
-        gtk_widget_show (restart);
+        /* Build the item by hand rather than via the deprecated
+         * GtkImageMenuItem (whose image GTK hides by default): pack a
+         * "view-refresh" icon — the standard two-arrows-in-a-circle reload
+         * glyph — beside the label in a box that always shows both. */
+        GtkWidget *restart = gtk_menu_item_new ();
+        GtkWidget *box     = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *icon    = gtk_image_new_from_icon_name (
+                                 "view-refresh", GTK_ICON_SIZE_MENU);
+        GtkWidget *label   = gtk_label_new ("Reload Worksheet");
+
+        gtk_box_pack_start (GTK_BOX (box), icon,  FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
+        gtk_container_add (GTK_CONTAINER (restart), box);
+        gtk_widget_show_all (restart);
+
         g_signal_connect (restart, "activate",
                           G_CALLBACK (on_restart_engine), self);
         xfce_panel_plugin_menu_insert_item (plugin, GTK_MENU_ITEM (restart));
