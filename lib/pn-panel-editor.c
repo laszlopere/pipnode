@@ -24,6 +24,7 @@
 #include "pn-node.h"
 #include "pn-node-store.h"
 #include "pn-countdown.h"
+#include "pn-digital-clock.h"
 #include "pn-led.h"
 
 /* ------------------------------------------------------------------ */
@@ -143,6 +144,37 @@ static void
 on_countdown_repaint_needed (PnNode *node, gpointer user_data)
 {
     panel_editor_sync_countdown (node, PN_LED_DISPLAY (user_data));
+}
+
+/* Push @node's current digital-clock value into its readout.  The clock is
+ * the Countdown without a days field, so it mirrors onto a days-less
+ * (day_digits == 0) HH:MM:SS readout. */
+static void
+panel_editor_sync_digital_clock (PnNode *node, PnLedDisplay *led)
+{
+    PnDigitalClockPaintState st;
+    gint64                   seconds;
+
+    pn_digital_clock_get_paint_state (PN_DIGITAL_CLOCK (node), &st);
+    seconds = st.hours * 3600 + st.minutes * 60 + st.seconds;
+
+    pn_led_display_set_day_digits   (led, 0);
+    pn_led_display_set_seconds      (led, seconds);
+    pn_led_display_set_segment_color (led, st.segment_color.red,
+                                     st.segment_color.green,
+                                     st.segment_color.blue);
+    pn_led_display_set_unlit_color  (led, st.unlit_segment_color.red,
+                                     st.unlit_segment_color.green,
+                                     st.unlit_segment_color.blue);
+}
+
+/* repaint-needed on a digital-clock node → refresh its readout.
+ * @user_data is the row's #PnLedDisplay (connected with
+ * g_signal_connect_object so it dies with the readout). */
+static void
+on_digital_clock_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_digital_clock (node, PN_LED_DISPLAY (user_data));
 }
 
 /* Push @node's current lit state and lit colour into its lamp, reading
@@ -361,6 +393,21 @@ panel_editor_build_widget (PnNode *node)
         panel_editor_sync_countdown (node, PN_LED_DISPLAY (led));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_countdown_repaint_needed),
+                                 led, 0);
+        return led;
+    }
+
+    if (PN_IS_DIGITAL_CLOCK (node))
+    {
+        /* The readout draws on a transparent background (no frame), so the
+         * canvas shows through behind it just as the panel does. */
+        GtkWidget *led = pn_led_display_new ();
+
+        pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_digital_clock (node, PN_LED_DISPLAY (led));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_digital_clock_repaint_needed),
                                  led, 0);
         return led;
     }
@@ -593,8 +640,8 @@ pn_panel_editor_init (PnPanelEditor *self)
     gtk_label_set_markup (
             GTK_LABEL (self->empty_label),
             "<span foreground='#888888'>"
-            "No panel widgets yet — add a Countdown or LED node "
-            "to a worksheet</span>");
+            "No panel widgets yet — add a Countdown, Digital Clock or "
+            "LED node to a worksheet</span>");
     gtk_widget_set_no_show_all (self->empty_label, TRUE);
     gtk_box_pack_start (GTK_BOX (self), self->empty_label, TRUE, FALSE, 0);
 

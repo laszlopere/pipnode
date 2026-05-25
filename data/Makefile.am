@@ -20,6 +20,7 @@ pnhelp_DATA = \
 	help/PnDedup.html \
 	help/PnDelay.html \
 	help/PnDial.html \
+	help/PnDigitalClock.html \
 	help/PnEdge.html \
 	help/PnExpression.html \
 	help/PnExpression2.html \

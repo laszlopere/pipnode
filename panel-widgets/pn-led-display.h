@@ -45,7 +45,9 @@ void       pn_led_display_set_seconds    (PnLedDisplay *self,
                                           gint64        seconds);
 
 /* Number of seven-segment cells reserved for the days field (default 3,
- * counting up to 999 days). */
+ * counting up to 999 days).  Zero drops the days block (and the gap before
+ * it) entirely, leaving a bare HH:MM:SS — what the Digital Clock node
+ * mirrors onto. */
 void       pn_led_display_set_day_digits (PnLedDisplay *self,
                                           guint         digits);
 

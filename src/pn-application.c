@@ -27,6 +27,7 @@
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
 #include "pn-countdown.h"
+#include "pn-digital-clock.h"
 #include "pn-led.h"
 #include "pn-color.h"
 #include "pn-panel-geometry.h"
@@ -1318,7 +1319,9 @@ engine_widget_ctx_free (gpointer data)
 static gboolean
 engine_is_widget_node (PnNode *node)
 {
-    return PN_IS_COUNTDOWN (node) || PN_IS_LED (node);
+    return PN_IS_COUNTDOWN (node)
+        || PN_IS_DIGITAL_CLOCK (node)
+        || PN_IS_LED (node);
 }
 
 /** Emit an Engine signal, sinking @params even when the bus is absent. */
@@ -1378,6 +1381,33 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_add_int_value (b, seconds);
         json_builder_set_member_name (b, "day_digits");
         json_builder_add_int_value (b, st.day_digits);
+        json_builder_set_member_name (b, "segment_color");
+        engine_add_color_array (b, &st.segment_color);
+        json_builder_set_member_name (b, "unlit_color");
+        engine_add_color_array (b, &st.unlit_segment_color);
+        return "countdown";
+    }
+
+    if (PN_IS_DIGITAL_CLOCK (node))
+    {
+        /* The clock is the Countdown without a days field: mirror it onto
+         * the same applet readout ("countdown" kind) but with zero day
+         * digits, so the panel widget draws a bare HH:MM:SS.  The seconds
+         * are already a within-a-day count. */
+        PnDigitalClockPaintState st;
+        gint64                   seconds;
+
+        pn_digital_clock_get_paint_state (PN_DIGITAL_CLOCK (node), &st);
+        seconds = (gint64) st.hours * 3600
+                + (gint64) st.minutes * 60
+                + st.seconds;
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "countdown");
+        json_builder_set_member_name (b, "seconds");
+        json_builder_add_int_value (b, seconds);
+        json_builder_set_member_name (b, "day_digits");
+        json_builder_add_int_value (b, 0);
         json_builder_set_member_name (b, "segment_color");
         engine_add_color_array (b, &st.segment_color);
         json_builder_set_member_name (b, "unlit_color");

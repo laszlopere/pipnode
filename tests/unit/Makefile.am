@@ -64,6 +64,7 @@ check_PROGRAMS = \
 	test-pn-chat \
 	test-pn-analog-meter \
 	test-pn-countdown \
+	test-pn-digital-clock \
 	test-pn-load \
 	test-pn-memory \
 	test-pn-cpu \
@@ -124,6 +125,7 @@ test_pn_table_SOURCES         = test-pn-table.c         pntest.c pntest.h
 test_pn_chat_SOURCES          = test-pn-chat.c          pntest.c pntest.h
 test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
 test_pn_countdown_SOURCES     = test-pn-countdown.c     pntest.c pntest.h
+test_pn_digital_clock_SOURCES = test-pn-digital-clock.c pntest.c pntest.h
 # The host-monitoring nodes live in their own loadable module
 # (pipnode_host_monitoring.la), not in libpipnode, so their /proc and
 # /sys parsers reach the test binary by compiling the node .c directly —

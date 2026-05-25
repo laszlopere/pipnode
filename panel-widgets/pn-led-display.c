@@ -247,16 +247,19 @@ cell_count (PnLedDisplay *self)
 }
 
 /* The content-width-per-D factor: how many digit widths the whole strip
- * spans (nd cells + their intra gaps + two colon columns + one group
- * gap).  content_width(D) == D * this. */
+ * spans (nd cells + their intra gaps + two colon columns + the group gap
+ * before HH:MM:SS).  With no days field (day_digits == 0) there is no days
+ * block and so no group gap, leaving a bare HH:MM:SS the Digital Clock
+ * node mirrors onto.  content_width(D) == D * this. */
 static double
 width_per_digit (PnLedDisplay *self)
 {
-    guint nd = cell_count (self);
+    guint  nd    = cell_count (self);
+    double group = self->day_digits > 0 ? LED_GROUP_RATIO : 0.0;
 
     return (double) nd * (1.0 + LED_INTRA_RATIO)
          + 2.0 * LED_COLON_RATIO
-         + LED_GROUP_RATIO;
+         + group;
 }
 
 /* Total content width (digit strip, no bezel padding) at digit width D. */
@@ -346,8 +349,9 @@ pn_led_display_draw (GtkWidget *widget, cairo_t *cr)
         x_cur += D;
     }
 
-    /* The wider days -> hours group gap. */
-    x_cur += s_group;
+    /* The wider days -> hours group gap (only when there is a days field). */
+    if (dd > 0)
+        x_cur += s_group;
 
     /* Hours, colon, minutes, colon, seconds. */
     draw_digit (self, cr, x_cur, y, D, H, t, hh[0]); x_cur += D + s_intra;
@@ -461,7 +465,8 @@ pn_led_display_set_day_digits (PnLedDisplay *self, guint digits)
 {
     g_return_if_fail (PN_IS_LED_DISPLAY (self));
 
-    if (digits < 1) digits = 1;
+    /* Zero is allowed: the Digital Clock node mirrors onto a days-less
+     * HH:MM:SS readout. */
     if (digits > 6) digits = 6;
     if (digits == self->day_digits)
         return;

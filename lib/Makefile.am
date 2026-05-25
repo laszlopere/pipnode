@@ -53,6 +53,8 @@ libpipnode_core_la_SOURCES = \
 	pn-delay.h \
 	pn-dial.c \
 	pn-dial.h \
+	pn-digital-clock.c \
+	pn-digital-clock.h \
 	pn-edge.c \
 	pn-edge.h \
 	pn-expr-parser.c \
@@ -189,6 +191,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-countdown-gui.h \
 	pn-dial-gui.c \
 	pn-dial-gui.h \
+	pn-digital-clock-gui.c \
+	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.c \
 	pn-document-settings-dialog.h \
 	pn-file-viewer-gui.c \
@@ -297,6 +301,7 @@ pipnode_core_headers = \
 	pn-dedup.h \
 	pn-delay.h \
 	pn-dial.h \
+	pn-digital-clock.h \
 	pn-edge.h \
 	pn-expr-parser.h \
 	pn-expression.h \
@@ -354,6 +359,7 @@ pipnode_gui_headers = \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \
 	pn-dial-gui.h \
+	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.h \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.h \
