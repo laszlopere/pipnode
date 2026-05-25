@@ -2938,6 +2938,9 @@ create_debug_pane (PnWindow *self)
  * to prevent. */
 #define DEBUG_PANE_MIN_VISIBLE_WIDTH 280
 
+static void on_window_map_restore_debug (GtkWidget *widget,
+                                         gpointer   user_data);
+
 /** Idle callback that places the editor #GtkPaned divider after a
  *  toggle-on of the debug pane.  Setting the position from inside
  *  the toggle handler races with GtkPaned's own size-allocate cycle
@@ -2977,6 +2980,26 @@ restore_debug_pane_position (gpointer user_data)
         return G_SOURCE_REMOVE;
     }
 
+    /* A panel-backed editor window is constructed but never mapped — it
+     * exists only to run an XFCE panel applet's flow until the user picks
+     * "Properties", which present()s it.  Its #GtkPaned then reports a
+     * stale 1px allocation that slips past the width<=0 guard below and
+     * parks the divider against the left edge, so the debug pane swallows
+     * almost the whole window the first time it is shown.  Wait for the
+     * toplevel to actually map before placing the divider, re-arming on
+     * the window's "map" signal rather than busy-spinning this idle while
+     * the window may stay hidden indefinitely.  (For a normal window
+     * gtk_widget_show_all already mapped it by the time we get here, so
+     * this is a no-op there.) */
+    if (!gtk_widget_get_mapped (GTK_WIDGET (self)))
+    {
+        g_signal_handlers_disconnect_by_func (
+                self, G_CALLBACK (on_window_map_restore_debug), NULL);
+        g_signal_connect (self, "map",
+                          G_CALLBACK (on_window_map_restore_debug), NULL);
+        return G_SOURCE_REMOVE;
+    }
+
     /* At startup this idle can fire before the window is mapped, when
      * the paned still has no allocation.  Retry on the next iteration
      * rather than giving up, so the saved width is honoured even on
@@ -3001,6 +3024,24 @@ restore_debug_pane_position (gpointer user_data)
     /* Saved width applied — resume recording user divider drags. */
     self->debug_pane_restoring = FALSE;
     return G_SOURCE_REMOVE;
+}
+
+/** One-shot "map" handler that re-runs the debug-pane width restore once
+ *  a panel-backed window is finally shown.  restore_debug_pane_position
+ *  defers to this when it fires before the toplevel is mapped — and thus
+ *  before the paned has a real allocation; presenting the window from the
+ *  panel applet maps it, at which point the divider can be placed against
+ *  the true window width.  Re-scheduled as an idle so it runs after the
+ *  post-map size-allocate has settled rather than during the map itself. */
+static void
+on_window_map_restore_debug (GtkWidget *widget, gpointer user_data)
+{
+    PnWindow *self = PN_WINDOW (widget);
+    (void) user_data;
+
+    g_signal_handlers_disconnect_by_func (
+            self, G_CALLBACK (on_window_map_restore_debug), NULL);
+    g_idle_add (restore_debug_pane_position, self);
 }
 
 /** Persist the debug pane width whenever the user drags the divider.
