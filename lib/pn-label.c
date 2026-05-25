@@ -46,12 +46,10 @@ struct _PnLabel
 {
     PnNode    parent_instance;
 
-    /* Configuration. */
+    /* Configuration.  The font face, size and variant are deliberately not
+     * configurable — they are forced in pn_label_get_paint_state() so the
+     * readout always fills the box in the desktop font like a panel clock. */
     gint      lines;             /* 1 or 2 trailing lines of output       */
-    gchar    *font_family;       /* "Sans", "Monospace", …                */
-    gint      font_scale;        /* text height, % of its line's share    */
-    gchar    *weight;            /* "Normal"/"Medium"/"Semi-Bold"/"Bold"  */
-    gboolean  italic;
     gchar    *alignment;         /* "Left" / "Center" / "Right"           */
     PnColor   text_color;
     PnColor   background_color;
@@ -70,10 +68,6 @@ enum
 {
     PROP_0,
     PROP_LINES,
-    PROP_FONT_FAMILY,
-    PROP_FONT_SCALE,
-    PROP_WEIGHT,
-    PROP_ITALIC,
     PROP_ALIGNMENT,
     PROP_TEXT_COLOR,
     PROP_BACKGROUND_COLOR,
@@ -94,18 +88,6 @@ align_from_string (const gchar *s)
     if (g_strcmp0 (s, "Right") == 0)
         return PN_LABEL_ALIGN_RIGHT;
     return PN_LABEL_ALIGN_CENTER;
-}
-
-/* The Pango weight number for a weight name.  These are the values of the
- * PangoWeight enum, used as plain ints so the core stays GTK-free; the gui
- * tier passes them straight to pango_font_description_set_weight(). */
-static gint
-weight_to_pango (const gchar *w)
-{
-    if (g_strcmp0 (w, "Bold") == 0)      return 700;
-    if (g_strcmp0 (w, "Semi-Bold") == 0) return 600;
-    if (g_strcmp0 (w, "Medium") == 0)    return 500;
-    return 400;  /* Normal */
 }
 
 /* Normalise @s for display: interpret the common backslash escapes so a
@@ -232,11 +214,17 @@ pn_label_get_paint_state (PnLabel *self, PnLabelPaintState *out)
     g_return_if_fail (out != NULL);
 
     out->text        = self->display_text != NULL ? self->display_text : "";
-    out->font_family = self->font_family != NULL ? self->font_family : "";
+
+    /* Forced font face, size and variant — not user-configurable, so saved
+     * overrides are ignored.  Empty family makes the painter fall back to
+     * the desktop UI font (matching the panel clock); the text fills the
+     * box (100 %) in Semi-Bold (Pango 600), upright. */
+    out->font_family = "";
+    out->font_scale  = 100;
+    out->weight      = 600;
+    out->italic      = FALSE;
+
     out->lines            = self->lines;
-    out->font_scale       = self->font_scale;
-    out->weight           = weight_to_pango (self->weight);
-    out->italic           = self->italic;
     out->align            = align_from_string (self->alignment);
     out->text_color       = self->text_color;
     out->background_color = self->background_color;
@@ -282,18 +270,6 @@ pn_label_get_property (GObject    *object,
     {
     case PROP_LINES:
         g_value_set_int (value, self->lines);
-        break;
-    case PROP_FONT_FAMILY:
-        g_value_set_string (value, self->font_family);
-        break;
-    case PROP_FONT_SCALE:
-        g_value_set_int (value, self->font_scale);
-        break;
-    case PROP_WEIGHT:
-        g_value_set_string (value, self->weight);
-        break;
-    case PROP_ITALIC:
-        g_value_set_boolean (value, self->italic);
         break;
     case PROP_ALIGNMENT:
         g_value_set_string (value, self->alignment);
@@ -360,34 +336,6 @@ pn_label_set_property (GObject      *object,
         }
         break;
     }
-    case PROP_FONT_FAMILY:
-        set_string_prop (self, &self->font_family, value, PROP_FONT_FAMILY);
-        break;
-    case PROP_FONT_SCALE:
-    {
-        gint v = g_value_get_int (value);
-        if (v != self->font_scale)
-        {
-            self->font_scale = v;
-            g_object_notify_by_pspec (object, props[PROP_FONT_SCALE]);
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        break;
-    }
-    case PROP_WEIGHT:
-        set_string_prop (self, &self->weight, value, PROP_WEIGHT);
-        break;
-    case PROP_ITALIC:
-    {
-        gboolean v = g_value_get_boolean (value);
-        if (v != self->italic)
-        {
-            self->italic = v;
-            g_object_notify_by_pspec (object, props[PROP_ITALIC]);
-            pn_node_request_repaint (PN_NODE (self));
-        }
-        break;
-    }
     case PROP_ALIGNMENT:
         set_string_prop (self, &self->alignment, value, PROP_ALIGNMENT);
         break;
@@ -412,8 +360,6 @@ pn_label_finalize (GObject *object)
 {
     PnLabel *self = PN_LABEL (object);
 
-    g_free (self->font_family);
-    g_free (self->weight);
     g_free (self->alignment);
     g_free (self->output);
     g_free (self->display_text);
@@ -456,35 +402,6 @@ pn_label_class_init (PnLabelClass *klass)
             1, 2, 1,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
-    props[PROP_FONT_FAMILY] = g_param_spec_string (
-            "font-family", "Font family",
-            "The font family the text is drawn in (e.g. Sans, Serif, "
-            "Monospace).  Leave empty to use the desktop's default font, "
-            "matching the panel clock.",
-            "",
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    props[PROP_FONT_SCALE] = g_param_spec_int (
-            "font-scale", "Font scale",
-            "Text height as a percentage of the space one line gets in the "
-            "box.  Being relative to the client area, the worksheet node, "
-            "the panel-editor preview and the live panel widget all show "
-            "the same readout at their own scale.",
-            20, 100, 100,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    props[PROP_WEIGHT] = g_param_spec_string (
-            "weight", "Weight",
-            "Font weight: Normal, Medium, Semi-Bold or Bold.",
-            "Semi-Bold",
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    props[PROP_ITALIC] = g_param_spec_boolean (
-            "italic", "Italic",
-            "Draw the text in an italic style.",
-            FALSE,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
     props[PROP_ALIGNMENT] = g_param_spec_string (
             "alignment", "Alignment",
             "Horizontal alignment of the text within the box "
@@ -516,27 +433,14 @@ pn_label_class_init (PnLabelClass *klass)
         static const gchar *const aligns[] = {
             "Left", "Center", "Right", NULL
         };
-        static const gchar *const weights[] = {
-            "Normal", "Medium", "Semi-Bold", "Bold", NULL
-        };
 
+        /* Only the safe-to-change settings are offered.  The font face, size
+         * and variant are forced (desktop font, fill, Semi-Bold) so the
+         * readout always reads like a panel clock — they are not exposed. */
         pn_settings_schema_tab (schema, "Text");
         pn_settings_schema_row (schema, "lines",       PN_EDITOR_SPIN);
         pn_settings_schema_row (schema, "alignment",   PN_EDITOR_COMBO);
         pn_settings_schema_choices (schema, "alignment", aligns);
-
-        /* The font face, size and variant are locked: the readout is tuned
-         * to fill the box in the desktop font like a panel clock, and almost
-         * any other choice reads worse — so these are shown read-only. */
-        pn_settings_schema_row (schema, "font-family", PN_EDITOR_ENTRY);
-        pn_settings_schema_row_flags (schema, "font-family", PN_ROW_FLAG_READONLY);
-        pn_settings_schema_row (schema, "font-scale",  PN_EDITOR_SPIN);
-        pn_settings_schema_row_flags (schema, "font-scale", PN_ROW_FLAG_READONLY);
-        pn_settings_schema_row (schema, "weight",      PN_EDITOR_COMBO);
-        pn_settings_schema_choices (schema, "weight", weights);
-        pn_settings_schema_row_flags (schema, "weight", PN_ROW_FLAG_READONLY);
-        pn_settings_schema_row (schema, "italic",      PN_EDITOR_AUTO);
-        pn_settings_schema_row_flags (schema, "italic", PN_ROW_FLAG_READONLY);
 
         pn_settings_schema_tab (schema, "Colours");
         pn_settings_schema_row (schema, "text-color",       PN_EDITOR_AUTO);
@@ -552,10 +456,6 @@ pn_label_init (PnLabel *self)
     PnNode *node = PN_NODE (self);
 
     self->lines            = 1;
-    self->font_family      = g_strdup ("");
-    self->font_scale       = 100;
-    self->weight           = g_strdup ("Semi-Bold");
-    self->italic           = FALSE;
     self->alignment        = g_strdup ("Center");
     self->text_color       = (PnColor){ 0.90, 0.92, 0.94, 1.0 };
     self->background_color = (PnColor){ 0.10, 0.11, 0.13, 1.0 };

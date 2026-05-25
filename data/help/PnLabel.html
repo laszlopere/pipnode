@@ -34,6 +34,12 @@ the right</strong> (its beginning stays visible). Being a sink, the node
 never forwards a message.
 </p>
 <p>
+The font face (the desktop UI font), its fill size and its weight
+(Semi-Bold) are <strong>fixed</strong> so the readout always looks like a
+panel clock &mdash; only the line count, alignment and colours are
+configurable.
+</p>
+<p>
 Like the Switch, LED and Digital Clock nodes, a Label snapped onto a
 worksheet's panel band is mirrored to a live readout in the panel applet,
 so the same text appears on the desktop panel (fitted to the panel row,
@@ -47,19 +53,6 @@ and cropped past a maximum width so it never stretches the panel).
   <tr><td><code>alignment</code></td>
       <td>Horizontal alignment of the text within the box: <code>Left</code>,
           <code>Center</code> or <code>Right</code>.</td></tr>
-  <tr><td><code>font-family</code></td>
-      <td><em>Read-only.</em> The text uses the desktop's default font, so it
-          matches the panel clock.</td></tr>
-  <tr><td><code>font-scale</code></td>
-      <td><em>Read-only.</em> The text fills the box (a fixed percentage of
-          each line's share of the client area), so every rendering &mdash;
-          worksheet, panel preview, live panel &mdash; shows it at the same
-          proportion.</td></tr>
-  <tr><td><code>weight</code></td>
-      <td><em>Read-only.</em> Font weight, fixed at <code>Semi-Bold</code> to
-          read like the panel clock.</td></tr>
-  <tr><td><code>italic</code></td>
-      <td><em>Read-only.</em> Italic style (off).</td></tr>
   <tr><td><code>text-color</code></td>
       <td>Colour of the text &mdash; a soft off-white by default.</td></tr>
   <tr><td><code>background-color</code></td>

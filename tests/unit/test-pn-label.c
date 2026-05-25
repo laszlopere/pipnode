@@ -231,7 +231,9 @@ test_lines_change_retails (void)
     g_object_unref (label);
 }
 
-/* The styling properties round-trip and surface in the snapshot. */
+/* The configurable properties (alignment, colours) round-trip and surface
+ * in the snapshot.  The font face / size / variant are forced, not
+ * properties — see test_locked_defaults. */
 static void
 test_properties_round_trip (void)
 {
@@ -239,41 +241,24 @@ test_properties_round_trip (void)
     PnLabelPaintState st;
     PnColor           text_in = { 0.10, 0.20, 0.30, 1.0 };
     PnColor          *text_out = NULL;
-    gchar            *family = NULL;
     gchar            *align = NULL;
-    gint              scale = 0;
-    gchar            *weight = NULL;
 
     g_object_set (label,
-                  "font-family", "Monospace",
-                  "font-scale",  60,
-                  "weight",      "Semi-Bold",
                   "alignment",   "Right",
                   "text-color",  &text_in,
                   NULL);
     g_object_get (label,
-                  "font-family", &family,
-                  "font-scale",  &scale,
-                  "weight",      &weight,
                   "alignment",   &align,
                   "text-color",  &text_out,
                   NULL);
 
-    PN_CHECK_CMPSTR (family, ==, "Monospace");
-    PN_CHECK_CMPINT (scale,  ==, 60);
-    PN_CHECK_CMPSTR (weight, ==, "Semi-Bold");
     PN_CHECK_CMPSTR (align,  ==, "Right");
     PN_CHECK        (pn_color_equal (text_out, &text_in));
 
     pn_label_get_paint_state (label, &st);
-    PN_CHECK_CMPSTR (st.font_family, ==, "Monospace");
-    PN_CHECK_CMPINT (st.font_scale,  ==, 60);
-    PN_CHECK_CMPINT (st.weight,      ==, 600);   /* Semi-Bold = Pango 600 */
     PN_CHECK        (st.align == PN_LABEL_ALIGN_RIGHT);
     PN_CHECK        (pn_color_equal (&st.text_color, &text_in));
 
-    g_free (family);
-    g_free (weight);
     g_free (align);
     pn_color_free (text_out);
     g_object_unref (label);
