@@ -28,6 +28,8 @@
 
 #include <json-glib/json-glib.h>
 
+#include <string.h>
+
 struct _PnWindow
 {
     GtkApplicationWindow parent_instance;
@@ -3945,34 +3947,47 @@ on_flow_active_sheet_changed (
 /** Recompute the window title from `self->current_path` and the
  *  current modified state of the flow.  Shape:
  *
- *      Pipnode                       — no file loaded, unmodified
- *      *Pipnode                      — no file loaded, modified
- *      Pipnode - worksheet.json      — file loaded, unmodified
- *      *Pipnode - worksheet.json     — file loaded, modified
+ *      Pipnode                               — no file loaded, unmodified
+ *      *Pipnode                              — no file loaded, modified
+ *      Pipnode - ~/work/worksheet.json       — file loaded, unmodified
+ *      *Pipnode - ~/work/worksheet.json      — file loaded, modified
  *
- *  Only the basename of `current_path` is shown; the directory parts
- *  are deliberately stripped so the titlebar stays readable even when
- *  the worksheet lives several levels deep in a project tree. */
+ *  The full path of `current_path` is shown so the titlebar identifies
+ *  exactly which worksheet is open; the user's home directory is
+ *  abbreviated to `~` to keep it readable. */
 static void
 update_window_title (PnWindow *self)
 {
     gboolean  modified = pn_flow_is_modified (self->flow);
-    gchar    *base     = NULL;
+    gchar    *display  = NULL;
     gchar    *title;
 
-    if (self->current_path != NULL)
-        base = g_path_get_basename (self->current_path);
+    if (self->current_path != NULL && *self->current_path != '\0')
+    {
+        const gchar *home = g_get_home_dir ();
+        gsize        home_len = home != NULL ? strlen (home) : 0;
 
-    if (base != NULL && *base != '\0')
+        /* Abbreviate the home prefix to "~" when current_path lies under
+         * it: match "$HOME" exactly or "$HOME/..." (not "$HOMEfoo"). */
+        if (home_len > 0
+            && strncmp (self->current_path, home, home_len) == 0
+            && (self->current_path[home_len] == '\0'
+                || self->current_path[home_len] == G_DIR_SEPARATOR))
+            display = g_strconcat ("~", self->current_path + home_len, NULL);
+        else
+            display = g_strdup (self->current_path);
+    }
+
+    if (display != NULL)
         title = g_strdup_printf ("%sPipnode - %s",
-                                 modified ? "*" : "", base);
+                                 modified ? "*" : "", display);
     else
         title = g_strdup_printf ("%sPipnode", modified ? "*" : "");
 
     gtk_window_set_title (GTK_WINDOW (self), title);
 
     g_free (title);
-    g_free (base);
+    g_free (display);
 }
 
 static void
