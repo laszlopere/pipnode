@@ -1,0 +1,167 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "4cc7abcd-6250-47f5-8c6b-bcedb9b78498",
+      "name" : "Clock",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDeadline",
+      "uuid" : "8ae46cf7-74f9-4745-8af5-1dffc6b01895",
+      "name" : "Deadline",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "target" : "2027-05-24 23:00:00",
+        "timezone" : "EDT — Eastern Daylight Time"
+      }
+    },
+    {
+      "type" : "PnCountdown",
+      "uuid" : "6b3d9cf0-03cc-4d47-94fa-dcb54779c9c6",
+      "name" : "Countdown",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "day-digits" : 3,
+        "show-labels" : true,
+        "background-color" : "rgb(0,0,0)",
+        "segment-color" : "rgb(237,51,59)",
+        "unlit-segment-color" : "rgb(65,1,1)",
+        "label-color" : "rgb(255,255,255)"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "997f2b06-6b6f-4535-a89b-3d110edaceaa",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "color" : "rgb(38,162,105)",
+        "hold-ms" : 250,
+        "mode" : "Flash"
+      }
+    },
+    {
+      "type" : "PnPanelInput",
+      "uuid" : "88767721-d605-494c-8708-8063dda7a0d1",
+      "name" : "Panel Input 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "value" : 1.0
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "f0a42087-c3f8-4607-8b3d-3d82b906550b",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-ryan-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : false,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "074b3afb-fd5d-4033-abd2-9ec31432d6e8",
+      "name" : "Sound 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "sound" : "message",
+        "dead-period" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "5186758e-0bfb-444b-bf68-fe91afec3721",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 220.0,
+        "y" : 460.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "4cc7abcd-6250-47f5-8c6b-bcedb9b78498",
+      "target_id" : "8ae46cf7-74f9-4745-8af5-1dffc6b01895"
+    },
+    {
+      "source_id" : "8ae46cf7-74f9-4745-8af5-1dffc6b01895",
+      "target_id" : "6b3d9cf0-03cc-4d47-94fa-dcb54779c9c6"
+    },
+    {
+      "source_id" : "4cc7abcd-6250-47f5-8c6b-bcedb9b78498",
+      "target_id" : "997f2b06-6b6f-4535-a89b-3d110edaceaa"
+    },
+    {
+      "source_id" : "88767721-d605-494c-8708-8063dda7a0d1",
+      "target_id" : "f0a42087-c3f8-4607-8b3d-3d82b906550b"
+    },
+    {
+      "source_id" : "88767721-d605-494c-8708-8063dda7a0d1",
+      "target_id" : "074b3afb-fd5d-4033-abd2-9ec31432d6e8"
+    },
+    {
+      "source_id" : "88767721-d605-494c-8708-8063dda7a0d1",
+      "target_id" : "5186758e-0bfb-444b-bf68-fe91afec3721"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet",
+  "panel_editor_open" : true,
+  "panel_layout" : {
+    "6b3d9cf0-03cc-4d47-94fa-dcb54779c9c6" : {
+      "x" : 529.0,
+      "y" : 24.0
+    },
+    "997f2b06-6b6f-4535-a89b-3d110edaceaa" : {
+      "x" : 495.0,
+      "y" : 24.0
+    }
+  }
+}
