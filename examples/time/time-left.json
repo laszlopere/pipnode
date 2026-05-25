@@ -33,7 +33,7 @@
     {
       "type" : "PnDeadline",
       "uuid" : "557ab5fc-3dfb-4010-bfcf-58a20c1b406e",
-      "name" : "Release",
+      "name" : "Deadline",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 220.0,
@@ -47,7 +47,7 @@
     {
       "type" : "PnCountdown",
       "uuid" : "4e1e17f1-00da-4d6b-a0a0-be78557b8d22",
-      "name" : "Rick and Morty countdown",
+      "name" : "Countdown",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 400.0,

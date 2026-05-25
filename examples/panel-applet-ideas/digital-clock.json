@@ -1,0 +1,106 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "cb68d69b-16a5-47ba-be6f-9e4046445edd",
+      "name" : "Clock",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 100.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDigitalClock",
+      "uuid" : "19fe36bc-39d7-4417-bb7b-6053c073736a",
+      "name" : "DigitalClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "show-labels" : true,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
+      }
+    },
+    {
+      "type" : "PnPanelInput",
+      "uuid" : "2468df0b-be13-4e2e-9c78-6432717e08e3",
+      "name" : "Panel Input 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 100.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "value" : 1.0
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "7ee362f5-431a-4606-aed9-2e142cb40760",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-ryan-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : false,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "6ee3cc21-c308-453d-92bd-1045b01831e3",
+      "name" : "Sound 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "sound" : "message",
+        "dead-period" : 0
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "cb68d69b-16a5-47ba-be6f-9e4046445edd",
+      "target_id" : "19fe36bc-39d7-4417-bb7b-6053c073736a"
+    },
+    {
+      "source_id" : "2468df0b-be13-4e2e-9c78-6432717e08e3",
+      "target_id" : "7ee362f5-431a-4606-aed9-2e142cb40760"
+    },
+    {
+      "source_id" : "2468df0b-be13-4e2e-9c78-6432717e08e3",
+      "target_id" : "6ee3cc21-c308-453d-92bd-1045b01831e3"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet",
+  "panel_editor_open" : true,
+  "panel_layout" : {
+    "19fe36bc-39d7-4417-bb7b-6053c073736a" : {
+      "x" : 374.0,
+      "y" : 24.0
+    }
+  }
+}
