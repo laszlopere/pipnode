@@ -655,7 +655,7 @@ engine_run_worksheet (PipnodeDeadline *self)
 }
 
 /* The engine owns org.pipas.pipnode.  When that owner vanishes — it quit
- * (our "Restart engine" item), was killed, or crashed — re-run the
+ * (our "Reload Worksheet" item), was killed, or crashed — re-run the
  * worksheet: the method call auto-activates the service, starting whatever
  * pipnode-editor binary is now installed, and the reply rebuilds our row.
  * When the owner instead (re)appears there is nothing to do; the pending
@@ -761,7 +761,7 @@ on_configure_plugin (XfcePanelPlugin  *plugin,
     engine_call_path (self, "PresentEditor");
 }
 
-/* Right-click "Restart engine": ask the shared engine to quit.  A panel
+/* Right-click "Reload Worksheet": ask the shared engine to quit.  A panel
  * restart reloads the applet but never the long-lived engine, so after
  * `make install` the old binary keeps running; this bounces it.  Every
  * applet watches the bus name (on_engine_owner_changed) and re-runs its
@@ -893,11 +893,12 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
      * menu) — fires "configure-plugin", which opens the editor. */
     xfce_panel_plugin_menu_show_configure (plugin);
 
-    /* Custom "Restart engine" entry: bounce the shared background engine so
+    /* Custom "Reload Worksheet" entry: bounce the shared background engine so
      * a freshly installed pipnode-editor binary takes over (a panel restart
-     * reloads only the applet, never the engine). */
+     * reloads only the applet, never the engine).  "Engine" is internal
+     * jargon, so the user-facing label talks about the worksheet instead. */
     {
-        GtkWidget *restart = gtk_menu_item_new_with_label ("Restart engine");
+        GtkWidget *restart = gtk_menu_item_new_with_label ("Reload Worksheet");
         gtk_widget_show (restart);
         g_signal_connect (restart, "activate",
                           G_CALLBACK (on_restart_engine), self);
