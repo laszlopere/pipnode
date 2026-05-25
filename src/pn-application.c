@@ -1141,6 +1141,7 @@ static const gchar engine_introspection_xml[] =
     "    <method name='CloseWorksheet'>"
     "      <arg type='s' name='path'  direction='in'/>"
     "    </method>"
+    "    <method name='Quit'/>"
     "    <signal name='ValueChanged'>"
     "      <arg type='s' name='path'/>"
     "      <arg type='s' name='value'/>"
@@ -1812,6 +1813,17 @@ engine_ensure_worksheet (
     return win;
 }
 
+/* Deferred quit for the Quit method: run once control is back in the main
+ * loop, so the method reply and the D-Bus name release have flushed before
+ * the process exits.  g_application_quit returns g_application_run despite
+ * the service hold taken in startup(). */
+static gboolean
+engine_quit_idle (gpointer user_data)
+{
+    g_application_quit (G_APPLICATION (user_data));
+    return G_SOURCE_REMOVE;
+}
+
 static void
 handle_engine_method_call (
         GDBusConnection       *connection,
@@ -1957,6 +1969,22 @@ handle_engine_method_call (
             gtk_widget_destroy (GTK_WIDGET (win));
         }
         g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "Quit") == 0)
+    {
+        GHashTableIter it;
+        gpointer       key, val;
+
+        /* Persist every running worksheet first, so bouncing the engine
+         * (e.g. to pick up a freshly installed binary) loses nothing. */
+        g_hash_table_iter_init (&it, self->worksheets);
+        while (g_hash_table_iter_next (&it, &key, &val))
+            pn_window_autosave (PN_WINDOW (val));
+
+        /* Answer before exiting; defer the actual quit so the reply and the
+         * name release flush, letting clients re-activate a fresh engine. */
+        g_dbus_method_invocation_return_value (invocation, NULL);
+        g_idle_add (engine_quit_idle, self);
     }
     else
     {

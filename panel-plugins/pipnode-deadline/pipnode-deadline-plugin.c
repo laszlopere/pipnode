@@ -638,6 +638,45 @@ on_engine_signal (GDBusProxy *proxy,
      * per-widget WidgetChanged path carries displays now. */
 }
 
+/* Start (or restart) the worksheet on the engine.  A call on a proxy whose
+ * name has no owner auto-activates the service file, so this both kicks off
+ * the first run and respawns a freshly installed engine after a Quit.  The
+ * reply callback then pulls the layout. */
+static void
+engine_run_worksheet (PipnodeDeadline *self)
+{
+    if (self->engine == NULL)
+        return;
+
+    g_dbus_proxy_call (self->engine, "RunWorksheet",
+                       g_variant_new ("(s)", self->path),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       on_run_worksheet_done, self);
+}
+
+/* The engine owns org.pipas.pipnode.  When that owner vanishes — it quit
+ * (our "Restart engine" item), was killed, or crashed — re-run the
+ * worksheet: the method call auto-activates the service, starting whatever
+ * pipnode-editor binary is now installed, and the reply rebuilds our row.
+ * When the owner instead (re)appears there is nothing to do; the pending
+ * RunWorksheet already covers it.  This makes every applet self-heal across
+ * an engine restart without touching the panel. */
+static void
+on_engine_owner_changed (GObject    *proxy,
+                         GParamSpec *pspec,
+                         gpointer    user_data)
+{
+    PipnodeDeadline *self  = user_data;
+    gchar            *owner;
+
+    (void) pspec;
+
+    owner = g_dbus_proxy_get_name_owner (G_DBUS_PROXY (proxy));
+    if (owner == NULL)
+        engine_run_worksheet (self);
+    g_free (owner);
+}
+
 static void
 on_engine_ready (GObject      *source,
                  GAsyncResult *result,
@@ -660,13 +699,12 @@ on_engine_ready (GObject      *source,
 
     g_signal_connect (self->engine, "g-signal",
                       G_CALLBACK (on_engine_signal), self);
+    g_signal_connect (self->engine, "notify::g-name-owner",
+                      G_CALLBACK (on_engine_owner_changed), self);
 
     /* Start the worksheet running (auto-activates the engine); the reply
      * callback then pulls the layout. */
-    g_dbus_proxy_call (self->engine, "RunWorksheet",
-                       g_variant_new ("(s)", self->path),
-                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
-                       on_run_worksheet_done, self);
+    engine_run_worksheet (self);
 }
 
 /* Fire-and-forget engine call carrying just the worksheet path. */
@@ -721,6 +759,35 @@ on_configure_plugin (XfcePanelPlugin  *plugin,
 {
     (void) plugin;
     engine_call_path (self, "PresentEditor");
+}
+
+/* Right-click "Restart engine": ask the shared engine to quit.  A panel
+ * restart reloads the applet but never the long-lived engine, so after
+ * `make install` the old binary keeps running; this bounces it.  Every
+ * applet watches the bus name (on_engine_owner_changed) and re-runs its
+ * worksheet when the owner drops, so one quit cleanly respawns the new
+ * binary and reconnects all of them. */
+static void
+on_restart_engine (GtkMenuItem      *item,
+                   PipnodeDeadline *self)
+{
+    (void) item;
+
+    /* Not connected yet (or a past connect failed): just (re)connect, which
+     * auto-activates the engine. */
+    if (self->engine == NULL)
+    {
+        g_dbus_proxy_new_for_bus (G_BUS_TYPE_SESSION,
+                                  G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
+                                  NULL, PN_ENGINE_BUS, PN_ENGINE_OBJECT,
+                                  PN_ENGINE_IFACE, self->cancel,
+                                  on_engine_ready, self);
+        return;
+    }
+
+    g_dbus_proxy_call (self->engine, "Quit", NULL,
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       NULL, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -825,6 +892,17 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
     /* Add the "Properties" entry to the right-click menu (the settings
      * menu) — fires "configure-plugin", which opens the editor. */
     xfce_panel_plugin_menu_show_configure (plugin);
+
+    /* Custom "Restart engine" entry: bounce the shared background engine so
+     * a freshly installed pipnode-editor binary takes over (a panel restart
+     * reloads only the applet, never the engine). */
+    {
+        GtkWidget *restart = gtk_menu_item_new_with_label ("Restart engine");
+        gtk_widget_show (restart);
+        g_signal_connect (restart, "activate",
+                          G_CALLBACK (on_restart_engine), self);
+        xfce_panel_plugin_menu_insert_item (plugin, GTK_MENU_ITEM (restart));
+    }
 
     g_signal_connect (self->button, "button-press-event",
                       G_CALLBACK (on_button_press), self);
