@@ -58,6 +58,40 @@ rounded_rect (cairo_t *cr, double x, double y, double w, double h, double r)
     cairo_close_path (cr);
 }
 
+/* The desktop UI font family (gtk-font-name) — the same font the panel and
+ * its applets use.  The worksheet draws into a bare cairo layout whose
+ * default font is fontconfig's, not the desktop's, so we resolve and apply
+ * this explicitly to match the panel widget.  Cached for the process. */
+static const gchar *
+label_default_family (void)
+{
+    static gchar *family = NULL;
+
+    if (family == NULL)
+    {
+        GtkSettings *settings = gtk_settings_get_default ();
+        gchar       *name     = NULL;
+
+        if (settings != NULL)
+            g_object_get (settings, "gtk-font-name", &name, NULL);
+
+        if (name != NULL && *name != '\0')
+        {
+            PangoFontDescription *d = pango_font_description_from_string (name);
+            const gchar          *f = pango_font_description_get_family (d);
+
+            family = g_strdup ((f != NULL && *f != '\0') ? f : "Sans");
+            pango_font_description_free (d);
+        }
+        else
+        {
+            family = g_strdup ("Sans");
+        }
+        g_free (name);
+    }
+    return family;
+}
+
 /* Configure @layout's font from the paint state at an absolute pixel
  * size, so the worksheet's zoom does not change the glyph metrics out
  * from under the fit loop. */
@@ -68,11 +102,11 @@ label_setup_layout (PangoLayout              *layout,
 {
     PangoFontDescription *fd = pango_font_description_new ();
 
-    /* Leave the family unset when none is configured, so the text inherits
-     * the context's default (the theme/panel font) and matches the panel
-     * clock; a configured family overrides it. */
-    if (st->font_family != NULL && *st->font_family != '\0')
-        pango_font_description_set_family (fd, st->font_family);
+    /* Use the configured family, else the desktop UI font so the worksheet
+     * matches the panel applet rather than cairo's fontconfig default. */
+    pango_font_description_set_family (
+            fd, (st->font_family != NULL && *st->font_family != '\0')
+                ? st->font_family : label_default_family ());
     pango_font_description_set_weight (fd, (PangoWeight) st->weight);
     pango_font_description_set_style  (fd, st->italic ? PANGO_STYLE_ITALIC
                                                       : PANGO_STYLE_NORMAL);

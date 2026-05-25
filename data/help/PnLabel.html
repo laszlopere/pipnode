@@ -48,18 +48,18 @@ and cropped past a maximum width so it never stretches the panel).
       <td>Horizontal alignment of the text within the box: <code>Left</code>,
           <code>Center</code> or <code>Right</code>.</td></tr>
   <tr><td><code>font-family</code></td>
-      <td>The font family the text is drawn in (e.g. <code>Sans</code>,
-          <code>Serif</code>, <code>Monospace</code>).</td></tr>
+      <td><em>Read-only.</em> The text uses the desktop's default font, so it
+          matches the panel clock.</td></tr>
   <tr><td><code>font-scale</code></td>
-      <td>Text height as a percentage (20&ndash;100) of the space one line
-          gets in the box. Because it is relative to the client area, every
-          rendering &mdash; worksheet, panel preview, live panel &mdash;
-          shows the text at the same proportion.</td></tr>
+      <td><em>Read-only.</em> The text fills the box (a fixed percentage of
+          each line's share of the client area), so every rendering &mdash;
+          worksheet, panel preview, live panel &mdash; shows it at the same
+          proportion.</td></tr>
   <tr><td><code>weight</code></td>
-      <td>Font weight: <code>Normal</code>, <code>Medium</code>,
-          <code>Semi-Bold</code> or <code>Bold</code>.</td></tr>
+      <td><em>Read-only.</em> Font weight, fixed at <code>Semi-Bold</code> to
+          read like the panel clock.</td></tr>
   <tr><td><code>italic</code></td>
-      <td>Draw the text in an italic style.</td></tr>
+      <td><em>Read-only.</em> Italic style (off).</td></tr>
   <tr><td><code>text-color</code></td>
       <td>Colour of the text &mdash; a soft off-white by default.</td></tr>
   <tr><td><code>background-color</code></td>

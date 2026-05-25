@@ -476,7 +476,7 @@ pn_label_class_init (PnLabelClass *klass)
     props[PROP_WEIGHT] = g_param_spec_string (
             "weight", "Weight",
             "Font weight: Normal, Medium, Semi-Bold or Bold.",
-            "Normal",
+            "Semi-Bold",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_ITALIC] = g_param_spec_boolean (
@@ -524,11 +524,19 @@ pn_label_class_init (PnLabelClass *klass)
         pn_settings_schema_row (schema, "lines",       PN_EDITOR_SPIN);
         pn_settings_schema_row (schema, "alignment",   PN_EDITOR_COMBO);
         pn_settings_schema_choices (schema, "alignment", aligns);
+
+        /* The font face, size and variant are locked: the readout is tuned
+         * to fill the box in the desktop font like a panel clock, and almost
+         * any other choice reads worse — so these are shown read-only. */
         pn_settings_schema_row (schema, "font-family", PN_EDITOR_ENTRY);
+        pn_settings_schema_row_flags (schema, "font-family", PN_ROW_FLAG_READONLY);
         pn_settings_schema_row (schema, "font-scale",  PN_EDITOR_SPIN);
+        pn_settings_schema_row_flags (schema, "font-scale", PN_ROW_FLAG_READONLY);
         pn_settings_schema_row (schema, "weight",      PN_EDITOR_COMBO);
         pn_settings_schema_choices (schema, "weight", weights);
+        pn_settings_schema_row_flags (schema, "weight", PN_ROW_FLAG_READONLY);
         pn_settings_schema_row (schema, "italic",      PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "italic", PN_ROW_FLAG_READONLY);
 
         pn_settings_schema_tab (schema, "Colours");
         pn_settings_schema_row (schema, "text-color",       PN_EDITOR_AUTO);
@@ -546,7 +554,7 @@ pn_label_init (PnLabel *self)
     self->lines            = 1;
     self->font_family      = g_strdup ("");
     self->font_scale       = 100;
-    self->weight           = g_strdup ("Normal");
+    self->weight           = g_strdup ("Semi-Bold");
     self->italic           = FALSE;
     self->alignment        = g_strdup ("Center");
     self->text_color       = (PnColor){ 0.90, 0.92, 0.94, 1.0 };

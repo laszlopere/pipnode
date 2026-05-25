@@ -194,6 +194,23 @@ test_initial_is_blank (void)
     g_object_unref (label);
 }
 
+/* The locked font defaults: fill (100 %), Semi-Bold (Pango 600), upright,
+ * and an empty family (so the painter falls back to the desktop font). */
+static void
+test_locked_defaults (void)
+{
+    PnLabel          *label = pn_label_new ();
+    PnLabelPaintState st;
+
+    pn_label_get_paint_state (label, &st);
+    PN_CHECK_CMPINT (st.font_scale, ==, 100);
+    PN_CHECK_CMPINT (st.weight,     ==, 600);
+    PN_CHECK        (st.italic == FALSE);
+    PN_CHECK_CMPSTR (st.font_family, ==, "");
+
+    g_object_unref (label);
+}
+
 /* Changing the line count re-tails the already-received output without a
  * new message. */
 static void
@@ -275,6 +292,7 @@ main (int argc, char **argv)
     pn_test_add ("escaped_newline",           test_escaped_newline);
     pn_test_add ("blank_on_no_output",        test_blank_on_no_output);
     pn_test_add ("initial_is_blank",          test_initial_is_blank);
+    pn_test_add ("locked_defaults",           test_locked_defaults);
     pn_test_add ("lines_change_retails",      test_lines_change_retails);
     pn_test_add ("properties_round_trip",     test_properties_round_trip);
     return pn_test_run ();
