@@ -4152,15 +4152,18 @@ pn_window_constructed (GObject *object)
     gtk_box_pack_start (GTK_BOX (vbox), self->statusbar, FALSE, FALSE, 0);
     gtk_statusbar_push (GTK_STATUSBAR (self->statusbar), 0, "Ready");
 
-    gtk_widget_show_all (GTK_WIDGET (self));
-
     /* Panel-backed windows are built but never shown until the engine
-     * present()s them for an "Edit…" request.  show_all above marked the
-     * child widgets visible (so a later present shows the full editor);
-     * hiding the toplevel again before we yield to the main loop means
-     * the window is never actually mapped — the flow still runs. */
+     * present()s them for an "Edit…" request.  show_all on the toplevel
+     * would realize *and* map it (gtk_window_show maps synchronously), so
+     * a hide right after still briefly flashes an editor frame on screen —
+     * visible e.g. when an engine restart rebuilds the window.  Show only
+     * the child instead: every contained widget is marked visible (so a
+     * later gtk_window_present reveals the full editor) while the toplevel
+     * is never mapped — no flash, and the flow still runs. */
     if (self->panel_backed)
-        gtk_widget_hide (GTK_WIDGET (self));
+        gtk_widget_show_all (gtk_bin_get_child (GTK_BIN (self)));
+    else
+        gtk_widget_show_all (GTK_WIDGET (self));
 
     /* The debug pane is opt-in via View → Debug View; start hidden. */
     if (self->debug_pane != NULL)
