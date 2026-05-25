@@ -29,6 +29,7 @@
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
 #include "pn-led.h"
+#include "pn-switch.h"
 #include "pn-color.h"
 #include "pn-panel-geometry.h"
 
@@ -1093,6 +1094,8 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /*  Panel I/O nodes bridge the running flow to the applet: a           */
 /*  PnPanelInput is driven with a value (SetInput) or told of an       */
 /*  applet mouse event (SendEvent, fanned out to every Panel Input).   */
+/*  A click on an interactive widget (a Switch toggle) is addressed to */
+/*  that one node by UUID (ActivateWidget), which flips it.            */
 /*                                                                     */
 /*  The display side mirrors the visual layout editor (PnPanelEditor)  */
 /*  headlessly: every PnCountdown / PnLed the user snapped onto the    */
@@ -1127,6 +1130,10 @@ static const gchar engine_introspection_xml[] =
     "      <arg type='s' name='path'   direction='in'/>"
     "      <arg type='s' name='event'  direction='in'/>"
     "      <arg type='u' name='button' direction='in'/>"
+    "    </method>"
+    "    <method name='ActivateWidget'>"
+    "      <arg type='s' name='path' direction='in'/>"
+    "      <arg type='s' name='uuid' direction='in'/>"
     "    </method>"
     "    <method name='PresentEditor'>"
     "      <arg type='s' name='path'  direction='in'/>"
@@ -1177,6 +1184,35 @@ engine_find_node (PnWindow *win, GType type)
     {
         PnNode *node = pn_node_store_get_node (nodes, i);
         if (node != NULL && g_type_is_a (G_OBJECT_TYPE (node), type))
+            return node;
+    }
+    return NULL;
+}
+
+/** The node with @uuid in @win's document, or %NULL.  Used to address a
+ *  single mirrored widget — e.g. the switch the user clicked on the panel —
+ *  rather than the type-first lookup engine_find_node does. */
+static PnNode *
+engine_find_node_by_uuid (PnWindow *win, const gchar *uuid)
+{
+    PnFlow      *flow;
+    PnNodeStore *nodes;
+    guint        i, n;
+
+    if (win == NULL || uuid == NULL)
+        return NULL;
+
+    flow = pn_window_get_flow (win);
+    if (flow == NULL)
+        return NULL;
+
+    nodes = pn_flow_get_nodes (flow);
+    n     = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (node != NULL
+            && g_strcmp0 (pn_node_get_uuid (node), uuid) == 0)
             return node;
     }
     return NULL;
@@ -1315,13 +1351,15 @@ engine_widget_ctx_free (gpointer data)
     g_slice_free (EngineWidgetCtx, ctx);
 }
 
-/** A node the applet mirrors: a countdown readout or an indicator lamp. */
+/** A node the applet mirrors: a countdown readout, an indicator lamp, or a
+ *  slide toggle (the only interactive one — see ActivateWidget). */
 static gboolean
 engine_is_widget_node (PnNode *node)
 {
     return PN_IS_COUNTDOWN (node)
         || PN_IS_DIGITAL_CLOCK (node)
-        || PN_IS_LED (node);
+        || PN_IS_LED (node)
+        || PN_IS_SWITCH (node);
 }
 
 /** Emit an Engine signal, sinking @params even when the bus is absent. */
@@ -1428,6 +1466,15 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_set_member_name (b, "color");
         engine_add_color_array (b, &color);
         return "led";
+    }
+
+    if (PN_IS_SWITCH (node))
+    {
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "switch");
+        json_builder_set_member_name (b, "on");
+        json_builder_add_boolean_value (b, pn_switch_get_on (PN_SWITCH (node)));
+        return "switch";
     }
 
     return NULL;
@@ -1853,6 +1900,22 @@ handle_engine_method_call (
         g_variant_get (parameters, "(&s&su)", &path, &event, &button);
         win = g_hash_table_lookup (self->worksheets, path);
         engine_send_event_to_inputs (win, event, button);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "ActivateWidget") == 0)
+    {
+        PnWindow    *win;
+        PnNode      *node;
+        const gchar *uuid = NULL;
+
+        g_variant_get (parameters, "(&s&s)", &path, &uuid);
+        win  = g_hash_table_lookup (self->worksheets, path);
+        node = engine_find_node_by_uuid (win, uuid);
+        /* Only switches are interactive today.  Toggling emits the node's
+         * message and a repaint-needed, which the widget-mirroring path
+         * turns into a WidgetChanged carrying the new "on" state. */
+        if (PN_IS_SWITCH (node))
+            pn_switch_toggle (PN_SWITCH (node));
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "PresentEditor") == 0)

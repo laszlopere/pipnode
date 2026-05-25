@@ -1,0 +1,209 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "24a01aa9-802f-40aa-8ed5-23c62ce112f6",
+      "name" : "Clock",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 121.615478515625,
+        "y" : 80.60626220703125
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDigitalClock",
+      "uuid" : "5828d47a-00fb-479f-9add-32a8ee6d3976",
+      "name" : "DigitalClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 301.615478515625,
+        "y" : 80.60626220703125
+      },
+      "properties" : {
+        "show-labels" : true,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
+      }
+    },
+    {
+      "type" : "PnPanelInput",
+      "uuid" : "8fc8ed78-145b-493e-b431-b6181b0aea5c",
+      "name" : "Panel Input 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 721.615478515625,
+        "y" : 160.60626220703125
+      },
+      "properties" : {
+        "value" : 1.0
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "66eef352-08f6-48f9-a5d6-ece3bfb0afb5",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 1021.615478515625,
+        "y" : 180.60626220703125
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-ryan-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : false,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnSound",
+      "uuid" : "c0e6921d-b8f4-4dc1-83b2-5fb235ce4ef3",
+      "name" : "Sound 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 1021.615478515625,
+        "y" : 120.60626220703125
+      },
+      "properties" : {
+        "sound" : "message",
+        "dead-period" : 0
+      }
+    },
+    {
+      "type" : "PnMqtt",
+      "uuid" : "42b73aaa-6e5f-4606-a785-d036049ec546",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 121.615478515625,
+        "y" : 300.60626220703125
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "784d9124-f460-4668-bd1c-830db5e1e4d3",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 521.615478515625,
+        "y" : 300.60626220703125
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "e65cec71-4743-4719-9f5e-4440ee8d770f",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 521.615478515625,
+        "y" : 420.60626220703125
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnTasmotaSwitch",
+      "uuid" : "d1c61d52-13a5-4bf6-b27f-fa98d386402a",
+      "name" : "Tasmota Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 301.615478515625,
+        "y" : 300.60626220703125
+      },
+      "properties" : {
+        "on" : true,
+        "switch-name" : "sonoff19",
+        "enforce-on-startup" : true
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "42a99572-7e48-46c5-970a-c799ce2f08de",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 521.615478515625,
+        "y" : 360.60626220703125
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "24a01aa9-802f-40aa-8ed5-23c62ce112f6",
+      "target_id" : "5828d47a-00fb-479f-9add-32a8ee6d3976"
+    },
+    {
+      "source_id" : "8fc8ed78-145b-493e-b431-b6181b0aea5c",
+      "target_id" : "66eef352-08f6-48f9-a5d6-ece3bfb0afb5"
+    },
+    {
+      "source_id" : "8fc8ed78-145b-493e-b431-b6181b0aea5c",
+      "target_id" : "c0e6921d-b8f4-4dc1-83b2-5fb235ce4ef3"
+    },
+    {
+      "source_id" : "42b73aaa-6e5f-4606-a785-d036049ec546",
+      "target_id" : "d1c61d52-13a5-4bf6-b27f-fa98d386402a"
+    },
+    {
+      "source_id" : "d1c61d52-13a5-4bf6-b27f-fa98d386402a",
+      "target_id" : "784d9124-f460-4668-bd1c-830db5e1e4d3"
+    },
+    {
+      "source_id" : "d1c61d52-13a5-4bf6-b27f-fa98d386402a",
+      "target_id" : "42a99572-7e48-46c5-970a-c799ce2f08de"
+    },
+    {
+      "source_id" : "d1c61d52-13a5-4bf6-b27f-fa98d386402a",
+      "target_id" : "e65cec71-4743-4719-9f5e-4440ee8d770f"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet",
+  "panel_editor_open" : true,
+  "panel_layout" : {
+    "5828d47a-00fb-479f-9add-32a8ee6d3976" : {
+      "x" : 585.0,
+      "y" : 24.0
+    },
+    "d1c61d52-13a5-4bf6-b27f-fa98d386402a" : {
+      "x" : 512.0,
+      "y" : 24.0
+    }
+  }
+}

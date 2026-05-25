@@ -21,11 +21,13 @@
 #include "pn-panel-geometry.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
+#include "pn-switch-widget.h"
 #include "pn-node.h"
 #include "pn-node-store.h"
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
 #include "pn-led.h"
+#include "pn-switch.h"
 
 /* ------------------------------------------------------------------ */
 /*  PnPanelEditor                                                      */
@@ -196,6 +198,23 @@ static void
 on_led_repaint_needed (PnNode *node, gpointer user_data)
 {
     panel_editor_sync_led (node, PN_LED_LAMP (user_data));
+}
+
+/* Push @node's current latch position into its toggle, reading it through
+ * the Switch node's GTK-free accessor. */
+static void
+panel_editor_sync_switch (PnNode *node, PnSwitchWidget *toggle)
+{
+    pn_switch_widget_set_on (toggle, pn_switch_get_on (PN_SWITCH (node)));
+}
+
+/* repaint-needed on a Switch node → refresh its toggle.  @user_data is the
+ * row's #PnSwitchWidget (connected with g_signal_connect_object so it dies
+ * with the toggle). */
+static void
+on_switch_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_switch (node, PN_SWITCH_WIDGET (user_data));
 }
 
 /* Toggle the empty-state hint to match the live readout count. */
@@ -423,6 +442,24 @@ panel_editor_build_widget (PnNode *node)
                                  G_CALLBACK (on_led_repaint_needed),
                                  lamp, 0);
         return lamp;
+    }
+
+    if (PN_IS_SWITCH (node))
+    {
+        /* Drag-only here: the toggle is left non-interactive (the default)
+         * so clicks fall through to the drag handle and arranging the
+         * layout never flips the switch.  It still mirrors the live latch
+         * state.  The applet is where the toggle becomes clickable. */
+        GtkWidget *toggle = pn_switch_widget_new ();
+
+        pn_switch_widget_set_height (PN_SWITCH_WIDGET (toggle),
+                                     PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_switch (node, PN_SWITCH_WIDGET (toggle));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_switch_repaint_needed),
+                                 toggle, 0);
+        return toggle;
     }
 
     return NULL;

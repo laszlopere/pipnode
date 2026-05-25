@@ -57,6 +57,16 @@ a physical command (the <code>Tasmota&nbsp;Switch</code>, which sends an
 MQTT relay command) deliberately suppress this so opening a worksheet
 never actuates hardware.
 </p>
+<p>
+A Switch dropped onto the panel band in the panel-layout editor mirrors
+onto the XFCE panel applet as a live slide toggle.  There it is
+<em>interactive</em>: clicking it on the panel flips the switch exactly
+as clicking the slider on the node body does, firing its message into
+the flow (a <code>Tasmota&nbsp;Switch</code> on the panel therefore
+actuates the real device).  In the panel-layout editor itself the toggle
+is drag-only &mdash; you arrange it on the band but clicking it never
+flips the switch, so editing the layout never actuates anything.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>on</code></td>

@@ -37,6 +37,8 @@
 /*  convenience library (PnLedDisplay, PnLedLamp), statically linked.   */
 /*    - a mouse click drives the PnPanelInput node(s): the click is     */
 /*      forwarded (SendEvent) tagged with the button;                  */
+/*    - a click on a Switch toggle flips that one node, addressed by    */
+/*      UUID (ActivateWidget), instead of the generic input click;      */
 /*    - right-click "Properties" opens the worksheet for editing       */
 /*      (PresentEditor) — the same running flow, shown.                */
 /* ------------------------------------------------------------------ */
@@ -49,6 +51,7 @@
 
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
+#include "pn-switch-widget.h"
 
 /* The freedesktop/themed icon name shipped by the main app
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
@@ -113,9 +116,12 @@ static const gchar EMPTY_WORKSHEET[] =
     "}\n";
 
 /* One mirrored widget: a panel-widgets drawing area plus the kind of node
- * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp).
- * The widget itself is owned by the applet's @fixed; this struct only tracks
- * the node.  Row order is the engine's layout order, held by @order. */
+ * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp,
+ * 's' = Switch -> PnSwitchWidget).  The switch is the one interactive kind:
+ * its widget is made clickable and a click is reported back to the engine
+ * by the node's UUID, stashed on the widget as "pn-uuid".  The widget
+ * itself is owned by the applet's @fixed; this struct only tracks the node.
+ * Row order is the engine's layout order, held by @order. */
 typedef struct
 {
     GtkWidget *widget;
@@ -272,6 +278,14 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
         if (read_rgb (state, "unlit_color", rgb))
             pn_led_display_set_unlit_color (led, rgb[0], rgb[1], rgb[2]);
     }
+    else if (e->kind == 's')
+    {
+        PnSwitchWidget *toggle = PN_SWITCH_WIDGET (e->widget);
+
+        if (json_object_has_member (state, "on"))
+            pn_switch_widget_set_on (
+                    toggle, json_object_get_boolean_member (state, "on"));
+    }
     else
     {
         PnLedLamp *lamp = PN_LED_LAMP (e->widget);
@@ -295,19 +309,67 @@ size_widget (AppletWidget *e, gint size)
 {
     if (e->kind == 'c')
         pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
+    else if (e->kind == 's')
+        pn_switch_widget_set_height (PN_SWITCH_WIDGET (e->widget), size);
     else
         pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
 }
 
-/* Build a fresh widget of @kind, sized to the panel, placed on the row.
- * relayout() moves it to its final spot once positions are known. */
+/* A click on a mirrored switch toggle: ask the engine to flip that one
+ * Switch node, addressed by the UUID stashed on the widget.  The engine
+ * toggles it and echoes the new state back as a WidgetChanged, which
+ * update_widget() pushes into the toggle — so the widget follows the node
+ * rather than guessing its own state. */
+static void
+on_switch_toggled (GtkWidget *widget, PipnodeDeadline *self)
+{
+    const gchar *uuid;
+
+    if (self->engine == NULL)
+        return;
+
+    uuid = g_object_get_data (G_OBJECT (widget), "pn-uuid");
+    if (uuid == NULL)
+        return;
+
+    g_dbus_proxy_call (self->engine, "ActivateWidget",
+                       g_variant_new ("(ss)", self->path, uuid),
+                       G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
+                       NULL, NULL);
+}
+
+/* Build a fresh widget of @kind for the node @uuid, sized to the panel and
+ * placed on the row.  A switch toggle is made interactive — the only kind
+ * the user can click — and tagged with its UUID so on_switch_toggled() can
+ * address it.  relayout() moves it to its final spot once positions are
+ * known. */
 static AppletWidget *
-applet_widget_new (PipnodeDeadline *self, gchar kind)
+applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
 {
     AppletWidget *e = g_slice_new0 (AppletWidget);
 
-    e->kind   = kind;
-    e->widget = (kind == 'c') ? pn_led_display_new () : pn_led_lamp_new ();
+    e->kind = kind;
+    switch (kind)
+    {
+    case 's':
+        e->widget = pn_switch_widget_new ();
+        /* Make it clickable before it is shown (and thus realized), so the
+         * widget grabs its own input window; tag it with the node UUID and
+         * route clicks to the engine. */
+        pn_switch_widget_set_interactive (PN_SWITCH_WIDGET (e->widget), TRUE);
+        g_object_set_data_full (G_OBJECT (e->widget), "pn-uuid",
+                                g_strdup (uuid), g_free);
+        g_signal_connect (e->widget, "toggled",
+                          G_CALLBACK (on_switch_toggled), self);
+        break;
+    case 'l':
+        e->widget = pn_led_lamp_new ();
+        break;
+    case 'c':
+    default:
+        e->widget = pn_led_display_new ();
+        break;
+    }
     size_widget (e, PN_APPLET_WIDGET_SIZE (self));
 
     gtk_fixed_put (GTK_FIXED (self->fixed), e->widget, 0, 0);
@@ -409,7 +471,9 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
                 ? json_object_get_object_member (w, "state") : NULL;
         kind_s = (state != NULL && json_object_has_member (state, "kind"))
                  ? json_object_get_string_member (state, "kind") : "";
-        kind   = (g_strcmp0 (kind_s, "led") == 0) ? 'l' : 'c';
+        kind   = (g_strcmp0 (kind_s, "led")    == 0) ? 'l'
+               : (g_strcmp0 (kind_s, "switch") == 0) ? 's'
+               : 'c';
 
         g_hash_table_add (desired, (gpointer) uuid);
 
@@ -422,7 +486,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
         }
         if (e == NULL)
         {
-            e = applet_widget_new (self, kind);
+            e = applet_widget_new (self, kind, uuid);
             g_hash_table_insert (self->widgets, g_strdup (uuid), e);
         }
 
