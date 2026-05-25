@@ -31,6 +31,14 @@ node's output to another node's input.
   </li>
   <li><a href="#globals">Document globals</a></li>
   <li><a href="#plugins">Plugins</a></li>
+  <li><a href="#panel-applets">XFCE panel applets</a>
+    <ul>
+      <li><a href="#panel-applets-engine">The background engine</a></li>
+      <li><a href="#panel-applets-bridge">Bridging a flow to the panel</a></li>
+      <li><a href="#panel-applets-building">Building and installing</a></li>
+      <li><a href="#panel-applets-adding">Adding an applet to the panel</a></li>
+    </ul>
+  </li>
   <li><a href="#tips">Tips and troubleshooting</a></li>
 </ul>
 </div>
@@ -627,6 +635,144 @@ The full reference, with worked examples copied from the in-tree
 PnMeshtastic and PnFilter migrations, lives in the
 <code>PLUGINS</code> file at the top of the source tree under
 section 15 (Extending the node settings dialog).
+</p>
+
+<h2 id="panel-applets">XFCE panel applets</h2>
+
+<p>
+A worksheet does not have to live in its own window. The same flow
+you build on the canvas can also drive an <strong>XFCE panel
+applet</strong> &mdash; a small live widget docked in the desktop
+panel. These applets are deliberately open-ended: an applet is just a
+thin mirror of one worksheet's panel band, so whatever you can wire up
+inside pipnode you can surface on the panel. There is no fixed set of
+panel gadgets to choose from &mdash; you can build practically
+anything the available nodes allow, from a deadline countdown to a
+thermostat readout, a build-status lamp or a one-click switch, simply
+by assembling the right nodes in the worksheet behind it. If a node
+exists for the job, it can run on the panel.
+</p>
+
+<p>
+The applet itself is intentionally dumb: it links GTK, GLib,
+json-glib and libxfce4panel only and embeds <em>no</em> pipnode
+runtime library, so a misbehaving node or plugin can never take down
+<code>xfce4-panel</code>. It is a pure D-Bus client &mdash; all the
+real work happens in the engine described next.
+</p>
+
+<h3 id="panel-applets-engine">The background engine</h3>
+
+<p>
+Each applet instance owns one worksheet, stored as a
+<code>.json</code> document under
+<code>~/.config/pipnode/panel/&lt;unique-id&gt;.json</code>. The flow
+is not executed by the applet but by a background <strong>engine</strong>:
+<code>pipnode-editor</code> launched as a D-Bus service (under the
+bus name <code>org.pipas.pipnode</code> via
+<code>--gapplication-service</code>), auto-activated the first time an
+applet needs it. The engine holds each worksheet in a hidden window
+whose flow ticks the whole time the panel is up, so the applet keeps
+updating even though no editor window is visible. The engine is the
+desktop-session counterpart of the headless
+<code>pipnode-run</code> tool.
+</p>
+
+<p>
+Right-click an applet and choose <em>Properties</em> to open that
+<em>same running</em> worksheet for editing &mdash; you are editing the
+live flow, not a copy. Closing the editor window autosaves the
+worksheet and hides it again; the flow keeps running in the engine.
+Every new applet is seeded with a copy of a shipped starter worksheet
+so it begins with a working flow rather than a blank sheet.
+</p>
+
+<h3 id="panel-applets-bridge">Bridging a flow to the panel</h3>
+
+<p>
+Two core nodes connect the worksheet to its panel widget:
+</p>
+
+<ul>
+  <li><strong>Panel Display</strong> (a sink) &mdash; its last value
+      is shown on the applet and pushed live. A numeric value is read
+      as seconds remaining and drawn on a tiny seven-segment LED
+      readout as <code>ddd&nbsp;hh:mm:ss</code> (a panel-sized echo of
+      a Countdown node); any other text falls back to a plain
+      label.</li>
+  <li><strong>Panel Input</strong> (a source) &mdash; each mouse click
+      on the applet emits a message naming the button: the topic
+      <code>click/left</code> / <code>click/right</code> / &hellip;, a
+      human-readable sentence on <code>output</code>, and the button
+      number on <code>value</code>.</li>
+</ul>
+
+<p>
+The applet asks the engine for the widget set and order and follows
+it as the layout changes; each node's live value arrives keyed by the
+node's UUID. A click on a Switch toggle flips that one node directly
+(addressed by UUID) instead of emitting the generic input click, so a
+single applet can carry both readouts and controls. Snap a Countdown,
+LED or Switch node onto the panel band in the editor and a matching
+panel widget appears in the applet.
+</p>
+
+<h3 id="panel-applets-building">Building and installing</h3>
+
+<p>
+Panel applets live in the <code>panel-plugins/</code> subtree (kept
+separate from the node <code>plugins/</code> tree). They are an
+<em>optional, auto-detected</em> part of the build: the subtree is
+only configured and compiled when <code>libxfce4panel-2.0&nbsp;&ge;&nbsp;4.14</code>
+and <code>libxfce4util-1.0</code> are present at configure time, so a
+machine without XFCE still builds the rest of pipnode unaffected. You
+can force the decision either way with
+<code>--enable-panel-plugins</code> or
+<code>--disable-panel-plugins</code> (the default is
+<code>auto</code>); <code>--enable</code> errors out if the panel
+development packages are missing.
+</p>
+
+<div class="note">
+An applet must be installed where the <em>running</em>
+<code>xfce4-panel</code> actually scans &mdash; its own
+module and descriptor directories &mdash; <strong>not</strong> under
+pipnode's <code>--prefix</code>. The panel only looks in the
+directories compiled into it, so both paths are derived from
+<code>libxfce4panel-2.0.pc</code> at configure time
+(<code>$libdir/xfce4/panel/plugins</code> for the
+<code>.so</code> module and
+<code>$datarootdir/xfce4/panel/plugins</code> for the
+<code>.desktop</code> descriptor). A standard
+<code>make install</code> puts each piece in the right place; the
+starter worksheet, by contrast, installs under pipnode's own data
+dir, which the applet reads by absolute path.
+</div>
+
+<p>
+Each applet is built as an XFCE <em>internal</em> panel module: a
+loadable <code>lib&lt;name&gt;.so</code> the panel <code>dlopen()</code>s
+on demand, paired with a <code>.desktop</code> descriptor whose
+<code>X-XFCE-Module</code> key names the library. The only pipnode
+code an applet embeds is the GTK/Cairo-only <em>panel-widgets</em>
+convenience library (the LED readout, LED lamp and switch widgets),
+statically linked &mdash; it shares those widgets with the editor's
+panel-layout view but pulls in none of the node runtime, preserving
+the crash isolation above.
+</p>
+
+<h3 id="panel-applets-adding">Adding an applet to the panel</h3>
+
+<p>
+Once installed, the applet appears in the panel's
+<em>Add&nbsp;New&nbsp;Items&hellip;</em> dialog (right-click the panel
+&rarr; <em>Panel</em> &rarr; <em>Add&nbsp;New&nbsp;Items&hellip;</em>)
+under its descriptor name. Add it and a fresh worksheet is seeded for
+that instance; right-click the new applet and choose
+<em>Properties</em> to open and customise the flow behind it. Add the
+applet more than once and each copy gets its own independent
+worksheet, so the same panel can host several unrelated flows side by
+side.
 </p>
 
 <h2 id="tips">Tips and troubleshooting</h2>

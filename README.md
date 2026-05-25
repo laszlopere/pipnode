@@ -71,7 +71,19 @@ server-installable plugins.
 ## XFCE panel applets
 
 A worksheet can also drive an **XFCE panel applet** — a button on the panel
-that runs a flow and shows a value. The first such applet, **Deadline**
+that runs a flow and shows a value.
+
+![XFCE panel applet](screenshots/xfce-panel-applet.png)
+
+Because an applet is just a live mirror of one worksheet's panel band, it is as
+flexible as the flow behind it: there is no fixed catalogue of panel gadgets to
+pick from. Whatever you can wire up in pipnode you can dock on the panel — a
+deadline countdown, a sensor or thermostat readout, a build-status lamp, a
+one-click switch — by assembling the right nodes in the worksheet. If a node
+exists for the job, it can run on the panel, and right-click → Properties lets
+the end-user reshape that flow at any time.
+
+The first such applet, **Deadline**
 (`panel-plugins/pipnode-deadline`), counts down to a target date; it is a thin
 D-Bus client linking **no** pipnode library, so a node or plugin crash can never
 take down `xfce4-panel`. Each new applet is seeded with a copy of a shipped
