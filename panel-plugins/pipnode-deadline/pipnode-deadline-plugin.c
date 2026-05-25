@@ -464,11 +464,16 @@ center_in_row (PipnodeDeadline *self, GtkWidget *child, gint x)
                     self->row_h > h ? (self->row_h - h) / 2 : 0);
 }
 
-/* Place the row's widgets edge to edge in layout order: each starts where
- * the previous ended, so the panel shows one tight strip with no gaps,
- * however the editor spaced or grouped them on the band.  The applet mirrors
- * only the order, not the spacing.  Each widget — and the fallback icon — is
- * centred vertically in the row's allocated height (see on_fixed_allocate). */
+/* Small horizontal gap between adjacent mirrored widgets, so the readouts
+ * sit beside each other with a little breathing room rather than touching. */
+#define PN_APPLET_WIDGET_GAP 4
+
+/* Place the row's widgets in layout order, each a few pixels past where the
+ * previous ended (PN_APPLET_WIDGET_GAP), so the panel shows one strip with a
+ * little space between widgets, however the editor spaced or grouped them on
+ * the band.  The applet mirrors only the order, not the editor's spacing.
+ * Each widget — and the fallback icon — is centred vertically in the row's
+ * allocated height (see on_fixed_allocate). */
 static void
 relayout (PipnodeDeadline *self)
 {
@@ -479,6 +484,9 @@ relayout (PipnodeDeadline *self)
     {
         AppletWidget *e   = g_ptr_array_index (self->order, i);
         gint          nat = 0;
+
+        if (i > 0)
+            pack_x += PN_APPLET_WIDGET_GAP;
 
         gtk_widget_get_preferred_width (e->widget, NULL, &nat);
         center_in_row (self, e->widget, pack_x);
