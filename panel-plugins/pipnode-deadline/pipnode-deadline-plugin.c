@@ -52,6 +52,7 @@
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-switch-widget.h"
+#include "pn-text-display.h"
 
 /* The freedesktop/themed icon name shipped by the main app
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
@@ -252,6 +253,27 @@ read_rgb (JsonObject *obj, const gchar *member, gdouble rgb[3])
     return TRUE;
 }
 
+/* Read an [r, g, b, a] JSON array member into @rgba.  Returns FALSE when
+ * the member is missing or malformed, so the caller keeps the default. */
+static gboolean
+read_rgba (JsonObject *obj, const gchar *member, gdouble rgba[4])
+{
+    JsonArray *arr;
+
+    if (obj == NULL || !json_object_has_member (obj, member))
+        return FALSE;
+
+    arr = json_object_get_array_member (obj, member);
+    if (arr == NULL || json_array_get_length (arr) < 4)
+        return FALSE;
+
+    rgba[0] = json_array_get_double_element (arr, 0);
+    rgba[1] = json_array_get_double_element (arr, 1);
+    rgba[2] = json_array_get_double_element (arr, 2);
+    rgba[3] = json_array_get_double_element (arr, 3);
+    return TRUE;
+}
+
 /* Push a node's render state (the WidgetChanged payload, or a layout
  * widget's inline "state") into its widget. */
 static void
@@ -286,6 +308,43 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
             pn_switch_widget_set_on (
                     toggle, json_object_get_boolean_member (state, "on"));
     }
+    else if (e->kind == 't')
+    {
+        PnTextDisplay *text = PN_TEXT_DISPLAY (e->widget);
+        gdouble        rgba[4];
+
+        if (json_object_has_member (state, "text"))
+            pn_text_display_set_text (
+                    text, json_object_get_string_member (state, "text"));
+        if (json_object_has_member (state, "lines"))
+            pn_text_display_set_lines (
+                    text, (gint) json_object_get_int_member (state, "lines"));
+        if (json_object_has_member (state, "font")
+            || json_object_has_member (state, "scale")
+            || json_object_has_member (state, "weight")
+            || json_object_has_member (state, "italic"))
+        {
+            const gchar *family = json_object_has_member (state, "font")
+                    ? json_object_get_string_member (state, "font") : "";
+            gint scale = json_object_has_member (state, "scale")
+                    ? (gint) json_object_get_int_member (state, "scale")
+                    : 100;
+            gint weight = json_object_has_member (state, "weight")
+                    ? (gint) json_object_get_int_member (state, "weight")
+                    : 400;
+            gboolean italic = json_object_has_member (state, "italic")
+                    && json_object_get_boolean_member (state, "italic");
+            pn_text_display_set_font (text, family, scale, weight, italic);
+        }
+        if (json_object_has_member (state, "align"))
+            pn_text_display_set_align (
+                    text, (gint) json_object_get_int_member (state, "align"));
+        if (read_rgb (state, "color", rgb))
+            pn_text_display_set_color (text, rgb[0], rgb[1], rgb[2]);
+        if (read_rgba (state, "bg", rgba))
+            pn_text_display_set_background (text, rgba[0], rgba[1],
+                                           rgba[2], rgba[3]);
+    }
     else
     {
         PnLedLamp *lamp = PN_LED_LAMP (e->widget);
@@ -311,8 +370,21 @@ size_widget (AppletWidget *e, gint size)
         pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
     else if (e->kind == 's')
         pn_switch_widget_set_height (PN_SWITCH_WIDGET (e->widget), size);
+    else if (e->kind == 't')
+        pn_text_display_set_height (PN_TEXT_DISPLAY (e->widget), size);
     else
         pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
+}
+
+/* Size one widget the right way for its kind: the text label takes the full
+ * panel row height so its font fills the panel like a clock applet; the
+ * other readouts keep the legibility-tuned icon×3/2 size. */
+static void
+apply_widget_size (PipnodeDeadline *self, AppletWidget *e)
+{
+    gint size = (e->kind == 't' && self->row_h > 0)
+                ? self->row_h : PN_APPLET_WIDGET_SIZE (self);
+    size_widget (e, size);
 }
 
 /* A click on a mirrored switch toggle: ask the engine to flip that one
@@ -365,12 +437,15 @@ applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
     case 'l':
         e->widget = pn_led_lamp_new ();
         break;
+    case 't':
+        e->widget = pn_text_display_new ();
+        break;
     case 'c':
     default:
         e->widget = pn_led_display_new ();
         break;
     }
-    size_widget (e, PN_APPLET_WIDGET_SIZE (self));
+    apply_widget_size (self, e);
 
     gtk_fixed_put (GTK_FIXED (self->fixed), e->widget, 0, 0);
     gtk_widget_show (e->widget);
@@ -473,6 +548,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
                  ? json_object_get_string_member (state, "kind") : "";
         kind   = (g_strcmp0 (kind_s, "led")    == 0) ? 'l'
                : (g_strcmp0 (kind_s, "switch") == 0) ? 's'
+               : (g_strcmp0 (kind_s, "text")   == 0) ? 't'
                : 'c';
 
         g_hash_table_add (desired, (gpointer) uuid);
@@ -803,7 +879,7 @@ resize_widgets (PipnodeDeadline *self)
 
     g_hash_table_iter_init (&it, self->widgets);
     while (g_hash_table_iter_next (&it, &key, &val))
-        size_widget (val, PN_APPLET_WIDGET_SIZE (self));
+        apply_widget_size (self, val);
 }
 
 /* The row's height is only known once the panel allocates it, so re-centre
@@ -820,6 +896,9 @@ on_fixed_allocate (GtkWidget     *fixed,
         return;
 
     self->row_h = alloc->height;
+    /* The text label is sized to the full row height, so re-apply sizes now
+     * that the row height is known, then re-centre. */
+    resize_widgets (self);
     relayout (self);
 }
 

@@ -46,6 +46,7 @@
 #include "pn-http.h"
 #include "pn-inject.h"
 #include "pn-knob.h"
+#include "pn-label.h"
 #include "pn-led.h"
 #include "pn-meshtastic.h"
 #include "pn-notify.h"
@@ -261,6 +262,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_LED);
     pn_node_factory_register (self, PN_TYPE_COUNTDOWN);
     pn_node_factory_register (self, PN_TYPE_DIGITAL_CLOCK);
+    pn_node_factory_register (self, PN_TYPE_LABEL);
     pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
     pn_node_factory_register (self, PN_TYPE_TABLE);
     pn_node_factory_register (self, PN_TYPE_TABLE_VIEW);

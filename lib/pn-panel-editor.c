@@ -22,10 +22,12 @@
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-switch-widget.h"
+#include "pn-text-display.h"
 #include "pn-node.h"
 #include "pn-node-store.h"
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
+#include "pn-label.h"
 #include "pn-led.h"
 #include "pn-switch.h"
 
@@ -198,6 +200,37 @@ static void
 on_led_repaint_needed (PnNode *node, gpointer user_data)
 {
     panel_editor_sync_led (node, PN_LED_LAMP (user_data));
+}
+
+/* Push @node's current text and styling into its readout, reading them
+ * through the Label node's GTK-free paint-state accessor. */
+static void
+panel_editor_sync_label (PnNode *node, PnTextDisplay *text)
+{
+    PnLabelPaintState st;
+
+    pn_label_get_paint_state (PN_LABEL (node), &st);
+
+    pn_text_display_set_text  (text, st.text);
+    pn_text_display_set_lines (text, st.lines);
+    pn_text_display_set_font  (text, st.font_family, st.font_scale,
+                               st.weight, st.italic);
+    pn_text_display_set_align (text, (gint) st.align);
+    pn_text_display_set_color (text, st.text_color.red,
+                               st.text_color.green, st.text_color.blue);
+    pn_text_display_set_background (text, st.background_color.red,
+                                   st.background_color.green,
+                                   st.background_color.blue,
+                                   st.background_color.alpha);
+}
+
+/* repaint-needed on a Label node → refresh its readout.  @user_data is the
+ * row's #PnTextDisplay (connected with g_signal_connect_object so it dies
+ * with the readout). */
+static void
+on_label_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_label (node, PN_TEXT_DISPLAY (user_data));
 }
 
 /* Push @node's current latch position into its toggle, reading it through
@@ -429,6 +462,22 @@ panel_editor_build_widget (PnNode *node)
                                  G_CALLBACK (on_digital_clock_repaint_needed),
                                  led, 0);
         return led;
+    }
+
+    if (PN_IS_LABEL (node))
+    {
+        /* The readout draws on a transparent background (no frame), so the
+         * canvas shows through behind it just as the panel does. */
+        GtkWidget *text = pn_text_display_new ();
+
+        pn_text_display_set_height (PN_TEXT_DISPLAY (text),
+                                    PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_label (node, PN_TEXT_DISPLAY (text));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_label_repaint_needed),
+                                 text, 0);
+        return text;
     }
 
     if (PN_IS_LED (node))

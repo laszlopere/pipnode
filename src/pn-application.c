@@ -28,6 +28,7 @@
 #include "pn-panel-input.h"
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
+#include "pn-label.h"
 #include "pn-led.h"
 #include "pn-switch.h"
 #include "pn-color.h"
@@ -1359,6 +1360,7 @@ engine_is_widget_node (PnNode *node)
 {
     return PN_IS_COUNTDOWN (node)
         || PN_IS_DIGITAL_CLOCK (node)
+        || PN_IS_LABEL (node)
         || PN_IS_LED (node)
         || PN_IS_SWITCH (node);
 }
@@ -1393,6 +1395,19 @@ engine_add_color_array (JsonBuilder *b, const PnColor *c)
     json_builder_add_double_value (b, c->red);
     json_builder_add_double_value (b, c->green);
     json_builder_add_double_value (b, c->blue);
+    json_builder_end_array (b);
+}
+
+/** Append an [r, g, b, a] array — for the Label box, whose alpha decides
+ *  whether the panel widget paints a background at all. */
+static void
+engine_add_rgba_array (JsonBuilder *b, const PnColor *c)
+{
+    json_builder_begin_array (b);
+    json_builder_add_double_value (b, c->red);
+    json_builder_add_double_value (b, c->green);
+    json_builder_add_double_value (b, c->blue);
+    json_builder_add_double_value (b, c->alpha);
     json_builder_end_array (b);
 }
 
@@ -1452,6 +1467,35 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_set_member_name (b, "unlit_color");
         engine_add_color_array (b, &st.unlit_segment_color);
         return "countdown";
+    }
+
+    if (PN_IS_LABEL (node))
+    {
+        PnLabelPaintState st;
+
+        pn_label_get_paint_state (PN_LABEL (node), &st);
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "text");
+        json_builder_set_member_name (b, "text");
+        json_builder_add_string_value (b, st.text);
+        json_builder_set_member_name (b, "lines");
+        json_builder_add_int_value (b, st.lines);
+        json_builder_set_member_name (b, "font");
+        json_builder_add_string_value (b, st.font_family);
+        json_builder_set_member_name (b, "scale");
+        json_builder_add_int_value (b, st.font_scale);
+        json_builder_set_member_name (b, "weight");
+        json_builder_add_int_value (b, st.weight);
+        json_builder_set_member_name (b, "italic");
+        json_builder_add_boolean_value (b, st.italic);
+        json_builder_set_member_name (b, "align");
+        json_builder_add_int_value (b, (gint) st.align);
+        json_builder_set_member_name (b, "color");
+        engine_add_color_array (b, &st.text_color);
+        json_builder_set_member_name (b, "bg");
+        engine_add_rgba_array (b, &st.background_color);
+        return "text";
     }
 
     if (PN_IS_LED (node))

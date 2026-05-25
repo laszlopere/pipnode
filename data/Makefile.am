@@ -32,6 +32,7 @@ pnhelp_DATA = \
 	help/PnHttp.html \
 	help/PnInject.html \
 	help/PnKnob.html \
+	help/PnLabel.html \
 	help/PnLed.html \
 	help/PnMeshtastic.html \
 	help/PnNotify.html \

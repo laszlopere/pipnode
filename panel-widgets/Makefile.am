@@ -25,7 +25,9 @@ libpipnode_panel_widgets_la_SOURCES = \
 	pn-led-lamp.c \
 	pn-led-lamp.h \
 	pn-switch-widget.c \
-	pn-switch-widget.h
+	pn-switch-widget.h \
+	pn-text-display.c \
+	pn-text-display.h
 
 libpipnode_panel_widgets_la_CFLAGS = \
 	$(GTK_CFLAGS) \
