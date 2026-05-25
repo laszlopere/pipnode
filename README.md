@@ -71,41 +71,16 @@ server-installable plugins.
 ## XFCE panel applets
 
 A worksheet can also drive an **XFCE panel applet** — a button on the panel
-that runs a flow and shows a value.
+that runs a flow and shows a value. Because an applet is just a live mirror of
+one worksheet's panel band, it is as flexible as the flow behind it: there is no
+fixed catalogue of panel gadgets to pick from. Whatever you can wire up in
+pipnode you can dock on the panel — a deadline countdown, a sensor readout, a
+build-status lamp, a one-click switch — and reshape it at any time. See the
+built-in help for the details.
 
 ![XFCE panel applet](screenshots/xfce-panel-applet.png)
 
-Because an applet is just a live mirror of one worksheet's panel band, it is as
-flexible as the flow behind it: there is no fixed catalogue of panel gadgets to
-pick from. Whatever you can wire up in pipnode you can dock on the panel — a
-deadline countdown, a sensor or thermostat readout, a build-status lamp, a
-one-click switch — by assembling the right nodes in the worksheet. If a node
-exists for the job, it can run on the panel, and right-click → Properties lets
-the end-user reshape that flow at any time.
-
-The first such applet, **Deadline**
-(`panel-plugins/pipnode-deadline`), counts down to a target date; it is a thin
-D-Bus client linking **no** pipnode library, so a node or plugin crash can never
-take down `xfce4-panel`. Each new applet is seeded with a copy of a shipped
-starter worksheet (`pipnode-deadline-default.json`, installed under the data
-dir) so it begins with a working flow rather than a blank sheet; right-click →
-Properties to edit it. The flow runs in a background **engine** — `pipnode-editor` started as a
-D-Bus service (`--gapplication-service`, auto-activated on first use) — which
-holds each worksheet in a hidden window whose flow ticks the whole time. Picking
-**Properties** on the applet opens that *same running* worksheet for editing;
-closing the editor autosaves and hides it, the flow keeps running.
-
-Two core nodes bridge the flow to the panel: a **Panel Display** sink (its last
-value is shown on the button, pushed live) and a **Panel Input** source (each
-mouse click on the applet emits a message naming the button — the topic
-`click/left`/`click/right`/…, a human-readable sentence on `output`, and the
-button number on `value`). A numeric Panel Display value is read as seconds remaining
-and drawn on a tiny seven-segment **LED readout** as `ddd hh:mm:ss` — a
-panel-sized echo of the Countdown node, refreshed live — while any other text
-falls back to a plain label. The engine is the desktop-session
-counterpart of the headless
-`pipnode-run` server tool. The applet is built only when `libxfce4panel-2.0` is
-present at configure time.
+*A pipnode worksheet mirrored as an XFCE panel applet.*
 
 ## Writing plugins
 
