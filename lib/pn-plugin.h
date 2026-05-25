@@ -110,8 +110,20 @@ G_BEGIN_DECLS
  *       unchanged; the bump exists only so a stale plugin built against
  *       the smaller v3 #PnNodeClass is rebuilt rather than loaded against
  *       the grown class.
+ *   5 — host-provisioned profiles (credentials, settings, permissions).
+ *       The factory registration contract grew a companion to
+ *       pn_node_factory_register() — pn_node_factory_register_profile_type()
+ *       — through which a plugin declares the credential / settings /
+ *       permission *types* it needs (a #PnProfileSchema).  The host stores
+ *       provisioned instances in the #PnVault (a 0600 file outside the
+ *       workflow), a node references one through a property tagged with
+ *       pn_param_spec_set_profile_ref(), and resolves it at runtime with
+ *       pn_node_get_profile().  No #PnNode / #PnNodeClass layout change —
+ *       the bump exists so a plugin that declares profile types is rebuilt
+ *       against a host that understands them rather than silently registering
+ *       none against an older host.
  */
-#define PN_PLUGIN_ABI_VERSION 4
+#define PN_PLUGIN_ABI_VERSION 5
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

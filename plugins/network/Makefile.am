@@ -23,6 +23,8 @@ pipnode_network_la_SOURCES = \
 	pn-mqtt.h \
 	pn-mqtt-sink.c \
 	pn-mqtt-sink.h \
+	pn-network-profiles.c \
+	pn-network-profiles.h \
 	pn-ping.c \
 	pn-ping.h
 

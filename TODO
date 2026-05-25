@@ -211,3 +211,35 @@ pipnode-deadline-default.json currently hard-codes an absolute
 applet's TTS works on any machine out of the box. (Came up while wiring the
 panel applet's click -> Panel Input -> Text to Speech demo: the shipped template
 only spoke on the author's machine.)
+
+(27) DONE Host-provisioned credentials/settings/permissions (plugin ABI v5).
+Plugins must not own or store the host, username, password, token or permission
+grant their nodes need: those are site-specific and security-sensitive, and a
+secret must never land in a shareable workflow file. Moved them to the host: a
+plugin DECLARES a profile type (PnProfileSchema: id + display name + typed
+fields, one PnProfileFieldKind covering STRING/INT/BOOL/ENUM settings, SECRET
+credentials and PERMISSION grants), the user PROVISIONS named instances once
+(Edit -> Credentials), a node REFERENCES one via a string property tagged
+pn_param_spec_set_profile_ref (empty follows the type's primary), and RESOLVES
+values at fire time via pn_node_get_profile + pn_profile_get_string/secret/
+bool/permission. Store = PnVault, a single $XDG_CONFIG_HOME/pipnode/
+credentials.json forced 0600, GTK-free (so pipnode-run resolves it headless),
+separate from the workflow and from preferences.json; resolution order is env
+override (PIPNODE_PROFILE_<ID>_<FIELD>) > stored value > schema default, with
+PIPNODE_CREDENTIALS_FILE to relocate the file. Secrets never serialise
+(pn_param_spec_set_secret + the scrub in pn-flow should_serialize_property);
+PnVault::changed lets a live node reconnect on edits. ABI bumped 4 -> 5 (factory
+registration contract grew; no PnNodeClass layout change). Bundled MQTT Source/
+Sink + HTTPS Tunnel Sender/Receiver migrated with back-compat (legacy inline
+fields stay readable, a one-shot import in constructed() lifts them into a
+profile on first open; first import of a type becomes its primary). Removed the
+hard-coded tcp://mqtt.homelab.local:1883 default from the plugin source -- the
+broker URL is now a local setting in the mqtt-broker profile. Editor UI:
+pn-credentials-dialog.c manager (tree of types -> per-type profile cards with
+masked secret entries, permission checkboxes, Primary toggle, add/delete) and a
+profile picker in the node settings dialog (Default(primary) + named + Edit...).
+Tests: tests/unit/test-pn-profile-schema.c, test-pn-vault.c (0600 + env>file>
+default precedence + primary/node-ref resolution), test-pn-secret-scrub.c, plus
+tests/plugins/vaultecho + a python integration/migration test. Docs: PLUGINS
+section 18 + checklist, README, INSTALL, data/help-index.html. Manager-over-
+modal-node-dialog fix: the credentials dialog inherits the opener's modality.

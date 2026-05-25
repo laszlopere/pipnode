@@ -918,6 +918,58 @@ void     pn_param_spec_set_hostname_hint (GParamSpec *pspec);
  */
 gboolean pn_param_spec_get_hostname_hint (GParamSpec *pspec);
 
+/**
+ * pn_param_spec_set_profile_ref:
+ * @pspec:   a string-typed #GParamSpec that stores a profile *id*
+ * @type_id: the profile type the property references (e.g. "mqtt-broker")
+ *
+ * Marks @pspec as a reference to a host-provisioned profile of @type_id (a
+ * profile type registered with pn_node_factory_register_profile_type()).  The
+ * property itself stores only the chosen profile's non-secret id, which is what
+ * gets serialized into the workflow file; the real values (host, secrets,
+ * permission grants) live in the vault and are resolved at runtime with
+ * pn_node_get_profile().  The node-settings dialog renders a tagged property as
+ * a profile picker (a combo of the vault's profiles of @type_id, with an empty
+ * "Default" entry) instead of a plain entry.  Tag once in `_class_init`, right
+ * after installing the property.
+ */
+void         pn_param_spec_set_profile_ref (GParamSpec  *pspec,
+                                            const gchar *type_id);
+
+/**
+ * pn_param_spec_get_profile_ref:
+ * @pspec: a #GParamSpec
+ *
+ * Returns: (transfer none) (nullable): the profile type id @pspec was tagged
+ *   with via pn_param_spec_set_profile_ref(), or %NULL for an untagged or
+ *   %NULL param spec.  Borrowed — valid for the lifetime of @pspec.
+ */
+const gchar *pn_param_spec_get_profile_ref (GParamSpec *pspec);
+
+/**
+ * pn_param_spec_set_secret:
+ * @pspec: a string-typed #GParamSpec holding a credential
+ *
+ * Marks @pspec as a secret (a password / token / key).  A secret property is
+ * NEVER written to the workflow file — pn_flow's serializer skips it — so
+ * secrets do not leak into shareable documents.  Credentials belong in the
+ * host vault (#PnVault), reached through a profile reference; the inline
+ * secret properties on the bundled nodes carry this tag only so legacy files
+ * that still hold a plaintext value load (the value is imported into a
+ * profile) without re-persisting the plaintext on the next save.  Tag once in
+ * `_class_init`, right after installing the property.
+ */
+void     pn_param_spec_set_secret (GParamSpec *pspec);
+
+/**
+ * pn_param_spec_get_secret:
+ * @pspec: a #GParamSpec
+ *
+ * Returns: whether @pspec was tagged via pn_param_spec_set_secret().  %FALSE
+ *   for an untagged or %NULL param spec.
+ */
+gboolean pn_param_spec_get_secret (GParamSpec *pspec);
+
 G_END_DECLS
 
 #endif /* PN_NODE_H */

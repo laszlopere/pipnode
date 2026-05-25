@@ -24,6 +24,7 @@
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
 #include "pn-document-settings-dialog.h"
+#include "pn-credentials-dialog.h"
 #include "pn-node-dialog.h"
 
 #include <json-glib/json-glib.h>
@@ -1583,6 +1584,20 @@ action_document_settings (
     pn_document_settings_dialog_present (GTK_WINDOW (self), self->flow);
 }
 
+/** Open (or raise) the credentials manager — the process-wide editor for the
+ *  host vault's provisioned profiles (broker URLs, secrets, permission
+ *  grants).  Unlike Document Settings it is not bound to this window's file. */
+static void
+action_credentials (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) item;
+
+    pn_credentials_dialog_present (GTK_WINDOW (self), NULL);
+}
+
 /** Locate the application icon PNG so the About dialog can show it
  *  whether running from the build tree or an install.  The icon ships
  *  as $(datadir)/icons/hicolor/256x256/apps/org.pipas.pipnode.png (see
@@ -2542,6 +2557,11 @@ create_menubar (PnWindow *self)
 
     separator = gtk_separator_menu_item_new ();
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), separator);
+
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu),
+        create_image_menu_item ("dialog-password", "_Credentials…",
+                                accel_group, 0, 0,
+                                G_CALLBACK (action_credentials), self));
 
     gtk_menu_shell_append (GTK_MENU_SHELL (menu),
         create_image_menu_item ("preferences-system", "Pr_eferences…",

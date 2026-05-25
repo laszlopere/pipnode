@@ -28,10 +28,12 @@ CONTENTS
   13. Debugging a plugin that does not load
   14. Shipping per-node help pages
   15. Extending the node settings dialog (ABI v2)
-  16. Companion GUI module: server-installable plugins (ABI v3)
-  17. Reference plugins in the tree
-  18. Quick checklist
-  19. Plugin licensing and the Plugin Exception
+  16. Declarative settings schema (the GTK-free default path)
+  17. Companion GUI module: server-installable plugins (ABI v3)
+  18. Host-provisioned profiles: credentials, settings, permissions (ABI v5)
+  19. Reference plugins in the tree
+  20. Quick checklist
+  21. Plugin licensing and the Plugin Exception
 
 
 1. WHAT IS A PIPNODE PLUGIN?
@@ -1246,7 +1248,124 @@ is cheap; when it is not, a built-in node with a gui-tier dialog is the
 right shape.
 
 
-18. REFERENCE PLUGINS IN THE TREE
+18. HOST-PROVISIONED PROFILES: CREDENTIALS, SETTINGS, PERMISSIONS (ABI v5)
+-------------------------------------------------------------------------
+
+A plugin should not own the host, username, password, token, or
+permission grant its nodes need to reach a service.  Those are
+site-specific (a broker address belongs to the machine, not the plugin
+source) and security-sensitive (a password must never land in a
+shareable workflow file).  ABI v5 moves them to the *host*: the plugin
+*declares* what a connection needs, the user *provisions* a named
+instance once, and a node *references* it and *resolves* the values at
+run time.
+
+The three pieces:
+
+  (a) A profile *type* (a #PnProfileSchema): a stable id, a display
+      name, and an ordered list of typed fields.  One field *kind*
+      unifies the three scopes the feature covers:
+
+        PN_FIELD_STRING / _INT / _BOOL / _ENUM   plain settings
+        PN_FIELD_SECRET                          a credential — masked
+                                                 in the manager, kept in
+                                                 the 0600 vault, never in
+                                                 a workflow file
+        PN_FIELD_PERMISSION                      a capability grant —
+                                                 defaults off, the user
+                                                 must explicitly enable it
+
+      Build it in `pn_plugin_init` and register it with the factory,
+      exactly the way you register node types:
+
+      ```c
+      PnProfileSchema *s = pn_profile_schema_new ("acme-cloud",
+                                                  "Acme Cloud");
+      pn_profile_schema_field (s, "url",      "URL",      PN_FIELD_STRING);
+      pn_profile_schema_field (s, "api-key",  "API key",  PN_FIELD_SECRET);
+      pn_profile_schema_field (s, "allow-writes",
+                               "Allow writes", PN_FIELD_PERMISSION);
+      pn_node_factory_register_profile_type (factory, s); /* takes the ref */
+      ```
+
+  (b) A node *references* a profile through an ordinary string property
+      tagged in `_class_init` — the property stores only the chosen
+      profile's non-secret *id* (which is what serialises into the
+      workflow file):
+
+      ```c
+      props[PROP_SERVER] = g_param_spec_string (
+              "server", "Server", "Acme Cloud profile.", "",
+              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+      pn_param_spec_set_profile_ref (props[PROP_SERVER], "acme-cloud");
+      ```
+
+      The node settings dialog renders a tagged property as a profile
+      picker (a combo of that type's profiles plus a leading "Default"
+      entry that maps to the empty id) with an Edit button onto the
+      credentials manager — no companion GUI module required, the host
+      builds the picker.
+
+  (c) The node *resolves* the values at FIRE time:
+
+      ```c
+      PnProfile *p = pn_node_get_profile (PN_NODE (self), "server");
+      gchar *url = pn_profile_get_string (p, "url");      /* "" if unset */
+      gchar *key = pn_profile_get_secret (p, "api-key");
+      gboolean may_write = pn_profile_get_permission (p, "allow-writes");
+      ```
+
+      An empty reference follows the type's *primary* profile, so the
+      common case (one server) needs zero per-node setup; a non-empty
+      reference targets a specific profile, so two nodes can talk to two
+      servers.  `pn_node_get_profile` returns %NULL when nothing is
+      configured.
+
+Where the values live.  The host stores provisioned instances in a
+single JSON file in the user's config dir
+(`$XDG_CONFIG_HOME/pipnode/credentials.json`), created and held at mode
+0600, separate from both the workflow file and `preferences.json`.  A
+node never writes there itself; the editor's credentials manager (Edit
+-> Credentials) does.  Field resolution consults, in order:
+
+  1. an environment override — `PIPNODE_PROFILE_<ID>_<FIELD>`, upper-
+     cased with every non-alphanumeric byte folded to `_` (so a server
+     or CI can inject a secret with no file at all);
+  2. the value stored in the vault;
+  3. the field's schema default.
+
+Override the whole path with `PIPNODE_CREDENTIALS_FILE`.
+
+Keeping legacy secrets out of the file.  A node that still carries an
+inline secret property (for back-compat with pre-v5 files) tags it with
+`pn_param_spec_set_secret()`; pn_flow's serialiser then *never* writes
+it, so re-saving a migrated file scrubs the plaintext.  The bundled
+network nodes also run a one-shot import in `constructed()` that lifts a
+legacy inline username/password into a profile the first time an old
+file is opened.
+
+Live updates.  #PnVault emits a `changed` signal after every edit; a
+node holding a live connection re-resolves on it (connect with
+`g_signal_connect_object (pn_vault_get_default (), "changed", …)`), so
+provisioning a profile takes effect immediately rather than only after
+the node's own properties next change.
+
+Tier placement.  #PnProfileSchema, #PnVault, the factory registration,
+the profile-ref tag and `pn_node_get_profile` are all in the GTK-free
+core, so headless `pipnode-run` resolves secrets from the file / env
+with no display.  Only the credentials manager and the picker are
+editor-side.
+
+ABI version requirement.  Declaring a profile type uses the v5 factory
+contract, so a plugin that calls `pn_node_factory_register_profile_type`
+must declare `abi_version = PN_PLUGIN_ABI_VERSION` (>= 5); an older host
+refuses it rather than silently registering nothing.  See
+`plugins/network/` (the `mqtt-broker` and `http-basic` types, used by
+the MQTT and HTTPS Tunnel nodes) and `tests/plugins/vaultecho/` (a
+minimal type + referencing node) for worked examples.
+
+
+19. REFERENCE PLUGINS IN THE TREE
 --------------------------------
 
 The source tree carries a handful of plugins you can read for
@@ -1297,7 +1416,7 @@ worked examples; they all build out of the box from a fresh
         the clearest worked examples of `PnSettingsSchema`.
 
 
-19. QUICK CHECKLIST
+20. QUICK CHECKLIST
 -------------------
 
 Before publishing a plugin, walk through this list:
@@ -1327,6 +1446,13 @@ Before publishing a plugin, walk through this list:
       (see section 14).  Optional but strongly recommended:
       without it the palette's right-click Help falls back to
       the host index.
+  [ ] If a node needs a host, secret, or permission: declare a
+      profile type (section 18) and register it with
+      `pn_node_factory_register_profile_type`, tag the referencing
+      property with `pn_param_spec_set_profile_ref`, resolve through
+      `pn_node_get_profile`, and `abi_version` is >= 5.  Do NOT store
+      a secret in a plain serialised property (tag any legacy inline
+      one with `pn_param_spec_set_secret` so it never reaches the file).
 
 If every box is ticked, you are done.
 
@@ -1355,7 +1481,7 @@ host with no GTK), walk this extra list:
       `g_type_from_name` (never the logic header's type macro).
 
 
-20. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
+21. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
 
 The pipnode core (the `src/` application and the `lib/` host library)
 is licensed under the GNU GPL version 3 or later.  Because a plugin

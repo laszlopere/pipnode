@@ -86,10 +86,16 @@ check_PROGRAMS = \
 	test-pn-df-command \
 	test-pn-lxc-ls-command \
 	test-pn-color \
-	test-pn-settings-schema
+	test-pn-settings-schema \
+	test-pn-profile-schema \
+	test-pn-vault \
+	test-pn-secret-scrub
 
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_settings_schema_SOURCES = test-pn-settings-schema.c pntest.c pntest.h
+test_pn_profile_schema_SOURCES = test-pn-profile-schema.c pntest.c pntest.h
+test_pn_vault_SOURCES        = test-pn-vault.c        pntest.c pntest.h
+test_pn_secret_scrub_SOURCES = test-pn-secret-scrub.c pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h

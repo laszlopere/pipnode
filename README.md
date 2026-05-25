@@ -68,6 +68,29 @@ package with no GTK dependency alongside the full `pipnode-gui`; see
 `INSTALL` for the packaging split and `PLUGINS` for writing
 server-installable plugins.
 
+## Credentials and connection profiles
+
+Hosts, usernames, passwords and tokens are **not** stored in workflow files.
+A plugin declares what a connection needs (e.g. the network plugin's *MQTT
+Broker* and *HTTP Basic Auth* types); you provision named **profiles** once in
+the editor under **Edit → Credentials**, and a node references one (or follows
+the type's *primary* profile by default). A workflow file therefore carries
+only a non-secret profile id, so it stays shareable.
+
+The values live in `$XDG_CONFIG_HOME/pipnode/credentials.json` (typically
+`~/.config/pipnode/credentials.json`), written at mode **0600**, separate from
+`preferences.json`. On a **headless** host you do not need the editor — provide
+secrets either by editing that file directly, or via environment variables,
+which take precedence over the file:
+
+```sh
+# PIPNODE_PROFILE_<PROFILE-ID>_<FIELD>, upper-cased, non-alphanumerics -> _
+PIPNODE_PROFILE_HOME_BROKER_PASSWORD=s3cr3t pipnode-run my-flow.json
+PIPNODE_CREDENTIALS_FILE=/run/secrets/pipnode.json pipnode-run my-flow.json
+```
+
+`PLUGINS` (section 18) documents the API for plugin authors.
+
 ## XFCE panel applets
 
 A worksheet can also drive an **XFCE panel applet** — a button on the panel

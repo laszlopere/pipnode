@@ -19,6 +19,7 @@
 #include <glib-object.h>
 
 #include "pn-node.h"
+#include "pn-profile-schema.h"
 
 G_BEGIN_DECLS
 
@@ -147,6 +148,53 @@ PnNode        *pn_node_factory_create_for_type (PnNodeFactory *self, GType type)
  * when @type_name is unknown to the factory.
  */
 PnNode        *pn_node_factory_create (PnNodeFactory *self, const gchar *type_name);
+
+/* ------------------------------------------------------------------ */
+/*  Host-provisioned profile types (plugin ABI v5)                      */
+/*                                                                     */
+/*  A plugin declares the credential / settings / permission *types*   */
+/*  it needs the same way it registers node types: from #pn_plugin_init */
+/*  against the process-wide factory.  The host (editor or headless    */
+/*  runner) then lets the user provision named instances in the vault   */
+/*  (#PnVault), and a node references one through a property tagged with */
+/*  pn_param_spec_set_profile_ref().  The factory is the GTK-free       */
+/*  registry both binaries build, so headless #pipnode-run knows every  */
+/*  declared type and can resolve secrets with no GTK.                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_node_factory_register_profile_type:
+ * @self:   the factory
+ * @schema: (transfer full): a profile type built with pn_profile_schema_new()
+ *
+ * Adds @schema to the factory's profile-type registry, taking the caller's
+ * ref.  A second registration of the same type id is ignored (and the passed
+ * ref dropped), so a plugin discovered via two search directories registers
+ * its types only once.
+ */
+void pn_node_factory_register_profile_type (PnNodeFactory   *self,
+                                            PnProfileSchema *schema);
+
+/**
+ * pn_node_factory_lookup_profile_type:
+ * @self:    the factory
+ * @type_id: a profile type id (e.g. "mqtt-broker")
+ *
+ * Returns: (transfer none) (nullable): the registered schema for @type_id, or
+ *   %NULL.  Borrowed — schemas live for the lifetime of the process.
+ */
+PnProfileSchema *pn_node_factory_lookup_profile_type (PnNodeFactory *self,
+                                                      const gchar   *type_id);
+
+/**
+ * pn_node_factory_list_profile_types:
+ * @self: the factory
+ *
+ * Returns: (transfer container) (element-type PnProfileSchema): every
+ *   registered profile type, in registration order.  The schemas are
+ *   borrowed; free the list with g_list_free().
+ */
+GList *pn_node_factory_list_profile_types (PnNodeFactory *self);
 
 /* ------------------------------------------------------------------ */
 /*  Plugin loading                                                     */

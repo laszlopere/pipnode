@@ -21,6 +21,8 @@
 #include "pn-node-dialog-helpers.h"
 #include "pn-node.h"
 #include "pn-settings-renderer.h"
+#include "pn-credentials-dialog.h"
+#include "pn-vault.h"
 
 #include <glib/gi18n.h>
 
@@ -583,6 +585,174 @@ pn_rgba_to_color_value (
     return TRUE;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Profile-reference picker (plugin ABI v5)                           */
+/*                                                                     */
+/*  A string property tagged with pn_param_spec_set_profile_ref() does */
+/*  not hold a free-text value but the id of a host-vault profile.     */
+/*  Rather than an entry we render a combo of that type's profiles —   */
+/*  with a leading "Default" entry that maps to the empty id so the    */
+/*  node follows the type's primary — plus an Edit button onto the     */
+/*  credentials manager.                                               */
+/* ------------------------------------------------------------------ */
+
+#define PROFILE_REF_KEY "pn-profile-ref-binding"
+
+typedef struct {
+    GObject         *target;   /* borrowed */
+    gchar           *prop;     /* owned    */
+    gchar           *type_id;  /* owned    */
+    GtkComboBoxText *combo;    /* borrowed */
+    gboolean         syncing;
+} ProfileRefBinding;
+
+static void
+profile_ref_binding_free (gpointer data)
+{
+    ProfileRefBinding *b = data;
+    g_free (b->prop);
+    g_free (b->type_id);
+    g_free (b);
+}
+
+/* Refill the combo from the current vault state and select the property's
+ * current value (falling back to "Default" / empty id). */
+static void
+profile_ref_populate (ProfileRefBinding *b)
+{
+    PnVault   *vault   = pn_vault_get_default ();
+    gchar     *current = NULL;
+    PnProfile *primary;
+    GList     *profiles, *l;
+    gchar     *def_label;
+
+    b->syncing = TRUE;
+    g_object_get (b->target, b->prop, &current, NULL);
+    gtk_combo_box_text_remove_all (b->combo);
+
+    primary = pn_vault_get_default_profile (vault, b->type_id);
+    def_label = (primary != NULL)
+        ? g_strdup_printf ("Default (%s)", pn_profile_get_name (primary))
+        : g_strdup ("Default (none set)");
+    gtk_combo_box_text_append (b->combo, "", def_label);
+    g_free (def_label);
+
+    profiles = pn_vault_list_profiles (vault, b->type_id);
+    for (l = profiles; l != NULL; l = l->next)
+    {
+        PnProfile *p = l->data;
+        gtk_combo_box_text_append (b->combo, pn_profile_get_id (p),
+                                   pn_profile_get_name (p));
+    }
+    g_list_free (profiles);
+
+    if (current == NULL ||
+        !gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), current))
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), "");
+
+    g_free (current);
+    b->syncing = FALSE;
+}
+
+static void
+on_profile_ref_combo_changed (GtkComboBox *combo, gpointer user_data)
+{
+    ProfileRefBinding *b  = user_data;
+    const gchar       *id;
+
+    if (b->syncing)
+        return;
+    id = gtk_combo_box_get_active_id (combo);
+    g_object_set (b->target, b->prop, id != NULL ? id : "", NULL);
+}
+
+/* Target property changed elsewhere (e.g. the legacy-credentials import set
+ * it): resync.  Bound with the combo as the lifetime object. */
+static void
+on_profile_ref_target_notify (GObject *target, GParamSpec *pspec,
+                              gpointer combo)
+{
+    ProfileRefBinding *b;
+
+    (void) target; (void) pspec;
+    b = g_object_get_data (G_OBJECT (combo), PROFILE_REF_KEY);
+    if (b != NULL)
+        profile_ref_populate (b);
+}
+
+/* The vault changed (a profile added/renamed/deleted/edited, possibly via the
+ * manager we opened) — refresh the combo's list and "Default (…)" label. */
+static void
+on_profile_ref_refresh (gpointer combo)
+{
+    ProfileRefBinding *b = g_object_get_data (G_OBJECT (combo),
+                                              PROFILE_REF_KEY);
+    if (b != NULL)
+        profile_ref_populate (b);
+}
+
+static void
+on_profile_ref_edit_clicked (GtkButton *button, gpointer user_data)
+{
+    ProfileRefBinding *b      = user_data;
+    GtkWidget         *top    = gtk_widget_get_toplevel (GTK_WIDGET (button));
+    GtkWindow         *parent = GTK_IS_WINDOW (top) ? GTK_WINDOW (top) : NULL;
+    GtkWidget         *mgr;
+
+    mgr = pn_credentials_dialog_present (parent, b->type_id);
+    if (mgr != NULL)
+        g_signal_connect_object (mgr, "destroy",
+                                 G_CALLBACK (on_profile_ref_refresh),
+                                 b->combo, G_CONNECT_SWAPPED);
+}
+
+static GtkWidget *
+build_profile_ref_editor (GObject     *target,
+                          GParamSpec  *pspec,
+                          const gchar *type_id)
+{
+    GtkWidget         *box   = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget         *combo = gtk_combo_box_text_new ();
+    GtkWidget         *edit  = gtk_button_new_with_label ("Edit…");
+    ProfileRefBinding *b     = g_new0 (ProfileRefBinding, 1);
+    gchar             *sig;
+
+    b->target  = target;
+    b->prop    = g_strdup (pspec->name);
+    b->type_id = g_strdup (type_id);
+    b->combo   = GTK_COMBO_BOX_TEXT (combo);
+
+    gtk_widget_set_hexpand (combo, TRUE);
+    gtk_box_pack_start (GTK_BOX (box), combo, TRUE, TRUE, 0);
+    gtk_widget_set_tooltip_text (edit, "Manage credential profiles");
+    gtk_box_pack_start (GTK_BOX (box), edit, FALSE, FALSE, 0);
+
+    /* The binding lives and dies with the combo. */
+    g_object_set_data_full (G_OBJECT (combo), PROFILE_REF_KEY, b,
+                            profile_ref_binding_free);
+
+    profile_ref_populate (b);
+
+    g_signal_connect (combo, "changed",
+                      G_CALLBACK (on_profile_ref_combo_changed), b);
+    g_signal_connect (edit, "clicked",
+                      G_CALLBACK (on_profile_ref_edit_clicked), b);
+
+    sig = g_strdup_printf ("notify::%s", pspec->name);
+    g_signal_connect_object (target, sig,
+                             G_CALLBACK (on_profile_ref_target_notify),
+                             combo, 0);
+    g_free (sig);
+
+    /* Keep the list and the "Default (…)" label live while the dialog is open
+     * (auto-disconnected with the combo). */
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_profile_ref_refresh),
+                             combo, G_CONNECT_SWAPPED);
+
+    return box;
+}
+
 static GtkWidget *
 default_editor_impl (
         GObject    *target,
@@ -596,6 +766,14 @@ default_editor_impl (
 
     if (ptype == G_TYPE_STRING)
     {
+        /* A profile reference renders as a vault-profile picker, not a
+         * free-text entry: the property holds a profile id, and the combo
+         * (with a leading "Default → primary" entry) plus the Edit button
+         * keep the user in the credentials manager rather than typing ids. */
+        const gchar *profile_type = pn_param_spec_get_profile_ref (pspec);
+        if (profile_type != NULL)
+            return build_profile_ref_editor (target, pspec, profile_type);
+
         /* Tall #GtkTextView editor for any string property the type
          * asked for via pn_param_spec_set_multiline().  The hint
          * lives on the param spec rather than on a hard PN_IS_FOO

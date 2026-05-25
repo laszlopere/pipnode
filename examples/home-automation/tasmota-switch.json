@@ -13,10 +13,10 @@
         "y" : 280.0
       },
       "properties" : {
-        "url" : "tcp://mqtt.homelab.local:1883",
+        "broker-profile" : "",
+        "url" : "",
         "topic" : "#",
         "username" : "",
-        "password" : "",
         "client-id" : "",
         "qos" : 0
       }
@@ -31,7 +31,7 @@
         "y" : 200.0
       },
       "properties" : {
-        "on" : true
+        "on" : false
       }
     },
     {
@@ -57,12 +57,12 @@
         "y" : 280.0
       },
       "properties" : {
-        "url" : "tcp://mqtt.homelab.local:1883",
+        "broker-profile" : "",
+        "url" : "",
         "topic-template" : "",
         "payload" : "",
         "retain" : false,
         "username" : "",
-        "password" : "",
         "client-id" : "",
         "qos" : 0
       }
@@ -105,7 +105,7 @@
         "y" : 280.0
       },
       "properties" : {
-        "on" : true,
+        "on" : false,
         "switch-name" : "sonoff19",
         "enforce-on-startup" : true
       }

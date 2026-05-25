@@ -38,6 +38,7 @@
 #include "pn-https-tunnel-sender.h"
 #include "pn-mqtt.h"
 #include "pn-mqtt-sink.h"
+#include "pn-network-profiles.h"
 #include "pn-ping.h"
 
 G_MODULE_EXPORT const PnPluginInfo *
@@ -67,6 +68,10 @@ pn_plugin_init (PnNodeFactory *factory)
     pn_node_factory_register (factory, PN_TYPE_HTTPS_TUNNEL_SENDER);
     pn_node_factory_register (factory, PN_TYPE_MQTT);
     pn_node_factory_register (factory, PN_TYPE_MQTT_SINK);
+
+    /* Declare the credential profile types these nodes reference so the
+     * host (editor or headless runner) can provision and resolve them. */
+    pn_network_register_profile_types (factory);
 
     return &info;
 }

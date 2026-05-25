@@ -19,6 +19,8 @@
 
 #include "pn-https-tunnel-sender.h"
 #include "pn-message.h"
+#include "pn-vault.h"
+#include "pn-network-profiles.h"
 
 #include <json-glib/json-glib.h>
 #include <libsoup/soup.h>
@@ -45,9 +47,17 @@ struct _PnHttpsTunnelSender
      * (property setters land there, the SoupSession dispatches its
      * callbacks on the default GMainContext), so no mutex is needed. */
     gchar    *url;
+    /* Basic-auth identity — prefer the referenced "http-basic" vault
+     * profile (auth_profile holds its id, "" follows the primary); the
+     * inline username/password are the legacy fallback that keeps pre-v5
+     * files working and seeds the one-time profile import. */
+    gchar    *auth_profile;
     gchar    *username;
     gchar    *password;
     gboolean  verify_tls;
+
+    /* One-shot post-load migration idle (see PnMqtt); 0 when unscheduled. */
+    guint     migrate_idle_id;
 
     /* Long-lived session reused across every POST so connection,
      * proxy and TLS state survive between requests.  Created in init,
@@ -65,6 +75,7 @@ G_DEFINE_TYPE (PnHttpsTunnelSender, pn_https_tunnel_sender, PN_TYPE_NODE)
 enum {
     PROP_0,
     PROP_URL,
+    PROP_AUTH_PROFILE,
     PROP_USERNAME,
     PROP_PASSWORD,
     PROP_VERIFY_TLS,
@@ -180,24 +191,55 @@ build_request_body (PnMessage *msg, gsize *out_len)
     return result;
 }
 
+/** Resolve the Basic-auth username/password from the referenced
+ *  "http-basic" vault profile when one applies, else the legacy inline
+ *  fields.  Each out string is freshly allocated; the caller frees. */
+static void
+resolve_auth (PnHttpsTunnelSender *self,
+              gchar **out_user,
+              gchar **out_pass)
+{
+    PnProfile *p = pn_node_get_profile (PN_NODE (self), "auth-profile");
+
+    if (p != NULL)
+    {
+        if (out_user) *out_user = pn_profile_get_string (p, "username");
+        if (out_pass) *out_pass = pn_profile_get_secret (p, "password");
+    }
+    else
+    {
+        if (out_user) *out_user = g_strdup (self->username ? self->username : "");
+        if (out_pass) *out_pass = g_strdup (self->password ? self->password : "");
+    }
+}
+
 /** Build the value for an "Authorization: Basic ..." header from the
- *  configured credentials, or %NULL when either field is empty.
+ *  resolved credentials, or %NULL when either field is empty.
  *  Caller frees with g_free(). */
 static gchar *
 build_basic_auth_header (PnHttpsTunnelSender *self)
 {
+    gchar *user = NULL;
+    gchar *pass = NULL;
     gchar *creds;
     gchar *encoded;
     gchar *result;
 
-    if (self->username == NULL || *self->username == '\0' ||
-        self->password == NULL || *self->password == '\0')
-        return NULL;
+    resolve_auth (self, &user, &pass);
 
-    creds   = g_strdup_printf ("%s:%s", self->username, self->password);
+    if (user == NULL || *user == '\0' || pass == NULL || *pass == '\0')
+    {
+        g_free (user);
+        g_free (pass);
+        return NULL;
+    }
+
+    creds   = g_strdup_printf ("%s:%s", user, pass);
     encoded = g_base64_encode ((const guchar *) creds, strlen (creds));
     result  = g_strdup_printf ("Basic %s", encoded);
 
+    g_free (user);
+    g_free (pass);
     g_free (creds);
     g_free (encoded);
     return result;
@@ -343,6 +385,9 @@ pn_https_tunnel_sender_get_property (
     case PROP_URL:
         g_value_set_string (value, self->url);
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     case PROP_USERNAME:
         g_value_set_string (value, self->username);
         break;
@@ -373,6 +418,10 @@ pn_https_tunnel_sender_set_property (
         self->url = g_value_dup_string (value);
         apply_visual_state (self, self->url != NULL && *self->url != '\0');
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        break;
     case PROP_USERNAME:
         g_free (self->username);
         self->username = g_value_dup_string (value);
@@ -390,13 +439,65 @@ pn_https_tunnel_sender_set_property (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Legacy-credentials migration                                       */
+/* ------------------------------------------------------------------ */
+
+/** One-shot, post-load migration of inline Basic-auth credentials into an
+ *  http-basic vault profile (see PnMqtt's migration for the rationale). */
+static gboolean
+migrate_legacy_credentials (gpointer data)
+{
+    PnHttpsTunnelSender *self = PN_HTTPS_CLIENT (data);
+    const gchar *names[]  = { "username", "password" };
+    const gchar *values[2];
+    gchar       *id;
+
+    self->migrate_idle_id = 0;
+
+    if (self->auth_profile != NULL && *self->auth_profile != '\0')
+        return G_SOURCE_REMOVE;
+    if ((self->username == NULL || *self->username == '\0') &&
+        (self->password == NULL || *self->password == '\0'))
+        return G_SOURCE_REMOVE;
+
+    values[0] = self->username ? self->username : "";
+    values[1] = self->password ? self->password : "";
+
+    id = pn_network_import_profile (PN_NETWORK_PROFILE_HTTP_BASIC,
+                                    "HTTP auth",
+                                    names, values, G_N_ELEMENTS (names));
+    if (id != NULL)
+    {
+        g_object_set (self, "auth-profile", id, NULL);
+        g_free (id);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
+
+static void
+pn_https_tunnel_sender_constructed (GObject *object)
+{
+    PnHttpsTunnelSender *self = PN_HTTPS_CLIENT (object);
+
+    G_OBJECT_CLASS (pn_https_tunnel_sender_parent_class)->constructed (object);
+
+    self->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
+}
 
 static void
 pn_https_tunnel_sender_dispose (GObject *object)
 {
     PnHttpsTunnelSender *self = PN_HTTPS_CLIENT (object);
+
+    if (self->migrate_idle_id != 0)
+    {
+        g_source_remove (self->migrate_idle_id);
+        self->migrate_idle_id = 0;
+    }
 
     /* Cancel any in-flight POST so its async callback bails out
      * before it tries to touch the dying node.  Then drop the
@@ -414,9 +515,10 @@ pn_https_tunnel_sender_finalize (GObject *object)
 {
     PnHttpsTunnelSender *self = PN_HTTPS_CLIENT (object);
 
-    g_clear_pointer (&self->url,      g_free);
-    g_clear_pointer (&self->username, g_free);
-    g_clear_pointer (&self->password, g_free);
+    g_clear_pointer (&self->url,          g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    g_clear_pointer (&self->username,     g_free);
+    g_clear_pointer (&self->password,     g_free);
 
     G_OBJECT_CLASS (pn_https_tunnel_sender_parent_class)->finalize (object);
 }
@@ -429,6 +531,7 @@ pn_https_tunnel_sender_class_init (PnHttpsTunnelSenderClass *klass)
 
     object_class->get_property = pn_https_tunnel_sender_get_property;
     object_class->set_property = pn_https_tunnel_sender_set_property;
+    object_class->constructed  = pn_https_tunnel_sender_constructed;
     object_class->dispose      = pn_https_tunnel_sender_dispose;
     object_class->finalize     = pn_https_tunnel_sender_finalize;
     node_class->receive        = pn_https_tunnel_sender_receive;
@@ -454,19 +557,34 @@ pn_https_tunnel_sender_class_init (PnHttpsTunnelSenderClass *klass)
             PN_HTTPS_TUNNEL_SENDER_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_AUTH_PROFILE] = g_param_spec_string (
+            "auth-profile", "Auth profile",
+            "Id of the http-basic credential profile this node authenticates "
+            "with.  Empty follows the primary http-basic profile; pick another "
+            "to use different credentials.  The username and password live in "
+            "the host vault, not in the workflow file.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_profile_ref (props[PROP_AUTH_PROFILE],
+                                   PN_NETWORK_PROFILE_HTTP_BASIC);
+
     props[PROP_USERNAME] = g_param_spec_string (
             "username", "Username",
             "HTTP Basic auth username.  Sent with every request "
             "(preemptive auth) when both this and password are "
-            "non-empty; either field empty disables auth.",
+            "non-empty; either field empty disables auth.  Legacy inline "
+            "fallback — new configurations keep credentials in an http-basic "
+            "vault profile.",
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_PASSWORD] = g_param_spec_string (
             "password", "Password",
-            "HTTP Basic auth password; see username.",
+            "HTTP Basic auth password; see username.  Tagged secret so it is "
+            "never written to the workflow file.",
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_secret (props[PROP_PASSWORD]);
 
     props[PROP_VERIFY_TLS] = g_param_spec_boolean (
             "verify-tls", "Verify TLS certificate",
@@ -492,10 +610,12 @@ pn_https_tunnel_sender_init (PnHttpsTunnelSender *self)
      * default port; loading a saved worksheet runs the property setter
      * afterwards, which overrides this with whatever URL the user had
      * configured. */
-    self->url        = g_strdup (PN_HTTPS_TUNNEL_SENDER_DEFAULT_URL);
-    self->username   = NULL;
-    self->password   = NULL;
-    self->verify_tls = FALSE;
+    self->url           = g_strdup (PN_HTTPS_TUNNEL_SENDER_DEFAULT_URL);
+    self->auth_profile  = g_strdup ("");
+    self->username      = NULL;
+    self->password      = NULL;
+    self->verify_tls    = FALSE;
+    self->migrate_idle_id = 0;
 
     self->session     = soup_session_new ();
     self->cancellable = g_cancellable_new ();

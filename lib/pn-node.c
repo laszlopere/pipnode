@@ -1372,3 +1372,66 @@ pn_param_spec_get_hostname_hint (GParamSpec *pspec)
     return g_param_spec_get_qdata (
                    pspec, pn_param_spec_hostname_hint_quark ()) != NULL;
 }
+
+static GQuark
+pn_param_spec_profile_ref_quark (void)
+{
+    /* Same single-threaded lazy cache as the hint quarks above. */
+    static GQuark q = 0;
+    if (q == 0)
+        q = g_quark_from_static_string ("pn-param-spec-profile-ref");
+    return q;
+}
+
+void
+pn_param_spec_set_profile_ref (GParamSpec  *pspec,
+                               const gchar *type_id)
+{
+    g_return_if_fail (G_IS_PARAM_SPEC (pspec));
+    g_return_if_fail (type_id != NULL);
+
+    /* Unlike the boolean hint quarks, this one carries a value (the type
+     * id), so store an owned copy with a destroy notify. */
+    g_param_spec_set_qdata_full (pspec,
+                                 pn_param_spec_profile_ref_quark (),
+                                 g_strdup (type_id),
+                                 g_free);
+}
+
+const gchar *
+pn_param_spec_get_profile_ref (GParamSpec *pspec)
+{
+    if (pspec == NULL)
+        return NULL;
+    return g_param_spec_get_qdata (pspec,
+                                   pn_param_spec_profile_ref_quark ());
+}
+
+static GQuark
+pn_param_spec_secret_quark (void)
+{
+    /* Same single-threaded lazy cache as the hint quarks above. */
+    static GQuark q = 0;
+    if (q == 0)
+        q = g_quark_from_static_string ("pn-param-spec-secret");
+    return q;
+}
+
+void
+pn_param_spec_set_secret (GParamSpec *pspec)
+{
+    g_return_if_fail (G_IS_PARAM_SPEC (pspec));
+
+    g_param_spec_set_qdata (pspec,
+                            pn_param_spec_secret_quark (),
+                            pspec);
+}
+
+gboolean
+pn_param_spec_get_secret (GParamSpec *pspec)
+{
+    if (pspec == NULL)
+        return FALSE;
+    return g_param_spec_get_qdata (
+                   pspec, pn_param_spec_secret_quark ()) != NULL;
+}

@@ -100,6 +100,11 @@ struct _PnNodeFactory
      * scans in lookup() / has_type() are fine. */
     GArray *entries; /* of Entry */
 
+    /* Registered host-provisioned profile types (plugin ABI v5), in
+     * registration order.  Each element is a PnProfileSchema* the factory
+     * owns a ref on; like node classes they live for the whole process. */
+    GPtrArray *profile_types; /* of PnProfileSchema* */
+
     /* Set of canonical paths for every plugin .so that has been
      * successfully loaded, so a plugin discovered via two overlapping
      * search directories (e.g. both $PIPNODE_PLUGIN_PATH and the
@@ -295,6 +300,7 @@ pn_node_factory_finalize (GObject *object)
             g_type_class_unref (e->klass);
     }
     g_array_unref (self->entries);
+    g_clear_pointer (&self->profile_types,    g_ptr_array_unref);
     g_clear_pointer (&self->loaded_paths,     g_hash_table_unref);
     g_clear_pointer (&self->loaded_basenames, g_hash_table_unref);
     g_clear_pointer (&self->loaded_plugins,   g_hash_table_unref);
@@ -315,6 +321,8 @@ static void
 pn_node_factory_init (PnNodeFactory *self)
 {
     self->entries          = g_array_new (FALSE, FALSE, sizeof (Entry));
+    self->profile_types    = g_ptr_array_new_with_free_func (
+                                     (GDestroyNotify) pn_profile_schema_unref);
     self->loaded_paths     = g_hash_table_new_full (g_str_hash, g_str_equal,
                                                     g_free, NULL);
     self->loaded_basenames = g_hash_table_new_full (g_str_hash, g_str_equal,
@@ -388,6 +396,64 @@ pn_node_factory_has_type (PnNodeFactory *self, GType type)
 {
     g_return_val_if_fail (PN_IS_NODE_FACTORY (self), FALSE);
     return factory_find (self, type) != NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Profile types (plugin ABI v5)                                      */
+/* ------------------------------------------------------------------ */
+
+void
+pn_node_factory_register_profile_type (PnNodeFactory   *self,
+                                       PnProfileSchema *schema)
+{
+    const gchar *type_id;
+
+    g_return_if_fail (PN_IS_NODE_FACTORY (self));
+    g_return_if_fail (schema != NULL);
+
+    type_id = pn_profile_schema_get_type_id (schema);
+
+    if (pn_node_factory_lookup_profile_type (self, type_id) != NULL)
+    {
+        /* Already known (e.g. the plugin was found via two search dirs).
+         * Drop the caller's transferred ref and keep the first. */
+        pn_profile_schema_unref (schema);
+        return;
+    }
+
+    g_ptr_array_add (self->profile_types, schema);
+}
+
+PnProfileSchema *
+pn_node_factory_lookup_profile_type (PnNodeFactory *self,
+                                     const gchar   *type_id)
+{
+    guint i;
+
+    g_return_val_if_fail (PN_IS_NODE_FACTORY (self), NULL);
+    g_return_val_if_fail (type_id != NULL, NULL);
+
+    for (i = 0; i < self->profile_types->len; i++)
+    {
+        PnProfileSchema *s = g_ptr_array_index (self->profile_types, i);
+        if (g_strcmp0 (pn_profile_schema_get_type_id (s), type_id) == 0)
+            return s;
+    }
+    return NULL;
+}
+
+GList *
+pn_node_factory_list_profile_types (PnNodeFactory *self)
+{
+    GList *out = NULL;
+    guint  i;
+
+    g_return_val_if_fail (PN_IS_NODE_FACTORY (self), NULL);
+
+    for (i = self->profile_types->len; i > 0; i--)
+        out = g_list_prepend (out,
+                              g_ptr_array_index (self->profile_types, i - 1));
+    return out;
 }
 
 guint

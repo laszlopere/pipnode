@@ -23,6 +23,8 @@
 #include "pn-message.h"
 #include "pn-subst.h"
 #include "pn-flow.h"
+#include "pn-vault.h"
+#include "pn-network-profiles.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -36,10 +38,12 @@
 #define PN_MQTT_SINK_NORMAL_ICON  "\xef\x87\x98"  /* fa-paper-plane U+F1D8 */
 #define PN_MQTT_SINK_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
-/* Default URL points at the same conventional homelab broker the
- * source uses so a paired Source + Sink dropped onto a fresh
- * worksheet talk to the same machine without configuration. */
-#define PN_MQTT_SINK_DEFAULT_URL "tcp://mqtt.homelab.local:1883"
+/* No built-in broker URL: like PnMqtt, a site-specific address does not
+ * belong in the plugin source.  The broker comes from the referenced
+ * mqtt-broker vault profile (the host-managed local setting), so a paired
+ * Source + Sink following the same primary profile talk to the same broker
+ * with no per-node setup; the inline url is the empty legacy fallback. */
+#define PN_MQTT_SINK_DEFAULT_URL ""
 
 /* MQTT keep-alive + reconnect bounds.  Same values as PnMqtt -- this
  * is per-broker rather than per-direction, so the publisher uses the
@@ -78,6 +82,11 @@ struct _PnMqttSink
      * mutex is required -- the publish path itself happens on the
      * main thread inside receive, before handing bytes to
      * mosquitto_publish which has its own internal locking. */
+    /* Connection identity — prefer the referenced "mqtt-broker" vault
+     * profile (broker_profile holds its id, "" follows the primary); the
+     * inline url/username/password/client_id are the legacy fallback that
+     * keeps pre-v5 files working and seeds the one-time profile import. */
+    gchar  *broker_profile;
     gchar  *url;
     gchar  *topic_template;   /* "" -> use inbound envelope topic    */
     gchar  *payload_template; /* "" -> use inbound data.payload      */
@@ -86,6 +95,9 @@ struct _PnMqttSink
     gchar  *client_id;
     guint   qos;
     gboolean retain;
+
+    /* One-shot post-load migration idle (see PnMqtt); 0 when unscheduled. */
+    guint   migrate_idle_id;
 
     struct mosquitto *client;
     gboolean          loop_running;
@@ -101,6 +113,7 @@ G_DEFINE_TYPE (PnMqttSink, pn_mqtt_sink, PN_TYPE_NODE)
 
 enum {
     PROP_0,
+    PROP_BROKER_PROFILE,
     PROP_URL,
     PROP_TOPIC,
     PROP_PAYLOAD,
@@ -145,19 +158,52 @@ ensure_mosquitto_initialised (void)
 /*  Visual state                                                       */
 /* ------------------------------------------------------------------ */
 
+/** Resolve the connection identity from the referenced "mqtt-broker"
+ *  vault profile when one applies, else from the legacy inline fields.
+ *  Each out string is freshly allocated; the caller frees. */
+static void
+resolve_connection (PnMqttSink *self,
+                    gchar **out_url,
+                    gchar **out_user,
+                    gchar **out_pass,
+                    gchar **out_cid)
+{
+    PnProfile *p = pn_node_get_profile (PN_NODE (self), "broker-profile");
+
+    if (p != NULL)
+    {
+        if (out_url)  *out_url  = pn_profile_get_string (p, "url");
+        if (out_user) *out_user = pn_profile_get_string (p, "username");
+        if (out_pass) *out_pass = pn_profile_get_secret (p, "password");
+        if (out_cid)  *out_cid  = pn_profile_get_string (p, "client-id");
+    }
+    else
+    {
+        if (out_url)  *out_url  = g_strdup (self->url       ? self->url       : "");
+        if (out_user) *out_user = g_strdup (self->username  ? self->username  : "");
+        if (out_pass) *out_pass = g_strdup (self->password  ? self->password  : "");
+        if (out_cid)  *out_cid  = g_strdup (self->client_id ? self->client_id : "");
+    }
+}
+
 /** Flip the node body between the connected (green paper-plane) and
  *  the unconfigured / disconnected (red ❗) appearance.  Same rule as
- *  PnMqtt: needs a non-empty URL plus an active broker session.  The
- *  publish topic comes from the inbound message envelope rather than
- *  a per-node property, so per-message routing is the user's concern
- *  upstream (e.g. via PnRewrite) and the node itself has nothing it
- *  could complain about being "unconfigured" beyond the broker URL. */
+ *  PnMqtt: needs a non-empty effective URL plus an active broker
+ *  session.  The publish topic comes from the inbound message envelope
+ *  rather than a per-node property, so per-message routing is the
+ *  user's concern upstream (e.g. via PnRewrite) and the node itself has
+ *  nothing it could complain about being "unconfigured" beyond the
+ *  broker URL. */
 static void
 apply_visual_state (PnMqttSink *self)
 {
     PnNode  *node = PN_NODE (self);
-    gboolean ok   = self->connected
-                 && self->url != NULL && *self->url != '\0';
+    gchar   *url  = NULL;
+    gboolean ok;
+
+    resolve_connection (self, &url, NULL, NULL, NULL);
+    ok = self->connected && url != NULL && *url != '\0';
+    g_free (url);
 
     if (ok)
     {
@@ -684,34 +730,41 @@ restart_client (PnMqttSink *self)
     int       port = 0;
     gboolean  tls  = FALSE;
     int       err;
+    gchar    *url  = NULL;
+    gchar    *user = NULL;
+    gchar    *pass = NULL;
+    gchar    *cid  = NULL;
 
     stop_client (self);
 
-    if (self->url == NULL || *self->url == '\0')
+    resolve_connection (self, &url, &user, &pass, &cid);
+
+    if (url == NULL || *url == '\0')
     {
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
 
-    if (!parse_mqtt_url (self->url, &host, &port, &tls))
+    if (!parse_mqtt_url (url, &host, &port, &tls))
     {
-        g_warning ("pn-mqtt-sink: invalid URL '%s'", self->url);
+        g_warning ("pn-mqtt-sink: invalid URL '%s'", url);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
 
     ensure_mosquitto_initialised ();
 
-    self->client = mosquitto_new (
-            (self->client_id != NULL && *self->client_id != '\0')
-                ? self->client_id : NULL,
-            TRUE,
-            self);
+    self->client = mosquitto_new ((cid != NULL && *cid != '\0') ? cid : NULL,
+                                  TRUE,
+                                  self);
     if (self->client == NULL)
     {
         g_warning ("pn-mqtt-sink: mosquitto_new failed: %s",
                    g_strerror (errno));
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
@@ -724,12 +777,11 @@ restart_client (PnMqttSink *self)
             PN_MQTT_SINK_RECONNECT_DELAY_MAX,
             TRUE);
 
-    if (self->username != NULL && *self->username != '\0')
+    if (user != NULL && *user != '\0')
     {
         err = mosquitto_username_pw_set (self->client,
-                self->username,
-                (self->password != NULL && *self->password != '\0')
-                    ? self->password : NULL);
+                user,
+                (pass != NULL && *pass != '\0') ? pass : NULL);
         if (err != MOSQ_ERR_SUCCESS)
             g_warning ("pn-mqtt-sink: username_pw_set failed: %s",
                        mosquitto_strerror (err));
@@ -752,6 +804,7 @@ restart_client (PnMqttSink *self)
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
@@ -764,12 +817,14 @@ restart_client (PnMqttSink *self)
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
     self->loop_running = TRUE;
 
     g_free (host);
+    g_free (url); g_free (user); g_free (pass); g_free (cid);
     apply_visual_state (self);
 }
 
@@ -788,6 +843,7 @@ pn_mqtt_sink_get_property (
 
     switch (prop_id)
     {
+    case PROP_BROKER_PROFILE: g_value_set_string (value, self->broker_profile); break;
     case PROP_URL:       g_value_set_string  (value, self->url);              break;
     case PROP_TOPIC:     g_value_set_string  (value, self->topic_template);   break;
     case PROP_PAYLOAD:   g_value_set_string  (value, self->payload_template); break;
@@ -812,6 +868,11 @@ pn_mqtt_sink_set_property (
 
     switch (prop_id)
     {
+    case PROP_BROKER_PROFILE:
+        g_free (self->broker_profile);
+        self->broker_profile = g_value_dup_string (value);
+        restart_client (self);
+        break;
     case PROP_URL:
         g_free (self->url);
         self->url = g_value_dup_string (value);
@@ -852,14 +913,81 @@ pn_mqtt_sink_set_property (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Legacy-credentials migration                                       */
+/* ------------------------------------------------------------------ */
+
+/** One-shot, post-load migration of inline credentials into a vault
+ *  profile — the publisher counterpart of PnMqtt's migration. */
+static gboolean
+migrate_legacy_credentials (gpointer data)
+{
+    PnMqttSink  *self = PN_MQTT_SINK (data);
+    const gchar *names[]  = { "url", "username", "password", "client-id" };
+    const gchar *values[4];
+    gchar       *id;
+
+    self->migrate_idle_id = 0;
+
+    if (self->broker_profile != NULL && *self->broker_profile != '\0')
+        return G_SOURCE_REMOVE;
+    if ((self->username == NULL || *self->username == '\0') &&
+        (self->password == NULL || *self->password == '\0'))
+        return G_SOURCE_REMOVE;
+
+    values[0] = self->url       ? self->url       : "";
+    values[1] = self->username  ? self->username  : "";
+    values[2] = self->password  ? self->password  : "";
+    values[3] = self->client_id ? self->client_id : "";
+
+    id = pn_network_import_profile (
+            PN_NETWORK_PROFILE_MQTT_BROKER,
+            (self->url != NULL && *self->url != '\0') ? self->url
+                                                      : "MQTT broker",
+            names, values, G_N_ELEMENTS (names));
+    if (id != NULL)
+    {
+        g_object_set (self, "broker-profile", id, NULL);
+        g_free (id);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
+
+/* The referenced profile (or the primary it follows) changed in the vault —
+ * re-resolve and reconnect so a manager edit takes effect immediately. */
+static void
+on_vault_changed (gpointer self)
+{
+    restart_client (PN_MQTT_SINK (self));
+}
+
+static void
+pn_mqtt_sink_constructed (GObject *object)
+{
+    PnMqttSink *self = PN_MQTT_SINK (object);
+
+    G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->constructed (object);
+
+    self->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+}
 
 static void
 pn_mqtt_sink_dispose (GObject *object)
 {
     PnMqttSink *self = PN_MQTT_SINK (object);
 
+    if (self->migrate_idle_id != 0)
+    {
+        g_source_remove (self->migrate_idle_id);
+        self->migrate_idle_id = 0;
+    }
     stop_client (self);
 
     G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->dispose (object);
@@ -870,6 +998,7 @@ pn_mqtt_sink_finalize (GObject *object)
 {
     PnMqttSink *self = PN_MQTT_SINK (object);
 
+    g_clear_pointer (&self->broker_profile,   g_free);
     g_clear_pointer (&self->url,              g_free);
     g_clear_pointer (&self->topic_template,   g_free);
     g_clear_pointer (&self->payload_template, g_free);
@@ -894,6 +1023,7 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
 
     object_class->get_property = pn_mqtt_sink_get_property;
     object_class->set_property = pn_mqtt_sink_set_property;
+    object_class->constructed  = pn_mqtt_sink_constructed;
     object_class->dispose      = pn_mqtt_sink_dispose;
     object_class->finalize     = pn_mqtt_sink_finalize;
 
@@ -910,15 +1040,26 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
     node_class->has_input      = TRUE;
     node_class->has_output     = FALSE;
 
+    props[PROP_BROKER_PROFILE] = g_param_spec_string (
+            "broker-profile", "Broker profile",
+            "Id of the mqtt-broker credential profile this node publishes "
+            "through.  Empty follows the primary mqtt-broker profile, so a "
+            "Source + Sink pair both reach the default broker with no setup; "
+            "pick another to target a different server.  The URL and "
+            "credentials live in the host vault, not in the workflow file.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
+                                   PN_NETWORK_PROFILE_MQTT_BROKER);
+
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",
             "MQTT broker URL.  Accepts tcp://host[:port] (plain MQTT, "
             "default port 1883), ssl://host[:port] or "
             "mqtts://host[:port] (MQTT over TLS, default port 8883), "
             "or a bare host[:port] which is treated as plain TCP.  "
-            "Defaults to tcp://mqtt.homelab.local:1883 so a Source + "
-            "Sink pair dropped onto a fresh worksheet talk to the "
-            "same broker without configuration.",
+            "Legacy inline fallback — empty by default; new configurations "
+            "set the broker address in the mqtt-broker vault profile.",
             PN_MQTT_SINK_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -969,9 +1110,13 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
 
     props[PROP_PASSWORD] = g_param_spec_string (
             "password", "Password",
-            "MQTT password; only sent when username is also set.",
+            "MQTT password; only sent when username is also set.  Legacy "
+            "inline fallback — new configurations keep it in an mqtt-broker "
+            "vault profile; tagged secret so it is never written to the "
+            "workflow file.",
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_secret (props[PROP_PASSWORD]);
 
     props[PROP_CLIENT_ID] = g_param_spec_string (
             "client-id", "Client ID",
@@ -1003,6 +1148,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
 {
     PnNode *node = PN_NODE (self);
 
+    self->broker_profile   = g_strdup ("");
     self->url              = g_strdup (PN_MQTT_SINK_DEFAULT_URL);
     self->topic_template   = NULL;
     self->payload_template = NULL;
@@ -1011,6 +1157,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     self->client_id        = NULL;
     self->qos              = 0;
     self->retain           = FALSE;
+    self->migrate_idle_id  = 0;
     self->client           = NULL;
     self->loop_running     = FALSE;
     self->connected        = FALSE;

@@ -107,6 +107,8 @@ libpipnode_core_la_SOURCES = \
 	pn-panel-display.h \
 	pn-panel-input.c \
 	pn-panel-input.h \
+	pn-profile-schema.c \
+	pn-profile-schema.h \
 	pn-query.c \
 	pn-query.h \
 	pn-rate.c \
@@ -145,6 +147,8 @@ libpipnode_core_la_SOURCES = \
 	pn-tts.h \
 	pn-var-store.c \
 	pn-var-store.h \
+	pn-vault.c \
+	pn-vault.h \
 	pn-watchdog.c \
 	pn-watchdog.h \
 	pn-weather.c \
@@ -193,6 +197,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-countdown-gui.h \
 	pn-dial-gui.c \
 	pn-dial-gui.h \
+	pn-credentials-dialog.c \
+	pn-credentials-dialog.h \
 	pn-digital-clock-gui.c \
 	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.c \
@@ -332,6 +338,7 @@ pipnode_core_headers = \
 	pn-notify.h \
 	pn-panel-display.h \
 	pn-panel-input.h \
+	pn-profile-schema.h \
 	pn-query.h \
 	pn-rate.h \
 	pn-rewrite.h \
@@ -351,6 +358,7 @@ pipnode_core_headers = \
 	pn-throttle.h \
 	pn-tts.h \
 	pn-var-store.h \
+	pn-vault.h \
 	pn-watchdog.h \
 	pn-weather.h \
 	pn-weather-report.h \
@@ -363,6 +371,7 @@ pipnode_gui_headers = \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \
+	pn-credentials-dialog.h \
 	pn-dial-gui.h \
 	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.h \

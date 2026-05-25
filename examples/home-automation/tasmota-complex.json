@@ -1,0 +1,49 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "cb1304b8-fc77-4fab-b7c1-a859d4aa3649",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 60.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "topic" : "#",
+        "username" : "",
+        "password" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "fc9d8c6c-8028-474c-a5f9-887d3aa3953d",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "cb1304b8-fc77-4fab-b7c1-a859d4aa3649",
+      "target_id" : "fc9d8c6c-8028-474c-a5f9-887d3aa3953d"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

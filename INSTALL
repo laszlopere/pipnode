@@ -171,6 +171,30 @@ custom dialog lived in the companion).  See PLUGINS for the full plugin
 model and a checklist for shipping a server-installable plugin.
 
 
+Credentials store (both tiers)
+------------------------------
+
+Credentials and connection profiles are NOT kept in workflow files.  The
+host stores them in a single per-user file, created and held at mode 0600:
+
+  $XDG_CONFIG_HOME/pipnode/credentials.json
+  (typically ~/.config/pipnode/credentials.json)
+
+This is GTK-free core machinery (#PnVault), so pipnode-run reads it too --
+a headless deploy needs no editor to use credentials.  Two overrides matter
+for servers and CI, both resolved ahead of the file:
+
+  * PIPNODE_CREDENTIALS_FILE        -- point at an alternate file
+                                       (e.g. a mounted secret).
+  * PIPNODE_PROFILE_<ID>_<FIELD>    -- inject one field's value with no
+                                       file at all (upper-cased, every
+                                       non-alphanumeric byte folded to _).
+
+When packaging, treat credentials.json as user state: do not ship it, and
+back it up / set its permissions like any other secret store.  See PLUGINS
+section 18 for the declaring-plugin side.
+
+
 Flatpak (community edition)
 ---------------------------
 

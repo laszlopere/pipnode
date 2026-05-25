@@ -171,6 +171,7 @@ AC_CONFIG_FILES([
     tests/unit/Makefile
     tests/plugins/Makefile
     tests/plugins/echo/Makefile
+    tests/plugins/vaultecho/Makefile
     panel-plugins/Makefile
     panel-plugins/pipnode-deadline/Makefile
 ])

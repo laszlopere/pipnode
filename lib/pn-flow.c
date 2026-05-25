@@ -1020,6 +1020,14 @@ node_to_json (PnNode *node)
         if (!should_serialize_property (pspec))
             continue;
 
+        /* Secrets never touch the workflow file (plugin ABI v5): credentials
+         * live in the host vault, reached through a profile reference.  This
+         * is a SAVE-only skip — the load path below still reads a legacy
+         * inline secret so a pre-v5 file's plaintext can be imported into a
+         * profile (and then dropped from the file on the next save). */
+        if (pn_param_spec_get_secret (pspec))
+            continue;
+
         g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
         g_object_get_property (G_OBJECT (node), pspec->name, &value);
         jn = gvalue_to_json (&value);

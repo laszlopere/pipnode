@@ -30,6 +30,7 @@ node's output to another node's input.
     </ul>
   </li>
   <li><a href="#globals">Document globals</a></li>
+  <li><a href="#credentials">Credentials and connection profiles</a></li>
   <li><a href="#plugins">Plugins</a></li>
   <li><a href="#panel-applets">XFCE panel applets</a>
     <ul>
@@ -445,6 +446,50 @@ node in the document fold the same value into its topics and templates
 &mdash; <code>/pnode/${nodeclass}/${nodename}/${env}</code> resolves the
 class and instance names from the node and <code>${env}</code> from the
 global &mdash; and changing it in one place updates the whole document.
+</p>
+
+<h2 id="credentials">Credentials and connection profiles</h2>
+
+<p>
+Nodes that reach a service &mdash; an MQTT broker, an HTTP endpoint
+&mdash; need a host address and sometimes a username, password, or token.
+Pipnode keeps these out of your workflow files: a node stores only a
+reference, and the real values live in a private store on your machine.
+This means a saved <code>.json</code> never contains a secret, so you can
+share or commit it safely.
+</p>
+
+<p>
+The unit of configuration is a <strong>profile</strong>. Each plugin that
+needs credentials declares one or more profile <em>types</em> (the bundled
+network plugin declares <em>MQTT Broker</em> and <em>HTTP Basic Auth</em>);
+you create named <em>profiles</em> of a type and fill in their fields. Open
+the manager from <strong>Edit&nbsp;&rarr;&nbsp;Credentials</strong>, pick a
+type on the left, and use <em>Add</em> to create a profile. Secret fields
+(passwords, keys) are masked with a reveal toggle; permission fields are
+checkboxes that default to off and must be granted explicitly.
+</p>
+
+<p>
+A node picks its profile in its settings dialog &mdash; the field shows a
+drop-down of the profiles of the right type, plus an <em>Edit&hellip;</em>
+button onto the manager. The first entry, <em>Default</em>, follows the
+type's <strong>primary</strong> profile (mark one as Primary in the
+manager). So the common case &mdash; one broker for everything &mdash;
+needs no per-node setup: every node left on <em>Default</em> uses the
+primary. To talk to a second server, create another profile and select it
+on just that node.
+</p>
+
+<p>
+The store is a single file, <code>~/.config/pipnode/credentials.json</code>,
+created with owner-only permissions (mode 0600), separate from your
+preferences. Editing a profile takes effect immediately &mdash; a connected
+node reconnects on the spot. On a server with no editor you can write that
+file directly, or supply a value through an environment variable
+(<code>PIPNODE_PROFILE_&lt;PROFILE-ID&gt;_&lt;FIELD&gt;</code>, upper-cased),
+which overrides the stored value; see the <code>README</code> and
+<code>INSTALL</code> files for the headless details.
 </p>
 
 <h2 id="plugins">Plugins</h2>

@@ -19,6 +19,8 @@
 
 #include "pn-mqtt.h"
 #include "pn-message.h"
+#include "pn-vault.h"
+#include "pn-network-profiles.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -31,12 +33,13 @@
 #define PN_MQTT_NORMAL_ICON  "\xef\x82\x9e"  /* fa-rss U+F09E */
 #define PN_MQTT_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
-/* Default URL + topic.  The URL points at the user's homelab MQTT
- * broker by convention (per TODO #18); plain TCP on the standard
- * 1883 port.  The topic filter "#" matches every topic on the broker
- * so a freshly dropped node already produces output without any
- * configuration. */
-#define PN_MQTT_DEFAULT_URL   "tcp://mqtt.homelab.local:1883"
+/* Default topic.  "#" matches every topic on the broker, so a node pointed
+ * at a broker produces output without further configuration.  The broker URL
+ * has NO built-in default: a site-specific address does not belong in the
+ * plugin source, so it comes from the referenced mqtt-broker vault profile
+ * (the host-managed local setting) or, for legacy files, the inline url —
+ * empty until configured, which shows the node in its unconfigured state. */
+#define PN_MQTT_DEFAULT_URL   ""
 #define PN_MQTT_DEFAULT_TOPIC "#"
 
 /* MQTT keep-alive (seconds).  The broker disconnects a client that
@@ -61,12 +64,22 @@ struct _PnMqtt
      * needed — libmosquitto's network thread reads them only via
      * pointers that we hand to it before mosquitto_loop_start() and
      * never mutate while a session is up. */
+    /* Connection identity.  Preferred source is the referenced
+     * "mqtt-broker" vault profile (broker_profile holds its id, or "" to
+     * follow the primary); url/username/password/client_id are the legacy
+     * inline fallback that keeps pre-v5 files working and seeds the one-time
+     * import into a profile. */
+    gchar  *broker_profile;
     gchar  *url;
     gchar  *topic;
     gchar  *username;
     gchar  *password;
     gchar  *client_id;
     guint   qos;
+
+    /* One-shot idle that migrates a legacy node's inline credentials into a
+     * vault profile after its properties have loaded; 0 when not scheduled. */
+    guint   migrate_idle_id;
 
     /* Live mosquitto client + a flag tracking whether its background
      * loop thread is running.  Both are NULL / FALSE while the node
@@ -84,6 +97,7 @@ G_DEFINE_TYPE (PnMqtt, pn_mqtt, PN_TYPE_NODE)
 
 enum {
     PROP_0,
+    PROP_BROKER_PROFILE,
     PROP_URL,
     PROP_TOPIC,
     PROP_USERNAME,
@@ -122,18 +136,57 @@ ensure_mosquitto_initialised (void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Connection identity resolution                                     */
+/*                                                                     */
+/*  The values libmosquitto actually connects with come from the       */
+/*  referenced "mqtt-broker" vault profile when one resolves (an        */
+/*  explicit broker_profile id, or the type's primary when it is        */
+/*  empty), and otherwise from the legacy inline fields.  Each getter   */
+/*  returns a freshly-allocated string the caller frees.               */
+/* ------------------------------------------------------------------ */
+
+static void
+resolve_connection (PnMqtt *self,
+                    gchar **out_url,
+                    gchar **out_user,
+                    gchar **out_pass,
+                    gchar **out_cid)
+{
+    PnProfile *p = pn_node_get_profile (PN_NODE (self), "broker-profile");
+
+    if (p != NULL)
+    {
+        if (out_url)  *out_url  = pn_profile_get_string (p, "url");
+        if (out_user) *out_user = pn_profile_get_string (p, "username");
+        if (out_pass) *out_pass = pn_profile_get_secret (p, "password");
+        if (out_cid)  *out_cid  = pn_profile_get_string (p, "client-id");
+    }
+    else
+    {
+        if (out_url)  *out_url  = g_strdup (self->url       ? self->url       : "");
+        if (out_user) *out_user = g_strdup (self->username  ? self->username  : "");
+        if (out_pass) *out_pass = g_strdup (self->password  ? self->password  : "");
+        if (out_cid)  *out_cid  = g_strdup (self->client_id ? self->client_id : "");
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Visual state                                                       */
 /* ------------------------------------------------------------------ */
 
 /** Flip the node body between the connected (green RSS) and the
  *  unconfigured / disconnected (red ❗) appearance based on whether
- *  @self->connected is set and the URL is non-empty. */
+ *  @self->connected is set and the effective URL is non-empty. */
 static void
 apply_visual_state (PnMqtt *self)
 {
     PnNode  *node = PN_NODE (self);
-    gboolean ok   = self->connected
-                 && self->url != NULL && *self->url != '\0';
+    gchar   *url  = NULL;
+    gboolean ok;
+
+    resolve_connection (self, &url, NULL, NULL, NULL);
+    ok = self->connected && url != NULL && *url != '\0';
+    g_free (url);
 
     if (ok)
     {
@@ -563,7 +616,8 @@ stop_client (PnMqtt *self)
 }
 
 /** Tear down any running client and start a fresh one with the
- *  current configuration.  Called from every property setter. */
+ *  current configuration.  Called from every property setter and after the
+ *  legacy-credentials migration changes the referenced profile. */
 static void
 restart_client (PnMqtt *self)
 {
@@ -571,18 +625,26 @@ restart_client (PnMqtt *self)
     int       port = 0;
     gboolean  tls  = FALSE;
     int       err;
+    gchar    *url  = NULL;
+    gchar    *user = NULL;
+    gchar    *pass = NULL;
+    gchar    *cid  = NULL;
 
     stop_client (self);
 
-    if (self->url == NULL || *self->url == '\0')
+    resolve_connection (self, &url, &user, &pass, &cid);
+
+    if (url == NULL || *url == '\0')
     {
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
 
-    if (!parse_mqtt_url (self->url, &host, &port, &tls))
+    if (!parse_mqtt_url (url, &host, &port, &tls))
     {
-        g_warning ("pn-mqtt: invalid URL '%s'", self->url);
+        g_warning ("pn-mqtt: invalid URL '%s'", url);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
@@ -594,15 +656,14 @@ restart_client (PnMqtt *self)
      * the broker need not remember us between sessions.  NULL
      * client_id lets libmosquitto generate a random one for us when
      * the user has not pinned a fixed id. */
-    self->client = mosquitto_new (
-            (self->client_id != NULL && *self->client_id != '\0')
-                ? self->client_id : NULL,
-            TRUE,
-            self);
+    self->client = mosquitto_new ((cid != NULL && *cid != '\0') ? cid : NULL,
+                                  TRUE,
+                                  self);
     if (self->client == NULL)
     {
         g_warning ("pn-mqtt: mosquitto_new failed: %s", g_strerror (errno));
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
@@ -616,12 +677,11 @@ restart_client (PnMqtt *self)
             PN_MQTT_RECONNECT_DELAY_MAX,
             TRUE);
 
-    if (self->username != NULL && *self->username != '\0')
+    if (user != NULL && *user != '\0')
     {
         err = mosquitto_username_pw_set (self->client,
-                self->username,
-                (self->password != NULL && *self->password != '\0')
-                    ? self->password : NULL);
+                user,
+                (pass != NULL && *pass != '\0') ? pass : NULL);
         if (err != MOSQ_ERR_SUCCESS)
             g_warning ("pn-mqtt: username_pw_set failed: %s",
                        mosquitto_strerror (err));
@@ -649,6 +709,7 @@ restart_client (PnMqtt *self)
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
@@ -661,16 +722,63 @@ restart_client (PnMqtt *self)
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
+        g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
     self->loop_running = TRUE;
 
     g_free (host);
+    g_free (url); g_free (user); g_free (pass); g_free (cid);
     /* Visual state stays red until on_mqtt_connect lands a successful
      * CONNACK on the main thread — which is when we actually have a
      * working subscription, not just a TCP socket pending. */
     apply_visual_state (self);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Legacy-credentials migration                                       */
+/* ------------------------------------------------------------------ */
+
+/** One-shot, post-load migration: if this node still carries inline
+ *  credentials and references no profile, move them into a vault profile and
+ *  point broker-profile at it.  Scheduled from constructed() so it runs after
+ *  the file loader has applied the node's properties; a freshly-dragged node
+ *  has no inline secret, so the migration is a no-op for it. */
+static gboolean
+migrate_legacy_credentials (gpointer data)
+{
+    PnMqtt      *self = PN_MQTT (data);
+    const gchar *names[]  = { "url", "username", "password", "client-id" };
+    const gchar *values[4];
+    gchar       *id;
+
+    self->migrate_idle_id = 0;
+
+    if (self->broker_profile != NULL && *self->broker_profile != '\0')
+        return G_SOURCE_REMOVE;
+    if ((self->username == NULL || *self->username == '\0') &&
+        (self->password == NULL || *self->password == '\0'))
+        return G_SOURCE_REMOVE;
+
+    values[0] = self->url       ? self->url       : "";
+    values[1] = self->username  ? self->username  : "";
+    values[2] = self->password  ? self->password  : "";
+    values[3] = self->client_id ? self->client_id : "";
+
+    id = pn_network_import_profile (
+            PN_NETWORK_PROFILE_MQTT_BROKER,
+            (self->url != NULL && *self->url != '\0') ? self->url
+                                                      : "MQTT broker",
+            names, values, G_N_ELEMENTS (names));
+    if (id != NULL)
+    {
+        /* Repoints the live connection at the profile; the inline secret is
+         * now redundant and, being tagged secret, will not be re-serialized. */
+        g_object_set (self, "broker-profile", id, NULL);
+        g_free (id);
+    }
+    return G_SOURCE_REMOVE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -688,6 +796,9 @@ pn_mqtt_get_property (
 
     switch (prop_id)
     {
+    case PROP_BROKER_PROFILE:
+        g_value_set_string (value, self->broker_profile);
+        break;
     case PROP_URL:
         g_value_set_string (value, self->url);
         break;
@@ -722,6 +833,11 @@ pn_mqtt_set_property (
 
     switch (prop_id)
     {
+    case PROP_BROKER_PROFILE:
+        g_free (self->broker_profile);
+        self->broker_profile = g_value_dup_string (value);
+        restart_client (self);
+        break;
     case PROP_URL:
         g_free (self->url);
         self->url = g_value_dup_string (value);
@@ -760,11 +876,41 @@ pn_mqtt_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* The referenced profile (or the primary it follows) changed in the vault —
+ * re-resolve and reconnect so a manager edit takes effect immediately. */
+static void
+on_vault_changed (gpointer self)
+{
+    restart_client (PN_MQTT (self));
+}
+
+static void
+pn_mqtt_constructed (GObject *object)
+{
+    PnMqtt *self = PN_MQTT (object);
+
+    G_OBJECT_CLASS (pn_mqtt_parent_class)->constructed (object);
+
+    /* See migrate_legacy_credentials(): deferred so it runs after the loader
+     * applies properties. */
+    self->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
+
+    /* Reconnect whenever the vault changes (auto-disconnected on finalize). */
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+}
+
 static void
 pn_mqtt_dispose (GObject *object)
 {
     PnMqtt *self = PN_MQTT (object);
 
+    if (self->migrate_idle_id != 0)
+    {
+        g_source_remove (self->migrate_idle_id);
+        self->migrate_idle_id = 0;
+    }
     stop_client (self);
 
     G_OBJECT_CLASS (pn_mqtt_parent_class)->dispose (object);
@@ -775,6 +921,7 @@ pn_mqtt_finalize (GObject *object)
 {
     PnMqtt *self = PN_MQTT (object);
 
+    g_clear_pointer (&self->broker_profile, g_free);
     g_clear_pointer (&self->url,       g_free);
     g_clear_pointer (&self->topic,     g_free);
     g_clear_pointer (&self->username,  g_free);
@@ -792,6 +939,7 @@ pn_mqtt_class_init (PnMqttClass *klass)
 
     object_class->get_property = pn_mqtt_get_property;
     object_class->set_property = pn_mqtt_set_property;
+    object_class->constructed  = pn_mqtt_constructed;
     object_class->dispose      = pn_mqtt_dispose;
     object_class->finalize     = pn_mqtt_finalize;
 
@@ -803,13 +951,26 @@ pn_mqtt_class_init (PnMqttClass *klass)
     node_class->has_input      = FALSE;
     node_class->has_output     = TRUE;
 
+    props[PROP_BROKER_PROFILE] = g_param_spec_string (
+            "broker-profile", "Broker profile",
+            "Id of the mqtt-broker credential profile this node connects "
+            "with.  Empty follows the primary mqtt-broker profile, so a node "
+            "needs no per-node setup to reach the default broker; pick another "
+            "to target a different server.  The broker URL and credentials "
+            "live in the host vault, not in the workflow file.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
+                                   PN_NETWORK_PROFILE_MQTT_BROKER);
+
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",
             "MQTT broker URL.  Accepts tcp://host[:port] (plain MQTT, "
             "default port 1883), ssl://host[:port] or "
             "mqtts://host[:port] (MQTT over TLS, default port 8883), "
             "or a bare host[:port] which is treated as plain TCP.  "
-            "Defaults to tcp://mqtt.homelab.local:1883.",
+            "Legacy inline fallback — empty by default; new configurations "
+            "set the broker address in the mqtt-broker vault profile.",
             PN_MQTT_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -830,9 +991,13 @@ pn_mqtt_class_init (PnMqttClass *klass)
 
     props[PROP_PASSWORD] = g_param_spec_string (
             "password", "Password",
-            "MQTT password; only sent when username is also set.",
+            "MQTT password; only sent when username is also set.  Legacy "
+            "inline fallback — new configurations keep it in an mqtt-broker "
+            "vault profile; tagged secret so it is never written to the "
+            "workflow file.",
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_secret (props[PROP_PASSWORD]);
 
     props[PROP_CLIENT_ID] = g_param_spec_string (
             "client-id", "Client ID",
@@ -859,15 +1024,17 @@ pn_mqtt_init (PnMqtt *self)
 {
     PnNode *node = PN_NODE (self);
 
-    self->url          = g_strdup (PN_MQTT_DEFAULT_URL);
-    self->topic        = g_strdup (PN_MQTT_DEFAULT_TOPIC);
-    self->username     = NULL;
-    self->password     = NULL;
-    self->client_id    = NULL;
-    self->qos          = 0;
-    self->client       = NULL;
-    self->loop_running = FALSE;
-    self->connected    = FALSE;
+    self->broker_profile  = g_strdup ("");
+    self->url             = g_strdup (PN_MQTT_DEFAULT_URL);
+    self->topic           = g_strdup (PN_MQTT_DEFAULT_TOPIC);
+    self->username        = NULL;
+    self->password        = NULL;
+    self->client_id       = NULL;
+    self->qos             = 0;
+    self->migrate_idle_id = 0;
+    self->client          = NULL;
+    self->loop_running    = FALSE;
+    self->connected       = FALSE;
 
     pn_node_set_class_name (node, "MQTT Source");
     pn_node_set_has_input  (node, FALSE);
