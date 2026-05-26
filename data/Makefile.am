@@ -35,6 +35,7 @@ pnhelp_DATA = \
 	help/PnKnob.html \
 	help/PnLabel.html \
 	help/PnLed.html \
+	help/PnMatrix57.html \
 	help/PnMeshtastic.html \
 	help/PnNotify.html \
 	help/PnPanelDisplay.html \

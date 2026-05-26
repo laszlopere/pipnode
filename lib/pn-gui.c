@@ -35,6 +35,7 @@
 #include "pn-knob-gui.h"
 #include "pn-label-gui.h"
 #include "pn-led-gui.h"
+#include "pn-matrix57-gui.h"
 #include "pn-meshtastic-gui.h"
 #include "pn-notify-gui.h"
 #include "pn-rate-gui.h"
@@ -66,6 +67,7 @@ pn_gui_install_builtin_nodes (void)
     pn_knob_gui_install ();
     pn_label_gui_install ();
     pn_led_gui_install ();
+    pn_matrix57_gui_install ();
     pn_meshtastic_gui_install ();
     pn_notify_gui_install ();
     pn_rate_gui_install ();

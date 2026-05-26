@@ -93,6 +93,8 @@ libpipnode_core_la_SOURCES = \
 	pn-label.h \
 	pn-led.c \
 	pn-led.h \
+	pn-matrix57.c \
+	pn-matrix57.h \
 	pn-meshtastic.c \
 	pn-meshtastic.h \
 	pn-message.c \
@@ -227,6 +229,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-label-gui.h \
 	pn-led-gui.c \
 	pn-led-gui.h \
+	pn-matrix57-gui.c \
+	pn-matrix57-gui.h \
 	pn-meshtastic-gui.c \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.c \
@@ -339,6 +343,7 @@ pipnode_core_headers = \
 	pn-knob.h \
 	pn-label.h \
 	pn-led.h \
+	pn-matrix57.h \
 	pn-meshtastic.h \
 	pn-message.h \
 	pn-node.h \
@@ -395,6 +400,7 @@ pipnode_gui_headers = \
 	pn-knob-gui.h \
 	pn-label-gui.h \
 	pn-led-gui.h \
+	pn-matrix57-gui.h \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \

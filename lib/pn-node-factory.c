@@ -57,6 +57,7 @@
 #include "pn-rate.h"
 #include "pn-rewrite.h"
 #include "pn-rtc.h"
+#include "pn-matrix57.h"
 #include "pn-segment16.h"
 #include "pn-set.h"
 #include "pn-sound.h"
@@ -272,6 +273,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_LED);
     pn_node_factory_register (self, PN_TYPE_COUNTDOWN);
     pn_node_factory_register (self, PN_TYPE_SEGMENT16);
+    pn_node_factory_register (self, PN_TYPE_MATRIX57);
     pn_node_factory_register (self, PN_TYPE_DIGITAL_CLOCK);
     pn_node_factory_register (self, PN_TYPE_LABEL);
     pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
