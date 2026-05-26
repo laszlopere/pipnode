@@ -51,6 +51,7 @@
 
 #include <json-glib/json-glib.h>
 #include <math.h>
+#include <string.h>
 
 /* fa-cloud U+F0C2 — a plain cloud reads as "weather". */
 #define PN_WEATHER_ICON            "\xef\x83\x82"
@@ -94,6 +95,13 @@ struct _PnWeather
     gdouble  longitude;
     gchar   *resolved_name; /* canonical place name from the geocoder    */
     gchar   *country;
+
+    /* When the last geocoding attempt failed, a human-readable reason
+     * for that failure; NULL while coordinates are usable.  The trigger
+     * surfaces this so the user learns whether the lookup was rate-
+     * limited, broken by a transport error, or really "no such place",
+     * rather than every failure flattening to one generic message. */
+    gchar   *geo_error;
 };
 
 G_DEFINE_TYPE (PnWeather, pn_weather, PN_TYPE_HTTP)
@@ -237,8 +245,12 @@ pn_weather_parse_current (JsonObject *root, PnWeatherCurrent *out)
     return out->ok;
 }
 
-/* Build a curl command that GETs @url and prints the body.  Shared
- * shape for both the geocoding and (via build_command) forecast calls. */
+/* Build a curl command that GETs @url and prints the body followed by
+ * the HTTP status sentinel that pn_http_split_body_and_status() looks
+ * for.  Shared shape for both the geocoding and (via build_command)
+ * forecast calls — curl's exit code, the response body, and the HTTP
+ * status are all needed to produce a specific error message when a
+ * request fails. */
 static gchar *
 weather_curl_command (const gchar *url, guint timeout)
 {
@@ -246,12 +258,154 @@ weather_curl_command (const gchar *url, guint timeout)
     gchar *cmd    = g_strdup_printf (
             "curl --silent --show-error --location "
             "--max-time %u "
+            "--write-out '%s%%{http_code}' "
             "-H 'Accept: application/json' "
             "%s",
-            timeout, quoted);
+            timeout, PN_HTTP_STATUS_SENTINEL, quoted);
 
     g_free (quoted);
     return cmd;
+}
+
+/* First non-empty line of @text, trimmed; %NULL when @text is %NULL or
+ * has nothing printable.  curl's --show-error writes a one-line message
+ * to stderr on transport failure ("curl: (6) Could not resolve host"
+ * etc.); that line is what makes a network error legible to the user.
+ * Caller frees the result. */
+static gchar *
+weather_first_meaningful_line (const gchar *text)
+{
+    const gchar *p;
+
+    if (text == NULL)
+        return NULL;
+
+    for (p = text; *p != '\0'; )
+    {
+        const gchar *eol = strchr (p, '\n');
+        gsize        len = eol ? (gsize) (eol - p) : strlen (p);
+        gchar       *line;
+        gchar       *trimmed;
+
+        line = g_strndup (p, len);
+        trimmed = g_strstrip (line);
+        if (*trimmed != '\0')
+        {
+            gchar *copy = g_strdup (trimmed);
+            g_free (line);
+            return copy;
+        }
+        g_free (line);
+        if (!eol)
+            break;
+        p = eol + 1;
+    }
+    return NULL;
+}
+
+/* Parse @body as Open-Meteo's JSON error envelope and steal its
+ * "reason" string; returns %NULL when the body is empty, not JSON, or
+ * has no string-typed "reason" member.  Caller frees the result.  Used
+ * to surface the provider's own explanation alongside the HTTP status
+ * — Open-Meteo returns the rate-limit text in this field on HTTP 429,
+ * and "No matching location found" on a real geocoding miss. */
+static gchar *
+weather_extract_reason (const gchar *body)
+{
+    JsonParser *parser;
+    JsonNode   *root;
+    JsonObject *obj;
+    gchar      *reason = NULL;
+
+    if (body == NULL || *body == '\0')
+        return NULL;
+
+    parser = json_parser_new ();
+    if (json_parser_load_from_data (parser, body, -1, NULL))
+    {
+        root = json_parser_get_root (parser);
+        if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
+        {
+            obj = json_node_get_object (root);
+            if (json_object_has_member (obj, "reason"))
+            {
+                JsonNode *rn = json_object_get_member (obj, "reason");
+                if (JSON_NODE_HOLDS_VALUE (rn) &&
+                    json_node_get_value_type (rn) == G_TYPE_STRING)
+                    reason = g_strdup (json_node_get_string (rn));
+            }
+        }
+    }
+    g_object_unref (parser);
+    return reason;
+}
+
+/* Build a one-line human description of why an HTTP request failed,
+ * given everything we know about the curl run.  @what is "Weather
+ * fetch" or "Location lookup" so the same shape covers both endpoints.
+ * Returns a newly-allocated string the caller frees.  Falls through to
+ * a generic "request failed" when no field has anything useful. */
+static gchar *
+weather_format_http_error (const gchar *what,
+                           gboolean     spawned,
+                           gint         exit_status,
+                           const gchar *stderr_text,
+                           gint         http_status,
+                           const gchar *body)
+{
+    gchar *reason;
+    gchar *err_line;
+
+    if (!spawned)
+        return g_strdup_printf ("%s could not start (curl not run).", what);
+
+    if (!g_spawn_check_wait_status (exit_status, NULL))
+    {
+        err_line = weather_first_meaningful_line (stderr_text);
+        if (err_line != NULL)
+        {
+            gchar *out = g_strdup_printf ("%s failed: %s", what, err_line);
+            g_free (err_line);
+            return out;
+        }
+        return g_strdup_printf ("%s failed (curl exit status %d).",
+                                what, exit_status);
+    }
+
+    reason = weather_extract_reason (body);
+
+    if (http_status >= 400)
+    {
+        gchar *out;
+        if (reason != NULL)
+            out = g_strdup_printf ("%s failed (HTTP %d): %s",
+                                   what, http_status, reason);
+        else if (http_status == 429)
+            out = g_strdup_printf (
+                    "%s rate-limited by Open-Meteo (HTTP 429). "
+                    "Increase the period and try again later.", what);
+        else
+            out = g_strdup_printf ("%s failed (HTTP %d).",
+                                   what, http_status);
+        g_free (reason);
+        return out;
+    }
+
+    if (reason != NULL)
+    {
+        gchar *out = g_strdup_printf ("%s failed: %s", what, reason);
+        g_free (reason);
+        return out;
+    }
+
+    if (body == NULL || *body == '\0')
+        return g_strdup_printf ("%s returned an empty response.", what);
+
+    if (http_status > 0)
+        return g_strdup_printf (
+                "%s returned an unexpected response (HTTP %d).",
+                what, http_status);
+    return g_strdup_printf ("%s returned an unexpected response.", what);
 }
 
 /* ------------------------------------------------------------------ */
@@ -260,9 +414,11 @@ weather_curl_command (const gchar *url, guint timeout)
 
 /* Resolve @city to coordinates via Open-Meteo's geocoding endpoint and
  * cache the result.  On success the cache is keyed on @city so a steady
- * city is geocoded only once; on failure the cache is invalidated so a
- * later tick retries (a transient outage or a typo being corrected
- * should both recover without re-opening the node). */
+ * city is geocoded only once; on failure the cache is invalidated and a
+ * human-readable reason is stashed on the node so the trigger can
+ * forward it to a downstream Debug / Text View (transient outages,
+ * rate-limits, and real "no such place" should all read differently).
+ * A later tick retries the failed lookup. */
 static void
 weather_geocode (PnWeather *self, const gchar *city)
 {
@@ -271,71 +427,116 @@ weather_geocode (PnWeather *self, const gchar *city)
             "%s?name=%s&count=1&language=en&format=json",
             PN_WEATHER_GEOCODE_URL, escaped);
     gchar      *cmd     = weather_curl_command (url, 10u);
-    gchar      *out     = NULL;
-    gchar      *err     = NULL;
-    gint        status  = 0;
+    gchar      *stdout_text = NULL;
+    gchar      *stderr_text = NULL;
+    gint        exit_status = 0;
     GError     *error   = NULL;
     gboolean    spawned;
     gboolean    resolved = FALSE;
+    gboolean    have_results = FALSE;
     gdouble     lat = 0.0, lon = 0.0;
     gchar      *name = NULL;
     gchar      *country = NULL;
+    gchar      *body = NULL;
+    gint        http_status = 0;
+    gchar      *failure = NULL;
 
-    spawned = g_spawn_command_line_sync (cmd, &out, &err, &status, &error);
+    spawned = g_spawn_command_line_sync (cmd, &stdout_text, &stderr_text,
+                                         &exit_status, &error);
 
-    if (spawned && g_spawn_check_wait_status (status, NULL) &&
-        out != NULL && *out != '\0')
+    if (!spawned)
     {
-        JsonParser *parser = json_parser_new ();
+        gchar *cause = error ? g_strdup (error->message) : NULL;
+        g_warning ("pn-weather: failed to spawn geocoding curl: %s",
+                   cause ? cause : "(unknown)");
+        failure = cause
+                ? g_strdup_printf (
+                        "Location lookup could not start curl: %s", cause)
+                : g_strdup ("Location lookup could not start curl.");
+        g_free (cause);
+    }
+    else
+    {
+        pn_http_split_body_and_status (stdout_text, &body, &http_status);
 
-        if (json_parser_load_from_data (parser, out, -1, NULL))
+        if (g_spawn_check_wait_status (exit_status, NULL) &&
+            (http_status == 0 || (http_status >= 200 && http_status < 300)) &&
+            body != NULL && *body != '\0')
         {
-            JsonNode *root = json_parser_get_root (parser);
+            JsonParser *parser = json_parser_new ();
 
-            if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
+            if (json_parser_load_from_data (parser, body, -1, NULL))
             {
-                JsonObject *obj = json_node_get_object (root);
+                JsonNode *root = json_parser_get_root (parser);
 
-                if (json_object_has_member (obj, "results"))
+                if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
                 {
-                    JsonNode *rn = json_object_get_member (obj, "results");
+                    JsonObject *obj = json_node_get_object (root);
 
-                    if (JSON_NODE_HOLDS_ARRAY (rn) &&
-                        json_array_get_length (json_node_get_array (rn)) > 0)
+                    if (json_object_has_member (obj, "results"))
                     {
-                        JsonObject *hit = json_array_get_object_element (
-                                json_node_get_array (rn), 0);
+                        JsonNode *rn = json_object_get_member (obj, "results");
 
-                        lat = obj_number (hit, "latitude",  (gdouble) NAN);
-                        lon = obj_number (hit, "longitude", (gdouble) NAN);
-
-                        if (isfinite (lat) && isfinite (lon))
+                        if (JSON_NODE_HOLDS_ARRAY (rn) &&
+                            json_array_get_length (json_node_get_array (rn)) > 0)
                         {
-                            resolved = TRUE;
-                            if (json_object_has_member (hit, "name"))
-                                name = g_strdup (json_object_get_string_member (
-                                                     hit, "name"));
-                            if (json_object_has_member (hit, "country"))
-                                country = g_strdup (
-                                        json_object_get_string_member (
-                                                hit, "country"));
+                            JsonObject *hit = json_array_get_object_element (
+                                    json_node_get_array (rn), 0);
+
+                            have_results = TRUE;
+                            lat = obj_number (hit, "latitude",  (gdouble) NAN);
+                            lon = obj_number (hit, "longitude", (gdouble) NAN);
+
+                            if (isfinite (lat) && isfinite (lon))
+                            {
+                                resolved = TRUE;
+                                if (json_object_has_member (hit, "name"))
+                                    name = g_strdup (
+                                            json_object_get_string_member (
+                                                    hit, "name"));
+                                if (json_object_has_member (hit, "country"))
+                                    country = g_strdup (
+                                            json_object_get_string_member (
+                                                    hit, "country"));
+                            }
                         }
                     }
                 }
             }
+            else
+            {
+                failure = g_strdup (
+                        "Location lookup returned a non-JSON response.");
+            }
+            g_object_unref (parser);
+
+            if (!resolved && failure == NULL)
+            {
+                /* HTTP 200 with no usable hit — Open-Meteo's standard
+                 * "place not found" answer is an absent or empty
+                 * results array, not an error envelope. */
+                failure = have_results
+                        ? g_strdup_printf (
+                                "Open-Meteo found a location for \"%s\" but "
+                                "it had no coordinates.", city)
+                        : g_strdup_printf (
+                                "Open-Meteo could not find a location named "
+                                "\"%s\".", city);
+            }
         }
-        g_object_unref (parser);
-    }
-    else if (!spawned)
-    {
-        g_warning ("pn-weather: failed to spawn geocoding curl: %s",
-                   error ? error->message : "(unknown)");
+        else if (failure == NULL)
+        {
+            failure = weather_format_http_error (
+                    "Location lookup",
+                    TRUE, exit_status, stderr_text, http_status, body);
+        }
     }
 
     g_mutex_lock (&self->mutex);
     g_free (self->resolved_name);
     g_free (self->country);
     g_free (self->geo_key);
+    g_clear_pointer (&self->geo_error, g_free);
     if (resolved)
     {
         self->have_coords   = TRUE;
@@ -353,23 +554,30 @@ weather_geocode (PnWeather *self, const gchar *city)
         self->resolved_name = NULL;
         self->country       = NULL;
         self->geo_key       = NULL;           /* force a retry next tick */
+        self->geo_error     = failure;
+        failure = NULL;
     }
     g_mutex_unlock (&self->mutex);
 
     g_clear_error (&error);
+    g_free (failure);
     g_free (name);
     g_free (country);
-    g_free (out);
-    g_free (err);
+    g_free (body);
+    g_free (stdout_text);
+    g_free (stderr_text);
     g_free (cmd);
     g_free (url);
     g_free (escaped);
 }
 
 /* Ensure cached coordinates match the configured city, geocoding when
- * needed.  Returns %TRUE when coordinates are available. */
+ * needed.  Returns %TRUE when coordinates are available.  On failure
+ * fills @out_error (caller frees) with the reason the most recent
+ * lookup gave, so the trigger can emit something more specific than a
+ * generic "not found". */
 static gboolean
-weather_ensure_coords (PnWeather *self, const gchar *city)
+weather_ensure_coords (PnWeather *self, const gchar *city, gchar **out_error)
 {
     gboolean need;
     gboolean ok;
@@ -383,6 +591,8 @@ weather_ensure_coords (PnWeather *self, const gchar *city)
 
     g_mutex_lock (&self->mutex);
     ok = self->have_coords;
+    if (!ok && out_error != NULL)
+        *out_error = g_strdup (self->geo_error);
     g_mutex_unlock (&self->mutex);
 
     return ok;
@@ -407,14 +617,18 @@ pn_weather_trigger (PnAutoTrigger *trigger)
         return;
     }
 
-    if (!weather_ensure_coords (self, city))
+    gchar *geo_error = NULL;
+    if (!weather_ensure_coords (self, city, &geo_error))
     {
-        /* The place could not be resolved: surface a failure message so
-         * a downstream Debug / Text View tells the user, rather than
-         * going silent. */
+        /* The place could not be resolved: surface the specific reason
+         * (rate-limit, network error, real "not found", ...) so a
+         * downstream Debug / Text View tells the user what actually
+         * happened rather than every failure flattening to one message. */
         PnMessage *msg     = pn_message_new (PN_NODE (self), NULL);
-        gchar     *summary = g_strdup_printf (
-                "Could not find a location named \"%s\".", city);
+        gchar     *summary = (geo_error != NULL && *geo_error != '\0')
+                ? g_strdup (geo_error)
+                : g_strdup_printf (
+                        "Could not look up the location \"%s\".", city);
 
         pn_message_set_string  (msg, "city",    city);
         pn_message_set_boolean (msg, "success", FALSE);
@@ -422,9 +636,11 @@ pn_weather_trigger (PnAutoTrigger *trigger)
         pn_auto_trigger_emit_on_main (trigger, msg);
 
         g_free (summary);
+        g_free (geo_error);
         g_free (city);
         return;
     }
+    g_free (geo_error);
 
     g_free (city);
 
@@ -497,15 +713,14 @@ pn_weather_emit_message (
 {
     PnWeather   *self    = PN_WEATHER (http);
     PnNode      *node    = PN_NODE (self);
-    const gchar *body    = stdout_text;
-    gboolean     fetched;
+    gchar       *body    = NULL;
+    gint         http_status = 0;
+    gboolean     transport_ok;
     gboolean     ok      = FALSE;
-    gchar       *reason  = NULL;
+    gchar       *failure = NULL;
     PnMessage   *msg;
     gchar       *name, *country;
     gdouble      lat, lon;
-
-    (void) stderr_text;
 
     /* Snapshot the resolved place for labelling the message. */
     g_mutex_lock (&self->mutex);
@@ -515,13 +730,17 @@ pn_weather_emit_message (
     lon     = self->longitude;
     g_mutex_unlock (&self->mutex);
 
-    /* This subclass builds the curl command itself and deliberately does
-     * not append the HTTP-status sentinel that #PnHttp's default fetch
-     * relies on, so the raw stdout is simply the JSON body.  Open-Meteo
-     * answers HTTP 200 with the reading on success and a
-     * {"error":true,"reason":...} body on failure, so the parse below —
-     * not the HTTP status — decides success. */
-    fetched = spawned && g_spawn_check_wait_status (exit_status, NULL);
+    /* weather_curl_command() includes the same HTTP-status sentinel as
+     * the base class's default build_command, so the body and status
+     * can be split back apart here.  Open-Meteo answers HTTP 200 with
+     * the reading on success and HTTP 4xx (typically 429 for rate
+     * limits) with a {"error":true,"reason":...} body on failure, so
+     * both the status and the parsed body need to feed the decision. */
+    pn_http_split_body_and_status (stdout_text, &body, &http_status);
+    transport_ok = spawned &&
+                   g_spawn_check_wait_status (exit_status, NULL) &&
+                   (http_status == 0 || (http_status >= 200 &&
+                                         http_status < 300));
 
     msg = pn_message_new (node, NULL);
     if (name != NULL)
@@ -530,8 +749,10 @@ pn_weather_emit_message (
         pn_message_set_string (msg, "country", country);
     pn_message_set_double (msg, "latitude",  lat);
     pn_message_set_double (msg, "longitude", lon);
+    if (http_status > 0)
+        pn_message_set_int (msg, "status", http_status);
 
-    if (fetched && body != NULL && *body != '\0')
+    if (transport_ok && body != NULL && *body != '\0')
     {
         JsonParser *parser = json_parser_new ();
 
@@ -556,7 +777,6 @@ pn_weather_emit_message (
             PnWeatherCurrent cur = { 0 };
 
             pn_weather_parse_current (o, &cur);
-            reason = g_steal_pointer (&cur.reason);
 
             if (cur.ok)
             {
@@ -598,24 +818,47 @@ pn_weather_emit_message (
                 pn_message_set_string (msg, "output", summary->str);
                 g_string_free (summary, TRUE);
             }
+            else
+            {
+                /* HTTP 200, JSON parsed, but no usable reading.  The
+                 * provider's "reason" (if any) explains why; otherwise
+                 * the response shape was unexpected. */
+                failure = (cur.reason != NULL)
+                        ? g_strdup_printf (
+                                "Weather fetch failed: %s", cur.reason)
+                        : g_strdup_printf (
+                                "Weather fetch returned no current "
+                                "reading for %s.",
+                                name ? name : "the configured location");
+            }
+            g_free (cur.reason);
+        }
+        else
+        {
+            failure = g_strdup ("Weather fetch returned a non-JSON response.");
         }
         g_object_unref (parser);
+    }
+    else if (failure == NULL)
+    {
+        failure = weather_format_http_error (
+                "Weather fetch",
+                spawned, exit_status, stderr_text, http_status, body);
     }
 
     pn_message_set_boolean (msg, "success", ok);
     if (!ok)
     {
-        gchar *summary = (reason != NULL)
-                ? g_strdup_printf ("Weather request failed: %s", reason)
-                : g_strdup_printf ("Failed to read weather for %s.",
-                                   name ? name : "the configured location");
-        pn_message_set_string (msg, "output", summary);
-        g_free (summary);
+        if (failure == NULL)
+            failure = g_strdup_printf ("Failed to read weather for %s.",
+                                       name ? name : "the configured location");
+        pn_message_set_string (msg, "output", failure);
     }
 
     pn_auto_trigger_emit_on_main (PN_AUTO_TRIGGER (self), msg);
 
-    g_free (reason);
+    g_free (failure);
+    g_free (body);
     g_free (name);
     g_free (country);
 }
@@ -668,9 +911,11 @@ pn_weather_set_property (
             self->city = g_strdup (new_city ? new_city : "");
 
             /* The cached coordinates belong to the old city; drop them
-             * so the next tick re-geocodes. */
+             * so the next tick re-geocodes.  The stale error message
+             * (if any) also belongs to the old city. */
             self->have_coords = FALSE;
-            g_clear_pointer (&self->geo_key, g_free);
+            g_clear_pointer (&self->geo_key,   g_free);
+            g_clear_pointer (&self->geo_error, g_free);
         }
         g_mutex_unlock (&self->mutex);
 
@@ -705,6 +950,7 @@ pn_weather_finalize (GObject *object)
     g_clear_pointer (&self->geo_key, g_free);
     g_clear_pointer (&self->resolved_name, g_free);
     g_clear_pointer (&self->country, g_free);
+    g_clear_pointer (&self->geo_error, g_free);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_weather_parent_class)->finalize (object);
