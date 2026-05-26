@@ -68,7 +68,7 @@ pn_success_class_init (PnSuccessClass *klass)
 
     node_class->class_name = "Success";
     node_class->icon       = "\xef\x80\x8c";  /* fa-check U+F00C */
-    node_class->color      = (PnColor){ 0.42, 0.72, 0.42, 1.0 };
+    node_class->color      = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category   = "Filters/Gate";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -79,14 +79,14 @@ pn_success_init (PnSuccess *self)
 {
     PnNode *node = PN_NODE (self);
 
-    /* Muted green to read as "OK" / "pass" at a glance, with the
-     * check-mark glyph reinforcing the meaning.  The companion
-     * #PnFailure node uses a matching red + cross. */
-    PnColor green = { 0.42, 0.72, 0.42, 1.0 };
+    /* Standard Filters/Gate yellow shared with Filter / Dedup / Throttle;
+     * the check-mark glyph carries the pass-on-success meaning, and the
+     * companion #PnFailure node uses the same yellow + cross. */
+    PnColor yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     pn_node_set_class_name (node, "Success");
     pn_node_set_icon       (node, "\xef\x80\x8c");  /* fa-check U+F00C */
-    pn_node_set_color      (node, &green);
+    pn_node_set_color      (node, &yellow);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }

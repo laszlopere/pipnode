@@ -68,7 +68,7 @@ pn_failure_class_init (PnFailureClass *klass)
 
     node_class->class_name = "Failure";
     node_class->icon       = "\xef\x80\x8d";  /* fa-times U+F00D */
-    node_class->color      = (PnColor){ 0.86, 0.30, 0.28, 1.0 };
+    node_class->color      = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
     node_class->category   = "Filters/Gate";
     node_class->has_input  = TRUE;
     node_class->has_output = TRUE;
@@ -79,14 +79,14 @@ pn_failure_init (PnFailure *self)
 {
     PnNode *node = PN_NODE (self);
 
-    /* Muted red to read as "failed" / "stop" at a glance, with the
-     * cross glyph reinforcing the meaning.  Mirrors the green + check
-     * of the companion #PnSuccess node. */
-    PnColor red = { 0.86, 0.30, 0.28, 1.0 };
+    /* Standard Filters/Gate yellow shared with Filter / Dedup / Throttle;
+     * the cross glyph carries the pass-on-failure meaning, mirroring the
+     * yellow + check of the companion #PnSuccess node. */
+    PnColor yellow = { 0.92, 0.76, 0.27, 1.0 };
 
     pn_node_set_class_name (node, "Failure");
     pn_node_set_icon       (node, "\xef\x80\x8d");  /* fa-times U+F00D */
-    pn_node_set_color      (node, &red);
+    pn_node_set_color      (node, &yellow);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
 }
