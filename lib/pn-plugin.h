@@ -122,8 +122,17 @@ G_BEGIN_DECLS
  *       the bump exists so a plugin that declares profile types is rebuilt
  *       against a host that understands them rather than silently registering
  *       none against an older host.
+ *   6 — appended one optional vfunc to #PnWebsocketClass, #profile_resolved,
+ *       so a subclass that calls pn_ws_bind_profile() can drive its
+ *       connection target off a host-provisioned credentials profile (the
+ *       default impl assigns the profile's "url" field to #PnWebsocket:url;
+ *       overrides also pull secrets or compose multi-field endpoints).
+ *       Appended at the end of the class struct so existing field offsets
+ *       are unchanged; the bump exists so a stale plugin built against the
+ *       smaller v5 #PnWebsocketClass is rebuilt rather than loaded against
+ *       the grown class.
  */
-#define PN_PLUGIN_ABI_VERSION 5
+#define PN_PLUGIN_ABI_VERSION 6
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

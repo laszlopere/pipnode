@@ -31,9 +31,10 @@ CONTENTS
   16. Declarative settings schema (the GTK-free default path)
   17. Companion GUI module: server-installable plugins (ABI v3)
   18. Host-provisioned profiles: credentials, settings, permissions (ABI v5)
-  19. Reference plugins in the tree
-  20. Quick checklist
-  21. Plugin licensing and the Plugin Exception
+  19. WebSocket source base class with optional profile binding (ABI v6)
+  20. Reference plugins in the tree
+  21. Quick checklist
+  22. Plugin licensing and the Plugin Exception
 
 
 1. WHAT IS A PIPNODE PLUGIN?
@@ -1377,8 +1378,85 @@ the MQTT and HTTPS Tunnel nodes) and `tests/plugins/vaultecho/` (a
 minimal type + referencing node) for worked examples.
 
 
-19. REFERENCE PLUGINS IN THE TREE
---------------------------------
+19. WEBSOCKET SOURCE BASE CLASS WITH OPTIONAL PROFILE BINDING (ABI v6)
+----------------------------------------------------------------------
+
+Source nodes whose data feed arrives over a long-lived `ws://` or
+`wss://` connection should derive from `#PnWebsocket` (in `<pipnode/pn-
+ws.h>`) instead of rolling a SoupSession by hand.  The base class owns
+the session and the live connection, drives an automatic reconnect loop
+with exponential backoff, paints the "needs configuration" body state
+when there is no URL yet, and dispatches inbound text frames to the
+subclass on the main thread.
+
+A subclass overrides three vfuncs:
+
+      static gboolean my_is_configured (PnWebsocket *self);
+      static void     my_connected     (PnWebsocket *self);
+      static void     my_text_message  (PnWebsocket *self,
+                                        const gchar *text);
+
+`is_configured` gates the connect loop (default: %TRUE iff the inherited
+`url` property is non-empty); `connected` is called once per successful
+handshake and is the place to send a subscription RPC via
+`pn_ws_send_text`; `text_message` is called for every inbound text
+frame.  A subclass also sets `klass->normal_icon` / `klass->normal_color`
+to override the default plug glyph and teal body.
+
+Profile binding (ABI v6).  When the connection target lives in a host-
+provisioned credentials profile (the typical case for an authenticated
+service), the subclass declares its own profile-ref property and asks
+the base class to drive everything off it:
+
+      props[PROP_PROFILE] = g_param_spec_string (
+              "endpoint-profile", "Endpoint profile",
+              "Id of the my-ws-endpoint credential profile.",
+              "", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+      pn_param_spec_set_profile_ref (props[PROP_PROFILE], "my-ws-endpoint");
+
+      /* in _init or constructed */
+      pn_ws_bind_profile (PN_WEBSOCKET (self), "endpoint-profile");
+
+After `pn_ws_bind_profile`, the base class watches the bound property
+and #PnVault::changed, resolves the profile through
+`pn_node_get_profile`, and invokes #PnWebsocketClass::profile_resolved
+on every change.  The default vfunc assigns the profile's "url" field
+to `#PnWebsocket:url`, which kicks the existing reconnect loop -- so a
+schema whose endpoint field is named "url" needs no resolver code at
+all.  Subclasses that also need a secret (or whose schema spreads the
+endpoint across multiple fields) override the vfunc:
+
+      static void
+      my_profile_resolved (PnWebsocket *base, PnProfile *p)
+      {
+          MyNode *self = MY_NODE (base);
+          gchar  *url  = p ? pn_profile_get_string (p, "url")
+                           : g_strdup ("");
+
+          g_clear_pointer (&self->api_key, g_free);
+          if (p) self->api_key = pn_profile_get_secret (p, "api-key");
+
+          g_object_set (base, "url", url ? url : "", NULL);
+          g_free (url);
+      }
+
+The same profile-edit live-update behaviour described in section 18
+applies for free: editing the profile in the credentials manager
+re-emits ::changed, the binding observes it, and the live connection
+restarts against the new URL.  No code in the subclass.
+
+`#PnWebsocket` lives in the GTK-free core, so a wss source node ships
+as a single core-only `.so` with no companion -- the credentials picker
+in the dialog comes from the profile-ref param-spec tag, which the
+editor renders without the plugin shipping any dialog code.
+
+The bump exists because the `profile_resolved` vfunc was appended to
+`#PnWebsocketClass`; a stale plugin built against the smaller v5 class
+must be rebuilt against v6.
+
+
+20. REFERENCE PLUGINS IN THE TREE
+---------------------------------
 
 The source tree carries a handful of plugins you can read for
 worked examples; they all build out of the box from a fresh
@@ -1428,7 +1506,7 @@ worked examples; they all build out of the box from a fresh
         the clearest worked examples of `PnSettingsSchema`.
 
 
-20. QUICK CHECKLIST
+21. QUICK CHECKLIST
 -------------------
 
 Before publishing a plugin, walk through this list:
@@ -1493,7 +1571,7 @@ host with no GTK), walk this extra list:
       `g_type_from_name` (never the logic header's type macro).
 
 
-21. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
+22. PLUGIN LICENSING AND THE PLUGIN EXCEPTION
 
 The pipnode core (the `src/` application and the `lib/` host library)
 is licensed under the GNU GPL version 3 or later.  Because a plugin

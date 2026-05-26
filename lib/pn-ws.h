@@ -17,6 +17,7 @@
 #define PN_WS_H
 
 #include "pn-node.h"
+#include "pn-vault.h"   /* for PnProfile */
 
 G_BEGIN_DECLS
 
@@ -114,6 +115,26 @@ struct _PnWebsocketClass
      * default implementation is a no-op.
      */
     void (*text_message) (PnWebsocket *self, const gchar *text);
+
+    /**
+     * PnWebsocketClass::profile_resolved:
+     * @self: the node instance
+     * @profile: (nullable): the resolved #PnProfile, or %NULL when the
+     *           referenced profile does not exist and the type has no
+     *           primary
+     *
+     * Invoked on the main thread whenever the credentials profile bound
+     * via pn_ws_bind_profile() resolves to a (possibly different, possibly
+     * %NULL) value: at initial load, when the bound property is set, and
+     * when the vault emits ::changed.  The default implementation reads
+     * the profile's "url" field (or "" when @profile is %NULL) and assigns
+     * it to #PnWebsocket:url, which drives the existing connect /
+     * reconnect loop.  Subclasses override to additionally stash secrets
+     * (via pn_profile_get_secret()) or to compose the URL from multiple
+     * fields, calling g_object_set (self, "url", composed, NULL) themselves.
+     * Always main-thread.
+     */
+    void (*profile_resolved) (PnWebsocket *self, PnProfile *profile);
 };
 
 PnWebsocket *pn_websocket_new (void);
@@ -166,6 +187,38 @@ void pn_ws_send_text (PnWebsocket *self, const gchar *text);
  * handshake and is open in either direction.  Main-thread only.
  */
 gboolean pn_ws_is_connected (PnWebsocket *self);
+
+/**
+ * pn_ws_bind_profile:
+ * @self:      a websocket node
+ * @prop_name: the name of a string property on @self tagged via
+ *             pn_param_spec_set_profile_ref() — typically declared by
+ *             the subclass itself
+ *
+ * Wire @self up so its connection target is driven by a host-provisioned
+ * credentials profile instead of (or in addition to) the inherited
+ * #PnWebsocket:url.  After this call the base class:
+ *
+ *   - watches @self's `notify::@prop_name`, so changing the profile-ref
+ *     re-resolves and reconnects;
+ *   - watches the default #PnVault's ::changed, so an edit in the
+ *     credentials manager takes effect live;
+ *   - schedules one main-loop idle to perform the initial resolve once
+ *     property loading has settled (works the same whether the property
+ *     is the default "" — which follows the type's primary profile — or
+ *     a deserialised id).
+ *
+ * Every resolve invokes #PnWebsocketClass::profile_resolved.  The default
+ * implementation of that vfunc reads the profile's "url" field and pushes
+ * it to #PnWebsocket:url, so a subclass whose schema names the endpoint
+ * "url" needs no resolver code at all; subclasses that also need a
+ * secret, or whose schema spreads the endpoint across multiple fields,
+ * override the vfunc.
+ *
+ * Call once, in #_init or #constructed.  Calling twice replaces the
+ * binding.  Main-thread only.
+ */
+void pn_ws_bind_profile (PnWebsocket *self, const gchar *prop_name);
 
 G_END_DECLS
 

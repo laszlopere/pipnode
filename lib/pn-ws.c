@@ -79,6 +79,28 @@ typedef struct
     /* Set during dispose so handlers that fire after the cancellable
      * cancels know to bail out instead of poking the dying object. */
     gboolean                  disposing;
+
+    /* ---- credentials-profile binding (pn_ws_bind_profile) -------- */
+
+    /* Name of the profile-ref property the subclass installed, or %NULL
+     * when no binding is active.  Owned. */
+    gchar    *profile_prop;
+
+    /* Subscription on self::notify::<profile_prop> so a setter triggers
+     * a resync.  0 when no binding is active or the subscription was
+     * already torn down. */
+    gulong    notify_handler;
+
+    /* Subscription on the default vault's ::changed so a manager edit
+     * (rename, field change, delete) takes effect live.  0 when no
+     * binding is active. */
+    gulong    vault_handler;
+
+    /* One-shot idle that performs the initial resolve once property
+     * loading has settled — the subclass calls bind_profile from
+     * _init / constructed, but at that point the deserialiser has not
+     * yet applied the saved id.  0 once fired or cancelled. */
+    guint     initial_resync_id;
 } PnWebsocketPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnWebsocket, pn_websocket, PN_TYPE_NODE)
@@ -91,14 +113,22 @@ enum {
 
 static GParamSpec *props[N_PROPS];
 
-static gboolean default_is_configured (PnWebsocket *self);
-static void     default_connected    (PnWebsocket *self);
-static void     default_text_message (PnWebsocket *self, const gchar *text);
+static gboolean default_is_configured     (PnWebsocket *self);
+static void     default_connected         (PnWebsocket *self);
+static void     default_text_message      (PnWebsocket *self, const gchar *text);
+static void     default_profile_resolved  (PnWebsocket *self, PnProfile *profile);
 
 static void start_connect    (PnWebsocket *self);
 static void schedule_retry   (PnWebsocket *self);
 static void clear_connection (PnWebsocket *self);
 static void clear_reconnect  (PnWebsocket *self);
+
+static void     resync_profile        (PnWebsocket *self);
+static void     on_self_notify_profile (GObject *object,
+                                        GParamSpec *pspec,
+                                        gpointer user_data);
+static void     on_vault_changed      (gpointer self);
+static gboolean initial_resync_idle   (gpointer user_data);
 
 /* ------------------------------------------------------------------ */
 /*  URL accessor                                                       */
@@ -214,6 +244,145 @@ default_text_message (
 {
     (void) self;
     (void) text;
+}
+
+/** Default profile resolver: read the profile's "url" field (or "" when
+ *  the profile didn't resolve) and assign it to PnWebsocket:url, which
+ *  drives the existing connect/reconnect loop.  Subclasses override to
+ *  also pull secrets, or to compose the URL from multiple fields. */
+static void
+default_profile_resolved (
+        PnWebsocket *self,
+        PnProfile   *profile)
+{
+    gchar *url = (profile != NULL)
+            ? pn_profile_get_string (profile, "url")
+            : g_strdup ("");
+
+    g_object_set (self, "url", url != NULL ? url : "", NULL);
+    g_free (url);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Profile binding                                                    */
+/*                                                                     */
+/*  Subclasses install their own profile-ref property and call         */
+/*  pn_ws_bind_profile() once to delegate the resolve/reconnect glue   */
+/*  to this base class.  Three triggers re-resolve the profile:        */
+/*    - notify on the bound property (a setter fired)                  */
+/*    - the vault's ::changed signal (manager edit / rename / delete)  */
+/*    - a one-shot idle scheduled by bind_profile to cover the         */
+/*      initial-load case where the saved id arrives via g_object_set  */
+/*      AFTER the subclass's _init / constructed.                      */
+/* ------------------------------------------------------------------ */
+
+static void
+resync_profile (PnWebsocket *self)
+{
+    PnWebsocketPrivate *priv  = pn_websocket_get_instance_private (self);
+    PnWebsocketClass   *klass = PN_WEBSOCKET_GET_CLASS (self);
+    PnProfile          *p;
+
+    if (priv->disposing)
+        return;
+    if (priv->profile_prop == NULL)
+        return;
+
+    p = pn_node_get_profile (PN_NODE (self), priv->profile_prop);
+
+    if (klass->profile_resolved != NULL)
+        klass->profile_resolved (self, p);
+}
+
+static void
+on_self_notify_profile (
+        GObject    *object,
+        GParamSpec *pspec,
+        gpointer    user_data)
+{
+    (void) pspec;
+    (void) user_data;
+    resync_profile (PN_WEBSOCKET (object));
+}
+
+static void
+on_vault_changed (gpointer self)
+{
+    resync_profile (PN_WEBSOCKET (self));
+}
+
+static gboolean
+initial_resync_idle (gpointer user_data)
+{
+    PnWebsocket        *self = PN_WEBSOCKET (user_data);
+    PnWebsocketPrivate *priv = pn_websocket_get_instance_private (self);
+
+    priv->initial_resync_id = 0;
+    resync_profile (self);
+    return G_SOURCE_REMOVE;
+}
+
+void
+pn_ws_bind_profile (
+        PnWebsocket *self,
+        const gchar *prop_name)
+{
+    PnWebsocketPrivate *priv;
+    gchar              *signal_name;
+
+    g_return_if_fail (PN_IS_WEBSOCKET (self));
+    g_return_if_fail (prop_name != NULL && *prop_name != '\0');
+
+    priv = pn_websocket_get_instance_private (self);
+
+    /* Idempotent: drop any previous binding so a subclass can call this
+     * twice (or be re-bound at runtime) without leaking handlers. */
+    if (priv->notify_handler != 0)
+    {
+        g_signal_handler_disconnect (self, priv->notify_handler);
+        priv->notify_handler = 0;
+    }
+    if (priv->vault_handler != 0)
+    {
+        g_signal_handler_disconnect (pn_vault_get_default (),
+                                     priv->vault_handler);
+        priv->vault_handler = 0;
+    }
+    if (priv->initial_resync_id != 0)
+    {
+        g_source_remove (priv->initial_resync_id);
+        priv->initial_resync_id = 0;
+    }
+    g_clear_pointer (&priv->profile_prop, g_free);
+
+    priv->profile_prop = g_strdup (prop_name);
+
+    /* "notify::<prop_name>" — only fires when that one property changes,
+     * which is the cheap path: most property changes on the node are not
+     * profile-ref edits and we don't want to resolve for every keystroke
+     * on, say, a topic field. */
+    signal_name = g_strconcat ("notify::", prop_name, NULL);
+    priv->notify_handler = g_signal_connect (self,
+                                             signal_name,
+                                             G_CALLBACK (on_self_notify_profile),
+                                             NULL);
+    g_free (signal_name);
+
+    /* g_signal_connect_object would auto-disconnect on finalize, but we
+     * disconnect explicitly in dispose so the handler can never fire on
+     * a half-dead node; a plain connect is fine here. */
+    priv->vault_handler = g_signal_connect_swapped (pn_vault_get_default (),
+                                                    "changed",
+                                                    G_CALLBACK (on_vault_changed),
+                                                    self);
+
+    /* Initial resolve goes through an idle: at this point the subclass
+     * is mid-init and the deserialiser has not yet pushed the saved id
+     * into our property.  Once the main loop spins, the loader has
+     * applied properties (which would have hit the notify handler) or
+     * left them at default (no notify fired but we still want to follow
+     * the type's primary profile). */
+    priv->initial_resync_id = g_idle_add (initial_resync_idle, self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -607,6 +776,26 @@ pn_websocket_dispose (GObject *object)
      * clear_connection() below. */
     priv->disposing = TRUE;
 
+    /* Tear down the profile binding first: a vault::changed firing
+     * between here and clear_connection would otherwise try to push a
+     * fresh URL into a half-dead node. */
+    if (priv->initial_resync_id != 0)
+    {
+        g_source_remove (priv->initial_resync_id);
+        priv->initial_resync_id = 0;
+    }
+    if (priv->notify_handler != 0)
+    {
+        g_signal_handler_disconnect (self, priv->notify_handler);
+        priv->notify_handler = 0;
+    }
+    if (priv->vault_handler != 0)
+    {
+        g_signal_handler_disconnect (pn_vault_get_default (),
+                                     priv->vault_handler);
+        priv->vault_handler = 0;
+    }
+
     clear_reconnect  (self);
     clear_connection (self);
 
@@ -626,6 +815,7 @@ pn_websocket_finalize (GObject *object)
     PnWebsocketPrivate *priv = pn_websocket_get_instance_private (self);
 
     g_clear_pointer (&priv->url, g_free);
+    g_clear_pointer (&priv->profile_prop, g_free);
 
     G_OBJECT_CLASS (pn_websocket_parent_class)->finalize (object);
 }
@@ -644,9 +834,10 @@ pn_websocket_class_init (PnWebsocketClass *klass)
     klass->normal_icon  = PN_WS_NORMAL_ICON;
     klass->normal_color = PN_WS_DEFAULT_COLOR;
 
-    klass->is_configured = default_is_configured;
-    klass->connected     = default_connected;
-    klass->text_message  = default_text_message;
+    klass->is_configured    = default_is_configured;
+    klass->connected        = default_connected;
+    klass->text_message     = default_text_message;
+    klass->profile_resolved = default_profile_resolved;
 
     /* Stable palette glyph regardless of instance state. */
     node_class->palette_icon = PN_WS_NORMAL_ICON;
@@ -679,6 +870,11 @@ pn_websocket_init (PnWebsocket *self)
     priv->connecting         = FALSE;
     priv->connected          = FALSE;
     priv->disposing          = FALSE;
+
+    priv->profile_prop       = NULL;
+    priv->notify_handler     = 0;
+    priv->vault_handler      = 0;
+    priv->initial_resync_id  = 0;
 
     pn_node_set_class_name (node, "WebSocket");
     pn_node_set_has_input  (node, FALSE);
