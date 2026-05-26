@@ -43,6 +43,7 @@ pnhelp_DATA = \
 	help/PnRate.html \
 	help/PnRewrite.html \
 	help/PnRtc.html \
+	help/PnSegment16.html \
 	help/PnSet.html \
 	help/PnSound.html \
 	help/PnStaircase.html \

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Segment16 (PnSegment16) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSegment16">Segment16</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnSegment16</code>.
+</p>
+<p>
+Paints an incoming string on a row of sixteen-segment LED cells &mdash;
+the alphanumeric cousin of the
+<a href="PnCountdown.html">Countdown</a> readout. The classic starburst
+font lights the right combination of orthogonal bars, middle bars and four
+inner diagonals to render digits, letters and a small set of punctuation.
+Lower-case letters fall back to the upper-case shape so the display
+reads as a uniform LED panel.
+</p>
+<p>
+Each incoming message must carry a string <code>output</code> &mdash; same
+convention as the <a href="PnLabel.html">Label</a> node. The text is
+laid out left to right and cropped to the configured cell count; a
+message with no string output, or with empty output, blanks the row.
+Anything outside the printable ASCII range, or a punctuation mark with
+no glyph in the font, lights no segments in its cell.
+</p>
+<p>
+Being a sink, the node never forwards a message. The display repaints
+only when the visible text actually changes, so a hot source does not
+drive a redraw faster than the readout content moves.
+</p>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td><code>cells</code></td>
+      <td>Number of 16-segment character cells in the row (1&ndash;32).
+          Eight (the default) is about as wide as a panel clock; raise it
+          for longer readouts. Text longer than the row is cropped on the
+          right.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the panel face behind the cells &mdash; the
+          near-black face of an LED clock by default.</td></tr>
+  <tr><td><code>segment-color</code></td>
+      <td>Colour of a lit segment bar &mdash; the classic LED red by
+          default.</td></tr>
+  <tr><td><code>unlit-segment-color</code></td>
+      <td>Colour of an unlit segment bar &mdash; the dark off-state ghost
+          of a cell, a dim red over the black face by default.</td></tr>
+</table>
+
+</body>
+</html>

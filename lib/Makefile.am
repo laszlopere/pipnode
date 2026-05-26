@@ -119,6 +119,8 @@ libpipnode_core_la_SOURCES = \
 	pn-rewrite.h \
 	pn-rtc.c \
 	pn-rtc.h \
+	pn-segment16.c \
+	pn-segment16.h \
 	pn-set.c \
 	pn-set.h \
 	pn-settings-schema.c \
@@ -242,6 +244,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-preferences-dialog.h \
 	pn-rate-gui.c \
 	pn-rate-gui.h \
+	pn-segment16-gui.c \
+	pn-segment16-gui.h \
 	pn-set-gui.c \
 	pn-set-gui.h \
 	pn-settings-renderer.c \
@@ -348,6 +352,7 @@ pipnode_core_headers = \
 	pn-rate.h \
 	pn-rewrite.h \
 	pn-rtc.h \
+	pn-segment16.h \
 	pn-set.h \
 	pn-settings-schema.h \
 	pn-sound.h \
@@ -400,6 +405,7 @@ pipnode_gui_headers = \
 	pn-preferences.h \
 	pn-preferences-dialog.h \
 	pn-rate-gui.h \
+	pn-segment16-gui.h \
 	pn-set-gui.h \
 	pn-settings-renderer.h \
 	pn-sound-gui.h \
