@@ -31,7 +31,6 @@
 /* Sentinel curl writes between the response body and the HTTP status
  * code via -w.  Picked to be unlikely to appear in real payloads; we
  * still split on the *last* occurrence to be safe. */
-#define PN_HTTP_STATUS_SENTINEL "\n--PN-HTTP-STATUS--"
 
 /* Default body colour applied when a subclass leaves
  * PnHttpClass.normal_color zero-initialised. */

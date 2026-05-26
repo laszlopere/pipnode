@@ -154,6 +154,18 @@ gchar *pn_http_dup_url (PnHttp *self);
 void pn_http_apply_visual_state (PnHttp *self, gboolean configured);
 
 /**
+ * PN_HTTP_STATUS_SENTINEL:
+ *
+ * The literal string appended to curl's stdout (just before the HTTP
+ * status code) by the base class's --write-out template, so the body
+ * and the status can be split back apart by
+ * pn_http_split_body_and_status().  Subclasses that build their own
+ * curl command and still want the helper to work can paste this
+ * sentinel into their own --write-out argument.
+ */
+#define PN_HTTP_STATUS_SENTINEL "\n--PN-HTTP-STATUS--"
+
+/**
  * pn_http_split_body_and_status:
  * @stdout_text: (nullable): raw stdout from a curl process spawned
  *               with the base class's write-out template
