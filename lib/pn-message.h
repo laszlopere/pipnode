@@ -40,6 +40,25 @@ G_BEGIN_DECLS
 
 G_DECLARE_DERIVABLE_TYPE (PnMessage, pn_message, PN, MESSAGE, GObject)
 
+/**
+ * PnMessageError:
+ * @PN_MESSAGE_ERROR_MISSING_FIELD: a mandatory member of the data bag
+ *      is absent.
+ * @PN_MESSAGE_ERROR_WRONG_TYPE:    a mandatory member is present but
+ *      has the wrong JSON type.
+ *
+ * Error codes raised by pn_message_validate().
+ */
+typedef enum
+{
+    PN_MESSAGE_ERROR_MISSING_FIELD,
+    PN_MESSAGE_ERROR_WRONG_TYPE,
+} PnMessageError;
+
+#define PN_MESSAGE_ERROR (pn_message_error_quark ())
+
+GQuark pn_message_error_quark (void);
+
 struct _PnMessageClass
 {
     GObjectClass parent_class;
@@ -60,6 +79,27 @@ struct _PnMessageClass
      * point of passing heavy values by pointer in a subclass.
      */
     void (*copy_private) (PnMessage *dst, PnMessage *src);
+
+    /**
+     * PnMessageClass::validate:
+     * @self:  the message to check
+     * @error: (out) (nullable): receives a #PN_MESSAGE_ERROR on failure
+     *
+     * Reports whether @self is properly populated for transmission on a
+     * wire.  The base implementation checks the three mandatory members
+     * of the data bag — <code>value</code> (numeric or numeric string),
+     * <code>output</code> (string) and <code>success</code> (boolean) —
+     * and raises a #PN_MESSAGE_ERROR_MISSING_FIELD or
+     * #PN_MESSAGE_ERROR_WRONG_TYPE describing the first problem found.
+     *
+     * Subclasses that add their own mandatory state (for example, a
+     * #PnImageMessage requiring a pixbuf payload) should override this
+     * hook, chain up to the parent first so the universal contract is
+     * checked, and then perform their own checks.
+     *
+     * Returns: %TRUE if the message satisfies the contract.
+     */
+    gboolean (*validate) (PnMessage *self, GError **error);
 };
 
 /**
@@ -136,6 +176,44 @@ void          pn_message_set_member     (PnMessage   *self,
 /* Borrowed pointer; %NULL when @name is not present. */
 JsonNode     *pn_message_get_member     (PnMessage   *self,
                                          const gchar *name);
+
+/**
+ * pn_message_has_member:
+ * @self: the message
+ * @name: member name to look up
+ *
+ * Returns: %TRUE when @self's data bag carries a member called @name.
+ */
+gboolean      pn_message_has_member     (PnMessage   *self,
+                                         const gchar *name);
+
+/**
+ * pn_message_validate:
+ * @self:  the message to check
+ * @error: (out) (nullable): receives a #PN_MESSAGE_ERROR on failure
+ *
+ * Convenience wrapper around the #PnMessageClass.validate vfunc.
+ * Plugin authors should call this on every message they are about to
+ * emit, typically in a debug build, to catch a forgotten
+ * <code>data.value</code> / <code>data.output</code> /
+ * <code>data.success</code> early.  See PnMessageClass::validate for
+ * the contract.
+ *
+ * Returns: %TRUE when the message is well-formed for the wire.
+ */
+gboolean      pn_message_validate       (PnMessage   *self,
+                                         GError     **error);
+
+/**
+ * pn_message_is_valid:
+ * @self: the message to check
+ *
+ * Boolean shortcut over pn_message_validate() for callers that only
+ * care about pass/fail and not the diagnostic.
+ *
+ * Returns: %TRUE when the message is well-formed for the wire.
+ */
+gboolean      pn_message_is_valid       (PnMessage   *self);
 
 /**
  * pn_message_clone:

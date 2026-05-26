@@ -26,7 +26,11 @@ node's output to another node's input.
   <li><a href="#messages">Messages and data flow</a>
     <ul>
       <li><a href="#messages-envelope">Envelope properties</a></li>
-      <li><a href="#messages-data">Standard <code>data</code>-bag members</a></li>
+      <li><a href="#messages-data">Standard <code>data</code>-bag members</a>
+        <ul>
+          <li><a href="#messages-validate">Checking the contract from a plugin</a></li>
+        </ul>
+      </li>
     </ul>
   </li>
   <li><a href="#globals">Document globals</a></li>
@@ -151,14 +155,17 @@ Every wire carries a <code>PnMessage</code>. The envelope
 properties are <code>topic</code>, <code>id</code>,
 <code>created</code>, plus a back-reference to the source node;
 the <code>data</code> bag is a JSON object the producer fills in
-with whatever payload it has to share. Both halves are nominally
-schemaless &mdash; any node may stash any keys it likes &mdash; but
-a small set of names has hardened into a de-facto contract that
-lets nodes mix and match without explicit configuration. A
-<em>Graph</em> fed from a <em>Temp</em> just works because
-both sides agree the canonical numeric reading lives at
-<code>data.value</code>; a <em>Debug Print</em> placed after a
-<em>Format</em> just works because both sides agree the
+with whatever payload it has to share. The bag is otherwise
+schemaless &mdash; any node may stash any extra keys it likes
+&mdash; but three members are <strong>mandatory</strong> on every
+message: <code>data.value</code>, <code>data.output</code> and
+<code>data.success</code> (see
+<a href="#messages-data">Standard <code>data</code>-bag members</a>
+below). This is the contract that lets nodes mix and match without
+explicit configuration. A <em>Graph</em> fed from a <em>Temp</em>
+just works because both sides agree the canonical numeric reading
+lives at <code>data.value</code>; a <em>Debug Print</em> placed
+after a <em>Format</em> just works because both sides agree the
 human-readable summary lives at <code>data.output</code>.
 </p>
 
@@ -300,31 +307,95 @@ sitting after either of them needs no reconfiguration.
 <h3 id="messages-data">Standard <code>data</code>-bag members</h3>
 
 <p>
-Three members are universal and should be the first names a new
-producer reaches for whenever the concept applies:
+Three members are <strong>mandatory</strong>: every message a node
+emits must carry <code>data.value</code>, <code>data.output</code>
+and <code>data.success</code>. They are the contract that lets
+unrelated nodes mix and match without explicit configuration
+&mdash; a <em>Graph</em>, a <em>Debug Print</em>, a <em>Format</em>
+template or a <em>Filter</em> can be wired to <em>any</em> producer
+and find what it needs. When the producer has no natural reading
+for one of them, supply a sensible stand-in rather than omitting
+the field: <code>0</code> for <code>data.value</code> on a node
+that fires purely as a trigger, the message's own descriptive text
+for <code>data.output</code>, and <code>true</code> /
+<code>false</code> for <code>data.success</code> reflecting whether
+the producing operation completed normally.
 </p>
 
 <table>
 <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
 
 <tr><td><code>data.value</code></td><td>number</td><td>
+  <strong>Mandatory.</strong>
   The headline numeric reading the message is about &mdash;
   whatever single number best summarises what the producer just
   observed. May be a JSON number, or a numeric string when the
   producer needs more range than a double provides (e.g. a
   hex-encoded JSON-RPC quantity, or an arbitrary-precision
-  integer).
+  integer). Producers that have no natural number to report should
+  emit <code>0</code> (or <code>1</code> / <code>0</code> as a
+  boolean-style flag) rather than omitting the field.
 </td></tr>
 
 <tr><td><code>data.output</code></td><td>string</td><td>
+  <strong>Mandatory.</strong>
   A short, human-readable one-line summary of the message,
   suitable for showing in a log, a notification, or on screen.
 </td></tr>
 
 <tr><td><code>data.success</code></td><td>boolean</td><td>
-  Whether the producing operation completed normally.
+  <strong>Mandatory.</strong>
+  Whether the producing operation completed normally. Nodes that
+  cannot fail (pure latches, clocks, manual sources) emit
+  <code>true</code>.
 </td></tr>
 </table>
+
+<h4 id="messages-validate">Checking the contract from a plugin</h4>
+
+<p>
+<code>PnMessage</code> exposes a virtual <em>validate</em> hook plus a
+pair of public wrappers so a plugin author can confirm an outgoing
+message satisfies the three-field contract before handing it to
+<code>pn_node_emit()</code>:
+</p>
+
+<pre>gboolean   pn_message_validate   (PnMessage  *self, GError **error);
+gboolean   pn_message_is_valid   (PnMessage  *self);
+gboolean   pn_message_has_member (PnMessage  *self, const gchar *name);</pre>
+
+<p>
+<code>pn_message_validate()</code> returns <code>TRUE</code> when
+<code>data.value</code> (number, or numeric string for over-range
+producers), <code>data.output</code> (string) and
+<code>data.success</code> (boolean) are all present and well-typed.
+On failure it raises a <code>PN_MESSAGE_ERROR</code> whose code is
+either <code>PN_MESSAGE_ERROR_MISSING_FIELD</code> or
+<code>PN_MESSAGE_ERROR_WRONG_TYPE</code> and whose message names the
+first offending field — handy to wire to a <code>g_warning()</code>
+in a debug build:
+</p>
+
+<pre>g_autoptr(GError) err = NULL;
+if (!pn_message_validate (msg, &amp;err))
+    g_warning ("%s emitted a malformed message: %s",
+               G_OBJECT_TYPE_NAME (self), err-&gt;message);
+pn_node_emit (self, msg);</pre>
+
+<p>
+<code>pn_message_is_valid()</code> is a boolean shortcut for callers
+that only care about pass/fail. <code>pn_message_has_member()</code>
+is the underlying presence check, useful when a producer wants to
+fill in a stand-in only for a field it has not already set.
+</p>
+
+<p>
+The check sits on the <code>PnMessageClass.validate</code> vfunc, so
+a subclass of <code>PnMessage</code> that adds its own mandatory
+state (for example, an image-carrying message requiring a non-NULL
+pixbuf) overrides the hook, chains up to the parent first so the
+universal contract is enforced, and then performs its own checks.
+</p>
 
 <p>
 Beyond those three, several members are conventional within a

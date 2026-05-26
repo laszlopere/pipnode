@@ -130,6 +130,103 @@ pn_message_finalize (GObject *object)
     G_OBJECT_CLASS (pn_message_parent_class)->finalize (object);
 }
 
+G_DEFINE_QUARK (pn-message-error-quark, pn_message_error)
+
+/* ------------------------------------------------------------------ */
+/*  Validation                                                         */
+/*                                                                     */
+/*  data.value / data.output / data.success are the universal three-   */
+/*  field contract every wire-bound message must carry; the base       */
+/*  implementation of the ::validate vfunc enforces it.                */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+mandatory_member (
+        JsonObject   *data,
+        const gchar  *name,
+        GError      **error)
+{
+    if (!json_object_has_member (data, name))
+    {
+        g_set_error (error,
+                     PN_MESSAGE_ERROR,
+                     PN_MESSAGE_ERROR_MISSING_FIELD,
+                     "mandatory data.%s is missing",
+                     name);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static gboolean
+member_is_number_like (JsonNode *node)
+{
+    if (json_node_get_node_type (node) == JSON_NODE_VALUE)
+    {
+        GType vt = json_node_get_value_type (node);
+
+        if (vt == G_TYPE_INT64  ||
+            vt == G_TYPE_DOUBLE)
+            return TRUE;
+
+        /* A numeric string is acceptable too — producers that need
+         * more range than a double (hex-encoded JSON-RPC quantities,
+         * arbitrary-precision integers) put the magnitude in a
+         * string and downstream nodes parse it on demand. */
+        if (vt == G_TYPE_STRING)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static gboolean
+pn_message_real_validate (
+        PnMessage  *self,
+        GError    **error)
+{
+    PnMessagePrivate *priv = pn_message_get_instance_private (self);
+    JsonObject       *data = priv->data;
+    JsonNode         *node;
+
+    if (!mandatory_member (data, "value",   error)) return FALSE;
+    if (!mandatory_member (data, "output",  error)) return FALSE;
+    if (!mandatory_member (data, "success", error)) return FALSE;
+
+    node = json_object_get_member (data, "value");
+    if (!member_is_number_like (node))
+    {
+        g_set_error (error,
+                     PN_MESSAGE_ERROR,
+                     PN_MESSAGE_ERROR_WRONG_TYPE,
+                     "data.value must be a number or numeric string");
+        return FALSE;
+    }
+
+    node = json_object_get_member (data, "output");
+    if (json_node_get_node_type (node) != JSON_NODE_VALUE ||
+        json_node_get_value_type (node) != G_TYPE_STRING)
+    {
+        g_set_error (error,
+                     PN_MESSAGE_ERROR,
+                     PN_MESSAGE_ERROR_WRONG_TYPE,
+                     "data.output must be a string");
+        return FALSE;
+    }
+
+    node = json_object_get_member (data, "success");
+    if (json_node_get_node_type (node) != JSON_NODE_VALUE ||
+        json_node_get_value_type (node) != G_TYPE_BOOLEAN)
+    {
+        g_set_error (error,
+                     PN_MESSAGE_ERROR,
+                     PN_MESSAGE_ERROR_WRONG_TYPE,
+                     "data.success must be a boolean");
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 static void
 pn_message_class_init (PnMessageClass *klass)
 {
@@ -139,6 +236,8 @@ pn_message_class_init (PnMessageClass *klass)
     object_class->set_property = pn_message_set_property;
     object_class->dispose      = pn_message_dispose;
     object_class->finalize     = pn_message_finalize;
+
+    klass->validate = pn_message_real_validate;
 
     props[PROP_ID] = g_param_spec_string (
             "id", "Id",
@@ -453,6 +552,42 @@ pn_message_get_member (
         return NULL;
 
     return json_object_get_member (priv->data, name);
+}
+
+gboolean
+pn_message_has_member (
+        PnMessage   *self,
+        const gchar *name)
+{
+    PnMessagePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_MESSAGE (self), FALSE);
+    g_return_val_if_fail (name != NULL, FALSE);
+
+    priv = pn_message_get_instance_private (self);
+    return json_object_has_member (priv->data, name);
+}
+
+gboolean
+pn_message_validate (
+        PnMessage  *self,
+        GError    **error)
+{
+    PnMessageClass *klass;
+
+    g_return_val_if_fail (PN_IS_MESSAGE (self), FALSE);
+    g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+    klass = PN_MESSAGE_GET_CLASS (self);
+    g_return_val_if_fail (klass->validate != NULL, FALSE);
+
+    return klass->validate (self, error);
+}
+
+gboolean
+pn_message_is_valid (PnMessage *self)
+{
+    return pn_message_validate (self, NULL);
 }
 
 /* ------------------------------------------------------------------ */
