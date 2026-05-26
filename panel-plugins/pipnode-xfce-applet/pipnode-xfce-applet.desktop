@@ -4,6 +4,6 @@ Encoding=UTF-8
 Name=Pipnode Panel
 Comment=Mirror a pipnode worksheet's panel widgets in the panel
 Icon=org.pipas.pipnode
-X-XFCE-Module=pipnode-deadline
+X-XFCE-Module=pipnode-xfce-applet
 X-XFCE-Internal=FALSE
 X-XFCE-API=2.0

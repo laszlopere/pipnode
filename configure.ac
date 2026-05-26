@@ -173,7 +173,7 @@ AC_CONFIG_FILES([
     tests/plugins/echo/Makefile
     tests/plugins/vaultecho/Makefile
     panel-plugins/Makefile
-    panel-plugins/pipnode-deadline/Makefile
+    panel-plugins/pipnode-xfce-applet/Makefile
 ])
 
 AC_OUTPUT

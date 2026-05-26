@@ -98,7 +98,7 @@ flatten_button (GtkWidget *button)
  * seeded with a copy of this so the user begins with a working flow
  * rather than a blank sheet.  Installed to pipnode's datadir; see
  * ensure_worksheet(). */
-#define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-deadline-default.json"
+#define PN_DEFAULT_WORKSHEET  PKGDATADIR "/pipnode-xfce-applet-default.json"
 
 /* A blank pipnode document, matching the on-disk format produced by
  * lib/pn-flow.c (PN_FLOW_FILE_VERSION 1).  Used as a fallback when the
@@ -514,7 +514,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
 
     if (!json_parser_load_from_data (parser, layout_json, -1, &error))
     {
-        g_warning ("pipnode-deadline: bad layout JSON: %s", error->message);
+        g_warning ("pipnode-xfce-applet: bad layout JSON: %s", error->message);
         g_clear_error (&error);
         g_object_unref (parser);
         return;
@@ -644,7 +644,7 @@ on_get_layout_done (GObject      *source,
     if (reply == NULL)
     {
         if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("pipnode-deadline: GetLayout failed: %s",
+            g_warning ("pipnode-xfce-applet: GetLayout failed: %s",
                        error->message);
         g_clear_error (&error);
         return;
@@ -671,7 +671,7 @@ on_run_worksheet_done (GObject      *source,
     if (reply == NULL)
     {
         if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("pipnode-deadline: RunWorksheet failed: %s",
+            g_warning ("pipnode-xfce-applet: RunWorksheet failed: %s",
                        error->message);
         g_clear_error (&error);
         return;
@@ -775,7 +775,7 @@ on_engine_ready (GObject      *source,
     if (self->engine == NULL)
     {
         if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-            g_warning ("pipnode-deadline: cannot reach the pipnode engine: %s",
+            g_warning ("pipnode-xfce-applet: cannot reach the pipnode engine: %s",
                        error->message);
         g_clear_error (&error);
         return;
@@ -940,7 +940,7 @@ on_free_data (XfcePanelPlugin  *plugin,
 }
 
 static void
-pipnode_deadline_construct (XfcePanelPlugin *plugin)
+pipnode_xfce_applet_construct (XfcePanelPlugin *plugin)
 {
     PipnodeDeadline *self;
     GError           *error = NULL;
@@ -1027,7 +1027,7 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
      * asynchronously so the panel never blocks on D-Bus. */
     if (!ensure_worksheet (self->path, &error))
     {
-        g_warning ("pipnode-deadline: could not create worksheet '%s': %s",
+        g_warning ("pipnode-xfce-applet: could not create worksheet '%s': %s",
                    self->path, error->message);
         g_clear_error (&error);
         return;
@@ -1041,4 +1041,4 @@ pipnode_deadline_construct (XfcePanelPlugin *plugin)
 }
 
 /* Generates the xfce_panel_module_* entry points the panel dlopen()s. */
-XFCE_PANEL_PLUGIN_REGISTER (pipnode_deadline_construct)
+XFCE_PANEL_PLUGIN_REGISTER (pipnode_xfce_applet_construct)

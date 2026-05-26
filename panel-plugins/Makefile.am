@@ -7,4 +7,4 @@
 # This whole subtree is only recursed into when libxfce4panel-2.0 is
 # present at configure time (see BUILD_PANEL_PLUGINS in the top-level
 # Makefile.am / configure.ac).
-SUBDIRS = pipnode-deadline
+SUBDIRS = pipnode-xfce-applet
