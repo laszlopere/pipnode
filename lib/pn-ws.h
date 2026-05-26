@@ -19,6 +19,8 @@
 #include "pn-node.h"
 #include "pn-vault.h"   /* for PnProfile */
 
+#include <libsoup/soup.h>   /* for SoupMessage, GTlsCertificate{,Flags} */
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -135,6 +137,52 @@ struct _PnWebsocketClass
      * Always main-thread.
      */
     void (*profile_resolved) (PnWebsocket *self, PnProfile *profile);
+
+    /**
+     * PnWebsocketClass::prepare_message:
+     * @self: the node instance
+     * @msg:  the #SoupMessage about to be handed to libsoup's
+     *        websocket connect, freshly created and not yet sent
+     *
+     * Invoked on the main thread between soup_message_new() and
+     * soup_session_websocket_connect_async() for every connect attempt.
+     * Subclasses use this to influence the upgrade request before it
+     * goes out: connect to #SoupMessage::accept-certificate (e.g. to
+     * honour a profile's tls_insecure permission on wss:// against a
+     * self-signed peer), replace request headers (e.g. set
+     * Authorization for HTTP Basic auth on the upgrade), or attach
+     * cookies.  Most general of the two TLS / header seams — closes
+     * both the self-signed and the upgrade-auth gaps in one place.
+     *
+     * The default implementation is a no-op.  Always main-thread.
+     */
+    void (*prepare_message) (PnWebsocket *self, SoupMessage *msg);
+
+    /**
+     * PnWebsocketClass::accept_certificate:
+     * @self:   the node instance
+     * @cert:   the peer's TLS certificate
+     * @errors: the validation errors against the system trust store
+     *
+     * Narrow seam mirroring #SoupMessage::accept-certificate.  The base
+     * class connects to that signal on every connect attempt and
+     * forwards to this vfunc — return %TRUE to accept the certificate
+     * despite @errors, %FALSE to reject (the default returns %FALSE,
+     * deferring to the system trust store).
+     *
+     * #PnWebsocketClass::prepare_message is the more general entry
+     * point and can both hook the signal itself and tweak headers;
+     * override this narrow form when only the TLS-trust decision needs
+     * customising.  Either or both may be overridden — when both are
+     * set the base class's hook (calling this vfunc) and any extra
+     * accept-certificate handler the subclass connects from
+     * prepare_message all run; a %TRUE from any one accepts the cert.
+     *
+     * Always main-thread.
+     */
+    gboolean (*accept_certificate) (PnWebsocket          *self,
+                                    GTlsCertificate      *cert,
+                                    GTlsCertificateFlags  errors);
 };
 
 PnWebsocket *pn_websocket_new (void);

@@ -12,7 +12,8 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/plugins/shell \
 	-I$(top_srcdir)/plugins/host-monitoring \
 	$(GTK_CFLAGS) \
-	$(JSON_GLIB_CFLAGS)
+	$(JSON_GLIB_CFLAGS) \
+	$(LIBSOUP_CFLAGS)
 
 # Every test exercises GTK-free core logic, so they link libpipnode-core
 # ONLY — core is self-contained since Phase 5 (no undefined gui symbols),

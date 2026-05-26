@@ -131,8 +131,22 @@ G_BEGIN_DECLS
  *       are unchanged; the bump exists so a stale plugin built against the
  *       smaller v5 #PnWebsocketClass is rebuilt rather than loaded against
  *       the grown class.
+ *   7 — appended two optional vfuncs to #PnWebsocketClass,
+ *       #prepare_message and #accept_certificate, giving subclasses a seam
+ *       to influence the SoupMessage handed to libsoup before the
+ *       handshake: prepare_message is the general form (replace headers
+ *       for Basic-auth on the upgrade, attach cookies, install an
+ *       accept-certificate handler), accept_certificate is the narrow
+ *       TLS-only form (the base class always connects to
+ *       #SoupMessage::accept-certificate and forwards to it; the default
+ *       returns %FALSE, deferring to the system trust store).  Closes the
+ *       wss:// self-signed and the upgrade-auth gaps.  Appended at the
+ *       end of the class struct so existing field offsets are unchanged;
+ *       the bump exists so a stale plugin built against the smaller v6
+ *       #PnWebsocketClass is rebuilt rather than loaded against the
+ *       grown class.
  */
-#define PN_PLUGIN_ABI_VERSION 6
+#define PN_PLUGIN_ABI_VERSION 7
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

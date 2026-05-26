@@ -117,6 +117,15 @@ static gboolean default_is_configured     (PnWebsocket *self);
 static void     default_connected         (PnWebsocket *self);
 static void     default_text_message      (PnWebsocket *self, const gchar *text);
 static void     default_profile_resolved  (PnWebsocket *self, PnProfile *profile);
+static void     default_prepare_message   (PnWebsocket *self, SoupMessage *msg);
+static gboolean default_accept_certificate (PnWebsocket          *self,
+                                            GTlsCertificate      *cert,
+                                            GTlsCertificateFlags  errors);
+
+static gboolean on_msg_accept_certificate (SoupMessage          *msg,
+                                           GTlsCertificate      *cert,
+                                           GTlsCertificateFlags  errors,
+                                           gpointer              user_data);
 
 static void start_connect    (PnWebsocket *self);
 static void schedule_retry   (PnWebsocket *self);
@@ -261,6 +270,49 @@ default_profile_resolved (
 
     g_object_set (self, "url", url != NULL ? url : "", NULL);
     g_free (url);
+}
+
+static void
+default_prepare_message (
+        PnWebsocket *self,
+        SoupMessage *msg)
+{
+    (void) self;
+    (void) msg;
+}
+
+/** Default: defer to the system trust store.  Returning %FALSE here
+ *  leaves room for any extra accept-certificate handler the subclass
+ *  installed via prepare_message — libsoup ORs the handler results, so
+ *  one TRUE anywhere accepts the cert. */
+static gboolean
+default_accept_certificate (
+        PnWebsocket          *self,
+        GTlsCertificate      *cert,
+        GTlsCertificateFlags  errors)
+{
+    (void) self;
+    (void) cert;
+    (void) errors;
+    return FALSE;
+}
+
+static gboolean
+on_msg_accept_certificate (
+        SoupMessage          *msg,
+        GTlsCertificate      *cert,
+        GTlsCertificateFlags  errors,
+        gpointer              user_data)
+{
+    PnWebsocket      *self = PN_WEBSOCKET (user_data);
+    PnWebsocketClass *klass;
+
+    (void) msg;
+
+    klass = PN_WEBSOCKET_GET_CLASS (self);
+    if (klass->accept_certificate != NULL)
+        return klass->accept_certificate (self, cert, errors);
+    return FALSE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -556,6 +608,7 @@ static void
 start_connect (PnWebsocket *self)
 {
     PnWebsocketPrivate *priv = pn_websocket_get_instance_private (self);
+    PnWebsocketClass   *klass;
     SoupMessage        *msg;
 
     if (priv->disposing)
@@ -580,6 +633,23 @@ start_connect (PnWebsocket *self)
         schedule_retry (self);
         return;
     }
+
+    /* TLS / upgrade-header seams.  Hook accept-certificate
+     * unconditionally so the narrow accept_certificate vfunc has a
+     * place to be called from; the default impl returns FALSE so a
+     * subclass that overrides nothing still gets system-trust-store
+     * behaviour.  Then invoke the broader prepare_message vfunc so a
+     * subclass can replace headers, attach cookies, or install its
+     * own additional accept-certificate handler in one place.  Self
+     * is alive across the handshake via the ref handed to
+     * on_connect_done as user_data, so a plain g_signal_connect is
+     * safe here. */
+    g_signal_connect (msg, "accept-certificate",
+                      G_CALLBACK (on_msg_accept_certificate), self);
+
+    klass = PN_WEBSOCKET_GET_CLASS (self);
+    if (klass->prepare_message != NULL)
+        klass->prepare_message (self, msg);
 
     priv->connecting = TRUE;
 
@@ -834,10 +904,12 @@ pn_websocket_class_init (PnWebsocketClass *klass)
     klass->normal_icon  = PN_WS_NORMAL_ICON;
     klass->normal_color = PN_WS_DEFAULT_COLOR;
 
-    klass->is_configured    = default_is_configured;
-    klass->connected        = default_connected;
-    klass->text_message     = default_text_message;
-    klass->profile_resolved = default_profile_resolved;
+    klass->is_configured     = default_is_configured;
+    klass->connected         = default_connected;
+    klass->text_message      = default_text_message;
+    klass->profile_resolved  = default_profile_resolved;
+    klass->prepare_message   = default_prepare_message;
+    klass->accept_certificate = default_accept_certificate;
 
     /* Stable palette glyph regardless of instance state. */
     node_class->palette_icon = PN_WS_NORMAL_ICON;
