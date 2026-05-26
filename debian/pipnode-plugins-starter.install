@@ -1,0 +1,7 @@
+usr/lib/*/pipnode/plugins/pipnode_network.so
+usr/lib/*/pipnode/plugins/pipnode_image.so
+usr/lib/*/pipnode/plugins/pipnode_tasmota.so
+usr/lib/*/pipnode/plugins/pipnode_host_monitoring.so
+usr/lib/*/pipnode/plugins/pipnode_shell.so
+usr/lib/*/pipnode/plugins/pipnode_sound_effects.so
+usr/lib/*/pipnode/plugins/pipnode_ollama.so

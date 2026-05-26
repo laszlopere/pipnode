@@ -1,0 +1,8 @@
+usr/bin/pipnode-editor
+usr/share/applications/org.pipas.pipnode.desktop
+usr/share/dbus-1/services/org.pipas.pipnode.service
+usr/share/icons/hicolor
+usr/share/metainfo/org.pipas.pipnode.metainfo.xml
+usr/share/pipnode/help
+usr/share/pipnode/examples
+usr/share/pipnode/icons

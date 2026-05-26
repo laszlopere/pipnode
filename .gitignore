@@ -69,6 +69,26 @@ tests/__pycache__/
 /repo/
 /*.flatpak
 
+# Debian packaging build artifacts (debian/ source files are tracked;
+# everything dh* writes into debian/ on a build is not).
+/debian/.debhelper/
+/debian/autoreconf.*
+/debian/debhelper-build-stamp
+/debian/files
+/debian/tmp/
+/debian/*.debhelper
+/debian/*.debhelper.log
+/debian/*.substvars
+/debian/libpipnode-core0/
+/debian/libpipnode-gui0/
+/debian/libpipnode-dev/
+/debian/pipnode/
+/debian/pipnode-editor/
+/debian/pipnode-run/
+/debian/pipnode-plugins-starter/
+/debian/pipnode-plugins-starter-gui/
+/debian/xfce4-pipnode-plugin/
+
 # Editor / OS junk
 *~
 .*.swp

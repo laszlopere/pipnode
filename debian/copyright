@@ -1,0 +1,21 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: pipnode
+Upstream-Contact: Laszlo Pere <laszlopere@gmail.com>
+Source: https://github.com/laszlopere/pipnode
+
+Files: *
+Copyright: 2024-2026 Laszlo Pere <laszlopere@gmail.com>
+License: GPL-3+ with Pipnode Plugin Exception
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License as published by the Free Software
+ Foundation, either version 3 of the License, or (at your option) any later
+ version, with the additional permission described in LICENSE.PLUGIN-EXCEPTION.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.  The Pipnode
+ Plugin Exception is shipped in /usr/share/doc/pipnode-*/LICENSE.PLUGIN-EXCEPTION.

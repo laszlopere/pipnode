@@ -1,0 +1,3 @@
+usr/lib/*/pipnode/plugins/pipnode_shell-gui.so
+usr/lib/*/pipnode/plugins/pipnode_sound_effects-gui.so
+usr/lib/*/pipnode/plugins/pipnode_ollama-gui.so

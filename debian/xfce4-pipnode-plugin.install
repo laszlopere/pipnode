@@ -1,0 +1,3 @@
+usr/lib/*/xfce4/panel/plugins/libpipnode-xfce-applet.so
+usr/share/xfce4/panel/plugins/pipnode-xfce-applet.desktop
+usr/share/pipnode/pipnode-xfce-applet-default.json

@@ -1,0 +1,6 @@
+pipnode (0.2.0~dev1) unstable; urgency=medium
+
+  * Initial Debian packaging.
+  * Split into core/GUI/plugins/XFCE-applet/dev packages.
+
+ -- Laszlo Pere <laszlopere@gmail.com>  Tue, 26 May 2026 00:00:00 +0000

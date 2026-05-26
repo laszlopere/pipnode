@@ -1,0 +1,165 @@
+Source: pipnode
+Section: devel
+Priority: optional
+Maintainer: Laszlo Pere <laszlopere@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               libglib2.0-dev (>= 2.40),
+               libgtk-3-dev (>= 3.22),
+               libgtksourceview-4-dev (>= 4.0),
+               libjson-glib-dev (>= 1.0),
+               libsoup-3.0-dev (>= 3.0),
+               libgnutls28-dev (>= 3.0),
+               libgdk-pixbuf-2.0-dev (>= 2.36),
+               libplplot-dev (>= 5.15),
+               libmosquitto-dev,
+               libwebkit2gtk-4.1-dev,
+               libxfce4panel-2.0-dev (>= 4.14),
+               libxfce4util-dev (>= 4.14),
+               pkg-config
+Standards-Version: 4.6.2
+Homepage: https://github.com/laszlopere/pipnode
+Rules-Requires-Root: no
+
+Package: libpipnode-core0
+Architecture: any
+Multi-Arch: same
+Section: libs
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: pipnode flow engine - shared library (headless tier)
+ Pipnode is a visual node-based dataflow programming environment.
+ .
+ This package contains the GTK-free shared library implementing the flow
+ engine, message bus, node factory and all node logic. It depends only
+ on GLib, JSON-GLib, libsoup and gdk-pixbuf - no graphics toolkit - and
+ is what headless installs (pipnode-run) link against.
+
+Package: libpipnode-gui0
+Architecture: any
+Multi-Arch: same
+Section: libs
+Pre-Depends: ${misc:Pre-Depends}
+Depends: libpipnode-core0 (= ${binary:Version}),
+         ${shlibs:Depends}, ${misc:Depends}
+Description: pipnode flow engine - shared library (GUI tier)
+ Pipnode is a visual node-based dataflow programming environment.
+ .
+ This package contains the GTK-using shared library: the canvas
+ renderer, every node's cairo drawing, the settings dialogs, the help
+ browser and the panel-layout editor. It links libpipnode-core, GTK 3,
+ GtkSourceView, cairo, pango and PLplot.
+
+Package: libpipnode-dev
+Architecture: any
+Multi-Arch: same
+Section: libdevel
+Depends: libpipnode-core0 (= ${binary:Version}),
+         libpipnode-gui0 (= ${binary:Version}),
+         libglib2.0-dev,
+         libgtk-3-dev,
+         libjson-glib-dev,
+         libsoup-3.0-dev,
+         libgdk-pixbuf-2.0-dev,
+         ${misc:Depends}
+Description: pipnode flow engine - development files
+ Headers, pkg-config files and unversioned library symlinks for building
+ out-of-tree pipnode plugins or applications that embed the engine.
+ .
+ Installs pipnode-core.pc (headless tier), pipnode-gui.pc (GUI tier) and
+ pipnode.pc (compatibility alias).
+
+Package: pipnode-run
+Architecture: any
+Section: utils
+Depends: libpipnode-core0 (= ${binary:Version}),
+         ${shlibs:Depends}, ${misc:Depends}
+Suggests: pipnode-plugins-starter
+Description: pipnode worksheet runner (headless)
+ Runs a saved pipnode worksheet without a display: loads the JSON,
+ starts the flow, prints debug-node output to stdout and status to
+ stderr.
+ .
+ Designed to live under cron or systemd on a machine with no GTK
+ stack installed. Links libpipnode-core only; verify with
+ "objdump -p $(command -v pipnode-run) | grep NEEDED".
+
+Package: pipnode-editor
+Architecture: any
+Section: devel
+Depends: libpipnode-core0 (= ${binary:Version}),
+         libpipnode-gui0 (= ${binary:Version}),
+         ${shlibs:Depends}, ${misc:Depends}
+Recommends: fonts-font-awesome,
+            pipnode-plugins-starter,
+            pipnode-plugins-starter-gui
+Suggests: xfce4-pipnode-plugin
+Description: pipnode visual flow editor
+ GTK application: the visual editor where you build, run and inspect
+ dataflow worksheets. Also runs as a D-Bus service
+ (org.pipas.pipnode.Engine) so panel applets and other clients can drive
+ background worksheets.
+ .
+ Ships the HTML user manual, per-node help pages and the bundled
+ example worksheets.
+
+Package: pipnode-plugins-starter
+Architecture: any
+Section: devel
+Depends: libpipnode-core0 (= ${binary:Version}),
+         ${shlibs:Depends}, ${misc:Depends}
+Recommends: pipnode-plugins-starter-gui
+Description: pipnode bundled plugins (headless tier)
+ The starter set of node plugins shipped with pipnode:
+ .
+   * network         - HTTP, MQTT, WebSocket, HTTPS tunnel
+   * image           - image filters and pixel ops
+   * tasmota         - Tasmota power/sensor/switch nodes
+   * host-monitoring - CPU, memory, disk, network I/O readouts
+   * shell           - shell command runner, tmux monitor
+   * sound-effects   - sci-fi clip library player
+   * ollama          - local LLM client
+ .
+ Only the GTK-free logic .so files; pair with pipnode-plugins-starter-gui
+ to get the editor-side dialogs for shell, sound-effects and ollama.
+
+Package: pipnode-plugins-starter-gui
+Architecture: any
+Section: devel
+Depends: libpipnode-gui0 (= ${binary:Version}),
+         pipnode-plugins-starter (= ${binary:Version}),
+         ${shlibs:Depends}, ${misc:Depends}
+Description: pipnode bundled plugins (GUI tier)
+ Editor-side companion modules for the two-tier plugins in
+ pipnode-plugins-starter: shell, sound-effects and ollama. Each
+ companion adds the plugin's custom node-settings dialog to the
+ editor; the logic node runs fine without it on headless installs.
+
+Package: xfce4-pipnode-plugin
+Architecture: any
+Section: xfce
+Depends: pipnode-editor (= ${binary:Version}),
+         xfce4-panel,
+         ${shlibs:Depends}, ${misc:Depends}
+Description: XFCE panel applet that mirrors a pipnode worksheet
+ Adds a pipnode applet to the XFCE panel that renders the panel-band
+ widgets (LED displays, lamps, switches) of an associated worksheet
+ and forwards clicks back to it.
+ .
+ Each applet instance owns one worksheet under
+ ~/.config/pipnode/panel/. The applet is a thin D-Bus client of the
+ pipnode engine (pipnode-editor running in service mode), so a
+ worksheet crash cannot take down xfce4-panel.
+
+Package: pipnode
+Architecture: all
+Section: metapackages
+Depends: pipnode-editor,
+         pipnode-plugins-starter,
+         pipnode-plugins-starter-gui,
+         ${misc:Depends}
+Recommends: xfce4-pipnode-plugin
+Description: pipnode visual dataflow environment (metapackage)
+ Installs the visual editor and the full starter plugin set.
+ .
+ For a headless install, depend on pipnode-run plus
+ pipnode-plugins-starter instead.

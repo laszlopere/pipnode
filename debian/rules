@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		--with-webview=yes \
+		--enable-panel-plugins=yes
+
+override_dh_auto_install:
+	dh_auto_install
+	# .la files are useless on Debian and lintian complains.
+	find debian/tmp -name '*.la' -delete
+	# Static archives we don't ship.
+	find debian/tmp -name '*.a' -delete
+
+override_dh_missing:
+	dh_missing --fail-missing

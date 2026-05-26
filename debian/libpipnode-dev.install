@@ -1,0 +1,7 @@
+usr/include/pipnode/*.h
+usr/lib/*/libpipnode-core.so
+usr/lib/*/libpipnode-gui.so
+usr/lib/*/pkgconfig/pipnode-core.pc
+usr/lib/*/pkgconfig/pipnode-gui.pc
+usr/lib/*/pkgconfig/pipnode.pc
+usr/share/aclocal/pipnode-plugin.m4
