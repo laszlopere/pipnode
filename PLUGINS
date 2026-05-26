@@ -695,6 +695,27 @@ to the same plugin) does not require a per-class override.
   display has been opened.  Settings dialogs and other UI
   hooks must be guarded so they only run inside the GUI host.
 
+- *Error reporting goes through the outbound message, not
+  stdout/stderr.*  Pipnode is usually launched from the desktop
+  (a `.desktop` launcher, an XFCE panel applet, a Flatpak), so
+  the user never sees `g_warning`, `g_message`, `printf`, or
+  any other text written to stdout/stderr -- those streams are
+  attached to a journal the user does not read.  The primary
+  failure-reporting channel is the node's outgoing message:
+  set `success = FALSE` and put a one-line human-readable
+  reason in the `output` member.  A downstream Debug or Text
+  View node will then surface the message on the canvas where
+  the user is looking.  See the Weather node for an example
+  that classifies its failures (curl spawn failure, HTTP 4xx
+  with the provider's reason, rate-limit fallback, empty body,
+  non-JSON body) into specific `output` strings.  Reserve
+  `g_warning` and friends for developer diagnostics that help
+  someone running pipnode from a terminal track down a bug;
+  they are not a substitute for an emitted failure message.
+  The full message contract (`success`, `output`, `value`, the
+  standard data-bag members) is documented in the HTML user
+  manual at `data/help-index.html`.
+
 
 13. DEBUGGING A PLUGIN THAT DOES NOT LOAD
 -----------------------------------------
