@@ -60,6 +60,45 @@ pn_help_browser_load_page (
         const gchar   *page_path,
         const gchar   *anchor);
 
+/**
+ * pn_help_browser_resolve_page:
+ * @filename: a help-page filename (e.g. "PnRtc.html", "MqttBroker.html");
+ *            no directory components.
+ *
+ * Locates @filename across the host's help-page search path, in order:
+ *   1. each directory in <code>$PIPNODE_HELP_PATH</code>
+ *   2. <code>$XDG_DATA_HOME/pipnode/help/</code>
+ *   3. the in-tree <code>$SRCDIR/data/help/</code> (build tree only)
+ *   4. every <code>$SRCDIR/plugins/&lt;x&gt;/help/</code> (build tree only)
+ *   5. the system <code>$pkgdatadir/help/</code>
+ *
+ * Returns: (transfer full) (nullable): the absolute path to the first
+ *   match, or %NULL when no candidate exists.  Caller frees with
+ *   g_free().
+ */
+gchar *
+pn_help_browser_resolve_page (const gchar *filename);
+
+/**
+ * pn_help_browser_open_page:
+ * @parent: (nullable): a transient parent
+ * @filename: help-page filename, as accepted by
+ *            pn_help_browser_resolve_page()
+ * @anchor: (nullable): optional fragment id within the page
+ *
+ * Convenience wrapper that resolves @filename and, if found, opens a
+ * fresh #PnHelpBrowser anchored on @parent.  Logs a warning and is a
+ * no-op when no candidate path exists.
+ *
+ * Returns: (transfer none) (nullable): the live help browser, or
+ *   %NULL on failure.
+ */
+PnHelpBrowser *
+pn_help_browser_open_page (
+        GtkWindow   *parent,
+        const gchar *filename,
+        const gchar *anchor);
+
 G_END_DECLS
 
 #endif /* PN_HELP_BROWSER_H */

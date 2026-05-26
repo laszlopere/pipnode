@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MQTT Broker credentials &mdash; Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4>MQTT Broker credentials</h4>
+<p>
+A <em>MQTT Broker</em> profile holds the connection details every
+node that talks to an MQTT broker shares (the <em>MQTT Source</em>,
+<em>MQTT Sink</em>, Tasmota sensors and switches, &hellip;).  You
+fill the profile in once and the nodes reference it by name, so the
+same worksheet moves between machines without leaking site-specific
+addresses or passwords into the file.
+</p>
+
+<h5>Picking a broker</h5>
+<p>
+Any MQTT-3.1.1 (or 5.0) broker is fine.  The two most common choices
+on a small home setup are <a
+href="https://mosquitto.org/">Eclipse Mosquitto</a> (lightweight,
+ships in every Linux distribution) and <a
+href="https://www.emqx.io/">EMQX</a> (web dashboard, clustering).
+</p>
+
+<h6>Quick setup: Mosquitto on Linux</h6>
+<ol>
+  <li>Install the broker: <code>sudo apt install mosquitto
+      mosquitto-clients</code> (Debian / Ubuntu) or
+      <code>sudo dnf install mosquitto</code> (Fedora).</li>
+  <li>Enable the service: <code>sudo systemctl enable --now
+      mosquitto</code>.</li>
+  <li>By default Mosquitto only listens on
+      <code>127.0.0.1:1883</code> and refuses anonymous logins from
+      the network.  Edit
+      <code>/etc/mosquitto/conf.d/local.conf</code> to add:
+      <pre>listener 1883
+allow_anonymous false
+password_file /etc/mosquitto/passwd</pre></li>
+  <li>Create a user / password:
+      <code>sudo mosquitto_passwd -c /etc/mosquitto/passwd
+      <em>username</em></code>.</li>
+  <li>Restart: <code>sudo systemctl restart mosquitto</code>.</li>
+  <li>Sanity-check from the host running Pipnode:
+      <code>mosquitto_sub -h <em>broker-host</em> -u <em>username</em>
+      -P <em>password</em> -t '#' -v</code>.  You should see messages
+      flow in as other nodes publish.</li>
+</ol>
+
+<h6>TLS</h6>
+<p>
+For brokers reachable over the network it is strongly recommended to
+enable TLS.  Point Mosquitto at a certificate (Let's Encrypt, an
+internal CA, or a self-signed one) with
+<code>certfile</code> / <code>keyfile</code> / <code>cafile</code> in
+<code>/etc/mosquitto/conf.d/local.conf</code>, raise a TLS listener on
+<code>8883</code>, and use the <code>ssl://</code> URL scheme in this
+profile.
+</p>
+
+<h5>Filling in the profile</h5>
+<table>
+<tr><th>Field</th><th>What goes in it</th></tr>
+<tr><td><code>Broker&nbsp;URL</code></td><td>
+  The broker address.  Accepted forms:
+  <code>tcp://host[:port]</code> for plain MQTT (port defaults to
+  1883), <code>ssl://host[:port]</code> for TLS (default 8883), and
+  <code>ws://</code> / <code>wss://</code> for MQTT-over-WebSockets.
+</td></tr>
+<tr><td><code>Username</code></td><td>
+  The login you created with <code>mosquitto_passwd</code> (or the
+  equivalent for your broker).  Leave empty for an anonymous broker.
+</td></tr>
+<tr><td><code>Password</code></td><td>
+  The password for <code>Username</code>.  Stored in the host vault
+  (mode 0600 in your config directory); never written into a
+  worksheet file.
+</td></tr>
+<tr><td><code>Client&nbsp;ID</code></td><td>
+  Optional.  Identifies this Pipnode instance to the broker so per-
+  client retained-session state, last-will, and the broker's own
+  audit log can pick it out.  Pick something stable per machine
+  (e.g. <code>pipnode-livingroom</code>); leaving it blank causes
+  Pipnode to generate a random id on each connect.
+</td></tr>
+</table>
+
+<p>
+Once the profile is filled in, drop an <em>MQTT Source</em> or
+<em>MQTT Sink</em> onto a worksheet and pick this profile from its
+<em>Broker</em> dropdown.
+</p>
+
+</body>
+</html>

@@ -34,12 +34,14 @@ pn_network_register_profile_types (PnNodeFactory *factory)
     pn_profile_schema_field (mqtt, "username",  "Username",  PN_FIELD_STRING);
     pn_profile_schema_field (mqtt, "password",  "Password",  PN_FIELD_SECRET);
     pn_profile_schema_field (mqtt, "client-id", "Client ID", PN_FIELD_STRING);
+    pn_profile_schema_set_help_page (mqtt, "MqttBrokerProfile.html");
     pn_node_factory_register_profile_type (factory, mqtt);
 
     http = pn_profile_schema_new (PN_NETWORK_PROFILE_HTTP_BASIC,
                                   "HTTP Basic Auth");
     pn_profile_schema_field (http, "username", "Username", PN_FIELD_STRING);
     pn_profile_schema_field (http, "password", "Password", PN_FIELD_SECRET);
+    pn_profile_schema_set_help_page (http, "HttpBasicAuthProfile.html");
     pn_node_factory_register_profile_type (factory, http);
 }
 

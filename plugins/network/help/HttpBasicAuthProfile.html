@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HTTP Basic Auth credentials &mdash; Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4>HTTP Basic Auth credentials</h4>
+<p>
+An <em>HTTP Basic Auth</em> profile holds the username and password
+the <em>HTTP Request</em> node and friends present when a server
+returns an <code>HTTP 401</code> challenge with
+<code>WWW-Authenticate: Basic</code>.  RFC&nbsp;7617 Basic
+authentication encodes the credentials as
+<code>base64(username:password)</code> and sends them in the
+<code>Authorization</code> header on every request &mdash; effectively
+plain text on the wire, so this profile is only safe over HTTPS.
+</p>
+
+<h5>What you need from the server</h5>
+<p>
+The administrator of the service you are connecting to gives you
+two strings:
+</p>
+<ul>
+  <li>a <strong>username</strong> &mdash; an account on the remote
+      service, or an API-key identifier;</li>
+  <li>a <strong>password</strong> or shared secret tied to that
+      username.</li>
+</ul>
+
+<p>
+Some common sources:
+</p>
+<ul>
+  <li><strong>Self-hosted web apps</strong> (Grafana, a local Home
+      Assistant install, a router admin page): use the account you
+      created there.  Many of these expose Basic auth on a
+      <code>/api/&hellip;</code> path even when the UI uses session
+      cookies.</li>
+  <li><strong>nginx / Apache reverse proxies</strong> that protect a
+      back-end with an <code>auth_basic</code> realm: the username
+      and password are the ones in the proxy's
+      <code>.htpasswd</code> file.  Add a new entry with
+      <code>htpasswd -B /etc/nginx/.htpasswd <em>username</em></code>
+      (the <code>-B</code> picks bcrypt; reload nginx afterwards).</li>
+  <li><strong>Third-party APIs</strong> that use Basic auth as a
+      lightweight "API key + secret" scheme (Twilio, Mailgun, &hellip;):
+      the dashboard exposes the pair to copy.</li>
+</ul>
+
+<h5>Filling in the profile</h5>
+<table>
+<tr><th>Field</th><th>What goes in it</th></tr>
+<tr><td><code>Username</code></td><td>
+  The account name or API-key identifier the server expects in the
+  left-hand side of the <code>Authorization: Basic</code> header.
+</td></tr>
+<tr><td><code>Password</code></td><td>
+  The password (or API secret) for <code>Username</code>.  Stored in
+  the host vault (mode 0600 in your config directory); never written
+  into a worksheet file.
+</td></tr>
+</table>
+
+<p>
+The profile is then picked from the <em>Authentication</em> dropdown
+on the <em>HTTP Request</em> node's settings dialog.
+</p>
+
+<h5>Security note</h5>
+<p>
+Basic auth sends the credentials in clear text on every request, so
+<strong>only use it over HTTPS</strong>.  When the endpoint is
+<code>http://&hellip;</code> on a public network, prefer OAuth, a
+bearer token, or mutual TLS instead.
+</p>
+
+</body>
+</html>

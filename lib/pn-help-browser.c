@@ -472,3 +472,153 @@ pn_help_browser_load_page (
 }
 
 #endif  /* HAVE_WEBKIT */
+
+/* ================================================================== */
+/*  Help-page resolution (shared by both backends)                     */
+/*                                                                     */
+/*  Mirrors the plugin loader's search order: dev override env var,    */
+/*  per-user data dir, in-tree pages, bundled-plugin pages, and the    */
+/*  system $pkgdatadir/help/.  Lives here in lib/ rather than the      */
+/*  application so the credentials manager and the node dialog can     */
+/*  open help on their own.                                            */
+/* ================================================================== */
+
+static gchar *
+help_try_dir (const gchar *dir, const gchar *filename)
+{
+    gchar *path;
+
+    if (dir == NULL || *dir == '\0')
+        return NULL;
+
+    path = g_build_filename (dir, filename, NULL);
+    if (g_file_test (path, G_FILE_TEST_EXISTS))
+        return path;
+    g_free (path);
+    return NULL;
+}
+
+static gchar *
+help_try_in_subdirs (const gchar *plugins_root, const gchar *filename)
+{
+    GDir        *root;
+    const gchar *child;
+    gchar       *found = NULL;
+
+    if (plugins_root == NULL)
+        return NULL;
+
+    root = g_dir_open (plugins_root, 0, NULL);
+    if (root == NULL)
+        return NULL;
+
+    while ((child = g_dir_read_name (root)) != NULL)
+    {
+        gchar *help_dir = g_build_filename (plugins_root, child,
+                                            "help", NULL);
+        gchar *hit      = help_try_dir (help_dir, filename);
+        g_free (help_dir);
+        if (hit != NULL)
+        {
+            found = hit;
+            break;
+        }
+    }
+
+    g_dir_close (root);
+    return found;
+}
+
+gchar *
+pn_help_browser_resolve_page (const gchar *filename)
+{
+    const gchar *env;
+    gchar       *path;
+
+    g_return_val_if_fail (filename != NULL && *filename != '\0', NULL);
+
+    env = g_getenv ("PIPNODE_HELP_PATH");
+    if (env != NULL && *env != '\0')
+    {
+        gchar **parts = g_strsplit (env, G_SEARCHPATH_SEPARATOR_S, -1);
+        guint   i;
+
+        for (i = 0; parts[i] != NULL; i++)
+        {
+            path = help_try_dir (parts[i], filename);
+            if (path != NULL)
+            {
+                g_strfreev (parts);
+                return path;
+            }
+        }
+        g_strfreev (parts);
+    }
+
+    {
+        gchar *user_dir = g_build_filename (g_get_user_data_dir (),
+                                            "pipnode", "help", NULL);
+        path = help_try_dir (user_dir, filename);
+        g_free (user_dir);
+        if (path != NULL)
+            return path;
+    }
+
+#ifdef SRCDIR
+    {
+        gchar *src_dir = g_build_filename (SRCDIR, "data", "help", NULL);
+        path = help_try_dir (src_dir, filename);
+        g_free (src_dir);
+        if (path != NULL)
+            return path;
+    }
+
+    {
+        gchar *plugins_root = g_build_filename (SRCDIR, "plugins", NULL);
+        path = help_try_in_subdirs (plugins_root, filename);
+        g_free (plugins_root);
+        if (path != NULL)
+            return path;
+    }
+#endif
+
+#ifdef PKGDATADIR
+    {
+        gchar *sys_dir = g_build_filename (PKGDATADIR, "help", NULL);
+        path = help_try_dir (sys_dir, filename);
+        g_free (sys_dir);
+        if (path != NULL)
+            return path;
+    }
+#endif
+
+    return NULL;
+}
+
+PnHelpBrowser *
+pn_help_browser_open_page (
+        GtkWindow   *parent,
+        const gchar *filename,
+        const gchar *anchor)
+{
+    gchar         *path;
+    PnHelpBrowser *browser;
+
+    g_return_val_if_fail (filename != NULL && *filename != '\0', NULL);
+
+    path = pn_help_browser_resolve_page (filename);
+    if (path == NULL)
+    {
+        g_warning ("Help page '%s' not found on the help search path",
+                   filename);
+        return NULL;
+    }
+
+    browser = pn_help_browser_new (parent, path, anchor);
+    g_free (path);
+
+    if (browser != NULL)
+        gtk_widget_show_all (GTK_WIDGET (browser));
+
+    return browser;
+}

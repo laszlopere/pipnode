@@ -73,6 +73,8 @@ pnhelp_DATA = \
 	help/PnHttpsTunnelReceiver.html \
 	help/PnHttpsTunnelSender.html \
 	help/PnMqtt.html \
-	help/PnMqttSink.html
+	help/PnMqttSink.html \
+	help/MqttBrokerProfile.html \
+	help/HttpBasicAuthProfile.html
 
 EXTRA_DIST = $(pnhelp_DATA)

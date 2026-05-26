@@ -92,6 +92,34 @@ PnProfileSchema *pn_profile_schema_new   (const gchar *type_id,
 PnProfileSchema *pn_profile_schema_ref   (PnProfileSchema *self);
 void             pn_profile_schema_unref (PnProfileSchema *self);
 
+/**
+ * pn_profile_schema_set_help_page:
+ * @self:      a schema
+ * @help_page: filename of an HTML page that documents how the user
+ *             provisions credentials of this type — installing the
+ *             remote subsystem (Kodi, an MQTT broker, …), enabling its
+ *             API, finding the values to paste into each field, and so
+ *             on.  Same naming convention as per-node help pages: a
+ *             plain filename (e.g. <code>"KodiServer.html"</code>),
+ *             looked up by the host's help-page resolver across the
+ *             usual search path (<code>$PIPNODE_HELP_PATH</code>,
+ *             <code>$XDG_DATA_HOME/pipnode/help/</code>, the in-tree
+ *             <code>data/help/</code>, every
+ *             <code>plugins/&lt;x&gt;/help/</code>, and the system
+ *             <code>$pkgdatadir/help/</code>).  Plugin-owned pages
+ *             live under <code>plugins/&lt;plugin&gt;/help/</code> and
+ *             ship through the plugin's Makefile.am.
+ *
+ * Setting this turns on a <em>Help</em> button on the type's page of
+ * the Credentials dialog; without it the button is hidden.  Pass
+ * %NULL or "" to clear.  The string is copied.
+ */
+void             pn_profile_schema_set_help_page (PnProfileSchema *self,
+                                                  const gchar     *help_page);
+
+/* Borrowed pointer; %NULL when the plugin has not set one. */
+const gchar     *pn_profile_schema_get_help_page (PnProfileSchema *self);
+
 /* ---- builder ---------------------------------------------------- */
 
 /**

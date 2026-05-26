@@ -19,6 +19,7 @@
 
 #include "pn-credentials-dialog.h"
 
+#include "pn-help-browser.h"
 #include "pn-node-factory.h"
 #include "pn-profile-schema.h"
 #include "pn-vault.h"
@@ -55,6 +56,13 @@ enum {
     COL_PAGE_ID,
     N_COLS,
 };
+
+enum {
+    SIG_HELP_REQUESTED,
+    N_SIGNALS,
+};
+
+static guint signals[N_SIGNALS];
 
 static void rebuild_type_page (PnCredentialsDialog *self, const gchar *type_id);
 
@@ -469,11 +477,35 @@ on_add_clicked (GtkButton *button, gpointer user_data)
     rebuild_type_page (actx->self, actx->type_id);
 }
 
+typedef struct {
+    PnCredentialsDialog *self;
+    gchar               *help_page;
+} HelpBtnCtx;
+
+static void
+help_btn_ctx_free (gpointer data, GClosure *closure)
+{
+    HelpBtnCtx *ctx = data;
+    (void) closure;
+    g_free (ctx->help_page);
+    g_free (ctx);
+}
+
+static void
+on_help_clicked (GtkButton *button, gpointer user_data)
+{
+    HelpBtnCtx *ctx = user_data;
+    (void) button;
+    g_signal_emit (ctx->self, signals[SIG_HELP_REQUESTED], 0, ctx->help_page);
+}
+
 static GtkWidget *
 build_type_page (PnCredentialsDialog *self, PnProfileSchema *schema)
 {
     const gchar   *type_id = pn_profile_schema_get_type_id (schema);
+    const gchar   *help_page = pn_profile_schema_get_help_page (schema);
     GtkWidget     *box     = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget     *head_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget     *heading = gtk_label_new (
             pn_profile_schema_get_display_name (schema));
     GtkWidget     *blurb;
@@ -495,7 +527,31 @@ build_type_page (PnCredentialsDialog *self, PnProfileSchema *schema)
     gtk_label_set_attributes (GTK_LABEL (heading), attrs);
     pango_attr_list_unref (attrs);
     gtk_widget_set_halign (heading, GTK_ALIGN_START);
-    gtk_box_pack_start (GTK_BOX (box), heading, FALSE, FALSE, 0);
+    gtk_widget_set_hexpand (heading, TRUE);
+    gtk_box_pack_start (GTK_BOX (head_row), heading, TRUE, TRUE, 0);
+
+    /* Per-type Help button: visible only when the plugin registered a help
+     * page for this profile type.  Routes through the ::help-requested
+     * signal so the dialog stays ignorant of help-page paths. */
+    if (help_page != NULL)
+    {
+        GtkWidget  *help_btn = gtk_button_new_from_icon_name (
+                "help-browser-symbolic", GTK_ICON_SIZE_BUTTON);
+        HelpBtnCtx *hctx     = g_new0 (HelpBtnCtx, 1);
+
+        hctx->self      = self;
+        hctx->help_page = g_strdup (help_page);
+
+        gtk_widget_set_tooltip_text (help_btn,
+                "Show setup help for this credential type");
+        gtk_widget_set_valign (help_btn, GTK_ALIGN_CENTER);
+        g_signal_connect_data (help_btn, "clicked",
+                               G_CALLBACK (on_help_clicked), hctx,
+                               help_btn_ctx_free, 0);
+        gtk_box_pack_start (GTK_BOX (head_row), help_btn, FALSE, FALSE, 0);
+    }
+
+    gtk_box_pack_start (GTK_BOX (box), head_row, FALSE, FALSE, 0);
 
     blurb_text = g_strdup_printf (
             "Profiles of type \"%s\".  Secrets are stored in a private "
@@ -677,10 +733,47 @@ pn_credentials_dialog_dispose (GObject *object)
     G_OBJECT_CLASS (pn_credentials_dialog_parent_class)->dispose (object);
 }
 
+/* Default handler: open the help page via pn_help_browser_open_page().
+ * Connected with G_SIGNAL_RUN_LAST so a host that wants its own help
+ * routing (e.g. an embedded browser pane) can stop_emission_by_name()
+ * inside its own connector. */
+static void
+pn_credentials_dialog_real_help_requested (PnCredentialsDialog *self,
+                                           const gchar         *help_page)
+{
+    if (help_page == NULL || *help_page == '\0')
+        return;
+    pn_help_browser_open_page (GTK_WINDOW (self), help_page, NULL);
+}
+
 static void
 pn_credentials_dialog_class_init (PnCredentialsDialogClass *klass)
 {
     G_OBJECT_CLASS (klass)->dispose = pn_credentials_dialog_dispose;
+
+    /**
+     * PnCredentialsDialog::help-requested:
+     * @self: the dialog
+     * @help_page: filename of the HTML help page registered by the
+     *      plugin owning the currently visible profile type (the value
+     *      passed to pn_profile_schema_set_help_page()).
+     *
+     * Emitted when the user clicks the per-type Help button.  The
+     * default class handler resolves @help_page through the help-page
+     * search path and opens it in #PnHelpBrowser; a host that wants its
+     * own routing can connect with G_CONNECT_AFTER ahead of the default
+     * and call g_signal_stop_emission_by_name() to override.
+     */
+    signals[SIG_HELP_REQUESTED] = g_signal_new_class_handler (
+            "help-requested",
+            PN_TYPE_CREDENTIALS_DIALOG,
+            G_SIGNAL_RUN_LAST,
+            G_CALLBACK (pn_credentials_dialog_real_help_requested),
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            1,
+            G_TYPE_STRING);
 }
 
 static void

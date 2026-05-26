@@ -139,6 +139,29 @@ test_choices_force_enum (void)
 }
 
 static void
+test_help_page (void)
+{
+    PnProfileSchema *s = pn_profile_schema_new ("kodi-server", "Kodi Server");
+
+    /* Default: no help page registered. */
+    PN_CHECK (pn_profile_schema_get_help_page (s) == NULL);
+
+    pn_profile_schema_set_help_page (s, "KodiServer.html");
+    PN_CHECK_CMPSTR (pn_profile_schema_get_help_page (s), ==, "KodiServer.html");
+
+    /* %NULL and empty string both clear. */
+    pn_profile_schema_set_help_page (s, NULL);
+    PN_CHECK (pn_profile_schema_get_help_page (s) == NULL);
+
+    pn_profile_schema_set_help_page (s, "Again.html");
+    PN_CHECK_CMPSTR (pn_profile_schema_get_help_page (s), ==, "Again.html");
+    pn_profile_schema_set_help_page (s, "");
+    PN_CHECK (pn_profile_schema_get_help_page (s) == NULL);
+
+    pn_profile_schema_unref (s);
+}
+
+static void
 test_refcount (void)
 {
     PnProfileSchema *s = pn_profile_schema_new ("t", "T");
@@ -161,6 +184,7 @@ main (int argc, char **argv)
     pn_test_add ("find_field", test_find_field);
     pn_test_add ("default_value", test_default_value);
     pn_test_add ("choices_force_enum", test_choices_force_enum);
+    pn_test_add ("help_page", test_help_page);
     pn_test_add ("refcount", test_refcount);
     return pn_test_run ();
 }

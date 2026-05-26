@@ -553,6 +553,17 @@ on just that node.
 </p>
 
 <p>
+When a profile type has a <strong>Help</strong> button next to its
+heading in the credentials manager, the plugin that declared the type has
+shipped a setup guide for it: how to install the remote subsystem (set up
+the broker, enable the device's API, &hellip;) and where to find the values
+that go in each field. Plugin authors register that page through
+<code>pn_profile_schema_set_help_page()</code> on the schema; without it
+the button is hidden. The bundled <em>MQTT Broker</em> and <em>HTTP Basic
+Auth</em> types both ship one as a worked example.
+</p>
+
+<p>
 The store is a single file, <code>~/.config/pipnode/credentials.json</code>,
 created with owner-only permissions (mode 0600), separate from your
 preferences. Editing a profile takes effect immediately &mdash; a connected

@@ -37,6 +37,7 @@ struct _PnProfileSchema
     gint       ref_count;
     gchar     *type_id;
     gchar     *display_name;
+    gchar     *help_page;            /* HTML filename, owned, or NULL  */
     GPtrArray *fields;               /* of PnSchemaField*               */
 };
 
@@ -113,12 +114,31 @@ pn_profile_schema_unref (PnProfileSchema *self)
 
     g_free (self->type_id);
     g_free (self->display_name);
+    g_free (self->help_page);
     g_ptr_array_free (self->fields, TRUE);
     g_free (self);
 }
 
 G_DEFINE_BOXED_TYPE (PnProfileSchema, pn_profile_schema,
                      pn_profile_schema_ref, pn_profile_schema_unref)
+
+void
+pn_profile_schema_set_help_page (PnProfileSchema *self,
+                                 const gchar     *help_page)
+{
+    g_return_if_fail (self != NULL);
+
+    g_free (self->help_page);
+    self->help_page = (help_page != NULL && *help_page != '\0')
+                      ? g_strdup (help_page) : NULL;
+}
+
+const gchar *
+pn_profile_schema_get_help_page (PnProfileSchema *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    return self->help_page;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Builder                                                            */

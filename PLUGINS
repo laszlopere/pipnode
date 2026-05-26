@@ -1285,8 +1285,20 @@ The three pieces:
       pn_profile_schema_field (s, "api-key",  "API key",  PN_FIELD_SECRET);
       pn_profile_schema_field (s, "allow-writes",
                                "Allow writes", PN_FIELD_PERMISSION);
+      pn_profile_schema_set_help_page (s, "AcmeCloudProfile.html");
       pn_node_factory_register_profile_type (factory, s); /* takes the ref */
       ```
+
+      `pn_profile_schema_set_help_page` turns on a Help button on the
+      type's page of the credentials manager: clicking it opens
+      `AcmeCloudProfile.html` in the help browser.  This is where you
+      explain to a non-developer end user how to install the remote
+      subsystem (set up the broker, enable the device's API, &hellip;)
+      and where to find the values that go in each field — the same
+      naming convention and search path as per-node help pages: ship
+      the HTML in your plugin's `help/` directory and add it to
+      `pnhelp_DATA` in the plugin's `Makefile.am`.  Without a help page
+      the button is hidden.
 
   (b) A node *references* a profile through an ordinary string property
       tagged in `_class_init` — the property stores only the chosen
