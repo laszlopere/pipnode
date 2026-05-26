@@ -4,82 +4,42 @@
   "nodes" : [
     {
       "type" : "PnRtc",
-      "uuid" : "117a74cd-a9eb-402d-b545-04317daca06c",
+      "uuid" : "4f9c8c1e-9f3d-4af2-b1ae-9d444b6c0ffd",
       "name" : "Clock",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 220.0,
-        "y" : 100.0
+        "x" : 60.0,
+        "y" : 40.0
       },
       "properties" : {
         "period" : 1
       }
     },
     {
-      "type" : "PnDebug",
-      "uuid" : "a3ea66d7-7273-4dda-b914-fe0a6a607a75",
-      "name" : "Debug Print",
-      "worksheet" : "Worksheet",
-      "disabled" : true,
-      "position" : {
-        "x" : 580.0,
-        "y" : 100.0
-      },
-      "properties" : {
-        "target" : "Debug View",
-        "format" : "JSON"
-      }
-    },
-    {
-      "type" : "PnDeadline",
-      "uuid" : "902cf306-5a57-4f1c-9af2-30d71c788736",
-      "name" : "Release",
+      "type" : "PnDigitalClock",
+      "uuid" : "fa5dd78c-db0d-4661-a433-156b16359d0a",
+      "name" : "DigitalClock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 400.0,
-        "y" : 100.0
+        "x" : 240.0,
+        "y" : 40.0
       },
       "properties" : {
-        "target" : "2026-05-24 23:00:00",
-        "timezone" : "EDT — Eastern Daylight Time"
-      }
-    },
-    {
-      "type" : "PnCountdown",
-      "uuid" : "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca",
-      "name" : "Rick and Morty countdown",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 580.0,
-        "y" : 180.0
-      },
-      "properties" : {
-        "day-digits" : 3,
         "show-labels" : true,
-        "background-color" : "rgb(0,0,0)",
-        "segment-color" : "rgb(237,51,59)",
-        "label-color" : "rgb(255,255,255)"
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
       }
-    },
-    {
-      "type" : "PnPanelDisplay",
-      "uuid" : "8aac0388-4042-4184-a938-039f1d2e2963",
-      "name" : "Panel Display 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 585.51226806640625,
-        "y" : 39.39385986328125
-      },
-      "properties" : {      }
     },
     {
       "type" : "PnPanelInput",
-      "uuid" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
+      "uuid" : "eb49bc85-fff3-412c-a9a9-ec897b68db25",
       "name" : "Panel Input 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 40.0,
-        "y" : 240.0
+        "x" : 680.0,
+        "y" : 60.0
       },
       "properties" : {
         "value" : 1.0
@@ -87,90 +47,246 @@
     },
     {
       "type" : "PnTts",
-      "uuid" : "632826bc-9d6f-46ae-a934-c86484ce782c",
+      "uuid" : "330f9285-cb87-40b7-ac40-3f28693f2644",
       "name" : "Text to Speech 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 260.0
+        "x" : 860.0,
+        "y" : 80.0
       },
       "properties" : {
         "engine" : "piper",
-        "model" : "/home/pipas/.local/share/piper/voices/en_US-lessac-medium.onnx",
+        "model" : "/home/USER/.local/share/piper/voices/en_US-ryan-medium.onnx",
         "speed" : 1.0,
         "sink" : "",
-        "per-source-voice" : true,
+        "per-source-voice" : false,
         "max-queue" : 16
       }
     },
     {
-      "type" : "PnDebug",
-      "uuid" : "f3b68e99-4f74-4c23-9dd0-30622fb5596e",
-      "name" : "Debug Print 1",
-      "worksheet" : "Worksheet",
-      "disabled" : true,
-      "position" : {
-        "x" : 340.0,
-        "y" : 320.0
-      },
-      "properties" : {
-        "target" : "Debug View",
-        "format" : "JSON"
-      }
-    },
-    {
       "type" : "PnSound",
-      "uuid" : "f482554b-701e-4dc1-ac1c-b93eb9fa007f",
+      "uuid" : "f6a46029-50b5-4814-a7e5-d8b61339bb0d",
       "name" : "Sound 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 200.0
+        "x" : 860.0,
+        "y" : 20.0
       },
       "properties" : {
         "sound" : "message",
         "dead-period" : 0
       }
+    },
+    {
+      "type" : "PnMqtt",
+      "uuid" : "0a713818-5eb2-4c4c-ace1-368294d58ebf",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 60.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "topic" : "#",
+        "username" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "22e8bb8c-fcb0-49ac-b8ba-e1cb29e698cf",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "username" : "",
+        "client-id" : "",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "241b8791-9b6a-4dd5-bb03-51fe82371e83",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "color" : "rgb(28,113,216)",
+        "hold-ms" : 250,
+        "mode" : "Steady (level)"
+      }
+    },
+    {
+      "type" : "PnTasmotaSwitch",
+      "uuid" : "aae7631e-a7fd-49fe-ac9a-9977dbd9b00c",
+      "name" : "Tasmota Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "on" : true,
+        "switch-name" : "sonoff19",
+        "enforce-on-startup" : true
+      }
+    },
+    {
+      "type" : "PnWeather",
+      "uuid" : "b1ec7e2f-2ac2-452d-8114-4d0e92de44e5",
+      "name" : "Weather 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 680.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.open-meteo.com/v1/forecast",
+        "city" : "Pécs"
+      }
+    },
+    {
+      "type" : "PnLabel",
+      "uuid" : "0218530a-82e1-446c-8ed9-637f27a4abbe",
+      "name" : "Label 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 1100.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "lines" : 2,
+        "alignment" : "Left",
+        "text-color" : "rgb(192,191,188)",
+        "background-color" : "rgb(36,31,49)"
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "491fa908-2f1e-4b76-976c-61ae25bc561f",
+      "name" : "AutoInjector 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 680.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "period" : 1,
+        "output" : "2029-05-25\\n09:56",
+        "value" : 0.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnFormat",
+      "uuid" : "5b8ac650-05c7-4944-8996-05f077ff7f6e",
+      "name" : "Format 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 860.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "success-text" : "${data/city}\\n${data/temperature}°C",
+        "failure-text" : ""
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "cb9a7470-a751-4888-832f-38b5609906da",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 1100.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
     }
   ],
   "connections" : [
     {
-      "source_id" : "117a74cd-a9eb-402d-b545-04317daca06c",
-      "target_id" : "902cf306-5a57-4f1c-9af2-30d71c788736"
+      "source_id" : "4f9c8c1e-9f3d-4af2-b1ae-9d444b6c0ffd",
+      "target_id" : "fa5dd78c-db0d-4661-a433-156b16359d0a"
     },
     {
-      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
-      "target_id" : "a3ea66d7-7273-4dda-b914-fe0a6a607a75"
+      "source_id" : "eb49bc85-fff3-412c-a9a9-ec897b68db25",
+      "target_id" : "330f9285-cb87-40b7-ac40-3f28693f2644"
     },
     {
-      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
-      "target_id" : "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca"
+      "source_id" : "eb49bc85-fff3-412c-a9a9-ec897b68db25",
+      "target_id" : "f6a46029-50b5-4814-a7e5-d8b61339bb0d"
     },
     {
-      "source_id" : "902cf306-5a57-4f1c-9af2-30d71c788736",
-      "target_id" : "8aac0388-4042-4184-a938-039f1d2e2963"
+      "source_id" : "0a713818-5eb2-4c4c-ace1-368294d58ebf",
+      "target_id" : "aae7631e-a7fd-49fe-ac9a-9977dbd9b00c"
     },
     {
-      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
-      "target_id" : "632826bc-9d6f-46ae-a934-c86484ce782c"
+      "source_id" : "aae7631e-a7fd-49fe-ac9a-9977dbd9b00c",
+      "target_id" : "22e8bb8c-fcb0-49ac-b8ba-e1cb29e698cf"
     },
     {
-      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
-      "target_id" : "f3b68e99-4f74-4c23-9dd0-30622fb5596e"
+      "source_id" : "aae7631e-a7fd-49fe-ac9a-9977dbd9b00c",
+      "target_id" : "241b8791-9b6a-4dd5-bb03-51fe82371e83"
     },
     {
-      "source_id" : "fef421f3-ca7e-42ff-b8ac-4b666ab3bf8f",
-      "target_id" : "f482554b-701e-4dc1-ac1c-b93eb9fa007f"
+      "source_id" : "491fa908-2f1e-4b76-976c-61ae25bc561f",
+      "target_id" : "0218530a-82e1-446c-8ed9-637f27a4abbe"
+    },
+    {
+      "source_id" : "5b8ac650-05c7-4944-8996-05f077ff7f6e",
+      "target_id" : "cb9a7470-a751-4888-832f-38b5609906da"
+    },
+    {
+      "source_id" : "b1ec7e2f-2ac2-452d-8114-4d0e92de44e5",
+      "target_id" : "5b8ac650-05c7-4944-8996-05f077ff7f6e"
+    },
+    {
+      "source_id" : "5b8ac650-05c7-4944-8996-05f077ff7f6e",
+      "target_id" : "0218530a-82e1-446c-8ed9-637f27a4abbe"
     }
   ],
-  "panel_layout" : {
-    "2223241d-d00f-49f0-b7a7-9cd81f2ff4ca" : {
-      "x" : 0.0,
-      "y" : 24.0
-    }
-  },
   "sheets" : [
     "Worksheet"
   ],
-  "active_sheet" : "Worksheet"
+  "active_sheet" : "Worksheet",
+  "panel_editor_open" : true,
+  "panel_layout" : {
+    "0218530a-82e1-446c-8ed9-637f27a4abbe" : {
+      "x" : 782.0,
+      "y" : 24.0
+    },
+    "241b8791-9b6a-4dd5-bb03-51fe82371e83" : {
+      "x" : 865.0,
+      "y" : 76.0
+    },
+    "aae7631e-a7fd-49fe-ac9a-9977dbd9b00c" : {
+      "x" : 538.0,
+      "y" : 24.0
+    },
+    "fa5dd78c-db0d-4661-a433-156b16359d0a" : {
+      "x" : 616.0,
+      "y" : 24.0
+    }
+  }
 }
