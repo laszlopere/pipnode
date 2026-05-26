@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Success (PnSuccess) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSuccess">Success</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnSuccess</code>.
+</p>
+<p>
+Pass-through filter that forwards a message only when its mandatory
+<code>data.success</code> boolean is <code>true</code>. Messages whose
+<code>success</code> member is missing or not a boolean are dropped.
+</p>
+<p>
+Use this rather than a generic <em>Filter</em> with a one-rule predicate
+on the contract field when a flow needs to branch on the success bit
+alone &mdash; e.g. routing successful <em>HTTP</em> responses to one sink
+and failed ones to another, or muting an alert while everything is
+green. The dedicated counterpart is <em>Failure</em>, which forwards the
+opposite messages by the same rule. <em>Edge</em> is the related node
+that forwards only the transitions in <code>data.success</code> (one
+message per state change), rather than every successful one.
+</p>
+
+</body>
+</html>

@@ -24,6 +24,7 @@ pnhelp_DATA = \
 	help/PnEdge.html \
 	help/PnExpression.html \
 	help/PnExpression2.html \
+	help/PnFailure.html \
 	help/PnFileDrop.html \
 	help/PnFileViewer.html \
 	help/PnFilter.html \
@@ -46,6 +47,7 @@ pnhelp_DATA = \
 	help/PnSound.html \
 	help/PnStaircase.html \
 	help/PnStats.html \
+	help/PnSuccess.html \
 	help/PnSwitch.html \
 	help/PnTable.html \
 	help/PnTableModel.html \

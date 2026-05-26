@@ -63,6 +63,8 @@ libpipnode_core_la_SOURCES = \
 	pn-expression.h \
 	pn-expression2.c \
 	pn-expression2.h \
+	pn-failure.c \
+	pn-failure.h \
 	pn-file-viewer.c \
 	pn-file-viewer.h \
 	pn-filedrop.c \
@@ -129,6 +131,8 @@ libpipnode_core_la_SOURCES = \
 	pn-stats.h \
 	pn-subst.c \
 	pn-subst.h \
+	pn-success.c \
+	pn-success.h \
 	pn-switch.c \
 	pn-switch.h \
 	pn-table-model.c \
@@ -316,6 +320,7 @@ pipnode_core_headers = \
 	pn-expr-parser.h \
 	pn-expression.h \
 	pn-expression2.h \
+	pn-failure.h \
 	pn-file-viewer.h \
 	pn-filedrop.h \
 	pn-filter.h \
@@ -349,6 +354,7 @@ pipnode_core_headers = \
 	pn-staircase.h \
 	pn-stats.h \
 	pn-subst.h \
+	pn-success.h \
 	pn-switch.h \
 	pn-table-model.h \
 	pn-table.h \

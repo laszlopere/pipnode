@@ -38,6 +38,7 @@
 #include "pn-edge.h"
 #include "pn-expression.h"
 #include "pn-expression2.h"
+#include "pn-failure.h"
 #include "pn-file-viewer.h"
 #include "pn-filedrop.h"
 #include "pn-filter.h"
@@ -60,6 +61,7 @@
 #include "pn-sound.h"
 #include "pn-staircase.h"
 #include "pn-stats.h"
+#include "pn-success.h"
 #include "pn-switch.h"
 #include "pn-table.h"
 #include "pn-table-model.h"
@@ -238,6 +240,8 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_EDGE);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION2);
+    pn_node_factory_register (self, PN_TYPE_SUCCESS);
+    pn_node_factory_register (self, PN_TYPE_FAILURE);
     pn_node_factory_register (self, PN_TYPE_FILTER);
     pn_node_factory_register (self, PN_TYPE_FORMAT);
     pn_node_factory_register (self, PN_TYPE_QUERY);

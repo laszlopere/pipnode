@@ -37,6 +37,8 @@ check_PROGRAMS = \
 	test-pn-throttle \
 	test-pn-query \
 	test-pn-edge \
+	test-pn-success \
+	test-pn-failure \
 	test-pn-switch \
 	test-pn-panel-input \
 	test-pn-panel-display \
@@ -107,6 +109,8 @@ test_pn_threshold_SOURCES    = test-pn-threshold.c    pntest.c pntest.h
 test_pn_throttle_SOURCES     = test-pn-throttle.c     pntest.c pntest.h
 test_pn_query_SOURCES        = test-pn-query.c        pntest.c pntest.h
 test_pn_edge_SOURCES         = test-pn-edge.c         pntest.c pntest.h
+test_pn_success_SOURCES      = test-pn-success.c      pntest.c pntest.h
+test_pn_failure_SOURCES      = test-pn-failure.c      pntest.c pntest.h
 test_pn_switch_SOURCES       = test-pn-switch.c       pntest.c pntest.h
 test_pn_panel_input_SOURCES  = test-pn-panel-input.c  pntest.c pntest.h
 test_pn_panel_display_SOURCES = test-pn-panel-display.c pntest.c pntest.h

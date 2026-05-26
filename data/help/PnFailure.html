@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Failure (PnFailure) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFailure">Failure</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnFailure</code>.
+</p>
+<p>
+Pass-through filter that forwards a message only when its mandatory
+<code>data.success</code> boolean is <code>false</code>. Messages whose
+<code>success</code> member is missing or not a boolean are dropped.
+</p>
+<p>
+The mirror of <em>Success</em>: feed both filters from the same upstream
+to split the stream into a "good" branch and a "bad" branch without
+configuring any rules. Typical uses are alerting on a failed
+<em>Ping</em>, routing an HTTP error to a notification sink, or counting
+failures separately from successes through <em>Stats</em>.
+</p>
+
+</body>
+</html>
