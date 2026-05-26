@@ -63,12 +63,19 @@ struct _PnLed
     guint     hold_ms;
     PnLedMode mode;
 
-    /* Live state.  @lit is TRUE between the most-recent message and
-     * the hold timer firing; @off_timeout_id is the g_timeout source
-     * scheduled to turn the LED off when the hold period elapses
-     * (0 when the LED is off, or when no message has arrived yet). */
+    /* Live state.  @lit is the currently-visible flag the painter
+     * reads; in Flash it tracks "a message was received within the
+     * last hold_ms", in Steady it follows @latched_on, in Blink Slow /
+     * Fast it oscillates while @latched_on is TRUE.  @latched_on is
+     * the logical on/off carried by data.value for the three level-
+     * driven modes (unused in Flash).  @off_timeout_id is the Flash-
+     * mode self-extinguish timer; @blink_timeout_id is the Blink-mode
+     * tick that toggles @lit.  Only one of the two is ever scheduled
+     * at a time (modes are mutually exclusive). */
     gboolean lit;
+    gboolean latched_on;
     guint    off_timeout_id;
+    guint    blink_timeout_id;
 };
 
 G_DEFINE_TYPE (PnLed, pn_led, PN_TYPE_NODE)
@@ -95,8 +102,10 @@ pn_led_mode_get_type (void)
     if (g_once_init_enter (&id))
     {
         static const GEnumValue values[] = {
-            { PN_LED_MODE_FLASH,  "PN_LED_MODE_FLASH",  "Flash"          },
-            { PN_LED_MODE_STEADY, "PN_LED_MODE_STEADY", "Steady (level)" },
+            { PN_LED_MODE_FLASH,      "PN_LED_MODE_FLASH",      "Flash"          },
+            { PN_LED_MODE_STEADY,     "PN_LED_MODE_STEADY",     "Steady (level)" },
+            { PN_LED_MODE_BLINK_SLOW, "PN_LED_MODE_BLINK_SLOW", "Blink Slow"     },
+            { PN_LED_MODE_BLINK_FAST, "PN_LED_MODE_BLINK_FAST", "Blink Fast"     },
             { 0, NULL, NULL }
         };
 
@@ -115,8 +124,14 @@ pn_led_mode_get_type (void)
 #define PN_LED_MIN_HOLD_MS     100u
 #define PN_LED_DEFAULT_HOLD_MS 250u
 
+/* Blink half-periods (one full on-off cycle is twice this).  Slow =
+ * 1 Hz, Fast = 4 Hz -- the rates real hardware indicator LEDs use
+ * for "ok / heartbeat" vs. "activity / fault" reads. */
+#define PN_LED_BLINK_SLOW_HALF_MS 500u
+#define PN_LED_BLINK_FAST_HALF_MS 125u
+
 /* ------------------------------------------------------------------ */
-/*  Off timer                                                          */
+/*  Timers                                                             */
 /* ------------------------------------------------------------------ */
 
 static gboolean
@@ -129,6 +144,70 @@ on_off_timeout (gpointer user_data)
     pn_node_request_repaint (PN_NODE (self));
 
     return G_SOURCE_REMOVE;
+}
+
+static gboolean
+on_blink_tick (gpointer user_data)
+{
+    PnLed *self = user_data;
+
+    self->lit = !self->lit;
+    pn_node_request_repaint (PN_NODE (self));
+
+    return G_SOURCE_CONTINUE;
+}
+
+/* Cancel whichever timer is running (at most one ever is). */
+static void
+cancel_timers (PnLed *self)
+{
+    if (self->off_timeout_id != 0)
+    {
+        g_source_remove (self->off_timeout_id);
+        self->off_timeout_id = 0;
+    }
+    if (self->blink_timeout_id != 0)
+    {
+        g_source_remove (self->blink_timeout_id);
+        self->blink_timeout_id = 0;
+    }
+}
+
+/* Reflect @latched_on through whichever level-driven mode is active,
+ * scheduling / cancelling the blink timer as needed.  Caller is
+ * responsible for not invoking this in Flash mode. */
+static void
+apply_latched_state (PnLed *self)
+{
+    gboolean was_lit = self->lit;
+
+    if (self->blink_timeout_id != 0)
+    {
+        g_source_remove (self->blink_timeout_id);
+        self->blink_timeout_id = 0;
+    }
+
+    if (!self->latched_on)
+    {
+        self->lit = FALSE;
+    }
+    else if (self->mode == PN_LED_MODE_STEADY)
+    {
+        self->lit = TRUE;
+    }
+    else /* Blink Slow / Blink Fast */
+    {
+        guint half = (self->mode == PN_LED_MODE_BLINK_SLOW)
+                ? PN_LED_BLINK_SLOW_HALF_MS
+                : PN_LED_BLINK_FAST_HALF_MS;
+
+        self->lit = TRUE;
+        self->blink_timeout_id =
+                g_timeout_add (half, on_blink_tick, self);
+    }
+
+    if (self->lit != was_lit)
+        pn_node_request_repaint (PN_NODE (self));
 }
 
 /* ------------------------------------------------------------------ */
@@ -163,21 +242,25 @@ pn_led_receive (PnNode *node, PnMessage *message)
     PnLed   *self    = PN_LED (node);
     gboolean was_lit = self->lit;
 
-    if (self->mode == PN_LED_MODE_STEADY)
+    if (self->mode != PN_LED_MODE_FLASH)
     {
-        gdouble value;
+        gdouble  value;
+        gboolean want_on;
 
-        /* State lamp: latch to the boolean on data.value -- on above
-         * the 0.5 midpoint, off at or below it.  A message that carries
-         * no numeric value leaves the lamp where it is; a state lamp
-         * only moves when handed a new state.  No timer is involved, so
-         * the lamp holds its level until the next value arrives.        */
+        /* Level-driven modes (Steady, Blink Slow, Blink Fast) all
+         * latch to the boolean on data.value -- on above the 0.5
+         * midpoint, off at or below it.  A message that carries no
+         * numeric value leaves the latch where it is; the lamp only
+         * moves when handed a new state.                              */
         if (!read_value (message, &value))
             return;
 
-        self->lit = (value > 0.5);
-        if (self->lit != was_lit)
-            pn_node_request_repaint (PN_NODE (self));
+        want_on = (value > 0.5);
+        if (want_on == self->latched_on)
+            return;
+
+        self->latched_on = want_on;
+        apply_latched_state (self);
         return;
     }
 
@@ -301,15 +384,13 @@ pn_led_set_property (
         self->mode = new_mode;
 
         /* Switching modes starts from a clean, dark lamp: cancel any
-         * pending flash off-timer and drop the lit state so the lamp
-         * reflects the new mode's next input rather than a stale blink
-         * left over from the other mode. */
-        if (self->off_timeout_id != 0)
-        {
-            g_source_remove (self->off_timeout_id);
-            self->off_timeout_id = 0;
-        }
-        self->lit = FALSE;
+         * pending flash off-timer or blink tick, drop the latched
+         * level, and clear the lit flag so the lamp reflects the new
+         * mode's next input rather than stale state from the previous
+         * mode. */
+        cancel_timers (self);
+        self->latched_on = FALSE;
+        self->lit        = FALSE;
 
         g_object_notify_by_pspec (object, props[PROP_MODE]);
         pn_node_request_repaint (PN_NODE (self));
@@ -329,11 +410,7 @@ pn_led_finalize (GObject *object)
 {
     PnLed *self = PN_LED (object);
 
-    if (self->off_timeout_id != 0)
-    {
-        g_source_remove (self->off_timeout_id);
-        self->off_timeout_id = 0;
-    }
+    cancel_timers (self);
 
     G_OBJECT_CLASS (pn_led_parent_class)->finalize (object);
 }
@@ -389,7 +466,10 @@ pn_led_class_init (PnLedClass *klass)
             "activity blink (the default).  Steady (level): the lamp "
             "latches to the boolean on data.value -- lit while value > "
             "0.5, dark otherwise -- so it reads as a permanent state "
-            "lamp.  The Hold (ms) period is ignored in Steady mode.",
+            "lamp.  Blink Slow / Blink Fast: same level latch as "
+            "Steady, but while on the lamp oscillates at ~1 Hz "
+            "(Slow) or ~4 Hz (Fast).  The Hold (ms) period is "
+            "ignored outside Flash mode.",
             PN_TYPE_LED_MODE, PN_LED_MODE_FLASH,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -425,8 +505,10 @@ pn_led_init (PnLed *self)
     self->color   = (PnColor){ 0.20, 0.85, 0.30, 1.0 };
     self->hold_ms = PN_LED_DEFAULT_HOLD_MS;
     self->mode    = PN_LED_MODE_FLASH;
-    self->lit            = FALSE;
-    self->off_timeout_id = 0;
+    self->lit              = FALSE;
+    self->latched_on       = FALSE;
+    self->off_timeout_id   = 0;
+    self->blink_timeout_id = 0;
 
     pn_node_set_class_name (node, "LED");
     pn_node_set_icon       (node, "\xef\x83\xab");

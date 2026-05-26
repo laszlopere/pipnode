@@ -100,10 +100,18 @@ test_mode_default_and_round_trip (void)
     g_object_get (node, "mode", &mode, NULL);
     PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_FLASH);
 
-    /* Both values round-trip through the property. */
+    /* All four values round-trip through the property. */
     g_object_set (node, "mode", PN_LED_MODE_STEADY, NULL);
     g_object_get (node, "mode", &mode, NULL);
     PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_STEADY);
+
+    g_object_set (node, "mode", PN_LED_MODE_BLINK_SLOW, NULL);
+    g_object_get (node, "mode", &mode, NULL);
+    PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_BLINK_SLOW);
+
+    g_object_set (node, "mode", PN_LED_MODE_BLINK_FAST, NULL);
+    g_object_get (node, "mode", &mode, NULL);
+    PN_CHECK_CMPINT (mode, ==, PN_LED_MODE_BLINK_FAST);
 
     g_object_set (node, "mode", PN_LED_MODE_FLASH, NULL);
     g_object_get (node, "mode", &mode, NULL);
@@ -138,14 +146,50 @@ test_steady_is_still_a_sink (void)
     g_object_unref (node);
 }
 
+static void
+test_blink_modes_are_still_sinks (void)
+{
+    /* The Blink modes share Steady's level latch but oscillate the
+     * visible flag on a timer.  They are still pure sinks: feeding
+     * data.value through them never produces a downstream message,
+     * whichever blink rate is selected. */
+    const PnLedMode modes[] = {
+        PN_LED_MODE_BLINK_SLOW,
+        PN_LED_MODE_BLINK_FAST,
+    };
+
+    for (guint i = 0; i < G_N_ELEMENTS (modes); ++i)
+    {
+        guint      emits = 0;
+        PnNode    *node  = PN_NODE (pn_led_new ());
+        PnMessage *msg   = pn_message_new (NULL, NULL);
+
+        g_object_set (node, "mode", modes[i], NULL);
+
+        g_signal_connect (node, "message",
+                          G_CALLBACK (pn_test_count_emits), &emits);
+
+        pn_message_set_double (msg, "value", 1.0);
+        pn_node_receive_message (node, msg);
+        pn_message_set_double (msg, "value", 0.0);
+        pn_node_receive_message (node, msg);
+
+        PN_CHECK_CMPINT (emits, ==, 0);
+
+        g_object_unref (msg);
+        g_object_unref (node);
+    }
+}
+
 int
 main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-led");
-    pn_test_add ("is_a_sink",              test_is_a_sink);
-    pn_test_add ("hold_ms_floor_default",  test_hold_ms_floor_and_default);
-    pn_test_add ("color_round_trips",      test_color_round_trips);
-    pn_test_add ("mode_default_round_trip", test_mode_default_and_round_trip);
-    pn_test_add ("steady_is_still_a_sink", test_steady_is_still_a_sink);
+    pn_test_add ("is_a_sink",                 test_is_a_sink);
+    pn_test_add ("hold_ms_floor_default",     test_hold_ms_floor_and_default);
+    pn_test_add ("color_round_trips",         test_color_round_trips);
+    pn_test_add ("mode_default_round_trip",   test_mode_default_and_round_trip);
+    pn_test_add ("steady_is_still_a_sink",    test_steady_is_still_a_sink);
+    pn_test_add ("blink_modes_are_sinks",     test_blink_modes_are_still_sinks);
     return pn_test_run ();
 }

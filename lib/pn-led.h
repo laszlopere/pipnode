@@ -23,16 +23,21 @@ G_BEGIN_DECLS
 /* ------------------------------------------------------------------ */
 /*  PnLedMode                                                          */
 /*                                                                     */
-/*  The two ways the lamp reacts to incoming messages:                 */
+/*  Four ways the lamp reacts to incoming messages.  FLASH is per-     */
+/*  message activity; the other three are level-driven and latch to    */
+/*  the boolean on data.value (on while value > 0.5, off otherwise):   */
 /*                                                                     */
-/*    - FLASH:  every message lights the LED for the configured hold   */
-/*              period, a momentary activity blink.  This is the       */
-/*              historical behaviour and the default.                  */
-/*    - STEADY: the LED latches to the boolean carried on data.value   */
-/*              (on while value > 0.5, off otherwise), so it reads as  */
-/*              a permanent state lamp.  The hold period is irrelevant */
-/*              here -- the lamp follows the value, it never            */
-/*              self-extinguishes on a timer.                          */
+/*    - FLASH:      every message lights the LED for the configured    */
+/*                  hold period, a momentary activity blink.  This is  */
+/*                  the historical behaviour and the default.          */
+/*    - STEADY:     latches to data.value as a permanent state lamp.   */
+/*    - BLINK_SLOW: while data.value is on the LED blinks at ~1 Hz     */
+/*                  (500 ms on / 500 ms off); off otherwise.           */
+/*    - BLINK_FAST: while data.value is on the LED blinks at ~4 Hz     */
+/*                  (125 ms on / 125 ms off); off otherwise.           */
+/*                                                                     */
+/*  The hold period only governs FLASH; it is ignored in the other     */
+/*  modes (which run from the value, not a self-extinguish timer).     */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_LED_MODE (pn_led_mode_get_type ())
@@ -41,6 +46,8 @@ typedef enum
 {
     PN_LED_MODE_FLASH,
     PN_LED_MODE_STEADY,
+    PN_LED_MODE_BLINK_SLOW,
+    PN_LED_MODE_BLINK_FAST,
 } PnLedMode;
 
 GType pn_led_mode_get_type (void) G_GNUC_CONST;
@@ -53,8 +60,10 @@ GType pn_led_mode_get_type (void) G_GNUC_CONST;
 /*  In Flash mode every incoming message lights the LED in its         */
 /*  configured colour and resets the off timer, so the LED stays on    */
 /*  until the configured hold period elapses with no further messages. */
-/*  In Steady mode the LED instead latches to the boolean on           */
-/*  data.value and the hold period is ignored.                         */
+/*  In Steady, Blink Slow and Blink Fast modes the LED instead latches */
+/*  to the boolean on data.value: Steady holds the level, Blink Slow   */
+/*  oscillates at ~1 Hz while on, Blink Fast at ~4 Hz.  The hold       */
+/*  period is ignored outside Flash.                                   */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_LED (pn_led_get_type ())

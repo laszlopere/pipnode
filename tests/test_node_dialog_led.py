@@ -51,8 +51,10 @@ WS_IFACE    = "org.pipas.pipnode.Worksheet"
 EXPECTED_TABS = ["Class", "Node", "Led"]
 
 # PnLedMode enum nicks (lib/pn-led.c).
-MODE_FLASH  = "Flash"
-MODE_STEADY = "Steady (level)"
+MODE_FLASH      = "Flash"
+MODE_STEADY     = "Steady (level)"
+MODE_BLINK_SLOW = "Blink Slow"
+MODE_BLINK_FAST = "Blink Fast"
 
 
 def fail(msg: str) -> None:
@@ -175,8 +177,22 @@ def run_test() -> None:
             fail("hold-ms should be re-enabled after switching back to Flash")
         say("after mode=Flash: hold-ms sensitive again")
 
+        # Blink Slow / Blink Fast share Steady's level-driven semantics
+        # -- the hold-ms field is meaningless there too, so the same
+        # enable_when_eq("mode", "Flash") rule should grey it out.
+        for nick in (MODE_BLINK_SLOW, MODE_BLINK_FAST):
+            set_mode(bus, nick)
+            if hold_sensitive(bus):
+                fail(f"hold-ms should be greyed out at mode={nick}")
+            say(f"after mode={nick}: hold-ms greyed out")
+
+        set_mode(bus, MODE_FLASH)
+        if not hold_sensitive(bus):
+            fail("hold-ms should be re-enabled after a Blink->Flash switch")
+
         print("PASS: PnLed hold-ms sensitivity tracks mode via the schema "
-              "enable-when, and the dialog shows Class | Node | Led.")
+              "enable-when across Flash / Steady / Blink Slow / Blink Fast, "
+              "and the dialog shows Class | Node | Led.")
     finally:
         proc.terminate()
         try:
