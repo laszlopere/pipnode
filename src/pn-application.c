@@ -30,6 +30,7 @@
 #include "pn-digital-clock.h"
 #include "pn-label.h"
 #include "pn-led.h"
+#include "pn-matrix57.h"
 #include "pn-switch.h"
 #include "pn-color.h"
 #include "pn-panel-geometry.h"
@@ -1362,6 +1363,7 @@ engine_is_widget_node (PnNode *node)
         || PN_IS_DIGITAL_CLOCK (node)
         || PN_IS_LABEL (node)
         || PN_IS_LED (node)
+        || PN_IS_MATRIX57 (node)
         || PN_IS_SWITCH (node);
 }
 
@@ -1511,6 +1513,27 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_set_member_name (b, "color");
         engine_add_color_array (b, &color);
         return "led";
+    }
+
+    if (PN_IS_MATRIX57 (node))
+    {
+        PnMatrix57PaintState st;
+
+        pn_matrix57_get_paint_state (PN_MATRIX57 (node), &st);
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "matrix57");
+        json_builder_set_member_name (b, "text");
+        json_builder_add_string_value (b, st.text);
+        json_builder_set_member_name (b, "cells");
+        json_builder_add_int_value (b, st.cells);
+        json_builder_set_member_name (b, "bg");
+        engine_add_color_array (b, &st.background_color);
+        json_builder_set_member_name (b, "pixel");
+        engine_add_color_array (b, &st.pixel_color);
+        json_builder_set_member_name (b, "unlit");
+        engine_add_color_array (b, &st.unlit_pixel_color);
+        return "matrix57";
     }
 
     if (PN_IS_SWITCH (node))

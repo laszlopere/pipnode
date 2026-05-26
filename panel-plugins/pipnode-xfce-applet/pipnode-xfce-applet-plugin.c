@@ -51,6 +51,7 @@
 
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
+#include "pn-matrix57-display.h"
 #include "pn-switch-widget.h"
 #include "pn-text-display.h"
 
@@ -118,7 +119,8 @@ static const gchar EMPTY_WORKSHEET[] =
 
 /* One mirrored widget: a panel-widgets drawing area plus the kind of node
  * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp,
- * 's' = Switch -> PnSwitchWidget).  The switch is the one interactive kind:
+ * 's' = Switch -> PnSwitchWidget, 'm' = Matrix57 -> PnMatrix57Display).
+ * The switch is the one interactive kind:
  * its widget is made clickable and a click is reported back to the engine
  * by the node's UUID, stashed on the widget as "pn-uuid".  The widget
  * itself is owned by the applet's @fixed; this struct only tracks the node.
@@ -345,6 +347,26 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
             pn_text_display_set_background (text, rgba[0], rgba[1],
                                            rgba[2], rgba[3]);
     }
+    else if (e->kind == 'm')
+    {
+        PnMatrix57Display *display = PN_MATRIX57_DISPLAY (e->widget);
+
+        if (json_object_has_member (state, "text"))
+            pn_matrix57_display_set_text (
+                    display, json_object_get_string_member (state, "text"));
+        if (json_object_has_member (state, "cells"))
+            pn_matrix57_display_set_cells (
+                    display, (guint) json_object_get_int_member (state, "cells"));
+        if (read_rgb (state, "bg", rgb))
+            pn_matrix57_display_set_background_color (display,
+                                                      rgb[0], rgb[1], rgb[2]);
+        if (read_rgb (state, "pixel", rgb))
+            pn_matrix57_display_set_pixel_color (display,
+                                                 rgb[0], rgb[1], rgb[2]);
+        if (read_rgb (state, "unlit", rgb))
+            pn_matrix57_display_set_unlit_pixel_color (display,
+                                                       rgb[0], rgb[1], rgb[2]);
+    }
     else
     {
         PnLedLamp *lamp = PN_LED_LAMP (e->widget);
@@ -372,6 +394,8 @@ size_widget (AppletWidget *e, gint size)
         pn_switch_widget_set_height (PN_SWITCH_WIDGET (e->widget), size);
     else if (e->kind == 't')
         pn_text_display_set_height (PN_TEXT_DISPLAY (e->widget), size);
+    else if (e->kind == 'm')
+        pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (e->widget), size);
     else
         pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
 }
@@ -382,7 +406,7 @@ size_widget (AppletWidget *e, gint size)
 static void
 apply_widget_size (PipnodeDeadline *self, AppletWidget *e)
 {
-    gint size = (e->kind == 't' && self->row_h > 0)
+    gint size = ((e->kind == 't' || e->kind == 'm') && self->row_h > 0)
                 ? self->row_h : PN_APPLET_WIDGET_SIZE (self);
     size_widget (e, size);
 }
@@ -439,6 +463,9 @@ applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
         break;
     case 't':
         e->widget = pn_text_display_new ();
+        break;
+    case 'm':
+        e->widget = pn_matrix57_display_new ();
         break;
     case 'c':
     default:
@@ -554,9 +581,10 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
                 ? json_object_get_object_member (w, "state") : NULL;
         kind_s = (state != NULL && json_object_has_member (state, "kind"))
                  ? json_object_get_string_member (state, "kind") : "";
-        kind   = (g_strcmp0 (kind_s, "led")    == 0) ? 'l'
-               : (g_strcmp0 (kind_s, "switch") == 0) ? 's'
-               : (g_strcmp0 (kind_s, "text")   == 0) ? 't'
+        kind   = (g_strcmp0 (kind_s, "led")      == 0) ? 'l'
+               : (g_strcmp0 (kind_s, "switch")   == 0) ? 's'
+               : (g_strcmp0 (kind_s, "text")     == 0) ? 't'
+               : (g_strcmp0 (kind_s, "matrix57") == 0) ? 'm'
                : 'c';
 
         g_hash_table_add (desired, (gpointer) uuid);

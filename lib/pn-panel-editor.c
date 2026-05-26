@@ -21,6 +21,7 @@
 #include "pn-panel-geometry.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
+#include "pn-matrix57-display.h"
 #include "pn-switch-widget.h"
 #include "pn-text-display.h"
 #include "pn-node.h"
@@ -29,6 +30,7 @@
 #include "pn-digital-clock.h"
 #include "pn-label.h"
 #include "pn-led.h"
+#include "pn-matrix57.h"
 #include "pn-switch.h"
 
 /* ------------------------------------------------------------------ */
@@ -231,6 +233,40 @@ static void
 on_label_repaint_needed (PnNode *node, gpointer user_data)
 {
     panel_editor_sync_label (node, PN_TEXT_DISPLAY (user_data));
+}
+
+/* Push @node's current text and styling into its readout, reading them
+ * through the Matrix57 node's GTK-free paint-state accessor. */
+static void
+panel_editor_sync_matrix57 (PnNode *node, PnMatrix57Display *display)
+{
+    PnMatrix57PaintState st;
+
+    pn_matrix57_get_paint_state (PN_MATRIX57 (node), &st);
+
+    pn_matrix57_display_set_text  (display, st.text);
+    pn_matrix57_display_set_cells (display, st.cells);
+    pn_matrix57_display_set_background_color (display,
+                                              st.background_color.red,
+                                              st.background_color.green,
+                                              st.background_color.blue);
+    pn_matrix57_display_set_pixel_color (display,
+                                         st.pixel_color.red,
+                                         st.pixel_color.green,
+                                         st.pixel_color.blue);
+    pn_matrix57_display_set_unlit_pixel_color (display,
+                                               st.unlit_pixel_color.red,
+                                               st.unlit_pixel_color.green,
+                                               st.unlit_pixel_color.blue);
+}
+
+/* repaint-needed on a Matrix57 node → refresh its readout.  @user_data is
+ * the row's #PnMatrix57Display (connected with g_signal_connect_object so
+ * it dies with the readout). */
+static void
+on_matrix57_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (user_data));
 }
 
 /* Push @node's current latch position into its toggle, reading it through
@@ -478,6 +514,22 @@ panel_editor_build_widget (PnNode *node)
                                  G_CALLBACK (on_label_repaint_needed),
                                  text, 0);
         return text;
+    }
+
+    if (PN_IS_MATRIX57 (node))
+    {
+        /* The readout draws on a transparent background (no frame), so the
+         * canvas shows through behind it just as the panel does. */
+        GtkWidget *display = pn_matrix57_display_new ();
+
+        pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (display),
+                                        PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (display));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_matrix57_repaint_needed),
+                                 display, 0);
+        return display;
     }
 
     if (PN_IS_LED (node))
