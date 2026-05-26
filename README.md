@@ -18,6 +18,9 @@ plugin system so the node catalogue can grow without forking the core.
   proprietary (see [Licensing](#licensing)).
 - A debug view, expression/format/filter nodes, gauges and meters, and
   built-in per-node HTML help.
+- Optional **Pipnode Plus** — a growing set of sponsor-only plugins
+  (Kodi media-centre control to start), $15/month on GitHub Sponsors.
+  See [Sponsorship](#sponsorship).
 
 <p>
   <img src="screenshots/temperature.png" width="32%" alt="Temperature graph">
@@ -130,8 +133,8 @@ Pipnode is **open core**:
 - **Plugins may use any license, including proprietary**, as long as they talk
   to pipnode through the documented plugin interface. The Plugin Exception
   makes this explicit — it applies to everyone, not just the project author.
-- Some **premium plugins are distributed as sponsor-only binaries** (see
-  below). The core never depends on them.
+- Some plugins — the **Pipnode Plus** set — are distributed as sponsor-only
+  GitHub repositories (see below). The core never depends on them.
 
 Contributions to the **core** require signing the
 [Contributor License Agreement](CLA.md); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
@@ -140,12 +143,21 @@ You do *not* need a CLA to publish your own plugin.
 ## Sponsorship
 
 Pipnode is free and open source, and developing it takes real time. If it is
-useful to you, please consider sponsoring the project. Higher sponsorship tiers
-get access to **premium, closed-source plugins** (for example, plugins that
-integrate with heavier backends such as MySQL/Galera). Sponsoring funds
-continued development of the open core for everyone.
+useful to you, please consider sponsoring the project on
+[**GitHub Sponsors**](https://github.com/sponsors/laszlopere). Sponsoring at
+any tier funds continued development of the open core for everyone.
 
-See the **Sponsor** button on the GitHub repository, or `.github/FUNDING.yml`.
+The **$15 / month Pipnode Plus** tier additionally unlocks access to a curated
+and growing set of private plugins — **Pipnode Plus** — built on top of the
+open core. Today that's:
+
+- **pipnode-kodi-plugin** — control your Kodi media centre from a worksheet:
+  play/pause, library search, random episode, volume, notifications, full
+  JSON-RPC pass-through.
+
+New Pipnode Plus plugins are added under the same tier without bumping the
+price. Repository invites are sent by hand within a day of your sponsorship
+starting; they're revoked when the sponsorship ends.
 
 ## Copyright
 
