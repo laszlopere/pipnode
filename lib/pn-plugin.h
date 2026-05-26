@@ -145,8 +145,21 @@ G_BEGIN_DECLS
  *       the bump exists so a stale plugin built against the smaller v6
  *       #PnWebsocketClass is rebuilt rather than loaded against the
  *       grown class.
+ *   8 — appended one optional vfunc to #PnWebsocketClass,
+ *       #connection_failed, mirroring #connected on the failure side so
+ *       subclasses can emit a `success = FALSE` #PnMessage with the
+ *       failure reason on the canvas (per PLUGINS §12 — plugins must
+ *       not rely on stdout/stderr to communicate errors to the user).
+ *       Called from all three failure sites in the base class: a
+ *       malformed URL ("invalid URL"), a handshake error (libsoup's
+ *       #GError message — DNS, refused, TLS, 4xx upgrade), and a runtime
+ *       protocol/transport error on a live link.  Appended at the end
+ *       of the class struct so existing field offsets are unchanged;
+ *       the bump exists so a stale plugin built against the smaller v7
+ *       #PnWebsocketClass is rebuilt rather than loaded against the
+ *       grown class.
  */
-#define PN_PLUGIN_ABI_VERSION 7
+#define PN_PLUGIN_ABI_VERSION 8
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

@@ -121,6 +121,10 @@ static void     default_prepare_message   (PnWebsocket *self, SoupMessage *msg);
 static gboolean default_accept_certificate (PnWebsocket          *self,
                                             GTlsCertificate      *cert,
                                             GTlsCertificateFlags  errors);
+static void     default_connection_failed  (PnWebsocket *self,
+                                            const gchar *reason);
+static void     notify_connection_failed   (PnWebsocket *self,
+                                            const gchar *reason);
 
 static gboolean on_msg_accept_certificate (SoupMessage          *msg,
                                            GTlsCertificate      *cert,
@@ -295,6 +299,41 @@ default_accept_certificate (
     (void) cert;
     (void) errors;
     return FALSE;
+}
+
+/** Default failure seam: do nothing.  The base class also g_warning()s
+ *  the same line for developer diagnostics, so this default leaves no
+ *  trace silently — it is the subclass's responsibility (per PLUGINS
+ *  §12) to override and emit a `success = FALSE` PnMessage so the
+ *  failure becomes visible on the canvas. */
+static void
+default_connection_failed (
+        PnWebsocket *self,
+        const gchar *reason)
+{
+    (void) self;
+    (void) reason;
+}
+
+/** Single entry point for every failure site to fan the same reason
+ *  out to both the developer-facing g_warning and the subclass-facing
+ *  PnWebsocketClass::connection_failed vfunc.  Keeping the two emits
+ *  side-by-side here means a new failure path picks both up just by
+ *  calling this one helper. */
+static void
+notify_connection_failed (
+        PnWebsocket *self,
+        const gchar *reason)
+{
+    PnWebsocketPrivate *priv  = pn_websocket_get_instance_private (self);
+    PnWebsocketClass   *klass = PN_WEBSOCKET_GET_CLASS (self);
+    const gchar        *text  = reason ? reason : "(unknown)";
+
+    g_warning ("pn-ws: connection failed on '%s': %s",
+               priv->url != NULL ? priv->url : "(no url)", text);
+
+    if (klass->connection_failed != NULL)
+        klass->connection_failed (self, text);
 }
 
 static gboolean
@@ -515,12 +554,10 @@ on_ws_error (
 
     /* Soup raises this for protocol/transport errors; the "closed"
      * signal follows so the actual reconnect happens in on_ws_closed.
-     * Logging the cause helps the user diagnose certificate or
-     * handshake problems. */
-    g_warning ("pn-ws: connection error on '%s': %s",
-               PN_WEBSOCKET_GET_CLASS (self)->is_configured (self)
-                   ? "" : "(unconfigured)",
-               error ? error->message : "(unknown)");
+     * Fan the cause out through notify_connection_failed so a subclass
+     * can emit a failure PnMessage (the developer-facing g_warning is
+     * issued inside the helper). */
+    notify_connection_failed (self, error ? error->message : NULL);
 }
 
 static void
@@ -562,8 +599,7 @@ on_connect_done (
             return;
         }
 
-        g_warning ("pn-ws: handshake failed: %s",
-                   error ? error->message : "(unknown)");
+        notify_connection_failed (self, error ? error->message : NULL);
         g_clear_error (&error);
 
         if (PN_WEBSOCKET_GET_CLASS (self)->is_configured (self))
@@ -629,7 +665,7 @@ start_connect (PnWebsocket *self)
     msg = soup_message_new (SOUP_METHOD_GET, priv->url);
     if (msg == NULL)
     {
-        g_warning ("pn-ws: '%s' is not a valid URL", priv->url);
+        notify_connection_failed (self, "invalid URL");
         schedule_retry (self);
         return;
     }
@@ -910,6 +946,7 @@ pn_websocket_class_init (PnWebsocketClass *klass)
     klass->profile_resolved  = default_profile_resolved;
     klass->prepare_message   = default_prepare_message;
     klass->accept_certificate = default_accept_certificate;
+    klass->connection_failed = default_connection_failed;
 
     /* Stable palette glyph regardless of instance state. */
     node_class->palette_icon = PN_WS_NORMAL_ICON;

@@ -1475,6 +1475,47 @@ The bump exists because the `profile_resolved` vfunc was appended to
 `#PnWebsocketClass`; a stale plugin built against the smaller v5 class
 must be rebuilt against v6.
 
+Reporting connection failures (ABI v8).  Per section 12, plugins must
+not rely on stdout/stderr to tell the user something went wrong --
+those streams are not visible when pipnode is launched from a desktop
+launcher.  The websocket base class therefore exposes a failure seam
+that mirrors `connected` on the error side:
+
+      static void
+      my_connection_failed (PnWebsocket *self, const gchar *reason)
+      {
+          PnMessage *msg = pn_message_new (PN_NODE (self), NULL);
+          gchar     *out = g_strdup_printf (
+                  "Connection to %s failed: %s",
+                  pn_ws_dup_url (self), reason);
+
+          pn_message_set_boolean (msg, "success", FALSE);
+          pn_message_set_string  (msg, "output",  out);
+          pn_node_emit_message   (PN_NODE (self), msg);
+
+          g_free (out);
+          /* The base class continues its automatic backoff + reconnect,
+           * so no retry scheduling here. */
+      }
+
+`connection_failed` is invoked on the main thread for every failure the
+base class can detect: a malformed URL (synthetic reason "invalid URL"),
+a handshake error (libsoup's #GError message -- DNS, refused, TLS, 4xx
+on the upgrade), and a runtime protocol/transport error on a live
+connection (also from libsoup's #GError).  The reason is always a
+non-NULL, human-readable line suitable for the `output` member of a
+failure #PnMessage.
+
+The base class also logs the same reason via `g_warning()` for
+developer diagnostics when pipnode is run from a terminal; that is
+complementary to your `success = FALSE` emit, not a substitute for it.
+The base class drives its own automatic backoff + reconnect, so an
+override does NOT need to schedule retries.
+
+The v8 bump exists because the `connection_failed` vfunc was appended
+to `#PnWebsocketClass`; a stale plugin built against the smaller v7
+class must be rebuilt against v8.
+
 
 20. REFERENCE PLUGINS IN THE TREE
 ---------------------------------

@@ -59,6 +59,17 @@ struct _TestWs
     gchar       *last_resolved_url;
     guint        resolve_calls;
     gboolean     use_override;
+
+    /* Set when the base class hands a failure reason through the
+     * connection_failed vfunc.  The malformed-URL test reads these
+     * to verify the seam reached the subclass. */
+    gchar       *last_failure_reason;
+    guint        failure_calls;
+
+    /* When TRUE, the test wants is_configured to report TRUE so the
+     * base class's connect path runs (instead of the default FALSE that
+     * the profile-binding tests need to keep the network out). */
+    gboolean     configured;
 };
 
 G_DEFINE_TYPE (TestWs, test_ws, PN_TYPE_WEBSOCKET)
@@ -95,15 +106,28 @@ test_ws_finalize (GObject *o)
     TestWs *self = TEST_WS (o);
     g_free (self->endpoint_profile);
     g_free (self->last_resolved_url);
+    g_free (self->last_failure_reason);
     G_OBJECT_CLASS (test_ws_parent_class)->finalize (o);
 }
 
-/* Force is_configured FALSE so the base never tries to open a socket. */
+/* Profile-binding tests need is_configured FALSE so the base never tries
+ * to open a socket; the connection-failure test flips this on so the
+ * base class runs through start_connect() and hits the new vfunc. */
 static gboolean
 test_ws_is_configured (PnWebsocket *self)
 {
-    (void) self;
-    return FALSE;
+    return TEST_WS (self)->configured;
+}
+
+/* Override the failure seam: record the reason the base hands us so the
+ * test can assert that the vfunc fired and what message it carried. */
+static void
+test_ws_connection_failed (PnWebsocket *base, const gchar *reason)
+{
+    TestWs *self = TEST_WS (base);
+    g_free (self->last_failure_reason);
+    self->last_failure_reason = g_strdup (reason);
+    self->failure_calls++;
 }
 
 /* Override that records the resolved profile's URL alongside (still)
@@ -145,8 +169,9 @@ test_ws_class_init (TestWsClass *klass)
     oc->set_property = test_ws_set_property;
     oc->finalize     = test_ws_finalize;
 
-    wc->is_configured    = test_ws_is_configured;
-    wc->profile_resolved = test_ws_profile_resolved;
+    wc->is_configured     = test_ws_is_configured;
+    wc->profile_resolved  = test_ws_profile_resolved;
+    wc->connection_failed = test_ws_connection_failed;
 
     test_ws_props[PROP_ENDPOINT_PROFILE] = g_param_spec_string (
             "endpoint-profile", "Endpoint profile",
@@ -161,10 +186,13 @@ test_ws_class_init (TestWsClass *klass)
 static void
 test_ws_init (TestWs *self)
 {
-    self->endpoint_profile  = g_strdup ("");
-    self->last_resolved_url = NULL;
-    self->resolve_calls     = 0;
-    self->use_override      = FALSE;
+    self->endpoint_profile     = g_strdup ("");
+    self->last_resolved_url    = NULL;
+    self->resolve_calls        = 0;
+    self->use_override         = FALSE;
+    self->last_failure_reason  = NULL;
+    self->failure_calls        = 0;
+    self->configured           = FALSE;
 
     pn_ws_bind_profile (PN_WEBSOCKET (self), "endpoint-profile");
 }
@@ -312,6 +340,41 @@ test_vault_change_resyncs (void)
 }
 
 static void
+test_connection_failed_on_malformed_url (void)
+{
+    TestWs *n;
+
+    reset_vault ();
+
+    /* Drive the base's start_connect path: opt in to is_configured and
+     * set a URL that g_uri_parse rejects (whitespace is not legal in a
+     * URI), so soup_message_new() in start_connect() returns NULL and
+     * the synchronous "invalid URL" failure path runs.  The base also
+     * logs a g_warning() for developer diagnostics; under g_test_init
+     * that would abort, so it is expected. */
+    n = g_object_new (TEST_TYPE_WS, NULL);
+    n->configured = TRUE;
+
+    /* pn-ws.c does not set G_LOG_DOMAIN, so g_warning emits under the
+     * default (NULL) domain — match that, not "GLib". */
+    g_test_expect_message (NULL, G_LOG_LEVEL_WARNING,
+                           "*pn-ws: connection failed*");
+    g_object_set (n, "url", "not a real url", NULL);
+    g_test_assert_expected_messages ();
+
+    /* The subclass-facing vfunc must have fired with the synthetic
+     * reason — that is the seam plugin authors need so they can emit a
+     * success=FALSE PnMessage on the canvas. */
+    PN_CHECK_CMPINT (n->failure_calls, ==, 1);
+    PN_CHECK_CMPSTR (n->last_failure_reason, ==, "invalid URL");
+
+    /* Flip the node off so its lingering reconnect timer doesn't fire
+     * again during teardown. */
+    n->configured = FALSE;
+    g_object_unref (n);
+}
+
+static void
 test_override_vfunc_is_called (void)
 {
     PnVault   *v;
@@ -368,6 +431,8 @@ main (int argc, char **argv)
     pn_test_add ("explicit_ref_overrides_primary", test_explicit_ref_overrides_primary);
     pn_test_add ("vault_change_resyncs",         test_vault_change_resyncs);
     pn_test_add ("override_vfunc_is_called",     test_override_vfunc_is_called);
+    pn_test_add ("connection_failed_on_malformed_url",
+                 test_connection_failed_on_malformed_url);
 
     return pn_test_run ();
 }

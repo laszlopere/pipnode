@@ -183,6 +183,35 @@ struct _PnWebsocketClass
     gboolean (*accept_certificate) (PnWebsocket          *self,
                                     GTlsCertificate      *cert,
                                     GTlsCertificateFlags  errors);
+
+    /**
+     * PnWebsocketClass::connection_failed:
+     * @self:   the node instance
+     * @reason: a non-NULL, human-readable description of what failed
+     *          (libsoup's #GError message, or a synthetic line like
+     *          "invalid URL" when no #GError exists)
+     *
+     * Invoked on the main thread whenever an attempted connection or a
+     * live connection fails: malformed #PnWebsocket:url, handshake
+     * error (DNS, refused, TLS, 4xx upgrade), or a runtime
+     * protocol/transport error on an established link.  This is the
+     * counterpart to #PnWebsocketClass::connected.
+     *
+     * Subclasses override this to emit a #PnMessage with
+     * `success = FALSE` and the reason on the `output` member so the
+     * failure becomes visible on the canvas (see PLUGINS §12 — plugins
+     * must not rely on stdout/stderr to communicate errors to the user).
+     * The base class also logs the same reason via g_warning() for
+     * developer diagnostics when pipnode is run from a terminal; that
+     * is complementary, not a substitute.
+     *
+     * The base class continues to drive its own automatic backoff +
+     * reconnect, so overrides do NOT need to schedule retries.  The
+     * default implementation is a no-op.
+     *
+     * Always main-thread.
+     */
+    void (*connection_failed) (PnWebsocket *self, const gchar *reason);
 };
 
 PnWebsocket *pn_websocket_new (void);
