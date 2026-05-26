@@ -315,22 +315,21 @@ default_connection_failed (
     (void) reason;
 }
 
-/** Single entry point for every failure site to fan the same reason
- *  out to both the developer-facing g_warning and the subclass-facing
- *  PnWebsocketClass::connection_failed vfunc.  Keeping the two emits
- *  side-by-side here means a new failure path picks both up just by
- *  calling this one helper. */
+/** Single entry point for every failure site to forward the reason to
+ *  the subclass-facing PnWebsocketClass::connection_failed vfunc.  No
+ *  base-class log: a network source that auto-reconnects will hit
+ *  failures on every DNS hiccup and peer restart, and a WARNING-level
+ *  line per retry just spams the journal.  Per PLUGINS §12 the
+ *  emitted PnMessage (built by the subclass override) is the user-
+ *  facing channel; a developer who wants to trace failures should run
+ *  the subclass that overrides this vfunc, not eyeball the journal. */
 static void
 notify_connection_failed (
         PnWebsocket *self,
         const gchar *reason)
 {
-    PnWebsocketPrivate *priv  = pn_websocket_get_instance_private (self);
-    PnWebsocketClass   *klass = PN_WEBSOCKET_GET_CLASS (self);
-    const gchar        *text  = reason ? reason : "(unknown)";
-
-    g_warning ("pn-ws: connection failed on '%s': %s",
-               priv->url != NULL ? priv->url : "(no url)", text);
+    PnWebsocketClass *klass = PN_WEBSOCKET_GET_CLASS (self);
+    const gchar      *text  = reason ? reason : "(unknown)";
 
     if (klass->connection_failed != NULL)
         klass->connection_failed (self, text);

@@ -349,18 +349,14 @@ test_connection_failed_on_malformed_url (void)
     /* Drive the base's start_connect path: opt in to is_configured and
      * set a URL that g_uri_parse rejects (whitespace is not legal in a
      * URI), so soup_message_new() in start_connect() returns NULL and
-     * the synchronous "invalid URL" failure path runs.  The base also
-     * logs a g_warning() for developer diagnostics; under g_test_init
-     * that would abort, so it is expected. */
+     * the synchronous "invalid URL" failure path runs.  The base no
+     * longer logs the failure itself — the subclass's connection_failed
+     * override is the sole channel, so this test simply asserts that
+     * the override saw the right reason. */
     n = g_object_new (TEST_TYPE_WS, NULL);
     n->configured = TRUE;
 
-    /* pn-ws.c does not set G_LOG_DOMAIN, so g_warning emits under the
-     * default (NULL) domain — match that, not "GLib". */
-    g_test_expect_message (NULL, G_LOG_LEVEL_WARNING,
-                           "*pn-ws: connection failed*");
     g_object_set (n, "url", "not a real url", NULL);
-    g_test_assert_expected_messages ();
 
     /* The subclass-facing vfunc must have fired with the synthetic
      * reason — that is the seam plugin authors need so they can emit a

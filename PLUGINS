@@ -1506,11 +1506,12 @@ connection (also from libsoup's #GError).  The reason is always a
 non-NULL, human-readable line suitable for the `output` member of a
 failure #PnMessage.
 
-The base class also logs the same reason via `g_warning()` for
-developer diagnostics when pipnode is run from a terminal; that is
-complementary to your `success = FALSE` emit, not a substitute for it.
-The base class drives its own automatic backoff + reconnect, so an
-override does NOT need to schedule retries.
+The base class does NOT log the failure itself: a network source that
+auto-reconnects forever would hit this path on every DNS hiccup or peer
+restart, and a `g_warning` per retry would spam the journal.  The
+emitted `PnMessage` from your override is the sole user-facing channel.
+The base class still drives its own automatic backoff + reconnect, so
+an override does NOT need to schedule retries.
 
 The v8 bump exists because the `connection_failed` vfunc was appended
 to `#PnWebsocketClass`; a stale plugin built against the smaller v7
