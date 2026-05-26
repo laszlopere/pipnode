@@ -30,11 +30,14 @@
  * (panel-widgets cannot include a pipnode header).  Keep them in sync: the
  * panel widget, the panel-editor preview and the worksheet node are then
  * the same readout drawn at three scales. */
-#define TD_MAX_ASPECT   6.0    /* cap: max box width / height before crop  */
 #define TD_PAD_X_RATIO  0.07   /* left/right padding / box height         */
 #define TD_PAD_Y_RATIO  0.02   /* top/bottom padding / box height         */
 #define TD_CORNER_RATIO 0.08   /* corner radius / box height              */
 #define TD_LINE_SPACING 0.78   /* Pango line-spacing factor (tight)       */
+/* Fixed widget aspect — PN_LABEL_ASPECT (206/100 = 2.06) padded 20% so the
+ * label reads with breathing room.  Width is purely a function of height so
+ * the widget never resizes when its text changes; positions stay stable. */
+#define TD_ASPECT       2.472
 
 struct _PnTextDisplay
 {
@@ -216,27 +219,9 @@ pn_text_display_get_preferred_width (GtkWidget *widget,
                                      gint      *natural)
 {
     PnTextDisplay *self = PN_TEXT_DISPLAY (widget);
-    PangoLayout   *layout;
-    const gchar   *t = (self->text != NULL && *self->text != '\0')
-                       ? self->text : " ";
-    double         pad_x = self->height * TD_PAD_X_RATIO;
-    gint           w, maxw;
-    int            pw = 0, ph = 0;
+    gint           w = (gint) (self->height * TD_ASPECT);
 
-    /* Width follows the text at its (height-derived) font, like a panel
-     * clock — wide enough to show the date, not a fixed narrow box.  Capped
-     * so a pathologically long line crops instead of stretching the panel. */
-    layout = gtk_widget_create_pango_layout (widget, t);
-    apply_font (self, layout, fill_font_px (self, widget, self->height));
-    pango_layout_set_width (layout, -1);
-    pango_layout_get_pixel_size (layout, &pw, &ph);
-    g_object_unref (layout);
-
-    w    = pw + (gint) (2.0 * pad_x);
-    maxw = (gint) (self->height * TD_MAX_ASPECT);
-    if (w > maxw) w = maxw;
-    if (w < 8)    w = 8;
-
+    if (w < 8) w = 8;
     *minimum = *natural = w;
 }
 
@@ -316,8 +301,10 @@ pn_text_display_set_text (PnTextDisplay *self, const gchar *text)
 
     g_free (self->text);
     self->text = (text != NULL && *text != '\0') ? g_strdup (text) : NULL;
-    /* Width tracks the text, so re-request rather than only redraw. */
-    gtk_widget_queue_resize (GTK_WIDGET (self));
+    /* Width is a fixed function of height, so a text change only repaints —
+     * no resize, so the widget stays at its laid-out x and neighbours don't
+     * shift when the text arrives late. */
+    gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 void
@@ -331,7 +318,7 @@ pn_text_display_set_lines (PnTextDisplay *self, gint lines)
         return;
 
     self->lines = lines;
-    gtk_widget_queue_resize (GTK_WIDGET (self));
+    gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 void
