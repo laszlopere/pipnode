@@ -38,16 +38,32 @@ typedef struct
 
 void          pn_mesh_channel_free (PnMeshChannel *channel);
 
-/* Read-only snapshot of the device state captured by the handshake. */
+/* Read-only snapshot of the device state captured by the handshake
+ * plus the get_device_metadata admin round-trip.  Strings owned by
+ * the struct; channels owned by the struct. */
 typedef struct
 {
-    guint32     my_node_num;       /* MyNodeInfo.my_node_num                 */
-    gchar      *owner_id;          /* User.id    (from the matching NodeInfo) */
-    gchar      *owner_long_name;   /* User.long_name (<=39 chars by device)  */
-    gchar      *owner_short_name;  /* User.short_name (<=4 chars by device)  */
-    guint32     owner_hw_model;    /* User.hw_model enum                     */
-    GPtrArray  *channels;          /* PnMeshChannel*, index-ordered          */
-    gboolean    config_complete;   /* TRUE iff config_complete_id was seen   */
+    /* From the handshake (MyNodeInfo + matching NodeInfo + Channels). */
+    guint32     my_node_num;
+    gchar      *owner_id;
+    gchar      *owner_long_name;   /* <=39 chars by device contract */
+    gchar      *owner_short_name;  /* <=4 chars by device contract  */
+    guint32    owner_hw_model;     /* HardwareModel enum            */
+    GPtrArray *channels;           /* PnMeshChannel*, index-ordered */
+    gboolean   config_complete;    /* config_complete_id seen       */
+
+    /* From AdminMessage.get_device_metadata_response.  Empty / 0
+     * when the request was not issued or its response did not arrive
+     * within budget; the dialog falls back to the User.hw_model field
+     * for hardware id and shows "—" for firmware. */
+    gboolean    have_metadata;
+    gchar      *firmware_version;  /* DeviceMetadata.firmware_version */
+    guint32     hw_model;          /* DeviceMetadata.hw_model         */
+    guint32     role;              /* DeviceMetadata.role             */
+    gboolean    has_wifi;
+    gboolean    has_bluetooth;
+    gboolean    has_ethernet;
+    gboolean    can_shutdown;
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -88,6 +104,35 @@ void               pn_mesh_connection_open_async (
 PnMeshConnection *pn_mesh_connection_open_finish (
         GAsyncResult        *result,
         GError             **error);
+
+/* ------------------------------------------------------------------ */
+/*  Admin protocol — Phase 3                                            */
+/* ------------------------------------------------------------------ */
+
+/* Send AdminMessage.set_owner with the given long/short names; both
+ * may be NULL/"" to leave that field unchanged (pip-mesh contract).
+ * After the write the function settles (sleep 0.5 s, per pip-mesh's
+ * post-write pattern) and re-runs a want_config_id handshake so the
+ * in-memory state reflects whatever the device now reports.  Returns
+ * %TRUE on success; on failure @error is set and the state is left
+ * untouched. */
+gboolean pn_mesh_connection_set_owner_sync (PnMeshConnection *self,
+                                            const gchar      *long_name,
+                                            const gchar      *short_name,
+                                            GError          **error);
+
+void     pn_mesh_connection_set_owner_async (
+        PnMeshConnection    *self,
+        const gchar         *long_name,
+        const gchar         *short_name,
+        GCancellable        *cancellable,
+        GAsyncReadyCallback  callback,
+        gpointer             user_data);
+
+/* %TRUE on success; on failure %FALSE with @error set.  Use this
+ * inside @callback to learn the outcome of set_owner_async. */
+gboolean pn_mesh_connection_set_owner_finish (GAsyncResult *result,
+                                              GError      **error);
 
 G_END_DECLS
 

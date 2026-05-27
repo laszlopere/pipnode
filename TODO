@@ -388,10 +388,30 @@ lives here so future sessions can pick up without re-reading chat):
                  (44 checks). Firmware version + HW model name deferred to
                  Phase 3 (needs admin protocol round-trip).
                  User-verified against real Heltec V3.
-    [ ] Phase 3  Owner-names write (smallest write path). Long/short
-                 name editable on Identity with explicit Apply; full
-                 write+settle+re-read+verify cycle. Proves the write
-                 machinery on one safe field before channels.
+    [x] Phase 3  Owner-names write (smallest write path), admin
+                 protocol primitives, DeviceMetadata read. Long/short
+                 name editable on Identity with per-field Apply
+                 (write -> 0.5s settle -> verifying handshake);
+                 Identity also shows firmware version, hardware model
+                 with friendly name (HELTEC_V3 etc.), device role,
+                 capability flags (Wi-Fi / Bluetooth / Ethernet). New
+                 admin-protocol helpers in pn-mesh-connection.c wrap
+                 MeshPacket+Data+AdminMessage so Phase 4+ can
+                 piggyback on send_admin/parse_admin_message for
+                 set_lora_config etc. HW-model + role lookup tables
+                 ported from pip-mesh inline in pn-mesh-page-identity.c.
+                 GOTCHAS rediscovered: (i) the page status callback
+                 signature is (text, user_data) -- DO NOT
+                 function-cast set_status which is (ctx, text), the
+                 args swap and crash on first emit; bridge through a
+                 small thunk. (ii) After a successful Apply, only
+                 repaint the entry whose write we just finished --
+                 the other entry may hold a mid-edit value the user
+                 has typed but not applied, and a blind repaint
+                 silently throws it away. Tracked via an "applying"
+                 enum in the page ctx; APPLY_NONE on a fresh device
+                 pick paints both, APPLY_LONG/SHORT after Apply
+                 paints just that one. User-verified.
     [ ] Phase 4  Region / LoRa page. Region picker, modem preset, hop
                  limit, tx_power, tx_enabled. One "Apply LoRa
                  settings" button. New build_set_lora_config_frame in

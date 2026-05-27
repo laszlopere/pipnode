@@ -57,17 +57,30 @@
 /* Stale-byte drain when opening (matches pip-mesh's 0.2 s). */
 #define OPEN_DRAIN_MS      200
 
+/* Post-write settle pause: pip-mesh's `sleep 0.5` after every admin
+ * write, matched here so the device has time to process the change
+ * before the verifying handshake re-reads state. */
+#define POST_WRITE_SETTLE_MS    500
+
+/* Admin-response read budget.  pip-mesh's request_device_metadata
+ * uses `timeout 5` (5 s) -- longer than the handshake's 3 s because
+ * the device sometimes needs the extra time to assemble metadata.
+ * Same here. */
+#define ADMIN_RESPONSE_TOTAL_MS 5000
+
 /* ------------------------------------------------------------------ */
 /*  Field numbers (mirror /usr/bin/pip-mesh)                            */
 /* ------------------------------------------------------------------ */
 
 /* FromRadio */
+#define FR_MESH_PACKET          2
 #define FR_MY_INFO              3
 #define FR_NODE_INFO            4
 #define FR_CONFIG_COMPLETE_ID   7
 #define FR_CHANNEL             10
 
 /* ToRadio */
+#define TR_PACKET               1
 #define TR_WANT_CONFIG_ID       3
 
 /* MyNodeInfo */
@@ -91,6 +104,33 @@
 /* ChannelSettings */
 #define CS_PSK                  2
 #define CS_NAME                 3
+
+/* MeshPacket */
+#define MP_TO                   2
+#define MP_DECODED              4
+
+/* Data */
+#define D_PORTNUM               1
+#define D_PAYLOAD               2
+#define D_WANT_RESPONSE         3
+
+/* Meshtastic PortNum enum values we care about. */
+#define PORTNUM_ADMIN_APP       6
+
+/* AdminMessage */
+#define AM_GET_DEVICE_METADATA_REQUEST   12
+#define AM_GET_DEVICE_METADATA_RESPONSE  13
+#define AM_SET_OWNER                     32
+
+/* DeviceMetadata */
+#define DM_FIRMWARE_VERSION     1
+#define DM_DEVICE_STATE_VERSION 2
+#define DM_CAN_SHUTDOWN         3
+#define DM_HAS_WIFI             4
+#define DM_HAS_BLUETOOTH        5
+#define DM_HAS_ETHERNET         6
+#define DM_ROLE                 7
+#define DM_HW_MODEL             9
 
 /* ------------------------------------------------------------------ */
 /*  Channel helper                                                      */
@@ -343,6 +383,138 @@ parse_channel (PnMeshConnection *self, const guint8 *data, gsize size)
     g_ptr_array_add (self->state.channels, ch);
 }
 
+/* Parse a DeviceMetadata embedded message into the connection state. */
+static void
+parse_device_metadata (PnMeshConnection *self,
+                       const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    /* Mark the slot as populated even on a partial parse: any field
+     * arriving is more than we had before, and the Identity page will
+     * show "—" for whatever stayed at zero. */
+    self->state.have_metadata = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case DM_FIRMWARE_VERSION:
+            g_free (self->state.firmware_version);
+            self->state.firmware_version = read_string (&r);
+            break;
+        case DM_CAN_SHUTDOWN:
+        case DM_HAS_WIFI:
+        case DM_HAS_BLUETOOTH:
+        case DM_HAS_ETHERNET:
+        case DM_ROLE:
+        case DM_HW_MODEL:
+        case DM_DEVICE_STATE_VERSION:
+        {
+            guint64 v;
+            if (!pn_mesh_pb_read_varint (&r, &v))
+                break;
+            switch (field)
+            {
+            case DM_CAN_SHUTDOWN:  self->state.can_shutdown   = v != 0; break;
+            case DM_HAS_WIFI:      self->state.has_wifi       = v != 0; break;
+            case DM_HAS_BLUETOOTH: self->state.has_bluetooth  = v != 0; break;
+            case DM_HAS_ETHERNET:  self->state.has_ethernet   = v != 0; break;
+            case DM_ROLE:          self->state.role           = (guint32) v; break;
+            case DM_HW_MODEL:      self->state.hw_model       = (guint32) v; break;
+            default: /* DM_DEVICE_STATE_VERSION: ignored */              break;
+            }
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Walk an AdminMessage payload, pulling out responses we care about. */
+static void
+parse_admin_message (PnMeshConnection *self,
+                     const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case AM_GET_DEVICE_METADATA_RESPONSE:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_device_metadata (self, p, s);
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Unwrap a MeshPacket: we only care about admin responses, which
+ * arrive as decoded(Data) with portnum=ADMIN_APP.  Other portnums
+ * (TEXT_MESSAGE_APP, NodeInfo broadcasts, etc.) are skipped silently
+ * -- Phase 7 will revisit when the test-message monitor lands. */
+static void
+parse_mesh_packet (PnMeshConnection *self,
+                   const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+    guint64        portnum = 0;
+    const guint8  *payload = NULL;
+    gsize          payload_size = 0;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        if (field == MP_DECODED && wire == PN_MESH_PB_WIRE_LEN)
+        {
+            /* Nested Data message: pull out portnum + payload. */
+            const guint8  *dp; gsize ds;
+            PnMeshPbReader dr;
+            guint32        df, dw;
+
+            if (!pn_mesh_pb_read_length (&r, &dp, &ds))
+                break;
+            pn_mesh_pb_reader_init (&dr, dp, ds);
+            while (pn_mesh_pb_read_tag (&dr, &df, &dw))
+            {
+                switch (df)
+                {
+                case D_PORTNUM:
+                    pn_mesh_pb_read_varint (&dr, &portnum);
+                    break;
+                case D_PAYLOAD:
+                    pn_mesh_pb_read_length (&dr, &payload, &payload_size);
+                    break;
+                default:
+                    pn_mesh_pb_skip_field (&dr, dw);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            pn_mesh_pb_skip_field (&r, wire);
+        }
+    }
+
+    if (portnum == PORTNUM_ADMIN_APP && payload != NULL && payload_size > 0)
+        parse_admin_message (self, payload, payload_size);
+}
+
 /* Parse one FromRadio frame.  Returns TRUE if config_complete_id was
  * seen in this frame (the caller can then stop reading early). */
 static gboolean
@@ -358,6 +530,13 @@ parse_from_radio (PnMeshConnection *self,
     {
         switch (field)
         {
+        case FR_MESH_PACKET:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_mesh_packet (self, p, s);
+            break;
+        }
         case FR_MY_INFO:
         {
             const guint8 *p; gsize s;
@@ -482,6 +661,194 @@ run_handshake (PnMeshConnection *self, GError **error)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Admin frame builders                                                */
+/* ------------------------------------------------------------------ */
+
+/* Wrap @admin_payload in Data { portnum=ADMIN_APP, payload=admin,
+ * want_response? } + MeshPacket { to=my_node_num, decoded=Data } +
+ * ToRadio { packet=MeshPacket } and write it out as a serial frame.
+ * Returns FALSE on serial write failure. */
+static gboolean
+send_admin (PnMeshConnection *self,
+            const guint8     *admin_payload,
+            gsize             admin_size,
+            gboolean          want_response,
+            GError          **error)
+{
+    PnMeshPbWriter data_w, mesh_w, toradio_w;
+    GBytes        *data_bytes;
+    GBytes        *mesh_bytes;
+    GBytes        *toradio_bytes;
+    const guint8  *data_b, *mesh_b, *toradio_b;
+    gsize          data_n,  mesh_n,  toradio_n;
+    gboolean       ok;
+
+    /* Data { portnum (1) = 6, payload (2) = admin, [want_response (3) = 1] } */
+    pn_mesh_pb_writer_init (&data_w);
+    pn_mesh_pb_write_varint_field (&data_w, D_PORTNUM, PORTNUM_ADMIN_APP);
+    pn_mesh_pb_write_bytes_field  (&data_w, D_PAYLOAD,
+                                   admin_payload, admin_size);
+    if (want_response)
+        pn_mesh_pb_write_varint_field (&data_w, D_WANT_RESPONSE, 1);
+    data_bytes = pn_mesh_pb_writer_take_bytes (&data_w);
+    pn_mesh_pb_writer_clear (&data_w);
+    data_b = g_bytes_get_data (data_bytes, &data_n);
+
+    /* MeshPacket { to (2, fixed32) = my_node_num, decoded (4) = Data } */
+    pn_mesh_pb_writer_init (&mesh_w);
+    pn_mesh_pb_write_fixed32_field  (&mesh_w, MP_TO,
+                                     self->state.my_node_num);
+    pn_mesh_pb_write_embedded_field (&mesh_w, MP_DECODED, data_b, data_n);
+    mesh_bytes = pn_mesh_pb_writer_take_bytes (&mesh_w);
+    pn_mesh_pb_writer_clear (&mesh_w);
+    g_bytes_unref (data_bytes);
+    mesh_b = g_bytes_get_data (mesh_bytes, &mesh_n);
+
+    /* ToRadio { packet (1) = MeshPacket } */
+    pn_mesh_pb_writer_init (&toradio_w);
+    pn_mesh_pb_write_embedded_field (&toradio_w, TR_PACKET, mesh_b, mesh_n);
+    toradio_bytes = pn_mesh_pb_writer_take_bytes (&toradio_w);
+    pn_mesh_pb_writer_clear (&toradio_w);
+    g_bytes_unref (mesh_bytes);
+    toradio_b = g_bytes_get_data (toradio_bytes, &toradio_n);
+
+    ok = pn_mesh_serial_write_frame (self->serial, toradio_b, toradio_n, error);
+    g_bytes_unref (toradio_bytes);
+    return ok;
+}
+
+/* Drive the serial loop for @budget_ms (or until @complete_cb returns
+ * TRUE), feeding every inbound frame to parse_from_radio.  Used both
+ * by the verify-cycle handshake and by request_metadata: the caller
+ * decides what "done" means via @stop_when_complete (the handshake
+ * stops on config_complete_id; metadata stops on have_metadata). */
+static void
+pump_frames (PnMeshConnection *self,
+             gint              budget_ms,
+             gboolean         *stop_when_seen_complete)
+{
+    gint64 start = g_get_monotonic_time ();
+
+    for (;;)
+    {
+        gint64  elapsed_ms = (g_get_monotonic_time () - start) / 1000;
+        guint8  buf[1024];
+        gssize  n;
+        GBytes *frame;
+
+        if (elapsed_ms >= budget_ms)
+            break;
+        if (stop_when_seen_complete != NULL && *stop_when_seen_complete)
+            break;
+
+        n = pn_mesh_serial_read (self->serial, buf, sizeof buf,
+                                 HANDSHAKE_POLL_MS, NULL);
+        if (n <= 0)
+            continue;
+
+        pn_mesh_frame_reader_feed (self->frames, buf, (gsize) n);
+        while ((frame = pn_mesh_frame_reader_take (self->frames)) != NULL)
+        {
+            gsize         fs;
+            const guint8 *fd = g_bytes_get_data (frame, &fs);
+            if (parse_from_radio (self, fd, fs)
+                && stop_when_seen_complete != NULL)
+                *stop_when_seen_complete = TRUE;
+            g_bytes_unref (frame);
+        }
+    }
+}
+
+/* AdminMessage { get_device_metadata_request (12, varint) = 1 } */
+static void
+request_device_metadata (PnMeshConnection *self)
+{
+    PnMeshPbWriter w;
+    GBytes        *bytes;
+    const guint8  *data;
+    gsize          size;
+
+    pn_mesh_pb_writer_init (&w);
+    pn_mesh_pb_write_varint_field (&w,
+                                   AM_GET_DEVICE_METADATA_REQUEST, 1);
+    bytes = pn_mesh_pb_writer_take_bytes (&w);
+    pn_mesh_pb_writer_clear (&w);
+    data = g_bytes_get_data (bytes, &size);
+
+    if (send_admin (self, data, size, /*want_response=*/TRUE, NULL))
+    {
+        /* Pump frames until metadata arrives or budget elapses.  Drive
+         * the loop's "complete" hook off have_metadata so we exit as
+         * soon as a DeviceMetadata response lands. */
+        pump_frames (self, ADMIN_RESPONSE_TOTAL_MS,
+                     &self->state.have_metadata);
+    }
+    g_bytes_unref (bytes);
+}
+
+/* AdminMessage { set_owner (32, embedded) = User { long_name, short_name } } */
+static gboolean
+send_set_owner (PnMeshConnection *self,
+                const gchar      *long_name,
+                const gchar      *short_name,
+                GError          **error)
+{
+    PnMeshPbWriter user_w, admin_w;
+    GBytes        *user_bytes;
+    GBytes        *admin_bytes;
+    const guint8  *user_b, *admin_b;
+    gsize          user_n,  admin_n;
+    gboolean       ok;
+
+    /* Empty string == "leave unchanged" per pip-mesh; we just omit
+     * the field in that case (proto3 default is the empty string). */
+    pn_mesh_pb_writer_init (&user_w);
+    if (long_name != NULL && *long_name != '\0')
+        pn_mesh_pb_write_string_field (&user_w, U_LONG_NAME,  long_name);
+    if (short_name != NULL && *short_name != '\0')
+        pn_mesh_pb_write_string_field (&user_w, U_SHORT_NAME, short_name);
+    user_bytes = pn_mesh_pb_writer_take_bytes (&user_w);
+    pn_mesh_pb_writer_clear (&user_w);
+    user_b = g_bytes_get_data (user_bytes, &user_n);
+
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_OWNER, user_b, user_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (user_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+/* Wipe everything the handshake learned so the re-read after a write
+ * starts from a clean slate (the device's reply is authoritative). */
+static void
+clear_state (PnMeshConnection *self)
+{
+    g_clear_pointer (&self->state.owner_id,         g_free);
+    g_clear_pointer (&self->state.owner_long_name,  g_free);
+    g_clear_pointer (&self->state.owner_short_name, g_free);
+    g_clear_pointer (&self->state.firmware_version, g_free);
+
+    self->state.my_node_num     = 0;
+    self->state.owner_hw_model  = 0;
+    self->state.config_complete = FALSE;
+    self->state.have_metadata   = FALSE;
+    self->state.hw_model        = 0;
+    self->state.role            = 0;
+    self->state.has_wifi        = FALSE;
+    self->state.has_bluetooth   = FALSE;
+    self->state.has_ethernet    = FALSE;
+    self->state.can_shutdown    = FALSE;
+
+    g_ptr_array_set_size (self->state.channels, 0);
+    g_array_set_size (self->seen_nodes, 0);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Public open/close                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -522,6 +889,13 @@ pn_mesh_connection_open_sync (const gchar *tty_path, GError **error)
         return NULL;
     }
 
+    /* Fetch DeviceMetadata for firmware version + capabilities.  Best
+     * effort: a device that doesn't answer the admin request leaves
+     * the metadata block empty rather than failing the open -- the
+     * handshake state is already useful by itself. */
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
     return self;
 }
 
@@ -538,6 +912,7 @@ pn_mesh_connection_close (PnMeshConnection *self)
     g_free (self->state.owner_id);
     g_free (self->state.owner_long_name);
     g_free (self->state.owner_short_name);
+    g_free (self->state.firmware_version);
     g_ptr_array_unref (self->state.channels);
 
     g_array_unref (self->seen_nodes);
@@ -615,4 +990,132 @@ pn_mesh_connection_open_finish (GAsyncResult *result, GError **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
     return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_owner — write + settle + verify                                 */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_mesh_connection_set_owner_sync (PnMeshConnection *self,
+                                   const gchar      *long_name,
+                                   const gchar      *short_name,
+                                   GError          **error)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    if (!send_set_owner (self, long_name, short_name, error))
+        return FALSE;
+
+    /* Settle: the device needs a beat to process the admin message
+     * before its next handshake reply will reflect the new owner.
+     * pip-mesh uses 0.5 s consistently after every write. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    /* Drain any noise the device emitted while we were waiting; the
+     * verifying handshake needs a clean start. */
+    pn_mesh_serial_drain (self->serial, 50);
+
+    /* Wipe the in-memory state so the verifying handshake's reply is
+     * authoritative; otherwise stale NodeInfo entries would shadow
+     * the freshly-written one. */
+    clear_state (self);
+
+    /* Re-handshake to pull the new owner.  Errors at this point mean
+     * the write probably succeeded but we lost contact -- return TRUE
+     * for the write itself but the state will look empty; the caller
+     * can decide how to surface that.  For now treat it as failure
+     * because the UI promises "applied" only when we have proof. */
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    /* Re-fetch metadata too: a firmware that includes the owner in
+     * metadata responses (or that bumps a counter) stays consistent. */
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_owner async wrapper                                             */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnMeshConnection *conn;
+    gchar            *long_name;
+    gchar            *short_name;
+} SetOwnerCall;
+
+static void
+set_owner_call_free (gpointer data)
+{
+    SetOwnerCall *c = data;
+    g_free (c->long_name);
+    g_free (c->short_name);
+    g_slice_free (SetOwnerCall, c);
+}
+
+static void
+set_owner_thread_func (GTask *task, gpointer source, gpointer task_data,
+                       GCancellable *cancellable)
+{
+    SetOwnerCall *c   = task_data;
+    GError       *err = NULL;
+    gboolean      ok;
+
+    (void) source;
+    (void) cancellable;   /* the read pump checks the GTask budget via
+                             return path; we honour cancellation by
+                             dropping the result, not by interrupting
+                             a write mid-frame. */
+
+    ok = pn_mesh_connection_set_owner_sync (c->conn,
+                                            c->long_name,
+                                            c->short_name,
+                                            &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_owner_async (PnMeshConnection    *self,
+                                    const gchar         *long_name,
+                                    const gchar         *short_name,
+                                    GCancellable        *cancellable,
+                                    GAsyncReadyCallback  callback,
+                                    gpointer             user_data)
+{
+    GTask        *task;
+    SetOwnerCall *c;
+
+    g_return_if_fail (self != NULL);
+
+    c = g_slice_new0 (SetOwnerCall);
+    c->conn       = self;
+    c->long_name  = g_strdup (long_name);
+    c->short_name = g_strdup (short_name);
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_owner_async);
+    g_task_set_task_data  (task, c, set_owner_call_free);
+    g_task_run_in_thread  (task, set_owner_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_owner_finish (GAsyncResult *result, GError **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
 }

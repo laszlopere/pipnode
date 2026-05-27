@@ -92,6 +92,17 @@ set_statusf (MeshDialogCtx *ctx, const gchar *fmt, ...)
     g_free (text);
 }
 
+/* Adapter for the page's status callback: the page passes its
+ * message first and the user_data second; our internal set_status
+ * takes them the other way round.  Bridging via this small thunk
+ * is cleaner than a function-pointer cast that would silently
+ * swap the arguments and crash on the first call. */
+static void
+on_page_status (const gchar *msg, gpointer user_data)
+{
+    set_status ((MeshDialogCtx *) user_data, msg);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Connection lifecycle                                                */
 /* ------------------------------------------------------------------ */
@@ -108,7 +119,7 @@ drop_connection (MeshDialogCtx *ctx)
     }
     g_clear_pointer (&ctx->connection_kind, g_free);
     g_clear_pointer (&ctx->connection_tty,  g_free);
-    pn_mesh_page_identity_set_state (ctx->identity_page, NULL, NULL, NULL);
+    pn_mesh_page_identity_set_state (ctx->identity_page, NULL, NULL, NULL, NULL);
 }
 
 static void
@@ -150,7 +161,8 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->identity_page,
             ctx->connection_kind,
             ctx->connection_tty,
-            pn_mesh_connection_get_state (conn));
+            pn_mesh_connection_get_state (conn),
+            conn);
     gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
 
     {
@@ -193,7 +205,7 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * known immediately; the rest of the fields stay as em-dashes
      * until the handshake completes. */
     pn_mesh_page_identity_set_state (ctx->identity_page,
-                                     device->kind, device->tty, NULL);
+                                     device->kind, device->tty, NULL, NULL);
     gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
 
     set_statusf (ctx, "Connecting to %s on %s…",
@@ -302,6 +314,13 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
     identity = pn_mesh_page_identity_new ();
     gtk_stack_add_named (GTK_STACK (stack), identity, "identity");
     ctx->identity_page = identity;
+
+    /* Route the page's progress lines into the dialog status bar.
+     * Use an adapter rather than casting set_status to the callback's
+     * signature -- they take their args in different orders, and the
+     * cast would swap text/ctx and crash on the first call. */
+    pn_mesh_page_identity_set_status_callback (
+            identity, on_page_status, ctx);
 
     gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
 
