@@ -159,8 +159,8 @@
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
-        "rate" : 652.17999999999995,
-        "last-update" : "2026-05-27T09:44:51.029984+02"
+        "rate" : 652.35000000000002,
+        "last-update" : "2026-05-27T09:56:32.675253+02"
       }
     },
     {
@@ -192,8 +192,8 @@
         "digits" : 6,
         "decimal-places" : 2,
         "background-color" : "rgb(10,10,13)",
-        "segment-color" : "rgb(235,31,20)",
-        "unlit-segment-color" : "rgb(38,5,3)"
+        "segment-color" : "rgb(28,113,216)",
+        "unlit-segment-color" : "rgb(4,1,82)"
       }
     }
   ],
