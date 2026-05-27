@@ -389,6 +389,9 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
         if (json_object_has_member (state, "cells"))
             pn_matrix57_display_set_cells (
                     display, (guint) json_object_get_int_member (state, "cells"));
+        if (json_object_has_member (state, "lines"))
+            pn_matrix57_display_set_lines (
+                    display, (gint) json_object_get_int_member (state, "lines"));
         if (read_rgb (state, "bg", rgb))
             pn_matrix57_display_set_background_color (display,
                                                       rgb[0], rgb[1], rgb[2]);

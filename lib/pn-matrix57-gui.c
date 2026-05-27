@@ -33,6 +33,7 @@
 
 #include <gtk/gtk.h>
 #include <math.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /*  5x7 ASCII font                                                     */
@@ -200,6 +201,90 @@ rounded_rect (cairo_t *cr, double x, double y, double w, double h, double r)
 /*  Painter                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Draw one row of @cells character cells across the LCD face.  @line is
+ * the substring for this row (already tailed to fit), bounded by @line_len
+ * — *not* assumed to be NUL-terminated, so a multi-line walker can pass a
+ * pointer into a longer "\n"-joined string. */
+static void
+paint_row (cairo_t *cr,
+           const PnMatrix57PaintState *st,
+           const gchar *line, gsize line_len,
+           guint        cells,
+           double       row_x, double row_y,
+           double       pitch, double dot)
+{
+    guint  i;
+    gsize  p = 0;
+    int    col, rrow;
+
+    /* Pass 1 — unlit dots, painted across the whole row in one fill so
+     * the off-state ghost reads as panel texture rather than blank face. */
+    cairo_set_source_rgba (cr, st->unlit_pixel_color.red,
+                           st->unlit_pixel_color.green,
+                           st->unlit_pixel_color.blue,
+                           st->unlit_pixel_color.alpha);
+    for (i = 0; i < cells; i++)
+    {
+        const guint8 *glyph = NULL;
+        double        cell_x = row_x + (double) (6 * i) * pitch;
+
+        if (p < line_len)
+        {
+            glyph = glyph_for_char (line[p]);
+            p++;
+        }
+
+        for (rrow = 0; rrow < 7; rrow++)
+        {
+            for (col = 0; col < 5; col++)
+            {
+                gboolean lit = (glyph != NULL)
+                               && ((glyph[col] >> rrow) & 1u);
+                double   px, py;
+                if (lit) continue;
+                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
+                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
+                cairo_rectangle (cr, px, py, dot, dot);
+            }
+        }
+    }
+    cairo_fill (cr);
+
+    /* Pass 2 — lit dots on top. */
+    cairo_set_source_rgba (cr, st->pixel_color.red,
+                           st->pixel_color.green,
+                           st->pixel_color.blue,
+                           st->pixel_color.alpha);
+    p = 0;
+    for (i = 0; i < cells; i++)
+    {
+        const guint8 *glyph = NULL;
+        double        cell_x = row_x + (double) (6 * i) * pitch;
+
+        if (p < line_len)
+        {
+            glyph = glyph_for_char (line[p]);
+            p++;
+        }
+        if (glyph == NULL)
+            continue;
+
+        for (rrow = 0; rrow < 7; rrow++)
+        {
+            for (col = 0; col < 5; col++)
+            {
+                gboolean lit = ((glyph[col] >> rrow) & 1u) != 0u;
+                double   px, py;
+                if (!lit) continue;
+                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
+                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
+                cairo_rectangle (cr, px, py, dot, dot);
+            }
+        }
+    }
+    cairo_fill (cr);
+}
+
 static void
 pn_matrix57_paint_plot (PnNode  *node,
                         cairo_t *cr,
@@ -211,20 +296,23 @@ pn_matrix57_paint_plot (PnNode  *node,
     PnMatrix57           *self = PN_MATRIX57 (node);
     PnMatrix57PaintState  st;
     guint                 cells;
+    gint                  lines;
     double                screen_x, screen_y, screen_w, screen_h;
     double                avail_w, avail_h;
     double                pitch, dot;
     double                content_w, content_h;
-    double                row_x, row_y;
+    double                row_x, row_y0;
     const gchar          *p;
-    guint                 i;
-    int                   col, rrow;
+    gint                  ln;
 
     pn_matrix57_get_paint_state (self, &st);
 
     cells = st.cells;
     if (cells < 1)  cells = 1;
     if (cells > 40) cells = 40;
+    lines = st.lines;
+    if (lines < 1) lines = 1;
+    if (lines > 2) lines = 2;
 
     /* ---- panel: a chunky bezel framing the LCD face. ---- */
     rounded_rect (cr, x, y, w, h, M57_BEZEL_RADIUS);
@@ -254,80 +342,45 @@ pn_matrix57_paint_plot (PnNode  *node,
     if (avail_w < 1.0 || avail_h < 1.0)
         return;
 
-    /* Solve dot-pitch so the row fits both axes.  Horizontally each cell
-     * is 5 pitches and adjacent cells are separated by one pitch of LCD
-     * face — so a row of N cells spans (6N - 1) pitches.  Vertically
-     * each cell is 7 pitches. */
+    /* Solve dot-pitch so the rows fit both axes.  Horizontally a row of N
+     * cells spans (6N - 1) pitches; vertically @lines stacked rows span
+     * (8*lines - 1) pitches (7 per row + 1 pitch of LCD face between),
+     * matching HD44780 line spacing. */
     {
         double by_width  = avail_w / (double) (6 * cells - 1);
-        double by_height = avail_h / 7.0;
+        double by_height = avail_h / (double) (8 * lines - 1);
         pitch = fmin (by_width, by_height);
         if (pitch < 1.5) pitch = 1.5;
     }
     dot = pitch * M57_DOT_FILL;
 
     content_w = (double) (6 * cells - 1) * pitch;
-    content_h = 7.0 * pitch;
+    content_h = (double) (8 * lines - 1) * pitch;
 
-    row_x = screen_x + M57_SCREEN_PAD + (avail_w - content_w) * 0.5;
-    row_y = screen_y + M57_SCREEN_PAD + (avail_h - content_h) * 0.5;
+    row_x  = screen_x + M57_SCREEN_PAD + (avail_w - content_w) * 0.5;
+    row_y0 = screen_y + M57_SCREEN_PAD + (avail_h - content_h) * 0.5;
 
-    /* Walk text and cells together.  When the text runs out, remaining
-     * cells render as all-off dots; when the text is longer than the
-     * row, the tail is silently dropped — same convention as Segment16. */
+    /* Walk @text line by line, painting each row.  The paint state is
+     * already tailed to the last @lines rows in the core; missing rows
+     * render as all-off dots, an over-long line is cropped on the right
+     * — same convention as Segment16's single-row truncation. */
     p = st.text;
-    for (i = 0; i < cells; i++)
+    for (ln = 0; ln < lines; ln++)
     {
-        const guint8 *glyph = NULL;
-        double        cell_x = row_x + (double) (6 * i) * pitch;
+        const gchar *eol;
+        gsize        len;
+        double       row_y = row_y0 + (double) (8 * ln) * pitch;
 
-        if (*p != '\0')
+        if (*p == '\0')
         {
-            glyph = glyph_for_char (*p);
-            p++;
-        }
-
-        /* Pass 1 — unlit dots so the off-state ghost reads as panel
-         * texture rather than blank face. */
-        cairo_set_source_rgba (cr, st.unlit_pixel_color.red,
-                               st.unlit_pixel_color.green,
-                               st.unlit_pixel_color.blue,
-                               st.unlit_pixel_color.alpha);
-        for (rrow = 0; rrow < 7; rrow++)
-        {
-            for (col = 0; col < 5; col++)
-            {
-                gboolean lit = (glyph != NULL)
-                               && ((glyph[col] >> rrow) & 1u);
-                double   px, py;
-                if (lit) continue;
-                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
-                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
-                cairo_rectangle (cr, px, py, dot, dot);
-            }
-        }
-        cairo_fill (cr);
-
-        /* Pass 2 — lit dots painted on top. */
-        if (glyph == NULL)
+            paint_row (cr, &st, "", 0, cells, row_x, row_y, pitch, dot);
             continue;
-        cairo_set_source_rgba (cr, st.pixel_color.red,
-                               st.pixel_color.green,
-                               st.pixel_color.blue,
-                               st.pixel_color.alpha);
-        for (rrow = 0; rrow < 7; rrow++)
-        {
-            for (col = 0; col < 5; col++)
-            {
-                gboolean lit = ((glyph[col] >> rrow) & 1u) != 0u;
-                double   px, py;
-                if (!lit) continue;
-                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
-                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
-                cairo_rectangle (cr, px, py, dot, dot);
-            }
         }
-        cairo_fill (cr);
+
+        eol = strchr (p, '\n');
+        len = (eol != NULL) ? (gsize) (eol - p) : strlen (p);
+        paint_row (cr, &st, p, len, cells, row_x, row_y, pitch, dot);
+        p = (eol != NULL) ? eol + 1 : p + len;
     }
 }
 

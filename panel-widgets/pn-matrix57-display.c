@@ -28,6 +28,7 @@
 #include "pn-matrix57-display.h"
 
 #include <math.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /*  5x7 ASCII font (copy of lib/pn-matrix57-gui.c's table)             */
@@ -186,8 +187,11 @@ struct _PnMatrix57Display
 {
     GtkDrawingArea parent_instance;
 
-    gchar  *text;        /* never %NULL; "" blanks the row */
+    gchar  *text;        /* never %NULL; "" blanks the row. Text already
+                          * has its '\n' separators in place — splitting is
+                          * done at paint time. */
     guint   cells;       /* visible cell count (1..40)     */
+    gint    lines;       /* visible rows (1 or 2)          */
     gint    height;      /* requested overall pixel height */
 
     gdouble frame_r, frame_g, frame_b; /* plastic bezel      */
@@ -247,6 +251,80 @@ rounded_rect (cairo_t *cr, double x, double y, double w, double h, double r)
 /*  Draw                                                               */
 /* ------------------------------------------------------------------ */
 
+/* Draw one row of @cells character cells using the @line substring (not
+ * NUL-terminated; bounded by @line_len so a multi-line walker can pass a
+ * pointer into a longer "\n"-joined string). */
+static void
+paint_row (PnMatrix57Display *self, cairo_t *cr,
+           const gchar *line, gsize line_len,
+           double row_x, double row_y, double pitch, double dot)
+{
+    guint i;
+    gsize p = 0;
+    int   col, rrow;
+
+    /* Pass 1 — unlit dots so the off-state ghost reads as panel texture
+     * rather than blank face.  One fill for the whole row. */
+    cairo_set_source_rgba (cr, self->dim_r, self->dim_g, self->dim_b, 1.0);
+    for (i = 0; i < self->cells; i++)
+    {
+        const guint8 *glyph = NULL;
+        double        cell_x = row_x + (double) (6u * i) * pitch;
+
+        if (p < line_len)
+        {
+            glyph = glyph_for_char (line[p]);
+            p++;
+        }
+
+        for (rrow = 0; rrow < 7; rrow++)
+        {
+            for (col = 0; col < 5; col++)
+            {
+                gboolean lit = (glyph != NULL)
+                               && ((glyph[col] >> rrow) & 1u);
+                double   px, py;
+                if (lit) continue;
+                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
+                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
+                cairo_rectangle (cr, px, py, dot, dot);
+            }
+        }
+    }
+    cairo_fill (cr);
+
+    /* Pass 2 — lit dots on top. */
+    cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
+    p = 0;
+    for (i = 0; i < self->cells; i++)
+    {
+        const guint8 *glyph = NULL;
+        double        cell_x = row_x + (double) (6u * i) * pitch;
+
+        if (p < line_len)
+        {
+            glyph = glyph_for_char (line[p]);
+            p++;
+        }
+        if (glyph == NULL)
+            continue;
+
+        for (rrow = 0; rrow < 7; rrow++)
+        {
+            for (col = 0; col < 5; col++)
+            {
+                gboolean lit = ((glyph[col] >> rrow) & 1u) != 0u;
+                double   px, py;
+                if (!lit) continue;
+                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
+                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
+                cairo_rectangle (cr, px, py, dot, dot);
+            }
+        }
+    }
+    cairo_fill (cr);
+}
+
 static gboolean
 pn_matrix57_display_draw (GtkWidget *widget, cairo_t *cr)
 {
@@ -257,10 +335,9 @@ pn_matrix57_display_draw (GtkWidget *widget, cairo_t *cr)
     double             avail_w, avail_h;
     double             pitch_by_w, pitch_by_h, pitch, dot;
     double             content_w, content_h;
-    double             row_x, row_y;
+    double             row_x, row_y0;
     const gchar       *p;
-    guint              i;
-    int                col, rrow;
+    gint               ln, lines;
 
     gtk_widget_get_allocation (widget, &alloc);
     if (alloc.width < 4 || alloc.height < 4)
@@ -296,70 +373,45 @@ pn_matrix57_display_draw (GtkWidget *widget, cairo_t *cr)
     if (avail_w < 1.0 || avail_h < 1.0)
         return FALSE;
 
-    /* Solve dot-pitch so the row fits both axes, as in the worksheet
-     * painter.  A row of N cells spans (6N - 1) pitches horizontally. */
+    lines = self->lines;
+    if (lines < 1) lines = 1;
+    if (lines > 2) lines = 2;
+
+    /* Solve dot-pitch so the rows fit both axes, as in the worksheet
+     * painter.  A row of N cells spans (6N - 1) pitches horizontally;
+     * @lines stacked rows span (8*lines - 1) pitches vertically. */
     pitch_by_w = avail_w / (double) (6 * (gint) self->cells - 1);
-    pitch_by_h = avail_h / 7.0;
+    pitch_by_h = avail_h / (double) (8 * lines - 1);
     pitch      = fmin (pitch_by_w, pitch_by_h);
     if (pitch < 1.0) pitch = 1.0;
     dot        = pitch * M57_DOT_FILL;
 
     content_w = (double) (6 * (gint) self->cells - 1) * pitch;
-    content_h = 7.0 * pitch;
+    content_h = (double) (8 * lines - 1) * pitch;
 
-    row_x = screen_x + pad + (avail_w - content_w) * 0.5;
-    row_y = screen_y + pad + (avail_h - content_h) * 0.5;
+    row_x  = screen_x + pad + (avail_w - content_w) * 0.5;
+    row_y0 = screen_y + pad + (avail_h - content_h) * 0.5;
 
-    /* Walk text and cells together.  When the text runs out, remaining
-     * cells render as all-off dots; when the text is longer than the
-     * row, the tail is silently dropped. */
+    /* Walk @text line by line.  Text comes in pre-tailed to the last
+     * @lines rows (the engine does that) — missing rows render all-off,
+     * over-long lines are cropped on the right. */
     p = self->text != NULL ? self->text : "";
-    for (i = 0; i < self->cells; i++)
+    for (ln = 0; ln < lines; ln++)
     {
-        const guint8 *glyph = NULL;
-        double        cell_x = row_x + (double) (6u * i) * pitch;
+        const gchar *eol;
+        gsize        len;
+        double       row_y = row_y0 + (double) (8 * ln) * pitch;
 
-        if (*p != '\0')
+        if (*p == '\0')
         {
-            glyph = glyph_for_char (*p);
-            p++;
-        }
-
-        /* Pass 1 — unlit dots so the off-state ghost reads as panel
-         * texture rather than blank face. */
-        cairo_set_source_rgba (cr, self->dim_r, self->dim_g, self->dim_b, 1.0);
-        for (rrow = 0; rrow < 7; rrow++)
-        {
-            for (col = 0; col < 5; col++)
-            {
-                gboolean lit = (glyph != NULL)
-                               && ((glyph[col] >> rrow) & 1u);
-                double   px, py;
-                if (lit) continue;
-                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
-                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
-                cairo_rectangle (cr, px, py, dot, dot);
-            }
-        }
-        cairo_fill (cr);
-
-        /* Pass 2 — lit dots on top. */
-        if (glyph == NULL)
+            paint_row (self, cr, "", 0, row_x, row_y, pitch, dot);
             continue;
-        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
-        for (rrow = 0; rrow < 7; rrow++)
-        {
-            for (col = 0; col < 5; col++)
-            {
-                gboolean lit = ((glyph[col] >> rrow) & 1u) != 0u;
-                double   px, py;
-                if (!lit) continue;
-                px = cell_x + (double) col * pitch + (pitch - dot) * 0.5;
-                py = row_y  + (double) rrow * pitch + (pitch - dot) * 0.5;
-                cairo_rectangle (cr, px, py, dot, dot);
-            }
         }
-        cairo_fill (cr);
+
+        eol = strchr (p, '\n');
+        len = (eol != NULL) ? (gsize) (eol - p) : strlen (p);
+        paint_row (self, cr, p, len, row_x, row_y, pitch, dot);
+        p = (eol != NULL) ? eol + 1 : p + len;
     }
 
     return FALSE;
@@ -420,6 +472,7 @@ pn_matrix57_display_init (PnMatrix57Display *self)
 {
     self->text   = NULL;
     self->cells  = M57_DEFAULT_CELLS;
+    self->lines  = 1;
     self->height = M57_DEFAULT_HEIGHT;
 
     /* Greenish-yellow LCD face, dark dots, faint ghost — same defaults
@@ -467,6 +520,22 @@ pn_matrix57_display_set_cells (PnMatrix57Display *self, guint cells)
 
     self->cells = cells;
     gtk_widget_queue_resize (GTK_WIDGET (self));  /* width changes */
+}
+
+void
+pn_matrix57_display_set_lines (PnMatrix57Display *self, gint lines)
+{
+    g_return_if_fail (PN_IS_MATRIX57_DISPLAY (self));
+
+    if (lines < 1) lines = 1;
+    if (lines > 2) lines = 2;
+    if (lines == self->lines)
+        return;
+
+    self->lines = lines;
+    /* External width / height are fixed (the panel row is one band tall);
+     * only the inner dot pitch changes, so a redraw is enough. */
+    gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 static gboolean

@@ -1532,6 +1532,8 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_add_string_value (b, st.text);
         json_builder_set_member_name (b, "cells");
         json_builder_add_int_value (b, st.cells);
+        json_builder_set_member_name (b, "lines");
+        json_builder_add_int_value (b, st.lines);
         json_builder_set_member_name (b, "bg");
         engine_add_color_array (b, &st.background_color);
         json_builder_set_member_name (b, "pixel");

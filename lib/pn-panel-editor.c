@@ -250,6 +250,7 @@ panel_editor_sync_matrix57 (PnNode *node, PnMatrix57Display *display)
 
     pn_matrix57_display_set_text  (display, st.text);
     pn_matrix57_display_set_cells (display, st.cells);
+    pn_matrix57_display_set_lines (display, st.lines);
     pn_matrix57_display_set_frame_color (display,
                                          st.frame_color.red,
                                          st.frame_color.green,

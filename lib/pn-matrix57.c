@@ -28,6 +28,7 @@
 #endif
 
 #include <json-glib/json-glib.h>
+#include <string.h>
 
 #include "pn-matrix57.h"
 #include "pn-message.h"
@@ -60,13 +61,19 @@ struct _PnMatrix57
 
     /* Configuration. */
     guint     cells;                  /* visible cell count (1..40)         */
+    gint      lines;                  /* visible rows (1 or 2)              */
     PnColor   frame_color;            /* plastic bezel around the LCD       */
     PnColor   background_color;       /* LCD face                           */
     PnColor   pixel_color;            /* lit (dark) dot                     */
     PnColor   unlit_pixel_color;      /* off-state ghost                    */
 
-    /* Live state.  See pn-segment16.c for the NULL/"" repaint trick. */
-    gchar    *text;
+    /* Live state.  @output is the raw string as it came in (with its own
+     * '\n' separators); @display_text is that string normalised (backslash
+     * escapes resolved, '\r' stripped) and tailed to the last @lines rows
+     * — what the painter actually walks.  NULL/"" both mean a blank row.
+     * See pn-segment16.c for the NULL/"" repaint trick. */
+    gchar    *output;
+    gchar    *display_text;
 };
 
 G_DEFINE_FINAL_TYPE (PnMatrix57, pn_matrix57, PN_TYPE_NODE)
@@ -75,6 +82,7 @@ enum
 {
     PROP_0,
     PROP_CELLS,
+    PROP_LINES,
     PROP_FRAME_COLOR,
     PROP_BACKGROUND_COLOR,
     PROP_PIXEL_COLOR,
@@ -83,6 +91,103 @@ enum
 };
 
 static GParamSpec *props[N_PROPS];
+
+/* ------------------------------------------------------------------ */
+/*  Text normalisation                                                 */
+/*                                                                     */
+/*  Same shape as #PnLabel's helpers, restated here so the two readouts */
+/*  decide newlines the same way: a literal "\n" from a Format-style    */
+/*  source breaks onto the next row instead of printing as a backslash- */
+/*  enn, real '\n' newlines pass through, and CRLF output drops the     */
+/*  carriage returns so the rows render clean.                          */
+/* ------------------------------------------------------------------ */
+
+static gchar *
+matrix57_normalize (const gchar *s)
+{
+    GString *g;
+
+    if (s == NULL || *s == '\0')
+        return NULL;
+
+    g = g_string_new (NULL);
+    while (*s != '\0')
+    {
+        if (*s == '\\' && s[1] != '\0')
+        {
+            switch (s[1])
+            {
+            case 'n':  g_string_append_c (g, '\n'); s += 2; continue;
+            case 't':  g_string_append_c (g, '\t'); s += 2; continue;
+            case 'r':                               s += 2; continue;
+            case '\\': g_string_append_c (g, '\\'); s += 2; continue;
+            default:   break;
+            }
+        }
+        if (*s != '\r')
+            g_string_append_c (g, *s);
+        s++;
+    }
+
+    if (g->len == 0)
+    {
+        g_string_free (g, TRUE);
+        return NULL;
+    }
+    return g_string_free (g, FALSE);
+}
+
+/* The last @n lines of @text, joined by '\n'.  Trailing blank lines are
+ * dropped first so a terminating newline does not eat one of the visible
+ * rows.  Returns a fresh "" when there is nothing to show. */
+static gchar *
+matrix57_tail (const gchar *text, gint n)
+{
+    gsize  len;
+    gssize i;
+    gint   found;
+    gsize  start;
+
+    if (text == NULL)
+        return g_strdup ("");
+
+    len = strlen (text);
+    while (len > 0 && text[len - 1] == '\n')
+        len--;
+    if (len == 0)
+        return g_strdup ("");
+
+    if (n < 1)
+        n = 1;
+
+    start = 0;
+    found = 0;
+    for (i = (gssize) len - 1; i >= 0; i--)
+    {
+        if (text[i] == '\n')
+        {
+            found++;
+            if (found == n)
+            {
+                start = (gsize) i + 1;
+                break;
+            }
+        }
+    }
+
+    return g_strndup (text + start, len - start);
+}
+
+/* Recompute @display_text from the current @output and @lines. */
+static void
+matrix57_recompute_display (PnMatrix57 *self)
+{
+    gchar *normalised = matrix57_normalize (self->output);
+
+    g_free (self->display_text);
+    self->display_text = matrix57_tail (normalised, self->lines);
+    g_free (normalised);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Receive                                                            */
@@ -117,8 +222,10 @@ pn_matrix57_get_paint_state (PnMatrix57           *self,
     g_return_if_fail (PN_IS_MATRIX57 (self));
     g_return_if_fail (out != NULL);
 
-    out->text              = self->text != NULL ? self->text : "";
+    out->text              = self->display_text != NULL
+                             ? self->display_text : "";
     out->cells             = self->cells;
+    out->lines             = self->lines;
     out->frame_color       = self->frame_color;
     out->background_color  = self->background_color;
     out->pixel_color       = self->pixel_color;
@@ -160,6 +267,9 @@ pn_matrix57_get_property (GObject    *object,
     {
     case PROP_CELLS:
         g_value_set_uint (value, self->cells);
+        break;
+    case PROP_LINES:
+        g_value_set_int (value, self->lines);
         break;
     case PROP_FRAME_COLOR:
         g_value_set_boxed (value, &self->frame_color);
@@ -212,6 +322,20 @@ pn_matrix57_set_property (GObject      *object,
         }
         break;
     }
+    case PROP_LINES:
+    {
+        gint v = g_value_get_int (value);
+        if (v < 1) v = 1;
+        if (v > 2) v = 2;
+        if (v != self->lines)
+        {
+            self->lines = v;
+            matrix57_recompute_display (self);
+            g_object_notify_by_pspec (object, props[PROP_LINES]);
+            pn_node_request_repaint (PN_NODE (self));
+        }
+        break;
+    }
     case PROP_FRAME_COLOR:
         set_color_prop (self, &self->frame_color, value, PROP_FRAME_COLOR);
         break;
@@ -240,7 +364,8 @@ pn_matrix57_finalize (GObject *object)
 {
     PnMatrix57 *self = PN_MATRIX57 (object);
 
-    g_free (self->text);
+    g_free (self->output);
+    g_free (self->display_text);
 
     G_OBJECT_CLASS (pn_matrix57_parent_class)->finalize (object);
 }
@@ -283,6 +408,14 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
             1, 40, PN_M57_DEFAULT_CELLS,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_LINES] = g_param_spec_int (
+            "lines", "Lines",
+            "How many rows of cells to show — the last line, or the last "
+            "two.  When the incoming text has more newline-separated lines "
+            "than this, the leading ones are dropped.",
+            1, 2, 1,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_FRAME_COLOR] = g_param_spec_boxed (
             "frame-color", "Frame colour",
             "Fill colour of the plastic bezel framing the LCD — chunky "
@@ -321,6 +454,7 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
 
         pn_settings_schema_tab (schema, "Display");
         pn_settings_schema_row (schema, "cells", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "lines", PN_EDITOR_SPIN);
 
         pn_settings_schema_tab (schema, "Colours");
         pn_settings_schema_row (schema, "frame-color",       PN_EDITOR_AUTO);
@@ -338,6 +472,7 @@ pn_matrix57_init (PnMatrix57 *self)
     PnNode *node = PN_NODE (self);
 
     self->cells             = PN_M57_DEFAULT_CELLS;
+    self->lines             = 1;
     /* Chunky black plastic bezel — what an HD44780 module sits in. */
     self->frame_color       = (PnColor){ 0.08, 0.08, 0.09, 1.0 };
     /* Classic greenish-yellow LCD face (the colour you see on an HD44780
@@ -351,7 +486,8 @@ pn_matrix57_init (PnMatrix57 *self)
      * helps the editor preview read as a panel rather than a flat fill. */
     self->unlit_pixel_color = (PnColor){ 0.66, 0.74, 0.26, 1.0 };
 
-    self->text = NULL;
+    self->output       = NULL;
+    self->display_text = g_strdup ("");
 
     {
         PnColor amber = { 0.92, 0.76, 0.27, 1.0 };
@@ -379,14 +515,15 @@ pn_matrix57_set_text (PnMatrix57 *self, const gchar *text)
     g_return_if_fail (PN_IS_MATRIX57 (self));
 
     /* Normalise NULL and "" both to the blank state but only repaint
-     * when the visible string actually changes — see pn-segment16.c. */
+     * when the raw output actually changes — see pn-segment16.c. */
     if (text != NULL && text[0] == '\0')
         text = NULL;
 
-    if (g_strcmp0 (self->text, text) == 0)
+    if (g_strcmp0 (self->output, text) == 0)
         return;
 
-    g_free (self->text);
-    self->text = g_strdup (text);
+    g_free (self->output);
+    self->output = g_strdup (text);
+    matrix57_recompute_display (self);
     pn_node_request_repaint (PN_NODE (self));
 }

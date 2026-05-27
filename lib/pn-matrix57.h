@@ -35,6 +35,11 @@ G_BEGIN_DECLS
 /*  aligned and cropped to the configured cell count — no scrolling,   */
 /*  matching how a fixed-cell character LCD reads.  Being a pure sink  */
 /*  the node never forwards.                                           */
+/*                                                                     */
+/*  The readout can show one or two rows: a "\n" in the output (real    */
+/*  newline or backslash-escape) splits onto the next line, and any    */
+/*  excess leading lines are dropped so the latest output is the one   */
+/*  on screen.                                                         */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_MATRIX57 (pn_matrix57_get_type ())
@@ -65,8 +70,12 @@ void pn_matrix57_set_text (PnMatrix57 *self, const gchar *text);
 
 typedef struct
 {
-    const gchar  *text;            /* never %NULL ("" means blank row) */
+    const gchar  *text;            /* never %NULL ("" means blank row);
+                                    * already normalised (backslash escapes
+                                    * resolved) and tailed to the last
+                                    * @lines rows, joined by '\n' */
     guint         cells;           /* number of 5x7 character cells (1..40) */
+    gint          lines;           /* visible rows (1 or 2) */
 
     PnColor       frame_color;          /* plastic bezel around the LCD */
     PnColor       background_color;     /* greenish-yellow LCD face */
