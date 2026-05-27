@@ -8,8 +8,8 @@
       "name" : "Segment16 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 300.0
+        "x" : 380.0,
+        "y" : 200.0
       },
       "properties" : {
         "cells" : 8,
@@ -25,7 +25,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 100.0,
-        "y" : 140.0
+        "y" : 40.0
       },
       "properties" : {
         "text" : "Clean 16",
@@ -39,8 +39,8 @@
       "name" : "Matrix57 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 460.0
+        "x" : 380.0,
+        "y" : 360.0
       },
       "properties" : {
         "cells" : 14,
@@ -57,8 +57,8 @@
       "name" : "Label 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 140.0
+        "x" : 380.0,
+        "y" : 40.0
       },
       "properties" : {
         "lines" : 2,
@@ -73,8 +73,8 @@
       "name" : "DigitalClock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 620.0
+        "x" : 380.0,
+        "y" : 520.0
       },
       "properties" : {
         "show-labels" : true,
@@ -91,8 +91,8 @@
       "name" : "Countdown 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 780.0
+        "x" : 380.0,
+        "y" : 680.0
       },
       "properties" : {
         "day-digits" : 3,
@@ -110,7 +110,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 20.0,
-        "y" : 620.0
+        "y" : 520.0
       },
       "properties" : {
         "period" : 1
@@ -124,7 +124,7 @@
       "disabled" : true,
       "position" : {
         "x" : 160.0,
-        "y" : 500.0
+        "y" : 400.0
       },
       "properties" : {
         "target" : "Debug View",
@@ -138,11 +138,62 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 180.0,
-        "y" : 780.0
+        "y" : 680.0
       },
       "properties" : {
         "target" : "2026-05-27 11:30:00",
         "timezone" : "Not Set"
+      }
+    },
+    {
+      "type" : "PnRate",
+      "uuid" : "3fff18d8-6bf2-45ec-9e6c-d1189979bb6f",
+      "name" : "BNB -> USD",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 200.0,
+        "y" : 860.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "BNB",
+        "to" : "USD",
+        "rate" : 652.17999999999995,
+        "last-update" : "2026-05-27T09:44:51.029984+02"
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "9fb63852-0ad8-4483-80e8-9558b6eabea7",
+      "name" : "AutoInjector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 860.0
+      },
+      "properties" : {
+        "period" : 600,
+        "output" : "AutoInjector activated.",
+        "value" : 1.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "80f6a965-3f44-4534-9de2-36cb9525bebc",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 860.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
       }
     }
   ],
@@ -174,6 +225,14 @@
     {
       "source_id" : "96fd6ce1-5cfa-44b7-b0eb-84cbc63ff0ef",
       "target_id" : "dd50f872-edc8-4919-8044-95936dd5fe48"
+    },
+    {
+      "source_id" : "9fb63852-0ad8-4483-80e8-9558b6eabea7",
+      "target_id" : "3fff18d8-6bf2-45ec-9e6c-d1189979bb6f"
+    },
+    {
+      "source_id" : "3fff18d8-6bf2-45ec-9e6c-d1189979bb6f",
+      "target_id" : "80f6a965-3f44-4534-9de2-36cb9525bebc"
     }
   ],
   "sheets" : [

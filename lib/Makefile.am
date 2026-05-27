@@ -107,6 +107,8 @@ libpipnode_core_la_SOURCES = \
 	pn-node-store.h \
 	pn-notify.c \
 	pn-notify.h \
+	pn-numeric.c \
+	pn-numeric.h \
 	pn-panel-display.c \
 	pn-panel-display.h \
 	pn-panel-input.c \
@@ -239,6 +241,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-node-dialog.h \
 	pn-notify-gui.c \
 	pn-notify-gui.h \
+	pn-numeric-gui.c \
+	pn-numeric-gui.h \
 	pn-palette.c \
 	pn-palette.h \
 	pn-panel-editor.c \
@@ -352,6 +356,7 @@ pipnode_core_headers = \
 	pn-node-factory.h \
 	pn-node-store.h \
 	pn-notify.h \
+	pn-numeric.h \
 	pn-panel-display.h \
 	pn-panel-input.h \
 	pn-profile-schema.h \
@@ -408,6 +413,7 @@ pipnode_gui_headers = \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \
 	pn-notify-gui.h \
+	pn-numeric-gui.h \
 	pn-palette.h \
 	pn-panel-editor.h \
 	pn-panel-geometry.h \

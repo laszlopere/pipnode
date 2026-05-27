@@ -38,6 +38,7 @@ pnhelp_DATA = \
 	help/PnMatrix57.html \
 	help/PnMeshtastic.html \
 	help/PnNotify.html \
+	help/PnNumeric.html \
 	help/PnPanelDisplay.html \
 	help/PnPanelInput.html \
 	help/PnQuery.html \

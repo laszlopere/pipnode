@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Numeric (PnNumeric) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnNumeric">Numeric</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnNumeric</code>.
+</p>
+<p>
+Paints a numeric reading on a row of seven-segment LED digits &mdash; the
+generic-number cousin of the <a href="PnCountdown.html">Countdown</a>
+readout. Each incoming message must carry a numeric <code>value</code>
+(a double or an int64); the node renders the value as an integer part
+plus an optional fractional part with a fixed decimal point, and lights
+a leading minus-sign cell when the value is negative. No captions are
+drawn &mdash; the display is just the LED panel.
+</p>
+<p>
+The layout is fixed-width and does not jitter across zero: the sign
+cell is always present (blank when the value is non-negative), the
+integer part uses leading blanks rather than leading zeroes
+(<code>" 1.23"</code>, not <code>"001.23"</code>), and the last integer
+cell always lights. When the integer part of the value does not fit in
+the configured <code>digits</code> cells, every digit reads as a dash
+&mdash; the LED-meter overload indicator. Before any message has
+arrived the screen reads blank (off-state ghosts only).
+</p>
+<p>
+Being a sink, the node never forwards a message; a non-finite or
+non-numeric <code>value</code> is ignored and leaves the current reading
+untouched. The display repaints only when the stored value actually
+changes, so a hot source does not drive a redraw faster than the
+reading moves.
+</p>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td><code>digits</code></td>
+      <td>Number of seven-segment cells reserved for the integer part
+          of the value (1&ndash;12). Six (the default) shows up to
+          <code>999999</code>; a value whose integer part does not fit
+          reads as all dashes.</td></tr>
+  <tr><td><code>decimal-places</code></td>
+      <td>Number of cells reserved for the fractional part of the value
+          (0&ndash;6). Zero drops the decimal point and the fractional
+          block entirely; two (the default) is the common two-decimal
+          voltmeter look.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the panel face behind the digits &mdash; the
+          near-black face of an LED clock by default.</td></tr>
+  <tr><td><code>segment-color</code></td>
+      <td>Colour of a lit segment bar (and the decimal-point dot)
+          &mdash; the classic LED red by default.</td></tr>
+  <tr><td><code>unlit-segment-color</code></td>
+      <td>Colour of an unlit segment bar &mdash; the dark off-state
+          ghost of a digit, a dim red over the black face by
+          default.</td></tr>
+</table>
+
+</body>
+</html>

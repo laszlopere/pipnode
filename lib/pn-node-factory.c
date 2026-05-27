@@ -51,6 +51,7 @@
 #include "pn-led.h"
 #include "pn-meshtastic.h"
 #include "pn-notify.h"
+#include "pn-numeric.h"
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
 #include "pn-query.h"
@@ -272,6 +273,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_ANALOG_METER);
     pn_node_factory_register (self, PN_TYPE_LED);
     pn_node_factory_register (self, PN_TYPE_COUNTDOWN);
+    pn_node_factory_register (self, PN_TYPE_NUMERIC);
     pn_node_factory_register (self, PN_TYPE_SEGMENT16);
     pn_node_factory_register (self, PN_TYPE_MATRIX57);
     pn_node_factory_register (self, PN_TYPE_DIGITAL_CLOCK);
