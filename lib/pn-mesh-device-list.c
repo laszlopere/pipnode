@@ -14,19 +14,14 @@
  */
 
 /* ------------------------------------------------------------------ */
-/*  Mesh device list — left pane of the Meshtastic dialog (Phase 1).   */
+/*  Mesh device list — left pane of the Meshtastic dialog.             */
 /*                                                                     */
-/*  Layout: a Scan button at the top, an empty-state hint in the       */
-/*  middle, and a GtkListBox underneath that fills with one row per    */
-/*  discovered device when Scan is pressed.  Empty until the user      */
-/*  asks -- pipnode does not auto-discover, because USB scans can be   */
-/*  slow and, per the user, we want them to be a deliberate act.       */
-/*                                                                     */
-/*  Phase 1 stubs the Scan worker to a single fake row so the layout   */
-/*  is judgable end-to-end before the real sysfs / VID:PID walk lands  */
-/*  in Phase 2 (pn-mesh-discover.c).  The row template, selection      */
-/*  semantics and empty/full toggling are real -- only the data        */
-/*  source is fake.                                                    */
+/*  Layout: Scan button on top, a stack of three states underneath:    */
+/*  pre-scan hint, post-scan "no devices" hint, and the real list.     */
+/*  Scan runs pn_mesh_discover_async() on a worker thread; results     */
+/*  arrive on the main thread, which replaces (not appends) the list   */
+/*  rows.  A pending scan is cancelled when the widget is destroyed    */
+/*  so a closing dialog does not race with the worker thread.          */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -34,18 +29,62 @@
 #endif
 
 #include "pn-mesh-device-list.h"
+#include "pn-mesh-discover.h"
 
-/* One device row.  Two-line layout: top line is the human-friendly
- * device name (Phase 2: pulled from the VID:PID table; Phase 1: a
- * placeholder), bottom line the tty path.  This is the same shape
- * pip-mesh --list-devices --long prints to the terminal. */
+/* Each row carries a PnMeshDevice* under this qdata key so Phase 2d
+ * can pick it up when the user activates a row -- the connection
+ * code needs the tty path (and the human-friendly kind for the
+ * status bar). */
+#define PN_MESH_ROW_DEVICE_QDATA "pn-mesh-device"
+
+typedef struct
+{
+    GtkWidget    *root;          /* the vbox returned to the caller        */
+    GtkWidget    *scan_button;
+    GtkStack     *stack;
+    GtkListBox   *list;
+    GCancellable *cancellable;   /* cancels an in-flight scan on teardown  */
+    gboolean      scanning;
+
+    /* Optional consumer wired in by the dialog to learn about row
+     * activations.  Set via pn_mesh_device_list_set_activated_callback. */
+    PnMeshDeviceActivatedFunc activated_cb;
+    gpointer                  activated_user_data;
+} DeviceListCtx;
+
+static void on_row_activated_thunk (GtkListBox    *box,
+                                    GtkListBoxRow *row,
+                                    gpointer       user_data);
+
+static void
+device_list_ctx_free (gpointer data)
+{
+    DeviceListCtx *ctx = data;
+
+    if (ctx->cancellable != NULL)
+    {
+        g_cancellable_cancel (ctx->cancellable);
+        g_clear_object (&ctx->cancellable);
+    }
+    g_slice_free (DeviceListCtx, ctx);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Row template                                                        */
+/* ------------------------------------------------------------------ */
+
+/* One device row.  Two-line layout:
+ *   primary  — the human-friendly device family ("Heltec V3")
+ *   subtitle — the tty path, dim-styled
+ * The PnMeshDevice* is held as qdata so the dialog can act on the
+ * selected row in Phase 2d. */
 static GtkWidget *
-build_device_row (const gchar *name, const gchar *path)
+build_device_row (PnMeshDevice *device)
 {
     GtkWidget *row;
     GtkWidget *box;
-    GtkWidget *name_label;
-    GtkWidget *path_label;
+    GtkWidget *primary;
+    GtkWidget *subtitle;
 
     row = gtk_list_box_row_new ();
 
@@ -55,113 +94,193 @@ build_device_row (const gchar *name, const gchar *path)
     gtk_widget_set_margin_top    (box, 6);
     gtk_widget_set_margin_bottom (box, 6);
 
-    name_label = gtk_label_new (name);
-    gtk_label_set_xalign (GTK_LABEL (name_label), 0.0);
-    /* Bold by Pango attribute rather than CSS so it works on every
-     * theme the editor might run under. */
+    primary = gtk_label_new (device->kind);
+    gtk_label_set_xalign (GTK_LABEL (primary), 0.0);
     {
         PangoAttrList *attrs = pango_attr_list_new ();
         pango_attr_list_insert (attrs,
                                 pango_attr_weight_new (PANGO_WEIGHT_BOLD));
-        gtk_label_set_attributes (GTK_LABEL (name_label), attrs);
+        gtk_label_set_attributes (GTK_LABEL (primary), attrs);
         pango_attr_list_unref (attrs);
     }
-    gtk_box_pack_start (GTK_BOX (box), name_label, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), primary, FALSE, FALSE, 0);
 
-    path_label = gtk_label_new (path);
-    gtk_label_set_xalign (GTK_LABEL (path_label), 0.0);
-    /* Dim the path so the name reads as the primary identifier and
-     * the device file as supporting detail.  Same pattern Files /
-     * Nautilus uses for subtitles. */
+    subtitle = gtk_label_new (device->tty);
+    gtk_label_set_xalign (GTK_LABEL (subtitle), 0.0);
     {
-        GtkStyleContext *ctx = gtk_widget_get_style_context (path_label);
-        gtk_style_context_add_class (ctx, "dim-label");
+        GtkStyleContext *sc = gtk_widget_get_style_context (subtitle);
+        gtk_style_context_add_class (sc, "dim-label");
     }
-    gtk_box_pack_start (GTK_BOX (box), path_label, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), subtitle, FALSE, FALSE, 0);
 
     gtk_container_add (GTK_CONTAINER (row), box);
+
+    /* Hand the row our own copy of the descriptor; row-destroy frees it. */
+    g_object_set_data_full (G_OBJECT (row),
+                            PN_MESH_ROW_DEVICE_QDATA,
+                            pn_mesh_device_copy (device),
+                            (GDestroyNotify) pn_mesh_device_free);
+
     gtk_widget_show_all (row);
     return row;
 }
 
-/* Wipe every row out of the list -- called at the start of each scan
- * so the result replaces the previous one rather than accumulating
- * (we are not allowed to imply "remembered" devices). */
+/* ------------------------------------------------------------------ */
+/*  List management                                                     */
+/* ------------------------------------------------------------------ */
+
 static void
 clear_list (GtkListBox *list)
 {
-    GList *rows;
+    GList *rows = gtk_container_get_children (GTK_CONTAINER (list));
     GList *l;
 
-    rows = gtk_container_get_children (GTK_CONTAINER (list));
     for (l = rows; l != NULL; l = l->next)
         gtk_widget_destroy (GTK_WIDGET (l->data));
     g_list_free (rows);
 }
 
-/* Show the empty-state hint when the list is empty and hide it when
- * the list has rows.  The two widgets share their stack so the right
- * one is shown automatically. */
+/* Pick the right empty state to show: before any scan we nudge the
+ * user toward Scan ("pre-scan"); after a scan that returned nothing
+ * we tell them so explicitly ("empty-result"), so a silent zero-row
+ * scan does not look like a broken Scan button. */
 static void
-update_empty_state (GtkStack *stack, GtkListBox *list)
+show_state (DeviceListCtx *ctx, const char *name)
 {
-    gboolean empty = (gtk_container_get_children (GTK_CONTAINER (list)) == NULL);
-    gtk_stack_set_visible_child_name (stack, empty ? "empty" : "list");
+    gtk_stack_set_visible_child_name (ctx->stack, name);
 }
 
-typedef struct
-{
-    GtkStack   *stack;
-    GtkListBox *list;
-} ScanCtx;
+/* ------------------------------------------------------------------ */
+/*  Scan flow                                                           */
+/* ------------------------------------------------------------------ */
 
 static void
-scan_ctx_free (gpointer data, GClosure *closure)
+set_scanning (DeviceListCtx *ctx, gboolean scanning)
 {
-    (void) closure;
-    g_slice_free (ScanCtx, data);
+    ctx->scanning = scanning;
+    gtk_widget_set_sensitive (ctx->scan_button, !scanning);
+    /* GtkButton's label sticks around when icon+label are used, so
+     * swap the label between "Scan" and "Scanning…".  Cosmetic but
+     * makes the worker thread visible to the user. */
+    gtk_button_set_label (GTK_BUTTON (ctx->scan_button),
+                          scanning ? "Scanning…" : "Scan");
 }
 
-/* Scan button handler.
- *
- * Phase 1: STUB -- drops one canned row in so the dialog has
- * something to react to without touching real hardware.  Phase 2
- * replaces the body with a GTask-wrapped discovery worker that calls
- * pn-mesh-discover, then marshalls the resulting list of {name,path}
- * back here and populates the list.  The clear-then-populate dance,
- * the empty-state toggle and the selection wiring all stay -- only
- * the row source changes. */
+static void
+on_scan_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    DeviceListCtx *ctx = user_data;
+    GPtrArray     *devices;
+    GError        *error = NULL;
+    guint          i;
+
+    (void) source;
+
+    devices = pn_mesh_discover_finish (result, &error);
+
+    /* Cancellation: the widget was torn down while we were scanning
+     * (the cancellable was cancelled in device_list_ctx_free).  The
+     * ctx is gone in that case, so we cannot touch the UI here.  But
+     * because the cancellable is the very ctx that holds @ctx alive
+     * through the GTask's user_data we are safe to inspect ctx itself
+     * once -- it is only destroyed when the closure dies, after this
+     * callback returns. */
+    if (error != NULL)
+    {
+        g_warning ("pn-mesh-discover: %s", error->message);
+        g_clear_error (&error);
+        if (devices != NULL)
+            g_ptr_array_unref (devices);
+        set_scanning (ctx, FALSE);
+        return;
+    }
+
+    clear_list (ctx->list);
+    for (i = 0; i < devices->len; i++)
+        gtk_container_add (GTK_CONTAINER (ctx->list),
+                           build_device_row (g_ptr_array_index (devices, i)));
+    g_ptr_array_unref (devices);
+
+    show_state (ctx,
+                gtk_container_get_children (GTK_CONTAINER (ctx->list)) == NULL
+                ? "empty-result" : "list");
+
+    set_scanning (ctx, FALSE);
+}
+
 static void
 on_scan_clicked (GtkButton *button, gpointer user_data)
 {
-    ScanCtx *ctx = user_data;
+    DeviceListCtx *ctx = user_data;
 
     (void) button;
 
-    clear_list (ctx->list);
+    if (ctx->scanning)
+        return;
 
-    /* Stubbed row matching what pn-mesh-discover will produce for a
-     * Heltec V3 once it can walk /sys/bus/usb/devices. */
-    gtk_container_add (GTK_CONTAINER (ctx->list),
-                       build_device_row ("Heltec V3 (stub)",
-                                         "/dev/ttyUSB0"));
+    set_scanning (ctx, TRUE);
 
-    update_empty_state (ctx->stack, ctx->list);
+    /* A fresh cancellable per scan: if the previous scan was cancelled
+     * (rare, the widget would normally be gone too) we do not want to
+     * inherit a cancelled token here. */
+    g_clear_object (&ctx->cancellable);
+    ctx->cancellable = g_cancellable_new ();
+
+    pn_mesh_discover_async (ctx->cancellable, on_scan_done, ctx);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Construction                                                        */
+/* ------------------------------------------------------------------ */
+
+/* Build one of the two empty-state pages used in the stack. */
+static GtkWidget *
+build_empty_page (const char *icon_name, const char *primary,
+                  const char *secondary)
+{
+    GtkWidget *box;
+    GtkWidget *icon;
+    GtkWidget *primary_label;
+    GtkWidget *secondary_label;
+
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_valign (box, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign (box, GTK_ALIGN_CENTER);
+
+    icon = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
+    gtk_widget_set_opacity (icon, 0.4);
+    gtk_box_pack_start (GTK_BOX (box), icon, FALSE, FALSE, 0);
+
+    primary_label = gtk_label_new (primary);
+    gtk_label_set_justify (GTK_LABEL (primary_label), GTK_JUSTIFY_CENTER);
+    gtk_box_pack_start (GTK_BOX (box), primary_label, FALSE, FALSE, 0);
+
+    if (secondary != NULL)
+    {
+        secondary_label = gtk_label_new (secondary);
+        gtk_label_set_justify (GTK_LABEL (secondary_label), GTK_JUSTIFY_CENTER);
+        {
+            GtkStyleContext *sc = gtk_widget_get_style_context (secondary_label);
+            gtk_style_context_add_class (sc, "dim-label");
+        }
+        gtk_box_pack_start (GTK_BOX (box), secondary_label, FALSE, FALSE, 0);
+    }
+
+    return box;
 }
 
 GtkWidget *
 pn_mesh_device_list_new (void)
 {
-    GtkWidget *root;
-    GtkWidget *scan_button;
-    GtkWidget *scan_box;
-    GtkWidget *stack;
-    GtkWidget *list_window;
-    GtkWidget *list;
-    GtkWidget *empty;
-    GtkWidget *empty_icon;
-    GtkWidget *empty_label;
-    ScanCtx   *ctx;
+    DeviceListCtx *ctx;
+    GtkWidget     *root;
+    GtkWidget     *scan_box;
+    GtkWidget     *scan_button;
+    GtkWidget     *stack;
+    GtkWidget     *pre;
+    GtkWidget     *no_result;
+    GtkWidget     *list_window;
+    GtkWidget     *list;
 
     root = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_margin_start  (root, 6);
@@ -169,10 +288,7 @@ pn_mesh_device_list_new (void)
     gtk_widget_set_margin_top    (root, 6);
     gtk_widget_set_margin_bottom (root, 6);
 
-    /* Top: Scan button.  Wrapped in a box so future siblings (e.g.
-     * "Connect by address…" for the manual / no-USB case) can be
-     * added without resizing the button.  view-refresh is the
-     * standard "rescan / look again" glyph. */
+    /* Top: Scan button. */
     scan_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     scan_button = gtk_button_new_from_icon_name ("view-refresh",
                                                  GTK_ICON_SIZE_BUTTON);
@@ -184,34 +300,26 @@ pn_mesh_device_list_new (void)
     gtk_box_pack_start (GTK_BOX (scan_box), scan_button, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (root), scan_box, FALSE, FALSE, 0);
 
-    /* Middle: stack between an empty-state hint and the live list.
-     * The list is built and kept around even when empty so its
-     * children can be queried without a NULL guard. */
+    /* Middle: empty-state pages and the real list, swapped via stack. */
     stack = gtk_stack_new ();
     gtk_stack_set_transition_type (GTK_STACK (stack),
                                    GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_widget_set_vexpand (stack, TRUE);
 
-    empty = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_valign (empty, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign (empty, GTK_ALIGN_CENTER);
-    /* A muted icon + line of prose so the empty pane reads as
-     * "do this next" rather than "broken". */
-    empty_icon = gtk_image_new_from_icon_name ("network-wireless-disabled",
-                                               GTK_ICON_SIZE_DIALOG);
-    gtk_widget_set_opacity (empty_icon, 0.4);
-    gtk_box_pack_start (GTK_BOX (empty), empty_icon, FALSE, FALSE, 0);
-    empty_label = gtk_label_new ("No devices yet.\nPress Scan to look.");
-    gtk_label_set_justify (GTK_LABEL (empty_label), GTK_JUSTIFY_CENTER);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (empty_label);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_box_pack_start (GTK_BOX (empty), empty_label, FALSE, FALSE, 0);
-    gtk_stack_add_named (GTK_STACK (stack), empty, "empty");
+    pre = build_empty_page ("network-wireless-disabled",
+                            "No devices yet.",
+                            "Press Scan to look.");
+    gtk_stack_add_named (GTK_STACK (stack), pre, "pre-scan");
 
-    /* Scrolled list pane: a single-selection ListBox so picking a row
-     * is the natural "this is the device I want to set up" gesture. */
+    /* Distinct empty state for "we looked and found nothing", so a
+     * zero-result scan does not look like a broken Scan button.  The
+     * dialog-question icon reads as "did you mean to plug something
+     * in?" rather than the wireless-disabled "scan blocked" feel. */
+    no_result = build_empty_page ("dialog-question",
+                                  "No Meshtastic devices found.",
+                                  "Plug one in and Scan again.");
+    gtk_stack_add_named (GTK_STACK (stack), no_result, "empty-result");
+
     list_window = gtk_scrolled_window_new (NULL, NULL);
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (list_window),
                                     GTK_POLICY_NEVER,
@@ -222,17 +330,63 @@ pn_mesh_device_list_new (void)
     gtk_container_add (GTK_CONTAINER (list_window), list);
     gtk_stack_add_named (GTK_STACK (stack), list_window, "list");
 
-    gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
+    gtk_stack_set_visible_child_name (GTK_STACK (stack), "pre-scan");
     gtk_box_pack_start (GTK_BOX (root), stack, TRUE, TRUE, 0);
 
-    /* Wire Scan -> populate.  The context is owned by the closure so
-     * it dies with the button. */
-    ctx = g_slice_new0 (ScanCtx);
-    ctx->stack = GTK_STACK (stack);
-    ctx->list  = GTK_LIST_BOX (list);
-    g_signal_connect_data (scan_button, "clicked",
-                           G_CALLBACK (on_scan_clicked),
-                           ctx, scan_ctx_free, 0);
+    /* Context lives on the root widget so it is freed exactly when
+     * the widget is destroyed, taking the cancellable (and any
+     * in-flight scan) with it. */
+    ctx = g_slice_new0 (DeviceListCtx);
+    ctx->root        = root;
+    ctx->scan_button = scan_button;
+    ctx->stack       = GTK_STACK (stack);
+    ctx->list        = GTK_LIST_BOX (list);
+    ctx->cancellable = NULL;
+    ctx->scanning    = FALSE;
+
+    g_object_set_data_full (G_OBJECT (root), "pn-mesh-device-list-ctx",
+                            ctx, device_list_ctx_free);
+
+    g_signal_connect (scan_button, "clicked",
+                      G_CALLBACK (on_scan_clicked), ctx);
+    g_signal_connect (list, "row-activated",
+                      G_CALLBACK (on_row_activated_thunk), ctx);
 
     return root;
+}
+
+/* Forward selected-row activation (double-click / Enter) to the
+ * dialog's handler, if one is wired. */
+static void
+on_row_activated_thunk (GtkListBox    *box,
+                        GtkListBoxRow *row,
+                        gpointer       user_data)
+{
+    DeviceListCtx *ctx    = user_data;
+    PnMeshDevice  *device;
+
+    (void) box;
+    if (ctx->activated_cb == NULL || row == NULL)
+        return;
+    device = g_object_get_data (G_OBJECT (row), PN_MESH_ROW_DEVICE_QDATA);
+    if (device != NULL)
+        ctx->activated_cb (device, ctx->activated_user_data);
+}
+
+void
+pn_mesh_device_list_set_activated_callback (
+        GtkWidget                  *list_widget,
+        PnMeshDeviceActivatedFunc   callback,
+        gpointer                    user_data)
+{
+    DeviceListCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (list_widget));
+
+    ctx = g_object_get_data (G_OBJECT (list_widget),
+                             "pn-mesh-device-list-ctx");
+    g_return_if_fail (ctx != NULL);
+
+    ctx->activated_cb        = callback;
+    ctx->activated_user_data = user_data;
 }

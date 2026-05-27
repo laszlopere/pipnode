@@ -97,6 +97,14 @@ libpipnode_core_la_SOURCES = \
 	pn-led.h \
 	pn-matrix57.c \
 	pn-matrix57.h \
+	pn-mesh-connection.c \
+	pn-mesh-connection.h \
+	pn-mesh-discover.c \
+	pn-mesh-discover.h \
+	pn-mesh-pb.c \
+	pn-mesh-pb.h \
+	pn-mesh-serial.c \
+	pn-mesh-serial.h \
 	pn-meshtastic.c \
 	pn-meshtastic.h \
 	pn-message.c \
@@ -245,6 +253,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.c \
 	pn-mesh-dialog.h \
+	pn-mesh-page-identity.c \
+	pn-mesh-page-identity.h \
 	pn-meshtastic-gui.c \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.c \
@@ -361,6 +371,10 @@ pipnode_core_headers = \
 	pn-label.h \
 	pn-led.h \
 	pn-matrix57.h \
+	pn-mesh-connection.h \
+	pn-mesh-discover.h \
+	pn-mesh-pb.h \
+	pn-mesh-serial.h \
 	pn-meshtastic.h \
 	pn-message.h \
 	pn-node.h \
@@ -424,6 +438,7 @@ pipnode_gui_headers = \
 	pn-matrix57-gui.h \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
+	pn-mesh-page-identity.h \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \

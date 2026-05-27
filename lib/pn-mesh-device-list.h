@@ -18,6 +18,8 @@
 
 #include <gtk/gtk.h>
 
+#include "pn-mesh-discover.h"
+
 G_BEGIN_DECLS
 
 /* Left pane of the Meshtastic dialog: a Scan button at the top and a
@@ -26,14 +28,21 @@ G_BEGIN_DECLS
  * with the current scan result -- there is no append/refresh
  * semantic, because a device may have been unplugged while the
  * previous list was visible and pipnode is not allowed to remember
- * what it saw last time.
- *
- * Phase 1 ships only the layout and a STUBBED scan (one fake "Heltec
- * V3 -- /dev/ttyUSB0" row) so the dialog look & feel can be reviewed
- * before pn-mesh-discover.c lands in Phase 2.  The widget is built
- * around a real GtkListBox already so Phase 2 only has to replace the
- * scan worker, not the UI. */
+ * what it saw last time. */
 GtkWidget *pn_mesh_device_list_new (void);
+
+/* Callback fired when the user activates a row (double-click or
+ * Enter on a selected row).  The PnMeshDevice* is borrowed from
+ * the row's qdata -- copy via pn_mesh_device_copy() if you need to
+ * keep it past the activation handler.  Pass @callback as NULL to
+ * clear the handler. */
+typedef void (*PnMeshDeviceActivatedFunc) (const PnMeshDevice *device,
+                                           gpointer            user_data);
+
+void       pn_mesh_device_list_set_activated_callback (
+        GtkWidget                  *list_widget,
+        PnMeshDeviceActivatedFunc   callback,
+        gpointer                    user_data);
 
 G_END_DECLS
 

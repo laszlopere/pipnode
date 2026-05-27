@@ -375,11 +375,19 @@ lives here so future sessions can pick up without re-reading chat):
                  judgable before protocol code lands. Files shipped:
                  src/pn-devices-menu.{c,h}, lib/pn-mesh-dialog.{c,h},
                  lib/pn-mesh-device-list.{c,h}. User-confirmed.
-    [ ] Phase 2  Real discovery + connect (no writes). sysfs scan +
+    [x] Phase 2  Real discovery + connect (no writes). sysfs scan +
                  serial + framing + want_config_id handshake. Selecting
-                 a row populates Identity page read-only (firmware, HW
-                 model, owner names, channel count). Status bar shows
-                 connection state.
+                 a row populates Identity page read-only (HW model raw
+                 enum, owner names, channel count). Status bar shows
+                 connection state. Files shipped:
+                 lib/pn-mesh-{discover,pb,serial,connection,page-identity}.{c,h}
+                 (all GTK-free except page-identity, in libpipnode-core),
+                 lib/pn-mesh-{dialog,device-list,page-identity}.{c,h}
+                 (libpipnode-gui).
+                 Unit tests: test-pn-mesh-pb (123 checks), test-pn-mesh-frame
+                 (44 checks). Firmware version + HW model name deferred to
+                 Phase 3 (needs admin protocol round-trip).
+                 User-verified against real Heltec V3.
     [ ] Phase 3  Owner-names write (smallest write path). Long/short
                  name editable on Identity with explicit Apply; full
                  write+settle+re-read+verify cycle. Proves the write
