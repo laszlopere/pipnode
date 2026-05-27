@@ -34,6 +34,7 @@
 #include "pn-mesh-connection.h"
 #include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
+#include "pn-mesh-page-channels.h"
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-page-region.h"
 
@@ -50,6 +51,7 @@ typedef struct
     GtkStackSwitcher *right_switcher;  /* hidden until a device connects */
     GtkWidget        *identity_page;
     GtkWidget        *region_page;
+    GtkWidget        *channels_page;
     GtkLabel         *status_label;
 
     /* Active session, if any.  NULL when no device is selected or
@@ -124,6 +126,7 @@ drop_connection (MeshDialogCtx *ctx)
     g_clear_pointer (&ctx->connection_tty,  g_free);
     pn_mesh_page_identity_set_state (ctx->identity_page, NULL, NULL, NULL, NULL);
     pn_mesh_page_region_set_state   (ctx->region_page,   NULL, NULL);
+    pn_mesh_page_channels_set_state (ctx->channels_page, NULL, NULL);
 }
 
 static void
@@ -171,6 +174,10 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_region_set_state (
             ctx->region_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_channels_set_state (
+            ctx->channels_page,
             pn_mesh_connection_get_state (conn),
             conn);
     gtk_widget_show (GTK_WIDGET (ctx->right_switcher));
@@ -363,6 +370,15 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->region_page = region;
         pn_mesh_page_region_set_status_callback (
                 region, on_page_status, ctx);
+
+        {
+            GtkWidget *channels = pn_mesh_page_channels_new ();
+            gtk_stack_add_titled (GTK_STACK (stack), channels,
+                                  "channels", "Channels");
+            ctx->channels_page = channels;
+            pn_mesh_page_channels_set_status_callback (
+                    channels, on_page_status, ctx);
+        }
 
         gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
 

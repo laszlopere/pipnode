@@ -430,11 +430,63 @@ lives here so future sessions can pick up without re-reading chat):
                  in lib/pn-mesh-connection.{c,h} (LoRa fields +
                  parse_config + set_lora_config) and lib/pn-mesh-
                  dialog.c. User-verified against real Heltec V3.
-    [ ] Phase 5  Channels page. List (index/name/role/PSK-set), add
-                 (name + random-256 PSK default), delete (primary
-                 protected). Multi-edit wrapped in
-                 begin_edit_settings(64) / commit_edit_settings(65)
-                 with the reboot-aware wait pip-mesh uses.
+    [x] Phase 5  Channels page. List of 8 slots (index/name/role
+                 badge/PSK lock icon), Add channel (modal with name +
+                 prefilled random AES-256 PSK + Generate button),
+                 per-row Delete (primary protected, disabled slots
+                 inert). Bare set_channel admin writes (no
+                 begin/commit transaction; that was Phase 5 plan but
+                 single-channel writes don't need it -- pip-mesh's
+                 create_channel/delete_channel pattern). New
+                 pn_mesh_connection_set_channel_sync/async with
+                 AdminMessage.set_channel (field 33, NOT 32 -- the
+                 pip-mesh docstring at line 3905 says 32 but the
+                 code at line 3941 uses 33; trust the code). Spinner
+                 next to Add button while the 3-5s verify cycle
+                 runs. Files shipped: lib/pn-mesh-page-channels.{c,h}
+                 plus deltas in pn-mesh-connection / pn-mesh-serial /
+                 pn-mesh-dialog. User-verified against real Heltec V3.
+
+                 LOAD-BEARING GOTCHAS rediscovered, also relevant to
+                 Phase 6/7 (any future set_channel-shaped write):
+
+                 (i) PORT BOUNCE FOR set_channel. The Meshtastic
+                 firmware buffers channel-slot changes in RAM and
+                 only commits to flash when the serial session ends
+                 (DTR drop). pip-mesh gets this for free because it
+                 uses `echo > $tty` (a fresh open/close per write);
+                 our long-lived fd has to close+reopen explicitly or
+                 the write LOOKS accepted (verify-cycle handshake
+                 succeeds) but is silently dropped on the next
+                 device read or reboot, and pip-mesh later sees no
+                 change. set_owner and set_lora_config are stored
+                 differently and do NOT need the bounce. Added
+                 pn_mesh_serial_reopen() and the connection now
+                 bounces the fd between the set_channel write and
+                 the verify cycle. Phase 6's QR-import path will
+                 write multiple channels in sequence -- bundle them
+                 in a single begin_edit_settings(64)/commit_edit_
+                 settings(65) transaction (per pip-mesh's
+                 --copy-channels) and one bounce at the end.
+
+                 (ii) use-after-free across the modal-destroy in the
+                 Add dialog: gtk_entry_get_text returns a pointer
+                 INTO the entry's buffer; destroying the dialog
+                 frees the entry. The async write's internal
+                 g_strdup runs AFTER the destroy, picking up freed
+                 memory -- the channel name comes back as garbage on
+                 the next read-back. Fix: g_strdup the entry text
+                 BEFORE destroying the dialog. (psk_bytes was
+                 already safe because decode_psk_hex mallocs a fresh
+                 buffer we own.)
+
+                 (iii) UX: a 3-5s verify cycle with no visible
+                 motion reads as "the app froze". Add a GtkSpinner
+                 next to the action button, spin while writing=TRUE.
+                 Identity (Apply owner) and Region (Apply LoRa) have
+                 the same delay and would benefit from the same
+                 spinner -- not added yet (user didn't ask), one-
+                 liner each when wanted.
     [ ] Phase 6  Share page (headline feature). Share channel
                  (additive, multi-select) and Share full config
                  (replaces) side by side. Cairo-rendered QR via

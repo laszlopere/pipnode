@@ -87,6 +87,16 @@ void          pn_mesh_serial_close (PnMeshSerial *self);
  * Skipping this corrupts the first read after open. */
 void          pn_mesh_serial_drain (PnMeshSerial *self, gint timeout_ms);
 
+/* Close the fd and reopen the same path with the same termios.
+ * Some admin writes (set_channel in particular) are only committed
+ * to flash by the Meshtastic firmware when the serial session ends
+ * -- the DTR-drop on close is the trigger.  pip-mesh gets this for
+ * free because it uses `echo > $tty` (a fresh open/close per write);
+ * a long-lived fd like ours has to bounce explicitly.  Returns FALSE
+ * with @error set if the reopen failed. */
+gboolean      pn_mesh_serial_reopen (PnMeshSerial  *self,
+                                     GError       **error);
+
 /* Wrap @payload in a 0x94 0xC3 + 2-byte big-endian length frame and
  * write the whole thing as one chunk.  Returns %FALSE on write error
  * with @error set; partial writes are looped internally. */

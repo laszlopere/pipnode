@@ -253,6 +253,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.c \
 	pn-mesh-dialog.h \
+	pn-mesh-page-channels.c \
+	pn-mesh-page-channels.h \
 	pn-mesh-page-identity.c \
 	pn-mesh-page-identity.h \
 	pn-mesh-page-region.c \
@@ -440,6 +442,7 @@ pipnode_gui_headers = \
 	pn-matrix57-gui.h \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
+	pn-mesh-page-channels.h \
 	pn-mesh-page-identity.h \
 	pn-mesh-page-region.h \
 	pn-meshtastic-gui.h \

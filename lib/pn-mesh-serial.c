@@ -214,11 +214,12 @@ configure_termios (int fd, GError **error)
     return TRUE;
 }
 
-PnMeshSerial *
-pn_mesh_serial_open (const gchar *path, GError **error)
+/* Open + termios-configure one fd for @path.  Used by both the
+ * initial open and reopen so the configuration is in lock-step. */
+static int
+open_configured (const gchar *path, GError **error)
 {
-    PnMeshSerial *self;
-    int           fd;
+    int fd;
 
     /* O_NOCTTY: opening a tty shouldn't make it our controlling
      * terminal.  O_NONBLOCK: a USB CDC-ACM device can stall open() on
@@ -228,13 +229,13 @@ pn_mesh_serial_open (const gchar *path, GError **error)
     {
         g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errno),
                      "open(%s) failed: %s", path, g_strerror (errno));
-        return NULL;
+        return -1;
     }
 
     if (!configure_termios (fd, error))
     {
         close (fd);
-        return NULL;
+        return -1;
     }
 
     /* Switch to blocking mode now that termios is in raw mode; we
@@ -244,13 +245,45 @@ pn_mesh_serial_open (const gchar *path, GError **error)
         g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errno),
                      "fcntl(F_SETFL,0) failed: %s", g_strerror (errno));
         close (fd);
-        return NULL;
+        return -1;
     }
+
+    return fd;
+}
+
+PnMeshSerial *
+pn_mesh_serial_open (const gchar *path, GError **error)
+{
+    PnMeshSerial *self;
+    int           fd;
+
+    fd = open_configured (path, error);
+    if (fd < 0)
+        return NULL;
 
     self = g_slice_new0 (PnMeshSerial);
     self->fd   = fd;
     self->path = g_strdup (path);
     return self;
+}
+
+gboolean
+pn_mesh_serial_reopen (PnMeshSerial *self, GError **error)
+{
+    int new_fd;
+
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    /* Open the new fd first; only swap into self after success, so a
+     * failed reopen leaves the existing connection intact. */
+    new_fd = open_configured (self->path, error);
+    if (new_fd < 0)
+        return FALSE;
+
+    if (self->fd >= 0)
+        close (self->fd);
+    self->fd = new_fd;
+    return TRUE;
 }
 
 void

@@ -117,10 +117,16 @@
 /* Meshtastic PortNum enum values we care about. */
 #define PORTNUM_ADMIN_APP       6
 
-/* AdminMessage */
+/* AdminMessage.
+ *
+ * Note set_channel is field 33, NOT 32 -- pip-mesh's own header
+ * comment on build_set_channel_frame says 32 but its code uses 33,
+ * and the upstream Meshtastic proto agrees on 33.  Trust the wire
+ * pip-mesh actually sends; the comment is stale. */
 #define AM_GET_DEVICE_METADATA_REQUEST   12
 #define AM_GET_DEVICE_METADATA_RESPONSE  13
 #define AM_SET_OWNER                     32
+#define AM_SET_CHANNEL                   33
 #define AM_SET_CONFIG                    34
 
 /* DeviceMetadata */
@@ -1394,6 +1400,205 @@ pn_mesh_connection_set_lora_config_async (PnMeshConnection            *self,
 gboolean
 pn_mesh_connection_set_lora_config_finish (GAsyncResult *result,
                                            GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_channel — Phase 5                                               */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_channel (33, embedded) = Channel {
+ *     index (1, varint),
+ *     settings (2, embedded) = ChannelSettings { psk (2), name (3) },
+ *     role (3, varint) } }
+ */
+static gboolean
+send_set_channel (PnMeshConnection *self,
+                  guint32           index,
+                  const gchar      *name,
+                  const guint8     *psk,
+                  gsize             psk_size,
+                  guint32           role,
+                  GError          **error)
+{
+    PnMeshPbWriter settings_w, channel_w, admin_w;
+    GBytes        *settings_bytes, *channel_bytes, *admin_bytes;
+    const guint8  *settings_b, *channel_b, *admin_b;
+    gsize          settings_n,  channel_n,  admin_n;
+    gboolean       ok;
+
+    /* ChannelSettings: psk first, then name -- pip-mesh writes them in
+     * that order and we mirror it (protobuf field order is not
+     * required to be ascending but staying consistent eases packet
+     * captures from cross-comparing). */
+    pn_mesh_pb_writer_init (&settings_w);
+    if (psk != NULL && psk_size > 0)
+        pn_mesh_pb_write_bytes_field (&settings_w, CS_PSK, psk, psk_size);
+    if (name != NULL && *name != '\0')
+        pn_mesh_pb_write_string_field (&settings_w, CS_NAME, name);
+    settings_bytes = pn_mesh_pb_writer_take_bytes (&settings_w);
+    pn_mesh_pb_writer_clear (&settings_w);
+    settings_b = g_bytes_get_data (settings_bytes, &settings_n);
+
+    /* Channel.  Index is always written even when zero (it identifies
+     * which slot to write); role is always written (0 = DISABLED is
+     * the delete signal).  Settings carries the inner payload, even
+     * when zero bytes long (for a DISABLED write). */
+    pn_mesh_pb_writer_init (&channel_w);
+    pn_mesh_pb_write_varint_field   (&channel_w, CH_INDEX, index);
+    pn_mesh_pb_write_embedded_field (&channel_w, CH_SETTINGS,
+                                     settings_b, settings_n);
+    pn_mesh_pb_write_varint_field   (&channel_w, CH_ROLE, role);
+    channel_bytes = pn_mesh_pb_writer_take_bytes (&channel_w);
+    pn_mesh_pb_writer_clear (&channel_w);
+    g_bytes_unref (settings_bytes);
+    channel_b = g_bytes_get_data (channel_bytes, &channel_n);
+
+    /* AdminMessage { set_channel (33) = Channel } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_CHANNEL,
+                                     channel_b, channel_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (channel_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_channel_sync (PnMeshConnection *self,
+                                     guint32           index,
+                                     const gchar      *name,
+                                     const guint8     *psk,
+                                     gsize             psk_size,
+                                     guint32           role,
+                                     GError          **error)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    if (!send_set_channel (self, index, name, psk, psk_size, role, error))
+        return FALSE;
+
+    /* set_channel quirk: the Meshtastic firmware buffers channel-slot
+     * changes in RAM and only persists them when the serial session
+     * ends -- the DTR drop on close is the commit signal.  pip-mesh
+     * sidesteps this because it uses `echo > $tty` (a fresh
+     * open/close per write); our long-lived fd has to bounce
+     * explicitly or the write looks accepted but is silently dropped
+     * (the verify-cycle reads back the unchanged channel list, and
+     * pip-mesh run later also sees no change).  set_owner and
+     * set_lora_config don't need this -- they are stored differently
+     * by the firmware. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+    if (!pn_mesh_serial_reopen (self->serial, error))
+        return FALSE;
+    /* Fresh fd means fresh frame stream: drop any partial bytes the
+     * old reader buffered. */
+    pn_mesh_frame_reader_free (self->frames);
+    self->frames = pn_mesh_frame_reader_new ();
+    pn_mesh_serial_drain (self->serial, OPEN_DRAIN_MS);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_channel async wrapper                                           */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnMeshConnection *conn;
+    guint32           index;
+    gchar            *name;     /* NUL-terminated; may be ""           */
+    guint8           *psk;      /* freshly malloc'd; may be NULL       */
+    gsize             psk_size;
+    guint32           role;
+} SetChannelCall;
+
+static void
+set_channel_call_free (gpointer data)
+{
+    SetChannelCall *c = data;
+    g_free (c->name);
+    g_free (c->psk);
+    g_slice_free (SetChannelCall, c);
+}
+
+static void
+set_channel_thread_func (GTask *task, gpointer source,
+                         gpointer task_data, GCancellable *cancellable)
+{
+    SetChannelCall *c   = task_data;
+    GError         *err = NULL;
+    gboolean        ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_channel_sync (
+            c->conn, c->index, c->name,
+            c->psk, c->psk_size, c->role, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_channel_async (PnMeshConnection    *self,
+                                      guint32              index,
+                                      const gchar         *name,
+                                      const guint8        *psk,
+                                      gsize                psk_size,
+                                      guint32              role,
+                                      GCancellable        *cancellable,
+                                      GAsyncReadyCallback  callback,
+                                      gpointer             user_data)
+{
+    GTask          *task;
+    SetChannelCall *c;
+
+    g_return_if_fail (self != NULL);
+
+    c = g_slice_new0 (SetChannelCall);
+    c->conn  = self;
+    c->index = index;
+    c->name  = g_strdup (name != NULL ? name : "");
+    c->role  = role;
+    if (psk != NULL && psk_size > 0)
+    {
+        c->psk      = g_memdup2 (psk, psk_size);
+        c->psk_size = psk_size;
+    }
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_channel_async);
+    g_task_set_task_data  (task, c, set_channel_call_free);
+    g_task_run_in_thread  (task, set_channel_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_channel_finish (GAsyncResult *result, GError **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

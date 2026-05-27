@@ -182,6 +182,43 @@ gboolean pn_mesh_connection_set_lora_config_finish (
         GAsyncResult                *result,
         GError                     **error);
 
+/* ------------------------------------------------------------------ */
+/*  Channels                                                            */
+/* ------------------------------------------------------------------ */
+
+/* Write one channel slot.  @role: 0 = DISABLED (delete), 1 = PRIMARY,
+ * 2 = SECONDARY.  @psk may be NULL with @psk_size = 0 (used both for
+ * a DISABLED write and for a channel that wants no PSK -- the
+ * device's "default" channel).  @name may be NULL or "" to clear it.
+ *
+ * Sends a BARE AdminMessage.set_channel (no begin_edit /
+ * commit_edit transaction) -- pip-mesh's pattern for per-channel
+ * Add and Delete: takes effect immediately, no flash write, no
+ * device reboot.  Bulk multi-channel edits (Phase 6+ "import from
+ * QR") will need the transactional pattern. */
+gboolean pn_mesh_connection_set_channel_sync (
+        PnMeshConnection *self,
+        guint32           index,
+        const gchar      *name,
+        const guint8     *psk,
+        gsize             psk_size,
+        guint32           role,
+        GError          **error);
+
+void     pn_mesh_connection_set_channel_async (
+        PnMeshConnection    *self,
+        guint32              index,
+        const gchar         *name,
+        const guint8        *psk,
+        gsize                psk_size,
+        guint32              role,
+        GCancellable        *cancellable,
+        GAsyncReadyCallback  callback,
+        gpointer             user_data);
+
+gboolean pn_mesh_connection_set_channel_finish (GAsyncResult *result,
+                                                GError      **error);
+
 G_END_DECLS
 
 #endif /* PN_MESH_CONNECTION_H */
