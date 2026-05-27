@@ -8,8 +8,8 @@
       "name" : "Heltec V3",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 140.0,
-        "y" : 100.0
+        "x" : 120.0,
+        "y" : 120.0
       },
       "properties" : {
         "device" : "/dev/ttyUSB0",
@@ -73,6 +73,34 @@
         "per-source-voice" : true,
         "max-queue" : 16
       }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "2ff328f0-c855-4c59-933b-e0431bb450f2",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "19dc77a0-dc8d-42dc-95dc-1743c1864570",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 440.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
     }
   ],
   "connections" : [
@@ -91,6 +119,14 @@
     {
       "source_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778",
       "target_id" : "27ae739b-89af-4b91-8f2e-8747cdcb006c"
+    },
+    {
+      "source_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778",
+      "target_id" : "2ff328f0-c855-4c59-933b-e0431bb450f2"
+    },
+    {
+      "source_id" : "78fd5093-d223-465f-8e86-034db5f33510",
+      "target_id" : "19dc77a0-dc8d-42dc-95dc-1743c1864570"
     }
   ],
   "sheets" : [
