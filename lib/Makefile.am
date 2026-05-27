@@ -227,6 +227,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-gui.h \
 	pn-help-browser.c \
 	pn-help-browser.h \
+	pn-inject-gui.c \
+	pn-inject-gui.h \
 	pn-knob-gui.c \
 	pn-knob-gui.h \
 	pn-label-gui.c \
@@ -405,6 +407,7 @@ pipnode_gui_headers = \
 	pn-graph-gui.h \
 	pn-gui.h \
 	pn-help-browser.h \
+	pn-inject-gui.h \
 	pn-knob-gui.h \
 	pn-label-gui.h \
 	pn-led-gui.h \

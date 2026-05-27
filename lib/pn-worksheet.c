@@ -493,8 +493,34 @@ input_port_y (PnNode *node, gint index)
 
 /* The "fire" button drawn on the left edge of #PnInject nodes.  Sits
  * outside the node body, the body's left edge being free because
- * inject nodes have no input port. */
-#define PN_INJECT_BUTTON_WIDTH 16.0
+ * inject nodes have no input port.  When the node has no configured
+ * button icon the tab keeps the historical compact width with a small
+ * cairo-drawn play triangle; once an icon is picked the tab widens to
+ * match the header height (i.e. a square) so the chosen icon has room
+ * to read and the click target grows with it.
+ *
+ * PN_INJECT_BUTTON_GAP is the empty space we leave between the tab's
+ * right edge and the node body's left edge.  Wide enough to keep the
+ * button's own drop shadow (paint_drop_shadow's deepest offset is
+ * ~5 px) — and the press-time 2 px down-right translation — clear of
+ * the node's outline, so the tab never visually crowds or covers the
+ * body. */
+#define PN_INJECT_BUTTON_WIDTH         16.0
+#define PN_INJECT_BUTTON_ICON_PIXELS   22
+#define PN_INJECT_BUTTON_GAP            3.0
+
+/** Width of the fire-button tab for @inject — narrow when no icon is
+ *  configured (legacy play-triangle look) and as wide as the header is
+ *  tall when an icon name is set, giving a square hit area with room
+ *  for the rendered theme icon. */
+static double
+inject_button_width (PnInject *inject)
+{
+    const gchar *icon = pn_inject_get_button_icon (inject);
+    if (icon == NULL || *icon == '\0')
+        return PN_INJECT_BUTTON_WIDTH;
+    return pn_node_get_header_height (PN_NODE (inject));
+}
 
 /** Trace a rounded-rectangle subpath.  Leaves the path open for the
  *  caller to fill, stroke, or clip as needed. */
@@ -615,39 +641,91 @@ draw_node (
     cairo_restore (cr);
 
     /* Fire button on the left edge for #PnInject nodes.  A grey tab
-     * with a small play triangle inside; clicking it activates the
-     * inject (handled in on_button_press).  While held, the tab is
-     * filled darker and the triangle is shifted one pixel down-right
-     * so the click reads as an inset press. */
+     * containing either a small cairo-drawn play triangle (default
+     * look) or, when the user has picked a themed icon, that icon
+     * loaded from the GTK icon theme rendered larger inside a wider
+     * tab.  Clicking it activates the inject (handled in
+     * on_button_press).
+     *
+     * Idle: drawn at (bx, by) above its drop shadow so the tab looks
+     * like it is floating slightly above the canvas, matching the
+     * shadow under the node body.
+     *
+     * Pressed: the shadow is omitted and the whole tab translates
+     * down-right by PN_INJECT_BUTTON_PRESS_OFFSET, so the painted
+     * artwork ends up exactly where the shadow used to sit — the eye
+     * reads it as the button having been physically depressed onto
+     * the canvas.  The inner artwork (triangle / icon) is positioned
+     * relative to the translated tab origin and therefore follows for
+     * free. */
     if (PN_IS_INJECT (node))
     {
-        const double bx = x - PN_INJECT_BUTTON_WIDTH;
-        const double by = y;
-        const double bw = PN_INJECT_BUTTON_WIDTH;
-        const double bh = header_h;
-        const gboolean pressed =
-                self != NULL && self->pressed_inject == PN_INJECT (node);
+        const double    PN_INJECT_BUTTON_PRESS_OFFSET = 2.0;
+        PnInject       *inject  = PN_INJECT (node);
+        const double    bw      = inject_button_width (inject);
+        const double    bh      = header_h;
+        const gboolean  pressed =
+                self != NULL && self->pressed_inject == inject;
+        const double    shift   = pressed ? PN_INJECT_BUTTON_PRESS_OFFSET : 0.0;
+        const double    bx      = (x - bw - PN_INJECT_BUTTON_GAP) + shift;
+        const double    by      = y                                + shift;
+        const gchar    *icon_name = pn_inject_get_button_icon (inject);
+
+        if (!pressed)
+            paint_drop_shadow (cr, bx, by, bw, bh, PN_NODE_RADIUS);
 
         rounded_rect_path (cr, bx, by, bw, bh, PN_NODE_RADIUS);
-        if (pressed)
-            cairo_set_source_rgb (cr, 0.32, 0.32, 0.34);
-        else
-            cairo_set_source_rgb (cr, 0.55, 0.55, 0.58);
+        cairo_set_source_rgb (cr, 0.55, 0.55, 0.58);
         cairo_fill_preserve (cr);
         cairo_set_source_rgb (cr, 0.20, 0.20, 0.22);
         cairo_set_line_width (cr, 1.0);
         cairo_stroke (cr);
 
+        gboolean icon_painted = FALSE;
+
+        if (icon_name != NULL && *icon_name != '\0')
         {
-            const double offset = pressed ? 1.0 : 0.0;
-            const double cx = bx + bw / 2.0 + offset;
-            const double cy = by + bh / 2.0 + offset;
+            /* Themed icon variant: load from the GTK icon theme as a
+             * pixbuf and paint it into the tab.  A missing icon name
+             * silently falls back to the play triangle below — the
+             * combo's entry stays editable, so we cannot trust the user
+             * picked something the theme actually ships. */
+            GtkIconTheme *theme  = gtk_icon_theme_get_default ();
+            GdkPixbuf    *pixbuf = gtk_icon_theme_load_icon (
+                    theme, icon_name,
+                    PN_INJECT_BUTTON_ICON_PIXELS,
+                    GTK_ICON_LOOKUP_FORCE_SIZE,
+                    NULL);
+            if (pixbuf != NULL)
+            {
+                const double iw  = (double) gdk_pixbuf_get_width  (pixbuf);
+                const double ih  = (double) gdk_pixbuf_get_height (pixbuf);
+                const double ix  = bx + (bw - iw) / 2.0;
+                const double iy  = by + (bh - ih) / 2.0;
+
+                cairo_save (cr);
+                gdk_cairo_set_source_pixbuf (cr, pixbuf, ix, iy);
+                cairo_paint (cr);
+                cairo_restore (cr);
+
+                g_object_unref (pixbuf);
+                icon_painted = TRUE;
+            }
+        }
+
+        if (!icon_painted)
+        {
+            /* Default look: cairo-drawn play triangle centred in the
+             * narrow tab.  Reached both when no icon is configured and
+             * when a configured icon failed to load from the theme. */
+            const double cx = bx + bw / 2.0;
+            const double cy = by + bh / 2.0;
             const double s  = 4.0;
             cairo_move_to (cr, cx - s / 2.0, cy - s);
             cairo_line_to (cr, cx + s / 2.0, cy);
             cairo_line_to (cr, cx - s / 2.0, cy + s);
             cairo_close_path (cr);
-            cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, pressed ? 0.75 : 0.92);
+            cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.92);
             cairo_fill (cr);
         }
     }
@@ -3119,14 +3197,17 @@ hit_test_inject_button (
     {
         PnNode        *node = pn_node_store_get_node (self->nodes, (guint) i);
         const PnPoint *p;
+        double         bw;
 
         if (!PN_IS_INJECT (node))
             continue;
         if (!node_on_sheet (self, node))
             continue;
 
-        p = pn_node_get_position (node);
-        if (x >= p->x - PN_INJECT_BUTTON_WIDTH && x < p->x &&
+        p  = pn_node_get_position (node);
+        bw = inject_button_width (PN_INJECT (node));
+        if (x >= p->x - bw - PN_INJECT_BUTTON_GAP &&
+            x <  p->x - PN_INJECT_BUTTON_GAP &&
             y >= p->y && y < p->y + pn_node_get_header_height (node))
             return PN_INJECT (node);
     }

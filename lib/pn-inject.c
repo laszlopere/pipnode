@@ -32,6 +32,13 @@ struct _PnInject
     gchar    *text;
     gdouble   value;
     gboolean  success;
+
+    /* Freedesktop icon name displayed on the worksheet's fire button.
+     * Empty / NULL keeps the legacy 16-px tab with the cairo-drawn play
+     * triangle; any other value swaps the triangle for the named theme
+     * icon and widens the button to accommodate it.  Picked via the
+     * Settings dialog's icon combo (see pn-inject-gui.c). */
+    gchar    *button_icon;
 };
 
 G_DEFINE_TYPE (PnInject, pn_inject, PN_TYPE_NODE)
@@ -41,6 +48,7 @@ enum {
     PROP_TEXT,
     PROP_VALUE,
     PROP_SUCCESS,
+    PROP_BUTTON_ICON,
     N_PROPS,
 };
 
@@ -115,6 +123,9 @@ pn_inject_get_property (
     case PROP_SUCCESS:
         g_value_set_boolean (value, self->success);
         break;
+    case PROP_BUTTON_ICON:
+        g_value_set_string (value, self->button_icon);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -154,6 +165,22 @@ pn_inject_set_property (
             }
         }
         break;
+    case PROP_BUTTON_ICON:
+        {
+            const gchar *new_icon = g_value_get_string (value);
+            /* Treat NULL and "" as the same unconfigured state so the
+             * worksheet's renderer (which falls back when the string is
+             * empty) does not need a NULL-vs-"" branch. */
+            if (g_strcmp0 (self->button_icon, new_icon) != 0)
+            {
+                g_free (self->button_icon);
+                self->button_icon = (new_icon != NULL)
+                                       ? g_strdup (new_icon)
+                                       : NULL;
+                g_object_notify_by_pspec (object, props[PROP_BUTTON_ICON]);
+            }
+        }
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -169,6 +196,7 @@ pn_inject_finalize (GObject *object)
     PnInject *self = PN_INJECT (object);
 
     g_clear_pointer (&self->text, g_free);
+    g_clear_pointer (&self->button_icon, g_free);
 
     G_OBJECT_CLASS (pn_inject_parent_class)->finalize (object);
 }
@@ -218,6 +246,16 @@ pn_inject_class_init (PnInjectClass *klass)
             TRUE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_BUTTON_ICON] = g_param_spec_string (
+            "button-icon", "Icon",
+            "Freedesktop icon name shown on the worksheet's fire "
+            "button.  When empty the button keeps the legacy compact "
+            "tab with a small play triangle; when set the named theme "
+            "icon is rendered inside a wider button to give a larger "
+            "click target.",
+            NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -226,9 +264,10 @@ pn_inject_init (PnInject *self)
 {
     PnNode *node = PN_NODE (self);
 
-    self->text    = NULL;
-    self->value   = 0.0;
-    self->success = TRUE;
+    self->text        = NULL;
+    self->value       = 0.0;
+    self->success     = TRUE;
+    self->button_icon = NULL;
 
     pn_node_set_class_name (node, "Injector");
     pn_node_set_has_input  (node, FALSE);
@@ -271,4 +310,11 @@ pn_inject_fire (PnInject *self)
     pn_node_emit_message (node, msg);
 
     g_object_unref (msg);
+}
+
+const gchar *
+pn_inject_get_button_icon (PnInject *self)
+{
+    g_return_val_if_fail (PN_IS_INJECT (self), NULL);
+    return self->button_icon;
 }

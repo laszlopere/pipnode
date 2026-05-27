@@ -47,6 +47,16 @@ PnInject *pn_inject_new  (void);
  */
 void      pn_inject_fire (PnInject *self);
 
+/**
+ * pn_inject_get_button_icon:
+ * @self: the inject node
+ *
+ * Returns the freedesktop icon name displayed on the worksheet's fire
+ * button, or %NULL / "" when no icon is configured.  Borrowed pointer
+ * owned by the node; valid until the next "button-icon" change.
+ */
+const gchar *pn_inject_get_button_icon (PnInject *self);
+
 G_END_DECLS
 
 #endif /* PN_INJECT_H */
