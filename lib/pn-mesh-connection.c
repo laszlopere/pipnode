@@ -77,6 +77,7 @@
 #define FR_MY_INFO              3
 #define FR_NODE_INFO            4
 #define FR_CONFIG_COMPLETE_ID   7
+#define FR_MODULE_CONFIG        9
 #define FR_CHANNEL             10
 
 /* ToRadio */
@@ -89,12 +90,21 @@
 /* NodeInfo */
 #define NI_NUM                  1
 #define NI_USER                 2
+#define NI_SNR                  4   /* float, wire type 5 (fixed32)   */
+#define NI_LAST_HEARD           5   /* fixed32                        */
+#define NI_DEVICE_METRICS       6   /* embedded DeviceMetrics         */
+#define NI_HOPS_AWAY            9   /* uint32                         */
 
 /* User */
 #define U_ID                    1
 #define U_LONG_NAME             2
 #define U_SHORT_NAME            3
 #define U_HW_MODEL              5
+#define U_ROLE                  7
+
+/* DeviceMetrics (NodeInfo subfield -- distinct from DeviceMetadata). */
+#define DMET_BATTERY_LEVEL      1
+#define DMET_VOLTAGE            2
 
 /* Channel */
 #define CH_INDEX                1
@@ -128,6 +138,7 @@
 #define AM_SET_OWNER                     32
 #define AM_SET_CHANNEL                   33
 #define AM_SET_CONFIG                    34
+#define AM_SET_MODULE_CONFIG             35
 
 /* DeviceMetadata */
 #define DM_FIRMWARE_VERSION     1
@@ -157,6 +168,67 @@
 #define LORA_TX_POWER          10
 #define LORA_CHANNEL_NUM       11
 
+/* ModuleConfig oneof cases. */
+#define MC_MQTT                  1
+#define MC_EXTERNAL_NOTIFICATION 3
+#define MC_TELEMETRY             6
+
+/* ExternalNotificationConfig fields.  Numbering jumps because the
+ * proto's per-output triplet (message / vibra / buzzer) was added in
+ * stages -- fields 8..13 are the second + third pin variants. */
+#define EN_ENABLED              1
+#define EN_OUTPUT_MS            2
+#define EN_OUTPUT               3
+#define EN_ACTIVE               4
+#define EN_ALERT_MESSAGE        5
+#define EN_ALERT_BELL           6
+#define EN_USE_PWM              7
+#define EN_OUTPUT_VIBRA         8
+#define EN_OUTPUT_BUZZER        9
+#define EN_ALERT_MESSAGE_VIBRA 10
+#define EN_ALERT_MESSAGE_BUZZER 11
+#define EN_ALERT_BELL_VIBRA    12
+#define EN_ALERT_BELL_BUZZER   13
+#define EN_NAG_TIMEOUT         14
+#define EN_USE_I2S_AS_BUZZER   15
+
+/* MqttConfig fields.  Field 6 (json_enabled) is upstream-deprecated
+ * and intentionally not exposed; field 11 (map_report_settings) is
+ * captured as an opaque byte slice so writes can ship it back
+ * unchanged -- proto3 default-zero would silently reset whatever
+ * the device had configured. */
+#define MQTT_ENABLED                   1
+#define MQTT_ADDRESS                   2
+#define MQTT_USERNAME                  3
+#define MQTT_PASSWORD                  4
+#define MQTT_ENCRYPTION_ENABLED        5
+#define MQTT_JSON_ENABLED              6   /* deprecated, not exposed */
+#define MQTT_TLS_ENABLED               7
+#define MQTT_ROOT                      8
+#define MQTT_PROXY_TO_CLIENT_ENABLED   9
+#define MQTT_MAP_REPORTING_ENABLED    10
+#define MQTT_MAP_REPORT_SETTINGS      11
+
+/* TelemetryConfig fields.  Five logical sub-systems (device,
+ * environment, air quality, power, health), each with its own
+ * enable + interval + screen toggles.  Field numbering interleaves
+ * because the proto added each sub-system in stages. */
+#define TEL_DEVICE_UPDATE_INTERVAL         1
+#define TEL_ENVIRONMENT_UPDATE_INTERVAL    2
+#define TEL_ENVIRONMENT_MEASUREMENT_ENABLED 3
+#define TEL_ENVIRONMENT_SCREEN_ENABLED     4
+#define TEL_ENVIRONMENT_DISPLAY_FAHRENHEIT 5
+#define TEL_AIR_QUALITY_ENABLED            6
+#define TEL_AIR_QUALITY_INTERVAL           7
+#define TEL_POWER_MEASUREMENT_ENABLED      8
+#define TEL_POWER_UPDATE_INTERVAL          9
+#define TEL_POWER_SCREEN_ENABLED          10
+#define TEL_HEALTH_MEASUREMENT_ENABLED    11
+#define TEL_HEALTH_UPDATE_INTERVAL        12
+#define TEL_HEALTH_SCREEN_ENABLED         13
+#define TEL_DEVICE_TELEMETRY_ENABLED      14
+#define TEL_AIR_QUALITY_SCREEN_ENABLED    15
+
 /* ------------------------------------------------------------------ */
 /*  Channel helper                                                      */
 /* ------------------------------------------------------------------ */
@@ -169,6 +241,17 @@ pn_mesh_channel_free (PnMeshChannel *channel)
     g_free (channel->name);
     g_free (channel->psk);
     g_slice_free (PnMeshChannel, channel);
+}
+
+void
+pn_mesh_node_free (PnMeshNode *node)
+{
+    if (node == NULL)
+        return;
+    g_free (node->id);
+    g_free (node->long_name);
+    g_free (node->short_name);
+    g_slice_free (PnMeshNode, node);
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,6 +279,12 @@ typedef struct
     gchar  *long_name;
     gchar  *short_name;
     guint32 hw_model;
+    guint32 role;
+    gfloat  snr;
+    guint32 last_heard;
+    guint32 hops_away;
+    guint32 battery_level;
+    gfloat  voltage;
 } SeenNode;
 
 static void
@@ -257,6 +346,46 @@ parse_user (PnMeshConnection *self, const guint8 *data, gsize size,
                 out->hw_model = (guint32) v;
             break;
         }
+        case U_ROLE:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->role = (guint32) v;
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* DeviceMetrics is the per-NodeInfo battery / voltage / channel
+ * utilisation block.  Distinct from DeviceMetadata (firmware / hw
+ * capabilities) -- they share a similar name but live on opposite
+ * sides of the protocol.  We only pull battery + voltage today; the
+ * page treats both as best-effort, so other fields are skipped. */
+static void
+parse_device_metrics (const guint8 *data, gsize size, SeenNode *out)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case DMET_BATTERY_LEVEL:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->battery_level = (guint32) v;
+            break;
+        }
+        case DMET_VOLTAGE:
+            pn_mesh_pb_read_float (&r, &out->voltage);
+            break;
         default:
             pn_mesh_pb_skip_field (&r, wire);
             break;
@@ -291,6 +420,27 @@ parse_node_info (PnMeshConnection *self, const guint8 *data, gsize size)
             gsize         user_size;
             if (pn_mesh_pb_read_length (&r, &user_data, &user_size))
                 parse_user (self, user_data, user_size, &node);
+            break;
+        }
+        case NI_SNR:
+            pn_mesh_pb_read_float (&r, &node.snr);
+            break;
+        case NI_LAST_HEARD:
+            pn_mesh_pb_read_fixed32 (&r, &node.last_heard);
+            break;
+        case NI_DEVICE_METRICS:
+        {
+            const guint8 *m_data;
+            gsize         m_size;
+            if (pn_mesh_pb_read_length (&r, &m_data, &m_size))
+                parse_device_metrics (m_data, m_size, &node);
+            break;
+        }
+        case NI_HOPS_AWAY:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                node.hops_away = (guint32) v;
             break;
         }
         default:
@@ -491,6 +641,285 @@ parse_config (PnMeshConnection *self,
     }
 }
 
+/* Parse an ExternalNotificationConfig into the connection state. */
+static void
+parse_ext_notification (PnMeshConnection *self,
+                        const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_ext_notification = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case EN_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_enabled = v != 0;
+            break;
+        case EN_OUTPUT_MS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_output_ms = (guint32) v;
+            break;
+        case EN_OUTPUT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_output = (guint32) v;
+            break;
+        case EN_ACTIVE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_active = v != 0;
+            break;
+        case EN_ALERT_MESSAGE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_message = v != 0;
+            break;
+        case EN_ALERT_BELL:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_bell = v != 0;
+            break;
+        case EN_USE_PWM:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_use_pwm = v != 0;
+            break;
+        case EN_OUTPUT_VIBRA:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_output_vibra = (guint32) v;
+            break;
+        case EN_OUTPUT_BUZZER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_output_buzzer = (guint32) v;
+            break;
+        case EN_ALERT_MESSAGE_VIBRA:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_message_vibra = v != 0;
+            break;
+        case EN_ALERT_MESSAGE_BUZZER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_message_buzzer = v != 0;
+            break;
+        case EN_ALERT_BELL_VIBRA:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_bell_vibra = v != 0;
+            break;
+        case EN_ALERT_BELL_BUZZER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_alert_bell_buzzer = v != 0;
+            break;
+        case EN_NAG_TIMEOUT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_nag_timeout = (guint32) v;
+            break;
+        case EN_USE_I2S_AS_BUZZER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.en_use_i2s_as_buzzer = v != 0;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse an MqttConfig into the connection state.  Strings are taken
+ * via read_string (g_strndup); map_report_settings is captured as a
+ * GBytes copy so we don't depend on the reader's backing buffer
+ * outliving the call. */
+static void
+parse_mqtt (PnMeshConnection *self,
+            const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_mqtt = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case MQTT_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.mqtt_enabled = v != 0;
+            break;
+        case MQTT_ADDRESS:
+            g_free (self->state.mqtt_address);
+            self->state.mqtt_address = read_string (&r);
+            break;
+        case MQTT_USERNAME:
+            g_free (self->state.mqtt_username);
+            self->state.mqtt_username = read_string (&r);
+            break;
+        case MQTT_PASSWORD:
+            g_free (self->state.mqtt_password);
+            self->state.mqtt_password = read_string (&r);
+            break;
+        case MQTT_ENCRYPTION_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.mqtt_encryption_enabled = v != 0;
+            break;
+        case MQTT_TLS_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.mqtt_tls_enabled = v != 0;
+            break;
+        case MQTT_ROOT:
+            g_free (self->state.mqtt_root);
+            self->state.mqtt_root = read_string (&r);
+            break;
+        case MQTT_PROXY_TO_CLIENT_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.mqtt_proxy_to_client_enabled = v != 0;
+            break;
+        case MQTT_MAP_REPORTING_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.mqtt_map_reporting_enabled = v != 0;
+            break;
+        case MQTT_MAP_REPORT_SETTINGS:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+            {
+                g_clear_pointer (&self->state.mqtt_map_report_settings,
+                                 g_bytes_unref);
+                self->state.mqtt_map_report_settings =
+                        g_bytes_new (p, s);
+            }
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a TelemetryConfig into the connection state.  Pure varint
+ * fields throughout, so the parser is one big switch over the field
+ * defines -- no read_string / read_length calls needed. */
+static void
+parse_telemetry (PnMeshConnection *self,
+                 const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_telemetry = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        if (!pn_mesh_pb_read_varint (&r, &v))
+        {
+            pn_mesh_pb_skip_field (&r, wire);
+            continue;
+        }
+
+        switch (field)
+        {
+        case TEL_DEVICE_TELEMETRY_ENABLED:
+            self->state.tel_device_telemetry_enabled = v != 0;
+            break;
+        case TEL_DEVICE_UPDATE_INTERVAL:
+            self->state.tel_device_update_interval = (guint32) v;
+            break;
+        case TEL_ENVIRONMENT_MEASUREMENT_ENABLED:
+            self->state.tel_environment_measurement_enabled = v != 0;
+            break;
+        case TEL_ENVIRONMENT_UPDATE_INTERVAL:
+            self->state.tel_environment_update_interval = (guint32) v;
+            break;
+        case TEL_ENVIRONMENT_SCREEN_ENABLED:
+            self->state.tel_environment_screen_enabled = v != 0;
+            break;
+        case TEL_ENVIRONMENT_DISPLAY_FAHRENHEIT:
+            self->state.tel_environment_display_fahrenheit = v != 0;
+            break;
+        case TEL_AIR_QUALITY_ENABLED:
+            self->state.tel_air_quality_enabled = v != 0;
+            break;
+        case TEL_AIR_QUALITY_INTERVAL:
+            self->state.tel_air_quality_interval = (guint32) v;
+            break;
+        case TEL_AIR_QUALITY_SCREEN_ENABLED:
+            self->state.tel_air_quality_screen_enabled = v != 0;
+            break;
+        case TEL_POWER_MEASUREMENT_ENABLED:
+            self->state.tel_power_measurement_enabled = v != 0;
+            break;
+        case TEL_POWER_UPDATE_INTERVAL:
+            self->state.tel_power_update_interval = (guint32) v;
+            break;
+        case TEL_POWER_SCREEN_ENABLED:
+            self->state.tel_power_screen_enabled = v != 0;
+            break;
+        case TEL_HEALTH_MEASUREMENT_ENABLED:
+            self->state.tel_health_measurement_enabled = v != 0;
+            break;
+        case TEL_HEALTH_UPDATE_INTERVAL:
+            self->state.tel_health_update_interval = (guint32) v;
+            break;
+        case TEL_HEALTH_SCREEN_ENABLED:
+            self->state.tel_health_screen_enabled = v != 0;
+            break;
+        default:
+            /* Already consumed the value above for unknown fields. */
+            break;
+        }
+    }
+}
+
+/* Parse a ModuleConfig message, dispatching to the per-module
+ * parser for the field that is set.  Modules not yet wired (Phases
+ * 11+) are skipped silently. */
+static void
+parse_module_config (PnMeshConnection *self,
+                     const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case MC_MQTT:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_mqtt (self, p, s);
+            break;
+        }
+        case MC_EXTERNAL_NOTIFICATION:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_ext_notification (self, p, s);
+            break;
+        }
+        case MC_TELEMETRY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_telemetry (self, p, s);
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a DeviceMetadata embedded message into the connection state. */
 static void
 parse_device_metadata (PnMeshConnection *self,
@@ -666,6 +1095,13 @@ parse_from_radio (PnMeshConnection *self,
                 parse_config (self, p, s);
             break;
         }
+        case FR_MODULE_CONFIG:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_module_config (self, p, s);
+            break;
+        }
         case FR_CHANNEL:
         {
             const guint8 *p; gsize s;
@@ -698,25 +1134,58 @@ parse_from_radio (PnMeshConnection *self,
  */
 static const guint8 WANT_CONFIG_PAYLOAD[] = { 0x18, 0x01 };
 
-/* Pick the owner out of seen_nodes by matching node->num against
- * my_node_num, and move its strings into state.owner_*. */
+/* Build state.nodes from seen_nodes and, while iterating, copy the
+ * NodeInfo whose num == my_node_num into state.owner_*.  Like
+ * pip-mesh, drop entries that lack a User.id -- those are partial
+ * NodeInfos the device buffered before the User came in (would show
+ * up as a row of em-dashes with no way to tell them apart).
+ *
+ * The published nodes array carries DUPLICATED strings so the
+ * owner_* fields can keep their (move-stolen) copy without
+ * double-freeing.  Cheap: the device exposes at most a few hundred
+ * nodes, almost always under fifty. */
 static void
 resolve_owner (PnMeshConnection *self)
 {
     guint i;
 
+    g_ptr_array_set_size (self->state.nodes, 0);
+
     for (i = 0; i < self->seen_nodes->len; i++)
     {
-        SeenNode *n = &g_array_index (self->seen_nodes, SeenNode, i);
-        if (n->num == self->state.my_node_num && n->num != 0)
+        SeenNode   *n = &g_array_index (self->seen_nodes, SeenNode, i);
+        PnMeshNode *node;
+
+        if (n->id == NULL || *n->id == '\0')
+            continue;
+
+        node = g_slice_new0 (PnMeshNode);
+        node->num           = n->num;
+        node->id            = g_strdup (n->id);
+        node->long_name     = g_strdup (n->long_name);
+        node->short_name    = g_strdup (n->short_name);
+        node->hw_model      = n->hw_model;
+        node->role          = n->role;
+        node->snr           = n->snr;
+        node->last_heard    = n->last_heard;
+        node->hops_away     = n->hops_away;
+        node->battery_level = n->battery_level;
+        node->voltage       = n->voltage;
+        node->is_us         = (n->num != 0 &&
+                               n->num == self->state.my_node_num);
+
+        g_ptr_array_add (self->state.nodes, node);
+
+        /* Side effect: capture the owner into state.owner_* the same
+         * way the original resolve_owner did -- moving the strings out
+         * of the SeenNode so the array's clear-func doesn't double-
+         * free them when the handshake's scratch array is cleared. */
+        if (node->is_us && self->state.owner_id == NULL)
         {
-            /* Move strings into state, leaving the array entry NULLed
-             * so the array's clear-func doesn't double-free. */
             self->state.owner_id         = n->id;         n->id         = NULL;
             self->state.owner_long_name  = n->long_name;  n->long_name  = NULL;
             self->state.owner_short_name = n->short_name; n->short_name = NULL;
             self->state.owner_hw_model   = n->hw_model;
-            return;
         }
     }
 }
@@ -967,7 +1436,54 @@ clear_state (PnMeshConnection *self)
     self->state.lora_tx_power    = 0;
     self->state.lora_channel_num = 0;
 
+    self->state.have_ext_notification    = FALSE;
+    self->state.en_enabled               = FALSE;
+    self->state.en_output_ms             = 0;
+    self->state.en_output                = 0;
+    self->state.en_output_vibra          = 0;
+    self->state.en_output_buzzer         = 0;
+    self->state.en_active                = FALSE;
+    self->state.en_alert_message         = FALSE;
+    self->state.en_alert_message_vibra   = FALSE;
+    self->state.en_alert_message_buzzer  = FALSE;
+    self->state.en_alert_bell            = FALSE;
+    self->state.en_alert_bell_vibra      = FALSE;
+    self->state.en_alert_bell_buzzer     = FALSE;
+    self->state.en_use_pwm               = FALSE;
+    self->state.en_nag_timeout           = 0;
+    self->state.en_use_i2s_as_buzzer     = FALSE;
+
+    self->state.have_mqtt                     = FALSE;
+    self->state.mqtt_enabled                  = FALSE;
+    g_clear_pointer (&self->state.mqtt_address,  g_free);
+    g_clear_pointer (&self->state.mqtt_username, g_free);
+    g_clear_pointer (&self->state.mqtt_password, g_free);
+    g_clear_pointer (&self->state.mqtt_root,     g_free);
+    g_clear_pointer (&self->state.mqtt_map_report_settings, g_bytes_unref);
+    self->state.mqtt_encryption_enabled       = FALSE;
+    self->state.mqtt_tls_enabled              = FALSE;
+    self->state.mqtt_proxy_to_client_enabled  = FALSE;
+    self->state.mqtt_map_reporting_enabled    = FALSE;
+
+    self->state.have_telemetry                       = FALSE;
+    self->state.tel_device_telemetry_enabled         = FALSE;
+    self->state.tel_device_update_interval           = 0;
+    self->state.tel_environment_measurement_enabled  = FALSE;
+    self->state.tel_environment_update_interval      = 0;
+    self->state.tel_environment_screen_enabled       = FALSE;
+    self->state.tel_environment_display_fahrenheit   = FALSE;
+    self->state.tel_air_quality_enabled              = FALSE;
+    self->state.tel_air_quality_interval             = 0;
+    self->state.tel_air_quality_screen_enabled       = FALSE;
+    self->state.tel_power_measurement_enabled        = FALSE;
+    self->state.tel_power_update_interval            = 0;
+    self->state.tel_power_screen_enabled             = FALSE;
+    self->state.tel_health_measurement_enabled       = FALSE;
+    self->state.tel_health_update_interval           = 0;
+    self->state.tel_health_screen_enabled            = FALSE;
+
     g_ptr_array_set_size (self->state.channels, 0);
+    g_ptr_array_set_size (self->state.nodes,    0);
     g_array_set_size (self->seen_nodes, 0);
 }
 
@@ -993,6 +1509,8 @@ pn_mesh_connection_open_sync (const gchar *tty_path, GError **error)
     self->frames   = pn_mesh_frame_reader_new ();
     self->state.channels = g_ptr_array_new_with_free_func (
             (GDestroyNotify) pn_mesh_channel_free);
+    self->state.nodes = g_ptr_array_new_with_free_func (
+            (GDestroyNotify) pn_mesh_node_free);
     self->seen_nodes = g_array_new (FALSE, TRUE, sizeof (SeenNode));
     g_array_set_clear_func (self->seen_nodes,
                             (GDestroyNotify) seen_node_clear);
@@ -1036,7 +1554,14 @@ pn_mesh_connection_close (PnMeshConnection *self)
     g_free (self->state.owner_long_name);
     g_free (self->state.owner_short_name);
     g_free (self->state.firmware_version);
+    g_free (self->state.mqtt_address);
+    g_free (self->state.mqtt_username);
+    g_free (self->state.mqtt_password);
+    g_free (self->state.mqtt_root);
+    if (self->state.mqtt_map_report_settings != NULL)
+        g_bytes_unref (self->state.mqtt_map_report_settings);
     g_ptr_array_unref (self->state.channels);
+    g_ptr_array_unref (self->state.nodes);
 
     g_array_unref (self->seen_nodes);
 
@@ -1400,6 +1925,560 @@ pn_mesh_connection_set_lora_config_async (PnMeshConnection            *self,
 gboolean
 pn_mesh_connection_set_lora_config_finish (GAsyncResult *result,
                                            GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_ext_notification — Phase 9 write path                           */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_module_config (35) = ModuleConfig {
+ *     external_notification (3) = ExternalNotificationConfig {…} } }
+ *
+ * Same proto3-defaults caveat as LoRa: ship every field every time
+ * or the device resets the omitted ones to zero on its next save. */
+static gboolean
+send_set_ext_notification (PnMeshConnection                 *self,
+                           const PnMeshExtNotificationWrite *cfg,
+                           GError                          **error)
+{
+    PnMeshPbWriter en_w, mc_w, admin_w;
+    GBytes        *en_bytes, *mc_bytes, *admin_bytes;
+    const guint8  *en_b, *mc_b, *admin_b;
+    gsize          en_n,  mc_n,  admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&en_w);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ENABLED,
+                                   cfg->enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_OUTPUT_MS,
+                                   cfg->output_ms);
+    pn_mesh_pb_write_varint_field (&en_w, EN_OUTPUT,
+                                   cfg->output);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ACTIVE,
+                                   cfg->active ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_MESSAGE,
+                                   cfg->alert_message ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_BELL,
+                                   cfg->alert_bell ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_USE_PWM,
+                                   cfg->use_pwm ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_OUTPUT_VIBRA,
+                                   cfg->output_vibra);
+    pn_mesh_pb_write_varint_field (&en_w, EN_OUTPUT_BUZZER,
+                                   cfg->output_buzzer);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_MESSAGE_VIBRA,
+                                   cfg->alert_message_vibra ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_MESSAGE_BUZZER,
+                                   cfg->alert_message_buzzer ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_BELL_VIBRA,
+                                   cfg->alert_bell_vibra ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_ALERT_BELL_BUZZER,
+                                   cfg->alert_bell_buzzer ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&en_w, EN_NAG_TIMEOUT,
+                                   cfg->nag_timeout);
+    pn_mesh_pb_write_varint_field (&en_w, EN_USE_I2S_AS_BUZZER,
+                                   cfg->use_i2s_as_buzzer ? 1 : 0);
+    en_bytes = pn_mesh_pb_writer_take_bytes (&en_w);
+    pn_mesh_pb_writer_clear (&en_w);
+    en_b = g_bytes_get_data (en_bytes, &en_n);
+
+    /* ModuleConfig { external_notification (3) = ExternalNotificationConfig } */
+    pn_mesh_pb_writer_init (&mc_w);
+    pn_mesh_pb_write_embedded_field (&mc_w, MC_EXTERNAL_NOTIFICATION,
+                                     en_b, en_n);
+    mc_bytes = pn_mesh_pb_writer_take_bytes (&mc_w);
+    pn_mesh_pb_writer_clear (&mc_w);
+    g_bytes_unref (en_bytes);
+    mc_b = g_bytes_get_data (mc_bytes, &mc_n);
+
+    /* AdminMessage { set_module_config (35) = ModuleConfig } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_MODULE_CONFIG,
+                                     mc_b, mc_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (mc_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_ext_notification_sync (
+        PnMeshConnection                 *self,
+        const PnMeshExtNotificationWrite *cfg,
+        GError                          **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_ext_notification (self, cfg, error))
+        return FALSE;
+
+    /* set_module_config writes do not normally reboot the device --
+     * they just toggle a runtime feature -- but we still settle 0.5s
+     * and re-handshake so the page repaints from authoritative
+     * device state. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection           *conn;
+    PnMeshExtNotificationWrite  cfg;
+} SetExtNotificationCall;
+
+static void
+set_ext_notification_call_free (gpointer data)
+{
+    g_slice_free (SetExtNotificationCall, data);
+}
+
+static void
+set_ext_notification_thread_func (GTask *task, gpointer source,
+                                  gpointer task_data,
+                                  GCancellable *cancellable)
+{
+    SetExtNotificationCall *c   = task_data;
+    GError                 *err = NULL;
+    gboolean                ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_ext_notification_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_ext_notification_async (
+        PnMeshConnection                 *self,
+        const PnMeshExtNotificationWrite *cfg,
+        GCancellable                     *cancellable,
+        GAsyncReadyCallback               callback,
+        gpointer                          user_data)
+{
+    GTask                  *task;
+    SetExtNotificationCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetExtNotificationCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_ext_notification_async);
+    g_task_set_task_data  (task, c, set_ext_notification_call_free);
+    g_task_run_in_thread  (task, set_ext_notification_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_ext_notification_finish (GAsyncResult *result,
+                                                GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_mqtt_config — Phase 10 write path                               */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_module_config (35) = ModuleConfig {
+ *     mqtt (1) = MqttConfig {…} } }
+ *
+ * Same proto3-defaults caveat as the other writers: every field is
+ * shipped on every Apply, including map_report_settings as opaque
+ * bytes captured during the handshake -- omitting it would silently
+ * reset the device's map-reporting cadence to zero.  json_enabled
+ * (field 6, deprecated upstream) is intentionally NOT shipped --
+ * the firmware ignores it, and writing it would round-trip a stale
+ * value through future versions. */
+static gboolean
+send_set_mqtt_config (PnMeshConnection            *self,
+                      const PnMeshMqttConfigWrite *cfg,
+                      GError                     **error)
+{
+    PnMeshPbWriter mqtt_w, mc_w, admin_w;
+    GBytes        *mqtt_bytes, *mc_bytes, *admin_bytes;
+    const guint8  *mqtt_b, *mc_b, *admin_b;
+    gsize          mqtt_n,  mc_n,  admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&mqtt_w);
+    pn_mesh_pb_write_varint_field (&mqtt_w, MQTT_ENABLED,
+                                   cfg->enabled ? 1 : 0);
+    pn_mesh_pb_write_string_field (&mqtt_w, MQTT_ADDRESS,
+                                   cfg->address != NULL ? cfg->address : "");
+    pn_mesh_pb_write_string_field (&mqtt_w, MQTT_USERNAME,
+                                   cfg->username != NULL ? cfg->username : "");
+    pn_mesh_pb_write_string_field (&mqtt_w, MQTT_PASSWORD,
+                                   cfg->password != NULL ? cfg->password : "");
+    pn_mesh_pb_write_varint_field (&mqtt_w, MQTT_ENCRYPTION_ENABLED,
+                                   cfg->encryption_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&mqtt_w, MQTT_TLS_ENABLED,
+                                   cfg->tls_enabled ? 1 : 0);
+    pn_mesh_pb_write_string_field (&mqtt_w, MQTT_ROOT,
+                                   cfg->root != NULL ? cfg->root : "");
+    pn_mesh_pb_write_varint_field (&mqtt_w, MQTT_PROXY_TO_CLIENT_ENABLED,
+                                   cfg->proxy_to_client_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&mqtt_w, MQTT_MAP_REPORTING_ENABLED,
+                                   cfg->map_reporting_enabled ? 1 : 0);
+    /* Opaque MapReportSettings -- shipped back verbatim from the
+     * read so the un-exposed sub-fields don't reset.  NULL or 0-size
+     * is fine: pb_write_embedded_field accepts both and emits a
+     * length-0 sub-message. */
+    if (cfg->map_report_settings != NULL)
+    {
+        gsize         mrs_n;
+        const guint8 *mrs_b = g_bytes_get_data (cfg->map_report_settings,
+                                                &mrs_n);
+        pn_mesh_pb_write_embedded_field (&mqtt_w, MQTT_MAP_REPORT_SETTINGS,
+                                         mrs_b, mrs_n);
+    }
+    mqtt_bytes = pn_mesh_pb_writer_take_bytes (&mqtt_w);
+    pn_mesh_pb_writer_clear (&mqtt_w);
+    mqtt_b = g_bytes_get_data (mqtt_bytes, &mqtt_n);
+
+    /* ModuleConfig { mqtt (1) = MqttConfig } */
+    pn_mesh_pb_writer_init (&mc_w);
+    pn_mesh_pb_write_embedded_field (&mc_w, MC_MQTT, mqtt_b, mqtt_n);
+    mc_bytes = pn_mesh_pb_writer_take_bytes (&mc_w);
+    pn_mesh_pb_writer_clear (&mc_w);
+    g_bytes_unref (mqtt_bytes);
+    mc_b = g_bytes_get_data (mc_bytes, &mc_n);
+
+    /* AdminMessage { set_module_config (35) = ModuleConfig } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_MODULE_CONFIG,
+                                     mc_b, mc_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (mc_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_mqtt_config_sync (
+        PnMeshConnection             *self,
+        const PnMeshMqttConfigWrite  *cfg,
+        GError                      **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_mqtt_config (self, cfg, error))
+        return FALSE;
+
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection       *conn;
+    /* Strings duplicated for thread-safety -- the worker thread
+     * reads them after the calling thread returned from _async. */
+    PnMeshMqttConfigWrite   cfg;
+    gchar                  *address;
+    gchar                  *username;
+    gchar                  *password;
+    gchar                  *root;
+    GBytes                 *map_report_settings;
+} SetMqttConfigCall;
+
+static void
+set_mqtt_config_call_free (gpointer data)
+{
+    SetMqttConfigCall *c = data;
+    g_free (c->address);
+    g_free (c->username);
+    g_free (c->password);
+    g_free (c->root);
+    if (c->map_report_settings != NULL)
+        g_bytes_unref (c->map_report_settings);
+    g_slice_free (SetMqttConfigCall, c);
+}
+
+static void
+set_mqtt_config_thread_func (GTask *task, gpointer source,
+                             gpointer task_data,
+                             GCancellable *cancellable)
+{
+    SetMqttConfigCall *c   = task_data;
+    GError            *err = NULL;
+    gboolean           ok;
+
+    (void) source;
+    (void) cancellable;
+
+    /* Re-point the const-string pointers at our owned copies before
+     * the worker thread reads them; the cfg struct was shallow-
+     * copied at _async time so its pointers still reference caller
+     * stack/temporaries. */
+    c->cfg.address             = c->address;
+    c->cfg.username            = c->username;
+    c->cfg.password            = c->password;
+    c->cfg.root                = c->root;
+    c->cfg.map_report_settings = c->map_report_settings;
+
+    ok = pn_mesh_connection_set_mqtt_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_mqtt_config_async (
+        PnMeshConnection             *self,
+        const PnMeshMqttConfigWrite  *cfg,
+        GCancellable                 *cancellable,
+        GAsyncReadyCallback           callback,
+        gpointer                      user_data)
+{
+    GTask             *task;
+    SetMqttConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetMqttConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+    c->address  = g_strdup (cfg->address  != NULL ? cfg->address  : "");
+    c->username = g_strdup (cfg->username != NULL ? cfg->username : "");
+    c->password = g_strdup (cfg->password != NULL ? cfg->password : "");
+    c->root     = g_strdup (cfg->root     != NULL ? cfg->root     : "");
+    c->map_report_settings = cfg->map_report_settings != NULL
+            ? g_bytes_ref (cfg->map_report_settings) : NULL;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_mqtt_config_async);
+    g_task_set_task_data  (task, c, set_mqtt_config_call_free);
+    g_task_run_in_thread  (task, set_mqtt_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_mqtt_config_finish (GAsyncResult *result,
+                                           GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_telemetry_config — Phase 11 write path                          */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_module_config (35) = ModuleConfig {
+ *     telemetry (6) = TelemetryConfig {…} } }
+ *
+ * Same proto3-defaults rule: ship every field every time.  No
+ * sub-messages in TelemetryConfig, so no opaque round-trip dance. */
+static gboolean
+send_set_telemetry_config (PnMeshConnection                 *self,
+                           const PnMeshTelemetryConfigWrite *cfg,
+                           GError                          **error)
+{
+    PnMeshPbWriter tel_w, mc_w, admin_w;
+    GBytes        *tel_bytes, *mc_bytes, *admin_bytes;
+    const guint8  *tel_b, *mc_b, *admin_b;
+    gsize          tel_n,  mc_n,  admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&tel_w);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_DEVICE_UPDATE_INTERVAL,
+                                   cfg->device_update_interval);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_ENVIRONMENT_UPDATE_INTERVAL,
+                                   cfg->environment_update_interval);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_ENVIRONMENT_MEASUREMENT_ENABLED,
+                                   cfg->environment_measurement_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_ENVIRONMENT_SCREEN_ENABLED,
+                                   cfg->environment_screen_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_ENVIRONMENT_DISPLAY_FAHRENHEIT,
+                                   cfg->environment_display_fahrenheit ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_AIR_QUALITY_ENABLED,
+                                   cfg->air_quality_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_AIR_QUALITY_INTERVAL,
+                                   cfg->air_quality_interval);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_POWER_MEASUREMENT_ENABLED,
+                                   cfg->power_measurement_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_POWER_UPDATE_INTERVAL,
+                                   cfg->power_update_interval);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_POWER_SCREEN_ENABLED,
+                                   cfg->power_screen_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_HEALTH_MEASUREMENT_ENABLED,
+                                   cfg->health_measurement_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_HEALTH_UPDATE_INTERVAL,
+                                   cfg->health_update_interval);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_HEALTH_SCREEN_ENABLED,
+                                   cfg->health_screen_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_DEVICE_TELEMETRY_ENABLED,
+                                   cfg->device_telemetry_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&tel_w, TEL_AIR_QUALITY_SCREEN_ENABLED,
+                                   cfg->air_quality_screen_enabled ? 1 : 0);
+    tel_bytes = pn_mesh_pb_writer_take_bytes (&tel_w);
+    pn_mesh_pb_writer_clear (&tel_w);
+    tel_b = g_bytes_get_data (tel_bytes, &tel_n);
+
+    pn_mesh_pb_writer_init (&mc_w);
+    pn_mesh_pb_write_embedded_field (&mc_w, MC_TELEMETRY, tel_b, tel_n);
+    mc_bytes = pn_mesh_pb_writer_take_bytes (&mc_w);
+    pn_mesh_pb_writer_clear (&mc_w);
+    g_bytes_unref (tel_bytes);
+    mc_b = g_bytes_get_data (mc_bytes, &mc_n);
+
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_MODULE_CONFIG,
+                                     mc_b, mc_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (mc_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_telemetry_config_sync (
+        PnMeshConnection                 *self,
+        const PnMeshTelemetryConfigWrite *cfg,
+        GError                          **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_telemetry_config (self, cfg, error))
+        return FALSE;
+
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection            *conn;
+    PnMeshTelemetryConfigWrite   cfg;
+} SetTelemetryConfigCall;
+
+static void
+set_telemetry_config_call_free (gpointer data)
+{
+    g_slice_free (SetTelemetryConfigCall, data);
+}
+
+static void
+set_telemetry_config_thread_func (GTask *task, gpointer source,
+                                  gpointer task_data,
+                                  GCancellable *cancellable)
+{
+    SetTelemetryConfigCall *c   = task_data;
+    GError                 *err = NULL;
+    gboolean                ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_telemetry_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_telemetry_config_async (
+        PnMeshConnection                  *self,
+        const PnMeshTelemetryConfigWrite  *cfg,
+        GCancellable                      *cancellable,
+        GAsyncReadyCallback                callback,
+        gpointer                           user_data)
+{
+    GTask                  *task;
+    SetTelemetryConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetTelemetryConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_telemetry_config_async);
+    g_task_set_task_data  (task, c, set_telemetry_config_call_free);
+    g_task_run_in_thread  (task, set_telemetry_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_telemetry_config_finish (GAsyncResult *result,
+                                                GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

@@ -33,6 +33,7 @@
 #endif
 
 #include "pn-mesh-page-identity.h"
+#include "pn-mesh-formats.h"
 
 #define PN_MESH_PAGE_CTX_QDATA "pn-mesh-page-identity-ctx"
 
@@ -89,101 +90,6 @@ static void
 identity_ctx_free (gpointer data)
 {
     g_slice_free (IdentityCtx, data);
-}
-
-/* ------------------------------------------------------------------ */
-/*  HW model name table                                                 */
-/* ------------------------------------------------------------------ */
-
-/* Port of /usr/bin/pip-mesh's format_hw_model.  The Meshtastic
- * HardwareModel enum is sparse, so we use a small lookup table
- * rather than an array indexed by value.  Unknown ids fall through
- * to a "model #N" string so the user is not confronted with a bare
- * "—" when their device is newer than this table. */
-typedef struct { guint32 id; const char *name; } HwEntry;
-
-static const HwEntry HW_MODELS[] = {
-    {  1, "TLORA_V2" },
-    {  2, "TLORA_V1" },
-    {  3, "TLORA_V2_1_1P6" },
-    {  4, "TBEAM" },
-    {  5, "HELTEC_V2_0" },
-    {  6, "TBEAM_V0P7" },
-    {  7, "T_ECHO" },
-    {  8, "TLORA_V1_1P3" },
-    {  9, "RAK4631" },
-    { 10, "HELTEC_V2_1" },
-    { 11, "HELTEC_V1" },
-    { 12, "TBEAM_S3_CORE" },
-    { 13, "RAK11200" },
-    { 14, "NANO_G1" },
-    { 15, "TLORA_V2_1_1P8" },
-    { 16, "TLORA_T3_S3" },
-    { 17, "NANO_G1_EXPLORER" },
-    { 18, "NANO_G2_ULTRA" },
-    { 25, "STATION_G1" },
-    { 26, "RAK11310" },
-    { 33, "T_ECHO_PLUS" },
-    { 37, "PORTDUINO" },
-    { 43, "HELTEC_V3" },
-    { 44, "HELTEC_WSL_V3" },
-    { 47, "RPI_PICO" },
-    { 48, "HELTEC_WIRELESS_TRACKER" },
-    { 49, "HELTEC_WIRELESS_PAPER" },
-    { 50, "T_DECK" },
-    { 51, "T_WATCH_S3" },
-    { 53, "HELTEC_HT62" },
-    { 65, "HELTEC_CAPSULE_SENSOR_V3" },
-    { 69, "HELTEC_MESH_NODE_T114" },
-    { 70, "SENSECAP_INDICATOR" },
-    { 71, "TRACKER_T1000_E" },
-    { 79, "RPI_PICO2" },
-    { 84, "WISMESH_TAP" },
-    { 89, "THINKNODE_M1" },
-    { 91, "T_ETH_ELITE" },
-    { 94, "HELTEC_MESH_POCKET" },
-    { 95, "SEEED_SOLAR_NODE" },
-    {102, "T_DECK_PRO" },
-    {103, "T_LORA_PAGER" },
-    {108, "HELTEC_MESH_SOLAR" },
-    {109, "T_ECHO_LITE" },
-    {110, "HELTEC_V4" },
-    {113, "HELTEC_WIRELESS_TRACKER_V2" },
-    {114, "T_WATCH_ULTRA" },
-    {255, "PRIVATE_HW" },
-};
-
-static gchar *
-format_hw_model (guint32 id)
-{
-    gsize i;
-    for (i = 0; i < G_N_ELEMENTS (HW_MODELS); i++)
-        if (HW_MODELS[i].id == id)
-            return g_strdup_printf ("%s (#%u)", HW_MODELS[i].name, id);
-    return g_strdup_printf ("model #%u", id);
-}
-
-/* Meshtastic DeviceRole enum -- the values pip-mesh prints with
- * format_device_role.  Small enough to inline. */
-static const char *
-format_role (guint32 r)
-{
-    switch (r)
-    {
-    case 0:  return "CLIENT";
-    case 1:  return "CLIENT_MUTE";
-    case 2:  return "ROUTER";
-    case 3:  return "ROUTER_CLIENT";   /* deprecated upstream */
-    case 4:  return "REPEATER";
-    case 5:  return "TRACKER";
-    case 6:  return "SENSOR";
-    case 7:  return "TAK";
-    case 8:  return "CLIENT_HIDDEN";
-    case 9:  return "LOST_AND_FOUND";
-    case 10: return "TAK_TRACKER";
-    case 11: return "ROUTER_LATE";
-    default: return NULL;
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -431,24 +337,19 @@ GtkWidget *
 pn_mesh_page_identity_new (void)
 {
     GtkWidget   *page;
-    GtkWidget   *title;
     GtkWidget   *subtitle;
     GtkWidget   *grid;
     IdentityCtx *ctx;
     gint         row = 0;
 
-    page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_margin_start  (page, 24);
-    gtk_widget_set_margin_end    (page, 24);
-    gtk_widget_set_margin_top    (page, 18);
-    gtk_widget_set_margin_bottom (page, 18);
-
-    title = gtk_label_new (NULL);
-    gtk_label_set_markup (
-            GTK_LABEL (title),
-            "<span size='large' weight='bold'>Identity</span>");
-    gtk_label_set_xalign (GTK_LABEL (title), 0.0);
-    gtk_box_pack_start (GTK_BOX (page), title, FALSE, FALSE, 0);
+    /* Hosted inside a GtkExpander, so the outer box wears small
+     * margins and skips a redundant title row (the expander header
+     * already labels the section). */
+    page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_margin_start  (page, 12);
+    gtk_widget_set_margin_end    (page, 12);
+    gtk_widget_set_margin_top    (page, 6);
+    gtk_widget_set_margin_bottom (page, 6);
 
     subtitle = gtk_label_new (
             "What the device reported during the configuration "
@@ -558,13 +459,13 @@ refresh_from_state (GtkWidget *page)
          * the same enum value. */
         guint32 hw = state->have_metadata && state->hw_model != 0
                 ? state->hw_model : state->owner_hw_model;
-        gchar *txt = hw != 0 ? format_hw_model (hw) : g_strdup ("—");
+        gchar *txt = hw != 0 ? pn_mesh_format_hw_model (hw) : g_strdup ("—");
         set_label (ctx->hw_model_label, txt);
         g_free (txt);
     }
 
     {
-        const char *role = state->have_metadata ? format_role (state->role) : NULL;
+        const char *role = state->have_metadata ? pn_mesh_format_role (state->role) : NULL;
         if (role != NULL)
         {
             gchar *txt = g_strdup_printf ("%s (#%u)", role, state->role);

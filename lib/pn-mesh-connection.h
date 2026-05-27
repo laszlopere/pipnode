@@ -38,6 +38,33 @@ typedef struct
 
 void          pn_mesh_channel_free (PnMeshChannel *channel);
 
+/* One entry from the device's NodeInfo database -- itself and every
+ * other node it has heard.  Fields that the firmware did not include
+ * for a given node stay at their zero value; @last_heard / @snr are
+ * the most common "missing" pair (a freshly-flashed device that has
+ * never heard a peer has only its own NodeInfo, and even that may
+ * lack @snr).  Strings are owned by the struct; freed by
+ * pn_mesh_node_free().  @is_us flags the entry whose @num matches
+ * MyNodeInfo.my_node_num, so the page can paint the owning device's
+ * own row distinctly. */
+typedef struct
+{
+    guint32  num;             /* NodeInfo.num (the node's numeric id)   */
+    gchar   *id;              /* User.id, hex-prefixed "!abcd1234"      */
+    gchar   *long_name;       /* User.long_name                         */
+    gchar   *short_name;      /* User.short_name                        */
+    guint32  hw_model;        /* User.hw_model (HardwareModel enum)     */
+    guint32  role;            /* User.role (DeviceRole enum)            */
+    gfloat   snr;             /* NodeInfo.snr (dB; 0 = unset)           */
+    guint32  last_heard;      /* NodeInfo.last_heard (unix seconds)     */
+    guint32  hops_away;       /* NodeInfo.hops_away (0 = direct)        */
+    guint32  battery_level;   /* DeviceMetrics.battery_level (0..101)   */
+    gfloat   voltage;         /* DeviceMetrics.voltage (volts)          */
+    gboolean is_us;           /* TRUE iff num == my_node_num            */
+} PnMeshNode;
+
+void          pn_mesh_node_free (PnMeshNode *node);
+
 /* Read-only snapshot of the device state captured by the handshake
  * plus the get_device_metadata admin round-trip.  Strings owned by
  * the struct; channels owned by the struct. */
@@ -50,6 +77,11 @@ typedef struct
     gchar      *owner_short_name;  /* <=4 chars by device contract  */
     guint32    owner_hw_model;     /* HardwareModel enum            */
     GPtrArray *channels;           /* PnMeshChannel*, index-ordered */
+    GPtrArray *nodes;              /* PnMeshNode*, every NodeInfo the
+                                    * device exposed (its own + every
+                                    * peer it has heard).  Owner is
+                                    * also present here; the entry has
+                                    * is_us=TRUE.                    */
     gboolean   config_complete;    /* config_complete_id seen       */
 
     /* From AdminMessage.get_device_metadata_response.  Empty / 0
@@ -78,6 +110,68 @@ typedef struct
     gboolean    lora_tx_enabled;
     guint32     lora_tx_power;      /* dBm                           */
     guint32     lora_channel_num;   /* fine-tune channel offset      */
+
+    /* From FromRadio.moduleConfig (field 9) = ModuleConfig {
+     *     external_notification (3) = ExternalNotificationConfig }.
+     * Same FALSE-means-unseen contract as have_lora_config; the
+     * page paints em-dashes and disables Apply until the device
+     * has sent its current values.  Like LoRa, writes go through
+     * the matching set_*_config_async so the verify-cycle picks
+     * the device's reply up as the new truth. */
+    gboolean    have_ext_notification;
+    gboolean    en_enabled;
+    guint32     en_output_ms;
+    guint32     en_output;
+    guint32     en_output_vibra;
+    guint32     en_output_buzzer;
+    gboolean    en_active;            /* TRUE = active-high           */
+    gboolean    en_alert_message;
+    gboolean    en_alert_message_vibra;
+    gboolean    en_alert_message_buzzer;
+    gboolean    en_alert_bell;
+    gboolean    en_alert_bell_vibra;
+    gboolean    en_alert_bell_buzzer;
+    gboolean    en_use_pwm;
+    guint32     en_nag_timeout;       /* seconds; 0 = no nag        */
+    gboolean    en_use_i2s_as_buzzer;
+
+    /* From FromRadio.moduleConfig (field 9) = ModuleConfig {
+     *     mqtt (1) = MqttConfig }.  json_enabled is upstream-
+     * deprecated and intentionally not exposed.  map_report_settings
+     * is captured as opaque bytes so the writer can ship them back
+     * verbatim -- the sub-fields are not exposed in the UI yet. */
+    gboolean    have_mqtt;
+    gboolean    mqtt_enabled;
+    gchar      *mqtt_address;
+    gchar      *mqtt_username;
+    gchar      *mqtt_password;
+    gboolean    mqtt_encryption_enabled;
+    gboolean    mqtt_tls_enabled;
+    gchar      *mqtt_root;
+    gboolean    mqtt_proxy_to_client_enabled;
+    gboolean    mqtt_map_reporting_enabled;
+    GBytes     *mqtt_map_report_settings;  /* opaque sub-message    */
+
+    /* From FromRadio.moduleConfig (field 9) = ModuleConfig {
+     *     telemetry (6) = TelemetryConfig }.  Five logical sub-
+     * systems (device / environment / air / power / health), each
+     * with its own enable + interval + screen toggles. */
+    gboolean    have_telemetry;
+    gboolean    tel_device_telemetry_enabled;
+    guint32     tel_device_update_interval;
+    gboolean    tel_environment_measurement_enabled;
+    guint32     tel_environment_update_interval;
+    gboolean    tel_environment_screen_enabled;
+    gboolean    tel_environment_display_fahrenheit;
+    gboolean    tel_air_quality_enabled;
+    guint32     tel_air_quality_interval;
+    gboolean    tel_air_quality_screen_enabled;
+    gboolean    tel_power_measurement_enabled;
+    guint32     tel_power_update_interval;
+    gboolean    tel_power_screen_enabled;
+    gboolean    tel_health_measurement_enabled;
+    guint32     tel_health_update_interval;
+    gboolean    tel_health_screen_enabled;
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -181,6 +275,131 @@ void     pn_mesh_connection_set_lora_config_async (
 gboolean pn_mesh_connection_set_lora_config_finish (
         GAsyncResult                *result,
         GError                     **error);
+
+/* ------------------------------------------------------------------ */
+/*  ExternalNotification (ModuleConfig) — Phase 9                       */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of ExternalNotificationConfig.  Same contract as
+ * the LoRa writer: the device replaces the whole sub-config in one
+ * shot so every field must be supplied even if only one is changing.
+ * Read the current PnMeshState->en_* values first, mutate the ones
+ * you care about, pass them all back here. */
+typedef struct
+{
+    gboolean enabled;
+    guint32  output_ms;
+    guint32  output;
+    guint32  output_vibra;
+    guint32  output_buzzer;
+    gboolean active;
+    gboolean alert_message;
+    gboolean alert_message_vibra;
+    gboolean alert_message_buzzer;
+    gboolean alert_bell;
+    gboolean alert_bell_vibra;
+    gboolean alert_bell_buzzer;
+    gboolean use_pwm;
+    guint32  nag_timeout;
+    gboolean use_i2s_as_buzzer;
+} PnMeshExtNotificationWrite;
+
+gboolean pn_mesh_connection_set_ext_notification_sync (
+        PnMeshConnection                  *self,
+        const PnMeshExtNotificationWrite  *cfg,
+        GError                           **error);
+
+void     pn_mesh_connection_set_ext_notification_async (
+        PnMeshConnection                  *self,
+        const PnMeshExtNotificationWrite  *cfg,
+        GCancellable                      *cancellable,
+        GAsyncReadyCallback                callback,
+        gpointer                           user_data);
+
+gboolean pn_mesh_connection_set_ext_notification_finish (
+        GAsyncResult                      *result,
+        GError                           **error);
+
+/* ------------------------------------------------------------------ */
+/*  MQTT (ModuleConfig) — Phase 10                                      */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of MqttConfig.  Same contract as the other
+ * config writers: ship every field every time or the device resets
+ * the omitted ones to proto3 zero.  @map_report_settings is the
+ * opaque sub-message bytes the caller read back from
+ * PnMeshState->mqtt_map_report_settings (may be NULL = empty).
+ * The caller is responsible for re-shipping it verbatim. */
+typedef struct
+{
+    gboolean       enabled;
+    const gchar   *address;
+    const gchar   *username;
+    const gchar   *password;
+    gboolean       encryption_enabled;
+    gboolean       tls_enabled;
+    const gchar   *root;
+    gboolean       proxy_to_client_enabled;
+    gboolean       map_reporting_enabled;
+    GBytes        *map_report_settings;  /* may be NULL */
+} PnMeshMqttConfigWrite;
+
+gboolean pn_mesh_connection_set_mqtt_config_sync (
+        PnMeshConnection             *self,
+        const PnMeshMqttConfigWrite  *cfg,
+        GError                      **error);
+
+void     pn_mesh_connection_set_mqtt_config_async (
+        PnMeshConnection             *self,
+        const PnMeshMqttConfigWrite  *cfg,
+        GCancellable                 *cancellable,
+        GAsyncReadyCallback           callback,
+        gpointer                      user_data);
+
+gboolean pn_mesh_connection_set_mqtt_config_finish (
+        GAsyncResult                 *result,
+        GError                      **error);
+
+/* ------------------------------------------------------------------ */
+/*  Telemetry (ModuleConfig) — Phase 11                                 */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of TelemetryConfig.  No sub-messages here, so
+ * no opaque round-trip needed; just every typed field. */
+typedef struct
+{
+    gboolean device_telemetry_enabled;
+    guint32  device_update_interval;
+    gboolean environment_measurement_enabled;
+    guint32  environment_update_interval;
+    gboolean environment_screen_enabled;
+    gboolean environment_display_fahrenheit;
+    gboolean air_quality_enabled;
+    guint32  air_quality_interval;
+    gboolean air_quality_screen_enabled;
+    gboolean power_measurement_enabled;
+    guint32  power_update_interval;
+    gboolean power_screen_enabled;
+    gboolean health_measurement_enabled;
+    guint32  health_update_interval;
+    gboolean health_screen_enabled;
+} PnMeshTelemetryConfigWrite;
+
+gboolean pn_mesh_connection_set_telemetry_config_sync (
+        PnMeshConnection                  *self,
+        const PnMeshTelemetryConfigWrite  *cfg,
+        GError                           **error);
+
+void     pn_mesh_connection_set_telemetry_config_async (
+        PnMeshConnection                  *self,
+        const PnMeshTelemetryConfigWrite  *cfg,
+        GCancellable                      *cancellable,
+        GAsyncReadyCallback                callback,
+        gpointer                           user_data);
+
+gboolean pn_mesh_connection_set_telemetry_config_finish (
+        GAsyncResult                      *result,
+        GError                           **error);
 
 /* ------------------------------------------------------------------ */
 /*  Channels                                                            */

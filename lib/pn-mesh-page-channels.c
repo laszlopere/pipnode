@@ -740,24 +740,19 @@ pn_mesh_page_channels_new (void)
 {
     ChannelsCtx *ctx;
     GtkWidget   *page;
-    GtkWidget   *title;
     GtkWidget   *subtitle;
     GtkWidget   *top_box;
     GtkWidget   *add;
     GtkWidget   *scrolled;
     GtkWidget   *list;
 
-    page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_margin_start  (page, 24);
-    gtk_widget_set_margin_end    (page, 24);
-    gtk_widget_set_margin_top    (page, 18);
-    gtk_widget_set_margin_bottom (page, 18);
-
-    title = gtk_label_new (NULL);
-    gtk_label_set_markup (GTK_LABEL (title),
-            "<span size='large' weight='bold'>Channels</span>");
-    gtk_label_set_xalign (GTK_LABEL (title), 0.0);
-    gtk_box_pack_start (GTK_BOX (page), title, FALSE, FALSE, 0);
+    /* Hosted inside a GtkExpander; small margins, no in-page title
+     * (the expander header carries the section name). */
+    page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_margin_start  (page, 12);
+    gtk_widget_set_margin_end    (page, 12);
+    gtk_widget_set_margin_top    (page, 6);
+    gtk_widget_set_margin_bottom (page, 6);
 
     subtitle = gtk_label_new (
             "Every channel slot the device exposes.  The primary "

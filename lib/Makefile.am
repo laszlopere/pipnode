@@ -101,6 +101,8 @@ libpipnode_core_la_SOURCES = \
 	pn-mesh-connection.h \
 	pn-mesh-discover.c \
 	pn-mesh-discover.h \
+	pn-mesh-formats.c \
+	pn-mesh-formats.h \
 	pn-mesh-pb.c \
 	pn-mesh-pb.h \
 	pn-mesh-serial.c \
@@ -255,10 +257,18 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-dialog.h \
 	pn-mesh-page-channels.c \
 	pn-mesh-page-channels.h \
+	pn-mesh-page-ext-notification.c \
+	pn-mesh-page-ext-notification.h \
 	pn-mesh-page-identity.c \
 	pn-mesh-page-identity.h \
+	pn-mesh-page-known-nodes.c \
+	pn-mesh-page-known-nodes.h \
+	pn-mesh-page-mqtt.c \
+	pn-mesh-page-mqtt.h \
 	pn-mesh-page-region.c \
 	pn-mesh-page-region.h \
+	pn-mesh-page-telemetry.c \
+	pn-mesh-page-telemetry.h \
 	pn-meshtastic-gui.c \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.c \
@@ -377,6 +387,7 @@ pipnode_core_headers = \
 	pn-matrix57.h \
 	pn-mesh-connection.h \
 	pn-mesh-discover.h \
+	pn-mesh-formats.h \
 	pn-mesh-pb.h \
 	pn-mesh-serial.h \
 	pn-meshtastic.h \
@@ -443,8 +454,12 @@ pipnode_gui_headers = \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
 	pn-mesh-page-channels.h \
+	pn-mesh-page-ext-notification.h \
 	pn-mesh-page-identity.h \
+	pn-mesh-page-known-nodes.h \
+	pn-mesh-page-mqtt.h \
 	pn-mesh-page-region.h \
+	pn-mesh-page-telemetry.h \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \

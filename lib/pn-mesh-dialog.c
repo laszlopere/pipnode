@@ -35,8 +35,12 @@
 #include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-channels.h"
+#include "pn-mesh-page-ext-notification.h"
 #include "pn-mesh-page-identity.h"
+#include "pn-mesh-page-known-nodes.h"
+#include "pn-mesh-page-mqtt.h"
 #include "pn-mesh-page-region.h"
+#include "pn-mesh-page-telemetry.h"
 
 #define PN_MESH_DIALOG_WIDTH   880
 #define PN_MESH_DIALOG_HEIGHT  560
@@ -47,11 +51,18 @@ typedef struct
 {
     GtkWidget        *dialog;
     GtkWidget        *device_list;
-    GtkStack         *right_stack;
-    GtkStackSwitcher *right_switcher;  /* hidden until a device connects */
+    GtkNotebook      *notebook;        /* always visible; insensitive
+                                        * until a device is picked so
+                                        * the user can see what tabs
+                                        * exist but cannot navigate
+                                        * into empty forms */
     GtkWidget        *identity_page;
     GtkWidget        *region_page;
     GtkWidget        *channels_page;
+    GtkWidget        *known_nodes_page;
+    GtkWidget        *ext_notification_page;
+    GtkWidget        *mqtt_page;
+    GtkWidget        *telemetry_page;
     GtkLabel         *status_label;
 
     /* Active session, if any.  NULL when no device is selected or
@@ -124,9 +135,18 @@ drop_connection (MeshDialogCtx *ctx)
     }
     g_clear_pointer (&ctx->connection_kind, g_free);
     g_clear_pointer (&ctx->connection_tty,  g_free);
-    pn_mesh_page_identity_set_state (ctx->identity_page, NULL, NULL, NULL, NULL);
-    pn_mesh_page_region_set_state   (ctx->region_page,   NULL, NULL);
-    pn_mesh_page_channels_set_state (ctx->channels_page, NULL, NULL);
+    pn_mesh_page_identity_set_state         (ctx->identity_page,         NULL, NULL, NULL, NULL);
+    pn_mesh_page_region_set_state           (ctx->region_page,           NULL, NULL);
+    pn_mesh_page_channels_set_state         (ctx->channels_page,         NULL, NULL);
+    pn_mesh_page_known_nodes_set_state      (ctx->known_nodes_page,      NULL);
+    pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
+    pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
+    pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
+    /* Grey out the notebook (tabs + content) until a device connects.
+     * The user still sees every tab so they know what's available
+     * once they pick one, but they cannot click into an empty form. */
+    if (ctx->notebook != NULL)
+        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
 }
 
 static void
@@ -157,11 +177,8 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
                      ctx->connection_tty != NULL ? ctx->connection_tty : "(?)",
                      error != NULL ? error->message : "(unknown error)");
         g_clear_error (&error);
-        /* Stay on the empty page so the user sees the worksheet area
-         * is intentionally blank; their next activation will retry.
-         * Switcher stays hidden until a device is actually connected. */
-        gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
-        gtk_stack_set_visible_child_name (ctx->right_stack, "empty");
+        /* Tabs stay visible but their content is empty -- each page's
+         * set_state(NULL) repaints itself as a "no device" placeholder. */
         return;
     }
 
@@ -180,8 +197,30 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->channels_page,
             pn_mesh_connection_get_state (conn),
             conn);
-    gtk_widget_show (GTK_WIDGET (ctx->right_switcher));
-    gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
+    pn_mesh_page_known_nodes_set_state (
+            ctx->known_nodes_page,
+            pn_mesh_connection_get_state (conn));
+    pn_mesh_page_ext_notification_set_state (
+            ctx->ext_notification_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_mqtt_set_state (
+            ctx->mqtt_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_telemetry_set_state (
+            ctx->telemetry_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    /* Light up the notebook now that there's actually content to
+     * navigate to.  drop_connection() reverses this on the next
+     * device switch or dialog close. */
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
+    /* Jump to the Device tab (index 0) so the Identity expander
+     * shows the just-completed handshake.  The user can still
+     * navigate back to any other tab; they were all visible while
+     * connecting. */
+    gtk_notebook_set_current_page (ctx->notebook, 0);
 
     {
         const PnMeshState *st = pn_mesh_connection_get_state (conn);
@@ -224,11 +263,15 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * until the handshake completes. */
     pn_mesh_page_identity_set_state (ctx->identity_page,
                                      device->kind, device->tty, NULL, NULL);
-    /* Keep the switcher hidden while connecting -- there's nothing
-     * to switch to until the device responds.  on_connection_ready
-     * shows it on success. */
-    gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
-    gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
+    /* Light up the notebook the moment the user picks a device,
+     * even before the handshake returns -- otherwise the
+     * "Connecting…" placeholder would paint greyed-out for the 3-5s
+     * the handshake takes.  drop_connection() will re-disable on
+     * the next dialog close or device switch. */
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
+    /* Snap to the Device tab (index 0) so the Identity row is what
+     * the user sees while the handshake runs. */
+    gtk_notebook_set_current_page (ctx->notebook, 0);
 
     set_statusf (ctx, "Connecting to %s on %s…",
                  device->kind, device->tty);
@@ -263,31 +306,73 @@ build_status_bar (MeshDialogCtx *ctx)
     return bar;
 }
 
-/* Empty page for "no device chosen yet". */
+/* Build one top-level tab: a scrolled vertical box of GtkExpanders.
+ * The caller appends one expander per sub-section by passing each
+ * (title, child) pair to add_expander() below. */
 static GtkWidget *
-build_empty_page (void)
+build_tab (GtkWidget **inner_box_out)
 {
+    GtkWidget *scrolled;
     GtkWidget *box;
-    GtkWidget *primary;
-    GtkWidget *secondary;
 
-    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_valign (box, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign (box, GTK_ALIGN_CENTER);
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_NEVER,
+                                    GTK_POLICY_AUTOMATIC);
 
-    primary = gtk_label_new (NULL);
-    gtk_label_set_markup (
-            GTK_LABEL (primary),
-            "<span size='large' weight='bold'>No device connected</span>");
-    gtk_box_pack_start (GTK_BOX (box), primary, FALSE, FALSE, 0);
+    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_margin_start  (box, 12);
+    gtk_widget_set_margin_end    (box, 12);
+    gtk_widget_set_margin_top    (box, 12);
+    gtk_widget_set_margin_bottom (box, 12);
+    gtk_container_add (GTK_CONTAINER (scrolled), box);
 
-    secondary = gtk_label_new (
-            "Press Scan on the left to look for connected\n"
-            "Meshtastic devices, then double-click one to configure it.");
-    gtk_label_set_justify (GTK_LABEL (secondary), GTK_JUSTIFY_CENTER);
-    gtk_box_pack_start (GTK_BOX (box), secondary, FALSE, FALSE, 0);
+    *inner_box_out = box;
+    return scrolled;
+}
 
-    return box;
+/* Wrap @child in a GtkExpander with @title in its header; pack into
+ * @parent.  Defaults to expanded so a freshly-opened tab reveals
+ * everything; the user can collapse what they don't want. */
+static void
+add_expander (GtkWidget *parent, const gchar *title, GtkWidget *child)
+{
+    GtkWidget *expander = gtk_expander_new (title);
+
+    /* Bolded label looks more like a section heading than a plain
+     * expander caption and stays legible alongside the scroll arrows. */
+    {
+        GtkWidget     *label = gtk_label_new (NULL);
+        PangoAttrList *attrs = pango_attr_list_new ();
+        gchar         *markup;
+
+        markup = g_markup_printf_escaped ("<b>%s</b>", title);
+        gtk_label_set_markup (GTK_LABEL (label), markup);
+        g_free (markup);
+        pango_attr_list_unref (attrs);
+        gtk_expander_set_label_widget (GTK_EXPANDER (expander), label);
+    }
+    gtk_expander_set_expanded (GTK_EXPANDER (expander), TRUE);
+    gtk_container_add (GTK_CONTAINER (expander), child);
+    gtk_box_pack_start (GTK_BOX (parent), expander, FALSE, FALSE, 0);
+}
+
+/* Placeholder text for a tab whose modules haven't been ported yet
+ * (Phases 10/11/12+).  Visible as a dim row so the user knows the
+ * tab exists but the contents are pending. */
+static GtkWidget *
+build_placeholder (const gchar *phase_note)
+{
+    GtkWidget *label = gtk_label_new (phase_note);
+    GtkStyleContext *sc;
+
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+    gtk_widget_set_margin_top    (label, 12);
+    gtk_widget_set_margin_bottom (label, 12);
+    sc = gtk_widget_get_style_context (label);
+    gtk_style_context_add_class (sc, "dim-label");
+    return label;
 }
 
 /* The dialog instance.  Modeless so the user keeps access to the
@@ -299,8 +384,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
     GtkWidget *dialog;
     GtkWidget *content;
     GtkWidget *paned;
-    GtkWidget *stack;
-    GtkWidget *identity;
+    GtkWidget *notebook;
 
     dialog = gtk_dialog_new_with_buttons (
             "Meshtastic Devices",
@@ -327,66 +411,123 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
     pn_mesh_device_list_set_activated_callback (
             ctx->device_list, on_device_activated, ctx);
 
-    /* Right pane: a vertical box with a GtkStackSwitcher on top and
-     * the GtkStack underneath.  The switcher reads the per-page
-     * "title" property on each titled stack page and gives the user
-     * one button per page; we leave the empty / connecting page
-     * untitled so it never appears as a switcher tab. */
+    /* Right pane: a GtkNotebook with seven tabs grouped by what the
+     * user is trying to do (not by which protobuf tree the setting
+     * lives in); each tab is a vertical box of GtkExpanders, one per
+     * sub-section.  Tabs / expanders that are empty in this phase
+     * carry a placeholder pointing at the phase number that fills
+     * them in.  GtkNotebook (rather than GtkStack + GtkStackSwitcher)
+     * matches the worksheet's tab visual in the main window: tabs
+     * size to their labels, no homogeneous-button stretching, no
+     * heavy "view switcher" padding. */
     {
-        GtkWidget *right_box;
-        GtkWidget *switcher;
-        GtkWidget *region;
+        notebook = gtk_notebook_new ();
+        gtk_notebook_set_scrollable (GTK_NOTEBOOK (notebook), TRUE);
+        ctx->notebook = GTK_NOTEBOOK (notebook);
 
-        right_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+        /* Build each page widget once; it is reusable across the
+         * dialog's lifetime, repainting via set_state on every
+         * device switch. */
+        ctx->identity_page         = pn_mesh_page_identity_new ();
+        ctx->region_page           = pn_mesh_page_region_new ();
+        ctx->channels_page         = pn_mesh_page_channels_new ();
+        ctx->known_nodes_page      = pn_mesh_page_known_nodes_new ();
+        ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
+        ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
+        ctx->telemetry_page        = pn_mesh_page_telemetry_new ();
 
-        stack = gtk_stack_new ();
-        gtk_stack_set_transition_type (GTK_STACK (stack),
-                                       GTK_STACK_TRANSITION_TYPE_CROSSFADE);
-        ctx->right_stack = GTK_STACK (stack);
-
-        switcher = gtk_stack_switcher_new ();
-        gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER (switcher),
-                                      GTK_STACK (stack));
-        gtk_widget_set_halign     (switcher, GTK_ALIGN_CENTER);
-        gtk_widget_set_margin_top (switcher, 6);
-        gtk_widget_set_margin_bottom (switcher, 6);
-        ctx->right_switcher = GTK_STACK_SWITCHER (switcher);
-
-        /* Empty page: shown when no device is selected.  Untitled so
-         * it doesn't get a switcher button. */
-        gtk_stack_add_named (GTK_STACK (stack),
-                             build_empty_page (), "empty");
-
-        identity = pn_mesh_page_identity_new ();
-        gtk_stack_add_titled (GTK_STACK (stack), identity,
-                              "identity", "Identity");
-        ctx->identity_page = identity;
         pn_mesh_page_identity_set_status_callback (
-                identity, on_page_status, ctx);
-
-        region = pn_mesh_page_region_new ();
-        gtk_stack_add_titled (GTK_STACK (stack), region,
-                              "region", "Region");
-        ctx->region_page = region;
+                ctx->identity_page,         on_page_status, ctx);
         pn_mesh_page_region_set_status_callback (
-                region, on_page_status, ctx);
+                ctx->region_page,           on_page_status, ctx);
+        pn_mesh_page_channels_set_status_callback (
+                ctx->channels_page,         on_page_status, ctx);
+        pn_mesh_page_ext_notification_set_status_callback (
+                ctx->ext_notification_page, on_page_status, ctx);
+        pn_mesh_page_mqtt_set_status_callback (
+                ctx->mqtt_page,             on_page_status, ctx);
+        pn_mesh_page_telemetry_set_status_callback (
+                ctx->telemetry_page,        on_page_status, ctx);
 
+        /* Tab 1: Device  (Identity now; Device-role + Power in Phase 14/12). */
         {
-            GtkWidget *channels = pn_mesh_page_channels_new ();
-            gtk_stack_add_titled (GTK_STACK (stack), channels,
-                                  "channels", "Channels");
-            ctx->channels_page = channels;
-            pn_mesh_page_channels_set_status_callback (
-                    channels, on_page_status, ctx);
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "Identity", ctx->identity_page);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Device"));
         }
 
-        gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
+        /* Tab 2: Radio  (Region+LoRa, Channels; Position + Security later). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "Region & LoRa", ctx->region_page);
+            add_expander (inner, "Channels",      ctx->channels_page);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Radio"));
+        }
 
-        gtk_box_pack_start (GTK_BOX (right_box), switcher, FALSE, FALSE, 0);
-        gtk_box_pack_start (GTK_BOX (right_box), stack,    TRUE,  TRUE,  0);
+        /* Tab 3: Network  (MQTT now; Serial / Bluetooth / WiFi / Ethernet later). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "MQTT", ctx->mqtt_page);
+            gtk_box_pack_start (GTK_BOX (inner),
+                    build_placeholder (
+                        "Serial, Bluetooth, WiFi and Ethernet land in "
+                        "Phases 11/13/14."),
+                    FALSE, FALSE, 0);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Network"));
+        }
+
+        /* Tab 4: Notifications  (External Notification now; Canned / Status /
+         * Audio / Ambient Lighting in Phase 10/11). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "External Notification",
+                          ctx->ext_notification_page);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Notifications"));
+        }
+
+        /* Tab 5: Telemetry  (Telemetry now; NeighborInfo / DetectionSensor /
+         * RangeTest / Paxcounter land in Phase 11+). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "Telemetry", ctx->telemetry_page);
+            gtk_box_pack_start (GTK_BOX (inner),
+                    build_placeholder (
+                        "Neighbor Info, Detection Sensor, Range Test "
+                        "and Paxcounter land in later phases."),
+                    FALSE, FALSE, 0);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Telemetry"));
+        }
+
+        /* Tab 6: Mesh tools  (Phase 11/13). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            gtk_box_pack_start (GTK_BOX (inner),
+                    build_placeholder (
+                        "Store & Forward, Traffic Management, Remote "
+                        "Hardware, Display config, and TAK land in "
+                        "Phase 11/13."),
+                    FALSE, FALSE, 0);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Mesh tools"));
+        }
+
+        /* Tab 7: Diagnostics  (Known Nodes). */
+        {
+            GtkWidget *inner, *tab = build_tab (&inner);
+            add_expander (inner, "Known Nodes", ctx->known_nodes_page);
+            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
+                                      gtk_label_new ("Diagnostics"));
+        }
+
+        gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 0);
 
         gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
-        gtk_paned_pack2 (GTK_PANED (paned), right_box,        TRUE,  FALSE);
+        gtk_paned_pack2 (GTK_PANED (paned), notebook,         TRUE,  FALSE);
     }
 
     gtk_box_pack_start (GTK_BOX (content), paned, TRUE, TRUE, 0);
@@ -398,11 +539,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                         FALSE, FALSE, 0);
 
     gtk_widget_show_all (content);
-    /* Hide the switcher until a device is actually connected -- with
-     * the empty page showing, the switcher buttons would have nothing
-     * useful to switch to.  Hidden AFTER show_all because that recurses
-     * into every child. */
-    gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
+    /* set_state(NULL) on every page right after build so the initial
+     * "no device" placeholders paint immediately; otherwise the user
+     * sees stale labels until the first device activation. */
+    drop_connection (ctx);
     return dialog;
 }
 

@@ -487,6 +487,36 @@ lives here so future sessions can pick up without re-reading chat):
                  the same delay and would benefit from the same
                  spinner -- not added yet (user didn't ask), one-
                  liner each when wanted.
+    [x] Known    Known Nodes page (out-of-band insertion between
+        Nodes    Phase 5 and Phase 6 -- user-requested "everything
+                 works" diagnostic).  Read-only sortable
+                 GtkTreeView over PnMeshState->nodes; the device's
+                 own row is bolded and pinned to the top via a
+                 hidden is_us primary sort key, with columns ID /
+                 Short / Long / HW / Role / Hops / SNR / Last
+                 heard / Battery.  Last heard / SNR / Battery use
+                 separate numeric sort columns so the displayed
+                 strings ("3m ago", "—") sort by value not ASCII.
+                 Connection now captures the full NodeInfo set
+                 (added field defines NI_SNR=4, NI_LAST_HEARD=5,
+                 NI_DEVICE_METRICS=6, NI_HOPS_AWAY=9, U_ROLE=7;
+                 new parse_device_metrics; SeenNode extended with
+                 role/snr/last_heard/hops_away/battery/voltage)
+                 and publishes PnMeshState->nodes (GPtrArray of
+                 new public type PnMeshNode).  format_hw_model /
+                 format_role lifted out of page-identity into
+                 libpipnode-core (lib/pn-mesh-formats.{c,h}) so
+                 the new page reuses the same tables.  Files
+                 shipped: lib/pn-mesh-formats.{c,h} (core);
+                 lib/pn-mesh-page-known-nodes.{c,h} (gui).  No new
+                 unit test -- the page is a pure render layer over
+                 already-tested protobuf parsing; the existing
+                 test-pn-mesh-pb / test-pn-mesh-frame net still
+                 holds.  No protocol writes; no admin frames; no
+                 ABI bump (PnMeshState is internal to the dialog).
+                 Phase numbering unchanged below; "Phase 5.5" would
+                 misread, so it's tracked here as an inline entry.
+
     [ ] Phase 6  Share page (headline feature). Share channel
                  (additive, multi-select) and Share full config
                  (replaces) side by side. Cairo-rendered QR via
@@ -496,6 +526,110 @@ lives here so future sessions can pick up without re-reading chat):
     [ ] Phase 7  Test page. Channel picker + message entry + Send;
                  below, a live "Incoming traffic" log running monitor
                  on the open connection. Auto-stops on dialog close.
+    [ ] Phase 9  Modules tab + External Notification (the "stop
+                 the beeping" fix).  pip-mesh never touched
+                 ModuleConfig at all; we want the full module
+                 surface eventually, starting with the one users
+                 most often need to disable (nag_timeout +
+                 enabled).  Concrete steps:
+
+                 (a) Wire defines: FR_MODULE_CONFIG=9 (FromRadio
+                     subfield), MC_EXTERNAL_NOTIFICATION=3
+                     (ModuleConfig oneof case),
+                     AM_SET_MODULE_CONFIG=35 (AdminMessage),
+                     EN_* for all 15 ExternalNotificationConfig
+                     fields.
+                 (b) Handshake parser: parse_module_config()
+                     dispatcher (mirroring parse_config) and
+                     parse_ext_notification() (mirroring
+                     parse_lora_config).
+                 (c) State: new PnMeshExtNotificationConfig struct
+                     in pn-mesh-connection.h with all 15 fields,
+                     plus have_ext_notification flag on
+                     PnMeshState.
+                 (d) Writer: pn_mesh_connection_set_ext_notification
+                     _sync/async/finish, shipping the WHOLE
+                     ExternalNotificationConfig at once (same
+                     proto3-defaults rule as LoRa -- ship every
+                     field on every write or omitted ones reset).
+                 (e) UI: new "Modules" stack page in the dialog.
+                     Designed as a sidebar (list of available
+                     modules) + content panel.  Phase 9 lists only
+                     "External Notification"; Phases 10/11 add
+                     rows.  ExternalNotification form: switch for
+                     enabled, spinner for nag_timeout (the
+                     "actually fix the beep" knob), spinners for
+                     output_ms, output / output_vibra /
+                     output_buzzer GPIO pins, switch for active
+                     (active-high vs active-low), alert_message /
+                     _vibra / _buzzer + alert_bell / _vibra /
+                     _buzzer switches, use_pwm switch,
+                     use_i2s_as_buzzer switch; single Apply
+                     button at the bottom.
+                 (f) ABI: PnMeshState is private to the dialog;
+                     no plugin ABI bump.
+
+    [x] Phase 10 MQTT module.  The Modules-sidebar plan was
+                 superseded by the 7-tab + GtkExpander layout
+                 (Device/Radio/Network/Notifications/Telemetry/
+                 Mesh tools/Diagnostics, accordion sub-sections
+                 inside each).  Phase 10 ships MQTT specifically
+                 (10 simple fields + opaque MapReportSettings
+                 round-trip) under the Network tab; remaining
+                 modules picked up by Phase 11+.  Wire side:
+                 MC_MQTT=1 ModuleConfig dispatch, MQTT_* field
+                 defines, parse_mqtt, send_set_mqtt_config,
+                 PnMeshMqttConfigWrite, sync/async/finish.
+                 PnMeshState gains 9 typed fields plus a GBytes*
+                 holding the un-exposed MapReportSettings sub-
+                 message so writes don't reset its hidden sub-
+                 fields to proto3 zero.  UI: pn-mesh-page-mqtt.
+                 {c,h} mirrors the External Notification page --
+                 master Enabled gates the detail fields,
+                 password entry has visibility=FALSE, address &
+                 root entries grow to fill the row.  Field 6
+                 (json_enabled) is upstream-deprecated and
+                 intentionally NOT written -- the firmware
+                 ignores it.
+
+    [ ] Phase 11 Remaining modules (and Notifications-tab
+                 siblings).  Serial (Network tab); Telemetry,
+                 Neighbor Info, Detection Sensor, Range Test,
+                 Paxcounter (Telemetry tab); Canned Message,
+                 Status Message, Audio, Ambient Lighting
+                 (Notifications tab); Store & Forward, Traffic
+                 Management, Remote Hardware, Display (the
+                 Config block, not a module), TAK (Mesh tools
+                 tab).  Each follows the Phase 10 pattern.
+                 Sub-messages that the UI doesn't expose go via
+                 the opaque-bytes round-trip introduced in
+                 Phase 10 (PnMeshState->mqtt_map_report_settings).
+
+    [ ] Phase 12 Position + Power config tabs.  Two new tabs
+                 (or one grouped tab) for the Config sub-blocks
+                 PositionConfig (13 fields: gps_enabled,
+                 position_broadcast_secs, fixed_position,
+                 gps_update_interval, ...) and PowerConfig
+                 (8 fields: is_power_saving, sds_secs, ls_secs,
+                 ...).  Uses set_config (already wired for
+                 LoRa) at field 34.
+
+    [ ] Phase 13 Display + Bluetooth config tabs.  DisplayConfig
+                 (13 fields: screen_on_secs, flip_screen, units,
+                 use_12h_clock, ...) and BluetoothConfig
+                 (3 fields: enabled, mode, fixed_pin).
+
+    [ ] Phase 14 Device + Network + Security config tabs.
+                 DeviceConfig (13 fields: role, GPIO assignments,
+                 rebroadcast_mode, node_info_broadcast_secs),
+                 NetworkConfig (11 fields: wifi_enabled, ssid,
+                 psk, eth_enabled, ipv4_config, ipv6_enabled),
+                 SecurityConfig (6 fields: public_key,
+                 private_key, admin_key, is_managed).  Touchy:
+                 a bad write here can lock the user out of admin,
+                 so the page should have an "I understand"
+                 confirmation before Apply.
+
     [ ] Phase 8  Plugin extraction (separate work). Move
                  lib/devices/meshtastic/ into the meshtastic plugin's
                  GUI companion. Add PnDeviceProvider in core so the
