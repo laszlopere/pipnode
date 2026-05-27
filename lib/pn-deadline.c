@@ -23,6 +23,7 @@
 #include "pn-deadline.h"
 #include "pn-message.h"
 #include "pn-settings-schema.h"
+#include "pn-tz-table.h"
 
 struct _PnDeadline
 {
@@ -46,68 +47,10 @@ static GParamSpec *props[N_PROPS];
 /* ------------------------------------------------------------------ */
 /*  Timezones                                                          */
 /*                                                                     */
-/*  A fixed-offset table keyed by the combo label (abbreviation + a    */
-/*  spelled-out name, never a city).  Carrying the full name keeps     */
-/*  ambiguous abbreviations distinct — "CST — Central Standard Time"   */
-/*  (-360) versus "CST — China Standard Time" (+480) are separate      */
-/*  rows.  DST variants are listed as their own fixed offsets (e.g.    */
-/*  CET +60 vs CEST +120) so there is no daylight-saving guessing.     */
+/*  The combo choices and the label→offset lookup come from the shared */
+/*  pn-tz-table module (see pn-tz-table.h).  The Digital Clock node    */
+/*  draws from the same list, so the two stay in sync.                 */
 /* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    const gchar *label;
-    gint         off_min;   /* minutes east of UTC */
-} TzEntry;
-
-static const TzEntry tz_table[] =
-{
-    { "HST — Hawaii Standard Time",                -600 },
-    { "AKST — Alaska Standard Time",               -540 },
-    { "PST — Pacific Standard Time",               -480 },
-    { "PDT — Pacific Daylight Time",               -420 },
-    { "MST — Mountain Standard Time",              -420 },
-    { "MDT — Mountain Daylight Time",              -360 },
-    { "CST — Central Standard Time",               -360 },
-    { "CDT — Central Daylight Time",               -300 },
-    { "EST — Eastern Standard Time",               -300 },
-    { "EDT — Eastern Daylight Time",               -240 },
-    { "AST — Atlantic Standard Time",              -240 },
-    { "BRT — Brasília Time",                        -180 },
-    { "UTC — Coordinated Universal Time",             0 },
-    { "GMT — Greenwich Mean Time",                    0 },
-    { "WET — Western European Time",                  0 },
-    { "WEST — Western European Summer Time",         60 },
-    { "CET — Central European Time",                 60 },
-    { "CEST — Central European Summer Time",        120 },
-    { "EET — Eastern European Time",                120 },
-    { "EEST — Eastern European Summer Time",        180 },
-    { "MSK — Moscow Standard Time",                 180 },
-    { "GST — Gulf Standard Time",                   240 },
-    { "IST — India Standard Time",                  330 },
-    { "CST — China Standard Time",                  480 },
-    { "JST — Japan Standard Time",                  540 },
-    { "AEST — Australian Eastern Standard Time",    600 },
-    { "AEDT — Australian Eastern Daylight Time",    660 },
-    { "NZST — New Zealand Standard Time",           720 },
-};
-
-/* The configured zone's offset in minutes; an empty or unknown label
- * falls back to GMT (UTC+0) per the node contract. */
-static gint
-tz_offset_minutes (const gchar *label)
-{
-    guint i;
-
-    if (label == NULL || *label == '\0')
-        return 0;
-
-    for (i = 0; i < G_N_ELEMENTS (tz_table); i++)
-        if (g_strcmp0 (label, tz_table[i].label) == 0)
-            return tz_table[i].off_min;
-
-    return 0;
-}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -173,7 +116,7 @@ pn_deadline_receive (PnNode *node, PnMessage *message)
     if (!read_value (message, &now_epoch))
         return;   /* no numeric instant to measure against — stay silent */
 
-    off_min = tz_offset_minutes (self->timezone);
+    off_min = pn_tz_table_offset_minutes (self->timezone);
     if (!parse_target_epoch (self->target, off_min, &target_epoch))
         return;   /* unparseable target — stay silent */
 
@@ -250,8 +193,6 @@ pn_deadline_class_init (PnDeadlineClass *klass)
     GObjectClass     *object_class = G_OBJECT_CLASS (klass);
     PnNodeClass      *node_class   = PN_NODE_CLASS (klass);
     PnSettingsSchema *schema;
-    const gchar      *choices[G_N_ELEMENTS (tz_table) + 1];
-    guint             i;
 
     object_class->get_property = pn_deadline_get_property;
     object_class->set_property = pn_deadline_set_property;
@@ -280,16 +221,12 @@ pn_deadline_class_init (PnDeadlineClass *klass)
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Settings dialog: a free-text timestamp entry and a timezone combo
-     * built from the same fixed-offset table.  Declarative schema only,
+     * built from the shared fixed-offset table.  Declarative schema only,
      * so no -gui.so companion is needed. */
-    for (i = 0; i < G_N_ELEMENTS (tz_table); i++)
-        choices[i] = tz_table[i].label;
-    choices[G_N_ELEMENTS (tz_table)] = NULL;
-
     schema = pn_settings_schema_new ();
     pn_settings_schema_row     (schema, "target",   PN_EDITOR_ENTRY);
     pn_settings_schema_row     (schema, "timezone", PN_EDITOR_COMBO);
-    pn_settings_schema_choices (schema, "timezone", choices);
+    pn_settings_schema_choices (schema, "timezone", pn_tz_table_choices ());
     pn_node_class_set_settings_schema (node_class, schema);
 }
 

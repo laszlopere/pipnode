@@ -37,6 +37,19 @@ feed (PnNode *node, gdouble value)
     g_object_unref (m);
 }
 
+/* Feed a value with a "timezone" abbreviation alongside it — the same
+ * envelope shape the Clock node emits. */
+static void
+feed_tz (PnNode *node, gdouble value, const gchar *tz_abbr)
+{
+    PnMessage *m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", value);
+    if (tz_abbr != NULL)
+        pn_message_set_string (m, "timezone", tz_abbr);
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+}
+
 /* Build a total seconds count for a d/h/m/s breakdown. */
 static gint64
 secs (gint64 d, gint h, gint m, gint s)
@@ -231,6 +244,147 @@ test_properties_round_trip (void)
     g_object_unref (dc);
 }
 
+/* A Unix-epoch reading is shown at UTC by default — value % 86400 gives
+ * the seconds-of-day at GMT. */
+static void
+test_default_timezone_is_gmt (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    /* 2026-01-01 12:34:56 UTC = 1767270896 */
+    feed (PN_NODE (dc), 1767270896.0);
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    g_object_unref (dc);
+}
+
+/* Setting the timezone property to a known label shifts the display by the
+ * fixed offset; CET = UTC+1, so 12:34:56 UTC reads 13:34:56. */
+static void
+test_configured_timezone_shifts_display (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    g_object_set (dc, "timezone", "CET — Central European Time", NULL);
+
+    feed (PN_NODE (dc), 1767270896.0);
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 13);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    g_object_unref (dc);
+}
+
+/* A negative-offset zone wraps the wall clock back over midnight: PST is
+ * UTC-8, so 03:00 UTC the day after reads 19:00 the previous day. */
+static void
+test_negative_offset_wraps (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    g_object_set (dc, "timezone", "PST — Pacific Standard Time", NULL);
+
+    /* 2026-01-02 03:00:00 UTC = 1767322800 */
+    feed (PN_NODE (dc), 1767322800.0);
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 19);
+    PN_CHECK_CMPINT (st.minutes, ==, 0);
+    PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    g_object_unref (dc);
+}
+
+/* With "Not Set" and a recognised abbreviation on the message, the display
+ * follows the wire — exactly what the Clock node would supply.  CEST is
+ * UTC+2, so 10:00:00 UTC reads 12:00:00. */
+static void
+test_not_set_uses_message_abbreviation (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    /* 2026-06-01 10:00:00 UTC = 1780308000 */
+    feed_tz (PN_NODE (dc), 1780308000.0, "CEST");
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 0);
+    PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    g_object_unref (dc);
+}
+
+/* An unknown abbreviation on the wire falls back to GMT (per the node's
+ * contract); a missing "timezone" member behaves the same. */
+static void
+test_not_set_unknown_abbreviation_is_gmt (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    feed_tz (PN_NODE (dc), 1767270896.0, "ZZZ");
+    pn_digital_clock_get_paint_state (dc, &st);
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    feed (PN_NODE (dc), 1767270896.0);   /* no "timezone" member */
+    pn_digital_clock_get_paint_state (dc, &st);
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    g_object_unref (dc);
+}
+
+/* An ambiguous abbreviation (the two "CST" rows in the table) can't be
+ * resolved unambiguously, so the node falls back to GMT rather than
+ * guess. */
+static void
+test_not_set_ambiguous_abbreviation_is_gmt (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    feed_tz (PN_NODE (dc), 1767270896.0, "CST");
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    g_object_unref (dc);
+}
+
+/* A configured timezone wins outright: even if the message says CEST, the
+ * dialog's choice rules the display. */
+static void
+test_configured_overrides_message (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    g_object_set (dc, "timezone", "GMT — Greenwich Mean Time", NULL);
+    feed_tz (PN_NODE (dc), 1780308000.0, "CEST");
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 10);   /* GMT wins, not CEST */
+    PN_CHECK_CMPINT (st.minutes, ==, 0);
+    PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    g_object_unref (dc);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -244,5 +398,19 @@ main (int argc, char **argv)
     pn_test_add ("value_types",           test_value_types);
     pn_test_add ("fractional_floors",     test_fractional_floors);
     pn_test_add ("properties_round_trip", test_properties_round_trip);
+    pn_test_add ("default_timezone_is_gmt",
+                 test_default_timezone_is_gmt);
+    pn_test_add ("configured_timezone_shifts_display",
+                 test_configured_timezone_shifts_display);
+    pn_test_add ("negative_offset_wraps",
+                 test_negative_offset_wraps);
+    pn_test_add ("not_set_uses_message_abbreviation",
+                 test_not_set_uses_message_abbreviation);
+    pn_test_add ("not_set_unknown_abbreviation_is_gmt",
+                 test_not_set_unknown_abbreviation_is_gmt);
+    pn_test_add ("not_set_ambiguous_abbreviation_is_gmt",
+                 test_not_set_ambiguous_abbreviation_is_gmt);
+    pn_test_add ("configured_overrides_message",
+                 test_configured_overrides_message);
     return pn_test_run ();
 }

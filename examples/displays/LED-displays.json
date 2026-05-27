@@ -1,0 +1,183 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnSegment16",
+      "uuid" : "c7747212-c592-495c-acb7-20e5f938e392",
+      "name" : "Segment16 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "cells" : 8,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(0,0,0)"
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "9d775c3d-c096-479c-975b-119ecbc052a8",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 100.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "text" : "Clean 16",
+        "value" : 0.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnMatrix57",
+      "uuid" : "06dde5dd-2591-4a5c-b7b3-78fe56e93236",
+      "name" : "Matrix57 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 460.0
+      },
+      "properties" : {
+        "cells" : 14,
+        "lines" : 2,
+        "frame-color" : "rgb(0,0,0)",
+        "background-color" : "rgb(184,204,71)",
+        "pixel-color" : "rgb(15,20,10)",
+        "unlit-pixel-color" : "rgb(168,189,66)"
+      }
+    },
+    {
+      "type" : "PnLabel",
+      "uuid" : "dd79628f-1dff-476f-9ecb-934273bb103f",
+      "name" : "Label 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "lines" : 2,
+        "alignment" : "Center",
+        "text-color" : "rgb(230,235,240)",
+        "background-color" : "rgb(26,28,33)"
+      }
+    },
+    {
+      "type" : "PnDigitalClock",
+      "uuid" : "6625b06c-3341-403c-a887-54b81e3d4c23",
+      "name" : "DigitalClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "show-labels" : true,
+        "timezone" : "Not Set",
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
+      }
+    },
+    {
+      "type" : "PnCountdown",
+      "uuid" : "dd50f872-edc8-4919-8044-95936dd5fe48",
+      "name" : "Countdown 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 780.0
+      },
+      "properties" : {
+        "day-digits" : 3,
+        "show-labels" : true,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
+      }
+    },
+    {
+      "type" : "PnRtc",
+      "uuid" : "8513e391-6b51-465e-8d1a-3adeaed66557",
+      "name" : "Clock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "2783575d-e4e9-4afb-a9f4-f10d513d13d3",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 160.0,
+        "y" : 500.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDeadline",
+      "uuid" : "96fd6ce1-5cfa-44b7-b0eb-84cbc63ff0ef",
+      "name" : "Deadline 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 180.0,
+        "y" : 780.0
+      },
+      "properties" : {
+        "target" : "2026-05-27 08:30:00",
+        "timezone" : "EET — Eastern European Time"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "9d775c3d-c096-479c-975b-119ecbc052a8",
+      "target_id" : "c7747212-c592-495c-acb7-20e5f938e392"
+    },
+    {
+      "source_id" : "9d775c3d-c096-479c-975b-119ecbc052a8",
+      "target_id" : "06dde5dd-2591-4a5c-b7b3-78fe56e93236"
+    },
+    {
+      "source_id" : "9d775c3d-c096-479c-975b-119ecbc052a8",
+      "target_id" : "dd79628f-1dff-476f-9ecb-934273bb103f"
+    },
+    {
+      "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
+      "target_id" : "6625b06c-3341-403c-a887-54b81e3d4c23"
+    },
+    {
+      "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
+      "target_id" : "2783575d-e4e9-4afb-a9f4-f10d513d13d3"
+    },
+    {
+      "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
+      "target_id" : "96fd6ce1-5cfa-44b7-b0eb-84cbc63ff0ef"
+    },
+    {
+      "source_id" : "96fd6ce1-5cfa-44b7-b0eb-84cbc63ff0ef",
+      "target_id" : "dd50f872-edc8-4919-8044-95936dd5fe48"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

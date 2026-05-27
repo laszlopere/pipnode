@@ -20,8 +20,9 @@ laid out as <code>HOURS:MINUTES:SECONDS</code>. It is the
 the same red-on-black look, colours and segment sizes, but a narrower
 client area showing only the <code>HH:MM:SS</code> group. Each incoming
 message must carry a numeric <code>value</code> holding a count of
-<strong>seconds</strong>; the node takes it modulo a day and lights the
-digits as a 24-hour clock face.
+<strong>seconds</strong> (the Unix epoch the <a href="PnRtc.html">Clock</a>
+node emits is the canonical feed); the node takes it modulo a day and
+lights the digits as a 24-hour clock face.
 </p>
 <p>
 When <code>value</code> is zero or negative, or before any message has
@@ -30,6 +31,19 @@ node never forwards a message; a non-numeric <code>value</code> is ignored
 and leaves the current reading untouched. The display repaints only when
 the visible digits actually change, so a once-a-second feed drives exactly
 one redraw per second.
+</p>
+<p>
+The <code>timezone</code> combo shifts the wall-clock readout by a fixed
+UTC offset, chosen from the same abbreviation-and-name list the
+<a href="PnDeadline.html">Deadline</a> node uses (e.g.
+<code>CET&nbsp;&mdash;&nbsp;Central European Time</code>). Daylight-saving
+variants are listed as their own offsets (<code>CET</code> vs
+<code>CEST</code>), so no daylight-saving guessing takes place. The
+default is <code>Not Set</code>: with no fixed zone selected the node
+reads the incoming message's <code>timezone</code> member as a bare
+abbreviation (which the Clock node emits as the local zone, e.g.
+<code>CEST</code>) and applies the matching offset. An unknown, missing
+or ambiguous abbreviation falls back to <strong>GMT (UTC+0)</strong>.
 </p>
 <p>
 Like the Countdown and LED nodes, a Digital Clock snapped onto a
@@ -42,6 +56,11 @@ appears on the desktop panel.
   <tr><td><code>show-labels</code></td>
       <td>Draw the <code>HOURS</code> / <code>MINUTES</code> /
           <code>SECONDS</code> captions above their digit groups.</td></tr>
+  <tr><td><code>timezone</code></td>
+      <td>Timezone the display is shown in, chosen from a list of
+          abbreviations and names. <code>Not Set</code> (the default)
+          defers to the incoming message's <code>timezone</code> member;
+          an unknown or missing abbreviation falls back to GMT.</td></tr>
   <tr><td><code>background-color</code></td>
       <td>Fill colour of the panel face behind the digits &mdash; the
           near-black face of an LED clock by default.</td></tr>

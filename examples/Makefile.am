@@ -57,6 +57,10 @@ timedir = $(pkgdatadir)/examples/time
 time_DATA = \
 	time/time-left.json
 
+displaysdir = $(pkgdatadir)/examples/displays
+displays_DATA = \
+	displays/LED-displays.json
+
 miscdir = $(pkgdatadir)/examples/misc
 misc_DATA = \
 	misc/untitled.json
@@ -69,4 +73,5 @@ EXTRA_DIST = \
 	$(speechandsound_DATA) \
 	$(controlsandlogic_DATA) \
 	$(time_DATA) \
+	$(displays_DATA) \
 	$(misc_DATA)

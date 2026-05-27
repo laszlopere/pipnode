@@ -39,6 +39,11 @@
 #include "pn-digital-clock.h"
 #include "pn-message.h"
 #include "pn-settings-schema.h"
+#include "pn-tz-table.h"
+
+/* Combo sentinel meaning "no fixed zone — read the abbreviation off the
+ * incoming message and fall back to GMT if it isn't recognised". */
+#define PN_DCK_TZ_NOT_SET  "Not Set"
 
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
@@ -75,13 +80,18 @@ struct _PnDigitalClock
     PnColor   segment_color;          /* lit seven-segment bar */
     PnColor   unlit_segment_color;    /* the off-state ghost bar */
     PnColor   label_color;       /* the caption text colour */
+    gchar    *timezone;          /* shared tz-table label, or "Not Set" */
 
     /* Live state.  @value is the most-recent data.value seen, floored to
      * whole seconds; @has_value latches once the first message lands.  The
      * display clamps a negative @value to zero and wraps the rest into a
-     * 24-hour face, so the readout always reads as a clock. */
+     * 24-hour face, so the readout always reads as a clock.  @offset_min
+     * is the minutes-east-of-UTC the last message's "timezone" abbreviation
+     * resolved to (relevant only when "Not Set" defers to the wire); a
+     * configured zone overrides it. */
     gint64    value;
     gboolean  has_value;
+    gint      offset_min;
 };
 
 G_DEFINE_FINAL_TYPE (PnDigitalClock, pn_digital_clock, PN_TYPE_NODE)
@@ -90,6 +100,7 @@ enum
 {
     PROP_0,
     PROP_SHOW_LABELS,
+    PROP_TIMEZONE,
     PROP_BACKGROUND_COLOR,
     PROP_SEGMENT_COLOR,
     PROP_UNLIT_SEGMENT_COLOR,
@@ -125,15 +136,39 @@ read_value (PnMessage *message, gdouble *out)
     return TRUE;
 }
 
+/* TRUE if the timezone property names a fixed zone — anything but the
+ * "Not Set" sentinel (and the empty string, which we treat the same). */
+static gboolean
+has_fixed_timezone (PnDigitalClock *self)
+{
+    return self->timezone != NULL
+        && self->timezone[0] != '\0'
+        && g_strcmp0 (self->timezone, PN_DCK_TZ_NOT_SET) != 0;
+}
+
 /* The integer seconds-of-day the display currently shows: the raw value
- * clamped at zero and taken modulo a day, and zero until the first message
- * lands. */
+ * shifted by the active UTC offset, taken modulo a day, and zero until
+ * the first message lands.  Negative wall-clock results are wrapped back
+ * into [0, 86400) so the readout always reads as a clock face. */
 static gint64
 display_value (PnDigitalClock *self)
 {
+    gint   off_min;
+    gint64 shifted;
+    gint64 mod;
+
     if (!self->has_value || self->value < 0)
         return 0;
-    return self->value % PN_DCK_SECS_PER_DAY;
+
+    off_min = has_fixed_timezone (self)
+                ? pn_tz_table_offset_minutes (self->timezone)
+                : self->offset_min;
+    shifted = self->value + (gint64) off_min * 60;
+
+    mod = shifted % PN_DCK_SECS_PER_DAY;
+    if (mod < 0)
+        mod += PN_DCK_SECS_PER_DAY;
+    return mod;
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,9 +180,30 @@ pn_digital_clock_receive (PnNode *node, PnMessage *message)
 {
     PnDigitalClock *self = PN_DIGITAL_CLOCK (node);
     gdouble         value;
+    gint            new_offset = 0;
 
     if (!read_value (message, &value))
         return;   /* nothing numeric to show — leave the display as-is */
+
+    /* "Not Set" defers to the message's "timezone" abbreviation (the Clock
+     * node emits e.g. "CEST"); an unknown or missing abbreviation falls
+     * back to GMT (UTC+0).  A configured zone wins outright and never
+     * looks at the wire — but we still snapshot the wire's hint so a
+     * later switch back to "Not Set" picks up the same instant. */
+    {
+        JsonNode *tz_node = pn_message_get_member (message, "timezone");
+
+        if (tz_node != NULL && JSON_NODE_HOLDS_VALUE (tz_node)
+            && json_node_get_value_type (tz_node) == G_TYPE_STRING)
+        {
+            const gchar *abbr  = json_node_get_string (tz_node);
+            const gchar *label = pn_tz_table_lookup_by_abbreviation (abbr);
+
+            if (label != NULL)
+                new_offset = pn_tz_table_offset_minutes (label);
+        }
+    }
+    self->offset_min = new_offset;
 
     pn_digital_clock_set_value (self, value);
     /* Pure sink: never forwards. */
@@ -215,6 +271,9 @@ pn_digital_clock_get_property (GObject    *object,
     case PROP_SHOW_LABELS:
         g_value_set_boolean (value, self->show_labels);
         break;
+    case PROP_TIMEZONE:
+        g_value_set_string (value, self->timezone);
+        break;
     case PROP_BACKGROUND_COLOR:
         g_value_set_boxed (value, &self->background_color);
         break;
@@ -266,6 +325,18 @@ pn_digital_clock_set_property (GObject      *object,
         }
         break;
     }
+    case PROP_TIMEZONE:
+    {
+        const gchar *v = g_value_get_string (value);
+        if (g_strcmp0 (v, self->timezone) != 0)
+        {
+            g_free (self->timezone);
+            self->timezone = g_strdup (v != NULL ? v : PN_DCK_TZ_NOT_SET);
+            g_object_notify_by_pspec (object, props[PROP_TIMEZONE]);
+            pn_node_request_repaint (PN_NODE (self));
+        }
+        break;
+    }
     case PROP_BACKGROUND_COLOR:
         set_color_prop (self, &self->background_color, value,
                         PROP_BACKGROUND_COLOR);
@@ -292,6 +363,16 @@ pn_digital_clock_set_property (GObject      *object,
 /* ------------------------------------------------------------------ */
 
 static void
+pn_digital_clock_finalize (GObject *object)
+{
+    PnDigitalClock *self = PN_DIGITAL_CLOCK (object);
+
+    g_free (self->timezone);
+
+    G_OBJECT_CLASS (pn_digital_clock_parent_class)->finalize (object);
+}
+
+static void
 pn_digital_clock_class_init (PnDigitalClockClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
@@ -299,6 +380,7 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
 
     object_class->get_property = pn_digital_clock_get_property;
     object_class->set_property = pn_digital_clock_set_property;
+    object_class->finalize     = pn_digital_clock_finalize;
 
     /* Logic + intrinsic geometry stay in the core class; the cairo
      * seven-segment drawing (paint_plot + its skip-shadow / skip-zoom
@@ -323,6 +405,15 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
             "Draw the HOURS / MINUTES / SECONDS captions above their digit "
             "groups.",
             TRUE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_TIMEZONE] = g_param_spec_string (
+            "timezone", "Timezone",
+            "Timezone the display is shown in.  \"Not Set\" defers to the "
+            "abbreviation on the incoming message's \"timezone\" member "
+            "(set by the Clock node); an unknown or missing abbreviation "
+            "falls back to GMT.",
+            PN_DCK_TZ_NOT_SET,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
@@ -357,13 +448,28 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Declarative settings dialog: two pages.  Display holds the labels
-     * toggle, Colours the PnColor rows.  No -gui.so companion needed for
-     * the dialog itself; only the painter lives in the gui tier. */
+     * toggle and the timezone combo, Colours the PnColor rows.  The combo
+     * starts with the "Not Set" sentinel and then the shared tz-table
+     * labels; no -gui.so companion needed for the dialog itself — only the
+     * painter lives in the gui tier. */
     {
-        PnSettingsSchema *schema = pn_settings_schema_new ();
+        PnSettingsSchema     *schema = pn_settings_schema_new ();
+        const gchar * const  *tz     = pn_tz_table_choices ();
+        const gchar         **choices;
+        gsize                 n_tz, i;
+
+        for (n_tz = 0; tz[n_tz] != NULL; n_tz++)
+            ;
+        choices = g_new0 (const gchar *, n_tz + 2);
+        choices[0] = PN_DCK_TZ_NOT_SET;
+        for (i = 0; i < n_tz; i++)
+            choices[i + 1] = tz[i];
+        choices[n_tz + 1] = NULL;
 
         pn_settings_schema_tab (schema, "Display");
-        pn_settings_schema_row (schema, "show-labels", PN_EDITOR_AUTO);
+        pn_settings_schema_row     (schema, "show-labels", PN_EDITOR_AUTO);
+        pn_settings_schema_row     (schema, "timezone",    PN_EDITOR_COMBO);
+        pn_settings_schema_choices (schema, "timezone",    choices);
 
         pn_settings_schema_tab (schema, "Colours");
         pn_settings_schema_row (schema, "background-color",     PN_EDITOR_AUTO);
@@ -372,6 +478,8 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
         pn_settings_schema_row (schema, "label-color",          PN_EDITOR_AUTO);
 
         pn_node_class_set_settings_schema (node_class, schema);
+
+        g_free (choices);
     }
 }
 
@@ -388,8 +496,10 @@ pn_digital_clock_init (PnDigitalClock *self)
     self->unlit_segment_color  = (PnColor){ 0.1472, 0.0192, 0.0128, 1.0 };
     self->label_color          = (PnColor){ 0.82, 0.84, 0.86, 0.92 };
 
-    self->value     = 0;
-    self->has_value = FALSE;
+    self->timezone   = g_strdup (PN_DCK_TZ_NOT_SET);
+    self->value      = 0;
+    self->has_value  = FALSE;
+    self->offset_min = 0;
 
     {
         PnColor amber = { 0.92, 0.76, 0.27, 1.0 };
