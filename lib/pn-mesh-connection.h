@@ -64,6 +64,20 @@ typedef struct
     gboolean    has_bluetooth;
     gboolean    has_ethernet;
     gboolean    can_shutdown;
+
+    /* From FromRadio.config(LoRaConfig).  Populated during the
+     * handshake when the device streams its config blocks; FALSE
+     * means we didn't see one (or no device connected).  Field
+     * meanings match the Meshtastic protobuf -- see TODO #29 for
+     * the wire layout. */
+    gboolean    have_lora_config;
+    gboolean    lora_use_preset;    /* 1 = use named modem preset    */
+    guint32     lora_modem_preset;  /* ModemPreset enum (LONG_FAST…) */
+    guint32     lora_region;        /* Region enum (US/EU_868/…)     */
+    guint32     lora_hop_limit;     /* 0..7                          */
+    gboolean    lora_tx_enabled;
+    guint32     lora_tx_power;      /* dBm                           */
+    guint32     lora_channel_num;   /* fine-tune channel offset      */
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -133,6 +147,40 @@ void     pn_mesh_connection_set_owner_async (
  * inside @callback to learn the outcome of set_owner_async. */
 gboolean pn_mesh_connection_set_owner_finish (GAsyncResult *result,
                                               GError      **error);
+
+/* All-at-once write of the LoRaConfig fields.  The caller has to
+ * supply every field even when only changing one -- the device
+ * replaces the whole sub-config in one shot, so omitting fields
+ * would reset them to proto3 defaults (region=UNSET would brick
+ * RF until a fresh handshake).  Read the current values from
+ * PnMeshState->lora_* first, mutate the ones you care about,
+ * pass them all back here. */
+typedef struct
+{
+    gboolean use_preset;
+    guint32  modem_preset;
+    guint32  region;
+    guint32  hop_limit;
+    gboolean tx_enabled;
+    guint32  tx_power;
+    guint32  channel_num;
+} PnMeshLoraConfigWrite;
+
+gboolean pn_mesh_connection_set_lora_config_sync (
+        PnMeshConnection            *self,
+        const PnMeshLoraConfigWrite *cfg,
+        GError                     **error);
+
+void     pn_mesh_connection_set_lora_config_async (
+        PnMeshConnection            *self,
+        const PnMeshLoraConfigWrite *cfg,
+        GCancellable                *cancellable,
+        GAsyncReadyCallback          callback,
+        gpointer                     user_data);
+
+gboolean pn_mesh_connection_set_lora_config_finish (
+        GAsyncResult                *result,
+        GError                     **error);
 
 G_END_DECLS
 

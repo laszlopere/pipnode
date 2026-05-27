@@ -121,6 +121,7 @@
 #define AM_GET_DEVICE_METADATA_REQUEST   12
 #define AM_GET_DEVICE_METADATA_RESPONSE  13
 #define AM_SET_OWNER                     32
+#define AM_SET_CONFIG                    34
 
 /* DeviceMetadata */
 #define DM_FIRMWARE_VERSION     1
@@ -131,6 +132,24 @@
 #define DM_HAS_ETHERNET         6
 #define DM_ROLE                 7
 #define DM_HW_MODEL             9
+
+/* FromRadio.config / AdminMessage.set_config wraps a Config message. */
+#define FR_CONFIG               5
+
+/* Config sub-fields (one of these is set per Config block). */
+#define CFG_LORA                6
+
+/* LoRaConfig.  Numbering jumps from 2 -> 7 because the upstream
+ * proto reserves 3..6 for the manual modem-parameter fields we are
+ * not exposing in this phase (spread_factor / bandwidth / coding
+ * rate / frequency_offset). */
+#define LORA_USE_PRESET         1
+#define LORA_MODEM_PRESET       2
+#define LORA_REGION             7
+#define LORA_HOP_LIMIT          8
+#define LORA_TX_ENABLED         9
+#define LORA_TX_POWER          10
+#define LORA_CHANNEL_NUM       11
 
 /* ------------------------------------------------------------------ */
 /*  Channel helper                                                      */
@@ -383,6 +402,89 @@ parse_channel (PnMeshConnection *self, const guint8 *data, gsize size)
     g_ptr_array_add (self->state.channels, ch);
 }
 
+/* Parse a LoRaConfig embedded message into the connection state. */
+static void
+parse_lora_config (PnMeshConnection *self,
+                   const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_lora_config = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case LORA_USE_PRESET:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_use_preset = v != 0;
+            break;
+        case LORA_MODEM_PRESET:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_modem_preset = (guint32) v;
+            break;
+        case LORA_REGION:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_region = (guint32) v;
+            break;
+        case LORA_HOP_LIMIT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_hop_limit = (guint32) v;
+            break;
+        case LORA_TX_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_tx_enabled = v != 0;
+            break;
+        case LORA_TX_POWER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_tx_power = (guint32) v;
+            break;
+        case LORA_CHANNEL_NUM:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.lora_channel_num = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a Config message, dispatching to the per-subconfig parser
+ * for the field that is set.  Only LoRaConfig is wired today; the
+ * other sub-configs (Device, Position, Power, Network, Display,
+ * Bluetooth, Security) are skipped silently -- later phases can
+ * add them by extending this switch. */
+static void
+parse_config (PnMeshConnection *self,
+              const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case CFG_LORA:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_lora_config (self, p, s);
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a DeviceMetadata embedded message into the connection state. */
 static void
 parse_device_metadata (PnMeshConnection *self,
@@ -549,6 +651,13 @@ parse_from_radio (PnMeshConnection *self,
             const guint8 *p; gsize s;
             if (pn_mesh_pb_read_length (&r, &p, &s))
                 parse_node_info (self, p, s);
+            break;
+        }
+        case FR_CONFIG:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_config (self, p, s);
             break;
         }
         case FR_CHANNEL:
@@ -843,6 +952,14 @@ clear_state (PnMeshConnection *self)
     self->state.has_bluetooth   = FALSE;
     self->state.has_ethernet    = FALSE;
     self->state.can_shutdown    = FALSE;
+    self->state.have_lora_config = FALSE;
+    self->state.lora_use_preset  = FALSE;
+    self->state.lora_modem_preset = 0;
+    self->state.lora_region      = 0;
+    self->state.lora_hop_limit   = 0;
+    self->state.lora_tx_enabled  = FALSE;
+    self->state.lora_tx_power    = 0;
+    self->state.lora_channel_num = 0;
 
     g_ptr_array_set_size (self->state.channels, 0);
     g_array_set_size (self->seen_nodes, 0);
@@ -1115,6 +1232,168 @@ pn_mesh_connection_set_owner_async (PnMeshConnection    *self,
 
 gboolean
 pn_mesh_connection_set_owner_finish (GAsyncResult *result, GError **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_lora_config — Phase 4 write path                                */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_config (34) = Config { lora (6) = LoRaConfig {…} } } */
+static gboolean
+send_set_lora_config (PnMeshConnection            *self,
+                      const PnMeshLoraConfigWrite *cfg,
+                      GError                     **error)
+{
+    PnMeshPbWriter lora_w, config_w, admin_w;
+    GBytes        *lora_bytes, *config_bytes, *admin_bytes;
+    const guint8  *lora_b, *config_b, *admin_b;
+    gsize          lora_n,  config_n,  admin_n;
+    gboolean       ok;
+
+    /* LoRaConfig.  Every field is written even when zero -- omitting
+     * proto3 defaults here would silently reset whatever the device
+     * had to its enum-zero value (region=UNSET would brick the
+     * radio).  The caller is responsible for reading current state
+     * first and only mutating what it wants to change. */
+    pn_mesh_pb_writer_init (&lora_w);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_USE_PRESET,
+                                   cfg->use_preset ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_MODEM_PRESET,
+                                   cfg->modem_preset);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_REGION,
+                                   cfg->region);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_HOP_LIMIT,
+                                   cfg->hop_limit);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_TX_ENABLED,
+                                   cfg->tx_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_TX_POWER,
+                                   cfg->tx_power);
+    pn_mesh_pb_write_varint_field (&lora_w, LORA_CHANNEL_NUM,
+                                   cfg->channel_num);
+    lora_bytes = pn_mesh_pb_writer_take_bytes (&lora_w);
+    pn_mesh_pb_writer_clear (&lora_w);
+    lora_b = g_bytes_get_data (lora_bytes, &lora_n);
+
+    /* Config { lora (6) = LoRaConfig } */
+    pn_mesh_pb_writer_init (&config_w);
+    pn_mesh_pb_write_embedded_field (&config_w, CFG_LORA, lora_b, lora_n);
+    config_bytes = pn_mesh_pb_writer_take_bytes (&config_w);
+    pn_mesh_pb_writer_clear (&config_w);
+    g_bytes_unref (lora_bytes);
+    config_b = g_bytes_get_data (config_bytes, &config_n);
+
+    /* AdminMessage { set_config (34) = Config } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_CONFIG,
+                                     config_b, config_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (config_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_lora_config_sync (PnMeshConnection            *self,
+                                         const PnMeshLoraConfigWrite *cfg,
+                                         GError                     **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_lora_config (self, cfg, error))
+        return FALSE;
+
+    /* set_config writes that change region or modem_preset commonly
+     * reboot the device -- the Meshtastic firmware re-initialises
+     * the radio on those changes.  pip-mesh's same-pattern code
+     * waits 0.5s and then re-handshakes; if the device is mid-
+     * reboot the handshake's 3s budget covers it. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms (a "
+                         "region or modem-preset change may have "
+                         "triggered a reboot -- try the dialog again).",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection      *conn;
+    PnMeshLoraConfigWrite  cfg;
+} SetLoraConfigCall;
+
+static void
+set_lora_config_call_free (gpointer data)
+{
+    g_slice_free (SetLoraConfigCall, data);
+}
+
+static void
+set_lora_config_thread_func (GTask *task, gpointer source,
+                             gpointer task_data,
+                             GCancellable *cancellable)
+{
+    SetLoraConfigCall *c   = task_data;
+    GError            *err = NULL;
+    gboolean           ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_lora_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_lora_config_async (PnMeshConnection            *self,
+                                          const PnMeshLoraConfigWrite *cfg,
+                                          GCancellable                *cancellable,
+                                          GAsyncReadyCallback          callback,
+                                          gpointer                     user_data)
+{
+    GTask             *task;
+    SetLoraConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetLoraConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_lora_config_async);
+    g_task_set_task_data  (task, c, set_lora_config_call_free);
+    g_task_run_in_thread  (task, set_lora_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_lora_config_finish (GAsyncResult *result,
+                                           GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

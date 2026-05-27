@@ -35,6 +35,7 @@
 #include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-identity.h"
+#include "pn-mesh-page-region.h"
 
 #define PN_MESH_DIALOG_WIDTH   880
 #define PN_MESH_DIALOG_HEIGHT  560
@@ -46,7 +47,9 @@ typedef struct
     GtkWidget        *dialog;
     GtkWidget        *device_list;
     GtkStack         *right_stack;
+    GtkStackSwitcher *right_switcher;  /* hidden until a device connects */
     GtkWidget        *identity_page;
+    GtkWidget        *region_page;
     GtkLabel         *status_label;
 
     /* Active session, if any.  NULL when no device is selected or
@@ -120,6 +123,7 @@ drop_connection (MeshDialogCtx *ctx)
     g_clear_pointer (&ctx->connection_kind, g_free);
     g_clear_pointer (&ctx->connection_tty,  g_free);
     pn_mesh_page_identity_set_state (ctx->identity_page, NULL, NULL, NULL, NULL);
+    pn_mesh_page_region_set_state   (ctx->region_page,   NULL, NULL);
 }
 
 static void
@@ -151,7 +155,9 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
                      error != NULL ? error->message : "(unknown error)");
         g_clear_error (&error);
         /* Stay on the empty page so the user sees the worksheet area
-         * is intentionally blank; their next activation will retry. */
+         * is intentionally blank; their next activation will retry.
+         * Switcher stays hidden until a device is actually connected. */
+        gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
         gtk_stack_set_visible_child_name (ctx->right_stack, "empty");
         return;
     }
@@ -163,6 +169,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->connection_tty,
             pn_mesh_connection_get_state (conn),
             conn);
+    pn_mesh_page_region_set_state (
+            ctx->region_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    gtk_widget_show (GTK_WIDGET (ctx->right_switcher));
     gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
 
     {
@@ -206,6 +217,10 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * until the handshake completes. */
     pn_mesh_page_identity_set_state (ctx->identity_page,
                                      device->kind, device->tty, NULL, NULL);
+    /* Keep the switcher hidden while connecting -- there's nothing
+     * to switch to until the device responds.  on_connection_ready
+     * shows it on success. */
+    gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
     gtk_stack_set_visible_child_name (ctx->right_stack, "identity");
 
     set_statusf (ctx, "Connecting to %s on %s…",
@@ -305,27 +320,58 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
     pn_mesh_device_list_set_activated_callback (
             ctx->device_list, on_device_activated, ctx);
 
-    stack = gtk_stack_new ();
-    gtk_stack_set_transition_type (GTK_STACK (stack),
-                                   GTK_STACK_TRANSITION_TYPE_CROSSFADE);
-    ctx->right_stack = GTK_STACK (stack);
+    /* Right pane: a vertical box with a GtkStackSwitcher on top and
+     * the GtkStack underneath.  The switcher reads the per-page
+     * "title" property on each titled stack page and gives the user
+     * one button per page; we leave the empty / connecting page
+     * untitled so it never appears as a switcher tab. */
+    {
+        GtkWidget *right_box;
+        GtkWidget *switcher;
+        GtkWidget *region;
 
-    gtk_stack_add_named (GTK_STACK (stack), build_empty_page (), "empty");
-    identity = pn_mesh_page_identity_new ();
-    gtk_stack_add_named (GTK_STACK (stack), identity, "identity");
-    ctx->identity_page = identity;
+        right_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
 
-    /* Route the page's progress lines into the dialog status bar.
-     * Use an adapter rather than casting set_status to the callback's
-     * signature -- they take their args in different orders, and the
-     * cast would swap text/ctx and crash on the first call. */
-    pn_mesh_page_identity_set_status_callback (
-            identity, on_page_status, ctx);
+        stack = gtk_stack_new ();
+        gtk_stack_set_transition_type (GTK_STACK (stack),
+                                       GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+        ctx->right_stack = GTK_STACK (stack);
 
-    gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
+        switcher = gtk_stack_switcher_new ();
+        gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER (switcher),
+                                      GTK_STACK (stack));
+        gtk_widget_set_halign     (switcher, GTK_ALIGN_CENTER);
+        gtk_widget_set_margin_top (switcher, 6);
+        gtk_widget_set_margin_bottom (switcher, 6);
+        ctx->right_switcher = GTK_STACK_SWITCHER (switcher);
 
-    gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED (paned), stack,           TRUE,  FALSE);
+        /* Empty page: shown when no device is selected.  Untitled so
+         * it doesn't get a switcher button. */
+        gtk_stack_add_named (GTK_STACK (stack),
+                             build_empty_page (), "empty");
+
+        identity = pn_mesh_page_identity_new ();
+        gtk_stack_add_titled (GTK_STACK (stack), identity,
+                              "identity", "Identity");
+        ctx->identity_page = identity;
+        pn_mesh_page_identity_set_status_callback (
+                identity, on_page_status, ctx);
+
+        region = pn_mesh_page_region_new ();
+        gtk_stack_add_titled (GTK_STACK (stack), region,
+                              "region", "Region");
+        ctx->region_page = region;
+        pn_mesh_page_region_set_status_callback (
+                region, on_page_status, ctx);
+
+        gtk_stack_set_visible_child_name (GTK_STACK (stack), "empty");
+
+        gtk_box_pack_start (GTK_BOX (right_box), switcher, FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (right_box), stack,    TRUE,  TRUE,  0);
+
+        gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
+        gtk_paned_pack2 (GTK_PANED (paned), right_box,        TRUE,  FALSE);
+    }
 
     gtk_box_pack_start (GTK_BOX (content), paned, TRUE, TRUE, 0);
 
@@ -336,6 +382,11 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                         FALSE, FALSE, 0);
 
     gtk_widget_show_all (content);
+    /* Hide the switcher until a device is actually connected -- with
+     * the empty page showing, the switcher buttons would have nothing
+     * useful to switch to.  Hidden AFTER show_all because that recurses
+     * into every child. */
+    gtk_widget_hide (GTK_WIDGET (ctx->right_switcher));
     return dialog;
 }
 

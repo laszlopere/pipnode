@@ -412,11 +412,24 @@ lives here so future sessions can pick up without re-reading chat):
                  enum in the page ctx; APPLY_NONE on a fresh device
                  pick paints both, APPLY_LONG/SHORT after Apply
                  paints just that one. User-verified.
-    [ ] Phase 4  Region / LoRa page. Region picker, modem preset, hop
-                 limit, tx_power, tx_enabled. One "Apply LoRa
-                 settings" button. New build_set_lora_config_frame in
-                 C following pip-mesh's pattern (it doesn't have this
-                 yet -- only via --copy-lora-config).
+    [x] Phase 4  Region / LoRa page. Region picker, modem preset,
+                 hop limit, tx_power, tx_enabled, single Apply
+                 button. Extended handshake captures FromRadio.config
+                 (field 5) -> Config { lora (6) = LoRaConfig {...} }.
+                 New pn_mesh_connection_set_lora_config_async wraps
+                 AdminMessage.set_config (34) = Config(lora=...) and
+                 ships the WHOLE LoRaConfig at once (proto3 defaults
+                 would silently reset omitted fields -- region=UNSET
+                 would brick the radio). channel_num + use_preset are
+                 read and round-tripped verbatim. Dialog right-pane
+                 now hosts a GtkStackSwitcher above the GtkStack;
+                 Identity + Region pages are titled (appear as
+                 switcher buttons); empty/connecting page stays
+                 untitled. Switcher hidden until a device connects.
+                 Files shipped: lib/pn-mesh-page-region.{c,h}; deltas
+                 in lib/pn-mesh-connection.{c,h} (LoRa fields +
+                 parse_config + set_lora_config) and lib/pn-mesh-
+                 dialog.c. User-verified against real Heltec V3.
     [ ] Phase 5  Channels page. List (index/name/role/PSK-set), add
                  (name + random-256 PSK default), delete (primary
                  protected). Multi-edit wrapped in

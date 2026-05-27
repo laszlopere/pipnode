@@ -255,6 +255,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-dialog.h \
 	pn-mesh-page-identity.c \
 	pn-mesh-page-identity.h \
+	pn-mesh-page-region.c \
+	pn-mesh-page-region.h \
 	pn-meshtastic-gui.c \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.c \
@@ -439,6 +441,7 @@ pipnode_gui_headers = \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
 	pn-mesh-page-identity.h \
+	pn-mesh-page-region.h \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.h \
 	pn-node-dialog-helpers.h \
