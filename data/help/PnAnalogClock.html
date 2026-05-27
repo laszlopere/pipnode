@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Analogue Clock (PnAnalogClock) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAnalogClock">Analogue Clock</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnAnalogClock</code>.
+</p>
+<p>
+Paints a round analogue wall-clock face: an off-white dial inside a
+slim metallic bezel, twelve chunky black hour markers, sixty thin
+minute pips around the rim, and three drop-shadowed pivoted hands
+(hour, minute and an optional seconds). A configurable caption sits
+below the centre pivot in the place a manufacturer's logo would
+normally occupy on a real wall clock.
+</p>
+<p>
+Logic is the same as the
+<a href="PnDigitalClock.html">Digital Clock</a>: each incoming message
+must carry a numeric <code>value</code> holding a count of
+<strong>seconds</strong> (the Unix epoch the <a href="PnRtc.html">Clock</a>
+node emits is the canonical feed); the node takes it modulo a day and
+sweeps the hands as a 24-hour clock (the hour hand makes two full
+turns per day). When <code>value</code> is zero or negative, or before
+any message has arrived, the hands park at 12 o'clock. Being a sink,
+the node never forwards a message; a non-numeric <code>value</code> is
+ignored and leaves the current reading untouched. The face repaints
+only when the visible hands actually move.
+</p>
+<p>
+The <code>timezone</code> combo shifts the wall-clock readout by a
+fixed UTC offset, chosen from the same abbreviation-and-name list the
+Digital Clock and <a href="PnDeadline.html">Deadline</a> nodes use
+(e.g. <code>CET&nbsp;&mdash;&nbsp;Central European Time</code>).
+Daylight-saving variants are listed as their own offsets
+(<code>CET</code> vs <code>CEST</code>), so no daylight-saving
+guessing takes place. The default is <code>Not Set</code>: with no
+fixed zone selected the node reads the incoming message's
+<code>timezone</code> member as a bare abbreviation (which the Clock
+node emits as the local zone, e.g. <code>CEST</code>) and applies the
+matching offset. An unknown, missing or ambiguous abbreviation falls
+back to <strong>GMT (UTC+0)</strong>.
+</p>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td><code>text</code></td>
+      <td>Short caption drawn below the centre pivot in place of the
+          manufacturer logo a real wall clock carries. Empty to
+          suppress.</td></tr>
+  <tr><td><code>show-seconds</code></td>
+      <td>Draw the thin seconds hand. Switch off for a quieter
+          two-hand face that only updates once a minute.</td></tr>
+  <tr><td><code>timezone</code></td>
+      <td>Timezone the face is shown in, chosen from a list of
+          abbreviations and names. <code>Not Set</code> (the default)
+          defers to the incoming message's <code>timezone</code>
+          member; an unknown or missing abbreviation falls back to
+          GMT.</td></tr>
+  <tr><td><code>face-color</code></td>
+      <td>Fill colour of the dial face &mdash; the white face of a
+          wall clock by default.</td></tr>
+  <tr><td><code>marker-color</code></td>
+      <td>Colour of the twelve hour markers and the sixty minute pips
+          around the rim &mdash; black by default.</td></tr>
+  <tr><td><code>hour-hand-color</code></td>
+      <td>Fill colour of the short, broad hour hand.</td></tr>
+  <tr><td><code>minute-hand-color</code></td>
+      <td>Fill colour of the long, narrower minute hand.</td></tr>
+  <tr><td><code>second-hand-color</code></td>
+      <td>Stroke colour of the thin seconds hand &mdash; the classic
+          bright red of a wall clock by default.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the configurable caption below the pivot.</td></tr>
+</table>
+
+</body>
+</html>

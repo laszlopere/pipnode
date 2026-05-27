@@ -30,7 +30,8 @@
       "properties" : {
         "text" : "Clean 16",
         "value" : 0.0,
-        "success" : true
+        "success" : true,
+        "button-icon" : "document-edit"
       }
     },
     {
@@ -141,7 +142,7 @@
         "y" : 680.0
       },
       "properties" : {
-        "target" : "2026-05-27 11:30:00",
+        "target" : "2026-05-27 19:30:00",
         "timezone" : "Not Set"
       }
     },
@@ -159,8 +160,8 @@
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
-        "rate" : 652.62,
-        "last-update" : "2026-05-27T10:07:49.278629+02"
+        "rate" : 653.46000000000004,
+        "last-update" : "2026-05-27T11:42:21.827966+02"
       }
     },
     {

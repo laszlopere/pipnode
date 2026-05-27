@@ -69,6 +69,7 @@ check_PROGRAMS = \
 	test-pn-countdown \
 	test-pn-numeric \
 	test-pn-digital-clock \
+	test-pn-analog-clock \
 	test-pn-label \
 	test-pn-load \
 	test-pn-memory \
@@ -144,6 +145,7 @@ test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
 test_pn_countdown_SOURCES     = test-pn-countdown.c     pntest.c pntest.h
 test_pn_numeric_SOURCES       = test-pn-numeric.c       pntest.c pntest.h
 test_pn_digital_clock_SOURCES = test-pn-digital-clock.c pntest.c pntest.h
+test_pn_analog_clock_SOURCES  = test-pn-analog-clock.c  pntest.c pntest.h
 test_pn_label_SOURCES         = test-pn-label.c         pntest.c pntest.h
 # The host-monitoring nodes live in their own loadable module
 # (pipnode_host_monitoring.la), not in libpipnode, so their /proc and

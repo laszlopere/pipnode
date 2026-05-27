@@ -29,6 +29,7 @@
 #include "pn-chat.h"
 #include "pn-comparator.h"
 #include "pn-countdown.h"
+#include "pn-analog-clock.h"
 #include "pn-digital-clock.h"
 #include "pn-deadline.h"
 #include "pn-debug.h"
@@ -277,6 +278,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_SEGMENT16);
     pn_node_factory_register (self, PN_TYPE_MATRIX57);
     pn_node_factory_register (self, PN_TYPE_DIGITAL_CLOCK);
+    pn_node_factory_register (self, PN_TYPE_ANALOG_CLOCK);
     pn_node_factory_register (self, PN_TYPE_LABEL);
     pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
     pn_node_factory_register (self, PN_TYPE_TABLE);

@@ -9,6 +9,7 @@ pnhelpdir = $(pkgdatadir)/help
 pnhelp_DATA = \
 	help/help.css \
 	help/help-index.html \
+	help/PnAnalogClock.html \
 	help/PnAnalogMeter.html \
 	help/PnAutoInjector.html \
 	help/PnAutoRandom.html \
