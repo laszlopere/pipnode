@@ -141,8 +141,8 @@
         "y" : 780.0
       },
       "properties" : {
-        "target" : "2026-05-27 08:30:00",
-        "timezone" : "EET — Eastern European Time"
+        "target" : "2026-05-27 11:30:00",
+        "timezone" : "PST — Pacific Standard Time"
       }
     }
   ],

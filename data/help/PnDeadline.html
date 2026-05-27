@@ -31,8 +31,12 @@ The timezone is a fixed-offset abbreviation with a spelled-out name
 (e.g. <code>CET&nbsp;&mdash;&nbsp;Central European Time</code>), never a
 city. Daylight-saving variants are listed as their own offsets
 (<code>CET</code> vs <code>CEST</code>), so no daylight-saving guessing
-takes place. When no timezone is selected, <strong>GMT (UTC+0) is
-assumed</strong>.
+takes place. The default is <code>Not Set</code>: with no fixed zone
+selected the node reads the incoming message's <code>timezone</code>
+member as a bare abbreviation (which the <a href="PnRtc.html">Clock</a>
+node emits as the local zone, e.g. <code>CEST</code>) and interprets
+the target in that zone. An unknown, missing or ambiguous abbreviation
+falls back to <strong>GMT (UTC+0)</strong>.
 </p>
 <table>
   <tr><th>Setting</th><th>Description</th></tr>
@@ -42,7 +46,9 @@ assumed</strong>.
           An unparseable value makes the node emit nothing.</td></tr>
   <tr><td><code>timezone</code></td>
       <td>The timezone the target is expressed in, chosen from a list of
-          abbreviations and names. Empty means GMT.</td></tr>
+          abbreviations and names. <code>Not Set</code> (the default)
+          defers to the incoming message's <code>timezone</code> member;
+          an unknown or missing abbreviation falls back to GMT.</td></tr>
 </table>
 
 </body>

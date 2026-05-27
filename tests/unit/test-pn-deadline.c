@@ -194,6 +194,130 @@ test_bad_input_silent (void)
     g_object_unref (node);
 }
 
+/* The default timezone is "Not Set": with no fixed zone and no message-
+ * level abbreviation, the node interprets the target as GMT (UTC+0). */
+static void
+test_default_timezone_is_not_set (void)
+{
+    Recorder rec;
+    PnNode  *node;
+    gchar   *tz     = NULL;
+    gint64   target = epoch_utc (2030, 1, 1, 0, 0, 0);
+
+    /* Construct without overriding the timezone — the default applies. */
+    node = make_node ("2030-01-01 00:00:00", NULL, &rec);
+
+    g_object_get (node, "timezone", &tz, NULL);
+    PN_CHECK_CMPSTR (tz, ==, "Not Set");
+
+    feed (node, (gdouble) (target - 100));
+
+    PN_CHECK_CMPINT (rec.count, ==, 1);
+    PN_CHECK_NEAR   (rec.seen[0], 100.0, 1e-6);
+
+    g_free (tz);
+    g_object_unref (node);
+}
+
+/* With "Not Set" and a recognised abbreviation on the message, the node
+ * interprets the target in that zone — CEST is UTC+2, so a target read
+ * in CEST resolves to an absolute instant 7200s earlier than the same
+ * wall clock in UTC. */
+static void
+test_not_set_uses_message_abbreviation (void)
+{
+    Recorder   rec;
+    PnNode    *node;
+    PnMessage *m;
+    gint64     target_utc = epoch_utc (2030, 6, 1, 12, 0, 0);
+
+    node = make_node ("2030-06-01 12:00:00", "Not Set", &rec);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", (gdouble) target_utc);
+    pn_message_set_string (m, "timezone", "CEST");
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+
+    PN_CHECK_CMPINT (rec.count, ==, 1);
+    PN_CHECK_NEAR   (rec.seen[0], -7200.0, 1e-6);
+
+    g_object_unref (node);
+}
+
+/* An unknown abbreviation on the wire falls back to GMT — so the
+ * remaining count matches the empty-tz / GMT cases. */
+static void
+test_not_set_unknown_abbreviation_is_gmt (void)
+{
+    Recorder   rec;
+    PnNode    *node;
+    PnMessage *m;
+    gint64     target = epoch_utc (2030, 1, 1, 0, 0, 0);
+
+    node = make_node ("2030-01-01 00:00:00", "Not Set", &rec);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", (gdouble) (target - 250));
+    pn_message_set_string (m, "timezone", "ZZZ");
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+
+    PN_CHECK_CMPINT (rec.count, ==, 1);
+    PN_CHECK_NEAR   (rec.seen[0], 250.0, 1e-6);
+
+    g_object_unref (node);
+}
+
+/* An ambiguous abbreviation (the two "CST" rows) can't be resolved
+ * unambiguously, so the node falls back to GMT rather than guess. */
+static void
+test_not_set_ambiguous_abbreviation_is_gmt (void)
+{
+    Recorder   rec;
+    PnNode    *node;
+    PnMessage *m;
+    gint64     target = epoch_utc (2030, 1, 1, 0, 0, 0);
+
+    node = make_node ("2030-01-01 00:00:00", "Not Set", &rec);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", (gdouble) (target - 17));
+    pn_message_set_string (m, "timezone", "CST");
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+
+    PN_CHECK_CMPINT (rec.count, ==, 1);
+    PN_CHECK_NEAR   (rec.seen[0], 17.0, 1e-6);
+
+    g_object_unref (node);
+}
+
+/* A configured timezone wins outright: even if the message says CEST,
+ * the dialog's choice rules the resolution. */
+static void
+test_configured_overrides_message (void)
+{
+    Recorder   rec;
+    PnNode    *node;
+    PnMessage *m;
+    gint64     target_utc = epoch_utc (2030, 6, 1, 12, 0, 0);
+
+    node = make_node ("2030-06-01 12:00:00",
+                      "UTC — Coordinated Universal Time", &rec);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", (gdouble) target_utc);
+    pn_message_set_string (m, "timezone", "CEST");   /* ignored */
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+
+    PN_CHECK_CMPINT (rec.count, ==, 1);
+    PN_CHECK_NEAR   (rec.seen[0], 0.0, 1e-6);
+
+    g_object_unref (node);
+}
+
 /* receive() mutates and forwards in place, so unrelated members and the
  * topic survive; only "value" is rewritten. */
 static void
@@ -230,6 +354,16 @@ main (int argc, char **argv)
     pn_test_add ("empty_tz_is_gmt",     test_empty_timezone_is_gmt);
     pn_test_add ("negative_after",      test_negative_after_target);
     pn_test_add ("bad_input_silent",    test_bad_input_silent);
+    pn_test_add ("default_timezone_is_not_set",
+                 test_default_timezone_is_not_set);
+    pn_test_add ("not_set_uses_message_abbreviation",
+                 test_not_set_uses_message_abbreviation);
+    pn_test_add ("not_set_unknown_abbreviation_is_gmt",
+                 test_not_set_unknown_abbreviation_is_gmt);
+    pn_test_add ("not_set_ambiguous_abbreviation_is_gmt",
+                 test_not_set_ambiguous_abbreviation_is_gmt);
+    pn_test_add ("configured_overrides_message",
+                 test_configured_overrides_message);
     pn_test_add ("preserves_members",   test_preserves_other_members);
     return pn_test_run ();
 }

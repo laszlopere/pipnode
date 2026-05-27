@@ -90,6 +90,38 @@ pn_tz_table_choices (void)
     return (const gchar * const *) build_choices ();
 }
 
+/* The bare label table with PN_TZ_NOT_SET prepended.  Lazily built once,
+ * static thereafter — both DigitalClock and Deadline hand the pointer
+ * straight to pn_settings_schema_choices(). */
+static const gchar **
+build_choices_with_not_set (void)
+{
+    static const gchar **choices = NULL;
+    static gsize         once    = 0;
+
+    if (g_once_init_enter (&once))
+    {
+        const gchar **a = g_new0 (const gchar *, G_N_ELEMENTS (tz_table) + 2);
+        guint         i;
+
+        a[0] = PN_TZ_NOT_SET;
+        for (i = 0; i < G_N_ELEMENTS (tz_table); i++)
+            a[i + 1] = tz_table[i].label;
+        a[G_N_ELEMENTS (tz_table) + 1] = NULL;
+
+        choices = a;
+        g_once_init_leave (&once, 1);
+    }
+
+    return choices;
+}
+
+const gchar * const *
+pn_tz_table_choices_with_not_set (void)
+{
+    return (const gchar * const *) build_choices_with_not_set ();
+}
+
 gint
 pn_tz_table_offset_minutes (const gchar *label)
 {

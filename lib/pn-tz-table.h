@@ -36,12 +36,33 @@ G_BEGIN_DECLS
 /* ------------------------------------------------------------------ */
 
 /**
+ * PN_TZ_NOT_SET:
+ *
+ * The combo label that means "no fixed zone — fall back to the
+ * abbreviation on the incoming message's "timezone" member, and to GMT
+ * if that doesn't resolve".  Nodes that offer this fallback (the
+ * #PnDigitalClock and #PnDeadline) compare their stored label against
+ * this constant; the choice list returned by
+ * pn_tz_table_choices_with_not_set() has it at index 0.
+ */
+#define PN_TZ_NOT_SET  "Not Set"
+
+/**
  * pn_tz_table_choices:
  *
  * NULL-terminated array of combo labels suitable for
  * pn_settings_schema_choices().  Pointer to a static table; do not free.
  */
 const gchar * const *pn_tz_table_choices (void);
+
+/**
+ * pn_tz_table_choices_with_not_set:
+ *
+ * Same as pn_tz_table_choices() but with %PN_TZ_NOT_SET prepended as
+ * the first row — the form nodes that default to the message's wire
+ * abbreviation want.  Pointer to a static table; do not free.
+ */
+const gchar * const *pn_tz_table_choices_with_not_set (void);
 
 /**
  * pn_tz_table_offset_minutes:

@@ -49,8 +49,50 @@ static GParamSpec *props[N_PROPS];
 /*                                                                     */
 /*  The combo choices and the label→offset lookup come from the shared */
 /*  pn-tz-table module (see pn-tz-table.h).  The Digital Clock node    */
-/*  draws from the same list, so the two stay in sync.                 */
+/*  draws from the same list, so the two stay in sync.  The combo's    */
+/*  first row is the PN_TZ_NOT_SET sentinel: when that is selected the */
+/*  node interprets the configured wall-clock target in whichever zone */
+/*  the incoming message advertises (the Clock node sets "timezone" to */
+/*  the local zone's abbreviation), falling back to GMT when the wire  */
+/*  member is absent or unrecognised.                                   */
 /* ------------------------------------------------------------------ */
+
+/* TRUE if the configured timezone names a fixed zone — anything but the
+ * "Not Set" sentinel (and the empty string, treated the same way). */
+static gboolean
+has_fixed_timezone (PnDeadline *self)
+{
+    return self->timezone != NULL
+        && self->timezone[0] != '\0'
+        && g_strcmp0 (self->timezone, PN_TZ_NOT_SET) != 0;
+}
+
+/* The minutes-east-of-UTC the target should be read in for this message:
+ * the configured zone when one is set, else the abbreviation the message
+ * carries in its "timezone" member resolved through the shared table.
+ * Unknown / ambiguous / missing wire labels fall back to GMT (UTC+0). */
+static gint
+resolve_offset_minutes (PnDeadline *self, PnMessage *message)
+{
+    JsonNode    *tz_node;
+    const gchar *abbr;
+    const gchar *label;
+
+    if (has_fixed_timezone (self))
+        return pn_tz_table_offset_minutes (self->timezone);
+
+    tz_node = pn_message_get_member (message, "timezone");
+    if (tz_node == NULL || !JSON_NODE_HOLDS_VALUE (tz_node))
+        return 0;
+    if (json_node_get_value_type (tz_node) != G_TYPE_STRING)
+        return 0;
+
+    abbr  = json_node_get_string (tz_node);
+    label = pn_tz_table_lookup_by_abbreviation (abbr);
+    if (label == NULL)
+        return 0;
+    return pn_tz_table_offset_minutes (label);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -116,7 +158,7 @@ pn_deadline_receive (PnNode *node, PnMessage *message)
     if (!read_value (message, &now_epoch))
         return;   /* no numeric instant to measure against — stay silent */
 
-    off_min = pn_tz_table_offset_minutes (self->timezone);
+    off_min = resolve_offset_minutes (self, message);
     if (!parse_target_epoch (self->target, off_min, &target_epoch))
         return;   /* unparseable target — stay silent */
 
@@ -214,19 +256,24 @@ pn_deadline_class_init (PnDeadlineClass *klass)
 
     props[PROP_TIMEZONE] = g_param_spec_string (
             "timezone", "Timezone",
-            "Timezone the target is expressed in; empty means GMT",
-            "GMT — Greenwich Mean Time",
+            "Timezone the target is expressed in.  \"Not Set\" defers to "
+            "the abbreviation on the incoming message's \"timezone\" "
+            "member (set by the Clock node); an unknown or missing "
+            "abbreviation falls back to GMT.",
+            PN_TZ_NOT_SET,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Settings dialog: a free-text timestamp entry and a timezone combo
-     * built from the shared fixed-offset table.  Declarative schema only,
-     * so no -gui.so companion is needed. */
+     * built from the shared fixed-offset table, with "Not Set" as the
+     * first row.  Declarative schema only, so no -gui.so companion is
+     * needed. */
     schema = pn_settings_schema_new ();
     pn_settings_schema_row     (schema, "target",   PN_EDITOR_ENTRY);
     pn_settings_schema_row     (schema, "timezone", PN_EDITOR_COMBO);
-    pn_settings_schema_choices (schema, "timezone", pn_tz_table_choices ());
+    pn_settings_schema_choices (schema, "timezone",
+                                pn_tz_table_choices_with_not_set ());
     pn_node_class_set_settings_schema (node_class, schema);
 }
 
@@ -240,7 +287,7 @@ pn_deadline_init (PnDeadline *self)
     /* Pre-fill the target with the current local date/time so the dialog
      * opens on a sensible, editable value. */
     self->target   = g_date_time_format (now, "%Y-%m-%d %H:%M:%S");
-    self->timezone = g_strdup ("GMT — Greenwich Mean Time");
+    self->timezone = g_strdup (PN_TZ_NOT_SET);
     g_date_time_unref (now);
 
     pn_node_set_class_name (node, "Deadline");

@@ -41,10 +41,6 @@
 #include "pn-settings-schema.h"
 #include "pn-tz-table.h"
 
-/* Combo sentinel meaning "no fixed zone — read the abbreviation off the
- * incoming message and fall back to GMT if it isn't recognised". */
-#define PN_DCK_TZ_NOT_SET  "Not Set"
-
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
 /*                                                                     */
@@ -143,7 +139,7 @@ has_fixed_timezone (PnDigitalClock *self)
 {
     return self->timezone != NULL
         && self->timezone[0] != '\0'
-        && g_strcmp0 (self->timezone, PN_DCK_TZ_NOT_SET) != 0;
+        && g_strcmp0 (self->timezone, PN_TZ_NOT_SET) != 0;
 }
 
 /* The integer seconds-of-day the display currently shows: the raw value
@@ -331,7 +327,7 @@ pn_digital_clock_set_property (GObject      *object,
         if (g_strcmp0 (v, self->timezone) != 0)
         {
             g_free (self->timezone);
-            self->timezone = g_strdup (v != NULL ? v : PN_DCK_TZ_NOT_SET);
+            self->timezone = g_strdup (v != NULL ? v : PN_TZ_NOT_SET);
             g_object_notify_by_pspec (object, props[PROP_TIMEZONE]);
             pn_node_request_repaint (PN_NODE (self));
         }
@@ -413,7 +409,7 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
             "abbreviation on the incoming message's \"timezone\" member "
             "(set by the Clock node); an unknown or missing abbreviation "
             "falls back to GMT.",
-            PN_DCK_TZ_NOT_SET,
+            PN_TZ_NOT_SET,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
@@ -453,23 +449,13 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
      * labels; no -gui.so companion needed for the dialog itself — only the
      * painter lives in the gui tier. */
     {
-        PnSettingsSchema     *schema = pn_settings_schema_new ();
-        const gchar * const  *tz     = pn_tz_table_choices ();
-        const gchar         **choices;
-        gsize                 n_tz, i;
-
-        for (n_tz = 0; tz[n_tz] != NULL; n_tz++)
-            ;
-        choices = g_new0 (const gchar *, n_tz + 2);
-        choices[0] = PN_DCK_TZ_NOT_SET;
-        for (i = 0; i < n_tz; i++)
-            choices[i + 1] = tz[i];
-        choices[n_tz + 1] = NULL;
+        PnSettingsSchema *schema = pn_settings_schema_new ();
 
         pn_settings_schema_tab (schema, "Display");
         pn_settings_schema_row     (schema, "show-labels", PN_EDITOR_AUTO);
         pn_settings_schema_row     (schema, "timezone",    PN_EDITOR_COMBO);
-        pn_settings_schema_choices (schema, "timezone",    choices);
+        pn_settings_schema_choices (schema, "timezone",
+                                    pn_tz_table_choices_with_not_set ());
 
         pn_settings_schema_tab (schema, "Colours");
         pn_settings_schema_row (schema, "background-color",     PN_EDITOR_AUTO);
@@ -478,8 +464,6 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
         pn_settings_schema_row (schema, "label-color",          PN_EDITOR_AUTO);
 
         pn_node_class_set_settings_schema (node_class, schema);
-
-        g_free (choices);
     }
 }
 
@@ -496,7 +480,7 @@ pn_digital_clock_init (PnDigitalClock *self)
     self->unlit_segment_color  = (PnColor){ 0.1472, 0.0192, 0.0128, 1.0 };
     self->label_color          = (PnColor){ 0.82, 0.84, 0.86, 0.92 };
 
-    self->timezone   = g_strdup (PN_DCK_TZ_NOT_SET);
+    self->timezone   = g_strdup (PN_TZ_NOT_SET);
     self->value      = 0;
     self->has_value  = FALSE;
     self->offset_min = 0;
