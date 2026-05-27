@@ -1,0 +1,100 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMeshtastic",
+      "uuid" : "78fd5093-d223-465f-8e86-034db5f33510",
+      "name" : "Heltec V3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "device" : "/dev/ttyUSB0",
+        "channel" : "ft_pip_mesh"
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "110a538c-bfe1-411d-8e52-1b262bd7d1bc",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-lessac-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnChat",
+      "uuid" : "ea4ee177-86c5-469d-81ff-d6af66dd6778",
+      "name" : "Chat 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "text-path" : "data/output",
+        "sender-path" : "data/from_long_name",
+        "me-name" : "Me",
+        "limit" : 200,
+        "background-color" : "rgb(247,247,252)",
+        "border-color" : "rgb(140,140,153)",
+        "text-color" : "rgb(26,26,26)",
+        "me-color" : "rgb(189,219,252)",
+        "input-background-color" : "rgb(255,255,255)",
+        "send-button-color" : "rgb(69,140,217)"
+      }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "27ae739b-89af-4b91-8f2e-8747cdcb006c",
+      "name" : "Text to Speech 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/en_US-libritts_r-medium.onnx",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "78fd5093-d223-465f-8e86-034db5f33510",
+      "target_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778"
+    },
+    {
+      "source_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778",
+      "target_id" : "78fd5093-d223-465f-8e86-034db5f33510"
+    },
+    {
+      "source_id" : "78fd5093-d223-465f-8e86-034db5f33510",
+      "target_id" : "110a538c-bfe1-411d-8e52-1b262bd7d1bc"
+    },
+    {
+      "source_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778",
+      "target_id" : "27ae739b-89af-4b91-8f2e-8747cdcb006c"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
