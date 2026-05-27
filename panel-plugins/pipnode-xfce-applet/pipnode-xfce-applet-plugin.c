@@ -49,6 +49,7 @@
 #include <json-glib/json-glib.h>
 #include <libxfce4panel/libxfce4panel.h>
 
+#include "pn-injector-widget.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-matrix57-display.h"
@@ -120,11 +121,12 @@ static const gchar EMPTY_WORKSHEET[] =
 
 /* One mirrored widget: a panel-widgets drawing area plus the kind of node
  * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp,
- * 's' = Switch -> PnSwitchWidget, 'm' = Matrix57 -> PnMatrix57Display).
- * The switch is the one interactive kind:
- * its widget is made clickable and a click is reported back to the engine
- * by the node's UUID, stashed on the widget as "pn-uuid".  The widget
- * itself is owned by the applet's @fixed; this struct only tracks the node.
+ * 's' = Switch -> PnSwitchWidget, 'm' = Matrix57 -> PnMatrix57Display,
+ * 'i' = Injector -> PnInjectorWidget).
+ * Switch and injector are the interactive kinds: their widgets are made
+ * clickable and the click is reported back to the engine by the node's
+ * UUID, stashed on the widget as "pn-uuid".  The widget itself is owned by
+ * the applet's @fixed; this struct only tracks the node.
  * Row order is the engine's layout order, held by @order. */
 typedef struct
 {
@@ -343,6 +345,14 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
             pn_switch_widget_set_on (
                     toggle, json_object_get_boolean_member (state, "on"));
     }
+    else if (e->kind == 'i')
+    {
+        PnInjectorWidget *button = PN_INJECTOR_WIDGET (e->widget);
+
+        if (json_object_has_member (state, "icon"))
+            pn_injector_widget_set_icon (
+                    button, json_object_get_string_member (state, "icon"));
+    }
     else if (e->kind == 't')
     {
         PnTextDisplay *text = PN_TEXT_DISPLAY (e->widget);
@@ -457,6 +467,8 @@ size_widget (AppletWidget *e, gint size)
         pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
     else if (e->kind == 's')
         pn_switch_widget_set_height (PN_SWITCH_WIDGET (e->widget), size);
+    else if (e->kind == 'i')
+        pn_injector_widget_set_height (PN_INJECTOR_WIDGET (e->widget), size);
     else if (e->kind == 't')
         pn_text_display_set_height (PN_TEXT_DISPLAY (e->widget), size);
     else if (e->kind == 'm')
@@ -478,13 +490,14 @@ apply_widget_size (PipnodeDeadline *self, AppletWidget *e)
     size_widget (e, size);
 }
 
-/* A click on a mirrored switch toggle: ask the engine to flip that one
- * Switch node, addressed by the UUID stashed on the widget.  The engine
- * toggles it and echoes the new state back as a WidgetChanged, which
- * update_widget() pushes into the toggle — so the widget follows the node
- * rather than guessing its own state. */
+/* A click on a mirrored interactive widget: ask the engine to act on that
+ * one node, addressed by the UUID stashed on the widget.  For a switch the
+ * engine toggles it and echoes the new "on" state back as a WidgetChanged,
+ * which update_widget() pushes into the toggle.  For an injector the engine
+ * fires the node (a one-shot message); there is no state to echo back.
+ * Either way, the widget follows the node — it never tries to guess. */
 static void
-on_switch_toggled (GtkWidget *widget, PipnodeDeadline *self)
+on_widget_activated (GtkWidget *widget, PipnodeDeadline *self)
 {
     const gchar *uuid;
 
@@ -502,10 +515,10 @@ on_switch_toggled (GtkWidget *widget, PipnodeDeadline *self)
 }
 
 /* Build a fresh widget of @kind for the node @uuid, sized to the panel and
- * placed on the row.  A switch toggle is made interactive — the only kind
- * the user can click — and tagged with its UUID so on_switch_toggled() can
- * address it.  relayout() moves it to its final spot once positions are
- * known. */
+ * placed on the row.  The interactive kinds (switch toggle, injector
+ * button) are made clickable and tagged with their UUID so
+ * on_widget_activated() can address them.  relayout() moves the widget to
+ * its final spot once positions are known. */
 static AppletWidget *
 applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
 {
@@ -523,7 +536,18 @@ applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
         g_object_set_data_full (G_OBJECT (e->widget), "pn-uuid",
                                 g_strdup (uuid), g_free);
         g_signal_connect (e->widget, "toggled",
-                          G_CALLBACK (on_switch_toggled), self);
+                          G_CALLBACK (on_widget_activated), self);
+        break;
+    case 'i':
+        e->widget = pn_injector_widget_new ();
+        /* Same pattern as the switch: make the tab interactive before
+         * realize, tag it with the node UUID, route clicks to the engine. */
+        pn_injector_widget_set_interactive (PN_INJECTOR_WIDGET (e->widget),
+                                            TRUE);
+        g_object_set_data_full (G_OBJECT (e->widget), "pn-uuid",
+                                g_strdup (uuid), g_free);
+        g_signal_connect (e->widget, "clicked",
+                          G_CALLBACK (on_widget_activated), self);
         break;
     case 'l':
         e->widget = pn_led_lamp_new ();
@@ -653,6 +677,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
                  ? json_object_get_string_member (state, "kind") : "";
         kind   = (g_strcmp0 (kind_s, "led")      == 0) ? 'l'
                : (g_strcmp0 (kind_s, "switch")   == 0) ? 's'
+               : (g_strcmp0 (kind_s, "injector") == 0) ? 'i'
                : (g_strcmp0 (kind_s, "text")     == 0) ? 't'
                : (g_strcmp0 (kind_s, "matrix57") == 0) ? 'm'
                : (g_strcmp0 (kind_s, "numeric")  == 0) ? 'n'

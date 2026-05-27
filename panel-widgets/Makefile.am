@@ -20,6 +20,8 @@
 noinst_LTLIBRARIES = libpipnode-panel-widgets.la
 
 libpipnode_panel_widgets_la_SOURCES = \
+	pn-injector-widget.c \
+	pn-injector-widget.h \
 	pn-led-display.c \
 	pn-led-display.h \
 	pn-led-lamp.c \

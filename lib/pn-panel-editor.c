@@ -19,6 +19,7 @@
 
 #include "pn-panel-editor.h"
 #include "pn-panel-geometry.h"
+#include "pn-injector-widget.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-matrix57-display.h"
@@ -29,6 +30,7 @@
 #include "pn-node-store.h"
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
+#include "pn-inject.h"
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-matrix57.h"
@@ -332,6 +334,22 @@ on_switch_repaint_needed (PnNode *node, gpointer user_data)
     panel_editor_sync_switch (node, PN_SWITCH_WIDGET (user_data));
 }
 
+/* Push @node's configured fire-button icon into its panel-button mirror. */
+static void
+panel_editor_sync_injector (PnNode *node, PnInjectorWidget *button)
+{
+    pn_injector_widget_set_icon (button,
+                                 pn_inject_get_button_icon (PN_INJECT (node)));
+}
+
+/* repaint-needed on an Inject node → refresh the icon shown on its
+ * panel-button mirror.  @user_data is the row's #PnInjectorWidget. */
+static void
+on_injector_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_injector (node, PN_INJECTOR_WIDGET (user_data));
+}
+
 /* Toggle the empty-state hint to match the live readout count. */
 static void
 panel_editor_update_empty_state (PnPanelEditor *self)
@@ -624,6 +642,24 @@ panel_editor_build_widget (PnNode *node)
                                  G_CALLBACK (on_switch_repaint_needed),
                                  toggle, 0);
         return toggle;
+    }
+
+    if (PN_IS_INJECT (node))
+    {
+        /* Drag-only here, same as the switch: the fire button is left
+         * non-interactive so a click on the canvas drags the row instead
+         * of accidentally firing the inject.  The applet is where the
+         * button becomes clickable. */
+        GtkWidget *button = pn_injector_widget_new ();
+
+        pn_injector_widget_set_height (PN_INJECTOR_WIDGET (button),
+                                       PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_injector (node, PN_INJECTOR_WIDGET (button));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_injector_repaint_needed),
+                                 button, 0);
+        return button;
     }
 
     return NULL;

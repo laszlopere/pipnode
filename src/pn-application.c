@@ -28,6 +28,7 @@
 #include "pn-panel-input.h"
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
+#include "pn-inject.h"
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-matrix57.h"
@@ -1355,13 +1356,15 @@ engine_widget_ctx_free (gpointer data)
     g_slice_free (EngineWidgetCtx, ctx);
 }
 
-/** A node the applet mirrors: a countdown readout, an indicator lamp, or a
- *  slide toggle (the only interactive one — see ActivateWidget). */
+/** A node the applet mirrors: a countdown readout, an indicator lamp, a
+ *  slide toggle, or a fire-button (the two interactive kinds — see
+ *  ActivateWidget). */
 static gboolean
 engine_is_widget_node (PnNode *node)
 {
     return PN_IS_COUNTDOWN (node)
         || PN_IS_DIGITAL_CLOCK (node)
+        || PN_IS_INJECT (node)
         || PN_IS_LABEL (node)
         || PN_IS_LED (node)
         || PN_IS_MATRIX57 (node)
@@ -1577,6 +1580,20 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_set_member_name (b, "on");
         json_builder_add_boolean_value (b, pn_switch_get_on (PN_SWITCH (node)));
         return "switch";
+    }
+
+    if (PN_IS_INJECT (node))
+    {
+        const gchar *icon = pn_inject_get_button_icon (PN_INJECT (node));
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "injector");
+        /* Empty string when no icon is configured — the panel widget
+         * falls back to its cairo-drawn play triangle, mirroring the
+         * worksheet's compact tab. */
+        json_builder_set_member_name (b, "icon");
+        json_builder_add_string_value (b, icon != NULL ? icon : "");
+        return "injector";
     }
 
     return NULL;
@@ -2024,11 +2041,13 @@ handle_engine_method_call (
         g_variant_get (parameters, "(&s&s)", &path, &uuid);
         win  = g_hash_table_lookup (self->worksheets, path);
         node = engine_find_node_by_uuid (win, uuid);
-        /* Only switches are interactive today.  Toggling emits the node's
-         * message and a repaint-needed, which the widget-mirroring path
-         * turns into a WidgetChanged carrying the new "on" state. */
+        /* The two interactive kinds.  A switch toggle flips and re-emits a
+         * repaint-needed → WidgetChanged carrying the new "on" state; an
+         * injector fires its message once (no state to mirror back). */
         if (PN_IS_SWITCH (node))
             pn_switch_toggle (PN_SWITCH (node));
+        else if (PN_IS_INJECT (node))
+            pn_inject_fire (PN_INJECT (node));
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "PresentEditor") == 0)

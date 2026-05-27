@@ -178,6 +178,11 @@ pn_inject_set_property (
                                        ? g_strdup (new_icon)
                                        : NULL;
                 g_object_notify_by_pspec (object, props[PROP_BUTTON_ICON]);
+                /* The fire button is part of the node's painted face, and
+                 * the panel-applet mirror follows repaint-needed for live
+                 * updates — so an icon swap has to ask for a repaint to
+                 * propagate (both to the worksheet and to the applet). */
+                pn_node_request_repaint (PN_NODE (self));
             }
         }
         break;
