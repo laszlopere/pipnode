@@ -8,11 +8,11 @@
       "name" : "AnalogClock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 560.0,
-        "y" : 120.0
+        "x" : 280.0,
+        "y" : 40.0
       },
       "properties" : {
-        "text" : "Berlin",
+        "text" : "Local",
         "show-seconds" : true,
         "timezone" : "Not Set",
         "face-color" : "rgb(247,247,245)",
@@ -20,7 +20,7 @@
         "hour-hand-color" : "rgb(20,20,23)",
         "minute-hand-color" : "rgb(20,20,23)",
         "second-hand-color" : "rgb(217,31,26)",
-        "text-color" : "rgb(51,51,56)"
+        "text-color" : "rgb(237,51,59)"
       }
     },
     {
@@ -29,11 +29,32 @@
       "name" : "Clock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
-        "y" : 120.0
+        "x" : 60.0,
+        "y" : 40.0
       },
       "properties" : {
         "period" : 1
+      }
+    },
+    {
+      "type" : "PnAnalogClock",
+      "uuid" : "edc473a1-3257-401a-bad6-399d0b358d7e",
+      "name" : "AnalogClock 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "Alaska",
+        "show-seconds" : true,
+        "timezone" : "AKST — Alaska Standard Time",
+        "face-color" : "rgb(247,247,245)",
+        "marker-color" : "rgb(20,20,23)",
+        "hour-hand-color" : "rgb(20,20,23)",
+        "minute-hand-color" : "rgb(20,20,23)",
+        "second-hand-color" : "rgb(217,31,26)",
+        "text-color" : "rgb(224,27,36)"
       }
     }
   ],
@@ -41,6 +62,10 @@
     {
       "source_id" : "61cb37dd-fd5d-4d68-8f54-dc5af943088c",
       "target_id" : "97929f29-908e-4dac-83ca-e0a45c0bf5d1"
+    },
+    {
+      "source_id" : "61cb37dd-fd5d-4d68-8f54-dc5af943088c",
+      "target_id" : "edc473a1-3257-401a-bad6-399d0b358d7e"
     }
   ],
   "sheets" : [
