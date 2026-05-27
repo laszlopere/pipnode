@@ -243,3 +243,70 @@ default precedence + primary/node-ref resolution), test-pn-secret-scrub.c, plus
 tests/plugins/vaultecho + a python integration/migration test. Docs: PLUGINS
 section 18 + checklist, README, INSTALL, data/help-index.html. Manager-over-
 modal-node-dialog fix: the credentials dialog inherits the opener's modality.
+
+(28) Host-managed shared profile sessions (plugin ABI v6). Today a profile
+(ABI v5, item 27) is a CONFIG store: a node resolves a profile-ref at fire
+time, gets host/port/credentials, and opens its own connection. That is
+fine for one-shot HTTP-style work but breaks down whenever the underlying
+resource is single-owner or stateful: a USB-serial device can only be
+held by one fd, and an MQTT broker session is logically one TCP socket
+per (broker,client-id) that wants its subscriptions and outbound
+publishes funnelled through one place. The Meshtastic node already paid
+this tax (one device <-> one node, no multi-node fan-out possible) and
+the upcoming pipnode-zigbee-plugin would inherit the same limitation
+(the GW70-MQTT CC2652 dongle speaks ZNP over /dev/ttyUSB0; multiple
+debug nodes -- status, list-devices, dump-frames, permit-join -- all
+need to share that one fd, queue requests serially, and fan
+unsolicited frames out to subscribers).
+
+Fix it at the host. Keep the existing profile as the CONFIG layer, and
+add a LIVE-RESOURCE layer on top: PnProfileSession, a per-profile-id
+object opened on first reference and torn down on last release, owned
+and ref-counted by the host. The plugin teaches the host how to build
+one via two new vfuncs on PnProfileSchemaClass:
+    PnProfileSession *(*open_session)  (PnProfile *cfg, GError **error);
+    void              (*close_session) (PnProfileSession *session);
+Host-side API the nodes use:
+    PnProfileSession *pn_profile_acquire_session (const gchar *profile_id,
+                                                  GError **);
+    void              pn_profile_release_session (PnProfileSession *);
+Acquire in constructed(), release in dispose(), exactly mirroring the
+existing pn_node_get_profile lifecycle. Re-emit PnVault::changed as a
+session teardown+rebuild so a credential edit propagates the same way
+it does today. State changes (device unplug, broker disconnect) fan out
+via a PnProfileSession::state-changed signal mirroring PnVault::changed.
+Concurrency model: single-threaded GLib mainloop, GIOChannel/GUnixIO on
+the fd, all callbacks on the main thread (no new threads -- pipnode
+does not use them elsewhere). Lives in libpipnode-core so pipnode-run
+gets the same shared sessions headlessly (see item 23).
+
+The session object itself is plugin-defined. For Zigbee that means a
+ZNP transport with a FIFO request queue (pn_znp_request(session, cmd,
+payload, callback)) plus a subscriber registry for unsolicited frames
+(pn_znp_subscribe(session, type, callback)); for MQTT it is a libmosq
+client with one TCP connection, a subscribe-multiplex table and a
+publish queue; for Meshtastic a serial-mesh session of the same shape
+as Zigbee.
+
+Pilot/port order, smallest blast radius first: (a) ship the host-side
+registry + the two vfuncs + the ABI bump 5 -> 6, no plugin work; (b)
+port the bundled MQTT Source/Sink in plugins/network onto it -- the
+win is immediate and observable (N MQTT nodes against one broker stop
+dialling N sockets, and their subscriptions merge into one), and it
+proves the API on existing test coverage; (c) build the Zigbee plugin
+greenfield against the now-proven API (GW70Profile + ZnpSession +
+small debug nodes -- see item 29 if/when filed); (d) retrofit the
+Meshtastic node to lift its one-device-one-node ceiling; (e)
+opportunistically: the kodi plugin's JSON-RPC client (multiple kodi
+nodes currently each open their own libsoup session), shell SSH, any
+future stateful-socket plugin.
+
+Trade-offs to nail in design: ownership boundary (plugin defines what
+a session IS, host owns the registry + ref-count + lifetime; plugin
+never caches a PnProfileSession* outside an acquire/release pair),
+error propagation (every subscribed node must learn when the device
+disappears -- state-changed signal), and the headless story (sessions
+must work under pipnode-run, which is why the layer lives in core not
+gui). Same ABI-bump drill as item 27: sudo make install + reinstall
+every plugin or the scan will deadlock on stale .so's (see the caveat
+documented under item 23).
