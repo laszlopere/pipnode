@@ -242,15 +242,32 @@ struct _PnNodeClass
      * PnNodeClass.paint_plot_skip_shadow:
      *
      * When %FALSE (the default) the worksheet paints its standard
-     * rectangular drop shadow underneath the rectangle handed to
+     * drop shadow underneath the rectangle handed to
      * #PnNodeClass.paint_plot — what every existing plot extension
      * (graph, table, …) expects so the plot reads as a card lifted
      * off the canvas.  Node types whose plot extension is not
      * actually rectangular (e.g. a circular dial face) set this to
      * %TRUE so the rectangular shadow does not leak out around the
-     * non-rectangular shape.
+     * non-rectangular shape.  Node types whose plot extension is a
+     * rounded rectangle should instead declare
+     * #PnNodeClass.paint_plot_corner_radius so the shadow follows
+     * the rounded silhouette.
      */
     gboolean paint_plot_skip_shadow;
+
+    /**
+     * PnNodeClass.paint_plot_corner_radius:
+     *
+     * Corner radius (worksheet pixels) of the plot extension's
+     * silhouette.  The worksheet uses it when painting the drop
+     * shadow under #PnNodeClass.paint_plot so the shadow's outline
+     * matches a rounded plot body (a character-LCD bezel, a beveled
+     * readout) instead of leaking out around its corners.  Defaults
+     * to %0.0 — a sharp-cornered rectangular silhouette, which is
+     * the shape every legacy plot extension (graph, table) draws.
+     * Ignored when #PnNodeClass.paint_plot_skip_shadow is %TRUE.
+     */
+    gdouble paint_plot_corner_radius;
 
     /**
      * PnNodeClass.paint_plot_skip_zoom:

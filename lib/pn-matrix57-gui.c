@@ -342,12 +342,14 @@ pn_matrix57_gui_install (void)
             PN_NODE_CLASS (g_type_class_ref (PN_TYPE_MATRIX57));
 
     node_class->paint_plot = pn_matrix57_paint_plot;
-    /* Panel has rounded corners (would leak past a rectangular drop
-     * shadow) and the at-rest display is already the readable surface,
-     * so a press should select / drag rather than lift a zoomed copy —
-     * matching #PnSegment16 and #PnCountdown. */
-    node_class->paint_plot_skip_shadow = TRUE;
-    node_class->paint_plot_skip_zoom   = TRUE;
+    /* The plot is a rounded plastic bezel; declare the corner radius so
+     * the worksheet's drop shadow under the client area follows the
+     * silhouette instead of leaking out around its corners.  The at-rest
+     * display is already the readable surface, so a press should select
+     * / drag rather than lift a zoomed copy — matching #PnSegment16 and
+     * #PnCountdown. */
+    node_class->paint_plot_corner_radius = M57_BEZEL_RADIUS;
+    node_class->paint_plot_skip_zoom     = TRUE;
 
     /* Class ref held for the process lifetime so the slots we just
      * wrote stay valid (one leaked ref on a singleton class, mirroring

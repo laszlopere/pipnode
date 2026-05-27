@@ -158,8 +158,20 @@ G_BEGIN_DECLS
  *       the bump exists so a stale plugin built against the smaller v7
  *       #PnWebsocketClass is rebuilt rather than loaded against the
  *       grown class.
+ *   9 — appended one optional field to #PnNodeClass,
+ *       #paint_plot_corner_radius, declaring the corner radius of a
+ *       plot extension's silhouette so the worksheet's drop shadow
+ *       under the client area follows a rounded plot body (a
+ *       character-LCD bezel) instead of leaking out around its
+ *       corners.  Defaults to %0.0 — sharp-cornered, the shape every
+ *       legacy plot extension draws — so existing plugins keep
+ *       painting identically.  Appended at the end of the class
+ *       struct so existing field offsets are unchanged; the bump
+ *       exists so a stale plugin built against the smaller v8
+ *       #PnNodeClass is rebuilt rather than loaded against the
+ *       grown class.
  */
-#define PN_PLUGIN_ABI_VERSION 8
+#define PN_PLUGIN_ABI_VERSION 9
 
 /**
  * PN_PLUGIN_INIT_SYMBOL:

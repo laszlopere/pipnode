@@ -878,7 +878,8 @@ draw_node (
             const double plot_h = full_h - header_h - 4.0;
 
             if (!klass->paint_plot_skip_shadow)
-                paint_drop_shadow (cr, x, plot_y, full_w, plot_h, 0.0);
+                paint_drop_shadow (cr, x, plot_y, full_w, plot_h,
+                                   klass->paint_plot_corner_radius);
             klass->paint_plot (node, cr, x, plot_y, full_w, plot_h);
         }
     }
