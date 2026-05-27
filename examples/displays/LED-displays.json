@@ -123,8 +123,8 @@
       "worksheet" : "Worksheet",
       "disabled" : true,
       "position" : {
-        "x" : 160.0,
-        "y" : 400.0
+        "x" : 200.0,
+        "y" : 460.0
       },
       "properties" : {
         "target" : "Debug View",
@@ -137,7 +137,7 @@
       "name" : "Deadline 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 180.0,
+        "x" : 200.0,
         "y" : 680.0
       },
       "properties" : {
@@ -152,15 +152,15 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 200.0,
-        "y" : 860.0
+        "y" : 840.0
       },
       "properties" : {
         "period" : 600,
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
-        "rate" : 652.35000000000002,
-        "last-update" : "2026-05-27T09:56:32.675253+02"
+        "rate" : 652.62,
+        "last-update" : "2026-05-27T10:07:49.278629+02"
       }
     },
     {
@@ -170,7 +170,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 20.0,
-        "y" : 860.0
+        "y" : 840.0
       },
       "properties" : {
         "period" : 600,
@@ -186,7 +186,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 380.0,
-        "y" : 860.0
+        "y" : 840.0
       },
       "properties" : {
         "digits" : 6,

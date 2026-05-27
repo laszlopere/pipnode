@@ -1,0 +1,130 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRate",
+      "uuid" : "de6e5cba-1f21-4481-a5b0-da1a657b3653",
+      "name" : "BNB -> USD",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "BNB",
+        "to" : "USD",
+        "rate" : 652.62,
+        "last-update" : "2026-05-27T10:07:49.278629+02"
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "efc5c2c0-3432-409f-a25b-e4f4c82096b1",
+      "name" : "1.00",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "period" : 600,
+        "output" : "AutoInjector activated.",
+        "value" : 1.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "23a0f7c3-f6ff-4a92-9342-87da9e41cc05",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(53,132,228)",
+        "unlit-segment-color" : "rgb(4,1,82)"
+      }
+    },
+    {
+      "type" : "PnRate",
+      "uuid" : "2c2792f8-adac-46d0-9acf-7615d952bed1",
+      "name" : "BNB -> USD",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "PLS",
+        "to" : "USD",
+        "rate" : 6.9800000000000001e-06,
+        "last-update" : "2026-05-27T10:15:56.668476+02"
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "b78b96d9-372f-4546-b860-6695a7ed76db",
+      "name" : "1M",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "period" : 600,
+        "output" : "AutoInjector activated.",
+        "value" : 1000000.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "17c967f8-ac6a-40d6-9b6b-77dde082f033",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(51,209,122)",
+        "unlit-segment-color" : "rgb(7,30,0)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "efc5c2c0-3432-409f-a25b-e4f4c82096b1",
+      "target_id" : "de6e5cba-1f21-4481-a5b0-da1a657b3653"
+    },
+    {
+      "source_id" : "de6e5cba-1f21-4481-a5b0-da1a657b3653",
+      "target_id" : "23a0f7c3-f6ff-4a92-9342-87da9e41cc05"
+    },
+    {
+      "source_id" : "b78b96d9-372f-4546-b860-6695a7ed76db",
+      "target_id" : "2c2792f8-adac-46d0-9acf-7615d952bed1"
+    },
+    {
+      "source_id" : "2c2792f8-adac-46d0-9acf-7615d952bed1",
+      "target_id" : "17c967f8-ac6a-40d6-9b6b-77dde082f033"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
