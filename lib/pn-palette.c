@@ -19,6 +19,7 @@
 
 #include "pn-palette.h"
 #include "pn-node-factory.h"
+#include "pn-preferences.h"
 
 #include <string.h>
 
@@ -36,6 +37,10 @@
 /*  COL_TYPE_NAME  — the registered #GType name for leaves.  Empty   */
 /*                   on group rows; the empty string also gates DnD  */
 /*                   so groups cannot be dragged.                     */
+/*  COL_PATH       — full slash-separated category path for group    */
+/*                   rows ("GUI/Displays").  Empty on leaves.  Used  */
+/*                   as the persistence key for the row's collapsed  */
+/*                   state in #PnPreferences.                         */
 /* ------------------------------------------------------------------ */
 
 enum
@@ -43,6 +48,7 @@ enum
     COL_ICON,
     COL_MARKUP,
     COL_TYPE_NAME,
+    COL_PATH,
     N_COLS,
 };
 
@@ -78,6 +84,13 @@ struct _PnPalette
      * cleared in drag-end so a same-app drop site can read the dragged
      * type during drag-motion (see pn_palette_get_drag_node_type). */
     GType               drag_type;
+
+    /* Non-zero while the palette is programmatically expanding or
+     * collapsing rows (initial population, restore from preferences,
+     * search-driven expand_all).  The row-expanded / row-collapsed
+     * handlers consult this so machine-driven toggles do not overwrite
+     * the user's saved open/closed shape in #PnPreferences. */
+    guint               suppress_state_save;
 };
 
 enum
@@ -217,13 +230,18 @@ on_tree_drag_end (
 /* ------------------------------------------------------------------ */
 
 /** Append a group row labelled @title under @parent (NULL for a
- *  top-level group).  The returned iter is suitable as the parent for
- *  subsequent subgroup or leaf rows, so categories may nest to any
- *  depth via slash-separated paths (see populate_palette()). */
+ *  top-level group).  @path is the full slash-separated category path
+ *  this row represents (e.g. "GUI/Displays") and is stashed in
+ *  COL_PATH so the row-expanded / row-collapsed handlers can use it
+ *  as the persistence key.  The returned iter is suitable as the
+ *  parent for subsequent subgroup or leaf rows, so categories may
+ *  nest to any depth via slash-separated paths (see
+ *  populate_palette()). */
 static void
 append_group (
         GtkTreeStore *store,
         const gchar  *title,
+        const gchar  *path,
         GtkTreeIter  *parent,
         GtkTreeIter  *out_iter)
 {
@@ -234,6 +252,7 @@ append_group (
                         COL_ICON,      "",
                         COL_MARKUP,    markup,
                         COL_TYPE_NAME, "",
+                        COL_PATH,      path,
                         -1);
 
     g_free (markup);
@@ -271,6 +290,7 @@ append_node (
                         COL_ICON,      icon ? icon : "",
                         COL_MARKUP,    escaped,
                         COL_TYPE_NAME, type_name,
+                        COL_PATH,      "",
                         -1);
 
     g_free (escaped);
@@ -391,7 +411,12 @@ on_search_entry_changed (
     if (self->filter != NULL)
         gtk_tree_model_filter_refilter (self->filter);
 
+    /* expand_all fires row-expanded for every newly opened group; gate
+     * the persistence handler so the search does not silently clear
+     * the user's saved collapsed entries. */
+    self->suppress_state_save++;
     gtk_tree_view_expand_all (self->tree);
+    self->suppress_state_save--;
 }
 
 /* ------------------------------------------------------------------ */
@@ -591,7 +616,8 @@ build_tree_view (PnPalette *self)
     self->store = gtk_tree_store_new (N_COLS,
                                       G_TYPE_STRING,   /* COL_ICON      */
                                       G_TYPE_STRING,   /* COL_MARKUP    */
-                                      G_TYPE_STRING);  /* COL_TYPE_NAME */
+                                      G_TYPE_STRING,   /* COL_TYPE_NAME */
+                                      G_TYPE_STRING);  /* COL_PATH      */
 
     /* Wrap the store in a filter so the search entry can hide rows
      * without disturbing the canonical model.  When the search needle
@@ -715,7 +741,7 @@ populate_palette (PnPalette *self)
             if (next_iter == NULL)
             {
                 next_iter = g_new0 (GtkTreeIter, 1);
-                append_group (self->store, segments[s],
+                append_group (self->store, segments[s], prefix,
                               group_iter, next_iter);
                 g_hash_table_insert (groups, g_strdup (prefix), next_iter);
             }
@@ -733,7 +759,8 @@ populate_palette (PnPalette *self)
             if (group_iter == NULL)
             {
                 group_iter = g_new0 (GtkTreeIter, 1);
-                append_group (self->store, "Other", NULL, group_iter);
+                append_group (self->store, "Other", "Other",
+                              NULL, group_iter);
                 g_hash_table_insert (groups, g_strdup ("Other"), group_iter);
             }
         }
@@ -743,7 +770,138 @@ populate_palette (PnPalette *self)
 
     g_hash_table_destroy (groups);
 
+    /* Initial expand happens before the row-expanded handler is hooked,
+     * so no suppression is needed here.  The caller wires the handler
+     * afterwards and follows up with apply_saved_collapse_state(). */
     gtk_tree_view_expand_all (self->tree);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Persisted collapse state                                           */
+/*                                                                     */
+/*  Each group row carries its full slash-separated category path in   */
+/*  COL_PATH.  PnPreferences holds the set of paths the user has       */
+/*  collapsed; we read it on construction (collapsing matching rows)   */
+/*  and write back as the user toggles rows via the tree view's        */
+/*  row-expanded / row-collapsed signals.                              */
+/* ------------------------------------------------------------------ */
+
+/** Walk the sibling chain at @store_iter (and recurse into each), and
+ *  for any group row whose COL_PATH appears in the user's saved set
+ *  collapse the corresponding filter-model row in the tree view.
+ *  Caller is expected to bump @suppress_state_save around the walk so
+ *  the collapse signal does not bounce back into the autosave path. */
+static void
+apply_saved_collapse_walk (
+        PnPalette     *self,
+        GtkTreeModel  *store_model,
+        GtkTreeIter   *store_iter,
+        PnPreferences *prefs)
+{
+    do
+    {
+        gchar *path_str = NULL;
+        gtk_tree_model_get (store_model, store_iter,
+                            COL_PATH, &path_str, -1);
+
+        if (path_str != NULL && *path_str != '\0'
+            && pn_preferences_is_palette_group_collapsed (prefs, path_str))
+        {
+            GtkTreePath *store_path =
+                    gtk_tree_model_get_path (store_model, store_iter);
+            GtkTreePath *filter_path =
+                    gtk_tree_model_filter_convert_child_path_to_path (
+                            self->filter, store_path);
+            if (filter_path != NULL)
+            {
+                gtk_tree_view_collapse_row (self->tree, filter_path);
+                gtk_tree_path_free (filter_path);
+            }
+            gtk_tree_path_free (store_path);
+        }
+
+        /* Group rows have children we may still need to recurse into,
+         * even when this row is itself collapsed — children stay valid
+         * model rows and would be reflected the next time the row is
+         * expanded interactively. */
+        {
+            GtkTreeIter child;
+            if (gtk_tree_model_iter_children (store_model, &child, store_iter))
+                apply_saved_collapse_walk (self, store_model, &child, prefs);
+        }
+
+        g_free (path_str);
+    }
+    while (gtk_tree_model_iter_next (store_model, store_iter));
+}
+
+static void
+apply_saved_collapse_state (PnPalette *self)
+{
+    PnPreferences *prefs = pn_preferences_get_default ();
+    GtkTreeModel  *store_model = GTK_TREE_MODEL (self->store);
+    GtkTreeIter    iter;
+
+    if (!gtk_tree_model_get_iter_first (store_model, &iter))
+        return;
+
+    self->suppress_state_save++;
+    apply_saved_collapse_walk (self, store_model, &iter, prefs);
+    self->suppress_state_save--;
+}
+
+/** Common backend for the row-expanded and row-collapsed handlers:
+ *  resolve the filter iter to the underlying store row, read its
+ *  COL_PATH, and update PnPreferences accordingly.  Skipped when a
+ *  programmatic expand_all / collapse drove the toggle (the caller
+ *  bumps suppress_state_save around such operations). */
+static void
+on_row_collapse_state_changed (
+        PnPalette   *self,
+        GtkTreeIter *filter_iter,
+        gboolean     collapsed)
+{
+    GtkTreeIter  store_iter;
+    gchar       *path_str = NULL;
+
+    if (self->suppress_state_save > 0 || self->filter == NULL)
+        return;
+
+    gtk_tree_model_filter_convert_iter_to_child_iter (
+            self->filter, &store_iter, filter_iter);
+
+    gtk_tree_model_get (GTK_TREE_MODEL (self->store), &store_iter,
+                        COL_PATH, &path_str, -1);
+
+    if (path_str != NULL && *path_str != '\0')
+        pn_preferences_set_palette_group_collapsed (
+                pn_preferences_get_default (), path_str, collapsed);
+
+    g_free (path_str);
+}
+
+static void
+on_tree_row_expanded (
+        GtkTreeView *view,
+        GtkTreeIter *iter,
+        GtkTreePath *path,
+        gpointer     user_data)
+{
+    (void) view;
+    (void) path;
+    on_row_collapse_state_changed (PN_PALETTE (user_data), iter, FALSE);
+}
+
+static void
+on_tree_row_collapsed (
+        GtkTreeView *view,
+        GtkTreeIter *iter,
+        GtkTreePath *path,
+        gpointer     user_data)
+{
+    (void) view;
+    (void) path;
+    on_row_collapse_state_changed (PN_PALETTE (user_data), iter, TRUE);
 }
 
 /* ------------------------------------------------------------------ */
@@ -867,6 +1025,16 @@ pn_palette_init (PnPalette *self)
                       G_CALLBACK (on_palette_popup_menu), self);
 
     populate_palette (self);
+
+    /* Wire row-toggle persistence after the initial expand_all so it
+     * does not fire for every machine-built row, then reapply the user's
+     * saved collapsed entries on top of the default-expanded tree. */
+    g_signal_connect (tree, "row-expanded",
+                      G_CALLBACK (on_tree_row_expanded), self);
+    g_signal_connect (tree, "row-collapsed",
+                      G_CALLBACK (on_tree_row_collapsed), self);
+
+    apply_saved_collapse_state (self);
 }
 
 /* ------------------------------------------------------------------ */

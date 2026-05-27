@@ -60,6 +60,13 @@ struct _PnPreferences
      * Keyed by g_strdup'd basenames; values unused (used as a set). */
     GHashTable *disabled_plugins;
 
+    /* Set of palette group paths the user has collapsed (full slash-
+     * separated paths, e.g. "GUI/Displays").  PnPalette consults this
+     * on construction to reproduce the previous open/closed shape and
+     * writes back as the user toggles rows.  Keyed by g_strdup'd
+     * paths; values unused. */
+    GHashTable *collapsed_palette_groups;
+
     /* Set while the JSON loader is pushing values into the object so the
      * autosave hook can short-circuit -- we do not want the initial load
      * to immediately rewrite the same file.  Also pinned to %TRUE during
@@ -220,6 +227,24 @@ pn_preferences_save_now (PnPreferences *self)
         keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
 
         json_builder_set_member_name (b, "disabled_plugins");
+        json_builder_begin_array (b);
+        for (l = keys; l != NULL; l = l->next)
+            json_builder_add_string_value (b, (const gchar *) l->data);
+        json_builder_end_array (b);
+
+        g_list_free (keys);
+    }
+
+    /* collapsed_palette_groups: full slash-separated category paths
+     * (e.g. "GUI/Displays") the user has collapsed in the palette tree.
+     * Sorted for stable on-disk ordering. */
+    {
+        GList *keys = g_hash_table_get_keys (self->collapsed_palette_groups);
+        GList *l;
+
+        keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
+
+        json_builder_set_member_name (b, "collapsed_palette_groups");
         json_builder_begin_array (b);
         for (l = keys; l != NULL; l = l->next)
             json_builder_add_string_value (b, (const gchar *) l->data);
@@ -392,6 +417,27 @@ pn_preferences_load (PnPreferences *self)
         }
     }
 
+    if (json_object_has_member (obj, "collapsed_palette_groups"))
+    {
+        JsonNode *arr_node =
+                json_object_get_member (obj, "collapsed_palette_groups");
+        if (arr_node != NULL && JSON_NODE_HOLDS_ARRAY (arr_node))
+        {
+            JsonArray *arr = json_node_get_array (arr_node);
+            guint      i, n = json_array_get_length (arr);
+
+            g_hash_table_remove_all (self->collapsed_palette_groups);
+            for (i = 0; i < n; i++)
+            {
+                const gchar *path =
+                        json_array_get_string_element (arr, i);
+                if (path != NULL && *path != '\0')
+                    g_hash_table_add (self->collapsed_palette_groups,
+                                      g_strdup (path));
+            }
+        }
+    }
+
     self->loading = FALSE;
 
     g_object_unref (parser);
@@ -517,6 +563,7 @@ pn_preferences_finalize (GObject *object)
     }
     g_clear_pointer (&self->config_path, g_free);
     g_clear_pointer (&self->disabled_plugins, g_hash_table_unref);
+    g_clear_pointer (&self->collapsed_palette_groups, g_hash_table_unref);
 
     G_OBJECT_CLASS (pn_preferences_parent_class)->finalize (object);
 }
@@ -633,6 +680,8 @@ pn_preferences_init (PnPreferences *self)
     self->save_idle_id    = 0;
     self->config_path     = default_config_path ();
     self->disabled_plugins = g_hash_table_new_full (
+            g_str_hash, g_str_equal, g_free, NULL);
+    self->collapsed_palette_groups = g_hash_table_new_full (
             g_str_hash, g_str_equal, g_free, NULL);
 }
 
@@ -904,6 +953,37 @@ pn_preferences_set_plugin_disabled (PnPreferences *self,
                                     g_strdup (basename));
     else
         changed = g_hash_table_remove (self->disabled_plugins, basename);
+
+    if (changed)
+        pn_preferences_schedule_save (self);
+}
+
+gboolean
+pn_preferences_is_palette_group_collapsed (PnPreferences *self,
+                                           const gchar   *path)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), FALSE);
+    g_return_val_if_fail (path != NULL, FALSE);
+
+    return g_hash_table_contains (self->collapsed_palette_groups, path);
+}
+
+void
+pn_preferences_set_palette_group_collapsed (PnPreferences *self,
+                                            const gchar   *path,
+                                            gboolean       collapsed)
+{
+    gboolean changed;
+
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+    g_return_if_fail (path != NULL);
+
+    if (collapsed)
+        changed = g_hash_table_add (self->collapsed_palette_groups,
+                                    g_strdup (path));
+    else
+        changed = g_hash_table_remove (self->collapsed_palette_groups,
+                                       path);
 
     if (changed)
         pn_preferences_schedule_save (self);

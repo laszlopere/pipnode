@@ -145,6 +145,25 @@ void        pn_preferences_set_plugin_disabled (PnPreferences *self,
                                                 const gchar   *basename,
                                                 gboolean       disabled);
 
+/* --- Palette group collapse state ---------------------------------
+ *
+ * The PnPalette categorises node types into a tree of group rows
+ * (slash-separated paths such as "GUI/Displays").  By default every
+ * group is expanded; the user-collapsed ones are recorded here as a
+ * set of full path strings so the next launch reproduces the same
+ * open/closed shape.  The palette consults this on construction and
+ * writes back as the user toggles rows.
+ */
+
+gboolean    pn_preferences_is_palette_group_collapsed
+                                        (PnPreferences *self,
+                                         const gchar   *path);
+
+void        pn_preferences_set_palette_group_collapsed
+                                        (PnPreferences *self,
+                                         const gchar   *path,
+                                         gboolean       collapsed);
+
 G_END_DECLS
 
 #endif /* PN_PREFERENCES_H */
