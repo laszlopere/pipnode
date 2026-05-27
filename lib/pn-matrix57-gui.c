@@ -226,9 +226,12 @@ pn_matrix57_paint_plot (PnNode  *node,
     if (cells < 1)  cells = 1;
     if (cells > 40) cells = 40;
 
-    /* ---- panel: a chunky black bezel framing the LCD face. ---- */
+    /* ---- panel: a chunky bezel framing the LCD face. ---- */
     rounded_rect (cr, x, y, w, h, M57_BEZEL_RADIUS);
-    cairo_set_source_rgba (cr, 0.08, 0.08, 0.09, 1.0);
+    cairo_set_source_rgba (cr, st.frame_color.red,
+                           st.frame_color.green,
+                           st.frame_color.blue,
+                           st.frame_color.alpha);
     cairo_fill (cr);
 
     screen_x = x + M57_BEZEL;

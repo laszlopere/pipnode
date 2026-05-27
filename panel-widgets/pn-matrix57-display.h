@@ -46,6 +46,12 @@ void pn_matrix57_display_set_text (PnMatrix57Display *self,
 void pn_matrix57_display_set_cells (PnMatrix57Display *self,
                                     guint              cells);
 
+/* Plastic-bezel fill around the LCD.  Near-black by default. */
+void pn_matrix57_display_set_frame_color (PnMatrix57Display *self,
+                                          gdouble red,
+                                          gdouble green,
+                                          gdouble blue);
+
 /* LCD face fill.  Defaults to the classic greenish-yellow. */
 void pn_matrix57_display_set_background_color (PnMatrix57Display *self,
                                                gdouble red,

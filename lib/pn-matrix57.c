@@ -60,6 +60,7 @@ struct _PnMatrix57
 
     /* Configuration. */
     guint     cells;                  /* visible cell count (1..40)         */
+    PnColor   frame_color;            /* plastic bezel around the LCD       */
     PnColor   background_color;       /* LCD face                           */
     PnColor   pixel_color;            /* lit (dark) dot                     */
     PnColor   unlit_pixel_color;      /* off-state ghost                    */
@@ -74,6 +75,7 @@ enum
 {
     PROP_0,
     PROP_CELLS,
+    PROP_FRAME_COLOR,
     PROP_BACKGROUND_COLOR,
     PROP_PIXEL_COLOR,
     PROP_UNLIT_PIXEL_COLOR,
@@ -117,6 +119,7 @@ pn_matrix57_get_paint_state (PnMatrix57           *self,
 
     out->text              = self->text != NULL ? self->text : "";
     out->cells             = self->cells;
+    out->frame_color       = self->frame_color;
     out->background_color  = self->background_color;
     out->pixel_color       = self->pixel_color;
     out->unlit_pixel_color = self->unlit_pixel_color;
@@ -157,6 +160,9 @@ pn_matrix57_get_property (GObject    *object,
     {
     case PROP_CELLS:
         g_value_set_uint (value, self->cells);
+        break;
+    case PROP_FRAME_COLOR:
+        g_value_set_boxed (value, &self->frame_color);
         break;
     case PROP_BACKGROUND_COLOR:
         g_value_set_boxed (value, &self->background_color);
@@ -206,6 +212,9 @@ pn_matrix57_set_property (GObject      *object,
         }
         break;
     }
+    case PROP_FRAME_COLOR:
+        set_color_prop (self, &self->frame_color, value, PROP_FRAME_COLOR);
+        break;
     case PROP_BACKGROUND_COLOR:
         set_color_prop (self, &self->background_color, value,
                         PROP_BACKGROUND_COLOR);
@@ -274,6 +283,13 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
             1, 40, PN_M57_DEFAULT_CELLS,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_FRAME_COLOR] = g_param_spec_boxed (
+            "frame-color", "Frame colour",
+            "Fill colour of the plastic bezel framing the LCD — chunky "
+            "near-black by default, the way a character-LCD module reads.",
+            PN_TYPE_COLOR,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
             "background-color", "Background colour",
             "Fill colour of the LCD face behind the dots — the classic "
@@ -307,6 +323,7 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
         pn_settings_schema_row (schema, "cells", PN_EDITOR_AUTO);
 
         pn_settings_schema_tab (schema, "Colours");
+        pn_settings_schema_row (schema, "frame-color",       PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "background-color",  PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "pixel-color",       PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "unlit-pixel-color", PN_EDITOR_AUTO);
@@ -321,6 +338,8 @@ pn_matrix57_init (PnMatrix57 *self)
     PnNode *node = PN_NODE (self);
 
     self->cells             = PN_M57_DEFAULT_CELLS;
+    /* Chunky black plastic bezel — what an HD44780 module sits in. */
+    self->frame_color       = (PnColor){ 0.08, 0.08, 0.09, 1.0 };
     /* Classic greenish-yellow LCD face (the colour you see on an HD44780
      * module sitting in the sun). */
     self->background_color  = (PnColor){ 0.72, 0.80, 0.28, 1.0 };

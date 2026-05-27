@@ -190,6 +190,7 @@ struct _PnMatrix57Display
     guint   cells;       /* visible cell count (1..40)     */
     gint    height;      /* requested overall pixel height */
 
+    gdouble frame_r, frame_g, frame_b; /* plastic bezel      */
     gdouble bg_r,   bg_g,   bg_b;     /* LCD face            */
     gdouble lit_r,  lit_g,  lit_b;    /* dark dot            */
     gdouble dim_r,  dim_g,  dim_b;    /* off-state ghost     */
@@ -268,13 +269,13 @@ pn_matrix57_display_draw (GtkWidget *widget, cairo_t *cr)
     bezel = bezel_for_height (alloc.height);
     pad   = screen_pad_for_height (alloc.height);
 
-    /* Bezel — chunky black plastic frame, vertically centred so the
-     * widget reads the same when the panel allocates extra row space. */
+    /* Bezel — chunky plastic frame, vertically centred so the widget
+     * reads the same when the panel allocates extra row space. */
     {
         double bezel_w = (double) alloc.width;
         double bezel_h = (double) alloc.height;
         rounded_rect (cr, 0.0, 0.0, bezel_w, bezel_h, M57_BEZEL_RADIUS);
-        cairo_set_source_rgba (cr, 0.08, 0.08, 0.09, 1.0);
+        cairo_set_source_rgba (cr, self->frame_r, self->frame_g, self->frame_b, 1.0);
         cairo_fill (cr);
     }
 
@@ -423,6 +424,7 @@ pn_matrix57_display_init (PnMatrix57Display *self)
 
     /* Greenish-yellow LCD face, dark dots, faint ghost — same defaults
      * the worksheet node ships. */
+    self->frame_r = 0.08; self->frame_g = 0.08; self->frame_b = 0.09;
     self->bg_r = 0.72; self->bg_g = 0.80; self->bg_b = 0.28;
     self->lit_r = 0.06; self->lit_g = 0.08; self->lit_b = 0.04;
     self->dim_r = 0.66; self->dim_g = 0.74; self->dim_b = 0.26;
@@ -475,6 +477,15 @@ set_rgb (gdouble *r, gdouble *g, gdouble *b,
         return FALSE;
     *r = nr; *g = ng; *b = nb;
     return TRUE;
+}
+
+void
+pn_matrix57_display_set_frame_color (PnMatrix57Display *self,
+                                     gdouble r, gdouble g, gdouble b)
+{
+    g_return_if_fail (PN_IS_MATRIX57_DISPLAY (self));
+    if (set_rgb (&self->frame_r, &self->frame_g, &self->frame_b, r, g, b))
+        gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 void

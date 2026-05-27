@@ -68,6 +68,7 @@ typedef struct
     const gchar  *text;            /* never %NULL ("" means blank row) */
     guint         cells;           /* number of 5x7 character cells (1..40) */
 
+    PnColor       frame_color;          /* plastic bezel around the LCD */
     PnColor       background_color;     /* greenish-yellow LCD face */
     PnColor       pixel_color;          /* lit (dark) dot */
     PnColor       unlit_pixel_color;    /* off-state ghost over the face */
