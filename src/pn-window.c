@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-window.h"
+#include "pn-devices-menu.h"
 #include "pn-help-browser.h"
 #include "pn-palette.h"
 #include "pn-panel-editor.h"
@@ -2602,6 +2603,16 @@ create_menubar (PnWindow *self)
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), self->menu_debug_view);
 
     menu_item = gtk_menu_item_new_with_mnemonic ("_View");
+    gtk_menu_item_set_submenu (GTK_MENU_ITEM (menu_item), menu);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menubar), menu_item);
+
+    /* ---- Devices menu ---- */
+    /* Built in its own translation unit so the eventual plugin-
+     * registered variant (TODO #29 Phase 8) can take it over without
+     * touching this file.  Today it has one entry: Meshtastic… */
+    menu = pn_devices_menu_new (GTK_WINDOW (self), accel_group);
+
+    menu_item = gtk_menu_item_new_with_mnemonic ("_Devices");
     gtk_menu_item_set_submenu (GTK_MENU_ITEM (menu_item), menu);
     gtk_menu_shell_append (GTK_MENU_SHELL (menubar), menu_item);
 

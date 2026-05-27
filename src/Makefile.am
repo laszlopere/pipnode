@@ -4,6 +4,8 @@ pipnode_editor_SOURCES = \
 	main.c \
 	pn-application.c \
 	pn-application.h \
+	pn-devices-menu.c \
+	pn-devices-menu.h \
 	pn-window.c \
 	pn-window.h
 
