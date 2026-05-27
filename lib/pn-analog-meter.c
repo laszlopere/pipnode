@@ -673,7 +673,7 @@ pn_analog_meter_class_init (PnAnalogMeterClass *klass)
      * them by colour helps the eye spot a worksheet's metering row at
      * a glance. */
     node_class->color             = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category          = "Sinks";
+    node_class->category          = "GUI/Gauges";
     node_class->has_input         = TRUE;
     node_class->has_output        = FALSE;
 

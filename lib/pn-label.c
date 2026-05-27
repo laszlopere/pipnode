@@ -391,7 +391,7 @@ pn_label_class_init (PnLabelClass *klass)
      * readouts (Panel Display, Switch, LED) so a worksheet's panel row
      * reads as one family. */
     node_class->color      = (PnColor){ 0.30, 0.62, 0.62, 1.0 };
-    node_class->category   = "Sinks";
+    node_class->category   = "GUI/Displays";
     node_class->has_input  = TRUE;
     node_class->has_output = FALSE;
 

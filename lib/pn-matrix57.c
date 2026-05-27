@@ -396,7 +396,7 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
      * spot the metering row on a worksheet, even though the LCD itself
      * is greenish-yellow. */
     node_class->color      = (PnColor){ 0.92, 0.76, 0.27, 1.0 };
-    node_class->category   = "Sinks";
+    node_class->category   = "GUI/Displays";
     node_class->has_input  = TRUE;
     node_class->has_output = FALSE;
 
