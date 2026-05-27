@@ -29,6 +29,21 @@ laid out left to right and cropped to the configured cell count; a
 message with no string output, or with empty output, blanks the row.
 </p>
 <p>
+The readout can show one or two rows of cells. Lines in the incoming
+output are split on <code>\n</code> &mdash; a real newline character or
+a backslash-<em>n</em> escape from a Format-style template both work, so
+a source emitting <code>"line1\nline2"</code> breaks onto the second row
+instead of printing a literal backslash. Carriage returns are dropped so
+CRLF output renders cleanly. When the output has more newline-separated
+lines than the configured row count, the leading lines are dropped and
+the last <code>lines</code> rows stay on screen.
+</p>
+<p>
+Increasing the line count does not grow the node: both rows share the
+same external rectangle, with the dot pitch shrinking to fit. The same
+applies to the panel-applet mirror, which keeps its panel-row height.
+</p>
+<p>
 Being a sink, the node never forwards a message. The display repaints
 only when the visible text actually changes, so a hot source does not
 drive a redraw faster than the readout content moves.
@@ -40,6 +55,11 @@ drive a redraw faster than the readout content moves.
           Sixteen (the default) is the canonical HD44780 line length;
           raise it for longer readouts. Text longer than the row is
           cropped on the right.</td></tr>
+  <tr><td><code>lines</code></td>
+      <td>Number of rows of cells to show (1 or 2). Lines in the incoming
+          output are split on <code>\n</code>; when more lines arrive
+          than the configured count, the leading ones are dropped so the
+          latest output stays on screen. Default 1.</td></tr>
   <tr><td><code>frame-color</code></td>
       <td>Fill colour of the plastic bezel framing the LCD &mdash; chunky
           near-black by default, the way a character-LCD module reads.</td></tr>
