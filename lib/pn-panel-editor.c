@@ -22,6 +22,7 @@
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-matrix57-display.h"
+#include "pn-numeric-display.h"
 #include "pn-switch-widget.h"
 #include "pn-text-display.h"
 #include "pn-node.h"
@@ -31,6 +32,7 @@
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-matrix57.h"
+#include "pn-numeric.h"
 #include "pn-switch.h"
 
 /* ------------------------------------------------------------------ */
@@ -276,6 +278,41 @@ static void
 on_matrix57_repaint_needed (PnNode *node, gpointer user_data)
 {
     panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (user_data));
+}
+
+/* Push @node's current value and styling into its readout, reading them
+ * through the Numeric node's GTK-free paint-state accessor. */
+static void
+panel_editor_sync_numeric (PnNode *node, PnNumericDisplay *display)
+{
+    PnNumericPaintState st;
+
+    pn_numeric_get_paint_state (PN_NUMERIC (node), &st);
+
+    pn_numeric_display_set_digits         (display, st.digits);
+    pn_numeric_display_set_decimal_places (display, st.decimal_places);
+    pn_numeric_display_set_has_value      (display, st.has_value);
+    if (st.has_value)
+        pn_numeric_display_set_value      (display, st.value);
+    pn_numeric_display_set_segment_color  (display,
+                                           st.segment_color.red,
+                                           st.segment_color.green,
+                                           st.segment_color.blue,
+                                           st.segment_color.alpha);
+    pn_numeric_display_set_unlit_color    (display,
+                                           st.unlit_segment_color.red,
+                                           st.unlit_segment_color.green,
+                                           st.unlit_segment_color.blue,
+                                           st.unlit_segment_color.alpha);
+}
+
+/* repaint-needed on a Numeric node → refresh its readout.  @user_data is
+ * the row's #PnNumericDisplay (connected with g_signal_connect_object so
+ * it dies with the readout). */
+static void
+on_numeric_repaint_needed (PnNode *node, gpointer user_data)
+{
+    panel_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (user_data));
 }
 
 /* Push @node's current latch position into its toggle, reading it through
@@ -537,6 +574,23 @@ panel_editor_build_widget (PnNode *node)
         panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (display));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_matrix57_repaint_needed),
+                                 display, 0);
+        return display;
+    }
+
+    if (PN_IS_NUMERIC (node))
+    {
+        /* Transparent background: the digits sit straight on the canvas
+         * (and on the panel applet) so the bezel does not double-frame the
+         * row. */
+        GtkWidget *display = pn_numeric_display_new ();
+
+        pn_numeric_display_set_height (PN_NUMERIC_DISPLAY (display),
+                                       PN_PE_PREVIEW_HEIGHT);
+
+        panel_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (display));
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_numeric_repaint_needed),
                                  display, 0);
         return display;
     }

@@ -52,6 +52,7 @@
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
 #include "pn-matrix57-display.h"
+#include "pn-numeric-display.h"
 #include "pn-switch-widget.h"
 #include "pn-text-display.h"
 
@@ -379,6 +380,35 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
             pn_text_display_set_background (text, rgba[0], rgba[1],
                                            rgba[2], rgba[3]);
     }
+    else if (e->kind == 'n')
+    {
+        PnNumericDisplay *display = PN_NUMERIC_DISPLAY (e->widget);
+        gdouble           rgba[4];
+
+        if (json_object_has_member (state, "digits"))
+            pn_numeric_display_set_digits (
+                    display, (guint) json_object_get_int_member (state, "digits"));
+        if (json_object_has_member (state, "decimal_places"))
+            pn_numeric_display_set_decimal_places (
+                    display,
+                    (guint) json_object_get_int_member (state, "decimal_places"));
+        /* set_value latches has_value to TRUE, so apply value first and
+         * let the explicit has_value flag flip it back when there is no
+         * reading yet (the pre-first-message blank screen). */
+        if (json_object_has_member (state, "value"))
+            pn_numeric_display_set_value (
+                    display, json_object_get_double_member (state, "value"));
+        if (json_object_has_member (state, "has_value"))
+            pn_numeric_display_set_has_value (
+                    display,
+                    json_object_get_boolean_member (state, "has_value"));
+        if (read_rgb_or_rgba (state, "segment_color", rgba))
+            pn_numeric_display_set_segment_color (display, rgba[0], rgba[1],
+                                                  rgba[2], rgba[3]);
+        if (read_rgb_or_rgba (state, "unlit_color", rgba))
+            pn_numeric_display_set_unlit_color (display, rgba[0], rgba[1],
+                                                rgba[2], rgba[3]);
+    }
     else if (e->kind == 'm')
     {
         PnMatrix57Display *display = PN_MATRIX57_DISPLAY (e->widget);
@@ -431,6 +461,8 @@ size_widget (AppletWidget *e, gint size)
         pn_text_display_set_height (PN_TEXT_DISPLAY (e->widget), size);
     else if (e->kind == 'm')
         pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (e->widget), size);
+    else if (e->kind == 'n')
+        pn_numeric_display_set_height (PN_NUMERIC_DISPLAY (e->widget), size);
     else
         pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
 }
@@ -501,6 +533,9 @@ applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
         break;
     case 'm':
         e->widget = pn_matrix57_display_new ();
+        break;
+    case 'n':
+        e->widget = pn_numeric_display_new ();
         break;
     case 'c':
     default:
@@ -620,6 +655,7 @@ reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
                : (g_strcmp0 (kind_s, "switch")   == 0) ? 's'
                : (g_strcmp0 (kind_s, "text")     == 0) ? 't'
                : (g_strcmp0 (kind_s, "matrix57") == 0) ? 'm'
+               : (g_strcmp0 (kind_s, "numeric")  == 0) ? 'n'
                : 'c';
 
         g_hash_table_add (desired, (gpointer) uuid);

@@ -26,6 +26,8 @@ libpipnode_panel_widgets_la_SOURCES = \
 	pn-led-lamp.h \
 	pn-matrix57-display.c \
 	pn-matrix57-display.h \
+	pn-numeric-display.c \
+	pn-numeric-display.h \
 	pn-switch-widget.c \
 	pn-switch-widget.h \
 	pn-text-display.c \

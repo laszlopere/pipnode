@@ -31,6 +31,7 @@
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-matrix57.h"
+#include "pn-numeric.h"
 #include "pn-switch.h"
 #include "pn-color.h"
 #include "pn-panel-geometry.h"
@@ -1364,6 +1365,7 @@ engine_is_widget_node (PnNode *node)
         || PN_IS_LABEL (node)
         || PN_IS_LED (node)
         || PN_IS_MATRIX57 (node)
+        || PN_IS_NUMERIC (node)
         || PN_IS_SWITCH (node);
 }
 
@@ -1541,6 +1543,31 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_set_member_name (b, "unlit");
         engine_add_color_array (b, &st.unlit_pixel_color);
         return "matrix57";
+    }
+
+    if (PN_IS_NUMERIC (node))
+    {
+        PnNumericPaintState st;
+
+        pn_numeric_get_paint_state (PN_NUMERIC (node), &st);
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "numeric");
+        json_builder_set_member_name (b, "value");
+        json_builder_add_double_value (b, st.value);
+        json_builder_set_member_name (b, "has_value");
+        json_builder_add_boolean_value (b, st.has_value);
+        json_builder_set_member_name (b, "digits");
+        json_builder_add_int_value (b, st.digits);
+        json_builder_set_member_name (b, "decimal_places");
+        json_builder_add_int_value (b, st.decimal_places);
+        /* RGBA so the panel widget can fade the segments into the panel's
+         * transparent background when the user picks translucent colours. */
+        json_builder_set_member_name (b, "segment_color");
+        engine_add_rgba_array (b, &st.segment_color);
+        json_builder_set_member_name (b, "unlit_color");
+        engine_add_rgba_array (b, &st.unlit_segment_color);
+        return "numeric";
     }
 
     if (PN_IS_SWITCH (node))
