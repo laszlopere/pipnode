@@ -1389,7 +1389,8 @@ engine_emit_signal (PnApplication *app,
             params, NULL);
 }
 
-/** Append an [r, g, b] array (alpha dropped — widgets paint opaque). */
+/** Append an [r, g, b] array.  Used for widget colours that always paint
+ *  opaque on the applet side (the lamp dome, the matrix bezel/pixels). */
 static void
 engine_add_color_array (JsonBuilder *b, const PnColor *c)
 {
@@ -1400,8 +1401,9 @@ engine_add_color_array (JsonBuilder *b, const PnColor *c)
     json_builder_end_array (b);
 }
 
-/** Append an [r, g, b, a] array — for the Label box, whose alpha decides
- *  whether the panel widget paints a background at all. */
+/** Append an [r, g, b, a] array — for widget colours where the alpha
+ *  controls the look (the Label box background, the seven-segment lit /
+ *  unlit bars that fade into the panel's transparent background). */
 static void
 engine_add_rgba_array (JsonBuilder *b, const PnColor *c)
 {
@@ -1437,10 +1439,12 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_add_int_value (b, seconds);
         json_builder_set_member_name (b, "day_digits");
         json_builder_add_int_value (b, st.day_digits);
+        /* RGBA so the panel widget can fade the segments into the panel's
+         * transparent background when the user picks translucent colours. */
         json_builder_set_member_name (b, "segment_color");
-        engine_add_color_array (b, &st.segment_color);
+        engine_add_rgba_array (b, &st.segment_color);
         json_builder_set_member_name (b, "unlit_color");
-        engine_add_color_array (b, &st.unlit_segment_color);
+        engine_add_rgba_array (b, &st.unlit_segment_color);
         return "countdown";
     }
 
@@ -1464,10 +1468,11 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         json_builder_add_int_value (b, seconds);
         json_builder_set_member_name (b, "day_digits");
         json_builder_add_int_value (b, 0);
+        /* RGBA so the panel widget honours a translucent segment colour. */
         json_builder_set_member_name (b, "segment_color");
-        engine_add_color_array (b, &st.segment_color);
+        engine_add_rgba_array (b, &st.segment_color);
         json_builder_set_member_name (b, "unlit_color");
-        engine_add_color_array (b, &st.unlit_segment_color);
+        engine_add_rgba_array (b, &st.unlit_segment_color);
         return "countdown";
     }
 

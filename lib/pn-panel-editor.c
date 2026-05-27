@@ -137,10 +137,12 @@ panel_editor_sync_countdown (PnNode *node, PnLedDisplay *led)
     pn_led_display_set_seconds      (led, seconds);
     pn_led_display_set_segment_color (led, st.segment_color.red,
                                      st.segment_color.green,
-                                     st.segment_color.blue);
+                                     st.segment_color.blue,
+                                     st.segment_color.alpha);
     pn_led_display_set_unlit_color  (led, st.unlit_segment_color.red,
                                      st.unlit_segment_color.green,
-                                     st.unlit_segment_color.blue);
+                                     st.unlit_segment_color.blue,
+                                     st.unlit_segment_color.alpha);
 }
 
 /* repaint-needed on a countdown node → refresh its readout.  @user_data
@@ -168,10 +170,12 @@ panel_editor_sync_digital_clock (PnNode *node, PnLedDisplay *led)
     pn_led_display_set_seconds      (led, seconds);
     pn_led_display_set_segment_color (led, st.segment_color.red,
                                      st.segment_color.green,
-                                     st.segment_color.blue);
+                                     st.segment_color.blue,
+                                     st.segment_color.alpha);
     pn_led_display_set_unlit_color  (led, st.unlit_segment_color.red,
                                      st.unlit_segment_color.green,
-                                     st.unlit_segment_color.blue);
+                                     st.unlit_segment_color.blue,
+                                     st.unlit_segment_color.alpha);
 }
 
 /* repaint-needed on a digital-clock node → refresh its readout.

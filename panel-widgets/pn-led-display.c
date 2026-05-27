@@ -79,9 +79,11 @@ struct _PnLedDisplay
 
     /* Segment colours, defaulting to the LED_* constants above but
      * overridable so the panel editor can mirror the Countdown node's
-     * configured lit / unlit colours (pn_led_display_set_*_color). */
-    gdouble lit_r,   lit_g,   lit_b;     /* lit seven-segment bar       */
-    gdouble unlit_r, unlit_g, unlit_b;   /* unlit off-state ghost bar   */
+     * configured lit / unlit colours (pn_led_display_set_*_color).  The
+     * alpha rides with each colour so an unlit bar can fade into the
+     * transparent panel background instead of painting a solid block. */
+    gdouble lit_r,   lit_g,   lit_b,   lit_a;     /* lit seven-segment bar   */
+    gdouble unlit_r, unlit_g, unlit_b, unlit_a;   /* unlit off-state ghost   */
 };
 
 G_DEFINE_TYPE (PnLedDisplay, pn_led_display, GTK_TYPE_DRAWING_AREA)
@@ -166,16 +168,20 @@ seg_fill (PnLedDisplay *self, cairo_t *cr, gboolean on)
 {
     if (on)
     {
-        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
+        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b,
+                               self->lit_a);
         cairo_fill_preserve (cr);
-        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 0.30);
+        /* Halo stroke fades with the lit alpha so a translucent lit colour
+         * stays consistent across the bar fill and its glow. */
+        cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b,
+                               self->lit_a * 0.30);
         cairo_set_line_width (cr, 1.5);
         cairo_stroke (cr);
     }
     else
     {
         cairo_set_source_rgba (cr, self->unlit_r, self->unlit_g,
-                               self->unlit_b, 1.0);
+                               self->unlit_b, self->unlit_a);
         cairo_fill (cr);
     }
 }
@@ -214,7 +220,8 @@ draw_colon (PnLedDisplay *self, cairo_t *cr, double cx, double y,
     double y1 = y + H * 0.34;
     double y2 = y + H * 0.66;
 
-    cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b, 1.0);
+    cairo_set_source_rgba (cr, self->lit_r, self->lit_g, self->lit_b,
+                           self->lit_a);
     cairo_arc (cr, cx, y1, r, 0.0, 2.0 * M_PI);
     cairo_fill (cr);
     cairo_arc (cr, cx, y2, r, 0.0, 2.0 * M_PI);
@@ -421,13 +428,17 @@ pn_led_display_init (PnLedDisplay *self)
     self->height     = 24;   /* matches PnLedLamp's default so a mixed row
                               * of applet widgets stands one height */
 
-    /* Classic LED red lit, dim red ghost — the Countdown node's defaults. */
+    /* Classic LED red lit, dim red ghost — the Countdown node's defaults.
+     * Both colours start fully opaque; the panel widget honours an alpha
+     * passed in from the node's configured segment / unlit colour. */
     self->lit_r   = LED_LIT_R;
     self->lit_g   = LED_LIT_G;
     self->lit_b   = LED_LIT_B;
+    self->lit_a   = 1.0;
     self->unlit_r = LED_LIT_R * LED_DIM;
     self->unlit_g = LED_LIT_G * LED_DIM;
     self->unlit_b = LED_LIT_B * LED_DIM;
+    self->unlit_a = 1.0;
 
     gtk_widget_set_has_window (GTK_WIDGET (self), FALSE);
 }
@@ -477,32 +488,37 @@ pn_led_display_set_day_digits (PnLedDisplay *self, guint digits)
 
 void
 pn_led_display_set_segment_color (PnLedDisplay *self,
-                                  gdouble red, gdouble green, gdouble blue)
+                                  gdouble red, gdouble green, gdouble blue,
+                                  gdouble alpha)
 {
     g_return_if_fail (PN_IS_LED_DISPLAY (self));
 
-    if (red == self->lit_r && green == self->lit_g && blue == self->lit_b)
+    if (red == self->lit_r && green == self->lit_g && blue == self->lit_b
+        && alpha == self->lit_a)
         return;
 
     self->lit_r = red;
     self->lit_g = green;
     self->lit_b = blue;
+    self->lit_a = alpha;
     gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 void
 pn_led_display_set_unlit_color (PnLedDisplay *self,
-                                gdouble red, gdouble green, gdouble blue)
+                                gdouble red, gdouble green, gdouble blue,
+                                gdouble alpha)
 {
     g_return_if_fail (PN_IS_LED_DISPLAY (self));
 
     if (red == self->unlit_r && green == self->unlit_g &&
-        blue == self->unlit_b)
+        blue == self->unlit_b && alpha == self->unlit_a)
         return;
 
     self->unlit_r = red;
     self->unlit_g = green;
     self->unlit_b = blue;
+    self->unlit_a = alpha;
     gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 

@@ -276,6 +276,33 @@ read_rgba (JsonObject *obj, const gchar *member, gdouble rgba[4])
     return TRUE;
 }
 
+/* Read either an [r, g, b] or [r, g, b, a] member into @rgba, defaulting
+ * the alpha to 1.0 when only three components are present.  Older layouts
+ * persisted only RGB for the seven-segment colours, so this keeps them
+ * loading without forcing every caller to migrate their state JSON. */
+static gboolean
+read_rgb_or_rgba (JsonObject *obj, const gchar *member, gdouble rgba[4])
+{
+    JsonArray *arr;
+    guint      n;
+
+    if (obj == NULL || !json_object_has_member (obj, member))
+        return FALSE;
+
+    arr = json_object_get_array_member (obj, member);
+    if (arr == NULL)
+        return FALSE;
+    n = json_array_get_length (arr);
+    if (n < 3)
+        return FALSE;
+
+    rgba[0] = json_array_get_double_element (arr, 0);
+    rgba[1] = json_array_get_double_element (arr, 1);
+    rgba[2] = json_array_get_double_element (arr, 2);
+    rgba[3] = n >= 4 ? json_array_get_double_element (arr, 3) : 1.0;
+    return TRUE;
+}
+
 /* Push a node's render state (the WidgetChanged payload, or a layout
  * widget's inline "state") into its widget. */
 static void
@@ -289,6 +316,7 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
     if (e->kind == 'c')
     {
         PnLedDisplay *led = PN_LED_DISPLAY (e->widget);
+        gdouble       rgba[4];
 
         if (json_object_has_member (state, "seconds"))
             pn_led_display_set_seconds (
@@ -297,10 +325,14 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
             pn_led_display_set_day_digits (
                     led, (guint) json_object_get_int_member (state,
                                                              "day_digits"));
-        if (read_rgb (state, "segment_color", rgb))
-            pn_led_display_set_segment_color (led, rgb[0], rgb[1], rgb[2]);
-        if (read_rgb (state, "unlit_color", rgb))
-            pn_led_display_set_unlit_color (led, rgb[0], rgb[1], rgb[2]);
+        /* RGBA — alpha lets the unlit segments fade into the panel's
+         * transparent background instead of painting a solid ghost. */
+        if (read_rgb_or_rgba (state, "segment_color", rgba))
+            pn_led_display_set_segment_color (led, rgba[0], rgba[1], rgba[2],
+                                              rgba[3]);
+        if (read_rgb_or_rgba (state, "unlit_color", rgba))
+            pn_led_display_set_unlit_color (led, rgba[0], rgba[1], rgba[2],
+                                            rgba[3]);
     }
     else if (e->kind == 's')
     {
