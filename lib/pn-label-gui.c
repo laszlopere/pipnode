@@ -247,12 +247,16 @@ pn_label_gui_install (void)
             PN_NODE_CLASS (g_type_class_ref (PN_TYPE_LABEL));
 
     node_class->paint_plot = pn_label_paint_plot;
-    /* The footprint is fixed (the core get_size), so the gui tier only adds
-     * the painter.  The box has rounded corners (skip the rectangular
-     * shadow), and the at-rest readout is already legible (a press selects
-     * / drags rather than lifting a zoomed copy). */
-    node_class->paint_plot_skip_shadow = TRUE;
-    node_class->paint_plot_skip_zoom   = TRUE;
+    /* The footprint is fixed (the core get_size), so the gui tier only
+     * adds the painter.  Declare the box's corner radius so the
+     * worksheet's drop shadow follows the rounded silhouette instead of
+     * leaking out around its corners (radius is a fraction of the fixed
+     * body height — see PN_LABEL_BODY_HEIGHT × PN_LABEL_CORNER_RATIO).
+     * The at-rest readout is already legible, so a press selects / drags
+     * rather than lifting a zoomed copy. */
+    node_class->paint_plot_corner_radius =
+            PN_LABEL_BODY_HEIGHT * PN_LABEL_CORNER_RATIO;
+    node_class->paint_plot_skip_zoom     = TRUE;
 
     /* The class ref is intentionally held for the process lifetime so the
      * slots we just wrote stay valid (one leaked ref on a singleton
