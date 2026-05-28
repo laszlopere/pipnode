@@ -19,6 +19,7 @@
 #include <gtk/gtk.h>
 
 #include "pn-mesh-connection.h"
+#include "pn-mesh-page-busy.h"
 
 G_BEGIN_DECLS
 
@@ -53,6 +54,12 @@ typedef void (*PnMeshIdentityStatusFunc) (const gchar *status,
 void       pn_mesh_page_identity_set_status_callback (
         GtkWidget                *page,
         PnMeshIdentityStatusFunc  callback,
+        gpointer                  user_data);
+
+/* See PnMeshPageBusyFunc in pn-mesh-page-busy.h. */
+void       pn_mesh_page_identity_set_busy_callback (
+        GtkWidget                *page,
+        PnMeshPageBusyFunc        callback,
         gpointer                  user_data);
 
 G_END_DECLS

@@ -59,14 +59,25 @@ typedef struct
                                         * into empty forms */
     GtkWidget        *loading_overlay; /* big spinner + label layered
                                         * over the notebook via a
-                                        * GtkOverlay; visible only
-                                        * while the handshake is in
-                                        * flight so the user cannot
-                                        * switch tabs (or, worse,
-                                        * read a half-populated form)
-                                        * until the device's state has
-                                        * arrived in full */
+                                        * GtkOverlay; visible whenever
+                                        * the dialog is waiting on the
+                                        * device (the want_config_id
+                                        * handshake, an admin write,
+                                        * the verify-cycle re-read
+                                        * after a write) so the user
+                                        * cannot switch tabs or
+                                        * trigger a second write while
+                                        * the serial port is in use */
     GtkSpinner       *loading_spinner;
+
+    /* Reference-counted busy state.  Bumped by the handshake (entered
+     * in on_device_activated, dropped in on_connection_ready) and by
+     * every page's set_writing transition.  The overlay is shown on
+     * the 0→1 edge and hidden on the 1→0 edge so concurrent waiters
+     * (theoretical: one handshake + one stale-conn write completing)
+     * keep the spinner up until the last one settles. */
+    gint              busy_count;
+
     GtkWidget        *identity_page;
     GtkWidget        *region_page;
     GtkWidget        *channels_page;
@@ -137,9 +148,9 @@ on_page_status (const gchar *msg, gpointer user_data)
 
 /* Show the big spinner over the notebook and lock the notebook so
  * the user cannot switch tabs (or read a half-populated form) while
- * the handshake is in flight.  Paired with hide_loading() below;
- * both are no-ops if the overlay has not been built yet (rare, only
- * the construction-phase drop_connection call). */
+ * a device round-trip is in flight.  Driven by the busy counter
+ * (busy_inc / busy_dec); pages and the handshake share the same
+ * overlay so concurrent waiters do not flicker the spinner. */
 static void
 show_loading (MeshDialogCtx *ctx)
 {
@@ -162,6 +173,44 @@ hide_loading (MeshDialogCtx *ctx)
             gtk_spinner_stop (ctx->loading_spinner);
         gtk_widget_hide (ctx->loading_overlay);
     }
+    /* The notebook is sensitised by on_connection_ready, not here:
+     * during construction we want it to *stay* disabled when the
+     * overlay is hidden (no device picked yet).  Callers that need
+     * to re-enable it do so explicitly. */
+}
+
+/* Bump the busy refcount.  Shows the overlay on the 0→1 edge. */
+static void
+busy_inc (MeshDialogCtx *ctx)
+{
+    if (ctx->busy_count++ == 0)
+        show_loading (ctx);
+}
+
+/* Drop the busy refcount.  Hides the overlay on the 1→0 edge.
+ * Clamps at zero so a stray FALSE never drives the counter negative. */
+static void
+busy_dec (MeshDialogCtx *ctx)
+{
+    if (ctx->busy_count == 0)
+        return;
+    if (--ctx->busy_count == 0)
+        hide_loading (ctx);
+}
+
+/* Page-side busy callback: pages emit this from set_writing() on each
+ * TRUE/FALSE transition while a write is in flight.  The dialog turns
+ * those into refcount bumps so multiple pages can be (theoretically)
+ * waiting simultaneously without one hiding the overlay early. */
+static void
+on_page_busy (gboolean busy, gpointer user_data)
+{
+    MeshDialogCtx *ctx = user_data;
+
+    if (busy)
+        busy_inc (ctx);
+    else
+        busy_dec (ctx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,12 +240,12 @@ drop_connection (MeshDialogCtx *ctx)
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
      * once they pick one, but they cannot click into an empty form.
-     * The loading overlay is also explicitly hidden -- drop_connection
-     * runs on dialog close too, where a still-spinning overlay would
-     * leave a "ghost" widget visible during teardown. */
+     * The overlay is driven by the busy counter -- pages emit
+     * busy(FALSE) from their set_writing(FALSE) transitions during
+     * the set_state(NULL) calls above, balancing any in-flight write
+     * the previous connection had on the books. */
     if (ctx->notebook != NULL)
         gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
-    hide_loading (ctx);
 }
 
 static void
@@ -218,6 +267,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
         g_clear_error (&error);
         if (conn != NULL)
             pn_mesh_connection_close (conn);
+        /* Balance the busy_inc the cancelled on_device_activated
+         * paid in -- on_device_activated for the *new* device has
+         * already paid its own inc, so the counter stays at 1 until
+         * that new handshake completes. */
+        busy_dec (ctx);
         return;
     }
 
@@ -232,7 +286,7 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
          * Drop the loading overlay so the failure status is readable
          * underneath; notebook stays insensitive (drop_connection set
          * it that way and we never flipped it back). */
-        hide_loading (ctx);
+        busy_dec (ctx);
         return;
     }
 
@@ -272,7 +326,7 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
     /* Light up the notebook now that there's actually content to
      * navigate to.  drop_connection() reverses this on the next
      * device switch or dialog close. */
-    hide_loading (ctx);
+    busy_dec (ctx);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
     /* Jump to the Device tab (index 0) so the Identity expander
      * shows the just-completed handshake. */
@@ -324,8 +378,11 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * a tab whose state hasn't arrived yet (Channels/Region/MQTT/...)
      * and read it as "this device has no channels / no MQTT".  Lock
      * the notebook and float a big spinner on top until on_connection
-     * _ready unlocks it. */
-    show_loading (ctx);
+     * _ready (or its cancellation/failure twin) unlocks it.  The
+     * counter mirrors the same overlay that pages float during a
+     * write, so a stale write completing during a fresh handshake
+     * does not hide the spinner out from under the new handshake. */
+    busy_inc (ctx);
     /* Snap to the Device tab (index 0) so when the handshake completes
      * the Identity row is what the user sees first. */
     gtk_notebook_set_current_page (ctx->notebook, 0);
@@ -507,6 +564,24 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         pn_mesh_page_telemetry_set_status_callback (
                 ctx->telemetry_page,        on_page_status, ctx);
 
+        /* Same wiring for the busy sink so every page's write
+         * round-trip raises the dialog-wide spinner overlay -- the
+         * per-Apply spinner inside the page is too easy to miss and
+         * leaves the rest of the notebook clickable while the device
+         * is mid-write. */
+        pn_mesh_page_identity_set_busy_callback (
+                ctx->identity_page,         on_page_busy, ctx);
+        pn_mesh_page_region_set_busy_callback (
+                ctx->region_page,           on_page_busy, ctx);
+        pn_mesh_page_channels_set_busy_callback (
+                ctx->channels_page,         on_page_busy, ctx);
+        pn_mesh_page_ext_notification_set_busy_callback (
+                ctx->ext_notification_page, on_page_busy, ctx);
+        pn_mesh_page_mqtt_set_busy_callback (
+                ctx->mqtt_page,             on_page_busy, ctx);
+        pn_mesh_page_telemetry_set_busy_callback (
+                ctx->telemetry_page,        on_page_busy, ctx);
+
         /* Tab 1: Device  (Identity now; Device-role + Power in Phase 14/12). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
@@ -586,11 +661,12 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 0);
 
         /* Wrap the notebook in a GtkOverlay so we can float a big
-         * spinner on top while the handshake is in flight.  The
-         * notebook stays the bottom (interactive) layer; the
-         * spinner+label box is the top (passive) overlay child, set
-         * no_show_all so gtk_widget_show_all on the dialog does NOT
-         * reveal it -- show_loading() flips its visibility. */
+         * spinner on top while the dialog is waiting on the device
+         * (handshake or any write's verify-cycle).  The notebook
+         * stays the bottom (interactive) layer; the spinner+label
+         * box is the top (passive) overlay child, set no_show_all so
+         * gtk_widget_show_all on the dialog does NOT reveal it --
+         * show_loading() flips its visibility. */
         {
             GtkWidget *overlay;
             GtkWidget *box;
@@ -618,7 +694,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             gtk_widget_show (spinner);
             gtk_box_pack_start (GTK_BOX (box), spinner, FALSE, FALSE, 0);
 
-            label = gtk_label_new ("Reading configuration from device…");
+            label = gtk_label_new ("Talking to device…");
             gtk_widget_show (label);
             gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
 

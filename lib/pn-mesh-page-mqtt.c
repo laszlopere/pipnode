@@ -62,6 +62,9 @@ typedef struct
 
     PnMeshMqttStatusFunc status_cb;
     gpointer             status_ud;
+
+    PnMeshPageBusyFunc   busy_cb;
+    gpointer             busy_ud;
 } MqttCtx;
 
 static void
@@ -91,6 +94,7 @@ set_writing (MqttCtx *ctx, gboolean writing)
             !writing && ctx->connection != NULL && ctx->have_data;
     gboolean detail_enable = form_enable
             && gtk_switch_get_active (ctx->enabled_switch);
+    gboolean transition = (ctx->writing != writing);
 
     ctx->writing = writing;
 
@@ -105,6 +109,9 @@ set_writing (MqttCtx *ctx, gboolean writing)
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->root_entry),             detail_enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->proxy_to_client_switch), detail_enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->map_reporting_switch),   detail_enable);
+
+    if (transition && ctx->busy_cb != NULL)
+        ctx->busy_cb (writing, ctx->busy_ud);
 }
 
 static void
@@ -461,4 +468,19 @@ pn_mesh_page_mqtt_set_status_callback (GtkWidget            *page,
 
     ctx->status_cb = callback;
     ctx->status_ud = user_data;
+}
+
+void
+pn_mesh_page_mqtt_set_busy_callback (GtkWidget          *page,
+                                     PnMeshPageBusyFunc  callback,
+                                     gpointer            user_data)
+{
+    MqttCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page), PN_MESH_MQTT_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->busy_cb = callback;
+    ctx->busy_ud = user_data;
 }

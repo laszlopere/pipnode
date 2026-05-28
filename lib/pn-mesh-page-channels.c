@@ -66,6 +66,9 @@ typedef struct
 
     PnMeshChannelsStatusFunc status_cb;
     gpointer                 status_ud;
+
+    PnMeshPageBusyFunc       busy_cb;
+    gpointer                 busy_ud;
 } ChannelsCtx;
 
 static void
@@ -110,7 +113,8 @@ static void rebuild_list (GtkWidget *page);
 static void
 set_writing (ChannelsCtx *ctx, gboolean writing)
 {
-    gboolean enable = !writing && ctx->connection != NULL;
+    gboolean enable     = !writing && ctx->connection != NULL;
+    gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
     gtk_widget_set_sensitive (ctx->add_button, enable);
     if (writing)
@@ -142,6 +146,8 @@ set_writing (ChannelsCtx *ctx, gboolean writing)
         }
         g_list_free (rows);
     }
+    if (transition && ctx->busy_cb != NULL)
+        ctx->busy_cb (writing, ctx->busy_ud);
 }
 
 /* ------------------------------------------------------------------ */
@@ -871,4 +877,19 @@ pn_mesh_page_channels_set_status_callback (GtkWidget                *page,
 
     ctx->status_cb = callback;
     ctx->status_ud = user_data;
+}
+
+void
+pn_mesh_page_channels_set_busy_callback (GtkWidget          *page,
+                                         PnMeshPageBusyFunc  callback,
+                                         gpointer            user_data)
+{
+    ChannelsCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page), PN_MESH_CHANNELS_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->busy_cb = callback;
+    ctx->busy_ud = user_data;
 }

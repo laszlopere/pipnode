@@ -67,6 +67,9 @@ typedef struct
 
     PnMeshExtNotificationStatusFunc status_cb;
     gpointer                        status_ud;
+
+    PnMeshPageBusyFunc              busy_cb;
+    gpointer                        busy_ud;
 } ExtNotificationCtx;
 
 static void
@@ -98,6 +101,7 @@ set_writing (ExtNotificationCtx *ctx, gboolean writing)
      * the block, so paint those fields disabled to match. */
     gboolean detail_enable = form_enable
             && gtk_switch_get_active (ctx->enabled_switch);
+    gboolean transition = (ctx->writing != writing);
 
     ctx->writing = writing;
 
@@ -118,6 +122,9 @@ set_writing (ExtNotificationCtx *ctx, gboolean writing)
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->alert_bell_buzzer_switch),    detail_enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->use_pwm_switch),              detail_enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->use_i2s_switch),              detail_enable);
+
+    if (transition && ctx->busy_cb != NULL)
+        ctx->busy_cb (writing, ctx->busy_ud);
 }
 
 /* Re-run the sensitivity calc when the Enabled toggle flips, so the
@@ -525,4 +532,21 @@ pn_mesh_page_ext_notification_set_status_callback (
 
     ctx->status_cb = callback;
     ctx->status_ud = user_data;
+}
+
+void
+pn_mesh_page_ext_notification_set_busy_callback (
+        GtkWidget          *page,
+        PnMeshPageBusyFunc  callback,
+        gpointer            user_data)
+{
+    ExtNotificationCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page),
+                             PN_MESH_EXT_NOTIFICATION_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->busy_cb = callback;
+    ctx->busy_ud = user_data;
 }

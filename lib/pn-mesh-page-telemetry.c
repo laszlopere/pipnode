@@ -71,6 +71,9 @@ typedef struct
 
     PnMeshTelemetryStatusFunc status_cb;
     gpointer                  status_ud;
+
+    PnMeshPageBusyFunc        busy_cb;
+    gpointer                  busy_ud;
 } TelemetryCtx;
 
 static void
@@ -109,6 +112,7 @@ set_writing (TelemetryCtx *ctx, gboolean writing)
             && gtk_switch_get_active (ctx->pow_enabled_switch);
     gboolean hlth_detail = form_enable
             && gtk_switch_get_active (ctx->hlth_enabled_switch);
+    gboolean transition = (ctx->writing != writing);
 
     ctx->writing = writing;
 
@@ -133,6 +137,9 @@ set_writing (TelemetryCtx *ctx, gboolean writing)
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->hlth_enabled_switch),  form_enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->hlth_interval_spin),   hlth_detail);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->hlth_screen_switch),   hlth_detail);
+
+    if (transition && ctx->busy_cb != NULL)
+        ctx->busy_cb (writing, ctx->busy_ud);
 }
 
 /* One callback shared by all five enable switches.  We don't need
@@ -584,4 +591,19 @@ pn_mesh_page_telemetry_set_status_callback (
 
     ctx->status_cb = callback;
     ctx->status_ud = user_data;
+}
+
+void
+pn_mesh_page_telemetry_set_busy_callback (GtkWidget          *page,
+                                          PnMeshPageBusyFunc  callback,
+                                          gpointer            user_data)
+{
+    TelemetryCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page), PN_MESH_TELEMETRY_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->busy_cb = callback;
+    ctx->busy_ud = user_data;
 }

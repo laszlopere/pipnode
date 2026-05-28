@@ -84,6 +84,12 @@ typedef struct
      * is doing. */
     PnMeshIdentityStatusFunc status_cb;
     gpointer                 status_ud;
+
+    /* Dialog-side busy sink; fired on every TRUE/FALSE *transition* of
+     * the per-Apply writing flag so the dialog can show its big
+     * full-pane spinner for the duration of any device round-trip. */
+    PnMeshPageBusyFunc       busy_cb;
+    gpointer                 busy_ud;
 } IdentityCtx;
 
 static void
@@ -230,12 +236,18 @@ emit_status (IdentityCtx *ctx, const gchar *msg)
 static void
 set_writing (IdentityCtx *ctx, gboolean writing)
 {
-    gboolean enable = !writing && ctx->connection != NULL;
+    gboolean enable     = !writing && ctx->connection != NULL;
+    gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->long_name_apply),  enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->short_name_apply), enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->long_name_entry),  enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->short_name_entry), enable);
+    /* Notify the dialog only on the TRUE↔FALSE edge so the dialog's
+     * busy counter stays balanced even when a no-op set_writing call
+     * sneaks through. */
+    if (transition && ctx->busy_cb != NULL)
+        ctx->busy_cb (writing, ctx->busy_ud);
 }
 
 static void
@@ -546,4 +558,19 @@ pn_mesh_page_identity_set_status_callback (GtkWidget                *page,
 
     ctx->status_cb = callback;
     ctx->status_ud = user_data;
+}
+
+void
+pn_mesh_page_identity_set_busy_callback (GtkWidget          *page,
+                                         PnMeshPageBusyFunc  callback,
+                                         gpointer            user_data)
+{
+    IdentityCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page), PN_MESH_PAGE_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->busy_cb = callback;
+    ctx->busy_ud = user_data;
 }

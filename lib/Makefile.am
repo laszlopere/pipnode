@@ -261,6 +261,7 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-channels.h \
 	pn-mesh-page-ext-notification.c \
 	pn-mesh-page-ext-notification.h \
+	pn-mesh-page-busy.h \
 	pn-mesh-page-identity.c \
 	pn-mesh-page-identity.h \
 	pn-mesh-page-known-nodes.c \
@@ -460,6 +461,7 @@ pipnode_gui_headers = \
 	pn-matrix57-gui.h \
 	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
+	pn-mesh-page-busy.h \
 	pn-mesh-page-channels.h \
 	pn-mesh-page-ext-notification.h \
 	pn-mesh-page-identity.h \
