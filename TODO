@@ -1050,6 +1050,13 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         broker-profile/topic-template.
   - N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
         risk); a shared static + shared test would cover both.
+        DONE 2026-05-28: extracted to pn_mqtt_parse_url in pn-mqtt-util.c,
+        both nodes call it.
+  - N4  pn_mqtt_parse_url mis-parses IPv6 literals: it locates the port
+        with strchr(p, ':'), so tcp://[::1]:1883 splits on the first ':'
+        inside the address.  Bracketed-IPv6 host[:port] is unsupported;
+        handle '[...]' before scanning for the port colon (then add a
+        parse-table case -- today's behaviour is a bug, so don't pin it).
 
   TEST COVERAGE -- DONE 2026-05-28.  The pure logic was extracted into a
   new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
@@ -1070,7 +1077,14 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
   5. [x] Offline queue (pn_mqtt_pending_*): LEN-cap eviction, AGE discard
          with an INJECTED clock (now_us param) + FIFO order.  flush_pending's
          mosquitto_publish stays on the node; the policy is in util.
-  test-pn-mqtt-util = 125 checks; full `make check` = 75/75.
+  6. [x] Connection-identity resolution (pn_mqtt_resolve_connection, also
+         extracted from both nodes): inline fallback (NULL->""), and a
+         provisioned profile winning over inline with the password read via
+         the secret path.  In its own test-pn-mqtt-resolve.c (uses a temp
+         vault like test-pn-vault, so kept out of the FS-free util test).
+         Plus robustness: empty-queue collect_fresh, missing-path template
+         -> "".
+  test-pn-mqtt-util = 130 checks, test-pn-mqtt-resolve = 12; `make check` = 76/76.
 
   STILL OPEN: the review BUGS themselves (C1 errors-to-stderr, C2 init-time
   connect, H1 topic-read race, H2/H3 generation guard, M1 boolean->value).
