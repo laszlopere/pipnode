@@ -97,6 +97,26 @@ struct _PnWindow
     GtkWidget     *debug_pane;
     GtkWidget     *debug_list;
 
+    /* Number of rows currently in @debug_list.  Maintained as we
+     * insert/destroy rows so the trim path can use O(1) lookups
+     * (gtk_list_box_get_row_at_index(0)) instead of walking the
+     * entire child list per append — the difference between O(N) and
+     * O(N^2) work when a noisy source (e.g. an MQTT broker dumping a
+     * retained-state burst at subscribe time) fires hundreds of
+     * appends back-to-back. */
+    guint          debug_pane_row_count;
+
+    /* Coalescing buffer for the worksheet→pane forwarder.  When a flow
+     * is firing fast (the retained-MQTT burst case) we queue the raw
+     * message texts here and drain a fixed number per main-loop tick
+     * via @debug_drain_idle_id.  This bounds the per-iteration widget-
+     * building cost so input, repaint, and the Quit click still get a
+     * turn while the pane catches up.  The DBus test surface still
+     * appends synchronously — tests must observe their injected row
+     * immediately. */
+    GQueue        *debug_pending_text;
+    guint          debug_drain_idle_id;
+
     /* Quick-search above the debug list: as the user types we cache the
      * case-folded needle here and refilter the list, hiding rows whose
      * raw message text does not contain the needle and highlighting the
@@ -1099,8 +1119,50 @@ on_debug_search_prev (
  *  a JSON object falls back to a plain label so the pane still
  *  works for `text` / `oneliner` Debug Print formats and for log
  *  replay scenarios. */
+/* Per main-loop tick: drain at most this many queued messages from
+ * @debug_pending_text into the pane.  Keeps each iteration's widget-
+ * building cost bounded so input/repaint stay interactive during a
+ * burst; small enough that the queue still empties within a few
+ * iterations under typical retained-state floods. */
+#define PN_DEBUG_PANE_DRAIN_PER_TICK 16
+
+/* Hard cap on the pending-text queue.  Once exceeded the oldest
+ * queued message is dropped so the in-memory buffer does not grow
+ * without limit under sustained overflow.  Sized to match a healthy
+ * retained burst (a few thousand messages) plus headroom. */
+#define PN_DEBUG_PANE_PENDING_MAX 5000
+
 static void
-debug_pane_append (
+debug_pane_autoscroll (PnWindow *self)
+{
+    GtkWidget *anc;
+    GtkAdjustment *vadj;
+
+    if (self->debug_list == NULL)
+        return;
+
+    /* Auto-scroll the parent scrolled window to keep the freshly-
+     * appended row visible.  GtkListBox doesn't have a native scroll-
+     * to-row helper, so we nudge the vertical adjustment to its upper
+     * bound and let the size machinery clamp. */
+    anc = gtk_widget_get_ancestor (self->debug_list, GTK_TYPE_SCROLLED_WINDOW);
+    if (anc == NULL)
+        return;
+    vadj = gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (anc));
+    if (vadj != NULL)
+        gtk_adjustment_set_value (
+                vadj,
+                gtk_adjustment_get_upper (vadj) -
+                gtk_adjustment_get_page_size (vadj));
+}
+
+/** Build one row from @text and insert it; trim the oldest rows past
+ *  the cap.  Synchronous: callers that need the row to be observable
+ *  the moment they return (the DBus test surface) call this directly;
+ *  the worksheet→pane forwarder routes through #debug_pane_append_async
+ *  to coalesce burst work across main-loop iterations. */
+static void
+debug_pane_append_now (
         PnWindow    *self,
         const gchar *text)
 {
@@ -1144,41 +1206,80 @@ debug_pane_append (
 
     gtk_widget_show_all (row_widget);
     gtk_list_box_insert (GTK_LIST_BOX (self->debug_list), row_widget, -1);
+    self->debug_pane_row_count++;
 
-    /* Trim the oldest entries once the cap is exceeded so a noisy
-     * flow doesn't grow the pane unboundedly. */
+    /* Trim the oldest entry past the cap.  Using the tracked counter
+     * plus get_row_at_index(0) keeps each insert O(1) — the previous
+     * gtk_container_get_children scan made this O(N) and the per-burst
+     * cost O(N^2). */
+    while (self->debug_pane_row_count > PN_DEBUG_PANE_MAX_ROWS)
     {
-        GList *children = gtk_container_get_children (
-                GTK_CONTAINER (self->debug_list));
-        guint n = g_list_length (children);
-
-        while (n > PN_DEBUG_PANE_MAX_ROWS && children != NULL)
-        {
-            gtk_widget_destroy (GTK_WIDGET (children->data));
-            children = g_list_delete_link (children, children);
-            n--;
-        }
-        g_list_free (children);
+        GtkListBoxRow *first = gtk_list_box_get_row_at_index (
+                GTK_LIST_BOX (self->debug_list), 0);
+        if (first == NULL)
+            break;
+        gtk_widget_destroy (GTK_WIDGET (first));
+        self->debug_pane_row_count--;
     }
 
-    /* Auto-scroll the parent scrolled window to keep the freshly-
-     * appended row visible.  GtkListBox doesn't have a native scroll-
-     * to-row helper, so we nudge the vertical adjustment to its
-     * upper bound and let the size machinery clamp. */
+    debug_pane_autoscroll (self);
+}
+
+static gboolean
+debug_pane_drain_pending (gpointer data)
+{
+    PnWindow *self  = PN_WINDOW (data);
+    int       budget = PN_DEBUG_PANE_DRAIN_PER_TICK;
+
+    if (self->debug_pending_text == NULL)
     {
-        GtkWidget *anc = gtk_widget_get_ancestor (
-                self->debug_list, GTK_TYPE_SCROLLED_WINDOW);
-        if (anc != NULL)
-        {
-            GtkAdjustment *vadj = gtk_scrolled_window_get_vadjustment (
-                    GTK_SCROLLED_WINDOW (anc));
-            if (vadj != NULL)
-                gtk_adjustment_set_value (
-                        vadj,
-                        gtk_adjustment_get_upper (vadj) -
-                        gtk_adjustment_get_page_size (vadj));
-        }
+        self->debug_drain_idle_id = 0;
+        return G_SOURCE_REMOVE;
     }
+
+    while (budget-- > 0)
+    {
+        gchar *text = g_queue_pop_head (self->debug_pending_text);
+        if (text == NULL)
+            break;
+        debug_pane_append_now (self, text);
+        g_free (text);
+    }
+
+    if (g_queue_is_empty (self->debug_pending_text))
+    {
+        self->debug_drain_idle_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    /* Still draining — yield and resume on the next idle tick so input
+     * events queued between bursts get a chance to run. */
+    return G_SOURCE_CONTINUE;
+}
+
+/** Queue @text for the drain idle to render at most a bounded number of
+ *  rows per main-loop tick.  Drops the oldest pending entry when the
+ *  queue cap is hit so a runaway source can't grow the buffer
+ *  unboundedly. */
+static void
+debug_pane_append_async (
+        PnWindow    *self,
+        const gchar *text)
+{
+    if (self->debug_list == NULL || self->debug_pending_text == NULL)
+        return;
+
+    if (g_queue_get_length (self->debug_pending_text)
+            >= PN_DEBUG_PANE_PENDING_MAX)
+    {
+        gchar *dropped = g_queue_pop_head (self->debug_pending_text);
+        g_free (dropped);
+    }
+    g_queue_push_tail (self->debug_pending_text,
+                       g_strdup (text != NULL ? text : ""));
+
+    if (self->debug_drain_idle_id == 0)
+        self->debug_drain_idle_id =
+                g_idle_add (debug_pane_drain_pending, self);
 }
 
 static void
@@ -1190,7 +1291,7 @@ on_worksheet_debug_message (
     PnWindow *self = PN_WINDOW (user_data);
     (void) worksheet;
 
-    debug_pane_append (self, text);
+    debug_pane_append_async (self, text);
 }
 
 /** Toggle Cut/Copy sensitivity to match the worksheet's selection
@@ -2821,6 +2922,16 @@ on_debug_clear_clicked (
     for (l = children; l != NULL; l = l->next)
         gtk_widget_destroy (GTK_WIDGET (l->data));
     g_list_free (children);
+    self->debug_pane_row_count = 0;
+
+    /* Drop any messages still queued for the drain idle as well, so a
+     * Clear during a burst doesn't immediately repopulate. */
+    if (self->debug_pending_text != NULL)
+    {
+        gchar *t;
+        while ((t = g_queue_pop_head (self->debug_pending_text)) != NULL)
+            g_free (t);
+    }
 }
 
 /** Close the debug pane via the View → Debug View check item, so the
@@ -2852,7 +2963,10 @@ create_debug_pane (PnWindow *self)
     GtkWidget *next_btn;
     GtkWidget *scrolled;
 
-    self->debug_match_index = -1;
+    self->debug_match_index    = -1;
+    self->debug_pane_row_count = 0;
+    self->debug_pending_text   = g_queue_new ();
+    self->debug_drain_idle_id  = 0;
 
     self->debug_list = gtk_list_box_new ();
     /* No list-box selection: clicking a row (e.g. to expand a foldable)
@@ -4269,6 +4383,24 @@ pn_window_finalize (GObject *object)
     g_free (self->debug_search_casefold);
     g_clear_object (&self->flow);
 
+    /* Drop any debug-pane drain idle still scheduled and free anything
+     * still buffered for it.  Skipping the per-row widget destruction
+     * for buffered entries is the point: at shutdown nobody is left to
+     * read the rows, and tearing them down would only delay exit. */
+    if (self->debug_drain_idle_id != 0)
+    {
+        g_source_remove (self->debug_drain_idle_id);
+        self->debug_drain_idle_id = 0;
+    }
+    if (self->debug_pending_text != NULL)
+    {
+        gchar *t;
+        while ((t = g_queue_pop_head (self->debug_pending_text)) != NULL)
+            g_free (t);
+        g_queue_free (self->debug_pending_text);
+        self->debug_pending_text = NULL;
+    }
+
     G_OBJECT_CLASS (pn_window_parent_class)->finalize (object);
 }
 
@@ -4399,7 +4531,7 @@ pn_window_inject_debug_message (
         const gchar *text)
 {
     g_return_if_fail (PN_IS_WINDOW (self));
-    debug_pane_append (self, text != NULL ? text : "");
+    debug_pane_append_now (self, text != NULL ? text : "");
 }
 
 /** Walk a row's widget tree and return its from-button, or %NULL.
@@ -4447,18 +4579,11 @@ debug_row_at (PnWindow *self, guint index)
 guint
 pn_window_get_debug_row_count (PnWindow *self)
 {
-    GList *children;
-    guint  n;
-
     g_return_val_if_fail (PN_IS_WINDOW (self), 0);
 
     if (self->debug_list == NULL)
         return 0;
-
-    children = gtk_container_get_children (GTK_CONTAINER (self->debug_list));
-    n = g_list_length (children);
-    g_list_free (children);
-    return n;
+    return self->debug_pane_row_count;
 }
 
 gchar *
