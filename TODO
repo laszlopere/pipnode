@@ -856,16 +856,93 @@ lives here so future sessions can pick up without re-reading chat):
                  BluetoothConfig (3 fields: enabled, mode,
                  fixed_pin).
 
-    [ ] Phase 14 Device + Network + Security config tabs.
-                 DeviceConfig (13 fields: role, GPIO assignments,
-                 rebroadcast_mode, node_info_broadcast_secs),
-                 NetworkConfig (11 fields: wifi_enabled, ssid,
-                 psk, eth_enabled, ipv4_config, ipv6_enabled),
-                 SecurityConfig (6 fields: public_key,
-                 private_key, admin_key, is_managed).  Touchy:
-                 a bad write here can lock the user out of admin,
-                 so the page should have an "I understand"
-                 confirmation before Apply.
+    [x] Phase 14 Device + Network + Security config tabs.
+                 Three new pages following the LoRa/Position/Power
+                 set_config_subblock pattern: parse the whole
+                 sub-block during the handshake, ship every typed
+                 field back at once via AM_SET_CONFIG=34 wrapped in
+                 Config{<sub>}.  Reuses send_set_config_subblock +
+                 finish_set_config helpers from Phase 12.
+
+                 Tab layout (touched 3 of the 7 existing tabs;
+                 Mesh tools + Notifications + Telemetry +
+                 Diagnostics unchanged):
+                   Device:  Identity / Device role & GPIO (new) /
+                            Power / Security (new)
+                   Radio:   Region & LoRa / Channels / Share /
+                            Position
+                   Network: WiFi/Ethernet/IPv6 (new) / MQTT
+                            (placeholder dropped)
+
+                 Wire side (pn-mesh-connection.[ch]): CFG_DEVICE=1
+                 / CFG_NETWORK=4 / CFG_SECURITY=8 dispatch in
+                 parse_config; DEV_*/NET_*/SEC_* field defines
+                 mirror the Meshtastic Config.proto exactly.
+                 parse_device_config / parse_network_config /
+                 parse_security_config follow parse_lora_config's
+                 shape.  PnMeshState gains 13 dev_*, 10 net_*,
+                 7 sec_* fields plus have_device/have_network/
+                 have_security flags.  Three writer pairs --
+                 PnMeshDeviceConfigWrite + set_device_config_*,
+                 PnMeshNetworkConfigWrite + set_network_config_*,
+                 PnMeshSecurityConfigWrite + set_security_config_*
+                 -- all use the shared subblock helpers.
+
+                 Device page: Role + RebroadcastMode combos,
+                 NodeInfo-broadcast spinner, button/buzzer GPIO
+                 spinners.  Round-trips serial_enabled, double_
+                 tap_as_button_press, deprecated is_managed,
+                 disable_triple_click, tzdef, led_heartbeat_
+                 disabled, buzzer_mode unchanged.
+
+                 Network page: WiFi switch + SSID/PSK entries
+                 (PSK masked), Ethernet switch, IPv6 switch.
+                 Round-trips ntp_server, address_mode,
+                 ipv4_config (opaque GBytes, same pattern as
+                 mqtt_map_report_settings), rsyslog_server,
+                 enabled_protocols.
+
+                 Security page: read-only base64 view of the
+                 X25519 public/private keys + admin key list,
+                 switches for is_managed / serial_enabled /
+                 debug_log_api_enabled / admin_channel_enabled.
+                 Per TODO: "I understand the risks" check gates
+                 Apply, and the check is auto-reset after a
+                 successful Apply / on every set_state so the
+                 next write needs an explicit re-confirmation.
+                 Key bytes shipped back verbatim from PnMeshState
+                 (typing 32 random bytes by hand is not useful).
+
+                 Files shipped: lib/pn-mesh-page-device.{c,h},
+                 lib/pn-mesh-page-network.{c,h},
+                 lib/pn-mesh-page-security.{c,h}; deltas in
+                 lib/pn-mesh-connection.{c,h}, lib/pn-mesh-dialog.c,
+                 lib/Makefile.am.
+
+                 Gotchas for any future Config sub-block writer
+                 (none yet planned; Phase 11/13 are postponed):
+
+                 (i) BYTES round-trip via GBytes.  ipv4_config,
+                 public_key, private_key are length-delimited
+                 bytes sub-fields.  Stash them on PnMeshState as
+                 GBytes* (own-on-parse, free-on-close, clear in
+                 clear_state) and ref+copy into a per-call struct
+                 in the async wrapper so the worker thread sees a
+                 stable input even if the page rebuilds its ctx
+                 mid-flight.
+
+                 (ii) REPEATED bytes (admin_key).  Same recipe but
+                 a GPtrArray-of-GBytes with g_bytes_unref as the
+                 free func, allocated up front in open_sync and
+                 set_size(0) at the top of each parse pass.  The
+                 async wrapper deep-copies the array (g_bytes_ref
+                 each entry) before handing it to the thread.
+
+                 (iii) "I understand" check.  Reset to FALSE on
+                 every set_state and after a successful Apply --
+                 a sticky check would let a user accidentally
+                 re-Apply a stale config after a handshake gave
+                 fresh data.
 
 Phase 8 (Plugin extraction) is no longer tracked under TODO #29 --
 moved out 2026-05-28: it is its own cross-cutting project (Devices

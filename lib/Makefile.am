@@ -262,18 +262,24 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-ext-notification.c \
 	pn-mesh-page-ext-notification.h \
 	pn-mesh-page-busy.h \
+	pn-mesh-page-device.c \
+	pn-mesh-page-device.h \
 	pn-mesh-page-identity.c \
 	pn-mesh-page-identity.h \
 	pn-mesh-page-known-nodes.c \
 	pn-mesh-page-known-nodes.h \
 	pn-mesh-page-mqtt.c \
 	pn-mesh-page-mqtt.h \
+	pn-mesh-page-network.c \
+	pn-mesh-page-network.h \
 	pn-mesh-page-position.c \
 	pn-mesh-page-position.h \
 	pn-mesh-page-power.c \
 	pn-mesh-page-power.h \
 	pn-mesh-page-region.c \
 	pn-mesh-page-region.h \
+	pn-mesh-page-security.c \
+	pn-mesh-page-security.h \
 	pn-mesh-page-share.c \
 	pn-mesh-page-share.h \
 	pn-mesh-page-telemetry.c \

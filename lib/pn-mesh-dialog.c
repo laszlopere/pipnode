@@ -35,13 +35,16 @@
 #include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-channels.h"
+#include "pn-mesh-page-device.h"
 #include "pn-mesh-page-ext-notification.h"
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-page-known-nodes.h"
 #include "pn-mesh-page-mqtt.h"
+#include "pn-mesh-page-network.h"
 #include "pn-mesh-page-position.h"
 #include "pn-mesh-page-power.h"
 #include "pn-mesh-page-region.h"
+#include "pn-mesh-page-security.h"
 #include "pn-mesh-page-share.h"
 #include "pn-mesh-page-telemetry.h"
 #include "pn-mesh-page-test.h"
@@ -92,6 +95,9 @@ typedef struct
     GtkWidget        *power_page;
     GtkWidget        *telemetry_page;
     GtkWidget        *test_page;
+    GtkWidget        *device_page;
+    GtkWidget        *network_page;
+    GtkWidget        *security_page;
     GtkLabel         *status_label;
 
     /* Main-loop timer that drives the Test page's live receive log
@@ -319,6 +325,9 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_power_set_state            (ctx->power_page,            NULL, NULL);
     pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
     pn_mesh_page_test_set_state             (ctx->test_page,             NULL, NULL);
+    pn_mesh_page_device_set_state           (ctx->device_page,           NULL, NULL);
+    pn_mesh_page_network_set_state          (ctx->network_page,          NULL, NULL);
+    pn_mesh_page_security_set_state         (ctx->security_page,         NULL, NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
      * once they pick one, but they cannot click into an empty form.
@@ -415,6 +424,18 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_test_set_state (
             ctx->test_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_device_set_state (
+            ctx->device_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_network_set_state (
+            ctx->network_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_security_set_state (
+            ctx->security_page,
             pn_mesh_connection_get_state (conn),
             conn);
     /* Light up the notebook now that there's actually content to
@@ -653,6 +674,9 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->power_page            = pn_mesh_page_power_new ();
         ctx->telemetry_page        = pn_mesh_page_telemetry_new ();
         ctx->test_page             = pn_mesh_page_test_new ();
+        ctx->device_page           = pn_mesh_page_device_new ();
+        ctx->network_page          = pn_mesh_page_network_new ();
+        ctx->security_page         = pn_mesh_page_security_new ();
 
         pn_mesh_page_identity_set_status_callback (
                 ctx->identity_page,         on_page_status, ctx);
@@ -670,6 +694,12 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->power_page,            on_page_status, ctx);
         pn_mesh_page_telemetry_set_status_callback (
                 ctx->telemetry_page,        on_page_status, ctx);
+        pn_mesh_page_device_set_status_callback (
+                ctx->device_page,           on_page_status, ctx);
+        pn_mesh_page_network_set_status_callback (
+                ctx->network_page,          on_page_status, ctx);
+        pn_mesh_page_security_set_status_callback (
+                ctx->security_page,         on_page_status, ctx);
 
         /* Same wiring for the busy sink so every page's write
          * round-trip raises the dialog-wide spinner overlay -- the
@@ -694,17 +724,25 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->telemetry_page,        on_page_busy, ctx);
         pn_mesh_page_test_set_busy_callback (
                 ctx->test_page,             on_page_busy, ctx);
+        pn_mesh_page_device_set_busy_callback (
+                ctx->device_page,           on_page_busy, ctx);
+        pn_mesh_page_network_set_busy_callback (
+                ctx->network_page,          on_page_busy, ctx);
+        pn_mesh_page_security_set_busy_callback (
+                ctx->security_page,         on_page_busy, ctx);
 
-        /* Tab 1: Device  (Identity + Power now; Device-role in Phase 14). */
+        /* Tab 1: Device  (Identity + Device role/GPIO + Power + Security). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "Identity", ctx->identity_page);
-            add_expander (inner, "Power",    ctx->power_page);
+            add_expander (inner, "Identity",            ctx->identity_page);
+            add_expander (inner, "Device role & GPIO",  ctx->device_page);
+            add_expander (inner, "Power",               ctx->power_page);
+            add_expander (inner, "Security",            ctx->security_page);
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Device"));
         }
 
-        /* Tab 2: Radio  (Region+LoRa, Channels, Share, Position; Security later). */
+        /* Tab 2: Radio  (Region+LoRa, Channels, Share, Position). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
             add_expander (inner, "Region & LoRa", ctx->region_page);
@@ -715,15 +753,12 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                                       gtk_label_new ("Radio"));
         }
 
-        /* Tab 3: Network  (MQTT now; Serial / Bluetooth / WiFi / Ethernet later). */
+        /* Tab 3: Network  (WiFi / Ethernet / IPv6 + MQTT).  Serial /
+         * Bluetooth deferred to Phase 11/13 (no donor code). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "MQTT", ctx->mqtt_page);
-            gtk_box_pack_start (GTK_BOX (inner),
-                    build_placeholder (
-                        "Serial, Bluetooth, WiFi and Ethernet land in "
-                        "Phases 11/13/14."),
-                    FALSE, FALSE, 0);
+            add_expander (inner, "WiFi, Ethernet & IPv6", ctx->network_page);
+            add_expander (inner, "MQTT",                  ctx->mqtt_page);
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Network"));
         }

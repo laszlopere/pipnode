@@ -205,6 +205,56 @@ typedef struct
     guint32     pow_ls_secs;
     guint32     pow_min_wake_secs;
     guint32     pow_device_battery_ina_address;
+
+    /* From FromRadio.config(DeviceConfig).  Same contract as the other
+     * Config sub-blocks: every field the firmware sent is parsed so the
+     * writer can ship them back verbatim.  @dev_is_managed is the
+     * upstream-deprecated boolean (moved to SecurityConfig); we round-
+     * trip it so older firmware keeps a consistent state. */
+    gboolean    have_device;
+    guint32     dev_role;                                /* DeviceRole enum */
+    gboolean    dev_serial_enabled;
+    guint32     dev_button_gpio;
+    guint32     dev_buzzer_gpio;
+    guint32     dev_rebroadcast_mode;                    /* RebroadcastMode enum */
+    guint32     dev_node_info_broadcast_secs;
+    gboolean    dev_double_tap_as_button_press;
+    gboolean    dev_is_managed;                          /* deprecated upstream */
+    gboolean    dev_disable_triple_click;
+    gchar      *dev_tzdef;                               /* may be NULL = "" */
+    gboolean    dev_led_heartbeat_disabled;
+    guint32     dev_buzzer_mode;                         /* BuzzerMode enum */
+
+    /* From FromRadio.config(NetworkConfig).  @net_ipv4_config is the
+     * opaque IpV4Config sub-message bytes (four fixed32 fields the UI
+     * does not expose); shipped back verbatim on Apply so static-IP
+     * settings survive a write.  Same opaque round-trip pattern as
+     * @mqtt_map_report_settings. */
+    gboolean    have_network;
+    gboolean    net_wifi_enabled;
+    gchar      *net_wifi_ssid;
+    gchar      *net_wifi_psk;
+    gchar      *net_ntp_server;
+    gboolean    net_eth_enabled;
+    guint32     net_address_mode;                        /* AddressMode enum */
+    GBytes     *net_ipv4_config;                         /* opaque sub-message */
+    gchar      *net_rsyslog_server;
+    guint32     net_enabled_protocols;                   /* bitfield */
+    gboolean    net_ipv6_enabled;
+
+    /* From FromRadio.config(SecurityConfig).  Public/private/admin keys
+     * are bytes (32-byte X25519 keypair, 0..N admin keys); captured as
+     * GBytes / GPtrArray-of-GBytes so the writer can ship them back
+     * verbatim.  The page presents the keys read-only (base64) — typing
+     * 32 random bytes by hand is not a productive UI. */
+    gboolean    have_security;
+    GBytes     *sec_public_key;                          /* may be NULL */
+    GBytes     *sec_private_key;                         /* may be NULL */
+    GPtrArray  *sec_admin_keys;                          /* of GBytes*, never NULL */
+    gboolean    sec_is_managed;
+    gboolean    sec_serial_enabled;
+    gboolean    sec_debug_log_api_enabled;
+    gboolean    sec_admin_channel_enabled;
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -507,6 +557,121 @@ void     pn_mesh_connection_set_power_config_async (
 gboolean pn_mesh_connection_set_power_config_finish (
         GAsyncResult                  *result,
         GError                       **error);
+
+/* ------------------------------------------------------------------ */
+/*  Device (Config sub-block) — Phase 14                                */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of DeviceConfig.  Same proto3-defaults contract as
+ * the other Config writers: ship every field every time or the device
+ * resets the omitted ones to zero on its next save.  @tzdef may be
+ * NULL or "" for an unset timezone string. */
+typedef struct
+{
+    guint32      role;
+    gboolean     serial_enabled;
+    guint32      button_gpio;
+    guint32      buzzer_gpio;
+    guint32      rebroadcast_mode;
+    guint32      node_info_broadcast_secs;
+    gboolean     double_tap_as_button_press;
+    gboolean     is_managed;            /* deprecated upstream; round-trip only */
+    gboolean     disable_triple_click;
+    const gchar *tzdef;                 /* may be NULL */
+    gboolean     led_heartbeat_disabled;
+    guint32      buzzer_mode;
+} PnMeshDeviceConfigWrite;
+
+gboolean pn_mesh_connection_set_device_config_sync (
+        PnMeshConnection               *self,
+        const PnMeshDeviceConfigWrite  *cfg,
+        GError                        **error);
+
+void     pn_mesh_connection_set_device_config_async (
+        PnMeshConnection               *self,
+        const PnMeshDeviceConfigWrite  *cfg,
+        GCancellable                   *cancellable,
+        GAsyncReadyCallback             callback,
+        gpointer                        user_data);
+
+gboolean pn_mesh_connection_set_device_config_finish (
+        GAsyncResult                   *result,
+        GError                        **error);
+
+/* ------------------------------------------------------------------ */
+/*  Network (Config sub-block) — Phase 14                               */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of NetworkConfig.  @ipv4_config is the opaque
+ * IpV4Config sub-message bytes the caller read back from
+ * PnMeshState->net_ipv4_config; the caller re-ships it verbatim (may
+ * be NULL = empty/unset).  Strings may be NULL or "". */
+typedef struct
+{
+    gboolean     wifi_enabled;
+    const gchar *wifi_ssid;
+    const gchar *wifi_psk;
+    const gchar *ntp_server;
+    gboolean     eth_enabled;
+    guint32      address_mode;
+    GBytes      *ipv4_config;           /* may be NULL */
+    const gchar *rsyslog_server;
+    guint32      enabled_protocols;
+    gboolean     ipv6_enabled;
+} PnMeshNetworkConfigWrite;
+
+gboolean pn_mesh_connection_set_network_config_sync (
+        PnMeshConnection                *self,
+        const PnMeshNetworkConfigWrite  *cfg,
+        GError                         **error);
+
+void     pn_mesh_connection_set_network_config_async (
+        PnMeshConnection                *self,
+        const PnMeshNetworkConfigWrite  *cfg,
+        GCancellable                    *cancellable,
+        GAsyncReadyCallback              callback,
+        gpointer                         user_data);
+
+gboolean pn_mesh_connection_set_network_config_finish (
+        GAsyncResult                    *result,
+        GError                         **error);
+
+/* ------------------------------------------------------------------ */
+/*  Security (Config sub-block) — Phase 14                              */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of SecurityConfig.  Key bytes are passed through
+ * verbatim: the dialog does not let the user edit them, but every
+ * field still has to be shipped on Apply or the device resets them to
+ * proto3 zero (which would wipe the device's identity).  @public_key,
+ * @private_key may be NULL with their respective size 0 = unset;
+ * @admin_keys may be NULL or empty for "no admin keys configured". */
+typedef struct
+{
+    GBytes      *public_key;            /* may be NULL */
+    GBytes      *private_key;           /* may be NULL */
+    GPtrArray   *admin_keys;            /* of GBytes*; may be NULL */
+    gboolean     is_managed;
+    gboolean     serial_enabled;
+    gboolean     debug_log_api_enabled;
+    gboolean     admin_channel_enabled;
+} PnMeshSecurityConfigWrite;
+
+gboolean pn_mesh_connection_set_security_config_sync (
+        PnMeshConnection                 *self,
+        const PnMeshSecurityConfigWrite  *cfg,
+        GError                          **error);
+
+void     pn_mesh_connection_set_security_config_async (
+        PnMeshConnection                 *self,
+        const PnMeshSecurityConfigWrite  *cfg,
+        GCancellable                     *cancellable,
+        GAsyncReadyCallback               callback,
+        gpointer                          user_data);
+
+gboolean pn_mesh_connection_set_security_config_finish (
+        GAsyncResult                     *result,
+        GError                          **error);
 
 /* ------------------------------------------------------------------ */
 /*  Channels                                                            */

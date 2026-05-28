@@ -163,9 +163,12 @@
  * upstream Config message numbers its oneof variants device=1,
  * position=2, power=3, network=4, display=5, lora=6, bluetooth=7,
  * security=8; we wire the ones the dialog touches. */
+#define CFG_DEVICE              1
 #define CFG_POSITION            2
 #define CFG_POWER               3
+#define CFG_NETWORK             4
 #define CFG_LORA                6
+#define CFG_SECURITY            8
 
 /* LoRaConfig.  Numbering jumps from 2 -> 7 because the upstream
  * proto reserves 3..6 for the manual modem-parameter fields we are
@@ -208,6 +211,50 @@
 #define POW_LS_SECS                            7
 #define POW_MIN_WAKE_SECS                      8
 #define POW_DEVICE_BATTERY_INA_ADDRESS         9
+
+/* DeviceConfig fields.  Field 3 (deprecated debug_log_enabled) is
+ * skipped; the remaining surface follows the upstream Config.proto
+ * verbatim.  is_managed (9) was moved to SecurityConfig upstream but
+ * the field is still parsed/written so older firmware keeps a
+ * consistent view. */
+#define DEV_ROLE                          1
+#define DEV_SERIAL_ENABLED                2
+#define DEV_BUTTON_GPIO                   4
+#define DEV_BUZZER_GPIO                   5
+#define DEV_REBROADCAST_MODE              6
+#define DEV_NODE_INFO_BROADCAST_SECS      7
+#define DEV_DOUBLE_TAP_AS_BUTTON_PRESS    8
+#define DEV_IS_MANAGED                    9   /* deprecated upstream */
+#define DEV_DISABLE_TRIPLE_CLICK         10
+#define DEV_TZDEF                        11
+#define DEV_LED_HEARTBEAT_DISABLED       12
+#define DEV_BUZZER_MODE                  13
+
+/* NetworkConfig fields.  Field 2 (deprecated wifi_ap_mode) is skipped.
+ * ipv4_config (8) is a sub-message of four fixed32 fields (ip / gw /
+ * subnet / dns) the dialog does not expose -- captured as opaque
+ * bytes and shipped back verbatim. */
+#define NET_WIFI_ENABLED                  1
+#define NET_WIFI_SSID                     3
+#define NET_WIFI_PSK                      4
+#define NET_NTP_SERVER                    5
+#define NET_ETH_ENABLED                   6
+#define NET_ADDRESS_MODE                  7
+#define NET_IPV4_CONFIG                   8
+#define NET_RSYSLOG_SERVER                9
+#define NET_ENABLED_PROTOCOLS            10
+#define NET_IPV6_ENABLED                 11
+
+/* SecurityConfig fields.  bluetooth_logging_enabled (7) is
+ * deprecated upstream and not surfaced; admin_key (3) is a repeated
+ * bytes field so the parser appends each occurrence to the array. */
+#define SEC_PUBLIC_KEY                    1
+#define SEC_PRIVATE_KEY                   2
+#define SEC_ADMIN_KEY                     3
+#define SEC_IS_MANAGED                    4
+#define SEC_SERIAL_ENABLED                5
+#define SEC_DEBUG_LOG_API_ENABLED         6
+#define SEC_ADMIN_CHANNEL_ENABLED         8
 
 /* ModuleConfig oneof cases. */
 #define MC_MQTT                  1
@@ -792,11 +839,226 @@ parse_power_config (PnMeshConnection *self,
     }
 }
 
+/* Parse a DeviceConfig embedded message into the connection state. */
+static void
+parse_device_config (PnMeshConnection *self,
+                     const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_device = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case DEV_ROLE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_role = (guint32) v;
+            break;
+        case DEV_SERIAL_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_serial_enabled = v != 0;
+            break;
+        case DEV_BUTTON_GPIO:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_button_gpio = (guint32) v;
+            break;
+        case DEV_BUZZER_GPIO:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_buzzer_gpio = (guint32) v;
+            break;
+        case DEV_REBROADCAST_MODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_rebroadcast_mode = (guint32) v;
+            break;
+        case DEV_NODE_INFO_BROADCAST_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_node_info_broadcast_secs = (guint32) v;
+            break;
+        case DEV_DOUBLE_TAP_AS_BUTTON_PRESS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_double_tap_as_button_press = v != 0;
+            break;
+        case DEV_IS_MANAGED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_is_managed = v != 0;
+            break;
+        case DEV_DISABLE_TRIPLE_CLICK:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_disable_triple_click = v != 0;
+            break;
+        case DEV_TZDEF:
+            g_free (self->state.dev_tzdef);
+            self->state.dev_tzdef = read_string (&r);
+            break;
+        case DEV_LED_HEARTBEAT_DISABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_led_heartbeat_disabled = v != 0;
+            break;
+        case DEV_BUZZER_MODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.dev_buzzer_mode = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a NetworkConfig embedded message into the connection state.
+ * ipv4_config (field 8) is captured as opaque bytes so the writer can
+ * ship the static-IP sub-fields back verbatim. */
+static void
+parse_network_config (PnMeshConnection *self,
+                      const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_network = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case NET_WIFI_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.net_wifi_enabled = v != 0;
+            break;
+        case NET_WIFI_SSID:
+            g_free (self->state.net_wifi_ssid);
+            self->state.net_wifi_ssid = read_string (&r);
+            break;
+        case NET_WIFI_PSK:
+            g_free (self->state.net_wifi_psk);
+            self->state.net_wifi_psk = read_string (&r);
+            break;
+        case NET_NTP_SERVER:
+            g_free (self->state.net_ntp_server);
+            self->state.net_ntp_server = read_string (&r);
+            break;
+        case NET_ETH_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.net_eth_enabled = v != 0;
+            break;
+        case NET_ADDRESS_MODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.net_address_mode = (guint32) v;
+            break;
+        case NET_IPV4_CONFIG:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+            {
+                g_clear_pointer (&self->state.net_ipv4_config, g_bytes_unref);
+                self->state.net_ipv4_config = g_bytes_new (p, s);
+            }
+            break;
+        }
+        case NET_RSYSLOG_SERVER:
+            g_free (self->state.net_rsyslog_server);
+            self->state.net_rsyslog_server = read_string (&r);
+            break;
+        case NET_ENABLED_PROTOCOLS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.net_enabled_protocols = (guint32) v;
+            break;
+        case NET_IPV6_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.net_ipv6_enabled = v != 0;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a SecurityConfig embedded message.  admin_key (3) is
+ * repeated bytes so each occurrence appends a fresh GBytes to the
+ * array; the array is reset before parsing so a re-handshake gives a
+ * clean snapshot. */
+static void
+parse_security_config (PnMeshConnection *self,
+                       const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_security = TRUE;
+    g_ptr_array_set_size (self->state.sec_admin_keys, 0);
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case SEC_PUBLIC_KEY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+            {
+                g_clear_pointer (&self->state.sec_public_key, g_bytes_unref);
+                self->state.sec_public_key = g_bytes_new (p, s);
+            }
+            break;
+        }
+        case SEC_PRIVATE_KEY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+            {
+                g_clear_pointer (&self->state.sec_private_key, g_bytes_unref);
+                self->state.sec_private_key = g_bytes_new (p, s);
+            }
+            break;
+        }
+        case SEC_ADMIN_KEY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                g_ptr_array_add (self->state.sec_admin_keys,
+                                 g_bytes_new (p, s));
+            break;
+        }
+        case SEC_IS_MANAGED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sec_is_managed = v != 0;
+            break;
+        case SEC_SERIAL_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sec_serial_enabled = v != 0;
+            break;
+        case SEC_DEBUG_LOG_API_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sec_debug_log_api_enabled = v != 0;
+            break;
+        case SEC_ADMIN_CHANNEL_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sec_admin_channel_enabled = v != 0;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a Config message, dispatching to the per-subconfig parser
- * for the field that is set.  Position, Power and LoRa are wired;
- * the remaining sub-configs (Device, Network, Display, Bluetooth,
- * Security) are skipped silently -- later phases can add them by
- * extending this switch. */
+ * for the field that is set.  Device, Position, Power, Network, LoRa
+ * and Security are wired; Display (5) and Bluetooth (7) are skipped
+ * silently -- their phases (13) were postponed. */
 static void
 parse_config (PnMeshConnection *self,
               const guint8 *data, gsize size)
@@ -809,6 +1071,13 @@ parse_config (PnMeshConnection *self,
     {
         switch (field)
         {
+        case CFG_DEVICE:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_device_config (self, p, s);
+            break;
+        }
         case CFG_POSITION:
         {
             const guint8 *p; gsize s;
@@ -828,6 +1097,20 @@ parse_config (PnMeshConnection *self,
             const guint8 *p; gsize s;
             if (pn_mesh_pb_read_length (&r, &p, &s))
                 parse_lora_config (self, p, s);
+            break;
+        }
+        case CFG_NETWORK:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_network_config (self, p, s);
+            break;
+        }
+        case CFG_SECURITY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_security_config (self, p, s);
             break;
         }
         default:
@@ -1715,6 +1998,41 @@ clear_state (PnMeshConnection *self)
     self->state.pow_min_wake_secs                   = 0;
     self->state.pow_device_battery_ina_address      = 0;
 
+    self->state.have_device                         = FALSE;
+    self->state.dev_role                            = 0;
+    self->state.dev_serial_enabled                  = FALSE;
+    self->state.dev_button_gpio                     = 0;
+    self->state.dev_buzzer_gpio                     = 0;
+    self->state.dev_rebroadcast_mode                = 0;
+    self->state.dev_node_info_broadcast_secs        = 0;
+    self->state.dev_double_tap_as_button_press      = FALSE;
+    self->state.dev_is_managed                      = FALSE;
+    self->state.dev_disable_triple_click            = FALSE;
+    g_clear_pointer (&self->state.dev_tzdef, g_free);
+    self->state.dev_led_heartbeat_disabled          = FALSE;
+    self->state.dev_buzzer_mode                     = 0;
+
+    self->state.have_network                        = FALSE;
+    self->state.net_wifi_enabled                    = FALSE;
+    g_clear_pointer (&self->state.net_wifi_ssid,       g_free);
+    g_clear_pointer (&self->state.net_wifi_psk,        g_free);
+    g_clear_pointer (&self->state.net_ntp_server,      g_free);
+    g_clear_pointer (&self->state.net_rsyslog_server,  g_free);
+    g_clear_pointer (&self->state.net_ipv4_config,     g_bytes_unref);
+    self->state.net_eth_enabled                     = FALSE;
+    self->state.net_address_mode                    = 0;
+    self->state.net_enabled_protocols               = 0;
+    self->state.net_ipv6_enabled                    = FALSE;
+
+    self->state.have_security                       = FALSE;
+    g_clear_pointer (&self->state.sec_public_key,  g_bytes_unref);
+    g_clear_pointer (&self->state.sec_private_key, g_bytes_unref);
+    g_ptr_array_set_size (self->state.sec_admin_keys, 0);
+    self->state.sec_is_managed                      = FALSE;
+    self->state.sec_serial_enabled                  = FALSE;
+    self->state.sec_debug_log_api_enabled           = FALSE;
+    self->state.sec_admin_channel_enabled           = FALSE;
+
     self->state.have_telemetry                       = FALSE;
     self->state.tel_device_telemetry_enabled         = FALSE;
     self->state.tel_device_update_interval           = 0;
@@ -1761,6 +2079,8 @@ pn_mesh_connection_open_sync (const gchar *tty_path, GError **error)
             (GDestroyNotify) pn_mesh_channel_free);
     self->state.nodes = g_ptr_array_new_with_free_func (
             (GDestroyNotify) pn_mesh_node_free);
+    self->state.sec_admin_keys = g_ptr_array_new_with_free_func (
+            (GDestroyNotify) g_bytes_unref);
     self->seen_nodes = g_array_new (FALSE, TRUE, sizeof (SeenNode));
     g_array_set_clear_func (self->seen_nodes,
                             (GDestroyNotify) seen_node_clear);
@@ -1816,6 +2136,18 @@ pn_mesh_connection_close (PnMeshConnection *self)
     g_free (self->state.mqtt_root);
     if (self->state.mqtt_map_report_settings != NULL)
         g_bytes_unref (self->state.mqtt_map_report_settings);
+    g_free (self->state.dev_tzdef);
+    g_free (self->state.net_wifi_ssid);
+    g_free (self->state.net_wifi_psk);
+    g_free (self->state.net_ntp_server);
+    g_free (self->state.net_rsyslog_server);
+    if (self->state.net_ipv4_config != NULL)
+        g_bytes_unref (self->state.net_ipv4_config);
+    if (self->state.sec_public_key != NULL)
+        g_bytes_unref (self->state.sec_public_key);
+    if (self->state.sec_private_key != NULL)
+        g_bytes_unref (self->state.sec_private_key);
+    g_ptr_array_unref (self->state.sec_admin_keys);
     g_ptr_array_unref (self->state.channels);
     g_ptr_array_unref (self->state.nodes);
 
@@ -2494,6 +2826,434 @@ pn_mesh_connection_set_power_config_async (PnMeshConnection              *self,
 gboolean
 pn_mesh_connection_set_power_config_finish (GAsyncResult *result,
                                             GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_device_config / set_network_config /                            */
+/*  set_security_config — Phase 14 write paths                          */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+send_set_device_config (PnMeshConnection               *self,
+                        const PnMeshDeviceConfigWrite  *cfg,
+                        GError                        **error)
+{
+    PnMeshPbWriter dev_w;
+    GBytes        *dev_bytes;
+    const guint8  *dev_b;
+    gsize          dev_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&dev_w);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_ROLE, cfg->role);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_SERIAL_ENABLED,
+                                   cfg->serial_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_BUTTON_GPIO, cfg->button_gpio);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_BUZZER_GPIO, cfg->buzzer_gpio);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_REBROADCAST_MODE,
+                                   cfg->rebroadcast_mode);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_NODE_INFO_BROADCAST_SECS,
+                                   cfg->node_info_broadcast_secs);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_DOUBLE_TAP_AS_BUTTON_PRESS,
+                                   cfg->double_tap_as_button_press ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_IS_MANAGED,
+                                   cfg->is_managed ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_DISABLE_TRIPLE_CLICK,
+                                   cfg->disable_triple_click ? 1 : 0);
+    if (cfg->tzdef != NULL && *cfg->tzdef != '\0')
+        pn_mesh_pb_write_string_field (&dev_w, DEV_TZDEF, cfg->tzdef);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_LED_HEARTBEAT_DISABLED,
+                                   cfg->led_heartbeat_disabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&dev_w, DEV_BUZZER_MODE, cfg->buzzer_mode);
+    dev_bytes = pn_mesh_pb_writer_take_bytes (&dev_w);
+    pn_mesh_pb_writer_clear (&dev_w);
+    dev_b = g_bytes_get_data (dev_bytes, &dev_n);
+
+    ok = send_set_config_subblock (self, CFG_DEVICE, dev_b, dev_n, error);
+    g_bytes_unref (dev_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_device_config_sync (PnMeshConnection               *self,
+                                           const PnMeshDeviceConfigWrite  *cfg,
+                                           GError                        **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_device_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection         *conn;
+    PnMeshDeviceConfigWrite   cfg;
+    gchar                    *tzdef;        /* owned copy backing cfg.tzdef */
+} SetDeviceConfigCall;
+
+static void
+set_device_config_call_free (gpointer data)
+{
+    SetDeviceConfigCall *c = data;
+    g_free (c->tzdef);
+    g_slice_free (SetDeviceConfigCall, c);
+}
+
+static void
+set_device_config_thread_func (GTask *task, gpointer source,
+                               gpointer task_data,
+                               GCancellable *cancellable)
+{
+    SetDeviceConfigCall *c   = task_data;
+    GError              *err = NULL;
+    gboolean             ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_device_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_device_config_async (PnMeshConnection               *self,
+                                            const PnMeshDeviceConfigWrite  *cfg,
+                                            GCancellable                   *cancellable,
+                                            GAsyncReadyCallback             callback,
+                                            gpointer                        user_data)
+{
+    GTask               *task;
+    SetDeviceConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetDeviceConfigCall);
+    c->conn       = self;
+    c->cfg        = *cfg;
+    c->tzdef      = g_strdup (cfg->tzdef);
+    c->cfg.tzdef  = c->tzdef;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_device_config_async);
+    g_task_set_task_data  (task, c, set_device_config_call_free);
+    g_task_run_in_thread  (task, set_device_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_device_config_finish (GAsyncResult *result,
+                                             GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ----- Network ----------------------------------------------------- */
+
+static gboolean
+send_set_network_config (PnMeshConnection                *self,
+                         const PnMeshNetworkConfigWrite  *cfg,
+                         GError                         **error)
+{
+    PnMeshPbWriter net_w;
+    GBytes        *net_bytes;
+    const guint8  *net_b;
+    gsize          net_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&net_w);
+    pn_mesh_pb_write_varint_field (&net_w, NET_WIFI_ENABLED,
+                                   cfg->wifi_enabled ? 1 : 0);
+    if (cfg->wifi_ssid != NULL && *cfg->wifi_ssid != '\0')
+        pn_mesh_pb_write_string_field (&net_w, NET_WIFI_SSID, cfg->wifi_ssid);
+    if (cfg->wifi_psk != NULL && *cfg->wifi_psk != '\0')
+        pn_mesh_pb_write_string_field (&net_w, NET_WIFI_PSK, cfg->wifi_psk);
+    if (cfg->ntp_server != NULL && *cfg->ntp_server != '\0')
+        pn_mesh_pb_write_string_field (&net_w, NET_NTP_SERVER, cfg->ntp_server);
+    pn_mesh_pb_write_varint_field (&net_w, NET_ETH_ENABLED,
+                                   cfg->eth_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&net_w, NET_ADDRESS_MODE, cfg->address_mode);
+    if (cfg->ipv4_config != NULL)
+    {
+        gsize         s;
+        const guint8 *p = g_bytes_get_data (cfg->ipv4_config, &s);
+        if (s > 0)
+            pn_mesh_pb_write_embedded_field (&net_w, NET_IPV4_CONFIG, p, s);
+    }
+    if (cfg->rsyslog_server != NULL && *cfg->rsyslog_server != '\0')
+        pn_mesh_pb_write_string_field (&net_w, NET_RSYSLOG_SERVER,
+                                       cfg->rsyslog_server);
+    pn_mesh_pb_write_varint_field (&net_w, NET_ENABLED_PROTOCOLS,
+                                   cfg->enabled_protocols);
+    pn_mesh_pb_write_varint_field (&net_w, NET_IPV6_ENABLED,
+                                   cfg->ipv6_enabled ? 1 : 0);
+    net_bytes = pn_mesh_pb_writer_take_bytes (&net_w);
+    pn_mesh_pb_writer_clear (&net_w);
+    net_b = g_bytes_get_data (net_bytes, &net_n);
+
+    ok = send_set_config_subblock (self, CFG_NETWORK, net_b, net_n, error);
+    g_bytes_unref (net_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_network_config_sync (PnMeshConnection                *self,
+                                            const PnMeshNetworkConfigWrite  *cfg,
+                                            GError                         **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_network_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection          *conn;
+    PnMeshNetworkConfigWrite   cfg;
+    gchar                     *ssid;
+    gchar                     *psk;
+    gchar                     *ntp;
+    gchar                     *rsyslog;
+    GBytes                    *ipv4;        /* refs cfg.ipv4_config */
+} SetNetworkConfigCall;
+
+static void
+set_network_config_call_free (gpointer data)
+{
+    SetNetworkConfigCall *c = data;
+    g_free (c->ssid);
+    g_free (c->psk);
+    g_free (c->ntp);
+    g_free (c->rsyslog);
+    if (c->ipv4 != NULL)
+        g_bytes_unref (c->ipv4);
+    g_slice_free (SetNetworkConfigCall, c);
+}
+
+static void
+set_network_config_thread_func (GTask *task, gpointer source,
+                                gpointer task_data,
+                                GCancellable *cancellable)
+{
+    SetNetworkConfigCall *c   = task_data;
+    GError               *err = NULL;
+    gboolean              ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_network_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_network_config_async (PnMeshConnection                *self,
+                                             const PnMeshNetworkConfigWrite  *cfg,
+                                             GCancellable                    *cancellable,
+                                             GAsyncReadyCallback              callback,
+                                             gpointer                         user_data)
+{
+    GTask                *task;
+    SetNetworkConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetNetworkConfigCall);
+    c->conn    = self;
+    c->cfg     = *cfg;
+    c->ssid    = g_strdup (cfg->wifi_ssid);
+    c->psk     = g_strdup (cfg->wifi_psk);
+    c->ntp     = g_strdup (cfg->ntp_server);
+    c->rsyslog = g_strdup (cfg->rsyslog_server);
+    c->ipv4    = cfg->ipv4_config != NULL
+                     ? g_bytes_ref (cfg->ipv4_config) : NULL;
+    c->cfg.wifi_ssid       = c->ssid;
+    c->cfg.wifi_psk        = c->psk;
+    c->cfg.ntp_server      = c->ntp;
+    c->cfg.rsyslog_server  = c->rsyslog;
+    c->cfg.ipv4_config     = c->ipv4;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_network_config_async);
+    g_task_set_task_data  (task, c, set_network_config_call_free);
+    g_task_run_in_thread  (task, set_network_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_network_config_finish (GAsyncResult *result,
+                                              GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ----- Security ---------------------------------------------------- */
+
+static void
+write_bytes_field_from_gbytes (PnMeshPbWriter *w,
+                               guint32         field,
+                               GBytes         *bytes)
+{
+    gsize         s;
+    const guint8 *p;
+
+    if (bytes == NULL)
+        return;
+    p = g_bytes_get_data (bytes, &s);
+    if (s == 0)
+        return;
+    pn_mesh_pb_write_bytes_field (w, field, p, s);
+}
+
+static gboolean
+send_set_security_config (PnMeshConnection                 *self,
+                          const PnMeshSecurityConfigWrite  *cfg,
+                          GError                          **error)
+{
+    PnMeshPbWriter sec_w;
+    GBytes        *sec_bytes;
+    const guint8  *sec_b;
+    gsize          sec_n;
+    gboolean       ok;
+    guint          i;
+
+    pn_mesh_pb_writer_init (&sec_w);
+    write_bytes_field_from_gbytes (&sec_w, SEC_PUBLIC_KEY,  cfg->public_key);
+    write_bytes_field_from_gbytes (&sec_w, SEC_PRIVATE_KEY, cfg->private_key);
+    if (cfg->admin_keys != NULL)
+    {
+        for (i = 0; i < cfg->admin_keys->len; i++)
+        {
+            GBytes *b = g_ptr_array_index (cfg->admin_keys, i);
+            write_bytes_field_from_gbytes (&sec_w, SEC_ADMIN_KEY, b);
+        }
+    }
+    pn_mesh_pb_write_varint_field (&sec_w, SEC_IS_MANAGED,
+                                   cfg->is_managed ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&sec_w, SEC_SERIAL_ENABLED,
+                                   cfg->serial_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&sec_w, SEC_DEBUG_LOG_API_ENABLED,
+                                   cfg->debug_log_api_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&sec_w, SEC_ADMIN_CHANNEL_ENABLED,
+                                   cfg->admin_channel_enabled ? 1 : 0);
+    sec_bytes = pn_mesh_pb_writer_take_bytes (&sec_w);
+    pn_mesh_pb_writer_clear (&sec_w);
+    sec_b = g_bytes_get_data (sec_bytes, &sec_n);
+
+    ok = send_set_config_subblock (self, CFG_SECURITY, sec_b, sec_n, error);
+    g_bytes_unref (sec_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_security_config_sync (PnMeshConnection                 *self,
+                                             const PnMeshSecurityConfigWrite  *cfg,
+                                             GError                          **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_security_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection           *conn;
+    PnMeshSecurityConfigWrite   cfg;
+    GBytes                     *pub;
+    GBytes                     *priv;
+    GPtrArray                  *admins;
+} SetSecurityConfigCall;
+
+static void
+set_security_config_call_free (gpointer data)
+{
+    SetSecurityConfigCall *c = data;
+    if (c->pub  != NULL) g_bytes_unref (c->pub);
+    if (c->priv != NULL) g_bytes_unref (c->priv);
+    if (c->admins != NULL) g_ptr_array_unref (c->admins);
+    g_slice_free (SetSecurityConfigCall, c);
+}
+
+static void
+set_security_config_thread_func (GTask *task, gpointer source,
+                                 gpointer task_data,
+                                 GCancellable *cancellable)
+{
+    SetSecurityConfigCall *c   = task_data;
+    GError                *err = NULL;
+    gboolean               ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_security_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_security_config_async (PnMeshConnection                 *self,
+                                              const PnMeshSecurityConfigWrite  *cfg,
+                                              GCancellable                     *cancellable,
+                                              GAsyncReadyCallback               callback,
+                                              gpointer                          user_data)
+{
+    GTask                 *task;
+    SetSecurityConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetSecurityConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+    c->pub  = cfg->public_key  != NULL ? g_bytes_ref (cfg->public_key)  : NULL;
+    c->priv = cfg->private_key != NULL ? g_bytes_ref (cfg->private_key) : NULL;
+    if (cfg->admin_keys != NULL)
+    {
+        guint i;
+        c->admins = g_ptr_array_new_with_free_func (
+                (GDestroyNotify) g_bytes_unref);
+        for (i = 0; i < cfg->admin_keys->len; i++)
+        {
+            GBytes *b = g_ptr_array_index (cfg->admin_keys, i);
+            g_ptr_array_add (c->admins, g_bytes_ref (b));
+        }
+    }
+    c->cfg.public_key  = c->pub;
+    c->cfg.private_key = c->priv;
+    c->cfg.admin_keys  = c->admins;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_security_config_async);
+    g_task_set_task_data  (task, c, set_security_config_call_free);
+    g_task_run_in_thread  (task, set_security_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_security_config_finish (GAsyncResult *result,
+                                               GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);
