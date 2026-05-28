@@ -144,10 +144,8 @@ pn_tasmota_relay_command_receive (
 
     /* Rewrite the envelope topic so a downstream PnMqttSink publishes
      * straight to the Tasmota command topic without an intervening
-     * PnRewrite step.  PnMqttSink strips a leading "mqtt/" prefix on
-     * publish, so either form would work; the plain `cmnd/<dev>/POWER`
-     * shape matches what Tasmota itself documents and reads cleanly
-     * on the Debug pane. */
+     * PnRewrite step.  The plain `cmnd/<dev>/POWER` shape matches what
+     * Tasmota itself documents and reads cleanly on the Debug pane. */
     topic = g_strdup_printf ("cmnd/%s/POWER", self->switch_name);
     pn_message_set_topic (message, topic);
     g_free (topic);

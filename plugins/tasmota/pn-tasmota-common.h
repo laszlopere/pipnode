@@ -22,10 +22,9 @@
 G_BEGIN_DECLS
 
 /* Extract the device name from an MQTT envelope topic like
- * "mqtt/tele/tasmota13/SENSOR" or "tele/tasmota13/STATE".  Tasmota
- * uses the second-to-last segment as the device id regardless of the
- * leading family ("tele", "stat", "cmnd") and any host-side prefix
- * the MQTT source node may have prepended.  Returns a freshly
+ * "tele/tasmota13/SENSOR" or "tele/tasmota13/STATE".  Tasmota uses
+ * the second-to-last segment as the device id regardless of the
+ * leading family ("tele", "stat", "cmnd").  Returns a freshly
  * allocated string; %NULL when the topic is empty or has fewer than
  * two segments. */
 gchar    *pn_tasmota_device_from_topic (const gchar *topic);

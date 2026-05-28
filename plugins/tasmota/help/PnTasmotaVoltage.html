@@ -32,7 +32,7 @@ the configured device.
       <td>Tasmota device name the meter listens for. Matched against
           the second-to-last segment of each incoming topic, so
           <code>sonoff37</code> accepts publishes on
-          <code>mqtt/tele/sonoff37/SENSOR</code> and silently drops
+          <code>tele/sonoff37/SENSOR</code> and silently drops
           everything else. An empty field rejects every message and
           the needle stays parked.</td></tr>
   <tr><td><code>min-value</code> / <code>max-value</code></td>

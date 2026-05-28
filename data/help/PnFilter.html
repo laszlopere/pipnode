@@ -31,7 +31,7 @@ with <code>/</code> addresses the message envelope rather than the
 data bag &mdash; <code>/topic</code> is preloaded in the same combobox
 so a Tasmota / MQTT pipeline can route on the upstream topic
 (<code>/topic contains "tele/"</code>, <code>/topic ==
-"mqtt/stat/tasmota13/STATUS5"</code>) without dropping a Filter rule
+"stat/tasmota13/STATUS5"</code>) without dropping a Filter rule
 on the data side. The literal's type combo (<em>number</em> /
 <em>string</em> / <em>boolean</em>) drives which operators are valid
 and how the comparison is performed.
@@ -52,9 +52,9 @@ For string <code>==</code> and <code>!=</code> rules, a literal that
 contains a <code>*</code> or <code>?</code> is treated as a
 filename-style glob pattern: <code>*</code> matches any run of
 characters, <code>?</code> matches a single character. So
-<code>/topic == "mqtt/stat/sonoff19/*"</code> lets through every
-message whose topic starts with <code>mqtt/stat/sonoff19/</code>,
-and <code>/topic == "mqtt/+/+/STATUS?"</code> matches the numbered
+<code>/topic == "stat/sonoff19/*"</code> lets through every
+message whose topic starts with <code>stat/sonoff19/</code>,
+and <code>/topic == "+/+/STATUS?"</code> matches the numbered
 STATUS replies (<code>STATUS0</code> &hellip; <code>STATUS9</code>).
 A literal without wildcards keeps doing byte-exact comparison, so
 existing rules round-trip unchanged.

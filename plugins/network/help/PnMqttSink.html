@@ -76,16 +76,10 @@ separate <em>Rewrite</em> step. Leave it empty to use the envelope
 topic as before.
 </p>
 <p>
-When the inbound topic begins with the literal prefix
-<code>mqtt/</code> (the namespace <em>MQTT Source</em> prepends to
-every message it emits so a downstream <em>Filter</em> can route on a
-single envelope field) the prefix is stripped before the publish.
-That means a straight <em>MQTT Source &rarr; MQTT Sink</em> bridge
-between two brokers republishes <code>stat/sonoff19/POWER</code> as
-<code>stat/sonoff19/POWER</code>, not <code>mqtt/stat/sonoff19/POWER</code>.
-Topics that do not carry the prefix are published as-is, so a
-synthesised <code>cmnd/sonoff19/POWER</code> from a <em>Rewrite</em>
-lands exactly as the user wrote it.
+A straight <em>MQTT Source &rarr; MQTT Sink</em> bridge between two
+brokers republishes the inbound topic verbatim, and a synthesised
+<code>cmnd/sonoff19/POWER</code> from a <em>Rewrite</em> lands
+exactly as the user wrote it.
 </p>
 <p>
 Messages without an envelope topic are dropped silently &mdash;
@@ -160,9 +154,7 @@ Messages are silently dropped (without warning) when:
       message has aged past the 30&nbsp;second freshness window. A
       publish that fits the queue and connects in time is delivered, not
       dropped (see <em>Connection</em> above).</li>
-  <li>The inbound message has no envelope topic, or its topic is the
-      bare prefix <code>mqtt/</code> (nothing to publish to once the
-      prefix is stripped).</li>
+  <li>The inbound message has no envelope topic.</li>
   <li>No usable payload could be derived (no template set <em>and</em>
       no inbound <code>data.payload</code>).</li>
 </ul>

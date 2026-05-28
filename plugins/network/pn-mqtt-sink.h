@@ -26,10 +26,9 @@ G_BEGIN_DECLS
 /*  Input-only counterpart of #PnMqtt.  Holds a libmosquitto client    */
 /*  open against a configured broker and PUBLISHes one message per      */
 /*  incoming #PnMessage.  The publish topic is taken from each          */
-/*  message's envelope topic (with #PnMqtt's `mqtt/` source-prefix      */
-/*  stripped when present) so per-message routing is shaped by          */
-/*  whichever upstream node sets the topic -- #PnRewrite is the         */
-/*  canonical choice for stamping `cmnd/${data/device}/POWER`-style     */
+/*  message's envelope topic verbatim, so per-message routing is        */
+/*  shaped by whichever upstream node sets the topic -- #PnRewrite is   */
+/*  the canonical choice for stamping `cmnd/${data/device}/POWER`-style */
 /*  topics derived from the data bag.  Designed to close the loop on    */
 /*  a Source -> filter -> Sink flow without having to spawn a helper    */
 /*  process or shell out through a command node.                        */

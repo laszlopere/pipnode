@@ -25,8 +25,11 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Source-only node that subscribes to an MQTT broker and emits one   */
 /*  #PnMessage for every PUBLISH it receives on the configured topic   */
-/*  filter.  Designed to drop onto a worksheet, point at a broker, and */
-/*  start feeding sensor / pub-sub data into the rest of the pipeline. */
+/*  filter.  Each message's envelope topic equals the MQTT topic       */
+/*  verbatim (no prefix), so what the Debug pane shows matches what    */
+/*  the broker published.  Designed to drop onto a worksheet, point at */
+/*  a broker, and start feeding sensor / pub-sub data into the rest of */
+/*  the pipeline.                                                      */
 /*                                                                     */
 /*  Properties:                                                        */
 /*    - #PnMqtt:url     – broker URL, e.g. tcp://mqtt.example:1883     */

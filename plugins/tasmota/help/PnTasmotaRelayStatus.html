@@ -33,7 +33,7 @@ or an <em>Edge</em> filter that fires on transitions.
       <td>Tasmota device name the filter listens for. Matched against
           the second-to-last segment of each incoming topic, so
           <code>sonoff19</code> accepts publishes on
-          <code>mqtt/stat/sonoff19/POWER</code> (and any
+          <code>stat/sonoff19/POWER</code> (and any
           <code>POWER&lt;N&gt;</code> variant) and silently drops
           everything else. Leaving the field empty puts the node in
           the red &ldquo;configuration required&rdquo; state and
@@ -50,9 +50,7 @@ A message is forwarded when all three of:
       configured <code>switch-name</code> exactly. Comparing extracted
       device names (rather than substring-matching the raw topic)
       means <code>sonoff1</code> does not accidentally accept
-      publishes from <code>sonoff19</code>, and the same node works
-      regardless of whether the upstream <em>MQTT Source</em> uses an
-      <code>mqtt/</code> prefix or not.</li>
+      publishes from <code>sonoff19</code>.</li>
   <li>The last segment starts with the literal text <code>POWER</code>
       &mdash; that covers both the single-relay default and the
       <code>POWER1</code>..<code>POWER8</code> multi-relay variants
@@ -83,7 +81,7 @@ numeric form:
   <tr><td><code>device</code></td>
       <td>The second-to-last topic segment
           (<code>sonoff19</code> in
-          <code>mqtt/stat/sonoff19/POWER</code>), suitable for keying
+          <code>stat/sonoff19/POWER</code>), suitable for keying
           per-device state downstream.</td></tr>
   <tr><td><code>output</code></td>
       <td>Human-readable summary, e.g.

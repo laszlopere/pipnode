@@ -162,7 +162,7 @@
         "y" : 100.0
       },
       "properties" : {
-        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/stat/sonoff19/*\"}]"
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"stat/sonoff19/*\"}]"
       }
     },
     {

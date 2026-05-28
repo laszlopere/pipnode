@@ -591,26 +591,6 @@ on_mqtt_disconnect (
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Strip the "mqtt/" prefix #PnMqtt prepends to every envelope topic
- *  it emits (`stat/sonoff19/POWER` arrives as `mqtt/stat/sonoff19/POWER`
- *  so a downstream Filter can pattern-match on a single envelope
- *  field).  A Source -> Sink relay between two brokers republishing
- *  the same topic shape would otherwise end up double-prefixing
- *  (`mqtt/mqtt/stat/...`) on the destination, which no real broker
- *  layout uses.  Topics that do not carry the prefix are passed
- *  through unchanged so a synthesised topic like
- *  `cmnd/sonoff19/POWER` published from a Format / Rewrite step lands
- *  exactly as the user wrote it. */
-static const gchar *
-strip_mqtt_prefix (const gchar *topic)
-{
-    if (topic == NULL)
-        return NULL;
-    if (g_str_has_prefix (topic, "mqtt/"))
-        return topic + 5;
-    return topic;
-}
-
 static void
 pn_mqtt_sink_receive (
         PnNode    *node,
@@ -654,11 +634,11 @@ pn_mqtt_sink_receive (
         g_strfreev (pairs);
         json_object_unref (root);
 
-        publish_topic = strip_mqtt_prefix (topic_owned);
+        publish_topic = topic_owned;
     }
     else
     {
-        publish_topic = strip_mqtt_prefix (pn_message_get_topic (message));
+        publish_topic = pn_message_get_topic (message);
     }
 
     if (publish_topic == NULL || *publish_topic == '\0')

@@ -53,11 +53,9 @@ static GParamSpec *props[N_PROPS];
 /*  Topic filter                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Tasmota energy data lands on `tele/<device>/SENSOR` (sometimes with
- *  an `mqtt/` family prefix prepended by #PnMqtt).  Matching the
+/** Tasmota energy data lands on `tele/<device>/SENSOR`.  Matching the
  *  last topic segment against the literal "SENSOR" covers the only
- *  family that carries the ENERGY sub-object regardless of how many
- *  family-prefix segments the upstream broker layered on. */
+ *  family that carries the ENERGY sub-object. */
 static gboolean
 topic_is_tasmota_sensor (const gchar *topic)
 {
@@ -213,8 +211,8 @@ pn_tasmota_energy_meter_class_init (PnTasmotaEnergyMeterClass *klass)
             "against the second-to-last segment of each incoming "
             "topic (the canonical Tasmota <prefix>/<device>/<command> "
             "topology), so 'sonoff37' accepts publishes whose topic "
-            "is 'mqtt/tele/sonoff37/SENSOR' and drops everything "
-            "else.  Empty marks the node as needing configuration "
+            "is 'tele/sonoff37/SENSOR' and drops everything else.  "
+            "Empty marks the node as needing configuration "
             "and rejects every message -- the needle stays parked "
             "until the user fills the field in.",
             NULL,

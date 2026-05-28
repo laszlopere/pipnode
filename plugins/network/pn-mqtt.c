@@ -475,9 +475,9 @@ on_mqtt_disconnect (
 }
 
 /** Build a #PnMessage carrying one MQTT publish.  Envelope topic is
- *  "mqtt/<mqtt-topic>" so a downstream Filter can route on the
- *  envelope alone (e.g. match `mqtt/tele/+/SENSOR`) without peeking
- *  into the data bag; the data bag follows the standard contract:
+ *  the MQTT topic itself (verbatim, no prefix) so a downstream Filter
+ *  matches what the broker actually publishes (e.g.
+ *  `tele/+/SENSOR`); the data bag follows the standard contract:
  *    - data.payload   – parsed JSON value when the payload is valid
  *                       JSON (object, array, number, string, bool,
  *                       null); otherwise the raw UTF-8 string the
@@ -501,7 +501,6 @@ build_mqtt_message (
         const struct mosquitto_message  *m)
 {
     PnMessage   *msg;
-    gchar       *envelope_topic;
     gchar       *payload = NULL;
     gboolean     is_utf8 = FALSE;
     gboolean     is_json = FALSE;
@@ -510,13 +509,10 @@ build_mqtt_message (
     gchar       *output;
     const gchar *topic_str = m->topic ? m->topic : "";
 
-    /* Compose the envelope topic as "mqtt/<mqtt-topic>" so a Filter
-     * downstream can route on `topic == "mqtt/tele/sonoff37/SENSOR"`
-     * (or a wildcard match against the family) without having to dig
-     * into the data bag. */
-    envelope_topic = g_strconcat ("mqtt/", topic_str, NULL);
-    msg = pn_message_new (PN_NODE (self), envelope_topic);
-    g_free (envelope_topic);
+    /* Envelope topic is the MQTT topic itself so what the Debug pane
+     * shows matches what the broker published, and a downstream Filter
+     * routes on the same string the user typed at the broker. */
+    msg = pn_message_new (PN_NODE (self), topic_str);
 
     /* mosquitto_message.payload is not NUL-terminated; copy it out
      * and decide whether the bytes are valid UTF-8 before exposing

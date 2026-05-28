@@ -54,10 +54,10 @@ typedef struct
      * containing `*` or `?`.  When set, the OP_EQ / OP_NE branches in
      * compare_string() switch from byte-exact comparison to
      * g_pattern_spec_match — turns a literal like
-     * "mqtt/stat/sonoff19/(asterisk)" into "matches every topic that starts
+     * "stat/sonoff19/(asterisk)" into "matches every topic that starts
      * with that prefix" without forcing the user to learn the
      * `contains` operator (which would also match
-     * "x/mqtt/stat/sonoff19/y" — usually not what they meant). */
+     * "x/stat/sonoff19/y" — usually not what they meant). */
     GPatternSpec *pattern;
 } CompiledRule;
 

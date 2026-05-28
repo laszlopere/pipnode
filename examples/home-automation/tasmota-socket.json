@@ -44,7 +44,7 @@
         "y" : 20.0
       },
       "properties" : {
-        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/stat/sonoff19/POWER\"}]"
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"stat/sonoff19/POWER\"}]"
       }
     }
   ],

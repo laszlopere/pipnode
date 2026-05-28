@@ -21,8 +21,8 @@
 /*  where the host's default plugin search path picks it up at         */
 /*  startup.  Provides filter/transformer nodes that pluck individual  */
 /*  sensor readings out of Tasmota MQTT publishes (the JSON-shaped     */
-/*  blobs PnMqtt forwards under the "mqtt/tele/<device>/SENSOR"        */
-/*  topic family) and reshape them into the standard data-bag         */
+/*  blobs PnMqtt forwards under the "tele/<device>/SENSOR" topic       */
+/*  family) and reshape them into the standard data-bag                */
 /*  members (data.value / data.unit / data.device) that the rest of    */
 /*  the palette already speaks.                                        */
 /* ------------------------------------------------------------------ */

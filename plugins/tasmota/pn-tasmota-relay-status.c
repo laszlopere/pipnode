@@ -95,9 +95,8 @@ apply_visual_state (
 /** Tasmota relay state lands on `stat/<device>/POWER` for the single-
  *  relay default plus `POWER1`..`POWER8` for multi-relay devices.
  *  Matching "starts with POWER" on the last topic segment covers
- *  every variant without listing the eight numbered codes one by one,
- *  and tolerates the leading family prefix (`mqtt/`) that the upstream
- *  PnMqtt source typically prepends. */
+ *  every variant without listing the eight numbered codes one by
+ *  one. */
 static gboolean
 topic_is_tasmota_power (const gchar *topic)
 {
@@ -162,8 +161,7 @@ pn_tasmota_relay_status_receive (
      * <prefix>/<switch-name>/POWER* topic pass.  Comparing extracted
      * device names (rather than substring-matching the raw topic)
      * means "sonoff1" does not accidentally accept publishes from
-     * "sonoff19" and the same node works regardless of whether the
-     * upstream MQTT source uses an `mqtt/` prefix or not. */
+     * "sonoff19". */
     device = pn_tasmota_device_from_topic (topic);
     if (device == NULL || g_strcmp0 (device, self->switch_name) != 0)
     {
@@ -308,7 +306,7 @@ pn_tasmota_relay_status_class_init (PnTasmotaRelayStatusClass *klass)
             "against the second-to-last segment of each incoming "
             "topic (the canonical Tasmota <prefix>/<device>/<command> "
             "topology), so 'sonoff19' accepts messages whose topic is "
-            "'mqtt/stat/sonoff19/POWER' (or any POWER<N> variant) and "
+            "'stat/sonoff19/POWER' (or any POWER<N> variant) and "
             "drops everything else.  Empty marks the node as needing "
             "configuration and rejects every message.",
             NULL,

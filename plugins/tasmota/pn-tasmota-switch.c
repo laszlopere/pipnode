@@ -151,9 +151,7 @@ pn_tasmota_switch_build_outbound_message (PnSwitch *base)
 
 /** Tasmota relay state lands on `stat/<device>/POWER` for the single-
  *  relay default plus `POWER1`..`POWER8` for multi-relay devices.
- *  Same prefix check #PnTasmotaRelayStatus uses, tolerant of the
- *  leading family prefix (`mqtt/`) the upstream #PnMqtt source
- *  typically prepends. */
+ *  Same last-segment check #PnTasmotaRelayStatus uses. */
 static gboolean
 topic_is_tasmota_power (const gchar *topic)
 {
@@ -225,8 +223,7 @@ pn_tasmota_switch_receive (
 
     /* Compare extracted device names (rather than substring-matching
      * the raw topic) so "sonoff1" does not accidentally accept
-     * publishes from "sonoff19", and the same node works regardless
-     * of whether the upstream MQTT source prepends an `mqtt/` prefix. */
+     * publishes from "sonoff19". */
     device = pn_tasmota_device_from_topic (topic);
     if (device == NULL || g_strcmp0 (device, self->switch_name) != 0)
     {

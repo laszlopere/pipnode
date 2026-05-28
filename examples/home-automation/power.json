@@ -31,7 +31,7 @@
         "y" : 100.0
       },
       "properties" : {
-        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/tele/sonoff48/SENSOR\"}]"
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"tele/sonoff48/SENSOR\"}]"
       }
     },
     {
@@ -112,7 +112,7 @@
         "y" : 380.0
       },
       "properties" : {
-        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/tele/sonoff47/SENSOR\"}]"
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"tele/sonoff47/SENSOR\"}]"
       }
     },
     {
@@ -193,7 +193,7 @@
         "y" : 660.0
       },
       "properties" : {
-        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"mqtt/tele/sonoff37/SENSOR\"}]"
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"tele/sonoff37/SENSOR\"}]"
       }
     },
     {

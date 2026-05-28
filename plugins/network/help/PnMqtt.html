@@ -68,13 +68,12 @@ broker enforces an ACL by client id.
 <h5>Emitted message</h5>
 <p>
 Each PUBLISH lands as a message whose envelope <code>topic</code> is
-<code>mqtt/<em>&lt;mqtt-topic&gt;</em></code> &mdash; e.g. an MQTT
-publish on <code>tele/sonoff37/SENSOR</code> arrives with
-<code>topic = "mqtt/tele/sonoff37/SENSOR"</code>, so a downstream
+the MQTT topic verbatim &mdash; e.g. an MQTT publish on
+<code>tele/sonoff37/SENSOR</code> arrives with
+<code>topic = "tele/sonoff37/SENSOR"</code>, so a downstream
 <em>Filter</em> can route on the envelope alone (match
-<code>mqtt/tele/+/SENSOR</code>, <code>mqtt/home/#</code>, etc.)
-without having to dig into the data bag. The <code>data</code>
-bag carries:
+<code>tele/+/SENSOR</code>, <code>home/#</code>, etc.) without
+having to dig into the data bag. The <code>data</code> bag carries:
 </p>
 <table>
   <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
@@ -140,10 +139,10 @@ mosquitto_pub -h mqtt.homelab.local -t test/sensor -m '{"t":22.6,"h":41.2}'
 </pre>
 <p>
 With the default subscription <code>subscribe-topic = "#"</code> the first
-publish lands as <code>PnMessage{ topic="mqtt/test/hello",
+publish lands as <code>PnMessage{ topic="test/hello",
 data.payload=23.5, data.value=23.5, data.output="MQTT message on
 test/hello" }</code>; the second as
-<code>PnMessage{ topic="mqtt/test/sensor", data.payload={t:22.6,
+<code>PnMessage{ topic="test/sensor", data.payload={t:22.6,
 h:41.2}, data.output="MQTT message on test/sensor" }</code> &mdash;
 note the <code>payload</code> is a real nested object, not an
 escaped JSON string, so a downstream <code>Format</code> can read

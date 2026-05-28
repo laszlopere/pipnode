@@ -36,9 +36,9 @@ every numeric variant Tasmota produces:
   <li>&hellip; and the rest of the <code>STATUS0</code>..<code>STATUS13</code> family</li>
 </ul>
 <p>
-The leading family prefix the upstream <em>MQTT Source</em> may have
-added (e.g. <code>mqtt/</code>) does not interfere with the match
-&mdash; only the last topic segment is inspected.
+Only the last topic segment is inspected, so any leading family
+prefix in front of <code>stat/&lt;device&gt;/</code> does not
+interfere with the match.
 </p>
 
 <h5>Output shape</h5>
