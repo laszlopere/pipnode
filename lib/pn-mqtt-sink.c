@@ -25,12 +25,12 @@
 #include "pn-flow.h"
 #include "pn-vault.h"
 #include "pn-mqtt-profile.h"
+#include "pn-mqtt-util.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
 
 #include <errno.h>
-#include <string.h>
 
 /* Visual states.  Same colour split as PnMqtt so the source/sink pair
  * reads as a matched set: green (fa-paper-plane) while a session is up
@@ -67,9 +67,10 @@
  *           from the document load that just happened is exactly what
  *           the user wants enforced.  Chosen to comfortably cover
  *           load + async-connect (and a broker that comes up a little
- *           after the app) without resurrecting long-dead intents. */
-#define PN_MQTT_SINK_QUEUE_MAX_LEN     64u
-#define PN_MQTT_SINK_QUEUE_MAX_AGE_US  (30 * G_TIME_SPAN_SECOND)
+ *           after the app) without resurrecting long-dead intents.
+ *
+ * The LEN / AGE bounds and the queue policy itself live in pn-mqtt-util.h
+ * (PN_MQTT_SINK_QUEUE_MAX_LEN / _MAX_AGE_US) so they can be unit-tested. */
 
 struct _PnMqttSink
 {
@@ -103,7 +104,7 @@ struct _PnMqttSink
     gboolean          loop_running;
     gboolean          connected;
 
-    /* Offline publish backlog (PnMqttSinkPending*, head = oldest).
+    /* Offline publish backlog (PnMqttPending*, head = oldest).
      * Touched only on the main thread -- both the receive path and the
      * connect trampoline run there -- so it needs no locking. */
     GQueue           *pending;
@@ -220,143 +221,13 @@ apply_visual_state (PnMqttSink *self)
 }
 
 /* ------------------------------------------------------------------ */
-/*  URL parsing                                                        */
-/*                                                                     */
-/*  Mirror of PnMqtt's parser.  Duplicated rather than lifted into a   */
-/*  shared header because the two are the only callers today and the   */
-/*  helper is small enough that the cost of keeping the two in sync    */
-/*  is lower than the cost of growing a `pn-mqtt-common.h` (the host   */
-/*  does not link libmosquitto, so the helper has nowhere natural to   */
-/*  live inside libpipnode).  If a third client lands later we will    */
-/*  factor this and the ensure_mosquitto_initialised() guard at the    */
-/*  same time.                                                          */
-/* ------------------------------------------------------------------ */
-
-static gboolean
-parse_mqtt_url (
-        const gchar *url,
-        gchar      **out_host,
-        int         *out_port,
-        gboolean    *out_tls)
-{
-    const gchar *p = url;
-    const gchar *colon;
-    gboolean     tls  = FALSE;
-    int          port;
-    gchar       *host;
-
-    if (url == NULL || *url == '\0')
-        return FALSE;
-
-    if (g_str_has_prefix (p, "tcp://"))
-    {
-        p   += 6;
-        tls  = FALSE;
-    }
-    else if (g_str_has_prefix (p, "ssl://"))
-    {
-        p   += 6;
-        tls  = TRUE;
-    }
-    else if (g_str_has_prefix (p, "mqtt://"))
-    {
-        p   += 7;
-        tls  = FALSE;
-    }
-    else if (g_str_has_prefix (p, "mqtts://"))
-    {
-        p   += 8;
-        tls  = TRUE;
-    }
-
-    if (*p == '\0' || *p == ':' || *p == '/')
-        return FALSE;
-
-    port  = tls ? 8883 : 1883;
-    colon = strchr (p, ':');
-    if (colon != NULL)
-    {
-        gchar  *endp;
-        glong   parsed;
-
-        host = g_strndup (p, (gsize) (colon - p));
-        errno = 0;
-        parsed = strtol (colon + 1, &endp, 10);
-        if (errno != 0 || endp == colon + 1 || parsed <= 0 || parsed > 65535)
-        {
-            g_free (host);
-            return FALSE;
-        }
-        port = (int) parsed;
-    }
-    else
-    {
-        host = g_strdup (p);
-    }
-
-    *out_host = host;
-    *out_port = port;
-    *out_tls  = tls;
-    return TRUE;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Template expansion                                                 */
-/*                                                                     */
-/*  Same `${path/to/field}` syntax PnFormat / PnRewrite already use,   */
-/*  so a user who learned the placeholder shape on one node can reuse  */
-/*  it here without a second mental model.  The lookup root is built   */
-/*  by pn_json_lookup_root_for_message() so paths like                 */
-/*  `${data/device}` or `${topic}` resolve against the inbound         */
-/*  envelope and data bag directly.                                    */
-/* ------------------------------------------------------------------ */
-
-/** Expand every "${path}" in @tmpl to the plain-text form of the JSON
- *  value at that path against @root.  Same `${path/to/field}` syntax
- *  PnFormat / PnRewrite use; unknown paths render as the empty string,
- *  an unterminated "${" is emitted verbatim. */
-static gchar *
-expand_placeholders (
-        const gchar *tmpl,
-        JsonObject  *root,
-        PnFlow      *flow)
-{
-    PnSubstResolver  resolver;
-    PnSubstResolver  globals;
-    PnSubstResolver *chain[3];
-    PnSubstContext   ctx;
-
-    pn_subst_resolver_json (&resolver, root);
-    pn_flow_subst_resolver_globals (&globals, flow);
-    chain[0] = &resolver;   /* message fields win */
-    chain[1] = &globals;    /* then document globals */
-    chain[2] = NULL;
-    ctx.resolvers = chain;
-    ctx.mode      = PN_SUBST_TEXT;
-    ctx.miss      = PN_SUBST_MISS_EMPTY;
-
-    return pn_subst_expand (tmpl, &ctx);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Payload extraction                                                 */
 /*                                                                     */
-/*  When the user has set a payload template, expand it against the    */
-/*  message and ship the resulting UTF-8 bytes.  When the field is     */
-/*  empty, fall back to whatever the inbound message carries in        */
-/*  `data.payload` -- string members go out as raw bytes, structured   */
-/*  members (objects, arrays, numbers, booleans) are serialised back   */
-/*  to JSON so a Source -> Sink relay between two brokers round-trips  */
-/*  the original JSON shape rather than turning every publish into a   */
-/*  stringified `[object Object]`-style placeholder.                   */
+/*  The template-expansion and data.payload fallback logic lives in    */
+/*  pn-mqtt-util.c so it can be unit-tested without a broker; this is   */
+/*  a thin wrapper that supplies the node's template and flow.         */
 /* ------------------------------------------------------------------ */
 
-/** Build the payload bytes to publish, writing the result to
- *  *@out_bytes (caller frees) and *@out_len.  Returns %TRUE on
- *  success, %FALSE when no usable payload could be derived (the
- *  receive path then drops the message rather than publishing an
- *  empty string which would otherwise look like a deliberate null
- *  publish). */
 static gboolean
 build_payload (
         PnMqttSink *self,
@@ -364,80 +235,22 @@ build_payload (
         gchar     **out_bytes,
         gsize      *out_len)
 {
-    if (self->payload_template != NULL && *self->payload_template != '\0')
-    {
-        JsonObject *root     = pn_json_lookup_root_for_message (message);
-        gchar      *expanded = expand_placeholders (
-                self->payload_template, root,
-                pn_node_get_flow (PN_NODE (self)));
-        json_object_unref (root);
-
-        *out_bytes = expanded;
-        *out_len   = strlen (expanded);
-        return TRUE;
-    }
-
-    {
-        JsonNode *payload = pn_message_get_member (message, "payload");
-
-        if (payload == NULL)
-            return FALSE;
-
-        if (JSON_NODE_HOLDS_VALUE (payload) &&
-            json_node_get_value_type (payload) == G_TYPE_STRING)
-        {
-            const gchar *s = json_node_get_string (payload);
-            *out_bytes = g_strdup (s != NULL ? s : "");
-            *out_len   = strlen (*out_bytes);
-            return TRUE;
-        }
-
-        {
-            JsonGenerator *gen = json_generator_new ();
-            gsize          len = 0;
-            gchar         *out;
-
-            json_generator_set_root (gen, payload);
-            out = json_generator_to_data (gen, &len);
-            g_object_unref (gen);
-            if (out == NULL)
-                return FALSE;
-
-            *out_bytes = out;
-            *out_len   = len;
-            return TRUE;
-        }
-    }
+    return pn_mqtt_build_payload (self->payload_template, message,
+                                  pn_node_get_flow (PN_NODE (self)),
+                                  out_bytes, out_len);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Offline publish queue                                              */
+/*                                                                     */
+/*  The bounded-backlog policy (eviction, freshness) lives in          */
+/*  pn-mqtt-util.c so it can be unit-tested with an injected clock;     */
+/*  these wrappers supply the real clock and keep the mosquitto_publish */
+/*  here on the node.                                                   */
 /* ------------------------------------------------------------------ */
 
-typedef struct
-{
-    gchar   *topic;        /* resolved publish topic (owned)          */
-    gchar   *payload;      /* payload bytes (owned)                   */
-    gsize    payload_len;
-    int      qos;
-    gboolean retain;
-    gint64   received_us;  /* g_get_monotonic_time() at enqueue       */
-} PnMqttSinkPending;
-
-static void
-pending_free (gpointer data)
-{
-    PnMqttSinkPending *p = data;
-
-    g_free (p->topic);
-    g_free (p->payload);
-    g_free (p);
-}
-
 /** Hold @payload (ownership transferred) for @topic until the broker
- *  session is back.  Bounded: when the backlog is full the oldest entry
- *  is dropped first, so a prolonged outage keeps the most recent
- *  intents rather than growing without limit. */
+ *  session is back. */
 static void
 enqueue_pending (
         PnMqttSink  *self,
@@ -447,20 +260,8 @@ enqueue_pending (
         int          qos,
         gboolean     retain)
 {
-    PnMqttSinkPending *p;
-
-    while (g_queue_get_length (self->pending) >= PN_MQTT_SINK_QUEUE_MAX_LEN)
-        pending_free (g_queue_pop_head (self->pending));
-
-    p = g_new0 (PnMqttSinkPending, 1);
-    p->topic       = g_strdup (topic);
-    p->payload     = payload;          /* transfer */
-    p->payload_len = payload_len;
-    p->qos         = qos;
-    p->retain      = retain;
-    p->received_us = g_get_monotonic_time ();
-
-    g_queue_push_tail (self->pending, p);
+    pn_mqtt_pending_enqueue (self->pending, topic, payload, payload_len,
+                             qos, retain, g_get_monotonic_time ());
 }
 
 /** Publish every queued entry still younger than the freshness window,
@@ -470,26 +271,25 @@ enqueue_pending (
 static void
 flush_pending (PnMqttSink *self)
 {
-    gint64             now = g_get_monotonic_time ();
-    PnMqttSinkPending *p;
+    GPtrArray *fresh = pn_mqtt_pending_collect_fresh (
+            self->pending, g_get_monotonic_time (),
+            PN_MQTT_SINK_QUEUE_MAX_AGE_US);
+    guint i;
 
-    while ((p = g_queue_pop_head (self->pending)) != NULL)
+    for (i = 0; i < fresh->len; i++)
     {
-        if (now - p->received_us <= PN_MQTT_SINK_QUEUE_MAX_AGE_US)
-        {
-            int err = mosquitto_publish (self->client,
-                                         NULL,     /* mid -- not tracked */
-                                         p->topic,
-                                         (int) p->payload_len, p->payload,
-                                         p->qos, p->retain);
-            if (err != MOSQ_ERR_SUCCESS)
-                g_warning ("pn-mqtt-sink: queued publish('%s') failed: %s",
-                           p->topic, mosquitto_strerror (err));
-        }
-        /* else: too stale to still be meaningful -- discard. */
-
-        pending_free (p);
+        PnMqttPending *p   = g_ptr_array_index (fresh, i);
+        int            err = mosquitto_publish (self->client,
+                                                NULL,  /* mid -- not tracked */
+                                                p->topic,
+                                                (int) p->payload_len, p->payload,
+                                                p->qos, p->retain);
+        if (err != MOSQ_ERR_SUCCESS)
+            g_warning ("pn-mqtt-sink: queued publish('%s') failed: %s",
+                       p->topic, mosquitto_strerror (err));
     }
+
+    g_ptr_array_unref (fresh);   /* frees the entries via pn_mqtt_pending_free */
 }
 
 /* ------------------------------------------------------------------ */
@@ -726,7 +526,7 @@ restart_client (PnMqttSink *self)
         return;
     }
 
-    if (!parse_mqtt_url (url, &host, &port, &tls))
+    if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
         g_warning ("pn-mqtt-sink: invalid URL '%s'", url);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
@@ -988,7 +788,7 @@ pn_mqtt_sink_finalize (GObject *object)
 
     if (self->pending != NULL)
     {
-        g_queue_free_full (self->pending, pending_free);
+        g_queue_free_full (self->pending, pn_mqtt_pending_free);
         self->pending = NULL;
     }
 

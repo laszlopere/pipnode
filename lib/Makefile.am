@@ -119,6 +119,8 @@ libpipnode_core_la_SOURCES = \
 	pn-mqtt-sink.h \
 	pn-mqtt-profile.c \
 	pn-mqtt-profile.h \
+	pn-mqtt-util.c \
+	pn-mqtt-util.h \
 	pn-node.c \
 	pn-node.h \
 	pn-node-factory.c \

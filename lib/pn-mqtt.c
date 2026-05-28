@@ -21,12 +21,11 @@
 #include "pn-message.h"
 #include "pn-vault.h"
 #include "pn-mqtt-profile.h"
+#include "pn-mqtt-util.h"
 
-#include <json-glib/json-glib.h>
 #include <mosquitto.h>
 
 #include <errno.h>
-#include <string.h>
 
 /* Visual states.  Body colour carries the alert; the icon panel is
  * rendered in white on top. */
@@ -230,89 +229,6 @@ apply_visual_state (PnMqtt *self)
         pn_node_set_color (node, &red);
         pn_node_set_icon  (node, PN_MQTT_WARNING_ICON);
     }
-}
-
-/* ------------------------------------------------------------------ */
-/*  URL parsing                                                        */
-/*                                                                     */
-/*  Accepts tcp://host[:port] for plain MQTT (default port 1883) and   */
-/*  ssl://host[:port] or mqtts://host[:port] for MQTT-over-TLS         */
-/*  (default port 8883).  A bare host[:port] without a scheme is also  */
-/*  accepted and treated as plain TCP.  Returns TRUE on success and    */
-/*  fills *out_host (caller frees), *out_port and *out_tls; returns    */
-/*  FALSE without modifying outputs on a malformed URL.                */
-/* ------------------------------------------------------------------ */
-
-static gboolean
-parse_mqtt_url (
-        const gchar *url,
-        gchar      **out_host,
-        int         *out_port,
-        gboolean    *out_tls)
-{
-    const gchar *p = url;
-    const gchar *colon;
-    gboolean     tls  = FALSE;
-    int          port;
-    gchar       *host;
-
-    if (url == NULL || *url == '\0')
-        return FALSE;
-
-    if (g_str_has_prefix (p, "tcp://"))
-    {
-        p   += 6;
-        tls  = FALSE;
-    }
-    else if (g_str_has_prefix (p, "ssl://"))
-    {
-        p   += 6;
-        tls  = TRUE;
-    }
-    else if (g_str_has_prefix (p, "mqtt://"))
-    {
-        p   += 7;
-        tls  = FALSE;
-    }
-    else if (g_str_has_prefix (p, "mqtts://"))
-    {
-        p   += 8;
-        tls  = TRUE;
-    }
-    /* Otherwise treat as bare host[:port] — be liberal in what we
-     * accept so a user typing just "mqtt.local:1883" into the URL
-     * field still works without learning the scheme syntax. */
-
-    /* Reject an empty host part (e.g. just "tcp://"). */
-    if (*p == '\0' || *p == ':' || *p == '/')
-        return FALSE;
-
-    port  = tls ? 8883 : 1883;
-    colon = strchr (p, ':');
-    if (colon != NULL)
-    {
-        gchar  *endp;
-        glong   parsed;
-
-        host = g_strndup (p, (gsize) (colon - p));
-        errno = 0;
-        parsed = strtol (colon + 1, &endp, 10);
-        if (errno != 0 || endp == colon + 1 || parsed <= 0 || parsed > 65535)
-        {
-            g_free (host);
-            return FALSE;
-        }
-        port = (int) parsed;
-    }
-    else
-    {
-        host = g_strdup (p);
-    }
-
-    *out_host = host;
-    *out_port = port;
-    *out_tls  = tls;
-    return TRUE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -523,114 +439,15 @@ build_mqtt_message (
         PnMqtt                          *self,
         const struct mosquitto_message  *m)
 {
-    PnMessage   *msg;
-    gchar       *payload = NULL;
-    gboolean     is_utf8 = FALSE;
-    gboolean     is_json = FALSE;
-    JsonNode    *json_root = NULL;
-    JsonParser  *parser  = NULL;
-    gchar       *output;
-    const gchar *topic_str = m->topic ? m->topic : "";
-
-    /* Envelope topic is the MQTT topic itself so what the Debug pane
-     * shows matches what the broker published, and a downstream Filter
-     * routes on the same string the user typed at the broker. */
-    msg = pn_message_new (PN_NODE (self), topic_str);
-
-    /* mosquitto_message.payload is not NUL-terminated; copy it out
-     * and decide whether the bytes are valid UTF-8 before exposing
-     * them as a string.  Binary payloads land as "". */
-    if (m->payloadlen > 0 && m->payload != NULL)
-    {
-        gchar *raw = g_strndup ((const gchar *) m->payload,
-                                (gsize) m->payloadlen);
-        if (g_utf8_validate (raw, (gssize) m->payloadlen, NULL))
-        {
-            payload = raw;
-            is_utf8 = TRUE;
-        }
-        else
-        {
-            g_free (raw);
-            payload = g_strdup ("");
-        }
-    }
-    else
-    {
-        payload = g_strdup ("");
-    }
-
-    pn_message_set_int     (msg, "qos",      m->qos);
-    pn_message_set_boolean (msg, "retained", m->retain);
-
-    /* Try to parse the payload as JSON so a Tasmota-style
-     * `{"Time":...,"AM2301":{...}}` lands on `data.payload` as a
-     * proper nested object the downstream Filter / Format nodes can
-     * pluck values out of with a `payload.AM2301.Temperature` path
-     * instead of having to peel a string-escaped JSON blob first. */
-    if (is_utf8 && payload[0] != '\0')
-    {
-        parser = json_parser_new ();
-        if (json_parser_load_from_data (parser, payload,
-                                        (gssize) m->payloadlen, NULL))
-        {
-            json_root = json_parser_get_root (parser);
-            if (json_root != NULL)
-                is_json = TRUE;
-        }
-    }
-
-    if (is_json)
-    {
-        /* json_node_copy detaches the root from the parser so we can
-         * destroy the parser right after; pn_message_set_member
-         * takes ownership of the copy. */
-        pn_message_set_member (msg, "payload", json_node_copy (json_root));
-
-        /* Bare JSON number → mirror onto data.value so a Graph just
-         * works without an extra Format step. */
-        if (JSON_NODE_HOLDS_VALUE (json_root) &&
-            (json_node_get_value_type (json_root) == G_TYPE_DOUBLE ||
-             json_node_get_value_type (json_root) == G_TYPE_INT64))
-        {
-            pn_message_set_double (msg, "value",
-                                   json_node_get_double (json_root));
-        }
-    }
-    else
-    {
-        pn_message_set_string (msg, "payload", payload);
-
-        /* Non-JSON best-effort numeric coercion: a bare `23.5` from a
-         * sensor that sends raw text rather than JSON still becomes
-         * data.value.  (JSON-number payloads already took the branch
-         * above.) */
-        if (is_utf8 && payload[0] != '\0')
-        {
-            gchar  *endptr;
-            gdouble v;
-            errno = 0;
-            v = g_ascii_strtod (payload, &endptr);
-            if (errno == 0 && endptr != payload && *endptr == '\0')
-                pn_message_set_double (msg, "value", v);
-        }
-    }
-
-    /* Short, human-readable summary suitable for the Debug pane's
-     * one-liner mode.  We deliberately do NOT inline the payload —
-     * it can be megabytes (camera image base64, firmware blobs,
-     * batched telemetry) and dumping it into the log gets unreadable
-     * fast.  A reader who wants the payload can drop the Debug node
-     * into JSON mode or wire a Format template. */
-    output = g_strdup_printf ("MQTT message on %s",
-                              *topic_str ? topic_str : "(no topic)");
-    pn_message_set_string  (msg, "output",  output);
-    pn_message_set_boolean (msg, "success", TRUE);
-
-    g_free (output);
-    g_free (payload);
-    g_clear_object (&parser);
-    return msg;
+    /* The decode/envelope logic lives in pn-mqtt-util.c so it can be
+     * unit-tested without a broker; here we just unpack the libmosquitto
+     * message struct into its plain fields. */
+    return pn_mqtt_build_message (PN_NODE (self),
+                                  m->topic,
+                                  (const guchar *) m->payload,
+                                  (gsize) m->payloadlen,
+                                  m->qos,
+                                  m->retain);
 }
 
 static void
@@ -715,7 +532,7 @@ restart_client (PnMqtt *self)
         return;
     }
 
-    if (!parse_mqtt_url (url, &host, &port, &tls))
+    if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
         g_warning ("pn-mqtt: invalid URL '%s'", url);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
