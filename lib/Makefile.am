@@ -113,6 +113,12 @@ libpipnode_core_la_SOURCES = \
 	pn-meshtastic.h \
 	pn-message.c \
 	pn-message.h \
+	pn-mqtt.c \
+	pn-mqtt.h \
+	pn-mqtt-sink.c \
+	pn-mqtt-sink.h \
+	pn-mqtt-profile.c \
+	pn-mqtt-profile.h \
 	pn-node.c \
 	pn-node.h \
 	pn-node-factory.c \
@@ -194,6 +200,7 @@ libpipnode_core_la_CFLAGS = \
 	$(LIBSOUP_CFLAGS) \
 	$(GMODULE_CFLAGS) \
 	$(GDK_PIXBUF_CFLAGS) \
+	$(MOSQUITTO_CFLAGS) \
 	-DPKGDATADIR=\"$(pkgdatadir)\" \
 	-DPKGLIBDIR=\"$(pkglibdir)\" \
 	-DSRCDIR=\"$(abs_top_srcdir)\" \
@@ -205,6 +212,7 @@ libpipnode_core_la_LIBADD = \
 	$(LIBSOUP_LIBS) \
 	$(GMODULE_LIBS) \
 	$(GDK_PIXBUF_LIBS) \
+	$(MOSQUITTO_LIBS) \
 	-lm
 
 libpipnode_core_la_LDFLAGS = -version-info 0:0:0 -no-undefined
@@ -412,6 +420,9 @@ pipnode_core_headers = \
 	pn-mesh-serial.h \
 	pn-meshtastic.h \
 	pn-message.h \
+	pn-mqtt.h \
+	pn-mqtt-sink.h \
+	pn-mqtt-profile.h \
 	pn-node.h \
 	pn-node-factory.h \
 	pn-node-store.h \

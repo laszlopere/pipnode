@@ -36,8 +36,6 @@
 #include "pn-dns.h"
 #include "pn-https-tunnel-receiver.h"
 #include "pn-https-tunnel-sender.h"
-#include "pn-mqtt.h"
-#include "pn-mqtt-sink.h"
 #include "pn-network-profiles.h"
 #include "pn-ping.h"
 
@@ -49,25 +47,23 @@ pn_plugin_init (PnNodeFactory *factory)
         .name        = "pipnode-network",
         .version     = "1.0.0",
         .description = "Bundled network nodes: Ping (ICMP echo), "
-                       "DNS Check (resolver health probe), HTTPS "
-                       "Tunnel Receiver and HTTPS Tunnel Sender — the "
-                       "two ends of a pipnode-to-pipnode message "
-                       "tunnel over HTTPS — and MQTT Source (broker "
-                       "subscriber) and MQTT Sink (broker publisher).",
+                       "DNS Check (resolver health probe), and HTTPS "
+                       "Tunnel Receiver / Sender — the two ends of a "
+                       "pipnode-to-pipnode message tunnel over HTTPS.  "
+                       "MQTT Source / Sink now live in core (the base "
+                       "class is meant to be subclassed by other plugins, "
+                       "which only works when its type is visible across "
+                       "plugin boundaries).",
     };
 
     /* Same registration order the factory's built-in pass used to
      * have, so the palette's Network category presents the two
      * probes in the order users have learned; the HTTPS Tunnel
-     * Receiver and Sender follow them as a paired receiver/sender,
-     * and the MQTT Source / Sink close out the category as a paired
-     * subscriber / publisher. */
+     * Receiver and Sender follow them as a paired receiver / sender. */
     pn_node_factory_register (factory, PN_TYPE_PING);
     pn_node_factory_register (factory, PN_TYPE_DNS);
     pn_node_factory_register (factory, PN_TYPE_HTTPS_TUNNEL_RECEIVER);
     pn_node_factory_register (factory, PN_TYPE_HTTPS_TUNNEL_SENDER);
-    pn_node_factory_register (factory, PN_TYPE_MQTT);
-    pn_node_factory_register (factory, PN_TYPE_MQTT_SINK);
 
     /* Declare the credential profile types these nodes reference so the
      * host (editor or headless runner) can provision and resolve them. */

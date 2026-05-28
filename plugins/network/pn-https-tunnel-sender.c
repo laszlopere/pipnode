@@ -463,9 +463,9 @@ migrate_legacy_credentials (gpointer data)
     values[0] = self->username ? self->username : "";
     values[1] = self->password ? self->password : "";
 
-    id = pn_network_import_profile (PN_NETWORK_PROFILE_HTTP_BASIC,
-                                    "HTTP auth",
-                                    names, values, G_N_ELEMENTS (names));
+    id = pn_vault_import_inline_profile (PN_NETWORK_PROFILE_HTTP_BASIC,
+                                         "HTTP auth",
+                                         names, values, G_N_ELEMENTS (names));
     if (id != NULL)
     {
         g_object_set (self, "auth-profile", id, NULL);

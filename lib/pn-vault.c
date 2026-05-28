@@ -589,6 +589,66 @@ pn_vault_delete_profile (PnVault *self, const gchar *id)
     pn_vault_schedule_save (self);
 }
 
+/* TRUE when @p already stores exactly the @n (@names,@values) pairs. */
+static gboolean
+inline_profile_matches (PnProfile          *p,
+                        const gchar *const *names,
+                        const gchar *const *values,
+                        guint               n)
+{
+    guint i;
+
+    for (i = 0; i < n; i++)
+    {
+        gchar       *cur  = pn_profile_get_string (p, names[i]);
+        const gchar *want = values[i] != NULL ? values[i] : "";
+        gboolean     eq   = g_strcmp0 (cur, want) == 0;
+        g_free (cur);
+        if (!eq)
+            return FALSE;
+    }
+    return TRUE;
+}
+
+gchar *
+pn_vault_import_inline_profile (const gchar        *type_id,
+                                const gchar        *suggested_name,
+                                const gchar *const *names,
+                                const gchar *const *values,
+                                guint               n)
+{
+    PnVault   *vault = pn_vault_get_default ();
+    GList     *existing, *l;
+    PnProfile *p;
+    guint      i;
+
+    g_return_val_if_fail (type_id != NULL, NULL);
+
+    /* Reuse a profile that already carries these exact values so repeated
+     * opens of the same legacy file do not pile up duplicates. */
+    existing = pn_vault_list_profiles (vault, type_id);
+    for (l = existing; l != NULL; l = l->next)
+    {
+        if (inline_profile_matches (l->data, names, values, n))
+        {
+            gchar *id = g_strdup (pn_profile_get_id (l->data));
+            g_list_free (existing);
+            return id;
+        }
+    }
+    g_list_free (existing);
+
+    p = pn_vault_create_profile (vault, type_id, suggested_name);
+    if (p == NULL)
+        return NULL;
+
+    for (i = 0; i < n; i++)
+        if (values[i] != NULL && *values[i] != '\0')
+            pn_profile_set_field (p, names[i], values[i]);
+
+    return g_strdup (pn_profile_get_id (p));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Profile identity                                                  */
 /* ------------------------------------------------------------------ */

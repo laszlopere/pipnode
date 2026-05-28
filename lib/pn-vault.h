@@ -142,6 +142,31 @@ PnProfile *pn_vault_create_profile (PnVault     *self,
  */
 void pn_vault_delete_profile (PnVault *self, const gchar *id);
 
+/**
+ * pn_vault_import_inline_profile:
+ * @type_id:        the profile type to find or create an instance of
+ * @suggested_name: a human name for a newly-created profile
+ * @names:  (array length=n): field names to match / set
+ * @values: (array length=n): the corresponding values (a %NULL entry is
+ *          treated as the empty string)
+ * @n:      number of fields
+ *
+ * Idempotently materialises a profile in the default vault for a legacy node
+ * carrying inline connection values: if a profile of @type_id already holds
+ * exactly these field values it is reused, otherwise a new one is created (and,
+ * if it is the first of its type, becomes the primary).  This is the one-time
+ * import that lets an old workflow's plaintext secret move into the 0600 vault
+ * the first time the file is opened.
+ *
+ * Returns: (transfer full) (nullable): the id of the matching or new profile,
+ *   or %NULL on failure.  Free with g_free().
+ */
+gchar *pn_vault_import_inline_profile (const gchar        *type_id,
+                                       const gchar        *suggested_name,
+                                       const gchar *const *names,
+                                       const gchar *const *values,
+                                       guint               n);
+
 /* ---- profile identity ------------------------------------------- */
 
 const gchar *pn_profile_get_id      (PnProfile *self);

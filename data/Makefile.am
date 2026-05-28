@@ -38,6 +38,9 @@ pnhelp_DATA = \
 	help/PnLed.html \
 	help/PnMatrix57.html \
 	help/PnMeshtastic.html \
+	help/PnMqtt.html \
+	help/PnMqttSink.html \
+	help/MqttBrokerProfile.html \
 	help/PnNotify.html \
 	help/PnNumeric.html \
 	help/PnPanelDisplay.html \

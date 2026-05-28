@@ -51,6 +51,9 @@
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-meshtastic.h"
+#include "pn-mqtt.h"
+#include "pn-mqtt-sink.h"
+#include "pn-mqtt-profile.h"
 #include "pn-notify.h"
 #include "pn-numeric.h"
 #include "pn-panel-display.h"
@@ -226,15 +229,24 @@ register_builtins (PnNodeFactory *self)
      * built .so the host loads at startup via
      * pn_node_factory_load_plugins_default(). */
 
-    /* Network.  Ping and DNS Check have moved out of the host
-     * binary into the bundled "pipnode-network" plugin under
-     * plugins/network — they are still registered with the same
-     * factory through the standard pn_plugin_init() entry point,
-     * just from a separately-built .so the host loads at startup
-     * via pn_node_factory_load_plugins_default().  Keeping HTTP and
-     * Meshtastic here for now since they are not yet relocated. */
+    /* Network.  Ping and DNS Check live in the bundled "pipnode-network"
+     * plugin under plugins/network — they reach the factory through the
+     * standard pn_plugin_init() entry point, just from a separately-built
+     * .so the host loads at startup via
+     * pn_node_factory_load_plugins_default().  MQTT Source and Sink were
+     * briefly hosted out of the plugin too, but the base class is meant
+     * to be subclassed by other plugins (a Zigbee2MQTT bridge, a Tasmota
+     * bridge, …) and that only works when the type is visible across
+     * plugin .so boundaries — which it is here in core but is not when
+     * it sits behind libtool's BIND_LOCAL in a sibling plugin.  So
+     * MQTT now lives alongside HTTP / Meshtastic / Weather, and the
+     * mqtt-broker profile schema (#pn_mqtt_register_profile_type)
+     * registers at the bottom of this function so the type is visible
+     * before any built-in MQTT-using node is constructed. */
     pn_node_factory_register (self, PN_TYPE_HTTP);
     pn_node_factory_register (self, PN_TYPE_MESHTASTIC);
+    pn_node_factory_register (self, PN_TYPE_MQTT);
+    pn_node_factory_register (self, PN_TYPE_MQTT_SINK);
     pn_node_factory_register (self, PN_TYPE_WEATHER);
 
     /* Filters. */
@@ -289,6 +301,12 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_SOUND);
     pn_node_factory_register (self, PN_TYPE_TTS);
     pn_node_factory_register (self, PN_TYPE_NOTIFY);
+
+    /* Built-in profile schemas.  Declared with the factory so the host
+     * (editor or headless runner) can provision and resolve them; the
+     * MQTT Source / Sink reference this type, as does any out-of-tree
+     * subclass of #PnMqtt. */
+    pn_mqtt_register_profile_type (self);
 }
 
 /* ------------------------------------------------------------------ */

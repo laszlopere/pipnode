@@ -19,10 +19,6 @@ pipnode_network_la_SOURCES = \
 	pn-https-tunnel-receiver.h \
 	pn-https-tunnel-sender.c \
 	pn-https-tunnel-sender.h \
-	pn-mqtt.c \
-	pn-mqtt.h \
-	pn-mqtt-sink.c \
-	pn-mqtt-sink.h \
 	pn-network-profiles.c \
 	pn-network-profiles.h \
 	pn-ping.c \
@@ -39,7 +35,6 @@ pipnode_network_la_CFLAGS = \
 	$(GMODULE_CFLAGS) \
 	$(LIBSOUP_CFLAGS) \
 	$(GNUTLS_CFLAGS) \
-	$(MOSQUITTO_CFLAGS) \
 	-I$(top_srcdir)/lib
 
 # -module      : produce a loadable module (no `lib` prefix);
@@ -57,8 +52,7 @@ pipnode_network_la_LIBADD = \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS) \
 	$(LIBSOUP_LIBS) \
-	$(GNUTLS_LIBS) \
-	$(MOSQUITTO_LIBS)
+	$(GNUTLS_LIBS)
 
 # Per-node help pages.  Installed into the same flat
 # $(pkgdatadir)/help/ directory the host's data/Makefile.am ships its
@@ -72,9 +66,6 @@ pnhelp_DATA = \
 	help/PnDns.html \
 	help/PnHttpsTunnelReceiver.html \
 	help/PnHttpsTunnelSender.html \
-	help/PnMqtt.html \
-	help/PnMqttSink.html \
-	help/MqttBrokerProfile.html \
 	help/HttpBasicAuthProfile.html
 
 EXTRA_DIST = $(pnhelp_DATA)

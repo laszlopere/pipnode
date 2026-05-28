@@ -93,7 +93,7 @@ test_node_class_init (TestNodeClass *klass)
     g_object_class_install_property (oc, PROP_BROKER,
                                     test_node_props[PROP_BROKER]);
 
-    pn_param_spec_set_profile_ref (test_node_props[PROP_BROKER], "mqtt-broker");
+    pn_param_spec_set_profile_ref (test_node_props[PROP_BROKER], "test-broker");
 }
 
 static void
@@ -119,11 +119,11 @@ test_create_and_read (void)
 {
     gchar     *path = tmp_file ("create.json");
     PnVault   *v    = pn_vault_new_for_path (path);
-    PnProfile *p    = pn_vault_create_profile (v, "mqtt-broker", "Home");
+    PnProfile *p    = pn_vault_create_profile (v, "test-broker", "Home");
     gchar     *url;
 
     PN_CHECK (p != NULL);
-    PN_CHECK_CMPSTR (pn_profile_get_type_id (p), ==, "mqtt-broker");
+    PN_CHECK_CMPSTR (pn_profile_get_type_id (p), ==, "test-broker");
     PN_CHECK_CMPSTR (pn_profile_get_name (p), ==, "Home");
     PN_CHECK_CMPSTR (pn_profile_get_id (p), ==, "home");   /* slugified */
 
@@ -145,7 +145,7 @@ test_resolution_precedence (void)
 {
     gchar     *path = tmp_file ("resolve.json");
     PnVault   *v    = pn_vault_new_for_path (path);
-    PnProfile *p    = pn_vault_create_profile (v, "mqtt-broker", "Home");
+    PnProfile *p    = pn_vault_create_profile (v, "test-broker", "Home");
     gchar     *s;
 
     /* (1) nothing stored -> schema default */
@@ -186,7 +186,7 @@ test_bool_and_permission (void)
 {
     gchar     *path = tmp_file ("bool.json");
     PnVault   *v    = pn_vault_new_for_path (path);
-    PnProfile *p    = pn_vault_create_profile (v, "mqtt-broker", "Home");
+    PnProfile *p    = pn_vault_create_profile (v, "test-broker", "Home");
 
     /* a permission is denied until explicitly granted */
     PN_CHECK_FALSE (pn_profile_get_permission (p, "control"));
@@ -212,7 +212,7 @@ test_file_is_0600 (void)
     PnVault  *v    = pn_vault_new_for_path (path);
     GStatBuf  st;
 
-    pn_vault_create_profile (v, "mqtt-broker", "Home");   /* triggers a save */
+    pn_vault_create_profile (v, "test-broker", "Home");   /* triggers a save */
 
     PN_CHECK_CMPINT (g_stat (path, &st), ==, 0);
     PN_CHECK_CMPINT ((gint) (st.st_mode & 0777), ==, 0600);
@@ -228,7 +228,7 @@ test_roundtrip (void)
 
     {
         PnVault   *v = pn_vault_new_for_path (path);
-        PnProfile *p = pn_vault_create_profile (v, "mqtt-broker", "Home");
+        PnProfile *p = pn_vault_create_profile (v, "test-broker", "Home");
         pn_profile_set_field (p, "url", "tcp://x:1883");
         pn_profile_set_field (p, "password", "s3cr3t");
         g_object_unref (v);
@@ -257,20 +257,20 @@ test_default_profile (void)
     PnVault   *v    = pn_vault_new_for_path (path);
     PnProfile *a, *b;
 
-    PN_CHECK (pn_vault_get_default_profile (v, "mqtt-broker") == NULL);
+    PN_CHECK (pn_vault_get_default_profile (v, "test-broker") == NULL);
 
-    a = pn_vault_create_profile (v, "mqtt-broker", "Home");   /* first = primary */
-    PN_CHECK (pn_vault_get_default_profile (v, "mqtt-broker") == a);
+    a = pn_vault_create_profile (v, "test-broker", "Home");   /* first = primary */
+    PN_CHECK (pn_vault_get_default_profile (v, "test-broker") == a);
 
-    b = pn_vault_create_profile (v, "mqtt-broker", "Work");
-    PN_CHECK (pn_vault_get_default_profile (v, "mqtt-broker") == a); /* unchanged */
+    b = pn_vault_create_profile (v, "test-broker", "Work");
+    PN_CHECK (pn_vault_get_default_profile (v, "test-broker") == a); /* unchanged */
 
     pn_vault_set_default_profile (v, pn_profile_get_id (b));
-    PN_CHECK (pn_vault_get_default_profile (v, "mqtt-broker") == b);
+    PN_CHECK (pn_vault_get_default_profile (v, "test-broker") == b);
 
     /* deleting the primary clears the mapping; the lone survivor is primary */
     pn_vault_delete_profile (v, pn_profile_get_id (b));
-    PN_CHECK (pn_vault_get_default_profile (v, "mqtt-broker") == a);
+    PN_CHECK (pn_vault_get_default_profile (v, "test-broker") == a);
 
     g_object_unref (v);
     g_free (path);
@@ -282,8 +282,8 @@ test_node_ref_resolution (void)
     /* The node bridge uses the process-wide singleton, bound in main() to a
      * temp file via PIPNODE_CREDENTIALS_FILE. */
     PnVault   *v    = pn_vault_get_default ();
-    PnProfile *home = pn_vault_create_profile (v, "mqtt-broker", "Primary");
-    PnProfile *work = pn_vault_create_profile (v, "mqtt-broker", "Other");
+    PnProfile *home = pn_vault_create_profile (v, "test-broker", "Primary");
+    PnProfile *work = pn_vault_create_profile (v, "test-broker", "Other");
     TestNode  *n    = g_object_new (TEST_TYPE_NODE, NULL);
 
     /* empty ref -> the type's primary */
@@ -303,7 +303,7 @@ test_node_ref_resolution (void)
 static void
 register_test_schema (void)
 {
-    PnProfileSchema *s = pn_profile_schema_new ("mqtt-broker", "MQTT Broker");
+    PnProfileSchema *s = pn_profile_schema_new ("test-broker", "Test Broker");
 
     pn_profile_schema_field (s, "url",      "URL",      PN_FIELD_STRING);
     pn_profile_schema_field (s, "username", "Username", PN_FIELD_STRING);

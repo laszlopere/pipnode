@@ -24,7 +24,7 @@
 #include "pn-subst.h"
 #include "pn-flow.h"
 #include "pn-vault.h"
-#include "pn-network-profiles.h"
+#include "pn-mqtt-profile.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -919,8 +919,8 @@ migrate_legacy_credentials (gpointer data)
     values[2] = self->password  ? self->password  : "";
     values[3] = self->client_id ? self->client_id : "";
 
-    id = pn_network_import_profile (
-            PN_NETWORK_PROFILE_MQTT_BROKER,
+    id = pn_vault_import_inline_profile (
+            PN_PROFILE_TYPE_MQTT_BROKER,
             (self->url != NULL && *self->url != '\0') ? self->url
                                                       : "MQTT broker",
             names, values, G_N_ELEMENTS (names));
@@ -1030,7 +1030,7 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
-                                   PN_NETWORK_PROFILE_MQTT_BROKER);
+                                   PN_PROFILE_TYPE_MQTT_BROKER);
 
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",

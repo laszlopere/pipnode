@@ -99,7 +99,9 @@ check_PROGRAMS = \
 	test-pn-ws \
 	test-pn-mesh-pb \
 	test-pn-mesh-frame \
-	test-pn-mesh-qr
+	test-pn-mesh-qr \
+	test-pn-mqtt \
+	test-pn-mqtt-sink
 
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
@@ -194,5 +196,8 @@ test_pn_df_command_SOURCES = test-pn-df-command.c pntest.c pntest.h \
 test_pn_lxc_ls_command_SOURCES = test-pn-lxc-ls-command.c pntest.c pntest.h \
 	$(top_srcdir)/plugins/shell/pn-lxc-ls-command.c \
 	$(top_srcdir)/plugins/shell/pn-shell-host.c
+
+test_pn_mqtt_SOURCES      = test-pn-mqtt.c      pntest.c pntest.h
+test_pn_mqtt_sink_SOURCES = test-pn-mqtt-sink.c pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
