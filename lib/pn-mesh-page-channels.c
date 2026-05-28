@@ -656,8 +656,10 @@ build_channel_row (GtkWidget           *page,
     gtk_widget_set_size_request (badge, 90, -1);
     gtk_grid_attach (GTK_GRID (grid), badge, 3, 0, 1, 1);
 
-    /* Column 4: Delete button.  Sensitive only for SECONDARY rows. */
-    del = gtk_button_new_from_icon_name ("edit-delete",
+    /* Column 4: Delete button.  Sensitive only for SECONDARY rows.
+     * Trash-can glyph reads as "discard" more clearly than the
+     * generic edit-delete eraser does. */
+    del = gtk_button_new_from_icon_name ("user-trash-symbolic",
                                          GTK_ICON_SIZE_BUTTON);
     gtk_widget_set_tooltip_text (
             del,
@@ -798,6 +800,16 @@ pn_mesh_page_channels_new (void)
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
                                     GTK_POLICY_NEVER,
                                     GTK_POLICY_AUTOMATIC);
+    /* Floor at ~6 rows and propagate natural height so the page is
+     * tall enough to actually display the device's eight slots before
+     * scrolling.  Without the min the scrolled window's natural is 0
+     * and the FALSE-FALSE-packed Channels expander gets allocated
+     * only its non-list children's height — pinning the list at a
+     * single row. */
+    gtk_scrolled_window_set_min_content_height (
+            GTK_SCROLLED_WINDOW (scrolled), 220);
+    gtk_scrolled_window_set_propagate_natural_height (
+            GTK_SCROLLED_WINDOW (scrolled), TRUE);
     gtk_widget_set_vexpand (scrolled, TRUE);
 
     list = gtk_list_box_new ();
@@ -807,6 +819,11 @@ pn_mesh_page_channels_new (void)
         GtkStyleContext *sc = gtk_widget_get_style_context (list);
         gtk_style_context_add_class (sc, "frame");
     }
+    /* Belt-and-braces: an explicit min size on the listbox itself in
+     * case any parent in the expander/notebook nesting negotiates the
+     * scrolled window's hints down. */
+    gtk_widget_set_size_request (list, -1, 200);
+    gtk_widget_set_vexpand (list, TRUE);
     gtk_container_add (GTK_CONTAINER (scrolled), list);
     gtk_box_pack_start (GTK_BOX (page), scrolled, TRUE, TRUE, 0);
 
