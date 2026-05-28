@@ -249,6 +249,35 @@ on_apply_clicked (GtkButton *button, gpointer user_data)
 /*  Construction                                                        */
 /* ------------------------------------------------------------------ */
 
+#define VALUE_MIN_WIDTH 260
+
+static void
+on_cell_realize (GtkWidget *cell, gpointer user_data)
+{
+    GtkSizeGroup *sg = user_data;
+    GList        *children = gtk_container_get_children (GTK_CONTAINER (cell));
+
+    if (children != NULL) {
+        GtkWidget *first = children->data;
+        gtk_widget_set_size_request (first, VALUE_MIN_WIDTH, -1);
+        gtk_size_group_add_widget (sg, first);
+    }
+    g_list_free (children);
+    g_signal_handlers_disconnect_by_func (cell, on_cell_realize, sg);
+}
+
+static GtkSizeGroup *
+get_value_size_group (GtkGrid *grid)
+{
+    GtkSizeGroup *sg = g_object_get_data (G_OBJECT (grid), "value-sg");
+    if (sg == NULL) {
+        sg = gtk_size_group_new (GTK_SIZE_GROUP_HORIZONTAL);
+        g_object_set_data_full (G_OBJECT (grid), "value-sg",
+                                sg, g_object_unref);
+    }
+    return sg;
+}
+
 static GtkWidget *
 add_row (GtkGrid *grid, gint row, const gchar *label_text,
          const gchar *tooltip)
@@ -270,6 +299,9 @@ add_row (GtkGrid *grid, gint row, const gchar *label_text,
     cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_hexpand (cell, TRUE);
     gtk_grid_attach (grid, cell, 1, row, 1, 1);
+    g_signal_connect (cell, "realize",
+                      G_CALLBACK (on_cell_realize),
+                      get_value_size_group (grid));
     return cell;
 }
 
