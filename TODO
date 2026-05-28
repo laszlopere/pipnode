@@ -648,11 +648,13 @@ lives here so future sessions can pick up without re-reading chat):
     [ ] Phase 7  Test page. Channel picker + message entry + Send;
                  below, a live "Incoming traffic" log running monitor
                  on the open connection. Auto-stops on dialog close.
-    [ ] Phase 9  Modules tab + External Notification (the "stop
-                 the beeping" fix).  pip-mesh never touched
-                 ModuleConfig at all; we want the full module
-                 surface eventually, starting with the one users
-                 most often need to disable (nag_timeout +
+    [x] Phase 9  Modules tab + External Notification (the "stop
+                 the beeping" fix) -- shipped under Notifications
+                 tab via the 7-tab layout (see Phase 10 note); the
+                 sidebar plan below is historical.  pip-mesh never
+                 touched ModuleConfig at all; we want the full
+                 module surface eventually, starting with the one
+                 users most often need to disable (nag_timeout +
                  enabled).  Concrete steps:
 
                  (a) Wire defines: FR_MODULE_CONFIG=9 (FromRadio
@@ -714,18 +716,27 @@ lives here so future sessions can pick up without re-reading chat):
                  intentionally NOT written -- the firmware
                  ignores it.
 
-    [ ] Phase 11 Remaining modules (and Notifications-tab
-                 siblings).  Serial (Network tab); Telemetry,
-                 Neighbor Info, Detection Sensor, Range Test,
-                 Paxcounter (Telemetry tab); Canned Message,
-                 Status Message, Audio, Ambient Lighting
-                 (Notifications tab); Store & Forward, Traffic
-                 Management, Remote Hardware, Display (the
-                 Config block, not a module), TAK (Mesh tools
-                 tab).  Each follows the Phase 10 pattern.
-                 Sub-messages that the UI doesn't expose go via
-                 the opaque-bytes round-trip introduced in
-                 Phase 10 (PnMeshState->mqtt_map_report_settings).
+    [-] Phase 11 Remaining modules.  POSTPONED to a later
+                 revision (decided 2026-05-28).  No donor code
+                 in pip-mesh; each module is a fresh page on the
+                 Phase 10 pattern, and none of the leftovers are
+                 must-haves for the unbox-to-test-message goal.
+                 Candidates if/when this comes back:
+                 Serial (Network tab); Neighbor Info, Detection
+                 Sensor, Range Test, Paxcounter (Telemetry tab);
+                 Canned Message, Audio, Ambient Lighting
+                 (Notifications tab); Store & Forward, Remote
+                 Hardware, TAK (Mesh tools tab).  Sub-messages
+                 that the UI doesn't expose go via the opaque-
+                 bytes round-trip introduced in Phase 10
+                 (PnMeshState->mqtt_map_report_settings).
+                 Notes on TODO transcription slips found while
+                 descoping: "Status Message" is not a real
+                 ModuleConfig sub-block; "Traffic Management"
+                 is rebroadcast_mode inside DeviceConfig
+                 (covered by Phase 14); "Display" is a Config
+                 sub-block (was covered by Phase 13, now also
+                 postponed -- see below).
 
     [ ] Phase 12 Position + Power config tabs.  Two new tabs
                  (or one grouped tab) for the Config sub-blocks
@@ -736,10 +747,14 @@ lives here so future sessions can pick up without re-reading chat):
                  ...).  Uses set_config (already wired for
                  LoRa) at field 34.
 
-    [ ] Phase 13 Display + Bluetooth config tabs.  DisplayConfig
-                 (13 fields: screen_on_secs, flip_screen, units,
-                 use_12h_clock, ...) and BluetoothConfig
-                 (3 fields: enabled, mode, fixed_pin).
+    [-] Phase 13 Display + Bluetooth config tabs.  POSTPONED
+                 to a later revision (decided 2026-05-28) --
+                 lower payoff than Phases 7/12/14 for the unbox
+                 flow; revisit alongside any Phase 11 module
+                 work.  DisplayConfig (13 fields: screen_on_secs,
+                 flip_screen, units, use_12h_clock, ...) and
+                 BluetoothConfig (3 fields: enabled, mode,
+                 fixed_pin).
 
     [ ] Phase 14 Device + Network + Security config tabs.
                  DeviceConfig (13 fields: role, GPIO assignments,
@@ -752,13 +767,13 @@ lives here so future sessions can pick up without re-reading chat):
                  so the page should have an "I understand"
                  confirmation before Apply.
 
-    [ ] Phase 8  Plugin extraction (separate work). Move
-                 lib/devices/meshtastic/ into the meshtastic plugin's
-                 GUI companion. Add PnDeviceProvider in core so the
-                 menu populates from registered plugins instead of
-                 hardcoding "Meshtastic". Add a "Set up device..."
-                 affordance on PnMeshtastic nodes that pre-picks the
-                 device in the dialog.
+Phase 8 (Plugin extraction) is no longer tracked under TODO #29 --
+moved out 2026-05-28: it is its own cross-cutting project (Devices
+menu becomes plugin-driven via a new PnDeviceProvider core API; the
+meshtastic dialog code migrates into the meshtastic plugin's GUI
+companion; PnMeshtastic nodes gain a "Set up device..." affordance
+that pre-picks the device).  Will get its own TODO entry when picked
+up.
 
 Gotchas worth re-reading before each phase (from pip-mesh, costly to
 rediscover): always drain stale bytes before any handshake; never
