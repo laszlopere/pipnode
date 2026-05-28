@@ -17,6 +17,7 @@
 #define PN_MQTT_H
 
 #include "pn-node.h"
+#include "pn-message.h"
 
 G_BEGIN_DECLS
 
@@ -40,11 +41,71 @@ G_BEGIN_DECLS
 /*    - #PnMqtt:client-id – optional MQTT client id; auto-generated    */
 /*                          when left empty                            */
 /*    - #PnMqtt:qos     – subscription QoS (0..2)                      */
+/*                                                                     */
+/*  Subclassing:                                                       */
+/*                                                                     */
+/*    Device-specific source nodes (e.g. a Zigbee2MQTT bridge that     */
+/*    talks the broker but ignores topics outside `zigbee2mqtt/...`,   */
+/*    or that wants to collect aggregate state from many topics into   */
+/*    one reshaped message) subclass PnMqtt and override the two       */
+/*    class vfuncs below.  The connect / subscribe / reconnect /       */
+/*    visual-state machinery stays in the base; the subclass only sees */
+/*    decoded messages and can drop or reshape them.                   */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_MQTT (pn_mqtt_get_type ())
 
-G_DECLARE_FINAL_TYPE (PnMqtt, pn_mqtt, PN, MQTT, PnNode)
+G_DECLARE_DERIVABLE_TYPE (PnMqtt, pn_mqtt, PN, MQTT, PnNode)
+
+/* ------------------------------------------------------------------ */
+/*  PnMqttClass                                                        */
+/*                                                                     */
+/*  Two extension points let a subclass observe -- and shape -- the   */
+/*  stream of inbound publishes without touching libmosquitto.        */
+/* ------------------------------------------------------------------ */
+
+struct _PnMqttClass
+{
+    PnNodeClass parent_class;
+
+    /* Early topic filter.  Called as soon as a PUBLISH lands, BEFORE
+     * the base builds a #PnMessage for it.  Returning %FALSE drops the
+     * publish on the spot, skipping the JSON parse / message build /
+     * main-thread marshal cost — the right hook for "ignore everything
+     * outside topic prefix X" style filtering.
+     *
+     * THREAD: called on libmosquitto's network thread.  The
+     * implementation must not touch GObject state without external
+     * synchronisation; reading subclass config that was set once at
+     * construction and never mutated is safe.  Default accepts every
+     * topic. */
+    gboolean (*accept_topic)    (PnMqtt      *self,
+                                 const gchar *topic);
+
+    /* Late hook on the fully-built message.  Called on the main thread,
+     * after the base has decoded the publish into @message and BEFORE
+     * the node emits it downstream.  Mutate @message in place to
+     * reshape it (rewrite the envelope topic, add bag members, replace
+     * data.value, …); return %FALSE to drop the message without
+     * emitting.  Default emits as-is.
+     *
+     * The base owns @message and frees it after this returns. */
+    gboolean (*process_message) (PnMqtt     *self,
+                                 PnMessage  *message);
+
+    /* Reserved slots so adding more vfuncs later does not break the
+     * ABI of out-of-tree plugins built against this header. */
+    gpointer _reserved[6];
+};
+
+/* Default vfunc implementations exposed so a subclass override that
+ * wants to extend (rather than replace) the base behaviour can call up
+ * to them.  Both currently return %TRUE; subclasses chain to these to
+ * stay future-proof against the defaults gaining real behaviour. */
+gboolean pn_mqtt_real_accept_topic    (PnMqtt      *self,
+                                       const gchar *topic);
+gboolean pn_mqtt_real_process_message (PnMqtt      *self,
+                                       PnMessage   *message);
 
 PnMqtt *pn_mqtt_new (void);
 
