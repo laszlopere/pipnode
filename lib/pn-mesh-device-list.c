@@ -46,6 +46,11 @@ typedef struct
     GCancellable *cancellable;   /* cancels an in-flight scan on teardown  */
     gboolean      scanning;
 
+    /* TRUE only for the initial auto-scan kicked off at construction;
+     * consumed in on_scan_done to auto-activate the first device row.
+     * Manual rescans (user-clicked) leave the current selection alone. */
+    gboolean      auto_select_pending;
+
     /* Optional consumer wired in by the dialog to learn about row
      * activations.  Set via pn_mesh_device_list_set_activated_callback. */
     PnMeshDeviceActivatedFunc activated_cb;
@@ -55,6 +60,8 @@ typedef struct
 static void on_row_activated_thunk (GtkListBox    *box,
                                     GtkListBoxRow *row,
                                     gpointer       user_data);
+
+static gboolean idle_start_initial_scan (gpointer user_data);
 
 static void
 device_list_ctx_free (gpointer data)
@@ -206,6 +213,25 @@ on_scan_done (GObject *source, GAsyncResult *result, gpointer user_data)
                 ? "empty-result" : "list");
 
     set_scanning (ctx, FALSE);
+
+    /* Initial auto-scan: pick the first row and fire the dialog's
+     * activated callback as if the user had double-clicked it.  Only
+     * happens once -- user-triggered rescans do not steal the
+     * selection. */
+    if (ctx->auto_select_pending)
+    {
+        GtkListBoxRow *first = gtk_list_box_get_row_at_index (ctx->list, 0);
+        ctx->auto_select_pending = FALSE;
+        if (first != NULL)
+        {
+            PnMeshDevice *device =
+                    g_object_get_data (G_OBJECT (first),
+                                       PN_MESH_ROW_DEVICE_QDATA);
+            gtk_list_box_select_row (ctx->list, first);
+            if (device != NULL && ctx->activated_cb != NULL)
+                ctx->activated_cb (device, ctx->activated_user_data);
+        }
+    }
 }
 
 static void
@@ -227,6 +253,18 @@ on_scan_clicked (GtkButton *button, gpointer user_data)
     ctx->cancellable = g_cancellable_new ();
 
     pn_mesh_discover_async (ctx->cancellable, on_scan_done, ctx);
+}
+
+/* One-shot idle: fire the same code path as a user click so the dialog
+ * lands on a scanning state immediately after opening. */
+static gboolean
+idle_start_initial_scan (gpointer user_data)
+{
+    DeviceListCtx *ctx = user_data;
+
+    if (!ctx->scanning)
+        on_scan_clicked (GTK_BUTTON (ctx->scan_button), ctx);
+    return G_SOURCE_REMOVE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,6 +389,14 @@ pn_mesh_device_list_new (void)
                       G_CALLBACK (on_scan_clicked), ctx);
     g_signal_connect (list, "row-activated",
                       G_CALLBACK (on_row_activated_thunk), ctx);
+
+    /* Kick off the initial scan once the dialog has finished
+     * constructing (so the dialog has had a chance to wire its
+     * activated callback).  The g_idle defers to the next main-loop
+     * iteration, by which time pn_mesh_device_list_set_activated_callback
+     * has been called. */
+    ctx->auto_select_pending = TRUE;
+    g_idle_add (idle_start_initial_scan, ctx);
 
     return root;
 }
