@@ -862,7 +862,9 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             gtk_widget_show (spinner);
             gtk_box_pack_start (GTK_BOX (box), spinner, FALSE, FALSE, 0);
 
-            label = gtk_label_new ("Talking to device…");
+            label = gtk_label_new (NULL);
+            gtk_label_set_markup (GTK_LABEL (label),
+                    "<b><span size=\"large\">Talking to device…</span></b>");
             gtk_widget_show (label);
             gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
 
