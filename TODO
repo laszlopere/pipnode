@@ -645,9 +645,23 @@ lives here so future sessions can pick up without re-reading chat):
                  prefix.  Wrapping selectable GtkLabel was the
                  right widget; reuse it for any other "show me
                  this URL" affordance instead of an entry.
-    [ ] Phase 7  Test page. Channel picker + message entry + Send;
+    [x] Phase 7  Test page. Channel picker + message entry + Send;
                  below, a live "Incoming traffic" log running monitor
                  on the open connection. Auto-stops on dialog close.
+                 Shipped as the Diagnostics tab's "Test" expander
+                 alongside Known Nodes; PORTNUM_TEXT_MESSAGE_APP =1
+                 wire defines on the ToRadio side, MeshPacket parser
+                 on the FromRadio side queues PnMeshTextEvent records
+                 the dialog drains via a 200 ms timer
+                 (pump_monitor + take_text_event).  Synthesised
+                 "outgoing" events are echoed back from
+                 send_text_sync so a single transcript shows both
+                 directions.  Per dialog-lifetime rule the monitor
+                 timer is owned by MeshDialogCtx (start in
+                 on_connection_ready, stop in drop_connection /
+                 dialog dispose), and pump_monitor is skipped while
+                 any write is in flight via the busy_count so the
+                 frame reader does not race the worker thread.
     [x] Phase 9  Modules tab + External Notification (the "stop
                  the beeping" fix) -- shipped under Notifications
                  tab via the 7-tab layout (see Phase 10 note); the
@@ -738,14 +752,100 @@ lives here so future sessions can pick up without re-reading chat):
                  sub-block (was covered by Phase 13, now also
                  postponed -- see below).
 
-    [ ] Phase 12 Position + Power config tabs.  Two new tabs
-                 (or one grouped tab) for the Config sub-blocks
-                 PositionConfig (13 fields: gps_enabled,
-                 position_broadcast_secs, fixed_position,
-                 gps_update_interval, ...) and PowerConfig
-                 (8 fields: is_power_saving, sds_secs, ls_secs,
-                 ...).  Uses set_config (already wired for
-                 LoRa) at field 34.
+    [x] Phase 12 Position + Power config tabs.  Shipped as two
+                 new GtkExpanders distributed across the existing
+                 7-tab layout rather than dedicated tabs -- Power
+                 sits under "Device" alongside Identity, Position
+                 sits under "Radio" after Region / Channels / Share.
+                 Both reuse the LoRa pattern: read whole sub-block
+                 during the handshake, mutate one or more fields,
+                 ship every typed field back at once via
+                 AM_SET_CONFIG=34 wrapped in Config{<sub>}.
+
+                 Wire side (pn-mesh-connection.[ch]): CFG_POSITION
+                 =2 and CFG_POWER=3 dispatch in parse_config; POS_*
+                 / POW_* field defines mirror the Meshtastic proto;
+                 parse_position_config / parse_power_config follow
+                 parse_lora_config's shape.  PnMeshState gains 13
+                 pos_* and 9 pow_* fields plus have_position /
+                 have_power flags.  Two new writer pairs --
+                 PnMeshPositionConfigWrite + set_position_config_*,
+                 PnMeshPowerConfigWrite + set_power_config_* --
+                 share two helpers (send_set_config_subblock and
+                 finish_set_config) extracted from set_lora_config
+                 so the second writer collapses to a per-field
+                 write loop + one call.  Power's
+                 adc_multiplier_override is the project's first
+                 float-on-the-wire field; written via
+                 pn_mesh_pb_write_fixed32_field with a union punning
+                 trick, read via pn_mesh_pb_read_float.
+
+                 UI side: pn-mesh-page-position.[c,h] and
+                 pn-mesh-page-power.[c,h] are direct clones of
+                 pn-mesh-page-region.[c,h]: subtitle + grid of
+                 bold-label / control rows + right-aligned Apply
+                 button at the bottom; ctx struct with all widget
+                 handles + status / busy callbacks + writing flag;
+                 set_writing toggles every control's sensitivity in
+                 one shot and emits busy(TRUE/FALSE) on transition;
+                 set_state mirrors the device state into the
+                 controls and stashes round-trip-only fields
+                 (position_flags, the GPIOs, the legacy gps_enabled
+                 vs gps_mode pair, the INA address) in ctx so Apply
+                 ships them back unchanged.
+
+                 Position page exposes GPS mode (combo: DISABLED /
+                 ENABLED / NOT_PRESENT), the legacy gps_enabled
+                 boolean synced from mode at Apply-time so older
+                 firmware keeps consistent state, fixed_position
+                 switch, smart-broadcast switch + its min-distance
+                 (m) and min-interval (s) thresholds, plus
+                 position_broadcast_secs and gps_update_interval.
+                 GPIO assignments are deliberately NOT surfaced as
+                 controls -- they are board-specific and the user
+                 is more likely to set them via the firmware
+                 console than the dialog; round-trip preserves
+                 them anyway.
+
+                 Power page exposes is_power_saving switch,
+                 on_battery_shutdown_after_secs,
+                 adc_multiplier_override (float spinner, 3-digit
+                 precision, 0 = firmware default),
+                 wait_bluetooth_secs, sds_secs, ls_secs,
+                 min_wake_secs; device_battery_ina_address is
+                 round-tripped only.  powermon_enables (field 32)
+                 is a debug-only flag the dialog ignores -- same
+                 caveat the LoRa page carries for spread_factor
+                 etc.  It gets proto3-zero-reset on Apply (rare;
+                 no end-user touched it via the GUI), document
+                 if a user reports it.
+
+                 Gotchas for the next Config sub-block writer
+                 (Phase 14):
+
+                 (i) Float on the wire uses
+                 pn_mesh_pb_write_fixed32_field with a union to
+                 reinterpret bits; pn_mesh_pb_read_float
+                 reciprocates.  Do NOT write a varint -- proto's
+                 float wire type is fixed32 (wire 5), and a varint
+                 of the bit pattern would be read as garbage.
+
+                 (ii) Signed int32 fields on the wire encode
+                 negative values as 10-byte sign-extended varints.
+                 The dialog's smart-min-distance spinner clamps to
+                 0 so the path is never hit in practice, but the
+                 writer still casts gint32 -> gint64 -> guint64
+                 before pn_mesh_pb_write_varint_field so the
+                 contract is correct for any signed field added
+                 later.
+
+                 (iii) The pattern is: parse all fields the
+                 firmware sends, expose only the practically-
+                 useful ones in the UI, stash the rest in ctx and
+                 ship them back unchanged.  This avoids the
+                 proto3-defaults trap and keeps board-specific /
+                 advanced settings intact without bloating the
+                 page.
 
     [-] Phase 13 Display + Bluetooth config tabs.  POSTPONED
                  to a later revision (decided 2026-05-28) --

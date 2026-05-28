@@ -159,7 +159,12 @@
 /* FromRadio.config / AdminMessage.set_config wraps a Config message. */
 #define FR_CONFIG               5
 
-/* Config sub-fields (one of these is set per Config block). */
+/* Config sub-fields (one of these is set per Config block).  The
+ * upstream Config message numbers its oneof variants device=1,
+ * position=2, power=3, network=4, display=5, lora=6, bluetooth=7,
+ * security=8; we wire the ones the dialog touches. */
+#define CFG_POSITION            2
+#define CFG_POWER               3
 #define CFG_LORA                6
 
 /* LoRaConfig.  Numbering jumps from 2 -> 7 because the upstream
@@ -173,6 +178,36 @@
 #define LORA_TX_ENABLED         9
 #define LORA_TX_POWER          10
 #define LORA_CHANNEL_NUM       11
+
+/* PositionConfig fields.  Numbering skips 5 (deprecated
+ * gps_attempt_time) and 7 (deprecated location_share).  gps_enabled
+ * (3) is upstream-deprecated in favour of gps_mode (14) but still
+ * round-tripped so older firmware keeps a sane GPS state. */
+#define POS_POSITION_BROADCAST_SMART_ENABLED   1
+#define POS_FIXED_POSITION                     2
+#define POS_GPS_ENABLED                        3
+#define POS_GPS_UPDATE_INTERVAL                4
+#define POS_POSITION_BROADCAST_SECS            6
+#define POS_POSITION_FLAGS                     8
+#define POS_RX_GPIO                            9
+#define POS_TX_GPIO                           10
+#define POS_BROADCAST_SMART_MIN_DISTANCE      11
+#define POS_BROADCAST_SMART_MIN_INTERVAL_SECS 12
+#define POS_GPS_EN_GPIO                       13
+#define POS_GPS_MODE                          14
+
+/* PowerConfig fields.  Field 5 (deprecated mesh_sds_timeout_secs) is
+ * skipped; powermon_enables (32) is a developer-only debug field that
+ * the dialog does not expose -- it gets proto3-zero-reset on Apply,
+ * same caveat the LoRa page carries for its skipped advanced fields. */
+#define POW_IS_POWER_SAVING                    1
+#define POW_ON_BATTERY_SHUTDOWN_AFTER_SECS     2
+#define POW_ADC_MULTIPLIER_OVERRIDE            3   /* float, wire type 5 */
+#define POW_WAIT_BLUETOOTH_SECS                4
+#define POW_SDS_SECS                           6
+#define POW_LS_SECS                            7
+#define POW_MIN_WAKE_SECS                      8
+#define POW_DEVICE_BATTERY_INA_ADDRESS         9
 
 /* ModuleConfig oneof cases. */
 #define MC_MQTT                  1
@@ -625,11 +660,143 @@ parse_lora_config (PnMeshConnection *self,
     }
 }
 
+/* Parse a PositionConfig embedded message into the connection state.
+ * broadcast_smart_min_distance is wire int32 -- protobuf varints are
+ * unsigned, so a negative value would arrive as a 10-byte all-ones
+ * varint; we treat the low 32 bits as int32 to preserve sign. */
+static void
+parse_position_config (PnMeshConnection *self,
+                       const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_position = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case POS_POSITION_BROADCAST_SMART_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_position_broadcast_smart_enabled = v != 0;
+            break;
+        case POS_FIXED_POSITION:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_fixed_position = v != 0;
+            break;
+        case POS_GPS_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_gps_enabled = v != 0;
+            break;
+        case POS_GPS_UPDATE_INTERVAL:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_gps_update_interval = (guint32) v;
+            break;
+        case POS_POSITION_BROADCAST_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_position_broadcast_secs = (guint32) v;
+            break;
+        case POS_POSITION_FLAGS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_position_flags = (guint32) v;
+            break;
+        case POS_RX_GPIO:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_rx_gpio = (guint32) v;
+            break;
+        case POS_TX_GPIO:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_tx_gpio = (guint32) v;
+            break;
+        case POS_BROADCAST_SMART_MIN_DISTANCE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_broadcast_smart_min_distance = (gint32) v;
+            break;
+        case POS_BROADCAST_SMART_MIN_INTERVAL_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_broadcast_smart_min_interval_secs = (guint32) v;
+            break;
+        case POS_GPS_EN_GPIO:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_gps_en_gpio = (guint32) v;
+            break;
+        case POS_GPS_MODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pos_gps_mode = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a PowerConfig embedded message into the connection state. */
+static void
+parse_power_config (PnMeshConnection *self,
+                    const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_power = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+        gfloat  f;
+
+        switch (field)
+        {
+        case POW_IS_POWER_SAVING:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_is_power_saving = v != 0;
+            break;
+        case POW_ON_BATTERY_SHUTDOWN_AFTER_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_on_battery_shutdown_after_secs = (guint32) v;
+            break;
+        case POW_ADC_MULTIPLIER_OVERRIDE:
+            if (pn_mesh_pb_read_float (&r, &f))
+                self->state.pow_adc_multiplier_override = f;
+            break;
+        case POW_WAIT_BLUETOOTH_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_wait_bluetooth_secs = (guint32) v;
+            break;
+        case POW_SDS_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_sds_secs = (guint32) v;
+            break;
+        case POW_LS_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_ls_secs = (guint32) v;
+            break;
+        case POW_MIN_WAKE_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_min_wake_secs = (guint32) v;
+            break;
+        case POW_DEVICE_BATTERY_INA_ADDRESS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.pow_device_battery_ina_address = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a Config message, dispatching to the per-subconfig parser
- * for the field that is set.  Only LoRaConfig is wired today; the
- * other sub-configs (Device, Position, Power, Network, Display,
- * Bluetooth, Security) are skipped silently -- later phases can
- * add them by extending this switch. */
+ * for the field that is set.  Position, Power and LoRa are wired;
+ * the remaining sub-configs (Device, Network, Display, Bluetooth,
+ * Security) are skipped silently -- later phases can add them by
+ * extending this switch. */
 static void
 parse_config (PnMeshConnection *self,
               const guint8 *data, gsize size)
@@ -642,6 +809,20 @@ parse_config (PnMeshConnection *self,
     {
         switch (field)
         {
+        case CFG_POSITION:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_position_config (self, p, s);
+            break;
+        }
+        case CFG_POWER:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_power_config (self, p, s);
+            break;
+        }
         case CFG_LORA:
         {
             const guint8 *p; gsize s;
@@ -1510,6 +1691,30 @@ clear_state (PnMeshConnection *self)
     self->state.mqtt_proxy_to_client_enabled  = FALSE;
     self->state.mqtt_map_reporting_enabled    = FALSE;
 
+    self->state.have_position                                = FALSE;
+    self->state.pos_position_broadcast_smart_enabled         = FALSE;
+    self->state.pos_fixed_position                           = FALSE;
+    self->state.pos_gps_enabled                              = FALSE;
+    self->state.pos_gps_update_interval                      = 0;
+    self->state.pos_position_broadcast_secs                  = 0;
+    self->state.pos_position_flags                           = 0;
+    self->state.pos_rx_gpio                                  = 0;
+    self->state.pos_tx_gpio                                  = 0;
+    self->state.pos_broadcast_smart_min_distance             = 0;
+    self->state.pos_broadcast_smart_min_interval_secs        = 0;
+    self->state.pos_gps_en_gpio                              = 0;
+    self->state.pos_gps_mode                                 = 0;
+
+    self->state.have_power                          = FALSE;
+    self->state.pow_is_power_saving                 = FALSE;
+    self->state.pow_on_battery_shutdown_after_secs  = 0;
+    self->state.pow_adc_multiplier_override         = 0.0f;
+    self->state.pow_wait_bluetooth_secs             = 0;
+    self->state.pow_sds_secs                        = 0;
+    self->state.pow_ls_secs                         = 0;
+    self->state.pow_min_wake_secs                   = 0;
+    self->state.pow_device_battery_ina_address      = 0;
+
     self->state.have_telemetry                       = FALSE;
     self->state.tel_device_telemetry_enabled         = FALSE;
     self->state.tel_device_update_interval           = 0;
@@ -1979,6 +2184,316 @@ pn_mesh_connection_set_lora_config_async (PnMeshConnection            *self,
 gboolean
 pn_mesh_connection_set_lora_config_finish (GAsyncResult *result,
                                            GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_position_config / set_power_config — Phase 12 write paths       */
+/* ------------------------------------------------------------------ */
+
+/* Shared body: wrap an arbitrary serialised sub-config inside
+ *
+ *     AdminMessage { set_config (34) = Config { <cfg_field> = <sub> } }
+ *
+ * then run the same "send + settle + re-handshake" cycle as set_lora.
+ * Used by both Position and Power so the two writers stay tiny. */
+static gboolean
+send_set_config_subblock (PnMeshConnection  *self,
+                          guint32            cfg_field,
+                          const guint8      *sub_b,
+                          gsize              sub_n,
+                          GError           **error)
+{
+    PnMeshPbWriter config_w, admin_w;
+    GBytes        *config_bytes, *admin_bytes;
+    const guint8  *config_b, *admin_b;
+    gsize          config_n, admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&config_w);
+    pn_mesh_pb_write_embedded_field (&config_w, cfg_field, sub_b, sub_n);
+    config_bytes = pn_mesh_pb_writer_take_bytes (&config_w);
+    pn_mesh_pb_writer_clear (&config_w);
+    config_b = g_bytes_get_data (config_bytes, &config_n);
+
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_CONFIG,
+                                     config_b, config_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (config_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+/* Settle + re-handshake after a set_config write.  Same pattern as
+ * set_lora_config_sync's tail; broken out so the new Position/Power
+ * writers can share it without duplicating the verify cycle. */
+static gboolean
+finish_set_config (PnMeshConnection *self, GError **error)
+{
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+static gboolean
+send_set_position_config (PnMeshConnection                 *self,
+                          const PnMeshPositionConfigWrite  *cfg,
+                          GError                          **error)
+{
+    PnMeshPbWriter pos_w;
+    GBytes        *pos_bytes;
+    const guint8  *pos_b;
+    gsize          pos_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&pos_w);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_POSITION_BROADCAST_SMART_ENABLED,
+                                   cfg->position_broadcast_smart_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_FIXED_POSITION,
+                                   cfg->fixed_position ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_GPS_ENABLED,
+                                   cfg->gps_enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_GPS_UPDATE_INTERVAL,
+                                   cfg->gps_update_interval);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_POSITION_BROADCAST_SECS,
+                                   cfg->position_broadcast_secs);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_POSITION_FLAGS,
+                                   cfg->position_flags);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_RX_GPIO,
+                                   cfg->rx_gpio);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_TX_GPIO,
+                                   cfg->tx_gpio);
+    /* int32: cast to guint64 with sign-extension so a negative value
+     * is encoded as the wire's 10-byte all-ones varint, matching the
+     * Meshtastic proto definition.  The dialog clamps the spinner to
+     * >= 0 for now, so this path is defensive only. */
+    pn_mesh_pb_write_varint_field (&pos_w, POS_BROADCAST_SMART_MIN_DISTANCE,
+                                   (guint64) (gint64) cfg->broadcast_smart_min_distance);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_BROADCAST_SMART_MIN_INTERVAL_SECS,
+                                   cfg->broadcast_smart_min_interval_secs);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_GPS_EN_GPIO,
+                                   cfg->gps_en_gpio);
+    pn_mesh_pb_write_varint_field (&pos_w, POS_GPS_MODE,
+                                   cfg->gps_mode);
+    pos_bytes = pn_mesh_pb_writer_take_bytes (&pos_w);
+    pn_mesh_pb_writer_clear (&pos_w);
+    pos_b = g_bytes_get_data (pos_bytes, &pos_n);
+
+    ok = send_set_config_subblock (self, CFG_POSITION, pos_b, pos_n, error);
+    g_bytes_unref (pos_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_position_config_sync (PnMeshConnection                 *self,
+                                             const PnMeshPositionConfigWrite  *cfg,
+                                             GError                          **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_position_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection           *conn;
+    PnMeshPositionConfigWrite   cfg;
+} SetPositionConfigCall;
+
+static void
+set_position_config_call_free (gpointer data)
+{
+    g_slice_free (SetPositionConfigCall, data);
+}
+
+static void
+set_position_config_thread_func (GTask *task, gpointer source,
+                                 gpointer task_data,
+                                 GCancellable *cancellable)
+{
+    SetPositionConfigCall *c   = task_data;
+    GError                *err = NULL;
+    gboolean               ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_position_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_position_config_async (PnMeshConnection                 *self,
+                                              const PnMeshPositionConfigWrite  *cfg,
+                                              GCancellable                     *cancellable,
+                                              GAsyncReadyCallback               callback,
+                                              gpointer                          user_data)
+{
+    GTask                 *task;
+    SetPositionConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetPositionConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_position_config_async);
+    g_task_set_task_data  (task, c, set_position_config_call_free);
+    g_task_run_in_thread  (task, set_position_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_position_config_finish (GAsyncResult *result,
+                                               GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ----- Power ------------------------------------------------------- */
+
+static gboolean
+send_set_power_config (PnMeshConnection              *self,
+                       const PnMeshPowerConfigWrite  *cfg,
+                       GError                       **error)
+{
+    PnMeshPbWriter pow_w;
+    GBytes        *pow_bytes;
+    const guint8  *pow_b;
+    gsize          pow_n;
+    union { gfloat f; guint32 u; } adc;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&pow_w);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_IS_POWER_SAVING,
+                                   cfg->is_power_saving ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_ON_BATTERY_SHUTDOWN_AFTER_SECS,
+                                   cfg->on_battery_shutdown_after_secs);
+    /* float as fixed32; even when 0.0f, ship it -- proto3 zero IS the
+     * "let firmware decide" default, so an unset round-trip is fine. */
+    adc.f = cfg->adc_multiplier_override;
+    pn_mesh_pb_write_fixed32_field (&pow_w, POW_ADC_MULTIPLIER_OVERRIDE, adc.u);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_WAIT_BLUETOOTH_SECS,
+                                   cfg->wait_bluetooth_secs);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_SDS_SECS,
+                                   cfg->sds_secs);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_LS_SECS,
+                                   cfg->ls_secs);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_MIN_WAKE_SECS,
+                                   cfg->min_wake_secs);
+    pn_mesh_pb_write_varint_field (&pow_w, POW_DEVICE_BATTERY_INA_ADDRESS,
+                                   cfg->device_battery_ina_address);
+    pow_bytes = pn_mesh_pb_writer_take_bytes (&pow_w);
+    pn_mesh_pb_writer_clear (&pow_w);
+    pow_b = g_bytes_get_data (pow_bytes, &pow_n);
+
+    ok = send_set_config_subblock (self, CFG_POWER, pow_b, pow_n, error);
+    g_bytes_unref (pow_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_power_config_sync (PnMeshConnection              *self,
+                                          const PnMeshPowerConfigWrite  *cfg,
+                                          GError                       **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_power_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection        *conn;
+    PnMeshPowerConfigWrite   cfg;
+} SetPowerConfigCall;
+
+static void
+set_power_config_call_free (gpointer data)
+{
+    g_slice_free (SetPowerConfigCall, data);
+}
+
+static void
+set_power_config_thread_func (GTask *task, gpointer source,
+                              gpointer task_data,
+                              GCancellable *cancellable)
+{
+    SetPowerConfigCall *c   = task_data;
+    GError             *err = NULL;
+    gboolean            ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_power_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_power_config_async (PnMeshConnection              *self,
+                                           const PnMeshPowerConfigWrite  *cfg,
+                                           GCancellable                  *cancellable,
+                                           GAsyncReadyCallback            callback,
+                                           gpointer                       user_data)
+{
+    GTask              *task;
+    SetPowerConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetPowerConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_power_config_async);
+    g_task_set_task_data  (task, c, set_power_config_call_free);
+    g_task_run_in_thread  (task, set_power_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_power_config_finish (GAsyncResult *result,
+                                            GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

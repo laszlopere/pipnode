@@ -39,6 +39,8 @@
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-page-known-nodes.h"
 #include "pn-mesh-page-mqtt.h"
+#include "pn-mesh-page-position.h"
+#include "pn-mesh-page-power.h"
 #include "pn-mesh-page-region.h"
 #include "pn-mesh-page-share.h"
 #include "pn-mesh-page-telemetry.h"
@@ -86,6 +88,8 @@ typedef struct
     GtkWidget        *known_nodes_page;
     GtkWidget        *ext_notification_page;
     GtkWidget        *mqtt_page;
+    GtkWidget        *position_page;
+    GtkWidget        *power_page;
     GtkWidget        *telemetry_page;
     GtkWidget        *test_page;
     GtkLabel         *status_label;
@@ -311,6 +315,8 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_known_nodes_set_state      (ctx->known_nodes_page,      NULL);
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
+    pn_mesh_page_position_set_state         (ctx->position_page,         NULL, NULL);
+    pn_mesh_page_power_set_state            (ctx->power_page,            NULL, NULL);
     pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
     pn_mesh_page_test_set_state             (ctx->test_page,             NULL, NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
@@ -393,6 +399,14 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_mqtt_set_state (
             ctx->mqtt_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_position_set_state (
+            ctx->position_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_power_set_state (
+            ctx->power_page,
             pn_mesh_connection_get_state (conn),
             conn);
     pn_mesh_page_telemetry_set_state (
@@ -635,6 +649,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->known_nodes_page      = pn_mesh_page_known_nodes_new ();
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
+        ctx->position_page         = pn_mesh_page_position_new ();
+        ctx->power_page            = pn_mesh_page_power_new ();
         ctx->telemetry_page        = pn_mesh_page_telemetry_new ();
         ctx->test_page             = pn_mesh_page_test_new ();
 
@@ -648,6 +664,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ext_notification_page, on_page_status, ctx);
         pn_mesh_page_mqtt_set_status_callback (
                 ctx->mqtt_page,             on_page_status, ctx);
+        pn_mesh_page_position_set_status_callback (
+                ctx->position_page,         on_page_status, ctx);
+        pn_mesh_page_power_set_status_callback (
+                ctx->power_page,            on_page_status, ctx);
         pn_mesh_page_telemetry_set_status_callback (
                 ctx->telemetry_page,        on_page_status, ctx);
 
@@ -666,25 +686,31 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ext_notification_page, on_page_busy, ctx);
         pn_mesh_page_mqtt_set_busy_callback (
                 ctx->mqtt_page,             on_page_busy, ctx);
+        pn_mesh_page_position_set_busy_callback (
+                ctx->position_page,         on_page_busy, ctx);
+        pn_mesh_page_power_set_busy_callback (
+                ctx->power_page,            on_page_busy, ctx);
         pn_mesh_page_telemetry_set_busy_callback (
                 ctx->telemetry_page,        on_page_busy, ctx);
         pn_mesh_page_test_set_busy_callback (
                 ctx->test_page,             on_page_busy, ctx);
 
-        /* Tab 1: Device  (Identity now; Device-role + Power in Phase 14/12). */
+        /* Tab 1: Device  (Identity + Power now; Device-role in Phase 14). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
             add_expander (inner, "Identity", ctx->identity_page);
+            add_expander (inner, "Power",    ctx->power_page);
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Device"));
         }
 
-        /* Tab 2: Radio  (Region+LoRa, Channels, Share; Position + Security later). */
+        /* Tab 2: Radio  (Region+LoRa, Channels, Share, Position; Security later). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
             add_expander (inner, "Region & LoRa", ctx->region_page);
             add_expander (inner, "Channels",      ctx->channels_page);
             add_expander (inner, "Share",         ctx->share_page);
+            add_expander (inner, "Position",      ctx->position_page);
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Radio"));
         }

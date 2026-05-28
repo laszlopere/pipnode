@@ -268,6 +268,10 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-known-nodes.h \
 	pn-mesh-page-mqtt.c \
 	pn-mesh-page-mqtt.h \
+	pn-mesh-page-position.c \
+	pn-mesh-page-position.h \
+	pn-mesh-page-power.c \
+	pn-mesh-page-power.h \
 	pn-mesh-page-region.c \
 	pn-mesh-page-region.h \
 	pn-mesh-page-share.c \

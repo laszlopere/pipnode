@@ -172,6 +172,39 @@ typedef struct
     gboolean    tel_health_measurement_enabled;
     guint32     tel_health_update_interval;
     gboolean    tel_health_screen_enabled;
+
+    /* From FromRadio.config(PositionConfig).  Same FALSE-means-unseen
+     * contract as have_lora_config.  Every scalar that the firmware
+     * sends is parsed so the writer can ship them back verbatim --
+     * proto3 defaults would otherwise reset omitted fields.  pos_gps_
+     * enabled is the upstream-deprecated boolean; modern firmwares
+     * gate GPS via @pos_gps_mode instead, but the legacy field is
+     * still set on round-trip so older firmware keeps working. */
+    gboolean    have_position;
+    gboolean    pos_position_broadcast_smart_enabled;
+    gboolean    pos_fixed_position;
+    gboolean    pos_gps_enabled;
+    guint32     pos_gps_update_interval;       /* seconds; 0 = device default */
+    guint32     pos_position_broadcast_secs;   /* seconds */
+    guint32     pos_position_flags;            /* bitfield (PositionFlag enum) */
+    guint32     pos_rx_gpio;
+    guint32     pos_tx_gpio;
+    gint32      pos_broadcast_smart_min_distance;        /* metres */
+    guint32     pos_broadcast_smart_min_interval_secs;   /* seconds */
+    guint32     pos_gps_en_gpio;
+    guint32     pos_gps_mode;                  /* GpsMode enum */
+
+    /* From FromRadio.config(PowerConfig).  Same contract as the other
+     * Config sub-blocks. */
+    gboolean    have_power;
+    gboolean    pow_is_power_saving;
+    guint32     pow_on_battery_shutdown_after_secs;
+    gfloat      pow_adc_multiplier_override;             /* 0 = device default */
+    guint32     pow_wait_bluetooth_secs;
+    guint32     pow_sds_secs;
+    guint32     pow_ls_secs;
+    guint32     pow_min_wake_secs;
+    guint32     pow_device_battery_ina_address;
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -400,6 +433,80 @@ void     pn_mesh_connection_set_telemetry_config_async (
 gboolean pn_mesh_connection_set_telemetry_config_finish (
         GAsyncResult                      *result,
         GError                           **error);
+
+/* ------------------------------------------------------------------ */
+/*  Position (Config sub-block) — Phase 12                              */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of PositionConfig.  Same proto3-defaults contract
+ * as the LoRa writer: read PnMeshState->pos_* first, mutate the ones
+ * you care about, ship them ALL back here. */
+typedef struct
+{
+    gboolean position_broadcast_smart_enabled;
+    gboolean fixed_position;
+    gboolean gps_enabled;          /* deprecated upstream; round-trip only */
+    guint32  gps_update_interval;
+    guint32  position_broadcast_secs;
+    guint32  position_flags;
+    guint32  rx_gpio;
+    guint32  tx_gpio;
+    gint32   broadcast_smart_min_distance;
+    guint32  broadcast_smart_min_interval_secs;
+    guint32  gps_en_gpio;
+    guint32  gps_mode;
+} PnMeshPositionConfigWrite;
+
+gboolean pn_mesh_connection_set_position_config_sync (
+        PnMeshConnection                 *self,
+        const PnMeshPositionConfigWrite  *cfg,
+        GError                          **error);
+
+void     pn_mesh_connection_set_position_config_async (
+        PnMeshConnection                 *self,
+        const PnMeshPositionConfigWrite  *cfg,
+        GCancellable                     *cancellable,
+        GAsyncReadyCallback               callback,
+        gpointer                          user_data);
+
+gboolean pn_mesh_connection_set_position_config_finish (
+        GAsyncResult                     *result,
+        GError                          **error);
+
+/* ------------------------------------------------------------------ */
+/*  Power (Config sub-block) — Phase 12                                 */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of PowerConfig.  @adc_multiplier_override is a
+ * float (wire type 5); 0.0f means "let the firmware use its built-in
+ * calibration for this hardware". */
+typedef struct
+{
+    gboolean is_power_saving;
+    guint32  on_battery_shutdown_after_secs;
+    gfloat   adc_multiplier_override;
+    guint32  wait_bluetooth_secs;
+    guint32  sds_secs;
+    guint32  ls_secs;
+    guint32  min_wake_secs;
+    guint32  device_battery_ina_address;
+} PnMeshPowerConfigWrite;
+
+gboolean pn_mesh_connection_set_power_config_sync (
+        PnMeshConnection              *self,
+        const PnMeshPowerConfigWrite  *cfg,
+        GError                       **error);
+
+void     pn_mesh_connection_set_power_config_async (
+        PnMeshConnection              *self,
+        const PnMeshPowerConfigWrite  *cfg,
+        GCancellable                  *cancellable,
+        GAsyncReadyCallback            callback,
+        gpointer                       user_data);
+
+gboolean pn_mesh_connection_set_power_config_finish (
+        GAsyncResult                  *result,
+        GError                       **error);
 
 /* ------------------------------------------------------------------ */
 /*  Channels                                                            */
