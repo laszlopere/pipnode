@@ -42,6 +42,7 @@
 #include "pn-mesh-page-region.h"
 #include "pn-mesh-page-share.h"
 #include "pn-mesh-page-telemetry.h"
+#include "pn-mesh-page-test.h"
 
 #define PN_MESH_DIALOG_WIDTH   880
 #define PN_MESH_DIALOG_HEIGHT  560
@@ -86,7 +87,18 @@ typedef struct
     GtkWidget        *ext_notification_page;
     GtkWidget        *mqtt_page;
     GtkWidget        *telemetry_page;
+    GtkWidget        *test_page;
     GtkLabel         *status_label;
+
+    /* Main-loop timer that drives the Test page's live receive log
+     * (Phase 7).  Active only while a connection is live -- started
+     * in on_connection_ready, stopped in drop_connection.  The tick
+     * handler always drains pending text events from the connection
+     * queue (so worker-thread parses during verify-cycles still land
+     * in the UI), but only calls pn_mesh_connection_pump_monitor()
+     * when busy_count == 0 -- otherwise the timer and a worker would
+     * race on the same fd.  0 means "no timer installed". */
+    guint             monitor_timer_id;
 
     /* Active session, if any.  NULL when no device is selected or
      * while a fresh open is in flight. */
@@ -173,10 +185,17 @@ hide_loading (MeshDialogCtx *ctx)
             gtk_spinner_stop (ctx->loading_spinner);
         gtk_widget_hide (ctx->loading_overlay);
     }
-    /* The notebook is sensitised by on_connection_ready, not here:
-     * during construction we want it to *stay* disabled when the
-     * overlay is hidden (no device picked yet).  Callers that need
-     * to re-enable it do so explicitly. */
+    /* Re-enable the notebook when there's a live connection.  Earlier
+     * pages got away without this because every Apply re-ran the full
+     * 3-5 s handshake, leaving the user with the impression that the
+     * spinner -> motion -> updated values cycle had handed control
+     * back.  The Phase 7 Send path is one frame with no verify cycle
+     * (~tens of ms total), so the stuck-insensitive notebook is
+     * immediately visible.  Skipping when ctx->connection is NULL
+     * keeps the initial drop_connection during build from lighting
+     * the notebook up before a device is picked. */
+    if (ctx->connection != NULL && ctx->notebook != NULL)
+        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
 }
 
 /* Bump the busy refcount.  Shows the overlay on the 0→1 edge. */
@@ -214,6 +233,58 @@ on_page_busy (gboolean busy, gpointer user_data)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Test page monitor timer                                             */
+/* ------------------------------------------------------------------ */
+
+#define PN_MESH_DIALOG_MONITOR_INTERVAL_MS 300
+
+static gboolean
+on_monitor_tick (gpointer user_data)
+{
+    MeshDialogCtx   *ctx = user_data;
+    PnMeshTextEvent *event;
+
+    /* Always drain queued events: parses that happened on a worker
+     * thread during a verify-cycle handshake will have pushed onto
+     * the queue and need to surface in the UI even while busy.  */
+    if (ctx->connection != NULL && ctx->test_page != NULL)
+    {
+        while ((event = pn_mesh_connection_take_text_event (ctx->connection))
+               != NULL)
+        {
+            pn_mesh_page_test_drain_event (ctx->test_page, event);
+        }
+    }
+
+    /* Pump the serial fd only when nothing else is reading from it.
+     * busy_count > 0 means a write/handshake worker thread owns the
+     * fd; skipping the pump here avoids a same-fd read race that
+     * would corrupt the frame reader's running state. */
+    if (ctx->busy_count == 0 && ctx->connection != NULL)
+        pn_mesh_connection_pump_monitor (ctx->connection);
+
+    return G_SOURCE_CONTINUE;
+}
+
+static void
+start_monitor_timer (MeshDialogCtx *ctx)
+{
+    if (ctx->monitor_timer_id != 0)
+        return;
+    ctx->monitor_timer_id = g_timeout_add (
+            PN_MESH_DIALOG_MONITOR_INTERVAL_MS, on_monitor_tick, ctx);
+}
+
+static void
+stop_monitor_timer (MeshDialogCtx *ctx)
+{
+    if (ctx->monitor_timer_id == 0)
+        return;
+    g_source_remove (ctx->monitor_timer_id);
+    ctx->monitor_timer_id = 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Connection lifecycle                                                */
 /* ------------------------------------------------------------------ */
 
@@ -222,6 +293,10 @@ on_page_busy (gboolean busy, gpointer user_data)
 static void
 drop_connection (MeshDialogCtx *ctx)
 {
+    /* Stop the monitor timer before closing the connection so no
+     * tick fires against a freed PnMeshConnection. */
+    stop_monitor_timer (ctx);
+
     if (ctx->connection != NULL)
     {
         pn_mesh_connection_close (ctx->connection);
@@ -237,6 +312,7 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
     pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
+    pn_mesh_page_test_set_state             (ctx->test_page,             NULL, NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
      * once they pick one, but they cannot click into an empty form.
@@ -323,11 +399,21 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->telemetry_page,
             pn_mesh_connection_get_state (conn),
             conn);
+    pn_mesh_page_test_set_state (
+            ctx->test_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
     /* Light up the notebook now that there's actually content to
      * navigate to.  drop_connection() reverses this on the next
      * device switch or dialog close. */
     busy_dec (ctx);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
+
+    /* Start the Test page receive-log timer.  Ticks every 300 ms,
+     * pumping the serial fd whenever no write is in flight, and
+     * draining the connection's text-event queue to the Test page
+     * unconditionally. */
+    start_monitor_timer (ctx);
     /* Jump to the Device tab (index 0) so the Identity expander
      * shows the just-completed handshake. */
     gtk_notebook_set_current_page (ctx->notebook, 0);
@@ -550,6 +636,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
         ctx->telemetry_page        = pn_mesh_page_telemetry_new ();
+        ctx->test_page             = pn_mesh_page_test_new ();
 
         pn_mesh_page_identity_set_status_callback (
                 ctx->identity_page,         on_page_status, ctx);
@@ -581,6 +668,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->mqtt_page,             on_page_busy, ctx);
         pn_mesh_page_telemetry_set_busy_callback (
                 ctx->telemetry_page,        on_page_busy, ctx);
+        pn_mesh_page_test_set_busy_callback (
+                ctx->test_page,             on_page_busy, ctx);
 
         /* Tab 1: Device  (Identity now; Device-role + Power in Phase 14/12). */
         {
@@ -650,10 +739,28 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                                       gtk_label_new ("Mesh tools"));
         }
 
-        /* Tab 7: Diagnostics  (Known Nodes). */
+        /* Tab 7: Diagnostics  (Known Nodes + Test, Phase 7).
+         * Known Nodes packs FALSE/FALSE so its tree takes natural
+         * height; the Test expander packs TRUE/TRUE so the live
+         * receive log fills the remaining vertical space below it. */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
             add_expander (inner, "Known Nodes", ctx->known_nodes_page);
+            {
+                GtkWidget *expander = gtk_expander_new (NULL);
+                GtkWidget *label    = gtk_label_new (NULL);
+                gchar     *markup;
+
+                markup = g_markup_printf_escaped ("<b>%s</b>", "Test");
+                gtk_label_set_markup (GTK_LABEL (label), markup);
+                g_free (markup);
+                gtk_expander_set_label_widget (GTK_EXPANDER (expander),
+                                               label);
+                gtk_expander_set_expanded (GTK_EXPANDER (expander), TRUE);
+                gtk_container_add (GTK_CONTAINER (expander), ctx->test_page);
+                gtk_box_pack_start (GTK_BOX (inner), expander,
+                                    TRUE, TRUE, 0);
+            }
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Diagnostics"));
         }

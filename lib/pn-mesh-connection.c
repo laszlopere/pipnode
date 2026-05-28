@@ -116,7 +116,9 @@
 #define CS_NAME                 3
 
 /* MeshPacket */
-#define MP_TO                   2
+#define MP_FROM                 1   /* fixed32                       */
+#define MP_TO                   2   /* fixed32                       */
+#define MP_CHANNEL              3   /* uint32 (channel index)         */
 #define MP_DECODED              4
 
 /* Data */
@@ -125,7 +127,11 @@
 #define D_WANT_RESPONSE         3
 
 /* Meshtastic PortNum enum values we care about. */
-#define PORTNUM_ADMIN_APP       6
+#define PORTNUM_TEXT_MESSAGE_APP 1
+#define PORTNUM_ADMIN_APP        6
+
+/* MeshPacket.to value meaning "every node on the channel". */
+#define MESHTASTIC_BROADCAST_ADDR  0xFFFFFFFFu
 
 /* AdminMessage.
  *
@@ -270,6 +276,15 @@ struct _PnMeshConnection
      * Stash every (num, long, short, id, hw) we see, then resolve at
      * the end.  Keeps the parser stateless across frames. */
     GArray            *seen_nodes;   /* SeenNode                       */
+
+    /* Phase 7 -- Test page text event queue.  Any TEXT_MESSAGE_APP
+     * packet seen by parse_mesh_packet (whether it arrived via the
+     * main-thread monitor pump or as side-traffic during a worker-
+     * thread verify-cycle handshake) is pushed here as a malloc'd
+     * PnMeshTextEvent.  The Test page drains the queue on every tick
+     * of the dialog's monitor timer.  GAsyncQueue is thread-safe so
+     * pushes from either context are race-free. */
+    GAsyncQueue       *text_events;
 };
 
 typedef struct
@@ -999,10 +1014,10 @@ parse_admin_message (PnMeshConnection *self,
     }
 }
 
-/* Unwrap a MeshPacket: we only care about admin responses, which
- * arrive as decoded(Data) with portnum=ADMIN_APP.  Other portnums
- * (TEXT_MESSAGE_APP, NodeInfo broadcasts, etc.) are skipped silently
- * -- Phase 7 will revisit when the test-message monitor lands. */
+/* Unwrap a MeshPacket.  Admin responses (portnum=ADMIN_APP) are
+ * forwarded to parse_admin_message.  TEXT_MESSAGE_APP packets are
+ * captured into the text_events queue for the Test page (Phase 7).
+ * Any other portnum is silently dropped. */
 static void
 parse_mesh_packet (PnMeshConnection *self,
                    const guint8 *data, gsize size)
@@ -1012,6 +1027,8 @@ parse_mesh_packet (PnMeshConnection *self,
     guint64        portnum = 0;
     const guint8  *payload = NULL;
     gsize          payload_size = 0;
+    guint32        from_node = 0;
+    guint32        channel = 0;
 
     pn_mesh_pb_reader_init (&r, data, size);
     while (pn_mesh_pb_read_tag (&r, &field, &wire))
@@ -1042,6 +1059,16 @@ parse_mesh_packet (PnMeshConnection *self,
                 }
             }
         }
+        else if (field == MP_FROM)
+        {
+            pn_mesh_pb_read_fixed32 (&r, &from_node);
+        }
+        else if (field == MP_CHANNEL)
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                channel = (guint32) v;
+        }
         else
         {
             pn_mesh_pb_skip_field (&r, wire);
@@ -1049,7 +1076,25 @@ parse_mesh_packet (PnMeshConnection *self,
     }
 
     if (portnum == PORTNUM_ADMIN_APP && payload != NULL && payload_size > 0)
+    {
         parse_admin_message (self, payload, payload_size);
+    }
+    else if (portnum == PORTNUM_TEXT_MESSAGE_APP
+             && payload != NULL && payload_size > 0
+             && self->text_events != NULL)
+    {
+        /* g_strndup tolerates non-NUL-terminated payloads -- the
+         * device sends raw UTF-8 with no terminator.  GTK can render
+         * any valid UTF-8 string; invalid bytes show as replacement
+         * characters which is fine for a diagnostic log. */
+        PnMeshTextEvent *ev = g_slice_new0 (PnMeshTextEvent);
+        ev->from_node = from_node;
+        ev->channel   = channel;
+        ev->text      = g_strndup ((const gchar *) payload, payload_size);
+        ev->epoch_us  = g_get_real_time ();
+        ev->outgoing  = FALSE;
+        g_async_queue_push (self->text_events, ev);
+    }
 }
 
 /* Parse one FromRadio frame.  Returns TRUE if config_complete_id was
@@ -1515,6 +1560,12 @@ pn_mesh_connection_open_sync (const gchar *tty_path, GError **error)
     g_array_set_clear_func (self->seen_nodes,
                             (GDestroyNotify) seen_node_clear);
 
+    /* Text-event queue is created up front (handshake may produce
+     * stale text packets too, though in practice we never see any
+     * because the handshake only runs admin-request traffic). */
+    self->text_events = g_async_queue_new_full (
+            (GDestroyNotify) pn_mesh_text_event_free);
+
     /* Drain stale bytes the device may have emitted before we opened.
      * Skipping this corrupts the first response (pip-mesh comment). */
     pn_mesh_serial_drain (self->serial, OPEN_DRAIN_MS);
@@ -1564,6 +1615,9 @@ pn_mesh_connection_close (PnMeshConnection *self)
     g_ptr_array_unref (self->state.nodes);
 
     g_array_unref (self->seen_nodes);
+
+    if (self->text_events != NULL)
+        g_async_queue_unref (self->text_events);
 
     g_slice_free (PnMeshConnection, self);
 }
@@ -2678,6 +2732,223 @@ pn_mesh_connection_set_channel_async (PnMeshConnection    *self,
 
 gboolean
 pn_mesh_connection_set_channel_finish (GAsyncResult *result, GError **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Test page (Phase 7) — text send + live receive                      */
+/* ------------------------------------------------------------------ */
+
+void
+pn_mesh_text_event_free (PnMeshTextEvent *event)
+{
+    if (event == NULL)
+        return;
+    g_free (event->text);
+    g_slice_free (PnMeshTextEvent, event);
+}
+
+PnMeshTextEvent *
+pn_mesh_connection_take_text_event (PnMeshConnection *self)
+{
+    if (self == NULL || self->text_events == NULL)
+        return NULL;
+    return g_async_queue_try_pop (self->text_events);
+}
+
+gint
+pn_mesh_connection_pump_monitor (PnMeshConnection *self)
+{
+    gint    frames_done = 0;
+    guint8  buf[1024];
+    gssize  n;
+    GBytes *frame;
+
+    g_return_val_if_fail (self != NULL, 0);
+
+    /* Tight non-blocking read loop.  Pulls every byte the kernel
+     * already has buffered for us, but never waits for more -- the
+     * dialog calls us on a timer and any unread bytes will surface
+     * on the next tick.  timeout_ms = 0 means "poll once, return
+     * immediately if no data". */
+    for (;;)
+    {
+        n = pn_mesh_serial_read (self->serial, buf, sizeof buf, 0, NULL);
+        if (n <= 0)
+            break;
+        pn_mesh_frame_reader_feed (self->frames, buf, (gsize) n);
+        while ((frame = pn_mesh_frame_reader_take (self->frames)) != NULL)
+        {
+            gsize         fs;
+            const guint8 *fd = g_bytes_get_data (frame, &fs);
+            parse_from_radio (self, fd, fs);
+            frames_done++;
+            g_bytes_unref (frame);
+        }
+    }
+
+    return frames_done;
+}
+
+/* Build and emit a single ToRadio { packet = MeshPacket { to=BROADCAST,
+ * channel=@channel_index, decoded = Data { portnum=TEXT_MESSAGE_APP,
+ * payload=@text } } }.  Returns FALSE on serial write failure -- which
+ * is the only thing that can actually fail at this layer.  The radio
+ * never acknowledges the frame back to us (we did not request a
+ * want_ack) so success here means "on the wire", not "delivered". */
+static gboolean
+send_text (PnMeshConnection *self,
+           guint32           channel_index,
+           const gchar      *text,
+           GError          **error)
+{
+    PnMeshPbWriter data_w, mesh_w, toradio_w;
+    GBytes        *data_bytes;
+    GBytes        *mesh_bytes;
+    GBytes        *toradio_bytes;
+    const guint8  *data_b, *mesh_b, *toradio_b;
+    gsize          data_n,  mesh_n,  toradio_n;
+    gsize          text_n;
+    gboolean       ok;
+
+    text_n = strlen (text);
+
+    /* Data { portnum (1) = TEXT_MESSAGE_APP, payload (2) = text } */
+    pn_mesh_pb_writer_init (&data_w);
+    pn_mesh_pb_write_varint_field (&data_w, D_PORTNUM,
+                                   PORTNUM_TEXT_MESSAGE_APP);
+    pn_mesh_pb_write_bytes_field  (&data_w, D_PAYLOAD,
+                                   (const guint8 *) text, text_n);
+    data_bytes = pn_mesh_pb_writer_take_bytes (&data_w);
+    pn_mesh_pb_writer_clear (&data_w);
+    data_b = g_bytes_get_data (data_bytes, &data_n);
+
+    /* MeshPacket { to=BROADCAST, channel=@channel_index, decoded=Data } */
+    pn_mesh_pb_writer_init (&mesh_w);
+    pn_mesh_pb_write_fixed32_field  (&mesh_w, MP_TO,
+                                     MESHTASTIC_BROADCAST_ADDR);
+    if (channel_index != 0)
+        pn_mesh_pb_write_varint_field (&mesh_w, MP_CHANNEL,
+                                       channel_index);
+    pn_mesh_pb_write_embedded_field (&mesh_w, MP_DECODED,
+                                     data_b, data_n);
+    mesh_bytes = pn_mesh_pb_writer_take_bytes (&mesh_w);
+    pn_mesh_pb_writer_clear (&mesh_w);
+    g_bytes_unref (data_bytes);
+    mesh_b = g_bytes_get_data (mesh_bytes, &mesh_n);
+
+    /* ToRadio { packet (1) = MeshPacket } */
+    pn_mesh_pb_writer_init (&toradio_w);
+    pn_mesh_pb_write_embedded_field (&toradio_w, TR_PACKET, mesh_b, mesh_n);
+    toradio_bytes = pn_mesh_pb_writer_take_bytes (&toradio_w);
+    pn_mesh_pb_writer_clear (&toradio_w);
+    g_bytes_unref (mesh_bytes);
+    toradio_b = g_bytes_get_data (toradio_bytes, &toradio_n);
+
+    ok = pn_mesh_serial_write_frame (self->serial, toradio_b, toradio_n,
+                                     error);
+    g_bytes_unref (toradio_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_send_text_sync (PnMeshConnection *self,
+                                   guint32           channel_index,
+                                   const gchar      *text,
+                                   GError          **error)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+    g_return_val_if_fail (text != NULL, FALSE);
+
+    if (!send_text (self, channel_index, text, error))
+        return FALSE;
+
+    /* Push a synthetic outgoing event so the Test page log includes
+     * our own sends interleaved with incoming traffic.  from_node = 0
+     * marks it as "this is us"; the page renders it differently. */
+    if (self->text_events != NULL)
+    {
+        PnMeshTextEvent *ev = g_slice_new0 (PnMeshTextEvent);
+        ev->from_node = 0;
+        ev->channel   = channel_index;
+        ev->text      = g_strdup (text);
+        ev->epoch_us  = g_get_real_time ();
+        ev->outgoing  = TRUE;
+        g_async_queue_push (self->text_events, ev);
+    }
+    return TRUE;
+}
+
+/* ------------------------------------------------------------------ */
+/*  send_text async wrapper                                             */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnMeshConnection *conn;
+    guint32           channel_index;
+    gchar            *text;
+} SendTextCall;
+
+static void
+send_text_call_free (gpointer data)
+{
+    SendTextCall *c = data;
+    g_free (c->text);
+    g_slice_free (SendTextCall, c);
+}
+
+static void
+send_text_thread_func (GTask *task, gpointer source, gpointer task_data,
+                       GCancellable *cancellable)
+{
+    SendTextCall *c   = task_data;
+    GError       *err = NULL;
+    gboolean      ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_send_text_sync (c->conn,
+                                            c->channel_index,
+                                            c->text,
+                                            &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error (task, err);
+}
+
+void
+pn_mesh_connection_send_text_async (PnMeshConnection    *self,
+                                    guint32              channel_index,
+                                    const gchar         *text,
+                                    GCancellable        *cancellable,
+                                    GAsyncReadyCallback  callback,
+                                    gpointer             user_data)
+{
+    GTask        *task;
+    SendTextCall *c;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (text != NULL);
+
+    c = g_slice_new0 (SendTextCall);
+    c->conn          = self;
+    c->channel_index = channel_index;
+    c->text          = g_strdup (text);
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_send_text_async);
+    g_task_set_task_data  (task, c, send_text_call_free);
+    g_task_run_in_thread  (task, send_text_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_send_text_finish (GAsyncResult *result, GError **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

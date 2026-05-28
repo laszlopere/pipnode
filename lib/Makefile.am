@@ -274,6 +274,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-share.h \
 	pn-mesh-page-telemetry.c \
 	pn-mesh-page-telemetry.h \
+	pn-mesh-page-test.c \
+	pn-mesh-page-test.h \
 	pn-meshtastic-gui.c \
 	pn-meshtastic-gui.h \
 	pn-node-dialog.c \

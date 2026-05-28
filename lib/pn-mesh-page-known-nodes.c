@@ -390,6 +390,17 @@ pn_mesh_page_known_nodes_new (void)
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
                                     GTK_POLICY_AUTOMATIC,
                                     GTK_POLICY_AUTOMATIC);
+    /* Phase 6 gotcha (iv): inside a GtkExpander packed FALSE/FALSE
+     * in a tab box, set_min_content_height alone collapses the tree
+     * to one or two rows.  The reliable recipe is min_content_height
+     * + propagate_natural_height + an explicit set_size_request on
+     * the tree itself.  220 px shows ~7 rows; the user can still
+     * scroll if the mesh is busier than that. */
+    gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scrolled),
+                                                220);
+    gtk_scrolled_window_set_propagate_natural_height (
+            GTK_SCROLLED_WINDOW (scrolled), TRUE);
+    gtk_widget_set_size_request (view, -1, 200);
     gtk_container_add (GTK_CONTAINER (scrolled), view);
     gtk_box_pack_start (GTK_BOX (box), scrolled, TRUE, TRUE, 0);
 

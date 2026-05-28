@@ -438,6 +438,69 @@ void     pn_mesh_connection_set_channel_async (
 gboolean pn_mesh_connection_set_channel_finish (GAsyncResult *result,
                                                 GError      **error);
 
+/* ------------------------------------------------------------------ */
+/*  Test page (Phase 7) — text send + live receive                      */
+/* ------------------------------------------------------------------ */
+
+/* One TEXT_MESSAGE_APP packet observed on the connection -- either
+ * received from the radio while the monitor is active, or echoed
+ * back as a synthetic event after a successful local send (so the
+ * log on the Test page reads as a single chat transcript without
+ * the page having to track its own outgoing history).  Strings are
+ * owned by the event; free with pn_mesh_text_event_free. */
+typedef struct
+{
+    guint32   from_node;     /* MeshPacket.from (0 = unknown / local) */
+    guint32   channel;       /* MeshPacket.channel (0 = primary)      */
+    gchar    *text;          /* UTF-8 payload                          */
+    gint64    epoch_us;      /* g_get_real_time() at capture           */
+    gboolean  outgoing;      /* TRUE iff synthesised by send_text_*    */
+} PnMeshTextEvent;
+
+void  pn_mesh_text_event_free (PnMeshTextEvent *event);
+
+/* Pop the next text event from the connection's queue, or %NULL if
+ * the queue is empty.  Safe to call from any thread but in practice
+ * the dialog drains it from the main thread on a periodic timer.
+ * The caller owns the returned event and must free it with
+ * pn_mesh_text_event_free. */
+PnMeshTextEvent *pn_mesh_connection_take_text_event (PnMeshConnection *self);
+
+/* Drain any bytes the serial fd has buffered, feed them to the
+ * frame reader, and parse out anything decodable -- TEXT_MESSAGE_APP
+ * packets get queued via take_text_event.  Non-blocking: returns
+ * promptly even when the device is silent.  MUST be called from the
+ * main thread, and MUST NOT be called while a write/handshake is in
+ * flight on a worker thread (the dialog enforces this via its
+ * busy_count, skipping the pump when any page is mid-write).
+ *
+ * Returns the number of frames processed this tick, for diagnostics
+ * (most ticks will return 0). */
+gint              pn_mesh_connection_pump_monitor (PnMeshConnection *self);
+
+/* Broadcast @text on @channel_index as a TEXT_MESSAGE_APP packet
+ * (MeshPacket { to=0xFFFFFFFF, channel=@channel_index, decoded=Data
+ * { portnum=TEXT_MESSAGE_APP, payload=@text } }).  No want_ack, no
+ * settle, no verify-cycle -- a single frame write and done.  The
+ * connection also synthesises an "outgoing" PnMeshTextEvent on
+ * success so callers using the event queue see their own sends in
+ * the same stream as incoming traffic. */
+gboolean pn_mesh_connection_send_text_sync (PnMeshConnection *self,
+                                            guint32           channel_index,
+                                            const gchar      *text,
+                                            GError          **error);
+
+void     pn_mesh_connection_send_text_async (
+        PnMeshConnection    *self,
+        guint32              channel_index,
+        const gchar         *text,
+        GCancellable        *cancellable,
+        GAsyncReadyCallback  callback,
+        gpointer             user_data);
+
+gboolean pn_mesh_connection_send_text_finish (GAsyncResult *result,
+                                              GError      **error);
+
 G_END_DECLS
 
 #endif /* PN_MESH_CONNECTION_H */
