@@ -1132,6 +1132,18 @@ on_debug_search_prev (
  * retained burst (a few thousand messages) plus headroom. */
 #define PN_DEBUG_PANE_PENDING_MAX 5000
 
+/* Maximum rendered-text size (bytes) of a single debug message before
+ * we collapse it to a short "(message too big)" placeholder instead of
+ * walking it into a row widget.  build_envelope_row builds one widget
+ * per JSON scalar, so a 45 KB pretty-printed payload (zigbee2mqtt's
+ * bridge/info) or a 400 KB one (bridge/definitions) becomes thousands
+ * of widgets — which is what wedges the GUI thread on a retained-state
+ * burst and makes Quit grind.  8 KB comfortably covers normal device
+ * telemetry (~1–2 KB pretty) while collapsing the bridge/devices
+ * (16 KB), bridge/info (45 KB) and bridge/definitions (400 KB) blobs
+ * that surface on a fresh subscribe to `zigbee2mqtt/#`. */
+#define PN_DEBUG_PANE_TEXT_CAP 8192
+
 static void
 debug_pane_autoscroll (PnWindow *self)
 {
@@ -1169,40 +1181,67 @@ debug_pane_append_now (
     GtkWidget   *row_widget = NULL;
     JsonParser  *parser     = NULL;
     JsonNode    *root;
+    gsize        text_len;
+    gchar       *search_stash;
 
     if (self->debug_list == NULL)
         return;
 
     if (text == NULL)
         text = "";
+    text_len = strlen (text);
 
-    parser = json_parser_new ();
-    if (json_parser_load_from_data (parser, text, -1, NULL))
+    if (text_len > PN_DEBUG_PANE_TEXT_CAP)
     {
-        root = json_parser_get_root (parser);
-        if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
-        {
-            JsonObject *obj = json_node_get_object (root);
-            row_widget = build_envelope_row (self, obj);
-        }
-    }
-    g_object_unref (parser);
-
-    if (row_widget == NULL)
-    {
-        /* Non-JSON fallback: surface the raw payload as a single
-         * label so plain-text formats and log-replay paste still
-         * land in the pane somewhere readable. */
+        /* Replace the whole row with a tiny placeholder rather than
+         * walking the message into a widget tree.  Skips both the JSON
+         * parse and build_envelope_row — neither is cheap at hundreds
+         * of KB.  We also stash a short string for the search filter
+         * instead of the full text, so search does not have to walk
+         * 400 KB needles per keystroke. */
         GtkWidget *lbl = pn_dbg_label_new ();
-        pn_dbg_label_add_seg (lbl, text, NULL, FALSE, FALSE, FALSE, TRUE);
+        gchar     *msg = g_strdup_printf (
+                "(message too big: %" G_GSIZE_FORMAT
+                " bytes — not rendered; cap is %d)",
+                text_len, PN_DEBUG_PANE_TEXT_CAP);
+        pn_dbg_label_add_seg (lbl, msg, NULL, FALSE, FALSE, FALSE, TRUE);
         pn_dbg_label_render (lbl, NULL);
-        row_widget = lbl;
+        g_free (msg);
+        row_widget   = lbl;
+        search_stash = g_strdup ("(message too big)");
+    }
+    else
+    {
+        parser = json_parser_new ();
+        if (json_parser_load_from_data (parser, text, -1, NULL))
+        {
+            root = json_parser_get_root (parser);
+            if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
+            {
+                JsonObject *obj = json_node_get_object (root);
+                row_widget = build_envelope_row (self, obj);
+            }
+        }
+        g_object_unref (parser);
+
+        if (row_widget == NULL)
+        {
+            /* Non-JSON fallback: surface the raw payload as a single
+             * label so plain-text formats and log-replay paste still
+             * land in the pane somewhere readable. */
+            GtkWidget *lbl = pn_dbg_label_new ();
+            pn_dbg_label_add_seg (lbl, text, NULL, FALSE, FALSE, FALSE, TRUE);
+            pn_dbg_label_render (lbl, NULL);
+            row_widget = lbl;
+        }
+        search_stash = g_strdup (text);
     }
 
     /* Stash the raw text on the row so the search filter can match
-     * against the whole message and highlight only the matching rows. */
+     * against the whole message and highlight only the matching rows.
+     * (For oversized rows we stash a short placeholder instead.) */
     g_object_set_data_full (G_OBJECT (row_widget), "pn-search-text",
-                            g_strdup (text), g_free);
+                            search_stash, g_free);
 
     gtk_widget_show_all (row_widget);
     gtk_list_box_insert (GTK_LIST_BOX (self->debug_list), row_widget, -1);
