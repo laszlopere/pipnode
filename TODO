@@ -517,20 +517,29 @@ lives here so future sessions can pick up without re-reading chat):
                  Phase numbering unchanged below; "Phase 5.5" would
                  misread, so it's tracked here as an inline entry.
 
-    [x] Phase 6  Share page (headline feature).  Two-column page
+    [x] Phase 6  Share page (headline feature).  Single-QR page
                  living under the Radio tab as a third expander
-                 (Region & LoRa / Channels / Share): "Share channels"
-                 (additive, per-channel checkboxes, primary pre-
-                 checked) on the left, "Share full config" (replaces
-                 -- all non-disabled channels + LoRa subset) on the
-                 right.  Each column: monospace read-only URL entry
-                 + clipboard Copy button + cairo-rendered QR (when
-                 libqrencode is present at build time).  URL builder
-                 lives in libpipnode-core (pn-mesh-qr.{c,h}) as a
-                 pure-C, GTK-free port of pip-mesh's
+                 (Region & LoRa / Channels / Share).  Top: subtitle
+                 line that rephrases per mode.  Channel checkbox
+                 list (primary pre-checked; rows are the device's
+                 non-disabled slots).  Mode-toggle radio group
+                 ("Share channels (additive)" vs "Share full config
+                 (replaces)") -- exactly one QR drawn from the
+                 active mode so a phone camera cannot lock on the
+                 wrong code.  Below the radios: a single cairo-
+                 rendered QR (when libqrencode is present at build
+                 time, else a "install libqrencode and rebuild"
+                 notice).  Underneath the QR: a wrapping selectable
+                 monospace GtkLabel showing the full URL + a
+                 clipboard Copy button (Label not GtkEntry -- a
+                 single-line entry hides the dynamic tail behind
+                 the identical "https://meshtastic.org/e/#" prefix
+                 and the user cannot tell when the URL changed).
+                 URL builder lives in libpipnode-core (pn-mesh-qr
+                 .{c,h}) as a pure-C, GTK-free port of pip-mesh's
                  build_channel_set_hex + print_qr_url; cairo render
-                 (and the libqrencode include) lives in the gui-side
-                 page-share.c so the core tier stays headless.
+                 (and the libqrencode include) lives in the gui-
+                 side page-share.c so the core tier stays headless.
 
                  ChannelSet wire layout (pip-mesh-compatible):
                    ChannelSet {
@@ -556,12 +565,42 @@ lives here so future sessions can pick up without re-reading chat):
                  Files shipped: lib/pn-mesh-qr.{c,h} (core),
                  lib/pn-mesh-page-share.{c,h} (gui); deltas in
                  lib/pn-mesh-dialog.c (third expander on Radio tab,
-                 set_state on connect/drop) and lib/Makefile.am
-                 (QRENCODE_CFLAGS/LIBS on the gui lib).  Unit test
-                 tests/unit/test-pn-mesh-qr.c (5 cases, 19 checks)
-                 pins byte-for-byte URL match for a single default
-                 channel and for the full-config form, plus skip-
-                 disabled, selection-subset and empty-error paths.
+                 set_state on connect/drop, GtkOverlay loading
+                 spinner over the notebook -- see UX FOLLOW-UPS
+                 below) and lib/Makefile.am (QRENCODE_CFLAGS/LIBS
+                 on the gui lib).  Unit test tests/unit/
+                 test-pn-mesh-qr.c (5 cases, 19 checks) pins byte-
+                 for-byte URL match for a single default channel
+                 and for the full-config form, plus skip-disabled,
+                 selection-subset and empty-error paths.
+
+                 UX FOLLOW-UPS landed with Phase 6:
+
+                 - Handshake loading overlay.  The 3-5s handshake
+                 would otherwise let the user switch to a tab whose
+                 state hasn't arrived and read it as "device has no
+                 channels / no MQTT".  Notebook is now wrapped in a
+                 GtkOverlay with a 64x64 centred GtkSpinner +
+                 "Reading configuration from device…" label;
+                 show_loading/hide_loading also flip notebook
+                 sensitivity so tabs cannot be clicked while the
+                 spinner is up.  drop_connection hides it too so a
+                 dialog-close mid-handshake leaves no ghost widget.
+
+                 - Channels page list height.  set_min_content_
+                 height(220) + set_propagate_natural_height(TRUE)
+                 + a hard set_size_request(list, -1, 200) on the
+                 GtkListBox itself.  Without all three, the FALSE/
+                 FALSE-packed Channels expander pinned the scrolled
+                 list to a single row.  Same pattern (with smaller
+                 numbers) used for the Share page's channel
+                 checkbox list -- the QR area's set_size_request
+                 was eating the slack the list needed.
+
+                 - Trash-can delete glyph.  Per-row delete on the
+                 Channels page uses "user-trash-symbolic" (verified
+                 present in the icon theme) instead of "edit-
+                 delete"; reads as "discard" rather than "erase".
 
                  GOTCHAS for future cousins (Phase 7 / 11+):
 
@@ -576,11 +615,11 @@ lives here so future sessions can pick up without re-reading chat):
 
                  (ii) Region UNSET would brick the receiver on
                  full-config import (proto3 zero == UNSET, no fall-
-                 back).  refresh_full_config skips emission unless
-                 PnMeshState->have_lora_config is TRUE, so the
-                 right column stays empty (not "garbage URL")
-                 until the handshake actually surfaces a LoRa
-                 config.
+                 back).  refresh_url skips emission in full-config
+                 mode unless PnMeshState->have_lora_config is TRUE
+                 (a small dim notice paints in its place) so the
+                 URL/QR pair stays blank (not "garbage URL") until
+                 the handshake actually surfaces a LoRa config.
 
                  (iii) Cairo QR render budgets four modules of
                  quiet zone around the matrix even though Meshtastic
@@ -589,6 +628,23 @@ lives here so future sessions can pick up without re-reading chat):
                  and decode rate drops.  Drawing happens against
                  the cached URL so toggle->draw is one cycle of
                  queue_draw -- no re-encode on every expose.
+
+                 (iv) GtkScrolledWindow's set_min_content_height
+                 ALONE was repeatedly observed to be ignored when
+                 the scrolled window lives inside a GtkExpander
+                 packed FALSE/FALSE in a tab box: the listbox
+                 collapsed to one row.  The reliable recipe is
+                 min_content_height + propagate_natural_height +
+                 an explicit gtk_widget_set_size_request on the
+                 listbox itself.  Any future tab-hosted scrolled
+                 list (Phase 7 test page, Phase 11+ module pages)
+                 should follow the same belt-and-braces pattern.
+
+                 (v) Long URLs in a single-line GtkEntry hide
+                 their dynamic suffix behind the (identical) URL
+                 prefix.  Wrapping selectable GtkLabel was the
+                 right widget; reuse it for any other "show me
+                 this URL" affordance instead of an entry.
     [ ] Phase 7  Test page. Channel picker + message entry + Send;
                  below, a live "Incoming traffic" log running monitor
                  on the open connection. Auto-stops on dialog close.
