@@ -1144,6 +1144,59 @@ on_debug_search_prev (
  * that surface on a fresh subscribe to `zigbee2mqtt/#`. */
 #define PN_DEBUG_PANE_TEXT_CAP 8192
 
+/** Bounded scan for the "topic" field in an oversized envelope's prefix.
+ *  The envelope serializer (pn_debug_message_to_envelope) writes "topic"
+ *  before "data", so the field is always well within the first KB of
+ *  even a 400 KB blob — a tiny substring scan recovers it without the
+ *  full json-glib parse the oversized branch is specifically trying to
+ *  avoid.  Tolerates both the compact (`"topic":"..."`) and the pretty
+ *  (`"topic" : "..."`) generator output, since the Debug pane format is
+ *  pretty-printed.  Returns a freshly-allocated topic or %NULL when the
+ *  prefix did not contain a recognisable string-valued topic. */
+static gchar *
+peek_envelope_topic (const gchar *text, gsize text_len)
+{
+    const gchar *scan_end = text + MIN (text_len, (gsize) 4096);
+    const gchar *m;
+    const gchar *q;
+
+    m = g_strstr_len (text, scan_end - text, "\"topic\"");
+    if (m == NULL)
+        return NULL;
+    m += strlen ("\"topic\"");
+
+    /* Skip whitespace, the ':' separator, more whitespace, then expect
+     * an opening '"'.  Anything else means the match was a substring of
+     * a value, not the key we wanted — bail. */
+    while (m < scan_end && (*m == ' ' || *m == '\t' || *m == '\n' || *m == '\r'))
+        m++;
+    if (m >= scan_end || *m != ':')
+        return NULL;
+    m++;
+    while (m < scan_end && (*m == ' ' || *m == '\t' || *m == '\n' || *m == '\r'))
+        m++;
+    if (m >= scan_end || *m != '"')
+        return NULL;
+    m++;
+
+    /* Walk to the closing quote, stepping over backslash escapes so a
+     * topic containing a literal '"' (rare in practice) does not
+     * truncate.  Bail out if the field runs past the scan window — a
+     * topic that long is not what we want in a placeholder anyway. */
+    q = m;
+    while (q < scan_end && *q != '"')
+    {
+        if (*q == '\\' && q + 1 < scan_end)
+            q += 2;
+        else
+            q++;
+    }
+    if (q >= scan_end || *q != '"')
+        return NULL;
+
+    return g_strndup (m, (gsize) (q - m));
+}
+
 static void
 debug_pane_autoscroll (PnWindow *self)
 {
@@ -1198,17 +1251,25 @@ debug_pane_append_now (
          * parse and build_envelope_row — neither is cheap at hundreds
          * of KB.  We also stash a short string for the search filter
          * instead of the full text, so search does not have to walk
-         * 400 KB needles per keystroke. */
-        GtkWidget *lbl = pn_dbg_label_new ();
-        gchar     *msg = g_strdup_printf (
-                "(message too big: %" G_GSIZE_FORMAT
-                " bytes — not rendered; cap is %d)",
-                text_len, PN_DEBUG_PANE_TEXT_CAP);
+         * 400 KB needles per keystroke.  The topic is recovered with a
+         * bounded prefix scan (no full parse) so the user can still see
+         * which broker topic produced the blob — typically the most
+         * useful single piece of context on a retained-state burst. */
+        GtkWidget *lbl   = pn_dbg_label_new ();
+        gchar     *topic = peek_envelope_topic (text, text_len);
+        gchar     *msg;
+
+        if (topic != NULL && *topic != '\0')
+            msg = g_strdup_printf ("Large message: %s", topic);
+        else
+            msg = g_strdup ("Large message");
+
         pn_dbg_label_add_seg (lbl, msg, NULL, FALSE, FALSE, FALSE, TRUE);
         pn_dbg_label_render (lbl, NULL);
-        g_free (msg);
         row_widget   = lbl;
-        search_stash = g_strdup ("(message too big)");
+        search_stash = g_strdup (msg);
+        g_free (msg);
+        g_free (topic);
     }
     else
     {
