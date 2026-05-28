@@ -114,6 +114,23 @@ AS_IF([test "x$with_webview" != "xno"], [
 ])
 AM_CONDITIONAL([HAVE_WEBKIT], [test "x$have_webkit" = "xyes"])
 
+# Optional libqrencode: used by the Meshtastic dialog's Share page to
+# render channel-set / full-config QR codes for the Meshtastic Android
+# / iOS apps.  Auto-detected; when missing the page falls back to a
+# copyable URL only.
+have_qrencode=no
+PKG_CHECK_MODULES([QRENCODE], [libqrencode >= 3.4.4],
+    [have_qrencode=yes
+     AC_DEFINE([HAVE_QRENCODE], [1],
+         [Define to 1 if libqrencode is available for rendering
+          shareable QR codes.])],
+    [AC_MSG_NOTICE([libqrencode not found; Meshtastic Share page will show URLs only])
+     QRENCODE_CFLAGS=
+     QRENCODE_LIBS=
+     AC_SUBST([QRENCODE_CFLAGS])
+     AC_SUBST([QRENCODE_LIBS])])
+AM_CONDITIONAL([HAVE_QRENCODE], [test "x$have_qrencode" = "xyes"])
+
 # Embed git commit hash for --version
 GIT_VERSION=$(git -C "$srcdir" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 AC_SUBST([GIT_VERSION])

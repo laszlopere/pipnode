@@ -98,7 +98,8 @@ check_PROGRAMS = \
 	test-pn-secret-scrub \
 	test-pn-ws \
 	test-pn-mesh-pb \
-	test-pn-mesh-frame
+	test-pn-mesh-frame \
+	test-pn-mesh-qr
 
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
@@ -109,6 +110,7 @@ test_pn_secret_scrub_SOURCES = test-pn-secret-scrub.c pntest.c pntest.h
 test_pn_ws_SOURCES           = test-pn-ws.c           pntest.c pntest.h
 test_pn_mesh_pb_SOURCES      = test-pn-mesh-pb.c      pntest.c pntest.h
 test_pn_mesh_frame_SOURCES   = test-pn-mesh-frame.c   pntest.c pntest.h
+test_pn_mesh_qr_SOURCES      = test-pn-mesh-qr.c      pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h

@@ -105,6 +105,8 @@ libpipnode_core_la_SOURCES = \
 	pn-mesh-formats.h \
 	pn-mesh-pb.c \
 	pn-mesh-pb.h \
+	pn-mesh-qr.c \
+	pn-mesh-qr.h \
 	pn-mesh-serial.c \
 	pn-mesh-serial.h \
 	pn-meshtastic.c \
@@ -267,6 +269,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-mqtt.h \
 	pn-mesh-page-region.c \
 	pn-mesh-page-region.h \
+	pn-mesh-page-share.c \
+	pn-mesh-page-share.h \
 	pn-mesh-page-telemetry.c \
 	pn-mesh-page-telemetry.h \
 	pn-meshtastic-gui.c \
@@ -320,6 +324,7 @@ libpipnode_gui_la_CFLAGS = \
 	$(GDK_PIXBUF_CFLAGS) \
 	$(PLPLOT_CFLAGS) \
 	$(WEBKIT2GTK_CFLAGS) \
+	$(QRENCODE_CFLAGS) \
 	$(GMODULE_CFLAGS) \
 	-DPKGDATADIR=\"$(pkgdatadir)\" \
 	-DPKGLIBDIR=\"$(pkglibdir)\" \
@@ -336,6 +341,7 @@ libpipnode_gui_la_LIBADD = \
 	$(GDK_PIXBUF_LIBS) \
 	$(PLPLOT_LIBS) \
 	$(WEBKIT2GTK_LIBS) \
+	$(QRENCODE_LIBS) \
 	$(GMODULE_LIBS) \
 	-lm
 
@@ -389,6 +395,7 @@ pipnode_core_headers = \
 	pn-mesh-discover.h \
 	pn-mesh-formats.h \
 	pn-mesh-pb.h \
+	pn-mesh-qr.h \
 	pn-mesh-serial.h \
 	pn-meshtastic.h \
 	pn-message.h \

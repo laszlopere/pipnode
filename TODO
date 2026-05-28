@@ -517,12 +517,78 @@ lives here so future sessions can pick up without re-reading chat):
                  Phase numbering unchanged below; "Phase 5.5" would
                  misread, so it's tracked here as an inline entry.
 
-    [ ] Phase 6  Share page (headline feature). Share channel
-                 (additive, multi-select) and Share full config
-                 (replaces) side by side. Cairo-rendered QR via
-                 libqrencode when available, URL + copy button always.
-                 Unit test asserts byte-for-byte URL match against
-                 pip-mesh output for a fixed channel set.
+    [x] Phase 6  Share page (headline feature).  Two-column page
+                 living under the Radio tab as a third expander
+                 (Region & LoRa / Channels / Share): "Share channels"
+                 (additive, per-channel checkboxes, primary pre-
+                 checked) on the left, "Share full config" (replaces
+                 -- all non-disabled channels + LoRa subset) on the
+                 right.  Each column: monospace read-only URL entry
+                 + clipboard Copy button + cairo-rendered QR (when
+                 libqrencode is present at build time).  URL builder
+                 lives in libpipnode-core (pn-mesh-qr.{c,h}) as a
+                 pure-C, GTK-free port of pip-mesh's
+                 build_channel_set_hex + print_qr_url; cairo render
+                 (and the libqrencode include) lives in the gui-side
+                 page-share.c so the core tier stays headless.
+
+                 ChannelSet wire layout (pip-mesh-compatible):
+                   ChannelSet {
+                     repeated ChannelSettings settings = 1; // embedded
+                     LoRaConfig               lora     = 2; // optional
+                   }
+                   ChannelSettings { bytes psk = 2; string name = 3; }
+                   LoRaConfig (QR subset):
+                     bool use_preset = 1; ModemPreset modem = 2;
+                     RegionCode region = 7; uint32 hop_limit = 8;
+                 URL = "https://meshtastic.org/e/#" + base64url
+                 (RFC 4648 with '+'->'-', '/'->'_', trailing '='
+                 stripped) of the serialized ChannelSet.
+
+                 Optional dep: libqrencode (PKG_CHECK_MODULES,
+                 AC_DEFINE HAVE_QRENCODE, AM_CONDITIONAL); auto-
+                 detected, URL-only fallback paints a "install
+                 libqrencode and rebuild" notice in the QR slot when
+                 missing.  Configure prints "libqrencode not found;
+                 Meshtastic Share page will show URLs only" in that
+                 case.
+
+                 Files shipped: lib/pn-mesh-qr.{c,h} (core),
+                 lib/pn-mesh-page-share.{c,h} (gui); deltas in
+                 lib/pn-mesh-dialog.c (third expander on Radio tab,
+                 set_state on connect/drop) and lib/Makefile.am
+                 (QRENCODE_CFLAGS/LIBS on the gui lib).  Unit test
+                 tests/unit/test-pn-mesh-qr.c (5 cases, 19 checks)
+                 pins byte-for-byte URL match for a single default
+                 channel and for the full-config form, plus skip-
+                 disabled, selection-subset and empty-error paths.
+
+                 GOTCHAS for future cousins (Phase 7 / 11+):
+
+                 (i) ProtoBuf field numbers in pip-mesh's bash
+                 docstrings were not always accurate (Phase 5
+                 already hit this on set_channel: docstring 32,
+                 code 33).  For Phase 6 the field numbers came
+                 verbatim out of build_channel_set_hex /
+                 print_qr_config and matched what the firmware
+                 expects; the test pins them at the URL level so
+                 a future "tidy up" cannot silently drift.
+
+                 (ii) Region UNSET would brick the receiver on
+                 full-config import (proto3 zero == UNSET, no fall-
+                 back).  refresh_full_config skips emission unless
+                 PnMeshState->have_lora_config is TRUE, so the
+                 right column stays empty (not "garbage URL")
+                 until the handshake actually surfaces a LoRa
+                 config.
+
+                 (iii) Cairo QR render budgets four modules of
+                 quiet zone around the matrix even though Meshtastic
+                 phone apps are tolerant; without it the white
+                 border collapses when the dialog uses a dark theme
+                 and decode rate drops.  Drawing happens against
+                 the cached URL so toggle->draw is one cycle of
+                 queue_draw -- no re-encode on every expose.
     [ ] Phase 7  Test page. Channel picker + message entry + Send;
                  below, a live "Incoming traffic" log running monitor
                  on the open connection. Auto-stops on dialog close.

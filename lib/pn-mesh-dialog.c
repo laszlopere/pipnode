@@ -40,6 +40,7 @@
 #include "pn-mesh-page-known-nodes.h"
 #include "pn-mesh-page-mqtt.h"
 #include "pn-mesh-page-region.h"
+#include "pn-mesh-page-share.h"
 #include "pn-mesh-page-telemetry.h"
 
 #define PN_MESH_DIALOG_WIDTH   880
@@ -56,9 +57,20 @@ typedef struct
                                         * the user can see what tabs
                                         * exist but cannot navigate
                                         * into empty forms */
+    GtkWidget        *loading_overlay; /* big spinner + label layered
+                                        * over the notebook via a
+                                        * GtkOverlay; visible only
+                                        * while the handshake is in
+                                        * flight so the user cannot
+                                        * switch tabs (or, worse,
+                                        * read a half-populated form)
+                                        * until the device's state has
+                                        * arrived in full */
+    GtkSpinner       *loading_spinner;
     GtkWidget        *identity_page;
     GtkWidget        *region_page;
     GtkWidget        *channels_page;
+    GtkWidget        *share_page;
     GtkWidget        *known_nodes_page;
     GtkWidget        *ext_notification_page;
     GtkWidget        *mqtt_page;
@@ -120,6 +132,39 @@ on_page_status (const gchar *msg, gpointer user_data)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Loading overlay                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Show the big spinner over the notebook and lock the notebook so
+ * the user cannot switch tabs (or read a half-populated form) while
+ * the handshake is in flight.  Paired with hide_loading() below;
+ * both are no-ops if the overlay has not been built yet (rare, only
+ * the construction-phase drop_connection call). */
+static void
+show_loading (MeshDialogCtx *ctx)
+{
+    if (ctx->notebook != NULL)
+        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
+    if (ctx->loading_overlay != NULL)
+    {
+        gtk_widget_show (ctx->loading_overlay);
+        if (ctx->loading_spinner != NULL)
+            gtk_spinner_start (ctx->loading_spinner);
+    }
+}
+
+static void
+hide_loading (MeshDialogCtx *ctx)
+{
+    if (ctx->loading_overlay != NULL)
+    {
+        if (ctx->loading_spinner != NULL)
+            gtk_spinner_stop (ctx->loading_spinner);
+        gtk_widget_hide (ctx->loading_overlay);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Connection lifecycle                                                */
 /* ------------------------------------------------------------------ */
 
@@ -138,15 +183,20 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_identity_set_state         (ctx->identity_page,         NULL, NULL, NULL, NULL);
     pn_mesh_page_region_set_state           (ctx->region_page,           NULL, NULL);
     pn_mesh_page_channels_set_state         (ctx->channels_page,         NULL, NULL);
+    pn_mesh_page_share_set_state            (ctx->share_page,            NULL);
     pn_mesh_page_known_nodes_set_state      (ctx->known_nodes_page,      NULL);
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
     pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
-     * once they pick one, but they cannot click into an empty form. */
+     * once they pick one, but they cannot click into an empty form.
+     * The loading overlay is also explicitly hidden -- drop_connection
+     * runs on dialog close too, where a still-spinning overlay would
+     * leave a "ghost" widget visible during teardown. */
     if (ctx->notebook != NULL)
         gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
+    hide_loading (ctx);
 }
 
 static void
@@ -178,7 +228,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
                      error != NULL ? error->message : "(unknown error)");
         g_clear_error (&error);
         /* Tabs stay visible but their content is empty -- each page's
-         * set_state(NULL) repaints itself as a "no device" placeholder. */
+         * set_state(NULL) repaints itself as a "no device" placeholder.
+         * Drop the loading overlay so the failure status is readable
+         * underneath; notebook stays insensitive (drop_connection set
+         * it that way and we never flipped it back). */
+        hide_loading (ctx);
         return;
     }
 
@@ -197,6 +251,9 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->channels_page,
             pn_mesh_connection_get_state (conn),
             conn);
+    pn_mesh_page_share_set_state (
+            ctx->share_page,
+            pn_mesh_connection_get_state (conn));
     pn_mesh_page_known_nodes_set_state (
             ctx->known_nodes_page,
             pn_mesh_connection_get_state (conn));
@@ -215,11 +272,10 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
     /* Light up the notebook now that there's actually content to
      * navigate to.  drop_connection() reverses this on the next
      * device switch or dialog close. */
+    hide_loading (ctx);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
     /* Jump to the Device tab (index 0) so the Identity expander
-     * shows the just-completed handshake.  The user can still
-     * navigate back to any other tab; they were all visible while
-     * connecting. */
+     * shows the just-completed handshake. */
     gtk_notebook_set_current_page (ctx->notebook, 0);
 
     {
@@ -263,14 +319,15 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * until the handshake completes. */
     pn_mesh_page_identity_set_state (ctx->identity_page,
                                      device->kind, device->tty, NULL, NULL);
-    /* Light up the notebook the moment the user picks a device,
-     * even before the handshake returns -- otherwise the
-     * "Connecting…" placeholder would paint greyed-out for the 3-5s
-     * the handshake takes.  drop_connection() will re-disable on
-     * the next dialog close or device switch. */
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
-    /* Snap to the Device tab (index 0) so the Identity row is what
-     * the user sees while the handshake runs. */
+    /* The handshake takes 3-5 s and the pages would otherwise paint
+     * with em-dashes for everything.  Worse, the user could switch to
+     * a tab whose state hasn't arrived yet (Channels/Region/MQTT/...)
+     * and read it as "this device has no channels / no MQTT".  Lock
+     * the notebook and float a big spinner on top until on_connection
+     * _ready unlocks it. */
+    show_loading (ctx);
+    /* Snap to the Device tab (index 0) so when the handshake completes
+     * the Identity row is what the user sees first. */
     gtk_notebook_set_current_page (ctx->notebook, 0);
 
     set_statusf (ctx, "Connecting to %s on %s…",
@@ -431,6 +488,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->identity_page         = pn_mesh_page_identity_new ();
         ctx->region_page           = pn_mesh_page_region_new ();
         ctx->channels_page         = pn_mesh_page_channels_new ();
+        ctx->share_page            = pn_mesh_page_share_new ();
         ctx->known_nodes_page      = pn_mesh_page_known_nodes_new ();
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
@@ -457,11 +515,12 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                                       gtk_label_new ("Device"));
         }
 
-        /* Tab 2: Radio  (Region+LoRa, Channels; Position + Security later). */
+        /* Tab 2: Radio  (Region+LoRa, Channels, Share; Position + Security later). */
         {
             GtkWidget *inner, *tab = build_tab (&inner);
             add_expander (inner, "Region & LoRa", ctx->region_page);
             add_expander (inner, "Channels",      ctx->channels_page);
+            add_expander (inner, "Share",         ctx->share_page);
             gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
                                       gtk_label_new ("Radio"));
         }
@@ -526,8 +585,51 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
 
         gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 0);
 
-        gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
-        gtk_paned_pack2 (GTK_PANED (paned), notebook,         TRUE,  FALSE);
+        /* Wrap the notebook in a GtkOverlay so we can float a big
+         * spinner on top while the handshake is in flight.  The
+         * notebook stays the bottom (interactive) layer; the
+         * spinner+label box is the top (passive) overlay child, set
+         * no_show_all so gtk_widget_show_all on the dialog does NOT
+         * reveal it -- show_loading() flips its visibility. */
+        {
+            GtkWidget *overlay;
+            GtkWidget *box;
+            GtkWidget *spinner;
+            GtkWidget *label;
+
+            overlay = gtk_overlay_new ();
+            gtk_container_add (GTK_CONTAINER (overlay), notebook);
+
+            box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+            /* Centred horizontally + vertically so the spinner lands
+             * in the middle of the right pane regardless of dialog
+             * size.  halign/valign on the overlay child decides
+             * placement; without them the child would fill the whole
+             * overlay and the spinner would be top-left. */
+            gtk_widget_set_halign (box, GTK_ALIGN_CENTER);
+            gtk_widget_set_valign (box, GTK_ALIGN_CENTER);
+            gtk_widget_set_no_show_all (box, TRUE);
+
+            spinner = gtk_spinner_new ();
+            /* GtkSpinner has no intrinsic size beyond the theme's
+             * "spinner-size" — bump it to something a user notices
+             * across the whole pane. */
+            gtk_widget_set_size_request (spinner, 64, 64);
+            gtk_widget_show (spinner);
+            gtk_box_pack_start (GTK_BOX (box), spinner, FALSE, FALSE, 0);
+
+            label = gtk_label_new ("Reading configuration from device…");
+            gtk_widget_show (label);
+            gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
+
+            gtk_overlay_add_overlay (GTK_OVERLAY (overlay), box);
+
+            ctx->loading_overlay = box;
+            ctx->loading_spinner = GTK_SPINNER (spinner);
+
+            gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
+            gtk_paned_pack2 (GTK_PANED (paned), overlay,          TRUE,  FALSE);
+        }
     }
 
     gtk_box_pack_start (GTK_BOX (content), paned, TRUE, TRUE, 0);
