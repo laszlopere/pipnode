@@ -171,20 +171,9 @@ resolve_connection (PnMqttSink *self,
 {
     PnProfile *p = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
-    if (p != NULL)
-    {
-        if (out_url)  *out_url  = pn_profile_get_string (p, "url");
-        if (out_user) *out_user = pn_profile_get_string (p, "username");
-        if (out_pass) *out_pass = pn_profile_get_secret (p, "password");
-        if (out_cid)  *out_cid  = pn_profile_get_string (p, "client-id");
-    }
-    else
-    {
-        if (out_url)  *out_url  = g_strdup (self->url       ? self->url       : "");
-        if (out_user) *out_user = g_strdup (self->username  ? self->username  : "");
-        if (out_pass) *out_pass = g_strdup (self->password  ? self->password  : "");
-        if (out_cid)  *out_cid  = g_strdup (self->client_id ? self->client_id : "");
-    }
+    pn_mqtt_resolve_connection (p, self->url, self->username, self->password,
+                                self->client_id,
+                                out_url, out_user, out_pass, out_cid);
 }
 
 /** Flip the node body between the connected (green paper-plane) and

@@ -103,7 +103,8 @@ check_PROGRAMS = \
 	test-pn-mqtt \
 	test-pn-mqtt-sink \
 	test-pn-mqtt-profile \
-	test-pn-mqtt-util
+	test-pn-mqtt-util \
+	test-pn-mqtt-resolve
 
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
@@ -203,5 +204,6 @@ test_pn_mqtt_SOURCES         = test-pn-mqtt.c         pntest.c pntest.h
 test_pn_mqtt_sink_SOURCES    = test-pn-mqtt-sink.c    pntest.c pntest.h
 test_pn_mqtt_profile_SOURCES = test-pn-mqtt-profile.c pntest.c pntest.h
 test_pn_mqtt_util_SOURCES    = test-pn-mqtt-util.c    pntest.c pntest.h
+test_pn_mqtt_resolve_SOURCES = test-pn-mqtt-resolve.c pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)

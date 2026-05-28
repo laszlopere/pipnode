@@ -182,20 +182,9 @@ resolve_connection (PnMqtt *self,
     PnMqttPrivate *priv = PRIV (self);
     PnProfile     *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
-    if (p != NULL)
-    {
-        if (out_url)  *out_url  = pn_profile_get_string (p, "url");
-        if (out_user) *out_user = pn_profile_get_string (p, "username");
-        if (out_pass) *out_pass = pn_profile_get_secret (p, "password");
-        if (out_cid)  *out_cid  = pn_profile_get_string (p, "client-id");
-    }
-    else
-    {
-        if (out_url)  *out_url  = g_strdup (priv->url       ? priv->url       : "");
-        if (out_user) *out_user = g_strdup (priv->username  ? priv->username  : "");
-        if (out_pass) *out_pass = g_strdup (priv->password  ? priv->password  : "");
-        if (out_cid)  *out_cid  = g_strdup (priv->client_id ? priv->client_id : "");
-    }
+    pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
+                                priv->client_id,
+                                out_url, out_user, out_pass, out_cid);
 }
 
 /* ------------------------------------------------------------------ */

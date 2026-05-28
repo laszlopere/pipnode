@@ -21,6 +21,7 @@
 #include "pn-message.h"
 #include "pn-node.h"
 #include "pn-flow.h"
+#include "pn-vault.h"
 
 G_BEGIN_DECLS
 
@@ -56,6 +57,34 @@ gboolean pn_mqtt_parse_url (const gchar *url,
                             gchar      **out_host,
                             int         *out_port,
                             gboolean    *out_tls);
+
+/**
+ * pn_mqtt_resolve_connection:
+ * @profile:     (nullable): the resolved "mqtt-broker" vault profile, or
+ *               %NULL to use the inline fallback values
+ * @inline_url:  (nullable): the node's inline url property
+ * @inline_user: (nullable): the node's inline username property
+ * @inline_pass: (nullable): the node's inline password property
+ * @inline_cid:  (nullable): the node's inline client-id property
+ * @out_url:     (out) (optional): resolved url (caller frees)
+ * @out_user:    (out) (optional): resolved username (caller frees)
+ * @out_pass:    (out) (optional): resolved password (caller frees)
+ * @out_cid:     (out) (optional): resolved client id (caller frees)
+ *
+ * Resolves the connection identity: when @profile is non-%NULL each field
+ * comes from it (the password via #pn_profile_get_secret, so it follows the
+ * vault's secret path); otherwise the inline values are used (a %NULL inline
+ * value yields ""). Every requested out string is freshly allocated.
+ */
+void pn_mqtt_resolve_connection (PnProfile   *profile,
+                                 const gchar *inline_url,
+                                 const gchar *inline_user,
+                                 const gchar *inline_pass,
+                                 const gchar *inline_cid,
+                                 gchar      **out_url,
+                                 gchar      **out_user,
+                                 gchar      **out_pass,
+                                 gchar      **out_cid);
 
 /**
  * pn_mqtt_build_message:

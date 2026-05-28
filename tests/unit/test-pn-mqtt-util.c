@@ -309,6 +309,23 @@ test_payload_fallback_structured (void)
     g_object_unref (m);
 }
 
+/* A template path that resolves to nothing expands to "" (PN_SUBST_MISS_EMPTY)
+ * -- still a successful build, just an empty payload. */
+static void
+test_payload_template_missing_path (void)
+{
+    PnMessage *m = pn_message_new (NULL, "t");
+    gchar     *out = NULL;
+    gsize      len = 999;
+
+    PN_CHECK (pn_mqtt_build_payload ("${data/nope}", m, NULL, &out, &len));
+    PN_CHECK_CMPSTR (out, ==, "");
+    PN_CHECK_CMPINT ((int) len, ==, 0);
+
+    g_free (out);
+    g_object_unref (m);
+}
+
 /* Empty template and no data.payload -> FALSE, so the caller drops the
  * message rather than publishing a misleading empty string. */
 static void
@@ -362,6 +379,20 @@ test_queue_cap_eviction (void)
         PN_CHECK_CMPSTR (tail->topic, ==, last);
         g_free (last);
     }
+
+    g_ptr_array_unref (fresh);
+    g_queue_free (q);
+}
+
+/* collect_fresh on an empty queue returns a valid, empty array. */
+static void
+test_queue_collect_empty (void)
+{
+    GQueue    *q = g_queue_new ();
+    GPtrArray *fresh = pn_mqtt_pending_collect_fresh (q, 1000, G_MAXINT64);
+
+    PN_CHECK (fresh != NULL);
+    PN_CHECK_CMPINT ((int) fresh->len, ==, 0);
 
     g_ptr_array_unref (fresh);
     g_queue_free (q);
@@ -441,7 +472,9 @@ main (int argc, char **argv)
     pn_test_add ("payload_template",     test_payload_template);
     pn_test_add ("payload_fallback_string", test_payload_fallback_string);
     pn_test_add ("payload_fallback_structured", test_payload_fallback_structured);
+    pn_test_add ("payload_template_missing_path", test_payload_template_missing_path);
     pn_test_add ("payload_missing_drops", test_payload_missing_drops);
+    pn_test_add ("queue_collect_empty",  test_queue_collect_empty);
     pn_test_add ("queue_cap_eviction",   test_queue_cap_eviction);
     pn_test_add ("queue_age_filter",     test_queue_age_filter);
     pn_test_add ("queue_fifo_order",     test_queue_fifo_order);

@@ -105,6 +105,38 @@ pn_mqtt_parse_url (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Connection identity resolution                                     */
+/* ------------------------------------------------------------------ */
+
+void
+pn_mqtt_resolve_connection (
+        PnProfile   *profile,
+        const gchar *inline_url,
+        const gchar *inline_user,
+        const gchar *inline_pass,
+        const gchar *inline_cid,
+        gchar      **out_url,
+        gchar      **out_user,
+        gchar      **out_pass,
+        gchar      **out_cid)
+{
+    if (profile != NULL)
+    {
+        if (out_url)  *out_url  = pn_profile_get_string (profile, "url");
+        if (out_user) *out_user = pn_profile_get_string (profile, "username");
+        if (out_pass) *out_pass = pn_profile_get_secret (profile, "password");
+        if (out_cid)  *out_cid  = pn_profile_get_string (profile, "client-id");
+    }
+    else
+    {
+        if (out_url)  *out_url  = g_strdup (inline_url  ? inline_url  : "");
+        if (out_user) *out_user = g_strdup (inline_user ? inline_user : "");
+        if (out_pass) *out_pass = g_strdup (inline_pass ? inline_pass : "");
+        if (out_cid)  *out_cid  = g_strdup (inline_cid  ? inline_cid  : "");
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Inbound message construction                                       */
 /* ------------------------------------------------------------------ */
 
