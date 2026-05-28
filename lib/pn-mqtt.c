@@ -1164,7 +1164,6 @@ pn_mqtt_init (PnMqtt *self)
     g_queue_init (&priv->pending);
     priv->flush_idle_id   = 0;
 
-    pn_node_set_class_name (node, "MQTT Source");
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 

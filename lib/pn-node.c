@@ -765,9 +765,19 @@ pn_node_get_class_name (PnNode *self)
     PnNodePrivate *priv;
     g_return_val_if_fail (PN_IS_NODE (self), NULL);
     priv = pn_node_get_instance_private (self);
-    return priv->class_name;
+    if (priv->class_name != NULL && *priv->class_name != '\0')
+        return priv->class_name;
+    return PN_NODE_GET_CLASS (self)->class_name;
 }
 
+/* Deprecated: leaf classes should pin PnNodeClass.class_name in
+ * class_init instead — pn_node_get_class_name() now falls back to
+ * that, so calling this from instance init() is no longer needed
+ * (and is actively harmful for subclasses: the parent's value
+ * sticks unless the child re-stomps it).  Still kept public for
+ * deserialization, which restores the saved instance label from
+ * the .pn file via the "class-name" GObject property.  Plugins
+ * may remove leftover calls from their _init() functions. */
 void
 pn_node_set_class_name (
         PnNode      *self,
