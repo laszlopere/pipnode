@@ -967,3 +967,112 @@ Hard rules (do not inherit from pip-mesh): no ~/.cache/, no
 auto-detect on dialog open, no "auto-select if exactly one device",
 no --raw or --max-messages CLI modes leaking into the GUI, no global
 HEXDATA/PB_POS state -- each PnMeshConnection holds its own.
+
+(30) MQTT node hardening (from the 2026-05-28 code review of
+lib/pn-mqtt.c/.h, lib/pn-mqtt-sink.c/.h, lib/pn-mqtt-profile.c/.h and
+tests/unit/test-pn-mqtt*.c).  The nodes are sound and GTK-free; these
+are the findings worth fixing.  NOTE: pn-mesh-page-mqtt.c is the
+Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
+
+  CRITICAL
+  - C1  Sink reports every failure only via g_warning/g_message ->
+        invisible from the desktop launcher (violates the "errors via
+        failure message, not stdout" rule; cf. pn-http.c:272).  Offenders
+        in pn-mqtt-sink.c: queued-publish fail :486, live publish fail
+        :671, connect refused :564, invalid URL :731, mosquitto_new/
+        connect_async/loop_start/username_pw_set/tls_set :744,766,774,
+        782,795.  Emit success=FALSE + human-readable output instead.
+        (Source has the same smell -- see L1.)
+  - C2  restart_client() runs from _init() (pn-mqtt.c:1173,
+        pn-mqtt-sink.c:1154), before construction/deserialization is done.
+        Source: starts the network thread before a SUBCLASS (Sink,
+        Tasmota, Zigbee2MQTT) has initialized its private state, yet
+        on_mqtt_message calls klass->accept_topic() on the net thread.
+        Sink: every credential setter (broker-profile/url/username/
+        password/client-id, :854,859,875,880,885) re-runs restart_client,
+        so loading a document fires ~5 full connect cycles in a burst.
+        Fix: defer the initial connect to constructed()/g_idle and
+        debounce reconnects into one idle instead of reconnecting
+        synchronously in each setter.
+
+  HIGH
+  - H1  Network-thread read of priv->topic/priv->qos races runtime
+        reconfigure (pn-mqtt.c:467-469).  The "no mutex for config fields"
+        invariant assumes setters always stop_client (join the thread)
+        first, but libmosquitto's AUTO-RECONNECT keeps the net thread
+        alive and re-fires on_mqtt_connect with no stop_client -- so a
+        reconnect can read priv->topic while a setter frees/replaces it
+        (torn read / UAF).  Fix: snapshot topic/qos at connect time or
+        guard with the existing lock.
+  - H2  Stale-disconnect race during reconnect-while-restarting, present
+        EQUALLY in both nodes.  The conn-state trampoline guards only on
+        client != NULL (pn-mqtt.c:413, pn-mqtt-sink.c:514); neither has a
+        real generation/epoch counter, so an old session's queued
+        trampoline running after restart_client installs a new client can
+        flip a live node back to red (and on the Source skip the genuine
+        reconnect's re-subscribe).  Fix: capture a generation counter in
+        the closure, compare in the trampoline.
+  - H3  Sink drops buffered startup commands on flush failure:
+        flush_pending (pn-mqtt-sink.c:476-492) pending_free's each entry
+        unconditionally even when mosquitto_publish errored (:485),
+        defeating the buffer-and-flush guarantee.  Fix: on NOMEM/CONN_LOST
+        re-queue rather than discard.
+
+  MEDIUM
+  - M1  build_mqtt_message (pn-mqtt.c:592-598) mirrors only DOUBLE/INT64
+        JSON scalars to data.value; a bare true/false payload sets nothing
+        (breaks the 0.0/1.0 boolean convention), and int64 loses precision
+        via get_double.  Add a JSON-boolean -> 0.0/1.0 case.
+  - M2  Sink loses buffered messages on dispose (finalize :989) and on a
+        runtime URL change keeps the backlog and flushes commands meant
+        for broker A to broker B.  Decide + document; likely clear the
+        queue when broker identity changes.
+  - M3  Profile lacks TLS/CA-file, port-as-int, and keepalive fields.
+        TLS is inferred from URL scheme only and mosquitto_tls_set(...NULL)
+        uses the system trust store (pn-mqtt.c:771), so a PRIVATE-CA broker
+        is unconfigurable; keepalive hard-coded to 60s.  Known/deferred.
+  - M4  payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666; >256MB
+        hits MQTT's limit and mosquitto_publish rejects -- logged only to
+        stderr (see C1).
+
+  LOW / NIT
+  - L1  Source: subscribe failure (pn-mqtt.c:469-475) g_warns then flips
+        the node GREEN anyway -> looks healthy, receives nothing.
+  - L2  Dead variable need_schedule (pn-mqtt.c:375,388,394).
+  - L3  Default topic "#" + a primary broker profile = a freshly dropped
+        node auto-subscribes to the entire broker (footgun, intentional).
+  - L4  Empty-payload publish is dropped (pn-mqtt-sink.c:383) -> cannot
+        clear a retained topic with a null payload; document in help.
+  - N1  restart_client repeats the g_free(url/user/pass/cid/host) cleanup
+        block ~5x per file; an out: goto would remove the divergence risk.
+  - N2  Stale header docs: pn-mqtt.h says property "topic" but the
+        installed name is "subscribe-topic" (:1101); pn-mqtt-sink.h omits
+        broker-profile/topic-template.
+  - N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
+        risk); a shared static + shared test would cover both.
+
+  TEST COVERAGE -- DONE 2026-05-28.  The pure logic was extracted into a
+  new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
+  it; this also de-dups parse_mqtt_url, closing N3) and covered by two new
+  binaries -- tests/unit/test-pn-mqtt-profile.c and test-pn-mqtt-util.c.
+  All five items landed:
+  1. [x] Profile schema characterization (test-pn-mqtt-profile.c): 4 field
+         names/kinds + password==PN_FIELD_SECRET + help page.
+  2. [x] pn_mqtt_parse_url table: scheme->TLS+default-port (1883/8883),
+         bare host:port, port-range and empty-host/leading-'/' rejection.
+  3. [x] pn_mqtt_build_message data-bag contract: object->nested payload,
+         number->value, text->coerced value, non-UTF-8->payload "",
+         envelope qos/retained/success.  ALSO pins M1's current behaviour
+         (JSON boolean does NOT set value) so a future M1 fix is a visible
+         test change.
+  4. [x] pn_mqtt_build_payload: template expansion, string + structured
+         data.payload fallback, missing-payload drop.
+  5. [x] Offline queue (pn_mqtt_pending_*): LEN-cap eviction, AGE discard
+         with an INJECTED clock (now_us param) + FIFO order.  flush_pending's
+         mosquitto_publish stays on the node; the policy is in util.
+  test-pn-mqtt-util = 125 checks; full `make check` = 75/75.
+
+  STILL OPEN: the review BUGS themselves (C1 errors-to-stderr, C2 init-time
+  connect, H1 topic-read race, H2/H3 generation guard, M1 boolean->value).
+  Priority order to tackle: C1, C2, H1, then H2/H3.  The tests above are a
+  net for that work, not a fix for it.
