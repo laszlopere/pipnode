@@ -47,7 +47,7 @@ intervention.
 
 <h5>Subscription</h5>
 <p>
-The <code>topic</code> property is the MQTT topic filter. Standard
+The <code>subscribe-topic</code> property is the MQTT topic filter. Standard
 MQTT wildcards apply: <code>+</code> matches a single level,
 <code>#</code> matches the remainder. Defaults to <code>#</code> so
 the node produces output as soon as it connects. The
@@ -117,7 +117,7 @@ bag carries:
   <tr><td><code>url</code></td>
       <td>Broker URL. Defaults to
           <code>tcp://mqtt.homelab.local:1883</code>.</td></tr>
-  <tr><td><code>topic</code></td>
+  <tr><td><code>subscribe-topic</code></td>
       <td>MQTT topic filter to subscribe to. Defaults to
           <code>#</code>.</td></tr>
   <tr><td><code>username</code></td>
@@ -139,7 +139,7 @@ mosquitto_pub -h mqtt.homelab.local -t test/hello -m '23.5'
 mosquitto_pub -h mqtt.homelab.local -t test/sensor -m '{"t":22.6,"h":41.2}'
 </pre>
 <p>
-With the default subscription <code>topic = "#"</code> the first
+With the default subscription <code>subscribe-topic = "#"</code> the first
 publish lands as <code>PnMessage{ topic="mqtt/test/hello",
 data.payload=23.5, data.value=23.5, data.output="MQTT message on
 test/hello" }</code>; the second as

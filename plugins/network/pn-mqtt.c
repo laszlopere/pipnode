@@ -91,7 +91,25 @@ struct _PnMqtt
      * on_connect / on_disconnect callbacks (marshalled to the main
      * thread).  Used to drive the visual state. */
     gboolean          connected;
+
+    /* Inbound-message queue: libmosquitto's network thread builds the
+     * #PnMessage on its side, then pushes it here.  A single main-thread
+     * drain idle pops the whole batch and emits each — coalescing N
+     * per-message main-loop wake-ups into one per burst, which keeps the
+     * UI interactive when a broker dumps a retained-state flood at
+     * subscribe time (zigbee2mqtt's `zigbee2mqtt/#` is the motivating
+     * case).  Bounded by #PN_MQTT_PENDING_MAX so a runaway broker can't
+     * grow the queue without limit; the oldest queued message is dropped
+     * when the cap is hit. */
+    GMutex            pending_lock;
+    GQueue            pending;       /* of (PnMessage *), owned */
+    guint             flush_idle_id; /* 0 when no drain idle scheduled */
 };
+
+/* Hard cap on the pending-message queue.  Sized for a healthy retained
+ * burst (a few thousand messages) without unbounded growth under a
+ * sustained-flood pathological case. */
+#define PN_MQTT_PENDING_MAX 10000
 
 G_DEFINE_TYPE (PnMqtt, pn_mqtt, PN_TYPE_NODE)
 
@@ -295,40 +313,66 @@ parse_mqtt_url (
 /*  poking the node.                                                   */
 /* ------------------------------------------------------------------ */
 
-typedef struct
-{
-    PnNode    *node;     /* strong ref */
-    PnMessage *message;  /* strong ref */
-} PnMqttEmitClosure;
-
+/** Main-thread drain.  Swaps the pending queue out under the lock in
+ *  O(1), clears the scheduled-idle flag (so the network thread can
+ *  schedule a fresh one for any message that arrives during the drain),
+ *  then emits each queued message on the node — synchronously cascading
+ *  through the wired graph in arrival order. */
 static gboolean
-emit_on_main_trampoline (gpointer data)
+flush_pending_on_main (gpointer data)
 {
-    PnMqttEmitClosure *c = data;
-    pn_node_emit_message (c->node, c->message);
+    PnMqtt    *self = PN_MQTT (data);
+    GQueue     local = G_QUEUE_INIT;
+    PnMessage *msg;
+
+    g_mutex_lock (&self->pending_lock);
+    /* Steal the queue's contents in one shot rather than popping under
+     * the lock per message — keeps the network thread unblocked while
+     * we do the (potentially expensive) per-message graph walk. */
+    local.head        = self->pending.head;
+    local.tail        = self->pending.tail;
+    local.length      = self->pending.length;
+    g_queue_init (&self->pending);
+    self->flush_idle_id = 0;
+    g_mutex_unlock (&self->pending_lock);
+
+    while ((msg = g_queue_pop_head (&local)) != NULL)
+    {
+        pn_node_emit_message (PN_NODE (self), msg);
+        g_object_unref (msg);
+    }
     return G_SOURCE_REMOVE;
 }
 
-static void
-emit_closure_free (gpointer data)
-{
-    PnMqttEmitClosure *c = data;
-    g_object_unref (c->node);
-    g_object_unref (c->message);
-    g_free (c);
-}
-
+/** Network-thread side: append @message to the pending queue and make
+ *  sure a drain idle is scheduled.  Drops the oldest queued message when
+ *  the cap is reached — under sustained overflow the user is already
+ *  losing the race; keeping the freshest messages is more useful than
+ *  the staleest. */
 static void
 emit_message_on_main (PnMqtt *self, PnMessage *message)
 {
-    PnMqttEmitClosure *c = g_new0 (PnMqttEmitClosure, 1);
-    c->node    = g_object_ref (PN_NODE (self));
-    c->message = message;  /* transfer */
-    g_main_context_invoke_full (NULL,
-                                G_PRIORITY_DEFAULT,
-                                emit_on_main_trampoline,
-                                c,
-                                emit_closure_free);
+    PnMessage *dropped = NULL;
+    gboolean   need_schedule = FALSE;
+
+    g_mutex_lock (&self->pending_lock);
+    if (self->pending.length >= PN_MQTT_PENDING_MAX)
+        dropped = g_queue_pop_head (&self->pending);
+    g_queue_push_tail (&self->pending, message);  /* transfer */
+    if (self->flush_idle_id == 0)
+    {
+        /* g_idle_add is thread-safe: it locks the default GMainContext
+         * internally before scheduling.  We store the source id under
+         * the same mutex so flush_pending_on_main can clear it
+         * atomically with the queue swap. */
+        self->flush_idle_id = g_idle_add (flush_pending_on_main, self);
+        need_schedule = TRUE;
+    }
+    g_mutex_unlock (&self->pending_lock);
+
+    if (dropped != NULL)
+        g_object_unref (dropped);
+    (void) need_schedule;
 }
 
 typedef struct
@@ -911,7 +955,25 @@ pn_mqtt_dispose (GObject *object)
         g_source_remove (self->migrate_idle_id);
         self->migrate_idle_id = 0;
     }
+    /* stop_client joins libmosquitto's network thread first, so no new
+     * messages can land in the pending queue past this point.  Then
+     * cancel the drain idle and free anything still queued — dropping
+     * buffered traffic at shutdown is the right call: nobody is left to
+     * see the messages, and processing them would only delay exit. */
     stop_client (self);
+
+    {
+        PnMessage *msg;
+        g_mutex_lock (&self->pending_lock);
+        if (self->flush_idle_id != 0)
+        {
+            g_source_remove (self->flush_idle_id);
+            self->flush_idle_id = 0;
+        }
+        while ((msg = g_queue_pop_head (&self->pending)) != NULL)
+            g_object_unref (msg);
+        g_mutex_unlock (&self->pending_lock);
+    }
 
     G_OBJECT_CLASS (pn_mqtt_parent_class)->dispose (object);
 }
@@ -927,6 +989,8 @@ pn_mqtt_finalize (GObject *object)
     g_clear_pointer (&self->username,  g_free);
     g_clear_pointer (&self->password,  g_free);
     g_clear_pointer (&self->client_id, g_free);
+
+    g_mutex_clear (&self->pending_lock);
 
     G_OBJECT_CLASS (pn_mqtt_parent_class)->finalize (object);
 }
@@ -975,7 +1039,7 @@ pn_mqtt_class_init (PnMqttClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_TOPIC] = g_param_spec_string (
-            "topic", "Subscribe topic",
+            "subscribe-topic", "Subscribe topic",
             "MQTT topic filter to subscribe to.  Honours the standard "
             "MQTT wildcards: + matches a single level, # matches the "
             "remainder of the topic.  Defaults to \"#\" so the node "
@@ -1035,6 +1099,10 @@ pn_mqtt_init (PnMqtt *self)
     self->client          = NULL;
     self->loop_running    = FALSE;
     self->connected       = FALSE;
+
+    g_mutex_init (&self->pending_lock);
+    g_queue_init (&self->pending);
+    self->flush_idle_id   = 0;
 
     pn_node_set_class_name (node, "MQTT Source");
     pn_node_set_has_input  (node, FALSE);
