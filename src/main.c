@@ -112,19 +112,26 @@ main (
      * sees the plugin types when the first window is built.  Skipped
      * entirely under --no-plugins. */
     factory = pn_node_factory_get_default ();
+
+    /* Editor only: install the gui-tier vfunc slots (cairo painters +
+     * settings dialogs) onto the dual-nature node classes whose logic
+     * half lives in the headless core (TODO #23, Phase 4).  pipnode-run
+     * never calls this, so those nodes run without GTK.  These are
+     * built-ins, so they are installed regardless of --no-plugins.
+     *
+     * MUST run before plugins load: GObject snapshots the parent class
+     * struct into each subclass at child class_init time, so a plugin
+     * subclass of e.g. PnSwitch (PnTasmotaSwitch) only inherits the
+     * paint_header_overlay slot if it was already written on PnSwitch
+     * by the time the plugin class is registered. */
+    pn_gui_install_builtin_nodes ();
+
     if (!no_plugins)
     {
         pn_node_factory_set_plugin_filter (factory, editor_plugin_disabled,
                                            NULL, NULL);
         pn_node_factory_load_plugins_default (factory);
     }
-
-    /* Editor only: install the gui-tier vfunc slots (cairo painters +
-     * settings dialogs) onto the dual-nature node classes whose logic
-     * half lives in the headless core (TODO #23, Phase 4).  pipnode-run
-     * never calls this, so those nodes run without GTK.  These are
-     * built-ins, so they are installed regardless of --no-plugins. */
-    pn_gui_install_builtin_nodes ();
 
     /* Editor only: for each plugin whose logic .so just loaded, load the
      * sibling companion GUI module (<base>-gui.so) if present and let it
