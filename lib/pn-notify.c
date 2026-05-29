@@ -180,8 +180,11 @@ on_notify_done (
     reply = g_dbus_connection_call_finish (bus, result, &error);
     if (reply == NULL)
     {
-        g_warning ("pn-notify: Notify() failed: %s",
-                   error ? error->message : "(unknown)");
+        /* The reply lands on the main loop's default context, so it is
+         * safe to log straight onto the node here.  Surfaced in the
+         * node's Log dialog instead of stderr. */
+        pn_node_log_warning (PN_NODE (self), "Notify() failed: %s",
+                             error ? error->message : "(unknown)");
         g_clear_error (&error);
         g_object_unref (self);
         return;
@@ -230,8 +233,9 @@ pn_notify_send (
         self->bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
         if (self->bus == NULL)
         {
-            g_warning ("pn-notify: cannot reach session bus: %s",
-                       error ? error->message : "(unknown)");
+            pn_node_log_error (PN_NODE (self),
+                               "cannot reach session bus: %s",
+                               error ? error->message : "(unknown)");
             g_clear_error (&error);
             return;
         }
@@ -254,6 +258,9 @@ pn_notify_send (
                             actions,
                             hints,
                             (gint32) self->timeout_ms);
+
+    pn_node_log_info (PN_NODE (self), "notifying: %s",
+                      summary && *summary ? summary : "(no summary)");
 
     g_dbus_connection_call (self->bus,
                             PN_NOTIFY_BUS_NAME,
