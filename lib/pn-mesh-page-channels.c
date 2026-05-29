@@ -16,20 +16,29 @@
 /* ------------------------------------------------------------------ */
 /*  Channels page — Phase 5.                                           */
 /*                                                                     */
-/*  GtkListBox of channel slots in index order.  Each row shows the   */
-/*  slot number, the channel name (or "(unnamed)" / "(disabled)"),    */
-/*  a role badge tinted by role, a small "PSK set" lock indicator,    */
-/*  and a Delete button on the right.  Delete is sensitive only for   */
-/*  SECONDARY rows; PRIMARY is protected (removing it would orphan    */
-/*  the device from every mesh) and DISABLED rows have nothing to     */
-/*  delete.                                                            */
+/*  A GtkListBox of channel slots in index order on top, and a        */
+/*  channel-details editor below it.  The list is single-selection    */
+/*  (GTK_SELECTION_BROWSE), so exactly one slot is always selected     */
+/*  and the editor below it always has data to show.  Selecting a      */
+/*  slot loads it into the editor; the user changes the name / PSK     */
+/*  and presses Apply right there.                                     */
 /*                                                                     */
-/*  "Add channel" at the top of the page opens a modal asking for     */
-/*  name + PSK with a Generate button that reads 32 random bytes      */
-/*  from /dev/urandom and shows them hex-encoded.  pip-mesh's         */
-/*  contract: PSK omitted = random AES-256; PSK supplied = 32 or 64   */
-/*  hex chars exactly.  The new channel goes into the first DISABLED  */
-/*  slot with index > 0 (index 0 is reserved for PRIMARY).            */
+/*  An empty (DISABLED) slot is selectable too: the editor then acts   */
+/*  as "Add channel" -- it pre-fills a freshly generated PSK, and      */
+/*  Apply writes the slot as SECONDARY.  That replaces the old         */
+/*  modal "Add channel" dialog and its top-of-page button.            */
+/*                                                                     */
+/*  A "Delete channel" button in the editor disables the slot; it is   */
+/*  sensitive only for SECONDARY channels.  PRIMARY is protected       */
+/*  (removing it would orphan the device from every mesh), and an      */
+/*  already-empty slot has nothing to delete.                          */
+/*                                                                     */
+/*  PSK contract: empty = no crypto; a 1-byte (2-hex-char) value is a  */
+/*  publicly-known default-key index -- Meshtastic's "open" channel,   */
+/*  which we treat as un-encrypted; 16 or 32 bytes (32 / 64 hex) is a  */
+/*  real AES-128 / AES-256 key.  The editor shows the slot's current   */
+/*  key verbatim, and the list flags each active slot with a closed    */
+/*  padlock (real key) or open padlock (open / default channel).      */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -39,7 +48,6 @@
 #include "pn-mesh-page-channels.h"
 
 #include <gio/gio.h>
-#include <string.h>
 
 #define PN_MESH_CHANNELS_CTX_QDATA "pn-mesh-page-channels-ctx"
 
@@ -48,12 +56,30 @@
 #define ROLE_PRIMARY    1
 #define ROLE_SECONDARY  2
 
+/* ChannelSettings.ModuleSettings.position_precision: 0 = no position
+ * shared, 32 = precise.  When the user shares position but turns
+ * "precise" off we write an approximate precision -- a value the
+ * Meshtastic apps treat as "imprecise"/reduced location. */
+#define POS_PRECISION_PRECISE         32
+#define POS_PRECISION_APPROX_DEFAULT  13
+
 typedef struct
 {
     GtkWidget        *page;
-    GtkWidget        *add_button;
-    GtkWidget        *spinner;
     GtkListBox       *list;
+    GtkSpinner       *spinner;
+
+    /* Details editor below the list. */
+    GtkLabel  *detail_title;     /* "Slot #N — ROLE" */
+    GtkEntry  *name_entry;
+    GtkEntry  *psk_entry;
+    GtkButton *generate_button;
+    GtkSwitch *uplink_switch;
+    GtkSwitch *downlink_switch;
+    GtkSwitch *position_switch;
+    GtkSwitch *precise_switch;
+    GtkButton *apply_button;
+    GtkButton *delete_button;
 
     /* Borrowed; the dialog owns it. */
     PnMeshConnection *connection;
@@ -61,6 +87,15 @@ typedef struct
     /* Currently snapshotted channels.  Owned by the connection's
      * state, freed when it is.  We refresh from it on every paint. */
     const PnMeshState *state;
+
+    /* The slot currently loaded into the editor, and its role.  -1 =
+     * nothing selected (no connection / empty device list). */
+    gint     selected_index;
+    guint32  selected_role;
+
+    /* Status string emitted on the next successful write.  Points at a
+     * string literal, so it is never freed. */
+    const gchar *pending_status;
 
     gboolean         writing;
 
@@ -100,52 +135,80 @@ emit_status (ChannelsCtx *ctx, const gchar *msg)
         ctx->status_cb (msg, ctx->status_ud);
 }
 
-/* Forward decl: refresh after every write, called from both Add and
- * Delete completion callbacks. */
+/* Forward decls. */
 static void rebuild_list (GtkWidget *page);
+static void sync_detail_sensitivity (ChannelsCtx *ctx);
+static void on_channel_write_done (GObject *source, GAsyncResult *res,
+                                   gpointer user_data);
 
-/* Disable / enable every actionable control on the page.  Used to
- * lock the UI while a write is in flight so a second Add or Delete
- * cannot interleave on the serial port.  Also spins the busy
- * indicator next to the Add button so the user has a visible
- * "the app is working on it" cue -- the verify-cycle handshake
- * takes 3-5 seconds and the status text alone reads as inert. */
+/* ------------------------------------------------------------------ */
+/*  Sensitivity + busy                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Recompute the editor's sensitivity from the connection / writing /
+ * selection state.  Delete is additionally gated to SECONDARY rows:
+ * PRIMARY is protected and an empty slot has nothing to delete. */
+static void
+sync_detail_sensitivity (ChannelsCtx *ctx)
+{
+    gboolean base = !ctx->writing
+                    && ctx->connection != NULL
+                    && ctx->selected_index >= 0;
+
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->name_entry),      base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->psk_entry),       base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->generate_button), base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->uplink_switch),   base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->downlink_switch), base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->position_switch), base);
+    /* Precise location only matters when a position is being shared. */
+    gtk_widget_set_sensitive (
+            GTK_WIDGET (ctx->precise_switch),
+            base && gtk_switch_get_active (ctx->position_switch));
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),    base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->delete_button),
+                              base && ctx->selected_role == ROLE_SECONDARY);
+}
+
+/* Toggling "Share position" flips the "Precise location" switch between
+ * usable and greyed without waiting for Apply. */
+static void
+on_position_toggled (GObject *obj, GParamSpec *pspec, gpointer user_data)
+{
+    GtkWidget   *page = user_data;
+    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
+                                           PN_MESH_CHANNELS_CTX_QDATA);
+    (void) obj;
+    (void) pspec;
+    if (ctx != NULL)
+        sync_detail_sensitivity (ctx);
+}
+
+/* Lock the editor while a write is in flight so a second Apply or
+ * Delete cannot interleave on the serial port, and spin the busy
+ * indicator next to Apply -- the verify-cycle handshake takes 3-5
+ * seconds and the status text alone reads as inert. */
 static void
 set_writing (ChannelsCtx *ctx, gboolean writing)
 {
-    gboolean enable     = !writing && ctx->connection != NULL;
     gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
-    gtk_widget_set_sensitive (ctx->add_button, enable);
+
     if (writing)
     {
-        gtk_spinner_start (GTK_SPINNER (ctx->spinner));
-        gtk_widget_show   (ctx->spinner);
+        gtk_spinner_start (ctx->spinner);
+        gtk_widget_show   (GTK_WIDGET (ctx->spinner));
     }
     else
     {
-        gtk_spinner_stop (GTK_SPINNER (ctx->spinner));
-        gtk_widget_hide  (ctx->spinner);
+        gtk_spinner_stop (ctx->spinner);
+        gtk_widget_hide  (GTK_WIDGET (ctx->spinner));
     }
-    /* Per-row Delete buttons are disabled during a write by
-     * rebuild_list -- their sensitivity depends on the row's role
-     * as well as the writing flag, so they get re-evaluated on
-     * every refresh rather than blindly toggled here. */
-    {
-        GList *rows = gtk_container_get_children (GTK_CONTAINER (ctx->list));
-        GList *l;
-        for (l = rows; l != NULL; l = l->next)
-        {
-            GtkWidget *del = g_object_get_data (G_OBJECT (l->data),
-                                                "pn-delete-button");
-            guint32 role = (guint32) (gintptr) g_object_get_data (
-                    G_OBJECT (l->data), "pn-role");
-            gboolean row_ok = enable && role == ROLE_SECONDARY;
-            if (del != NULL)
-                gtk_widget_set_sensitive (del, row_ok);
-        }
-        g_list_free (rows);
-    }
+
+    /* The list itself stays browsable during a write so the user can
+     * read other slots, but the editor controls go insensitive. */
+    sync_detail_sensitivity (ctx);
+
     if (transition && ctx->busy_cb != NULL)
         ctx->busy_cb (writing, ctx->busy_ud);
 }
@@ -154,18 +217,18 @@ set_writing (ChannelsCtx *ctx, gboolean writing)
 /*  PSK generation + validation                                         */
 /* ------------------------------------------------------------------ */
 
-/* Read 32 bytes (256 bits) from /dev/urandom and return them as a
- * 64-char lowercase hex string.  Caller g_free()s.  Returns NULL on
- * a read failure (extremely unlikely on Linux; the page falls back
- * to GLib's PRNG with a warning if it happens). */
+/* Read 32 bytes (256 bits) from /dev/urandom and return them base64-
+ * encoded (the same encoding the Meshtastic phone app and channel URLs
+ * use -- e.g. the default key is "AQ==").  Caller g_free()s.  Returns
+ * NULL on a read failure (extremely unlikely on Linux; the page falls
+ * back to GLib's PRNG with a warning if it happens). */
 static gchar *
-generate_psk_hex (void)
+generate_psk_b64 (void)
 {
     guint8         buf[32];
     GFile         *urandom;
     GFileInputStream *in;
     gssize         got;
-    GString       *hex;
     gsize          i;
 
     urandom = g_file_new_for_path ("/dev/urandom");
@@ -188,378 +251,64 @@ generate_psk_hex (void)
             return NULL;
     }
 
-    hex = g_string_sized_new (64);
-    for (i = 0; i < sizeof buf; i++)
-        g_string_append_printf (hex, "%02x", buf[i]);
-    return g_string_free (hex, FALSE);
+    return g_base64_encode (buf, sizeof buf);
 }
 
-/* Validate that @s is 32 or 64 hex characters (AES-128 or AES-256
- * PSK), and decode into a freshly malloc'd byte buffer.  Returns
- * FALSE with an explanatory message in @err on mismatch. */
+/* Validate @s and decode into a freshly malloc'd byte buffer.  @s is
+ * base64 (matching the phone app): empty -> open channel (*out = NULL);
+ * a 1-byte key (e.g. "AQ==") is the publicly-known default; 16 or 32
+ * bytes are AES-128 / AES-256.  Returns FALSE with a message in @err on
+ * a malformed value. */
 static gboolean
-decode_psk_hex (const gchar *s, guint8 **out, gsize *out_size, gchar **err)
+decode_psk_b64 (const gchar *s, guint8 **out, gsize *out_size, gchar **err)
 {
-    gsize len;
-    gsize i;
-    guint8 *buf;
+    guchar *buf;
+    gsize   len = 0;
 
     *out = NULL;
     *out_size = 0;
     *err = NULL;
 
-    len = strlen (s);
-    if (len != 32 && len != 64)
+    if (*s == '\0')
+        return TRUE;   /* open channel: no key */
+
+    buf = g_base64_decode (s, &len);
+    if (buf == NULL || (len != 1 && len != 16 && len != 32))
     {
-        *err = g_strdup_printf (
-                "PSK must be 32 hex characters (AES-128) or 64 hex "
-                "characters (AES-256); got %zu.", len);
+        g_free (buf);
+        *err = g_strdup (
+                "PSK must be a base64 key: empty (open), a 1-byte default "
+                "key such as \"AQ==\", or a 16-byte (AES-128) / 32-byte "
+                "(AES-256) key.");
         return FALSE;
     }
-    for (i = 0; i < len; i++)
-        if (!g_ascii_isxdigit (s[i]))
-        {
-            *err = g_strdup_printf (
-                    "PSK contains a non-hex character at position %zu.",
-                    i + 1);
-            return FALSE;
-        }
-
-    buf = g_malloc (len / 2);
-    for (i = 0; i < len / 2; i++)
-    {
-        gchar pair[3] = { s[i * 2], s[i * 2 + 1], '\0' };
-        buf[i] = (guint8) g_ascii_strtoull (pair, NULL, 16);
-    }
     *out = buf;
-    *out_size = len / 2;
+    *out_size = len;
     return TRUE;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Add-channel dialog                                                  */
-/* ------------------------------------------------------------------ */
-
-/* Find the first DISABLED slot with index > 0.  Returns -1 if every
- * slot is in use.  pip-mesh's create_channel does the same scan. */
-static gint
-find_free_slot (const PnMeshState *state)
+/* base64 encoding of a PSK (phone-app style), or "" for an absent /
+ * empty key.  Caller g_free()s. */
+static gchar *
+psk_to_b64 (const guint8 *psk, gsize psk_size)
 {
-    guint i;
-    if (state == NULL || state->channels == NULL)
-        return -1;
-    for (i = 0; i < state->channels->len; i++)
-    {
-        const PnMeshChannel *ch = g_ptr_array_index (state->channels, i);
-        if (ch->index > 0 && ch->role == ROLE_DISABLED)
-            return (gint) ch->index;
-    }
-    return -1;
+    if (psk == NULL || psk_size == 0)
+        return g_strdup ("");
+    return g_base64_encode (psk, psk_size);
 }
 
-typedef struct
+/* A channel counts as encrypted only when it carries a real AES key.
+ * An empty PSK is no-crypto; a 1-byte PSK is a publicly-known default-
+ * key index (the "open" channel Meshtastic users share), which offers
+ * no privacy -- so both read as un-encrypted. */
+static gboolean
+channel_is_encrypted (const guint8 *psk, gsize psk_size)
 {
-    GtkWidget *dialog;
-    GtkEntry  *name_entry;
-    GtkEntry  *psk_entry;
-} AddDialogCtx;
-
-static void
-on_generate_psk_clicked (GtkButton *button, gpointer user_data)
-{
-    AddDialogCtx *adlg = user_data;
-    gchar *hex;
-
-    (void) button;
-    hex = generate_psk_hex ();
-    if (hex == NULL)
-        return;
-    gtk_entry_set_text (adlg->psk_entry, hex);
-    g_free (hex);
-}
-
-/* The set_channel reply for the Add. */
-static void
-on_add_channel_done (GObject *source, GAsyncResult *res, gpointer user_data)
-{
-    GtkWidget   *page = user_data;
-    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
-                                           PN_MESH_CHANNELS_CTX_QDATA);
-    GError      *error = NULL;
-    gboolean     ok;
-
-    (void) source;
-
-    if (ctx == NULL)
-    {
-        pn_mesh_connection_set_channel_finish (res, &error);
-        g_clear_error (&error);
-        return;
-    }
-
-    ok = pn_mesh_connection_set_channel_finish (res, &error);
-    if (!ok)
-    {
-        gchar *msg = g_strdup_printf (
-                "Could not add channel: %s",
-                error != NULL ? error->message : "(unknown error)");
-        emit_status (ctx, msg);
-        g_free (msg);
-        g_clear_error (&error);
-        set_writing (ctx, FALSE);
-        return;
-    }
-
-    ctx->state = pn_mesh_connection_get_state (ctx->connection);
-    rebuild_list (page);
-    emit_status (ctx, "Channel added.");
-    set_writing (ctx, FALSE);
-}
-
-static void
-on_add_clicked (GtkButton *button, gpointer user_data)
-{
-    GtkWidget    *page = user_data;
-    ChannelsCtx  *ctx  = g_object_get_data (G_OBJECT (page),
-                                            PN_MESH_CHANNELS_CTX_QDATA);
-    GtkWidget    *dlg;
-    GtkWidget    *content;
-    GtkWidget    *grid;
-    GtkWidget    *name_entry;
-    GtkWidget    *psk_entry;
-    GtkWidget    *psk_box;
-    GtkWidget    *generate;
-    AddDialogCtx  adlg;
-    gint          slot;
-    gint          response;
-
-    (void) button;
-    if (ctx == NULL || ctx->connection == NULL || ctx->writing)
-        return;
-
-    slot = find_free_slot (ctx->state);
-    if (slot < 0)
-    {
-        emit_status (ctx,
-                     "No free channel slots on the device "
-                     "(delete a secondary channel first).");
-        return;
-    }
-
-    dlg = gtk_dialog_new_with_buttons (
-            "Add Channel",
-            GTK_WINDOW (gtk_widget_get_toplevel (page)),
-            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-            "_Cancel", GTK_RESPONSE_CANCEL,
-            "_Add",    GTK_RESPONSE_ACCEPT,
-            NULL);
-    gtk_window_set_default_size (GTK_WINDOW (dlg), 480, -1);
-
-    content = gtk_dialog_get_content_area (GTK_DIALOG (dlg));
-    gtk_container_set_border_width (GTK_CONTAINER (content), 12);
-
-    {
-        gchar *blurb_text = g_strdup_printf (
-                "New channel will be written to slot %d as SECONDARY.",
-                slot);
-        GtkWidget *blurb = gtk_label_new (blurb_text);
-        GtkStyleContext *sc = gtk_widget_get_style_context (blurb);
-        gtk_label_set_xalign (GTK_LABEL (blurb), 0.0);
-        gtk_style_context_add_class (sc, "dim-label");
-        gtk_widget_set_margin_bottom (blurb, 6);
-        gtk_box_pack_start (GTK_BOX (content), blurb, FALSE, FALSE, 0);
-        g_free (blurb_text);
-    }
-
-    grid = gtk_grid_new ();
-    gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
-    gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
-    gtk_box_pack_start (GTK_BOX (content), grid, TRUE, TRUE, 0);
-
-    /* Name */
-    {
-        GtkWidget *key = gtk_label_new ("Name");
-        gtk_label_set_xalign (GTK_LABEL (key), 0.0);
-        gtk_grid_attach (GTK_GRID (grid), key, 0, 0, 1, 1);
-    }
-    name_entry = gtk_entry_new ();
-    /* No client-side length cap: the device truncates if too long
-     * and the verify-cycle reflects what it kept. */
-    gtk_entry_set_placeholder_text (GTK_ENTRY (name_entry),
-                                    "e.g. MyMesh");
-    gtk_widget_set_hexpand (name_entry, TRUE);
-    gtk_grid_attach (GTK_GRID (grid), name_entry, 1, 0, 2, 1);
-
-    /* PSK + Generate */
-    {
-        GtkWidget *key = gtk_label_new ("PSK (hex)");
-        gtk_label_set_xalign (GTK_LABEL (key), 0.0);
-        gtk_grid_attach (GTK_GRID (grid), key, 0, 1, 1, 1);
-    }
-    psk_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    psk_entry = gtk_entry_new ();
-    gtk_entry_set_placeholder_text (GTK_ENTRY (psk_entry),
-                                    "32 or 64 hex chars");
-    gtk_entry_set_max_length (GTK_ENTRY (psk_entry), 64);
-    gtk_widget_set_hexpand   (psk_entry, TRUE);
-    /* Pre-fill with a fresh random key so the common case (accept
-     * defaults, type a name, click Add) is one click and no thinking. */
-    {
-        gchar *initial = generate_psk_hex ();
-        if (initial != NULL)
-        {
-            gtk_entry_set_text (GTK_ENTRY (psk_entry), initial);
-            g_free (initial);
-        }
-    }
-    gtk_box_pack_start (GTK_BOX (psk_box), psk_entry, TRUE, TRUE, 0);
-
-    generate = gtk_button_new_with_mnemonic ("_Generate");
-    gtk_widget_set_tooltip_text (generate,
-            "Read 32 bytes from /dev/urandom for a fresh AES-256 key.");
-    gtk_box_pack_start (GTK_BOX (psk_box), generate, FALSE, FALSE, 0);
-    gtk_grid_attach (GTK_GRID (grid), psk_box, 1, 1, 2, 1);
-
-    adlg.dialog     = dlg;
-    adlg.name_entry = GTK_ENTRY (name_entry);
-    adlg.psk_entry  = GTK_ENTRY (psk_entry);
-    g_signal_connect (generate, "clicked",
-                      G_CALLBACK (on_generate_psk_clicked), &adlg);
-
-    gtk_widget_show_all (dlg);
-
-    for (;;)
-    {
-        const gchar *name;
-        const gchar *psk_hex;
-        guint8      *psk_bytes = NULL;
-        gsize        psk_size  = 0;
-        gchar       *err       = NULL;
-
-        response = gtk_dialog_run (GTK_DIALOG (dlg));
-        if (response != GTK_RESPONSE_ACCEPT)
-            break;
-
-        name    = gtk_entry_get_text (GTK_ENTRY (name_entry));
-        psk_hex = gtk_entry_get_text (GTK_ENTRY (psk_entry));
-
-        if (*name == '\0')
-        {
-            /* No status-bar message here -- the user is staring at
-             * the dialog, so an in-dialog beep is enough.  We could
-             * surface an inline label later if it becomes confusing. */
-            gtk_widget_error_bell (name_entry);
-            gtk_widget_grab_focus (name_entry);
-            continue;
-        }
-
-        if (!decode_psk_hex (psk_hex, &psk_bytes, &psk_size, &err))
-        {
-            emit_status (ctx, err);
-            g_free (err);
-            gtk_widget_error_bell (psk_entry);
-            gtk_widget_grab_focus (psk_entry);
-            continue;
-        }
-
-        /* Copy @name BEFORE destroying the dialog: gtk_entry_get_text
-         * returned a borrowed pointer into the entry's buffer, and
-         * the entry dies with the dialog.  set_channel_async would
-         * g_strdup() it internally, but that runs AFTER the destroy
-         * here -- by then the source bytes are freed and the strdup
-         * picks up whatever the allocator left behind (looks like
-         * garbage when displayed as the channel name on the next
-         * read-back). */
-        {
-            gchar *name_owned = g_strdup (name);
-            gtk_widget_destroy (dlg);
-
-            emit_status (ctx, "Adding channel…");
-            set_writing (ctx, TRUE);
-            pn_mesh_connection_set_channel_async (
-                    ctx->connection,
-                    (guint32) slot, name_owned,
-                    psk_bytes, psk_size,
-                    ROLE_SECONDARY,
-                    NULL, on_add_channel_done, page);
-            g_free (name_owned);
-            g_free (psk_bytes);
-        }
-        return;
-    }
-
-    gtk_widget_destroy (dlg);
+    return psk != NULL && psk_size > 1;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Delete                                                              */
-/* ------------------------------------------------------------------ */
-
-static void
-on_delete_channel_done (GObject *source, GAsyncResult *res, gpointer user_data)
-{
-    GtkWidget   *page = user_data;
-    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
-                                           PN_MESH_CHANNELS_CTX_QDATA);
-    GError      *error = NULL;
-    gboolean     ok;
-
-    (void) source;
-
-    if (ctx == NULL)
-    {
-        pn_mesh_connection_set_channel_finish (res, &error);
-        g_clear_error (&error);
-        return;
-    }
-
-    ok = pn_mesh_connection_set_channel_finish (res, &error);
-    if (!ok)
-    {
-        gchar *msg = g_strdup_printf (
-                "Could not delete channel: %s",
-                error != NULL ? error->message : "(unknown error)");
-        emit_status (ctx, msg);
-        g_free (msg);
-        g_clear_error (&error);
-        set_writing (ctx, FALSE);
-        return;
-    }
-
-    ctx->state = pn_mesh_connection_get_state (ctx->connection);
-    rebuild_list (page);
-    emit_status (ctx, "Channel deleted.");
-    set_writing (ctx, FALSE);
-}
-
-/* Per-row Delete handler.  The slot index is stashed on the button
- * as qdata; the row's role is known to be SECONDARY because Delete
- * is sensitive only for those rows (gated in rebuild_list). */
-static void
-on_delete_clicked (GtkButton *button, gpointer user_data)
-{
-    GtkWidget   *page  = user_data;
-    ChannelsCtx *ctx   = g_object_get_data (G_OBJECT (page),
-                                            PN_MESH_CHANNELS_CTX_QDATA);
-    guint32      index;
-
-    if (ctx == NULL || ctx->connection == NULL || ctx->writing)
-        return;
-    index = (guint32) (gintptr) g_object_get_data (G_OBJECT (button),
-                                                   "pn-index");
-
-    emit_status (ctx, "Deleting channel…");
-    set_writing (ctx, TRUE);
-    /* DISABLED write with empty name + no PSK -- pip-mesh's
-     * delete_channel does the same. */
-    pn_mesh_connection_set_channel_async (
-            ctx->connection,
-            index, "", NULL, 0, ROLE_DISABLED,
-            NULL, on_delete_channel_done, page);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Row construction                                                    */
+/*  Role badge                                                          */
 /* ------------------------------------------------------------------ */
 
 /* Add a CSS class so we can tint role badges differently in different
@@ -589,21 +338,297 @@ make_role_badge (guint32 role)
     return label;
 }
 
-/* Build one row.  Returns the GtkListBoxRow; the Delete button is
- * stashed as qdata "pn-delete-button" and the row's role as
- * "pn-role" so set_writing can re-evaluate sensitivity from outside. */
-static GtkWidget *
-build_channel_row (GtkWidget           *page,
-                   const PnMeshChannel *ch)
+/* ------------------------------------------------------------------ */
+/*  Editor population                                                   */
+/* ------------------------------------------------------------------ */
+
+static const PnMeshChannel *
+find_channel_by_index (const PnMeshState *state, guint32 index)
 {
-    GtkWidget *row;
-    GtkWidget *grid;
-    GtkWidget *idx_label;
-    GtkWidget *name_label;
-    GtkWidget *badge;
-    GtkWidget *psk_icon;
-    GtkWidget *del;
-    gchar     *idx_text;
+    guint i;
+    if (state == NULL || state->channels == NULL)
+        return NULL;
+    for (i = 0; i < state->channels->len; i++)
+    {
+        const PnMeshChannel *ch = g_ptr_array_index (state->channels, i);
+        if (ch->index == index)
+            return ch;
+    }
+    return NULL;
+}
+
+/* Load @ch into the editor and remember it as the selection.  An
+ * empty (DISABLED) slot switches the editor into "add" mode: blank
+ * name and a freshly generated PSK, with Apply relabelled. */
+static void
+populate_details (ChannelsCtx *ctx, const PnMeshChannel *ch)
+{
+    gboolean  empty = (ch->role == ROLE_DISABLED);
+    gchar    *title;
+
+    ctx->selected_index = (gint) ch->index;
+    ctx->selected_role  = ch->role;
+
+    title = g_strdup_printf ("Slot #%u — %s",
+                             ch->index, empty ? "EMPTY" : role_name (ch->role));
+    gtk_label_set_text (ctx->detail_title, title);
+    g_free (title);
+
+    if (empty)
+    {
+        /* Pre-fill a fresh private key so the common "add a private
+         * channel" case is one click; clear it for an open channel.
+         * New channels default to no MQTT bridging and no position. */
+        gchar *psk = generate_psk_b64 ();
+        gtk_entry_set_text (ctx->name_entry, "");
+        gtk_entry_set_placeholder_text (ctx->name_entry, "e.g. MyMesh");
+        gtk_entry_set_text (ctx->psk_entry, psk != NULL ? psk : "");
+        gtk_button_set_label (ctx->apply_button, "_Add channel");
+        gtk_switch_set_active (ctx->uplink_switch,   FALSE);
+        gtk_switch_set_active (ctx->downlink_switch, FALSE);
+        gtk_switch_set_active (ctx->position_switch, FALSE);
+        gtk_switch_set_active (ctx->precise_switch,  FALSE);
+        g_free (psk);
+    }
+    else
+    {
+        /* Show the slot's current key verbatim -- the short well-known
+         * default key, a real AES key, or empty for an open channel. */
+        gchar *psk = psk_to_b64 (ch->psk, ch->psk_size);
+        gtk_entry_set_text (ctx->name_entry, ch->name != NULL ? ch->name : "");
+        gtk_entry_set_text (ctx->psk_entry, psk);
+        gtk_button_set_label (ctx->apply_button, "_Apply changes");
+        gtk_switch_set_active (ctx->uplink_switch,   ch->uplink_enabled);
+        gtk_switch_set_active (ctx->downlink_switch, ch->downlink_enabled);
+        gtk_switch_set_active (ctx->position_switch,
+                               ch->position_precision > 0);
+        gtk_switch_set_active (ctx->precise_switch,
+                               ch->position_precision >= POS_PRECISION_PRECISE);
+        g_free (psk);
+    }
+    gtk_entry_set_placeholder_text (ctx->psk_entry,
+            "Empty = open; \"AQ==\" = default; or a base64 AES key");
+
+    sync_detail_sensitivity (ctx);
+}
+
+static void
+on_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer user_data)
+{
+    GtkWidget           *page = user_data;
+    ChannelsCtx         *ctx  = g_object_get_data (G_OBJECT (page),
+                                                   PN_MESH_CHANNELS_CTX_QDATA);
+    const PnMeshChannel *ch;
+    gint                 index;
+
+    (void) list;
+    /* Selection briefly drops to NULL while rebuild_list clears the
+     * rows; ignore that and wait for the real re-selection. */
+    if (ctx == NULL || row == NULL)
+        return;
+
+    index = (gint) (gintptr) g_object_get_data (G_OBJECT (row), "pn-index");
+    ch = find_channel_by_index (ctx->state, (guint32) index);
+    if (ch != NULL)
+        populate_details (ctx, ch);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Apply / Delete / Generate                                           */
+/* ------------------------------------------------------------------ */
+
+static void
+on_channel_write_done (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    GtkWidget   *page = user_data;
+    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
+                                           PN_MESH_CHANNELS_CTX_QDATA);
+    GError      *error = NULL;
+    gboolean     ok;
+
+    (void) source;
+
+    if (ctx == NULL)
+    {
+        pn_mesh_connection_set_channel_finish (res, &error);
+        g_clear_error (&error);
+        return;
+    }
+
+    ok = pn_mesh_connection_set_channel_finish (res, &error);
+    if (!ok)
+    {
+        gchar *msg = g_strdup_printf (
+                "Could not save channel: %s",
+                error != NULL ? error->message : "(unknown error)");
+        emit_status (ctx, msg);
+        g_free (msg);
+        g_clear_error (&error);
+        set_writing (ctx, FALSE);
+        return;
+    }
+
+    /* Re-read and rebuild; rebuild_list re-selects the same slot,
+     * which reloads the editor with the verified device state. */
+    ctx->state = pn_mesh_connection_get_state (ctx->connection);
+    rebuild_list (page);
+    emit_status (ctx, ctx->pending_status != NULL ? ctx->pending_status
+                                                  : "Channel saved.");
+    set_writing (ctx, FALSE);
+}
+
+static void
+on_apply_clicked (GtkButton *button, gpointer user_data)
+{
+    GtkWidget   *page = user_data;
+    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
+                                           PN_MESH_CHANNELS_CTX_QDATA);
+    const gchar *name;
+    const gchar *psk_b64;
+    guint8      *psk_bytes = NULL;
+    gsize        psk_size  = 0;
+    gboolean     own_psk   = FALSE;   /* psk_bytes malloc'd here? */
+    gboolean     adding;
+    guint32      write_role;
+    guint32      precision;
+    gchar       *name_owned;
+
+    (void) button;
+    if (ctx == NULL || ctx->connection == NULL || ctx->writing
+        || ctx->selected_index < 0)
+        return;
+
+    adding  = (ctx->selected_role == ROLE_DISABLED);
+    name    = gtk_entry_get_text (ctx->name_entry);
+    psk_b64 = gtk_entry_get_text (ctx->psk_entry);
+
+    /* A new channel needs a name; editing an existing one may blank it
+     * (the firmware falls back to its modem-preset default name). */
+    if (adding && *name == '\0')
+    {
+        gtk_widget_error_bell (GTK_WIDGET (ctx->name_entry));
+        gtk_widget_grab_focus (GTK_WIDGET (ctx->name_entry));
+        return;
+    }
+
+    /* The entry holds the channel's key verbatim, so it is the source
+     * of truth: empty means open (no crypto), otherwise decode it. */
+    {
+        gchar *err = NULL;
+        if (!decode_psk_b64 (psk_b64, &psk_bytes, &psk_size, &err))
+        {
+            emit_status (ctx, err);
+            g_free (err);
+            gtk_widget_error_bell (GTK_WIDGET (ctx->psk_entry));
+            gtk_widget_grab_focus (GTK_WIDGET (ctx->psk_entry));
+            return;
+        }
+        own_psk = (psk_bytes != NULL);
+    }
+
+    /* Position precision: off (0), precise (32), or an approximate
+     * value when position is shared but "precise" is off.  Reuse the
+     * channel's existing reduced precision if it had one, so editing an
+     * unrelated field does not bump an approximate radius around. */
+    if (!gtk_switch_get_active (ctx->position_switch))
+        precision = 0;
+    else if (gtk_switch_get_active (ctx->precise_switch))
+        precision = POS_PRECISION_PRECISE;
+    else
+    {
+        const PnMeshChannel *cur =
+                find_channel_by_index (ctx->state,
+                                       (guint32) ctx->selected_index);
+        precision = (cur != NULL
+                     && cur->position_precision > 0
+                     && cur->position_precision < POS_PRECISION_PRECISE)
+                ? cur->position_precision
+                : POS_PRECISION_APPROX_DEFAULT;
+    }
+
+    write_role = adding ? ROLE_SECONDARY : ctx->selected_role;
+
+    name_owned = g_strdup (name);
+    ctx->pending_status = adding ? "Channel added." : "Channel updated.";
+    emit_status (ctx, adding ? "Adding channel…" : "Applying channel…");
+    set_writing (ctx, TRUE);
+    /* Editing an existing slot needs the begin/commit edit transaction
+     * to persist; a fresh add into a free slot does not (and avoids the
+     * commit-to-flash). */
+    pn_mesh_connection_set_channel_async (
+            ctx->connection,
+            (guint32) ctx->selected_index, name_owned,
+            psk_bytes, psk_size, write_role,
+            gtk_switch_get_active (ctx->uplink_switch),
+            gtk_switch_get_active (ctx->downlink_switch),
+            precision,
+            /*transactional=*/!adding,
+            NULL, on_channel_write_done, page);
+    g_free (name_owned);
+    if (own_psk)
+        g_free (psk_bytes);
+}
+
+static void
+on_delete_clicked (GtkButton *button, gpointer user_data)
+{
+    GtkWidget   *page = user_data;
+    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
+                                           PN_MESH_CHANNELS_CTX_QDATA);
+
+    (void) button;
+    if (ctx == NULL || ctx->connection == NULL || ctx->writing
+        || ctx->selected_index < 0 || ctx->selected_role != ROLE_SECONDARY)
+        return;
+
+    ctx->pending_status = "Channel deleted.";
+    emit_status (ctx, "Deleting channel…");
+    set_writing (ctx, TRUE);
+    /* DISABLED write with empty name, no PSK, no MQTT bridge and no
+     * position -- pip-mesh's delete_channel does the same. */
+    pn_mesh_connection_set_channel_async (
+            ctx->connection,
+            (guint32) ctx->selected_index, "", NULL, 0, ROLE_DISABLED,
+            FALSE, FALSE, 0,
+            /*transactional=*/FALSE,
+            NULL, on_channel_write_done, page);
+}
+
+static void
+on_generate_clicked (GtkButton *button, gpointer user_data)
+{
+    GtkWidget   *page = user_data;
+    ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
+                                           PN_MESH_CHANNELS_CTX_QDATA);
+    gchar *key;
+
+    (void) button;
+    if (ctx == NULL)
+        return;
+    key = generate_psk_b64 ();
+    if (key == NULL)
+        return;
+    gtk_entry_set_text (ctx->psk_entry, key);
+    g_free (key);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Row construction                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Build one list row.  The slot index and role are stashed as qdata
+ * ("pn-index" / "pn-role") so the selection handler and rebuild can
+ * map a row back to its channel. */
+static GtkWidget *
+build_channel_row (const PnMeshChannel *ch)
+{
+    GtkWidget   *row;
+    GtkWidget   *grid;
+    GtkWidget   *idx_label;
+    GtkWidget   *name_label;
+    GtkWidget   *badge;
+    GtkWidget   *psk_icon;
+    gchar       *idx_text;
     const gchar *name_text;
 
     row = gtk_list_box_row_new ();
@@ -639,20 +664,25 @@ build_channel_row (GtkWidget           *page,
     }
     gtk_grid_attach (GTK_GRID (grid), name_label, 1, 0, 1, 1);
 
-    /* Column 2: PSK indicator -- only on non-disabled rows.  The
-     * icon reads as "encrypted with a key", not as a button. */
-    if (ch->role != ROLE_DISABLED && ch->psk != NULL && ch->psk_size > 0)
+    /* Column 2: a padlock on every active slot -- closed for a real
+     * AES key, open for an "open"/default channel that offers no
+     * privacy.  Disabled slots leave the column blank but reserved so
+     * the role badges still line up. */
+    if (ch->role != ROLE_DISABLED)
     {
-        psk_icon = gtk_image_new_from_icon_name ("dialog-password",
-                                                 GTK_ICON_SIZE_MENU);
+        gboolean enc = channel_is_encrypted (ch->psk, ch->psk_size);
+        psk_icon = gtk_image_new_from_icon_name (
+                enc ? "changes-prevent-symbolic"   /* closed padlock */
+                    : "changes-allow-symbolic",    /* open padlock   */
+                GTK_ICON_SIZE_MENU);
         gtk_widget_set_tooltip_text (
                 psk_icon,
-                ch->psk_size == 16 ? "PSK set (AES-128)"
-                                   : "PSK set (AES-256)");
+                enc ? (ch->psk_size == 16 ? "Encrypted (AES-128)"
+                                          : "Encrypted (AES-256)")
+                    : "Open channel — no private key");
     }
     else
     {
-        /* Reserve the column so role badges line up across rows. */
         psk_icon = gtk_label_new ("");
     }
     gtk_grid_attach (GTK_GRID (grid), psk_icon, 2, 0, 1, 1);
@@ -662,28 +692,10 @@ build_channel_row (GtkWidget           *page,
     gtk_widget_set_size_request (badge, 90, -1);
     gtk_grid_attach (GTK_GRID (grid), badge, 3, 0, 1, 1);
 
-    /* Column 4: Delete button.  Sensitive only for SECONDARY rows.
-     * Trash-can glyph reads as "discard" more clearly than the
-     * generic edit-delete eraser does. */
-    del = gtk_button_new_from_icon_name ("user-trash-symbolic",
-                                         GTK_ICON_SIZE_BUTTON);
-    gtk_widget_set_tooltip_text (
-            del,
-            ch->role == ROLE_PRIMARY
-                ? "The primary channel cannot be deleted."
-                : (ch->role == ROLE_DISABLED
-                    ? "Slot is already empty."
-                    : "Disable this channel slot."));
-    gtk_widget_set_sensitive (del, ch->role == ROLE_SECONDARY);
-    g_object_set_data (G_OBJECT (del), "pn-index",
-                       (gpointer) (gintptr) ch->index);
-    g_signal_connect (del, "clicked",
-                      G_CALLBACK (on_delete_clicked), page);
-    gtk_grid_attach (GTK_GRID (grid), del, 4, 0, 1, 1);
-
     gtk_container_add (GTK_CONTAINER (row), grid);
 
-    g_object_set_data (G_OBJECT (row), "pn-delete-button", del);
+    g_object_set_data (G_OBJECT (row), "pn-index",
+                       (gpointer) (gintptr) ch->index);
     g_object_set_data (G_OBJECT (row), "pn-role",
                        (gpointer) (gintptr) ch->role);
     return row;
@@ -699,13 +711,53 @@ clear_list (GtkListBox *list)
     g_list_free (rows);
 }
 
+/* Select the row for slot @index, falling back to the first row when
+ * that slot is gone.  Selecting fires on_row_selected, which loads the
+ * editor -- so this is also what keeps the editor populated. */
+static void
+select_row_by_index (ChannelsCtx *ctx, gint index)
+{
+    GList         *rows = gtk_container_get_children (GTK_CONTAINER (ctx->list));
+    GList         *l;
+    GtkListBoxRow *target = NULL;
+    GtkListBoxRow *first  = NULL;
+
+    for (l = rows; l != NULL; l = l->next)
+    {
+        GtkListBoxRow *r  = l->data;
+        gint           ri = (gint) (gintptr) g_object_get_data (G_OBJECT (r),
+                                                                "pn-index");
+        if (first == NULL)
+            first = r;
+        if (ri == index)
+        {
+            target = r;
+            break;
+        }
+    }
+    g_list_free (rows);
+
+    if (target == NULL)
+        target = first;
+
+    if (target != NULL)
+    {
+        gtk_list_box_select_row (ctx->list, target);
+    }
+    else
+    {
+        /* No rows at all (no device / empty list): nothing to edit. */
+        ctx->selected_index = -1;
+        sync_detail_sensitivity (ctx);
+    }
+}
+
 static void
 rebuild_list (GtkWidget *page)
 {
     ChannelsCtx *ctx = g_object_get_data (G_OBJECT (page),
                                           PN_MESH_CHANNELS_CTX_QDATA);
     guint        i;
-    guint        free_slots;
 
     g_return_if_fail (ctx != NULL);
 
@@ -713,35 +765,56 @@ rebuild_list (GtkWidget *page)
 
     if (ctx->state == NULL || ctx->state->channels == NULL)
     {
-        gtk_widget_set_sensitive (ctx->add_button, FALSE);
+        ctx->selected_index = -1;
         gtk_widget_show_all (GTK_WIDGET (ctx->list));
+        sync_detail_sensitivity (ctx);
         return;
     }
 
-    free_slots = 0;
     for (i = 0; i < ctx->state->channels->len; i++)
     {
         const PnMeshChannel *ch = g_ptr_array_index (ctx->state->channels, i);
-        gtk_container_add (GTK_CONTAINER (ctx->list),
-                           build_channel_row (page, ch));
-        if (ch->index > 0 && ch->role == ROLE_DISABLED)
-            free_slots++;
+        gtk_container_add (GTK_CONTAINER (ctx->list), build_channel_row (ch));
     }
 
-    /* Add stays enabled until every secondary slot is in use; the
-     * "no free slots" path emits a status message rather than
-     * leaving the user staring at a greyed button with no
-     * explanation. */
-    gtk_widget_set_sensitive (
-            ctx->add_button,
-            ctx->connection != NULL && !ctx->writing && free_slots > 0);
-
     gtk_widget_show_all (GTK_WIDGET (ctx->list));
+
+    /* Re-establish the selection (keeps the same slot across a write,
+     * defaults to the first row on a fresh load). */
+    select_row_by_index (ctx, ctx->selected_index);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Construction                                                        */
 /* ------------------------------------------------------------------ */
+
+static GtkWidget *
+make_key_label (const gchar *text)
+{
+    GtkWidget     *key   = gtk_label_new (text);
+    PangoAttrList *attrs = pango_attr_list_new ();
+    pango_attr_list_insert (attrs,
+                            pango_attr_weight_new (PANGO_WEIGHT_BOLD));
+    gtk_label_set_attributes (GTK_LABEL (key), attrs);
+    pango_attr_list_unref (attrs);
+    gtk_label_set_xalign (GTK_LABEL (key), 0.0);
+    return key;
+}
+
+/* Bold key label in column 0 and a left-aligned switch in column 1. */
+static GtkSwitch *
+attach_switch_row (GtkGrid *grid, gint row, const gchar *label,
+                   const gchar *tooltip)
+{
+    GtkWidget *sw = gtk_switch_new ();
+
+    gtk_grid_attach (grid, make_key_label (label), 0, row, 1, 1);
+    gtk_widget_set_halign (sw, GTK_ALIGN_START);
+    if (tooltip != NULL)
+        gtk_widget_set_tooltip_text (sw, tooltip);
+    gtk_grid_attach (grid, sw, 1, row, 1, 1);
+    return GTK_SWITCH (sw);
+}
 
 GtkWidget *
 pn_mesh_page_channels_new (void)
@@ -749,10 +822,24 @@ pn_mesh_page_channels_new (void)
     ChannelsCtx *ctx;
     GtkWidget   *page;
     GtkWidget   *subtitle;
-    GtkWidget   *top_box;
-    GtkWidget   *add;
     GtkWidget   *scrolled;
     GtkWidget   *list;
+    GtkWidget   *detail_box;
+    GtkWidget   *detail_grid;
+    GtkWidget   *title;
+    GtkWidget   *psk_row;
+    GtkWidget   *button_row;
+    GtkWidget   *spacer;
+    GtkWidget   *name_entry;
+    GtkWidget   *psk_entry;
+    GtkWidget   *generate;
+    GtkSwitch   *uplink;
+    GtkSwitch   *downlink;
+    GtkSwitch   *position_sw;
+    GtkSwitch   *precise;
+    GtkWidget   *apply;
+    GtkWidget   *delete_btn;
+    GtkWidget   *spinner;
 
     /* Hosted inside a GtkExpander; small margins, no in-page title
      * (the expander header carries the section name). */
@@ -763,11 +850,11 @@ pn_mesh_page_channels_new (void)
     gtk_widget_set_margin_bottom (page, 6);
 
     subtitle = gtk_label_new (
-            "Every channel slot the device exposes.  The primary "
-            "channel is what nodes talk on by default; secondary "
-            "channels are private groups your peers also have to "
-            "configure.  Add or delete affects the device live -- "
-            "no reboot.");
+            "Every channel slot the device exposes.  Select a slot to "
+            "edit it below; the primary channel is what nodes talk on "
+            "by default, secondary channels are private groups your "
+            "peers must also configure.  Select an empty slot to add a "
+            "new channel.  Changes affect the device live -- no reboot.");
     gtk_label_set_xalign      (GTK_LABEL (subtitle), 0.0);
     gtk_label_set_line_wrap   (GTK_LABEL (subtitle), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
@@ -777,72 +864,151 @@ pn_mesh_page_channels_new (void)
     }
     gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
-    top_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_margin_top (top_box, 6);
-    add = gtk_button_new_from_icon_name ("list-add", GTK_ICON_SIZE_BUTTON);
-    gtk_button_set_label (GTK_BUTTON (add), "Add channel");
-    gtk_button_set_always_show_image (GTK_BUTTON (add), TRUE);
-    gtk_widget_set_tooltip_text (add,
-            "Create a new SECONDARY channel in the first free slot.");
-    gtk_widget_set_sensitive (add, FALSE);
-    gtk_box_pack_start (GTK_BOX (top_box), add, FALSE, FALSE, 0);
-
-    /* Busy spinner sits to the right of the Add button.  Hidden by
-     * default; set_writing() spins+shows it while a write is in
-     * flight and stops+hides it on completion.  Without it the 3-5s
-     * verify-cycle pause reads as the app having frozen.  Stored in
-     * the ctx alongside the Add button so set_writing reaches it. */
-    {
-        GtkWidget *spin = gtk_spinner_new ();
-        gtk_widget_set_no_show_all (spin, TRUE);
-        gtk_box_pack_start (GTK_BOX (top_box), spin, FALSE, FALSE, 0);
-        /* Defer setting ctx->spinner until ctx is allocated below. */
-        g_object_set_data (G_OBJECT (top_box), "pn-spinner", spin);
-    }
-
-    gtk_box_pack_start (GTK_BOX (page),    top_box, FALSE, FALSE, 0);
-
+    /* ---- the list ---- */
     scrolled = gtk_scrolled_window_new (NULL, NULL);
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
                                     GTK_POLICY_NEVER,
                                     GTK_POLICY_AUTOMATIC);
     /* Floor at ~6 rows and propagate natural height so the page is
      * tall enough to actually display the device's eight slots before
-     * scrolling.  Without the min the scrolled window's natural is 0
-     * and the FALSE-FALSE-packed Channels expander gets allocated
-     * only its non-list children's height — pinning the list at a
-     * single row. */
+     * scrolling. */
     gtk_scrolled_window_set_min_content_height (
-            GTK_SCROLLED_WINDOW (scrolled), 220);
+            GTK_SCROLLED_WINDOW (scrolled), 200);
     gtk_scrolled_window_set_propagate_natural_height (
             GTK_SCROLLED_WINDOW (scrolled), TRUE);
     gtk_widget_set_vexpand (scrolled, TRUE);
 
     list = gtk_list_box_new ();
+    /* BROWSE keeps exactly one row selected at all times, so the
+     * editor below always has a slot to show. */
     gtk_list_box_set_selection_mode (GTK_LIST_BOX (list),
-                                     GTK_SELECTION_NONE);
+                                     GTK_SELECTION_BROWSE);
     {
         GtkStyleContext *sc = gtk_widget_get_style_context (list);
         gtk_style_context_add_class (sc, "frame");
     }
-    /* Belt-and-braces: an explicit min size on the listbox itself in
-     * case any parent in the expander/notebook nesting negotiates the
-     * scrolled window's hints down. */
-    gtk_widget_set_size_request (list, -1, 200);
+    gtk_widget_set_size_request (list, -1, 180);
     gtk_widget_set_vexpand (list, TRUE);
     gtk_container_add (GTK_CONTAINER (scrolled), list);
     gtk_box_pack_start (GTK_BOX (page), scrolled, TRUE, TRUE, 0);
 
+    /* ---- the editor ---- */
+    detail_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_top (detail_box, 6);
+
+    title = gtk_label_new (NULL);
+    gtk_label_set_xalign (GTK_LABEL (title), 0.0);
+    {
+        PangoAttrList *attrs = pango_attr_list_new ();
+        pango_attr_list_insert (attrs,
+                                pango_attr_weight_new (PANGO_WEIGHT_BOLD));
+        gtk_label_set_attributes (GTK_LABEL (title), attrs);
+        pango_attr_list_unref (attrs);
+    }
+    gtk_box_pack_start (GTK_BOX (detail_box), title, FALSE, FALSE, 0);
+
+    detail_grid = gtk_grid_new ();
+    gtk_grid_set_row_spacing    (GTK_GRID (detail_grid), 8);
+    gtk_grid_set_column_spacing (GTK_GRID (detail_grid), 12);
+
+    /* Name */
+    gtk_grid_attach (GTK_GRID (detail_grid), make_key_label ("Name"),
+                     0, 0, 1, 1);
+    name_entry = gtk_entry_new ();
+    gtk_widget_set_hexpand (name_entry, TRUE);
+    gtk_grid_attach (GTK_GRID (detail_grid), name_entry, 1, 0, 1, 1);
+
+    /* PSK + Generate */
+    gtk_grid_attach (GTK_GRID (detail_grid), make_key_label ("PSK (base64)"),
+                     0, 1, 1, 1);
+    psk_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    psk_entry = gtk_entry_new ();
+    /* base64 of a 32-byte key is 44 chars; leave headroom. */
+    gtk_entry_set_max_length (GTK_ENTRY (psk_entry), 48);
+    gtk_widget_set_hexpand   (psk_entry, TRUE);
+    gtk_box_pack_start (GTK_BOX (psk_row), psk_entry, TRUE, TRUE, 0);
+    generate = gtk_button_new_with_mnemonic ("_Generate");
+    gtk_widget_set_tooltip_text (generate,
+            "Read 32 bytes from /dev/urandom for a fresh AES-256 key.");
+    gtk_box_pack_start (GTK_BOX (psk_row), generate, FALSE, FALSE, 0);
+    gtk_grid_attach (GTK_GRID (detail_grid), psk_row, 1, 1, 1, 1);
+
+    /* MQTT bridge + position sharing, mirroring the phone app. */
+    uplink = attach_switch_row (GTK_GRID (detail_grid), 2, "Uplink enabled",
+            "Forward messages from this channel out to the MQTT gateway.");
+    downlink = attach_switch_row (GTK_GRID (detail_grid), 3, "Downlink enabled",
+            "Inject messages received from the MQTT gateway onto this "
+            "channel.");
+    position_sw = attach_switch_row (GTK_GRID (detail_grid), 4, "Position",
+            "Share this node's location with other nodes on the channel.");
+    precise = attach_switch_row (GTK_GRID (detail_grid), 5, "Precise location",
+            "Share the exact location.  Off shares an approximate "
+            "(reduced-precision) position instead.");
+
+    gtk_box_pack_start (GTK_BOX (detail_box), detail_grid, FALSE, FALSE, 0);
+
+    /* Action row: Delete on the left, Apply on the right, busy spinner
+     * tucked just before Apply. */
+    button_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_top (button_row, 6);
+
+    delete_btn = gtk_button_new_with_mnemonic ("_Delete channel");
+    gtk_widget_set_tooltip_text (delete_btn,
+            "Disable this slot.  Only secondary channels can be deleted; "
+            "the primary channel is protected.");
+    gtk_box_pack_start (GTK_BOX (button_row), delete_btn, FALSE, FALSE, 0);
+
+    spacer = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand (spacer, TRUE);
+    gtk_box_pack_start (GTK_BOX (button_row), spacer, TRUE, TRUE, 0);
+
+    spinner = gtk_spinner_new ();
+    gtk_widget_set_no_show_all (spinner, TRUE);
+    gtk_widget_set_valign (spinner, GTK_ALIGN_CENTER);
+    gtk_box_pack_start (GTK_BOX (button_row), spinner, FALSE, FALSE, 0);
+
+    apply = gtk_button_new_with_mnemonic ("_Apply changes");
+    gtk_widget_set_tooltip_text (apply,
+            "Write the values above to the selected slot.  The device is "
+            "read back to confirm the change took.");
+    gtk_box_pack_start (GTK_BOX (button_row), apply, FALSE, FALSE, 0);
+
+    gtk_box_pack_start (GTK_BOX (detail_box), button_row, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (page), detail_box, FALSE, FALSE, 0);
+
+    /* ---- ctx + wiring ---- */
     ctx = g_slice_new0 (ChannelsCtx);
-    ctx->page       = page;
-    ctx->add_button = add;
-    ctx->spinner    = g_object_get_data (G_OBJECT (top_box), "pn-spinner");
-    ctx->list       = GTK_LIST_BOX (list);
+    ctx->page            = page;
+    ctx->list            = GTK_LIST_BOX (list);
+    ctx->spinner         = GTK_SPINNER (spinner);
+    ctx->detail_title    = GTK_LABEL (title);
+    ctx->name_entry      = GTK_ENTRY (name_entry);
+    ctx->psk_entry       = GTK_ENTRY (psk_entry);
+    ctx->generate_button = GTK_BUTTON (generate);
+    ctx->uplink_switch   = uplink;
+    ctx->downlink_switch = downlink;
+    ctx->position_switch = position_sw;
+    ctx->precise_switch  = precise;
+    ctx->apply_button    = GTK_BUTTON (apply);
+    ctx->delete_button   = GTK_BUTTON (delete_btn);
+    ctx->selected_index  = -1;
 
     g_object_set_data_full (G_OBJECT (page), PN_MESH_CHANNELS_CTX_QDATA,
                             ctx, channels_ctx_free);
-    g_signal_connect (add, "clicked",
-                      G_CALLBACK (on_add_clicked), page);
+
+    g_signal_connect (list, "row-selected",
+                      G_CALLBACK (on_row_selected), page);
+    g_signal_connect (generate, "clicked",
+                      G_CALLBACK (on_generate_clicked), page);
+    g_signal_connect (apply, "clicked",
+                      G_CALLBACK (on_apply_clicked), page);
+    g_signal_connect (delete_btn, "clicked",
+                      G_CALLBACK (on_delete_clicked), page);
+    g_signal_connect (position_sw, "notify::active",
+                      G_CALLBACK (on_position_toggled), page);
+
+    /* Editor starts insensitive until a device + selection arrive. */
+    sync_detail_sensitivity (ctx);
 
     return page;
 }

@@ -111,9 +111,18 @@
 #define CH_SETTINGS             2
 #define CH_ROLE                 3
 
-/* ChannelSettings */
+/* ChannelSettings.  Fields 1 (deprecated channel_num) and 4 (id) are
+ * not surfaced.  module_settings (6) is an embedded ModuleSettings. */
 #define CS_PSK                  2
 #define CS_NAME                 3
+#define CS_UPLINK_ENABLED       5
+#define CS_DOWNLINK_ENABLED     6
+#define CS_MODULE_SETTINGS      7
+
+/* ModuleSettings (ChannelSettings subfield).  position_precision: 0 =
+ * no position shared on the channel, 32 = precise, in between =
+ * reduced-precision (approximate) location. */
+#define MODSET_POSITION_PRECISION  1
 
 /* MeshPacket */
 #define MP_FROM                 1   /* fixed32                       */
@@ -145,6 +154,12 @@
 #define AM_SET_CHANNEL                   33
 #define AM_SET_CONFIG                    34
 #define AM_SET_MODULE_CONFIG             35
+/* Editing an *existing* channel slot only persists when the
+ * set_channel is wrapped in this transaction; bare set_channel works
+ * for add-to-free-slot and delete (disable) but is silently dropped
+ * for an in-place edit.  commit_edit_settings writes to flash. */
+#define AM_BEGIN_EDIT_SETTINGS           64
+#define AM_COMMIT_EDIT_SETTINGS          65
 
 /* DeviceMetadata */
 #define DM_FIRMWARE_VERSION     1
@@ -603,6 +618,45 @@ parse_channel_settings (const guint8 *data, gsize size,
             g_free (out->name);
             out->name = read_string (&r);
             break;
+        case CS_UPLINK_ENABLED:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->uplink_enabled = (v != 0);
+            break;
+        }
+        case CS_DOWNLINK_ENABLED:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->downlink_enabled = (v != 0);
+            break;
+        }
+        case CS_MODULE_SETTINGS:
+        {
+            const guint8 *m_data;
+            gsize         m_size;
+            if (pn_mesh_pb_read_length (&r, &m_data, &m_size))
+            {
+                PnMeshPbReader mr;
+                guint32        mf, mw;
+                pn_mesh_pb_reader_init (&mr, m_data, m_size);
+                while (pn_mesh_pb_read_tag (&mr, &mf, &mw))
+                {
+                    if (mf == MODSET_POSITION_PRECISION)
+                    {
+                        guint64 v;
+                        if (pn_mesh_pb_read_varint (&mr, &v))
+                            out->position_precision = (guint32) v;
+                    }
+                    else
+                    {
+                        pn_mesh_pb_skip_field (&mr, mw);
+                    }
+                }
+            }
+            break;
+        }
         default:
             pn_mesh_pb_skip_field (&r, wire);
             break;
@@ -3817,10 +3871,38 @@ pn_mesh_connection_set_telemetry_config_finish (GAsyncResult *result,
 /*  set_channel — Phase 5                                               */
 /* ------------------------------------------------------------------ */
 
+/* Send a bare AdminMessage carrying a single varint field -- used for
+ * begin_edit_settings / commit_edit_settings (each "= 1"). */
+static gboolean
+send_admin_varint (PnMeshConnection *self, guint32 field, guint64 value,
+                   GError **error)
+{
+    PnMeshPbWriter admin_w;
+    GBytes        *admin_bytes;
+    const guint8  *admin_b;
+    gsize          admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_varint_field (&admin_w, field, value);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
 /* AdminMessage { set_channel (33, embedded) = Channel {
  *     index (1, varint),
- *     settings (2, embedded) = ChannelSettings { psk (2), name (3) },
+ *     settings (2, embedded) = ChannelSettings {
+ *         psk (2), name (3), uplink_enabled (5), downlink_enabled (6),
+ *         module_settings (7) = ModuleSettings { position_precision (1) } },
  *     role (3, varint) } }
+ *
+ * set_channel overwrites the slot wholesale, so omitted proto3-default
+ * fields (uplink/downlink false, position_precision 0) correctly clear
+ * a previously-set value -- the caller passes the full desired state.
  */
 static gboolean
 send_set_channel (PnMeshConnection *self,
@@ -3829,6 +3911,10 @@ send_set_channel (PnMeshConnection *self,
                   const guint8     *psk,
                   gsize             psk_size,
                   guint32           role,
+                  gboolean          uplink_enabled,
+                  gboolean          downlink_enabled,
+                  guint32           position_precision,
+                  gboolean          transactional,
                   GError          **error)
 {
     PnMeshPbWriter settings_w, channel_w, admin_w;
@@ -3836,6 +3922,17 @@ send_set_channel (PnMeshConnection *self,
     const guint8  *settings_b, *channel_b, *admin_b;
     gsize          settings_n,  channel_n,  admin_n;
     gboolean       ok;
+
+    /* Editing an existing slot only sticks inside a begin/commit edit
+     * transaction (add-to-free-slot and delete persist with a bare
+     * set_channel; an in-place edit does not).  A short settle between
+     * frames mirrors pip-mesh, which the firmware needs to process each
+     * admin message in order. */
+    if (transactional
+        && !send_admin_varint (self, AM_BEGIN_EDIT_SETTINGS, 1, error))
+        return FALSE;
+    if (transactional)
+        g_usleep (200 * 1000);
 
     /* ChannelSettings: psk first, then name -- pip-mesh writes them in
      * that order and we mirror it (protobuf field order is not
@@ -3846,6 +3943,27 @@ send_set_channel (PnMeshConnection *self,
         pn_mesh_pb_write_bytes_field (&settings_w, CS_PSK, psk, psk_size);
     if (name != NULL && *name != '\0')
         pn_mesh_pb_write_string_field (&settings_w, CS_NAME, name);
+    if (uplink_enabled)
+        pn_mesh_pb_write_varint_field (&settings_w, CS_UPLINK_ENABLED, 1);
+    if (downlink_enabled)
+        pn_mesh_pb_write_varint_field (&settings_w, CS_DOWNLINK_ENABLED, 1);
+    if (position_precision > 0)
+    {
+        /* Embedded ModuleSettings { position_precision }. */
+        PnMeshPbWriter mod_w;
+        GBytes        *mod_bytes;
+        const guint8  *mod_b;
+        gsize          mod_n;
+        pn_mesh_pb_writer_init (&mod_w);
+        pn_mesh_pb_write_varint_field (&mod_w, MODSET_POSITION_PRECISION,
+                                       position_precision);
+        mod_bytes = pn_mesh_pb_writer_take_bytes (&mod_w);
+        pn_mesh_pb_writer_clear (&mod_w);
+        mod_b = g_bytes_get_data (mod_bytes, &mod_n);
+        pn_mesh_pb_write_embedded_field (&settings_w, CS_MODULE_SETTINGS,
+                                         mod_b, mod_n);
+        g_bytes_unref (mod_bytes);
+    }
     settings_bytes = pn_mesh_pb_writer_take_bytes (&settings_w);
     pn_mesh_pb_writer_clear (&settings_w);
     settings_b = g_bytes_get_data (settings_bytes, &settings_n);
@@ -3875,7 +3993,70 @@ send_set_channel (PnMeshConnection *self,
 
     ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
     g_bytes_unref (admin_bytes);
-    return ok;
+    if (!ok)
+        return FALSE;
+
+    /* Commit the edit to flash.  This is what makes an in-place change
+     * stick; the verify handshake below then reads it back. */
+    if (transactional)
+    {
+        g_usleep (200 * 1000);
+        if (!send_admin_varint (self, AM_COMMIT_EDIT_SETTINGS, 1, error))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+/* Reflect a just-written channel in the cached state, in slot @index.
+ * Used for the transactional (edit) path, where we cannot re-read the
+ * device without closing the port and triggering its deferred reboot.
+ * The values are already persisted on the device; this only keeps the
+ * dialog's view in step until the next full reconnect re-reads them. */
+static void
+apply_channel_locally (PnMeshConnection *self,
+                       guint32           index,
+                       const gchar      *name,
+                       const guint8     *psk,
+                       gsize             psk_size,
+                       guint32           role,
+                       gboolean          uplink_enabled,
+                       gboolean          downlink_enabled,
+                       guint32           position_precision)
+{
+    PnMeshChannel *ch = NULL;
+    guint          i;
+
+    if (self->state.channels == NULL)
+        return;
+    for (i = 0; i < self->state.channels->len; i++)
+    {
+        PnMeshChannel *c = g_ptr_array_index (self->state.channels, i);
+        if (c->index == index)
+        {
+            ch = c;
+            break;
+        }
+    }
+    if (ch == NULL)
+        return;
+
+    g_free (ch->name);
+    ch->name = g_strdup (name != NULL ? name : "");
+    g_free (ch->psk);
+    if (psk != NULL && psk_size > 0)
+    {
+        ch->psk      = g_memdup2 (psk, psk_size);
+        ch->psk_size = psk_size;
+    }
+    else
+    {
+        ch->psk      = NULL;
+        ch->psk_size = 0;
+    }
+    ch->role               = role;
+    ch->uplink_enabled     = uplink_enabled;
+    ch->downlink_enabled   = downlink_enabled;
+    ch->position_precision = position_precision;
 }
 
 gboolean
@@ -3885,11 +4066,17 @@ pn_mesh_connection_set_channel_sync (PnMeshConnection *self,
                                      const guint8     *psk,
                                      gsize             psk_size,
                                      guint32           role,
+                                     gboolean          uplink_enabled,
+                                     gboolean          downlink_enabled,
+                                     guint32           position_precision,
+                                     gboolean          transactional,
                                      GError          **error)
 {
     g_return_val_if_fail (self != NULL, FALSE);
 
-    if (!send_set_channel (self, index, name, psk, psk_size, role, error))
+    if (!send_set_channel (self, index, name, psk, psk_size, role,
+                           uplink_enabled, downlink_enabled,
+                           position_precision, transactional, error))
         return FALSE;
 
     /* set_channel quirk: the Meshtastic firmware buffers channel-slot
@@ -3903,6 +4090,33 @@ pn_mesh_connection_set_channel_sync (PnMeshConnection *self,
      * set_lora_config don't need this -- they are stored differently
      * by the firmware. */
     g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    if (transactional)
+    {
+        /* commit_edit_settings has already persisted the change to
+         * flash (it survives a power cycle).  This board defers its
+         * reboot until the serial session is finally closed, and until
+         * then it does not answer a fresh want_config -- so a verifying
+         * re-read is impossible without closing the port, which would
+         * trigger that reboot mid-dialog.  Bounce the port once (the way
+         * pip-mesh's per-frame close does, to let the firmware settle
+         * the commit) and then reflect the write in the cached state
+         * rather than reading it back.  The next full reconnect re-reads
+         * the real device values. */
+        if (pn_mesh_serial_reopen (self->serial, NULL))
+        {
+            pn_mesh_frame_reader_free (self->frames);
+            self->frames = pn_mesh_frame_reader_new ();
+            pn_mesh_serial_drain (self->serial, OPEN_DRAIN_MS);
+        }
+        apply_channel_locally (self, index, name, psk, psk_size, role,
+                               uplink_enabled, downlink_enabled,
+                               position_precision);
+        return TRUE;
+    }
+
+    /* Bare add/delete: the DTR-drop reopen is what commits the RAM-only
+     * change, then we verify by re-reading the channel list. */
     if (!pn_mesh_serial_reopen (self->serial, error))
         return FALSE;
     /* Fresh fd means fresh frame stream: drop any partial bytes the
@@ -3940,6 +4154,10 @@ typedef struct
     guint8           *psk;      /* freshly malloc'd; may be NULL       */
     gsize             psk_size;
     guint32           role;
+    gboolean          uplink_enabled;
+    gboolean          downlink_enabled;
+    guint32           position_precision;
+    gboolean          transactional;
 } SetChannelCall;
 
 static void
@@ -3964,7 +4182,9 @@ set_channel_thread_func (GTask *task, gpointer source,
 
     ok = pn_mesh_connection_set_channel_sync (
             c->conn, c->index, c->name,
-            c->psk, c->psk_size, c->role, &err);
+            c->psk, c->psk_size, c->role,
+            c->uplink_enabled, c->downlink_enabled,
+            c->position_precision, c->transactional, &err);
     if (ok)
         g_task_return_boolean (task, TRUE);
     else
@@ -3978,6 +4198,10 @@ pn_mesh_connection_set_channel_async (PnMeshConnection    *self,
                                       const guint8        *psk,
                                       gsize                psk_size,
                                       guint32              role,
+                                      gboolean             uplink_enabled,
+                                      gboolean             downlink_enabled,
+                                      guint32              position_precision,
+                                      gboolean             transactional,
                                       GCancellable        *cancellable,
                                       GAsyncReadyCallback  callback,
                                       gpointer             user_data)
@@ -3992,6 +4216,10 @@ pn_mesh_connection_set_channel_async (PnMeshConnection    *self,
     c->index = index;
     c->name  = g_strdup (name != NULL ? name : "");
     c->role  = role;
+    c->uplink_enabled     = uplink_enabled;
+    c->downlink_enabled   = downlink_enabled;
+    c->position_precision = position_precision;
+    c->transactional      = transactional;
     if (psk != NULL && psk_size > 0)
     {
         c->psk      = g_memdup2 (psk, psk_size);

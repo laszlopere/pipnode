@@ -26,7 +26,12 @@ G_BEGIN_DECLS
  * @name may be NULL or "" for an unnamed primary; the device's UI
  * treats both as "Default".  @psk is owned by the struct and may be
  * NULL on a disabled slot.  @role: 0 = DISABLED, 1 = PRIMARY,
- * 2 = SECONDARY, matching the Meshtastic Channel.Role enum. */
+ * 2 = SECONDARY, matching the Meshtastic Channel.Role enum.
+ *
+ * @uplink_enabled / @downlink_enabled gate the MQTT gateway bridge for
+ * this channel.  @position_precision is the ChannelSettings
+ * ModuleSettings field: 0 = no position shared, 32 = precise location,
+ * a value in between = an approximate (reduced-precision) location. */
 typedef struct
 {
     guint32  index;
@@ -34,6 +39,9 @@ typedef struct
     guint32  role;
     guint8  *psk;
     gsize    psk_size;
+    gboolean uplink_enabled;
+    gboolean downlink_enabled;
+    guint32  position_precision;
 } PnMeshChannel;
 
 void          pn_mesh_channel_free (PnMeshChannel *channel);
@@ -687,6 +695,11 @@ gboolean pn_mesh_connection_set_security_config_finish (
  * Add and Delete: takes effect immediately, no flash write, no
  * device reboot.  Bulk multi-channel edits (Phase 6+ "import from
  * QR") will need the transactional pattern. */
+/* @transactional wraps the write in begin_edit_settings /
+ * commit_edit_settings, which is required for an in-place edit of an
+ * existing slot to persist.  Use FALSE for add-to-free-slot and delete
+ * (a bare set_channel, which avoids the commit-to-flash + possible
+ * reboot). */
 gboolean pn_mesh_connection_set_channel_sync (
         PnMeshConnection *self,
         guint32           index,
@@ -694,6 +707,10 @@ gboolean pn_mesh_connection_set_channel_sync (
         const guint8     *psk,
         gsize             psk_size,
         guint32           role,
+        gboolean          uplink_enabled,
+        gboolean          downlink_enabled,
+        guint32           position_precision,
+        gboolean          transactional,
         GError          **error);
 
 void     pn_mesh_connection_set_channel_async (
@@ -703,6 +720,10 @@ void     pn_mesh_connection_set_channel_async (
         const guint8        *psk,
         gsize                psk_size,
         guint32              role,
+        gboolean             uplink_enabled,
+        gboolean             downlink_enabled,
+        guint32              position_precision,
+        gboolean             transactional,
         GCancellable        *cancellable,
         GAsyncReadyCallback  callback,
         gpointer             user_data);
