@@ -1135,30 +1135,33 @@ const gchar *pn_param_spec_get_profile_ref (GParamSpec *pspec);
 #define PN_PROFILE_REF_CUSTOM "@custom"
 
 /**
- * pn_param_spec_set_profile_ref_custom_trigger:
- * @pspec:        a string #GParamSpec already tagged with pn_param_spec_set_profile_ref()
- * @trigger_prop: name of a sibling inline property (e.g. "url") whose user-edit
- *                should switch the picker to "Custom settings"
+ * pn_param_spec_set_profile_ref_inline_fields:
+ * @pspec:  a string #GParamSpec already tagged with pn_param_spec_set_profile_ref()
+ * @fields: comma-separated list of sibling inline property names that make up the
+ *          node's "custom settings" (e.g. "url,username,password,client-id")
  *
  * Opts a profile-ref property into offering a "Custom settings" entry
  * (#PN_PROFILE_REF_CUSTOM) in its picker, alongside the "Default" entry and the
- * vault profiles.  When the user edits @trigger_prop in the dialog, the picker
- * flips to "Custom settings" so the node's inline settings take effect.  Tag once
- * in `_class_init`, after pn_param_spec_set_profile_ref().  The string is copied.
+ * vault profiles.  @fields names the node's own inline properties that the
+ * picker treats as the custom configuration: their editors are greyed out while
+ * any non-Custom option is selected, and cleared (set to "") when the user picks
+ * a non-Custom option — so inline data exists only in "Custom settings" mode.
+ * Tag once in `_class_init`, after pn_param_spec_set_profile_ref().  The string
+ * is copied.
  */
-void         pn_param_spec_set_profile_ref_custom_trigger (GParamSpec  *pspec,
-                                                           const gchar *trigger_prop);
+void         pn_param_spec_set_profile_ref_inline_fields (GParamSpec  *pspec,
+                                                          const gchar *fields);
 
 /**
- * pn_param_spec_get_profile_ref_custom_trigger:
+ * pn_param_spec_get_profile_ref_inline_fields:
  * @pspec: a #GParamSpec
  *
- * Returns: (transfer none) (nullable): the trigger property name @pspec was
- *   tagged with via pn_param_spec_set_profile_ref_custom_trigger(), or %NULL when
- *   untagged.  A non-%NULL result means the picker should offer "Custom settings".
- *   Borrowed — valid for the lifetime of @pspec.
+ * Returns: (transfer none) (nullable): the comma-separated inline-field list
+ *   @pspec was tagged with via pn_param_spec_set_profile_ref_inline_fields(), or
+ *   %NULL when untagged.  A non-%NULL result means the picker should offer
+ *   "Custom settings".  Borrowed — valid for the lifetime of @pspec.
  */
-const gchar *pn_param_spec_get_profile_ref_custom_trigger (GParamSpec *pspec);
+const gchar *pn_param_spec_get_profile_ref_inline_fields (GParamSpec *pspec);
 
 /**
  * pn_param_spec_set_secret:

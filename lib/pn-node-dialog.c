@@ -599,11 +599,12 @@ pn_rgba_to_color_value (
 #define PROFILE_REF_KEY "pn-profile-ref-binding"
 
 typedef struct {
-    GObject         *target;          /* borrowed */
-    gchar           *prop;            /* owned    */
-    gchar           *type_id;         /* owned    */
-    gchar           *custom_trigger;  /* owned, NULL = no "Custom settings" */
-    GtkComboBoxText *combo;           /* borrowed */
+    GObject         *target;         /* borrowed */
+    gchar           *prop;           /* owned    */
+    gchar           *type_id;        /* owned    */
+    gchar           *inline_fields;  /* owned, NULL = no "Custom settings";
+                                      * else comma-separated inline prop names */
+    GtkComboBoxText *combo;          /* borrowed */
     gboolean         syncing;
 } ProfileRefBinding;
 
@@ -613,8 +614,64 @@ profile_ref_binding_free (gpointer data)
     ProfileRefBinding *b = data;
     g_free (b->prop);
     g_free (b->type_id);
-    g_free (b->custom_trigger);
+    g_free (b->inline_fields);
     g_free (b);
+}
+
+/* Recursively locate a descendant widget whose name matches @name. */
+static GtkWidget *
+find_descendant_by_name (GtkWidget *widget, const gchar *name)
+{
+    const gchar *wn = gtk_widget_get_name (widget);
+    if (wn != NULL && g_strcmp0 (wn, name) == 0)
+        return widget;
+    if (GTK_IS_CONTAINER (widget))
+    {
+        GList     *children = gtk_container_get_children (GTK_CONTAINER (widget));
+        GList     *l;
+        GtkWidget *found = NULL;
+        for (l = children; l != NULL && found == NULL; l = l->next)
+            found = find_descendant_by_name (GTK_WIDGET (l->data), name);
+        g_list_free (children);
+        return found;
+    }
+    return NULL;
+}
+
+/* Grey out the inline "custom settings" editors (the tag's field list, named
+ * "pn-prop-<field>" in the same grid) unless the picker is on "Custom settings".
+ * No-op until the combo is attached under its grid (i.e. before the tab is
+ * built), so call it from "map" for the initial pass and from populate after. */
+static void
+profile_ref_apply_sensitivity (ProfileRefBinding *b)
+{
+    GtkWidget *grid = GTK_WIDGET (b->combo);
+    gchar     *current = NULL;
+    gboolean   is_custom;
+    gchar    **fields;
+    guint      i;
+
+    if (b->inline_fields == NULL)
+        return;
+    while (grid != NULL && !GTK_IS_GRID (grid))
+        grid = gtk_widget_get_parent (grid);
+    if (grid == NULL)
+        return;
+
+    g_object_get (b->target, b->prop, &current, NULL);
+    is_custom = (g_strcmp0 (current, PN_PROFILE_REF_CUSTOM) == 0);
+    g_free (current);
+
+    fields = g_strsplit (b->inline_fields, ",", -1);
+    for (i = 0; fields[i] != NULL; i++)
+    {
+        gchar     *wname  = g_strconcat ("pn-prop-", fields[i], NULL);
+        GtkWidget *editor = find_descendant_by_name (grid, wname);
+        if (editor != NULL)
+            gtk_widget_set_sensitive (editor, is_custom);
+        g_free (wname);
+    }
+    g_strfreev (fields);
 }
 
 /* Refill the combo from the current vault state and select the property's
@@ -639,12 +696,6 @@ profile_ref_populate (ProfileRefBinding *b)
     gtk_combo_box_text_append (b->combo, "", def_label);
     g_free (def_label);
 
-    /* Opt-in "Custom settings" entry: the node uses its own inline settings
-     * (PN_PROFILE_REF_CUSTOM resolves to no profile). */
-    if (b->custom_trigger != NULL)
-        gtk_combo_box_text_append (b->combo, PN_PROFILE_REF_CUSTOM,
-                                   "Custom settings");
-
     profiles = pn_vault_list_profiles (vault, b->type_id);
     for (l = profiles; l != NULL; l = l->next)
     {
@@ -654,12 +705,21 @@ profile_ref_populate (ProfileRefBinding *b)
     }
     g_list_free (profiles);
 
+    /* Opt-in "Custom settings" entry, last in the list: the node uses its own
+     * inline settings (PN_PROFILE_REF_CUSTOM resolves to no profile). */
+    if (b->inline_fields != NULL)
+        gtk_combo_box_text_append (b->combo, PN_PROFILE_REF_CUSTOM,
+                                   "Custom settings");
+
     if (current == NULL ||
         !gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), current))
         gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), "");
 
     g_free (current);
     b->syncing = FALSE;
+
+    /* Keep the inline-field editors greyed unless "Custom settings" is active. */
+    profile_ref_apply_sensitivity (b);
 }
 
 static void
@@ -672,6 +732,28 @@ on_profile_ref_combo_changed (GtkComboBox *combo, gpointer user_data)
         return;
     id = gtk_combo_box_get_active_id (combo);
     g_object_set (b->target, b->prop, id != NULL ? id : "", NULL);
+
+    /* Inline custom data exists only in "Custom settings" mode: clear the
+     * tagged inline fields when the user picks Default or a profile.  (The
+     * broker-profile notify re-runs populate, refreshing the grey-out.) */
+    if (b->inline_fields != NULL &&
+        g_strcmp0 (id, PN_PROFILE_REF_CUSTOM) != 0)
+    {
+        gchar **fields = g_strsplit (b->inline_fields, ",", -1);
+        guint   i;
+        for (i = 0; fields[i] != NULL; i++)
+            g_object_set (b->target, fields[i], "", NULL);
+        g_strfreev (fields);
+    }
+}
+
+static void
+on_profile_ref_combo_map (GtkWidget *combo, gpointer user_data)
+{
+    (void) combo;
+    /* Initial grey-out pass, once the whole tab (and the inline-field editors)
+     * has been built and the combo is attached under its grid. */
+    profile_ref_apply_sensitivity (user_data);
 }
 
 /* Target property changed elsewhere (e.g. the legacy-credentials import set
@@ -697,36 +779,6 @@ on_profile_ref_refresh (gpointer combo)
                                               PROFILE_REF_KEY);
     if (b != NULL)
         profile_ref_populate (b);
-}
-
-/* The node's inline trigger property (e.g. "url") was edited: switch the
- * picker to "Custom settings" so the inline settings take effect.  Only flips
- * when the trigger now has a non-empty value (clearing it should not strand the
- * node on an empty custom config), and is a no-op when already custom. */
-static void
-on_profile_ref_trigger_changed (GObject *target, GParamSpec *pspec,
-                                gpointer combo)
-{
-    ProfileRefBinding *b = g_object_get_data (G_OBJECT (combo), PROFILE_REF_KEY);
-    gchar             *trigger_val = NULL;
-    gchar             *current     = NULL;
-
-    (void) pspec;
-    if (b == NULL || b->syncing)
-        return;
-
-    g_object_get (target, b->custom_trigger, &trigger_val, NULL);
-    if (trigger_val == NULL || *trigger_val == '\0')
-    {
-        g_free (trigger_val);
-        return;
-    }
-    g_free (trigger_val);
-
-    g_object_get (b->target, b->prop, &current, NULL);
-    if (g_strcmp0 (current, PN_PROFILE_REF_CUSTOM) != 0)
-        g_object_set (b->target, b->prop, PN_PROFILE_REF_CUSTOM, NULL);
-    g_free (current);
 }
 
 static void
@@ -758,8 +810,8 @@ build_profile_ref_editor (GObject     *target,
     b->target  = target;
     b->prop    = g_strdup (pspec->name);
     b->type_id = g_strdup (type_id);
-    b->custom_trigger =
-        g_strdup (pn_param_spec_get_profile_ref_custom_trigger (pspec));
+    b->inline_fields =
+        g_strdup (pn_param_spec_get_profile_ref_inline_fields (pspec));
     b->combo   = GTK_COMBO_BOX_TEXT (combo);
 
     gtk_widget_set_hexpand (combo, TRUE);
@@ -784,16 +836,12 @@ build_profile_ref_editor (GObject     *target,
                              combo, 0);
     g_free (sig);
 
-    /* When tagged, editing the inline trigger property (e.g. "url") flips the
-     * picker to "Custom settings" (auto-disconnected with the combo). */
-    if (b->custom_trigger != NULL)
-    {
-        sig = g_strdup_printf ("notify::%s", b->custom_trigger);
-        g_signal_connect_object (target, sig,
-                                 G_CALLBACK (on_profile_ref_trigger_changed),
-                                 combo, 0);
-        g_free (sig);
-    }
+    /* When the picker offers "Custom settings", grey out the inline-field
+     * editors unless it is selected.  Done on "map" because the sibling editors
+     * are built after this combo, so they do not exist at build time. */
+    if (b->inline_fields != NULL)
+        g_signal_connect (combo, "map",
+                          G_CALLBACK (on_profile_ref_combo_map), b);
 
     /* Keep the list and the "Default (…)" label live while the dialog is open
      * (auto-disconnected with the combo). */

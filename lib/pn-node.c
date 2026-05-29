@@ -1684,36 +1684,36 @@ pn_param_spec_get_profile_ref (GParamSpec *pspec)
 }
 
 static GQuark
-pn_param_spec_profile_ref_custom_quark (void)
+pn_param_spec_profile_ref_inline_quark (void)
 {
     /* Same single-threaded lazy cache as the quarks above. */
     static GQuark q = 0;
     if (q == 0)
-        q = g_quark_from_static_string ("pn-param-spec-profile-ref-custom");
+        q = g_quark_from_static_string ("pn-param-spec-profile-ref-inline");
     return q;
 }
 
 void
-pn_param_spec_set_profile_ref_custom_trigger (GParamSpec  *pspec,
-                                              const gchar *trigger_prop)
+pn_param_spec_set_profile_ref_inline_fields (GParamSpec  *pspec,
+                                             const gchar *fields)
 {
     g_return_if_fail (G_IS_PARAM_SPEC (pspec));
-    g_return_if_fail (trigger_prop != NULL);
+    g_return_if_fail (fields != NULL);
 
-    /* Carries the trigger property name, so store an owned copy. */
+    /* Carries the comma-separated field list, so store an owned copy. */
     g_param_spec_set_qdata_full (pspec,
-                                 pn_param_spec_profile_ref_custom_quark (),
-                                 g_strdup (trigger_prop),
+                                 pn_param_spec_profile_ref_inline_quark (),
+                                 g_strdup (fields),
                                  g_free);
 }
 
 const gchar *
-pn_param_spec_get_profile_ref_custom_trigger (GParamSpec *pspec)
+pn_param_spec_get_profile_ref_inline_fields (GParamSpec *pspec)
 {
     if (pspec == NULL)
         return NULL;
     return g_param_spec_get_qdata (
-                   pspec, pn_param_spec_profile_ref_custom_quark ());
+                   pspec, pn_param_spec_profile_ref_inline_quark ());
 }
 
 static GQuark
