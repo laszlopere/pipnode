@@ -1151,7 +1151,59 @@ core (added 2026-05-29):
   "needs configuration" state, not a runtime failure -- decide per node
   whether that should read as an error (red) or stay a softer hint.
 
-  SEPARATE, STILL OPEN (the human-readable REASON): the per-node "log"
-  dialog that surfaces the last error text.  A Sink has no output port, so
-  the red+❗ is all it can show today; the log dialog is the place to show
-  WHY.  This is the remaining half of #30's C1 -- track it here too.
+  SEPARATE -- the human-readable REASON: the per-node "log" dialog that
+  surfaces the last error text.  A Sink has no output port, so the red+❗ is
+  all it can show today; the log dialog is the place to show WHY.  This was
+  the remaining half of #30's C1.
+  DONE 2026-05-29 (see #32): every PnNode now carries an in-memory log ring
+  (pn_node_log / pn_node_log_{info,warning,error} in libpipnode-core), and
+  the node right-click menu has a "Log..." entry (just under "Configure...")
+  opening a live per-node console (PnLogDialog, libpipnode-gui).
+
+(32) Migrate node diagnostics from stdout/stderr to pn_node_log.
+  DONE (infrastructure) 2026-05-29: generic per-node log channel landed --
+    - core: PnLogLevel + PnLogEntry (boxed) + a capped log ring on PnNode,
+      pn_node_log()/logv()/log_{info,warning,error}(), pn_node_get_log(),
+      pn_node_clear_log(), and the PnNode::log-changed signal
+      (lib/pn-node.[ch]); no ABI bump (plain base-class API + a new signal).
+    - gui: PnLogDialog tails the ring as a colour-coded console, refreshing
+      on log-changed, with a Clear button (lib/pn-log-dialog.[ch]).
+    - worksheet: "Log..." menu item below "Configure..." opens it.
+    - test: tests/unit/test-pn-node-log.c (append order, printf, ring cap,
+      clear, signal, entry copy).
+    - docs: PLUGINS §12 (third failure channel + threading contract).
+    - worked example: lib/pn-notify.c logs INFO per notification + WARNING/
+      ERROR from its main-thread D-Bus paths (replacing its g_warning calls).
+  STILL OPEN (the rollout -- do later): port the remaining nodes that
+  g_warning/g_message on failure over to pn_node_log so the user can read
+  them in the per-node Log dialog instead of an unread journal.  Per node:
+  decide which lines are user-facing (-> pn_node_log_{info,warning,error})
+  vs developer-only (leave as g_warning), then move the user-facing ones.
+
+  CAUTION (threading): pn_node_log must be called on the main loop thread
+  (same contract as receive / pn_node_emit_message).  Nodes that warn from
+  a worker thread must log from their EXISTING main-thread marshal point,
+  NOT inline at the current g_warning site -- see the [worker] notes below.
+
+  Checklist (grep 'g_warning\|g_message' in each; tick when migrated):
+    [ ] lib/pn-http.c          [worker: auto-trigger; log from the tick's
+                                main-thread emit path]
+    [ ] lib/pn-weather.c       [worker: auto-trigger, same as pn-http]
+    [ ] lib/pn-mqtt.c          [worker: libmosquitto net thread; log from
+                                conn_state_trampoline / flush_pending_on_main]
+    [ ] lib/pn-mqtt-sink.c     [worker: libmosquitto net thread, as pn-mqtt]
+    [ ] lib/pn-ws.c            [check thread of the warning site]
+    [ ] lib/pn-tts.c           [check: GSubprocess callback vs worker]
+    [ ] lib/pn-sound.c
+    [ ] lib/pn-rate.c
+    [ ] plugins/network/pn-dns.c
+    [ ] plugins/network/pn-ping.c
+    [ ] plugins/network/pn-https-tunnel-sender.c
+    [ ] plugins/network/pn-https-tunnel-receiver.c
+    [ ] plugins/ollama/pn-ollama.c
+    [ ] plugins/sound-effects/pn-sci-fi-sound.c
+  Lower priority / probably developer-only (parse + config warnings, not
+  runtime failures -- migrate only if a user would benefit): lib/pn-filter.c,
+  lib/pn-set.c, lib/pn-rewrite.c, lib/pn-debug.c.
+  NOT nodes -- leave as-is: pn-node.c, pn-worksheet.c, pn-profile-schema.c,
+  pn-settings-schema.c, the pn-mesh-* dialog/list files.

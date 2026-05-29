@@ -747,6 +747,43 @@ to the same plugin) does not require a per-class override.
   are the worked examples -- both keep their green identity and
   toggle `has-error` from a single `apply_visual_state` helper.
 
+- *Per-node diagnostics log: `pn_node_log`.*  Every `PnNode`
+  carries an in-memory log ring, and the right-click menu has a
+  "Log..." entry (just under "Configure...") that opens a live
+  per-node console showing it.  This is the THIRD failure channel,
+  complementing the outbound failure message (textual, downstream)
+  and `has-error` (visual, on-canvas): it is where a node records
+  the running narrative a curious user would want -- what it is
+  doing, and the detail behind a failure -- instead of writing to
+  stdout/stderr, which the desktop-launched user never sees.
+
+      pn_node_log_info    (PN_NODE (self), "connected to %s", url);
+      pn_node_log_warning (PN_NODE (self), "retry %d", n);
+      pn_node_log_error   (PN_NODE (self), "connect refused: %s", why);
+
+  (or `pn_node_log (node, PN_LOG_LEVEL_*, fmt, ...)` for a computed
+  level).  The message is a `printf`-style format; the entry is
+  timestamped, kept oldest-first, and the ring caps at a couple
+  hundred lines (oldest dropped).  Adding an entry emits
+  `PnNode::log-changed`, so an open Log dialog updates live.  The
+  storage is GTK-free and lives in `libpipnode-core`, so it is
+  available under `pipnode-run` as well; only the dialog is GUI.
+
+  Threading: like `receive` and `pn_node_emit_message`, call
+  `pn_node_log` on the main loop thread.  A node that does blocking
+  work on a worker thread should log from the same main-thread
+  marshal point it already uses to deliver results (see the
+  `g_main_context_invoke` idiom in the *Threading* bullet above) --
+  do not call it directly from a libmosquitto / GTask worker
+  callback.  The Notify node (`lib/pn-notify.c`) is the worked
+  example: it logs an INFO line per notification it dispatches and
+  a WARNING/ERROR line from its main-thread D-Bus paths.
+
+  `pn_node_log` does NOT echo to stdout/stderr.  Reserve `g_warning`
+  and friends for the developer-only diagnostics described above;
+  use `pn_node_log` for anything you want the user to be able to
+  read in the app.
+
 
 13. DEBUGGING A PLUGIN THAT DOES NOT LOAD
 -----------------------------------------
