@@ -46,6 +46,11 @@ void         pn_inline_edit_label_set_text (PnInlineEditLabel *self,
                                             const gchar       *text);
 const gchar *pn_inline_edit_label_get_text (PnInlineEditLabel *self);
 
+/* Cap the number of characters the editor accepts, mirroring
+ * gtk_entry_set_max_length() (0 = no limit). */
+void         pn_inline_edit_label_set_max_length (PnInlineEditLabel *self,
+                                                  gint               max_length);
+
 G_END_DECLS
 
 #endif /* PN_INLINE_EDIT_LABEL_H */

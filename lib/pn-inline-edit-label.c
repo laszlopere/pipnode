@@ -292,3 +292,11 @@ pn_inline_edit_label_get_text (PnInlineEditLabel *self)
 
     return gtk_label_get_text (self->label);
 }
+
+void
+pn_inline_edit_label_set_max_length (PnInlineEditLabel *self, gint max_length)
+{
+    g_return_if_fail (PN_IS_INLINE_EDIT_LABEL (self));
+
+    gtk_entry_set_max_length (self->entry, max_length);
+}

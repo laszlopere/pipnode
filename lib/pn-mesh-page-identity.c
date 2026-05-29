@@ -16,16 +16,17 @@
 /* ------------------------------------------------------------------ */
 /*  Identity page — Phase 3.                                           */
 /*                                                                     */
-/*  Two columns: a bold key label on the left, a read-only value      */
-/*  label (or editable entry + Apply button row) on the right.  The   */
-/*  two writable rows -- long_name / short_name -- live in their own  */
-/*  little subgrid each so the Apply button sits flush at the row's   */
-/*  right edge.                                                       */
+/*  Two columns: a bold key label on the left, a value on the right.  */
+/*  The two writable rows -- long_name / short_name -- use a          */
+/*  PnInlineEditLabel: it looks like a plain value with a small        */
+/*  pencil button, and clicking the pencil swaps in an entry that      */
+/*  commits on Enter (or focus-out) and cancels on Escape.  No Apply   */
+/*  button -- the commit itself triggers the device write.            */
 /*                                                                     */
 /*  Per-page state struct holds widget pointers, the active           */
-/*  PnMeshConnection (borrowed) and a write-in-flight flag so the     */
-/*  two Apply buttons can disable themselves while either write is    */
-/*  running and re-enable on completion.                              */
+/*  PnMeshConnection (borrowed) and a write-in-flight flag so both     */
+/*  editable rows disable themselves while either write is running    */
+/*  and re-enable on completion.                                      */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -34,6 +35,7 @@
 
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-formats.h"
+#include "pn-inline-edit-label.h"
 
 #define PN_MESH_PAGE_CTX_QDATA "pn-mesh-page-identity-ctx"
 
@@ -49,10 +51,8 @@ typedef struct
     GtkLabel *tty_label;
     GtkLabel *firmware_label;
     GtkLabel *node_num_label;
-    GtkEntry *long_name_entry;
-    GtkButton *long_name_apply;
-    GtkEntry *short_name_entry;
-    GtkButton *short_name_apply;
+    PnInlineEditLabel *long_name_edit;
+    PnInlineEditLabel *short_name_edit;
     GtkLabel *hw_model_label;
     GtkLabel *role_label;
     GtkLabel *channels_label;
@@ -61,16 +61,16 @@ typedef struct
     /* Borrowed; lifetime is the dialog's, not the page's. */
     PnMeshConnection *connection;
 
-    /* While a write is in flight, both Apply buttons stay disabled
-     * even though only one of them was clicked -- two simultaneous
+    /* While a write is in flight, both editable rows stay disabled
+     * even though only one of them committed -- two simultaneous
      * writes on the same serial port would interleave frames.  The
      * flag is reset in the finish callback. */
     gboolean          writing;
 
-    /* Which field the in-flight Apply is mutating.  Determines which
-     * entry on_set_owner_done is allowed to repaint -- repainting
-     * the *other* entry from the device state would clobber a
-     * mid-edit value the user has typed but not yet applied. */
+    /* Which field the in-flight write is mutating.  Determines which
+     * row on_set_owner_done is allowed to repaint -- repainting the
+     * *other* row from the device state would clobber a value the
+     * user committed but whose write has not finished. */
     enum
     {
         APPLY_NONE = 0,
@@ -131,41 +131,28 @@ attach_label_row (GtkGrid *grid, gint row, const gchar *key_text)
     return GTK_LABEL (val);
 }
 
-/* Row with an entry on the left and an Apply button on the right.
- * Stores the entry into @out_entry and the button into @out_button. */
-static void
-attach_entry_row (GtkGrid *grid, gint row, const gchar *key_text,
-                  gint max_length,
-                  GtkEntry **out_entry, GtkButton **out_button)
+/* Row with a key label and an inline click-to-edit value on the right.
+ * The value commits on Enter (or focus-out) and cancels on Escape via
+ * the PnInlineEditLabel widget, so there is no separate Apply button --
+ * confirming the edit is what triggers the device write. */
+static PnInlineEditLabel *
+attach_inline_edit_row (GtkGrid *grid, gint row, const gchar *key_text,
+                        gint max_length)
 {
-    GtkWidget *holder;
-    GtkWidget *entry;
-    GtkWidget *apply;
+    GtkWidget *edit = pn_inline_edit_label_new ();
 
     gtk_grid_attach (grid, make_key (key_text), 0, row, 1, 1);
 
-    holder = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_hexpand (holder, TRUE);
+    /* Mirror the device-enforced name limit client-side -- mostly so
+     * the 4-character short name cannot grow past what the firmware
+     * will keep. */
+    pn_inline_edit_label_set_max_length (PN_INLINE_EDIT_LABEL (edit),
+                                         max_length);
+    gtk_widget_set_hexpand (edit, TRUE);
+    gtk_widget_set_sensitive (edit, FALSE);   /* disabled until connected */
+    gtk_grid_attach (grid, edit, 1, row, 1, 1);
 
-    entry = gtk_entry_new ();
-    gtk_entry_set_max_length (GTK_ENTRY (entry), max_length);
-    gtk_widget_set_hexpand   (entry, TRUE);
-    /* Per-character counter on the right helps the user feel the
-     * 4-character short-name limit before Apply rejects it. */
-    gtk_entry_set_input_purpose (GTK_ENTRY (entry), GTK_INPUT_PURPOSE_FREE_FORM);
-    gtk_box_pack_start (GTK_BOX (holder), entry, TRUE, TRUE, 0);
-
-    apply = gtk_button_new_with_mnemonic ("_Apply");
-    gtk_widget_set_tooltip_text (
-            apply,
-            "Write the value to the device and verify it took effect.");
-    gtk_widget_set_sensitive (apply, FALSE);   /* disabled until connected */
-    gtk_box_pack_start (GTK_BOX (holder), apply, FALSE, FALSE, 0);
-
-    gtk_grid_attach (grid, holder, 1, row, 1, 1);
-
-    *out_entry  = GTK_ENTRY (entry);
-    *out_button = GTK_BUTTON (apply);
+    return PN_INLINE_EDIT_LABEL (edit);
 }
 
 /* ------------------------------------------------------------------ */
@@ -239,10 +226,8 @@ set_writing (IdentityCtx *ctx, gboolean writing)
     gboolean enable     = !writing && ctx->connection != NULL;
     gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->long_name_apply),  enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->short_name_apply), enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->long_name_entry),  enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->short_name_entry), enable);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->long_name_edit),  enable);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->short_name_edit), enable);
     /* Notify the dialog only on the TRUE↔FALSE edge so the dialog's
      * busy counter stays balanced even when a no-op set_writing call
      * sneaks through. */
@@ -297,19 +282,35 @@ on_set_owner_done (GObject *source, GAsyncResult *res, gpointer user_data)
     set_writing (ctx, FALSE);
 }
 
+/* The current device-side owner name for the field being committed;
+ * NULL-safe.  Used to skip a doomed/no-op write when the committed
+ * value matches what the device already holds -- ::committed fires on
+ * every Enter / focus-out, even when the user changed nothing. */
+static gboolean
+owner_name_unchanged (IdentityCtx *ctx, gboolean is_long, const gchar *text)
+{
+    const PnMeshState *state   = pn_mesh_connection_get_state (ctx->connection);
+    const gchar       *current = NULL;
+
+    if (state != NULL)
+        current = is_long ? state->owner_long_name : state->owner_short_name;
+
+    return g_strcmp0 (text, current != NULL ? current : "") == 0;
+}
+
 static void
-apply_long_name (GtkButton *button, gpointer user_data)
+on_long_name_committed (PnInlineEditLabel *edit, const gchar *text,
+                        gpointer user_data)
 {
     GtkWidget   *page = user_data;
     IdentityCtx *ctx  = g_object_get_data (G_OBJECT (page),
                                            PN_MESH_PAGE_CTX_QDATA);
-    const gchar *text;
 
-    (void) button;
+    (void) edit;
     if (ctx == NULL || ctx->connection == NULL || ctx->writing)
         return;
-
-    text = gtk_entry_get_text (ctx->long_name_entry);
+    if (owner_name_unchanged (ctx, TRUE, text))
+        return;
 
     emit_status (ctx, "Applying long name…");
     ctx->applying = APPLY_LONG;
@@ -320,18 +321,18 @@ apply_long_name (GtkButton *button, gpointer user_data)
 }
 
 static void
-apply_short_name (GtkButton *button, gpointer user_data)
+on_short_name_committed (PnInlineEditLabel *edit, const gchar *text,
+                         gpointer user_data)
 {
     GtkWidget   *page = user_data;
     IdentityCtx *ctx  = g_object_get_data (G_OBJECT (page),
                                            PN_MESH_PAGE_CTX_QDATA);
-    const gchar *text;
 
-    (void) button;
+    (void) edit;
     if (ctx == NULL || ctx->connection == NULL || ctx->writing)
         return;
-
-    text = gtk_entry_get_text (ctx->short_name_entry);
+    if (owner_name_unchanged (ctx, FALSE, text))
+        return;
 
     emit_status (ctx, "Applying short name…");
     ctx->applying = APPLY_SHORT;
@@ -389,12 +390,10 @@ pn_mesh_page_identity_new (void)
     ctx->firmware_label = attach_label_row (GTK_GRID (grid), row++, "Firmware");
     ctx->node_num_label = attach_label_row (GTK_GRID (grid), row++, "Mesh node #");
 
-    attach_entry_row (GTK_GRID (grid), row++, "Long name",
-                      PN_MESH_LONG_NAME_MAX,
-                      &ctx->long_name_entry, &ctx->long_name_apply);
-    attach_entry_row (GTK_GRID (grid), row++, "Short name",
-                      PN_MESH_SHORT_NAME_MAX,
-                      &ctx->short_name_entry, &ctx->short_name_apply);
+    ctx->long_name_edit = attach_inline_edit_row (
+            GTK_GRID (grid), row++, "Long name", PN_MESH_LONG_NAME_MAX);
+    ctx->short_name_edit = attach_inline_edit_row (
+            GTK_GRID (grid), row++, "Short name", PN_MESH_SHORT_NAME_MAX);
 
     ctx->hw_model_label = attach_label_row (GTK_GRID (grid), row++, "Hardware model");
     ctx->role_label     = attach_label_row (GTK_GRID (grid), row++, "Role");
@@ -404,15 +403,12 @@ pn_mesh_page_identity_new (void)
     g_object_set_data_full (G_OBJECT (page), PN_MESH_PAGE_CTX_QDATA,
                             ctx, identity_ctx_free);
 
-    g_signal_connect (ctx->long_name_apply,  "clicked",
-                      G_CALLBACK (apply_long_name),  page);
-    g_signal_connect (ctx->short_name_apply, "clicked",
-                      G_CALLBACK (apply_short_name), page);
-    /* Activate = Enter in the entry => same as clicking Apply. */
-    g_signal_connect_swapped (ctx->long_name_entry,  "activate",
-                              G_CALLBACK (apply_long_name),  page);
-    g_signal_connect_swapped (ctx->short_name_entry, "activate",
-                              G_CALLBACK (apply_short_name), page);
+    /* Confirming the inline edit (Enter or focus-out) commits the
+     * value to the device; Escape cancels and emits nothing. */
+    g_signal_connect (ctx->long_name_edit,  "committed",
+                      G_CALLBACK (on_long_name_committed),  page);
+    g_signal_connect (ctx->short_name_edit, "committed",
+                      G_CALLBACK (on_short_name_committed), page);
 
     return page;
 }
@@ -450,18 +446,18 @@ refresh_from_state (GtkWidget *page)
         g_free (node_text);
     }
 
-    /* Replace the entry contents without firing the activate
-     * handler.  GtkEntry's set_text already suppresses ::activate;
-     * just go ahead.  But only repaint the entry whose write we
-     * are currently finishing -- on a fresh device pick (applying
-     * == APPLY_NONE) we paint both; after an Apply we paint only
-     * that one, so the other entry's in-progress edit survives. */
+    /* Repaint the value labels.  Setting the text only touches the
+     * display label, not an in-progress edit, so it is safe even
+     * mid-edit.  Only repaint the row whose write we are currently
+     * finishing -- on a fresh device pick (applying == APPLY_NONE)
+     * we paint both; after a write we paint only that one, so the
+     * other row's just-committed value is not clobbered. */
     if (ctx->applying == APPLY_NONE || ctx->applying == APPLY_LONG)
-        gtk_entry_set_text (ctx->long_name_entry,
+        pn_inline_edit_label_set_text (ctx->long_name_edit,
                             state->owner_long_name != NULL
                                 ? state->owner_long_name : "");
     if (ctx->applying == APPLY_NONE || ctx->applying == APPLY_SHORT)
-        gtk_entry_set_text (ctx->short_name_entry,
+        pn_inline_edit_label_set_text (ctx->short_name_edit,
                             state->owner_short_name != NULL
                                 ? state->owner_short_name : "");
 
@@ -531,8 +527,8 @@ pn_mesh_page_identity_set_state (GtkWidget         *page,
     {
         set_label (ctx->firmware_label, NULL);
         set_label (ctx->node_num_label, NULL);
-        gtk_entry_set_text (ctx->long_name_entry, "");
-        gtk_entry_set_text (ctx->short_name_entry, "");
+        pn_inline_edit_label_set_text (ctx->long_name_edit, "");
+        pn_inline_edit_label_set_text (ctx->short_name_edit, "");
         set_label (ctx->hw_model_label, NULL);
         set_label (ctx->role_label,     NULL);
         set_label (ctx->caps_label,     NULL);
