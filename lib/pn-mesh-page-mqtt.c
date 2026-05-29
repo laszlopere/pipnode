@@ -257,7 +257,11 @@ on_cell_realize (GtkWidget *cell, gpointer user_data)
     GtkSizeGroup *sg = user_data;
     GList        *children = gtk_container_get_children (GTK_CONTAINER (cell));
 
-    if (children != NULL) {
+    /* Combos, spin buttons and entries share a common width via the
+     * size group so the value column lines up.  A switch is naturally
+     * narrow and already left-aligned (halign START), so leave it out
+     * -- otherwise the size group stretches it to the widest control. */
+    if (children != NULL && !GTK_IS_SWITCH (children->data)) {
         GtkWidget *first = children->data;
         gtk_widget_set_size_request (first, VALUE_MIN_WIDTH, -1);
         gtk_size_group_add_widget (sg, first);
