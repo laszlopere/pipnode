@@ -70,22 +70,51 @@ emit_status (PowerCtx *ctx, const gchar *msg)
         ctx->status_cb (msg, ctx->status_ud);
 }
 
+/* Recompute every control's sensitivity from the current connection,
+ * write-in-flight and power-saving state.  The four sleep/wake timing
+ * spinners are part of the firmware's power-saving state machine and
+ * are ignored when power saving is off, so they follow the switch; the
+ * on-battery shutdown timer and the ADC calibration multiplier are used
+ * regardless, so they only follow the base connected/idle state. */
+static void
+sync_sensitivity (PowerCtx *ctx)
+{
+    gboolean base   = !ctx->writing && ctx->connection != NULL;
+    gboolean sleeps = base
+            && gtk_switch_get_active (ctx->power_saving_switch);
+
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->power_saving_switch),  base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->shutdown_spin),        base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->adc_spin),             base);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->wait_bluetooth_spin),  sleeps);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->sds_spin),             sleeps);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->ls_spin),              sleeps);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->min_wake_spin),        sleeps);
+    gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),         base);
+}
+
 static void
 set_writing (PowerCtx *ctx, gboolean writing)
 {
-    gboolean enable     = !writing && ctx->connection != NULL;
     gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->power_saving_switch),  enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->shutdown_spin),        enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->adc_spin),             enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->wait_bluetooth_spin),  enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->sds_spin),             enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->ls_spin),              enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->min_wake_spin),        enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),         enable);
+    sync_sensitivity (ctx);
     if (transition && ctx->busy_cb != NULL)
         ctx->busy_cb (writing, ctx->busy_ud);
+}
+
+/* Toggling the master switch flips the sleep-timing spinners between
+ * enabled and greyed-out without waiting for an Apply. */
+static void
+on_power_saving_toggled (GObject *obj, GParamSpec *pspec, gpointer user_data)
+{
+    GtkWidget *page = user_data;
+    PowerCtx  *ctx  = g_object_get_data (G_OBJECT (page),
+                                         PN_MESH_POWER_CTX_QDATA);
+    (void) obj;
+    (void) pspec;
+    if (ctx != NULL)
+        sync_sensitivity (ctx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -264,7 +293,8 @@ pn_mesh_page_power_new (void)
 
     subtitle = gtk_label_new (
             "Battery-saving behaviour, sleep timings, on-battery "
-            "shutdown threshold and ADC calibration.  Apply writes "
+            "shutdown threshold and ADC calibration.  The sleep/wake "
+            "timings apply only while power saving is on.  Apply writes "
             "the whole PowerConfig block at once.  Leave intervals "
             "at 0 to use the firmware's hardware-specific defaults.");
     gtk_label_set_xalign      (GTK_LABEL (subtitle), 0.0);
@@ -373,6 +403,10 @@ pn_mesh_page_power_new (void)
                             ctx, power_ctx_free);
     g_signal_connect (apply, "clicked",
                       G_CALLBACK (on_apply_clicked), page);
+    /* Re-evaluate the sleep-spinner sensitivity whenever the master
+     * switch flips (set_state's gtk_switch_set_active also lands here). */
+    g_signal_connect (power_saving, "notify::active",
+                      G_CALLBACK (on_power_saving_toggled), page);
 
     return page;
 }
