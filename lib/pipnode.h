@@ -36,6 +36,7 @@
 #include "pn-http.h"
 #include "pn-image-message.h"
 #include "pn-inject.h"
+#include "pn-inline-edit-label.h"
 #include "pn-led.h"
 #include "pn-log-dialog.h"
 #include "pn-message.h"
