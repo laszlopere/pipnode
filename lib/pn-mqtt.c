@@ -685,15 +685,29 @@ migrate_legacy_credentials (gpointer data)
 
     priv->migrate_idle_id = 0;
 
-    if (priv->broker_profile != NULL && *priv->broker_profile != '\0')
+    /* "Custom settings" mode: keep the inline fields as the connection config. */
+    if (g_strcmp0 (priv->broker_profile, PN_PROFILE_REF_CUSTOM) == 0)
         return G_SOURCE_REMOVE;
+
+    /* A real profile is selected: inline data is stale (the invariant is that it
+     * only exists in Custom mode).  Clear it so the saved file and the dialog
+     * widgets are empty/default. */
+    if (priv->broker_profile != NULL && *priv->broker_profile != '\0')
+    {
+        g_object_set (self, "url", "", "username", "", "password", "",
+                      "client-id", "", NULL);
+        return G_SOURCE_REMOVE;
+    }
+
+    /* broker-profile == "" (Default).  A new-model Default node has empty inline
+     * fields (cleared when Default was picked), so the branches below only fire
+     * for genuinely legacy files that predate broker-profile. */
     if ((priv->username == NULL || *priv->username == '\0') &&
         (priv->password == NULL || *priv->password == '\0'))
     {
-        /* No inline credentials to migrate into a profile.  But a legacy node
-         * with no profile and a typed inline url was effectively using "custom
-         * settings": mark it as such so it keeps connecting to that url under
-         * the new model (empty broker-profile now means "the primary profile"). */
+        /* No inline credentials to migrate into a profile.  A legacy node with a
+         * typed inline url was effectively using "custom settings": mark it so it
+         * keeps connecting to that url under the new model. */
         if (priv->url != NULL && *priv->url != '\0')
             g_object_set (self, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
         return G_SOURCE_REMOVE;
@@ -949,9 +963,10 @@ pn_mqtt_class_init (PnMqttClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
                                    PN_PROFILE_TYPE_MQTT_BROKER);
-    /* Offer a "Custom settings" entry; editing the inline url switches to it. */
-    pn_param_spec_set_profile_ref_custom_trigger (props[PROP_BROKER_PROFILE],
-                                                  "url");
+    /* Offer a "Custom settings" entry; these inline fields are its config
+     * (greyed + cleared unless "Custom settings" is selected). */
+    pn_param_spec_set_profile_ref_inline_fields (props[PROP_BROKER_PROFILE],
+                                                 "url,username,password,client-id");
 
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",
@@ -959,9 +974,9 @@ pn_mqtt_class_init (PnMqttClass *klass)
             "default port 1883), ssl://host[:port] or "
             "mqtts://host[:port] (MQTT over TLS, default port 8883), "
             "or a bare host[:port] which is treated as plain TCP.  "
-            "Used only when Broker profile is set to \"Custom settings\" "
-            "(editing this field selects it); otherwise the selected profile "
-            "supplies the address.  Empty by default.",
+            "Part of the node's \"Custom settings\": editable only when the "
+            "Broker profile picker is on \"Custom settings\", and cleared when "
+            "a profile (or Default) is selected.  Empty by default.",
             PN_MQTT_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
