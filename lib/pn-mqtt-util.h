@@ -71,10 +71,13 @@ gboolean pn_mqtt_parse_url (const gchar *url,
  * @out_pass:    (out) (optional): resolved password (caller frees)
  * @out_cid:     (out) (optional): resolved client id (caller frees)
  *
- * Resolves the connection identity: when @profile is non-%NULL each field
+ * Resolves the connection identity: when @profile is non-%NULL every field
  * comes from it (the password via #pn_profile_get_secret, so it follows the
  * vault's secret path); otherwise the inline values are used (a %NULL inline
- * value yields ""). Every requested out string is freshly allocated.
+ * value yields "").  The choice of which is made by the caller: a node passes
+ * the profile from pn_node_get_profile(), which is %NULL when the picker is on
+ * "Custom settings" (#PN_PROFILE_REF_CUSTOM) so the inline fields take effect.
+ * Every requested out string is freshly allocated and non-%NULL.
  */
 void pn_mqtt_resolve_connection (PnProfile   *profile,
                                  const gchar *inline_url,

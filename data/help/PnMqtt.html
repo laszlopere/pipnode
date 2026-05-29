@@ -45,6 +45,34 @@ node connects asynchronously, retries on failure with a 1&nbsp;s to
 intervention.
 </p>
 
+<h5>Broker URL vs credential profile</h5>
+<p>
+The connection can come from two places: the inline fields
+(<code>url</code>, <code>username</code>, <code>password</code>,
+<code>client-id</code>), or an <code>mqtt-broker</code> <em>credential
+profile</em> in the host vault (<em>Edit &rarr; Credentials</em>), chosen
+with the <strong>Broker profile</strong> picker. The profile keeps the
+password out of the saved workflow file.
+</p>
+<p>
+The <strong>Broker profile</strong> picker selects which one applies:
+</p>
+<ul>
+  <li><strong>Default (…)</strong> &mdash; the type's primary
+      <code>mqtt-broker</code> profile, so a freshly dropped node reaches the
+      default broker with no per-node setup.</li>
+  <li>A named <strong>profile</strong> &mdash; that profile's URL and
+      credentials.</li>
+  <li><strong>Custom settings</strong> &mdash; this node's own inline
+      <code>url</code> / <code>username</code> / <code>password</code> /
+      <code>client-id</code> fields; the profiles are ignored.</li>
+</ul>
+<p>
+Editing the <strong>Broker URL</strong> field automatically switches the
+picker to <em>Custom settings</em>, so typing a broker address just works.
+The inline fields only take effect in that mode.
+</p>
+
 <h5>Subscription</h5>
 <p>
 The <code>subscribe-topic</code> property is the MQTT topic filter. Standard

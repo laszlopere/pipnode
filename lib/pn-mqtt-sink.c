@@ -179,6 +179,9 @@ resolve_connection (PnMqttSink *self,
 {
     PnProfile *p = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
+    /* Per-field: a non-empty inline value overrides the profile's field, so a
+     * typed Broker URL takes effect even with a profile selected; blank fields
+     * still come from the profile (see pn_mqtt_resolve_connection). */
     pn_mqtt_resolve_connection (p, self->url, self->username, self->password,
                                 self->client_id,
                                 out_url, out_user, out_pass, out_cid);
@@ -279,8 +282,9 @@ flush_pending (PnMqttSink *self)
                                                 p->qos, p->retain);
         if (err != MOSQ_ERR_SUCCESS)
         {
-            g_warning ("pn-mqtt-sink: queued publish('%s') failed: %s",
-                       p->topic, mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self),
+                               "queued publish to '%s' failed: %s",
+                               p->topic, mosquitto_strerror (err));
             self->publish_error = TRUE;
         }
     }
@@ -301,6 +305,8 @@ typedef struct
 {
     PnMqttSink *self;        /* strong ref */
     gboolean    connected;
+    PnLogLevel  level;       /* level for @reason, when non-NULL */
+    gchar      *reason;      /* (nullable): line for the node Log dialog */
 } PnMqttSinkConnStateClosure;
 
 static gboolean
@@ -321,6 +327,10 @@ conn_state_trampoline (gpointer data)
             flush_pending (c->self);
         }
         apply_visual_state (c->self);
+        /* Surface the reason in the per-node Log dialog (we are on the
+         * main thread now, so pn_node_log is safe). */
+        if (c->reason != NULL)
+            pn_node_log (PN_NODE (c->self), c->level, "%s", c->reason);
     }
     return G_SOURCE_REMOVE;
 }
@@ -330,20 +340,50 @@ conn_state_closure_free (gpointer data)
 {
     PnMqttSinkConnStateClosure *c = data;
     g_object_unref (c->self);
+    g_free (c->reason);
     g_free (c);
 }
 
+/** Marshal a connection-state change (and an optional printf-style @fmt
+ *  reason for the node Log dialog) onto the main thread.  @fmt may be
+ *  %NULL for a state-only update. */
 static void
-post_conn_state_on_main (PnMqttSink *self, gboolean connected)
+post_conn_state_on_main_full (PnMqttSink  *self,
+                              gboolean     connected,
+                              PnLogLevel   level,
+                              const gchar *fmt,
+                              ...) G_GNUC_PRINTF (4, 5);
+
+static void
+post_conn_state_on_main_full (PnMqttSink  *self,
+                              gboolean     connected,
+                              PnLogLevel   level,
+                              const gchar *fmt,
+                              ...)
 {
     PnMqttSinkConnStateClosure *c = g_new0 (PnMqttSinkConnStateClosure, 1);
     c->self      = g_object_ref (self);
     c->connected = connected;
+    c->level     = level;
+    if (fmt != NULL)
+    {
+        va_list args;
+        va_start (args, fmt);
+        c->reason = g_strdup_vprintf (fmt, args);
+        va_end (args);
+    }
     g_main_context_invoke_full (NULL,
                                 G_PRIORITY_DEFAULT,
                                 conn_state_trampoline,
                                 c,
                                 conn_state_closure_free);
+}
+
+/** Convenience: state change with no Log-dialog line. */
+static void
+post_conn_state_on_main (PnMqttSink *self, gboolean connected)
+{
+    post_conn_state_on_main_full (self, connected, PN_LOG_LEVEL_INFO, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -362,13 +402,14 @@ on_mqtt_connect (
 
     if (rc != 0)
     {
-        g_warning ("pn-mqtt-sink: connect refused: %s",
-                   mosquitto_connack_string (rc));
-        post_conn_state_on_main (self, FALSE);
+        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_ERROR,
+                                      "connect refused: %s",
+                                      mosquitto_connack_string (rc));
         return;
     }
 
-    post_conn_state_on_main (self, TRUE);
+    post_conn_state_on_main_full (self, TRUE, PN_LOG_LEVEL_INFO,
+                                  "connected to broker");
 }
 
 static void
@@ -382,8 +423,12 @@ on_mqtt_disconnect (
     (void) mosq;
 
     if (rc != 0)
-        g_message ("pn-mqtt-sink: disconnected (%s); reconnecting…",
-                   mosquitto_strerror (rc));
+    {
+        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_WARNING,
+                                      "disconnected (%s); reconnecting…",
+                                      mosquitto_strerror (rc));
+        return;
+    }
 
     post_conn_state_on_main (self, FALSE);
 }
@@ -471,8 +516,8 @@ pn_mqtt_sink_receive (
                                      self->retain);
         if (err != MOSQ_ERR_SUCCESS)
         {
-            g_warning ("pn-mqtt-sink: publish('%s') failed: %s",
-                       publish_topic, mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self), "publish to '%s' failed: %s",
+                               publish_topic, mosquitto_strerror (err));
             self->publish_error = TRUE;
         }
         else
@@ -542,7 +587,7 @@ restart_client (PnMqttSink *self)
 
     if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
-        g_warning ("pn-mqtt-sink: invalid URL '%s'", url);
+        pn_node_log_error (PN_NODE (self), "invalid broker URL '%s'", url);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
@@ -555,8 +600,8 @@ restart_client (PnMqttSink *self)
                                   self);
     if (self->client == NULL)
     {
-        g_warning ("pn-mqtt-sink: mosquitto_new failed: %s",
-                   g_strerror (errno));
+        pn_node_log_error (PN_NODE (self), "client init failed: %s",
+                           g_strerror (errno));
         g_free (host);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
@@ -577,24 +622,24 @@ restart_client (PnMqttSink *self)
                 user,
                 (pass != NULL && *pass != '\0') ? pass : NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            g_warning ("pn-mqtt-sink: username_pw_set failed: %s",
-                       mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self), "username/password rejected: %s",
+                               mosquitto_strerror (err));
     }
 
     if (tls)
     {
         err = mosquitto_tls_set (self->client, NULL, NULL, NULL, NULL, NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            g_warning ("pn-mqtt-sink: tls_set failed: %s",
-                       mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self), "TLS setup failed: %s",
+                               mosquitto_strerror (err));
     }
 
     err = mosquitto_connect_async (self->client, host, port,
                                    PN_MQTT_SINK_KEEPALIVE_SECONDS);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        g_warning ("pn-mqtt-sink: connect_async(%s:%d) failed: %s",
-                   host, port, mosquitto_strerror (err));
+        pn_node_log_error (PN_NODE (self), "connect to %s:%d failed: %s",
+                           host, port, mosquitto_strerror (err));
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
@@ -606,8 +651,8 @@ restart_client (PnMqttSink *self)
     err = mosquitto_loop_start (self->client);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        g_warning ("pn-mqtt-sink: loop_start failed: %s",
-                   mosquitto_strerror (err));
+        pn_node_log_error (PN_NODE (self), "network loop failed to start: %s",
+                           mosquitto_strerror (err));
         mosquitto_destroy (self->client);
         self->client = NULL;
         g_free (host);
@@ -726,7 +771,14 @@ migrate_legacy_credentials (gpointer data)
         return G_SOURCE_REMOVE;
     if ((self->username == NULL || *self->username == '\0') &&
         (self->password == NULL || *self->password == '\0'))
+    {
+        /* No inline credentials to migrate.  A legacy node with no profile and
+         * a typed inline url was effectively using "custom settings"; mark it
+         * so it keeps that url under the new model (empty now = primary). */
+        if (self->url != NULL && *self->url != '\0')
+            g_object_set (self, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
         return G_SOURCE_REMOVE;
+    }
 
     values[0] = self->url       ? self->url       : "";
     values[1] = self->username  ? self->username  : "";
@@ -839,12 +891,16 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             "Id of the mqtt-broker credential profile this node publishes "
             "through.  Empty follows the primary mqtt-broker profile, so a "
             "Source + Sink pair both reach the default broker with no setup; "
-            "pick another to target a different server.  The URL and "
+            "pick another to target a different server, or \"Custom settings\" "
+            "to use this node's own inline url/credentials.  Profile URLs and "
             "credentials live in the host vault, not in the workflow file.",
             "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
                                    PN_PROFILE_TYPE_MQTT_BROKER);
+    /* Offer a "Custom settings" entry; editing the inline url switches to it. */
+    pn_param_spec_set_profile_ref_custom_trigger (props[PROP_BROKER_PROFILE],
+                                                  "url");
 
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",
@@ -852,8 +908,9 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             "default port 1883), ssl://host[:port] or "
             "mqtts://host[:port] (MQTT over TLS, default port 8883), "
             "or a bare host[:port] which is treated as plain TCP.  "
-            "Legacy inline fallback — empty by default; new configurations "
-            "set the broker address in the mqtt-broker vault profile.",
+            "Used only when Broker profile is set to \"Custom settings\" "
+            "(editing this field selects it); otherwise the selected profile "
+            "supplies the address.  Empty by default.",
             PN_MQTT_SINK_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

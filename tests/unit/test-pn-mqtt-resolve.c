@@ -14,11 +14,13 @@
  */
 
 /* Unit tests for pn_mqtt_resolve_connection() -- the connection-identity
- * resolution shared by the MQTT Source and Sink.  Two behaviours matter:
- * with a provisioned profile every field comes from it (the password via
- * the secret path, so it follows the vault, not a plaintext property); with
- * no profile the inline fallback values are used, NULL coercing to "".  A
- * provisioned profile takes precedence over the inline values entirely.
+ * resolution shared by the MQTT Source and Sink.  Resolution is PER-FIELD:
+ * for each of url / username / password / client-id, a non-empty inline value
+ * wins, otherwise the profile's field (when a profile resolved) is used, else
+ * "".  So a typed Broker URL takes effect even with a profile selected, while
+ * the fields left blank still come from the profile (the password via the
+ * secret path, so a node migrated into a profile never loses its stored
+ * password).  With no profile the inline values are used, NULL coercing to "".
  *
  * Like test-pn-vault, this binds a vault to a temp file (the profile fields
  * resolve env-override > stored > schema-default), so it is not part of the
@@ -29,8 +31,10 @@
 #endif
 
 #include "pntest.h"
+#include "pn-mqtt.h"
 #include "pn-mqtt-util.h"
 #include "pn-mqtt-profile.h"
+#include "pn-node.h"
 #include "pn-node-factory.h"
 #include "pn-vault.h"
 
@@ -72,8 +76,8 @@ test_inline_nulls_become_empty (void)
     g_free (url); g_free (user); g_free (pass); g_free (cid);
 }
 
-/* With a provisioned profile, every field comes from it -- and the inline
- * values are ignored entirely. */
+/* With a provisioned profile, every field comes from it -- the inline values
+ * are ignored entirely (profile XOR inline). */
 static void
 test_profile_wins (void)
 {
@@ -103,6 +107,40 @@ test_profile_wins (void)
     g_free (path);
 }
 
+/* The "Custom settings" sentinel makes pn_node_get_profile() return NULL even
+ * when a primary profile exists, so the node resolves to its inline settings.
+ * Empty ("Default") still follows the primary, and an explicit id resolves it. */
+static void
+test_custom_sentinel_uses_inline (void)
+{
+    PnVault   *v = pn_vault_get_default ();   /* bound to the temp singleton */
+    PnProfile *primary;
+    PnNode    *node;
+
+    /* First profile of its type becomes the primary. */
+    primary = pn_vault_create_profile (v, PN_PROFILE_TYPE_MQTT_BROKER, "Primary");
+    PN_CHECK (primary != NULL);
+
+    node = g_object_new (PN_TYPE_MQTT, NULL);
+
+    /* Default (empty ref) follows the primary. */
+    g_object_set (node, "broker-profile", "", NULL);
+    {
+        PnProfile *got = pn_node_get_profile (node, "broker-profile");
+        PN_CHECK (got == primary);
+    }
+
+    /* Custom sentinel -> no profile (inline settings are used). */
+    g_object_set (node, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
+    PN_CHECK (pn_node_get_profile (node, "broker-profile") == NULL);
+
+    /* An explicit id still resolves to that profile. */
+    g_object_set (node, "broker-profile", pn_profile_get_id (primary), NULL);
+    PN_CHECK (pn_node_get_profile (node, "broker-profile") == primary);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -125,6 +163,7 @@ main (int argc, char **argv)
     pn_test_add ("inline_fallback",          test_inline_fallback);
     pn_test_add ("inline_nulls_become_empty", test_inline_nulls_become_empty);
     pn_test_add ("profile_wins",             test_profile_wins);
+    pn_test_add ("custom_sentinel_uses_inline", test_custom_sentinel_uses_inline);
 
     rc = pn_test_run ();
 

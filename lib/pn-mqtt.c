@@ -182,6 +182,9 @@ resolve_connection (PnMqtt *self,
     PnMqttPrivate *priv = PRIV (self);
     PnProfile     *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
+    /* Per-field: a non-empty inline value overrides the profile's field, so a
+     * typed Broker URL takes effect even with a profile selected; blank fields
+     * still come from the profile (see pn_mqtt_resolve_connection). */
     pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
                                 priv->client_id,
                                 out_url, out_user, out_pass, out_cid);
@@ -295,8 +298,10 @@ emit_message_on_main (PnMqtt *self, PnMessage *message)
 
 typedef struct
 {
-    PnMqtt   *self;        /* strong ref */
-    gboolean  connected;
+    PnMqtt     *self;        /* strong ref */
+    gboolean    connected;
+    PnLogLevel  level;       /* level for @reason, when non-NULL */
+    gchar      *reason;      /* (nullable): line for the node Log dialog */
 } PnMqttConnStateClosure;
 
 static gboolean
@@ -313,6 +318,11 @@ conn_state_trampoline (gpointer data)
     {
         priv->connected = c->connected;
         apply_visual_state (self);
+        /* Surface the reason in the per-node Log dialog (we are now on
+         * the main thread, so pn_node_log is safe).  Guarded by the same
+         * client != NULL check so a stale session's message is dropped. */
+        if (c->reason != NULL)
+            pn_node_log (PN_NODE (self), c->level, "%s", c->reason);
     }
     return G_SOURCE_REMOVE;
 }
@@ -322,20 +332,52 @@ conn_state_closure_free (gpointer data)
 {
     PnMqttConnStateClosure *c = data;
     g_object_unref (c->self);
+    g_free (c->reason);
     g_free (c);
 }
 
+/** Marshal a connection-state change (and an optional printf-style
+ *  @fmt reason for the node Log dialog) onto the main thread.  libmosquitto
+ *  fires our callbacks on its network thread, where touching the GObject
+ *  / emitting log-changed would be unsafe.  @fmt may be %NULL for a
+ *  state-only update. */
 static void
-post_conn_state_on_main (PnMqtt *self, gboolean connected)
+post_conn_state_on_main_full (PnMqtt      *self,
+                              gboolean     connected,
+                              PnLogLevel   level,
+                              const gchar *fmt,
+                              ...) G_GNUC_PRINTF (4, 5);
+
+static void
+post_conn_state_on_main_full (PnMqtt      *self,
+                              gboolean     connected,
+                              PnLogLevel   level,
+                              const gchar *fmt,
+                              ...)
 {
     PnMqttConnStateClosure *c = g_new0 (PnMqttConnStateClosure, 1);
     c->self      = g_object_ref (self);
     c->connected = connected;
+    c->level     = level;
+    if (fmt != NULL)
+    {
+        va_list args;
+        va_start (args, fmt);
+        c->reason = g_strdup_vprintf (fmt, args);
+        va_end (args);
+    }
     g_main_context_invoke_full (NULL,
                                 G_PRIORITY_DEFAULT,
                                 conn_state_trampoline,
                                 c,
                                 conn_state_closure_free);
+}
+
+/** Convenience: state change with no Log-dialog line. */
+static void
+post_conn_state_on_main (PnMqtt *self, gboolean connected)
+{
+    post_conn_state_on_main_full (self, connected, PN_LOG_LEVEL_INFO, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,9 +395,9 @@ on_mqtt_connect (
 
     if (rc != 0)
     {
-        g_warning ("pn-mqtt: connect refused: %s",
-                   mosquitto_connack_string (rc));
-        post_conn_state_on_main (self, FALSE);
+        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_ERROR,
+                                      "connect refused: %s",
+                                      mosquitto_connack_string (rc));
         return;
     }
 
@@ -373,14 +415,15 @@ on_mqtt_connect (
              * receiving nothing.  Flip it to the error state rather than
              * a misleading healthy green so the canvas shows it is not
              * actually working. */
-            g_warning ("pn-mqtt: subscribe('%s') failed: %s",
-                       priv->topic, mosquitto_strerror (err));
-            post_conn_state_on_main (self, FALSE);
+            post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_ERROR,
+                                          "subscribe('%s') failed: %s",
+                                          priv->topic, mosquitto_strerror (err));
             return;
         }
     }
 
-    post_conn_state_on_main (self, TRUE);
+    post_conn_state_on_main_full (self, TRUE, PN_LOG_LEVEL_INFO,
+                                  "connected to broker");
 }
 
 static void
@@ -398,8 +441,10 @@ on_mqtt_disconnect (
         /* Unexpected disconnect — libmosquitto's threaded loop will
          * try to reconnect on its own using the configured back-off,
          * so we just flip the visual state and let it work. */
-        g_message ("pn-mqtt: disconnected (%s); reconnecting…",
-                   mosquitto_strerror (rc));
+        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_WARNING,
+                                      "disconnected (%s); reconnecting…",
+                                      mosquitto_strerror (rc));
+        return;
     }
 
     post_conn_state_on_main (self, FALSE);
@@ -526,7 +571,7 @@ restart_client (PnMqtt *self)
 
     if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
-        g_warning ("pn-mqtt: invalid URL '%s'", url);
+        pn_node_log_error (PN_NODE (self), "invalid broker URL '%s'", url);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
@@ -544,7 +589,8 @@ restart_client (PnMqtt *self)
                                   self);
     if (priv->client == NULL)
     {
-        g_warning ("pn-mqtt: mosquitto_new failed: %s", g_strerror (errno));
+        pn_node_log_error (PN_NODE (self), "client init failed: %s",
+                           g_strerror (errno));
         g_free (host);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
@@ -566,8 +612,8 @@ restart_client (PnMqtt *self)
                 user,
                 (pass != NULL && *pass != '\0') ? pass : NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            g_warning ("pn-mqtt: username_pw_set failed: %s",
-                       mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self), "username/password rejected: %s",
+                               mosquitto_strerror (err));
     }
 
     if (tls)
@@ -579,16 +625,16 @@ restart_client (PnMqtt *self)
          * properties without breaking this path. */
         err = mosquitto_tls_set (priv->client, NULL, NULL, NULL, NULL, NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            g_warning ("pn-mqtt: tls_set failed: %s",
-                       mosquitto_strerror (err));
+            pn_node_log_error (PN_NODE (self), "TLS setup failed: %s",
+                               mosquitto_strerror (err));
     }
 
     err = mosquitto_connect_async (priv->client, host, port,
                                    PN_MQTT_KEEPALIVE_SECONDS);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        g_warning ("pn-mqtt: connect_async(%s:%d) failed: %s",
-                   host, port, mosquitto_strerror (err));
+        pn_node_log_error (PN_NODE (self), "connect to %s:%d failed: %s",
+                           host, port, mosquitto_strerror (err));
         mosquitto_destroy (priv->client);
         priv->client = NULL;
         g_free (host);
@@ -600,8 +646,8 @@ restart_client (PnMqtt *self)
     err = mosquitto_loop_start (priv->client);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        g_warning ("pn-mqtt: loop_start failed: %s",
-                   mosquitto_strerror (err));
+        pn_node_log_error (PN_NODE (self), "network loop failed to start: %s",
+                           mosquitto_strerror (err));
         mosquitto_destroy (priv->client);
         priv->client = NULL;
         g_free (host);
@@ -643,7 +689,15 @@ migrate_legacy_credentials (gpointer data)
         return G_SOURCE_REMOVE;
     if ((priv->username == NULL || *priv->username == '\0') &&
         (priv->password == NULL || *priv->password == '\0'))
+    {
+        /* No inline credentials to migrate into a profile.  But a legacy node
+         * with no profile and a typed inline url was effectively using "custom
+         * settings": mark it as such so it keeps connecting to that url under
+         * the new model (empty broker-profile now means "the primary profile"). */
+        if (priv->url != NULL && *priv->url != '\0')
+            g_object_set (self, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
         return G_SOURCE_REMOVE;
+    }
 
     values[0] = priv->url       ? priv->url       : "";
     values[1] = priv->username  ? priv->username  : "";
@@ -888,12 +942,16 @@ pn_mqtt_class_init (PnMqttClass *klass)
             "Id of the mqtt-broker credential profile this node connects "
             "with.  Empty follows the primary mqtt-broker profile, so a node "
             "needs no per-node setup to reach the default broker; pick another "
-            "to target a different server.  The broker URL and credentials "
-            "live in the host vault, not in the workflow file.",
+            "to target a different server, or \"Custom settings\" to use this "
+            "node's own inline url/credentials instead.  Profile URLs and "
+            "credentials live in the host vault, not in the workflow file.",
             "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_profile_ref (props[PROP_BROKER_PROFILE],
                                    PN_PROFILE_TYPE_MQTT_BROKER);
+    /* Offer a "Custom settings" entry; editing the inline url switches to it. */
+    pn_param_spec_set_profile_ref_custom_trigger (props[PROP_BROKER_PROFILE],
+                                                  "url");
 
     props[PROP_URL] = g_param_spec_string (
             "url", "Broker URL",
@@ -901,8 +959,9 @@ pn_mqtt_class_init (PnMqttClass *klass)
             "default port 1883), ssl://host[:port] or "
             "mqtts://host[:port] (MQTT over TLS, default port 8883), "
             "or a bare host[:port] which is treated as plain TCP.  "
-            "Legacy inline fallback — empty by default; new configurations "
-            "set the broker address in the mqtt-broker vault profile.",
+            "Used only when Broker profile is set to \"Custom settings\" "
+            "(editing this field selects it); otherwise the selected profile "
+            "supplies the address.  Empty by default.",
             PN_MQTT_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

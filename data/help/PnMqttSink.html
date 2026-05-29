@@ -39,6 +39,15 @@ transient outage triggers libmosquitto's built-in 1&nbsp;s to
 follows.
 </p>
 <p>
+As on the <em>MQTT Source</em>, the broker can instead come from an
+<code>mqtt-broker</code> credential profile picked with the
+<strong>Broker profile</strong> selector: <em>Default (…)</em> uses the
+type's primary profile, a named profile uses that one, and <em>Custom
+settings</em> uses this node's own inline url/credentials (the profiles are
+ignored). Editing the <strong>Broker URL</strong> field switches the picker
+to <em>Custom settings</em>; the inline fields only take effect in that mode.
+</p>
+<p>
 Because the connect is asynchronous, a message can arrive in the brief
 window <em>after</em> a worksheet loads but <em>before</em> the broker
 session is up &mdash; most visibly the command a
