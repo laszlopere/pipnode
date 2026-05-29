@@ -21,6 +21,7 @@
 #include "pn-flow.h"
 #include "pn-node.h"
 #include "pn-node-dialog.h"
+#include "pn-log-dialog.h"
 #include "pn-node-factory.h"
 #include "pn-node-store.h"
 #include "pn-wire.h"
@@ -3509,6 +3510,24 @@ on_node_menu_configure (
     gtk_widget_show_all (dialog);
 }
 
+/** Open (or raise) the per-node Log dialog, tailing the diagnostics the
+ *  node reports through pn_node_log(). */
+static void
+on_node_menu_log (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    PnNode    *node     = PN_NODE (user_data);
+    GtkWidget *attached = gtk_menu_get_attach_widget (
+            GTK_MENU (gtk_widget_get_parent (GTK_WIDGET (item))));
+    GtkWidget *toplevel = attached != NULL
+                              ? gtk_widget_get_toplevel (attached) : NULL;
+    GtkWindow *parent   = (toplevel != NULL && GTK_IS_WINDOW (toplevel))
+                              ? GTK_WINDOW (toplevel) : NULL;
+
+    pn_log_dialog_present (parent, node);
+}
+
 static void
 on_node_menu_delete (
         GtkMenuItem *item,
@@ -3656,6 +3675,8 @@ show_node_popup (
     GtkWidget *menu      = gtk_menu_new ();
     GtkWidget *configure = make_icon_menu_item ("document-properties",
                                                 "Configure…");
+    GtkWidget *log       = make_icon_menu_item ("text-x-generic",
+                                                "Log…");
     const gboolean disabled = pn_node_get_disabled (node);
     GtkWidget *toggle    = make_icon_menu_item (
             disabled ? "media-playback-start" : "media-playback-pause",
@@ -3672,6 +3693,8 @@ show_node_popup (
 
     g_signal_connect (configure, "activate",
                       G_CALLBACK (on_node_menu_configure), node);
+    g_signal_connect (log, "activate",
+                      G_CALLBACK (on_node_menu_log), node);
     g_signal_connect (help, "activate",
                       G_CALLBACK (on_node_menu_help), node);
     g_signal_connect (toggle, "activate",
@@ -3716,6 +3739,7 @@ show_node_popup (
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), del);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), gtk_separator_menu_item_new ());
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), configure);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), log);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), help);
     gtk_widget_show_all (menu);
 

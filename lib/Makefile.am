@@ -253,6 +253,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-gui.h \
 	pn-help-browser.c \
 	pn-help-browser.h \
+	pn-log-dialog.c \
+	pn-log-dialog.h \
 	pn-inject-gui.c \
 	pn-inject-gui.h \
 	pn-knob-gui.c \
@@ -479,6 +481,7 @@ pipnode_gui_headers = \
 	pn-graph-gui.h \
 	pn-gui.h \
 	pn-help-browser.h \
+	pn-log-dialog.h \
 	pn-inject-gui.h \
 	pn-knob-gui.h \
 	pn-label-gui.h \

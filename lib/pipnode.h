@@ -37,6 +37,7 @@
 #include "pn-image-message.h"
 #include "pn-inject.h"
 #include "pn-led.h"
+#include "pn-log-dialog.h"
 #include "pn-message.h"
 #include "pn-node.h"
 #include "pn-node-dialog.h"
