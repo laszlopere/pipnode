@@ -44,8 +44,9 @@ As on the <em>MQTT Source</em>, the broker can instead come from an
 <strong>Broker profile</strong> selector: <em>Default (…)</em> uses the
 type's primary profile, a named profile uses that one, and <em>Custom
 settings</em> uses this node's own inline url/credentials (the profiles are
-ignored). Editing the <strong>Broker URL</strong> field switches the picker
-to <em>Custom settings</em>; the inline fields only take effect in that mode.
+ignored). The inline fields are editable only while <em>Custom settings</em>
+is selected; picking <em>Default</em> or a profile greys them out and clears
+them, so the picker's choice always survives save and reload.
 </p>
 <p>
 Because the connect is asynchronous, a message can arrive in the brief

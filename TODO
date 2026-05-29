@@ -1103,18 +1103,30 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         i.e. use the node's own inline url/credentials.  pn_node_get_profile()
         returns NULL for the sentinel (no primary fallback), so resolution is
         back to the simple profile-XOR-inline (pn_mqtt_resolve_connection
-        reverted from the interim per-field variant).  Editing the inline url
-        in the dialog auto-selects "Custom settings" (generic, opt-in:
-        pn_param_spec_set_profile_ref_custom_trigger(pspec,"url") makes the
-        shared profile-ref combo in pn-node-dialog.c add the entry + flip on
-        the trigger's notify).  Legacy nodes with no profile + a typed inline
-        url are migrated to the sentinel on load so they keep their url.
-        Applies to BOTH Source and Sink.  Covered by test-pn-mqtt-resolve.c
-        (profile_wins, custom_sentinel_uses_inline); documented in the url
-        property blurb + PnMqtt.html / PnMqttSink.html.
-        (History: first shipped "explicit profile wins, typed url overrides
-        only the primary fallback", then a per-field variant; the user chose
-        this explicit-mode model as the clearest.)
+        reverted from the interim per-field variant).  Applies to BOTH Source
+        and Sink.  Opt-in via pn_param_spec_set_profile_ref_inline_fields(pspec,
+        "url,username,password,client-id") on the shared profile-ref combo in
+        pn-node-dialog.c, which adds the "Custom settings" entry (LAST in the
+        list).
+        SAVE/LOAD INVARIANT + GATING (2026-05-29 follow-up): inline custom data
+        exists ONLY in "Custom settings" mode.  (a) The combo greys out the
+        tagged inline-field editors unless "@custom" is selected (find-by-name
+        "pn-prop-<field>" under the grid; applied on combo "map" + each
+        populate).  (b) Picking Default/a profile clears those fields ("").  (c)
+        On load, migrate_legacy_credentials clears stale inline data when a real
+        profile id is selected, keeps it for "@custom", and for "" still does the
+        legacy creds-import / url->@custom (a new-model Default node has empty
+        inline fields, so that flip only fires for genuinely legacy files --
+        distinguished by url emptiness, no extra flag).  This makes the picker's
+        choice survive save->load reliably (the reported bug: leftover inline
+        url re-triggered Custom on load).  The earlier "editing url auto-selects
+        Custom" was removed -- a greyed field can't be edited; the user picks
+        Custom via the combo.  Bundled example mqtt-test.json set to "@custom".
+        Covered by test-pn-mqtt-resolve.c (profile_wins, custom_sentinel_uses_
+        inline); clearing/gating are dialog/idle behavior, verified manually.
+        Docs: url property blurb + PnMqtt.html / PnMqttSink.html.
+        (History: first "explicit profile wins / typed url overrides primary",
+        then per-field, then this explicit-mode model + the save/load invariant.)
 
   TEST COVERAGE -- DONE 2026-05-28.  The pure logic was extracted into a
   new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
