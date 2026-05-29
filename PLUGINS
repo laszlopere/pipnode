@@ -716,6 +716,37 @@ to the same plugin) does not require a per-class override.
   standard data-bag members) is documented in the HTML user
   manual at `data/help-index.html`.
 
+- *Visual error state on the canvas: `pn_node_set_has_error`.*
+  The emitted failure message above is the TEXTUAL channel; the
+  matching VISUAL channel is a generic error flag every `PnNode`
+  carries:
+
+      pn_node_set_has_error (PN_NODE (self), TRUE);   /* broken   */
+      pn_node_set_has_error (PN_NODE (self), FALSE);  /* recovered */
+
+  While the flag is set the worksheet paints the node body red
+  with a ❗ glyph, overriding the node's own colour/icon -- exactly
+  the way it greys a `disabled` node.  The rendering is centralized
+  in the host, so any node gets the indication for free: do NOT
+  hand-roll your own "red body + warning icon" swap with
+  `pn_node_set_color` / `pn_node_set_icon` (older nodes that still
+  do are being migrated away from it).  Keep your node's normal
+  (healthy) colour and icon set unconditionally and just toggle
+  `has-error`; the host draws the overlay on top.
+
+  The flag is transient runtime state: it is never written to the
+  save file and never appears in the settings dialog, so it is
+  cheap to flip from your connect / disconnect / operation-failed
+  paths.  It needs no ABI bump -- it is a plain function on the
+  base class, available to every plugin.
+
+  This is the ONLY user-facing failure channel a sink-style node
+  has: a node with `has_output = FALSE` cannot emit a downstream
+  message, so the red ❗ is how it tells the user it is failing.
+  The MQTT Source and Sink (`lib/pn-mqtt.c`, `lib/pn-mqtt-sink.c`)
+  are the worked examples -- both keep their green identity and
+  toggle `has-error` from a single `apply_visual_state` helper.
+
 
 13. DEBUGGING A PLUGIN THAT DOES NOT LOAD
 -----------------------------------------

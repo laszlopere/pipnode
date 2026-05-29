@@ -983,6 +983,28 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         connect_async/loop_start/username_pw_set/tls_set :744,766,774,
         782,795.  Emit success=FALSE + human-readable output instead.
         (Source has the same smell -- see L1.)
+        VISUAL ERROR INDICATION DONE 2026-05-29: added a GENERIC node
+        error state to the core -- pn_node_set_has_error()/
+        pn_node_get_has_error() + "has-error" property on PnNode
+        (transient, not serialized, not shown in the dialog).  The
+        worksheet painter (draw_node) now paints ANY node with has-error
+        set red + ❗, exactly like it greys `disabled` nodes; disabled
+        wins over error.  So error indication is uniform and free for
+        every node type -- the ~25 other nodes that still hand-roll their
+        own red+❗ WARNING_ICON swap (pn-http, pn-ws, pn-tts, tasmota/*,
+        shell/*, network/*, ...) are candidates to migrate later.  MQTT
+        Source + Sink now drop their bespoke colour/icon swap and just
+        toggle has-error from apply_visual_state; the Sink gained a
+        sticky publish_error flag (set on a rejected live/queued publish,
+        cleared on the next good publish or reconnect) so a publish that
+        fails while the session is up turns the node red instead of
+        silently dropping the message.  Source subscribe-failure now goes
+        red instead of green (also closes L1).  STILL OPEN for C1: the
+        human-readable REASON.  Source has an output port so it could
+        emit success=FALSE downstream (Weather pattern); Sink has none --
+        the agreed next step is a per-node "log" dialog that surfaces the
+        last error text.  The g_warning/g_message calls are kept as
+        supplementary diagnostics for terminal runs.
   - C2  restart_client() runs from _init() (pn-mqtt.c:1173,
         pn-mqtt-sink.c:1154), before construction/deserialization is done.
         Source: starts the network thread before a SUBCLASS (Sink,
@@ -1086,7 +1108,50 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
          -> "".
   test-pn-mqtt-util = 130 checks, test-pn-mqtt-resolve = 12; `make check` = 76/76.
 
-  STILL OPEN: the review BUGS themselves (C1 errors-to-stderr, C2 init-time
-  connect, H1 topic-read race, H2/H3 generation guard, M1 boolean->value).
-  Priority order to tackle: C1, C2, H1, then H2/H3.  The tests above are a
-  net for that work, not a fix for it.
+  STILL OPEN: the review BUGS themselves.  C1's VISUAL error indication is
+  DONE (generic pn_node_set_has_error + worksheet red/❗ painter; see the C1
+  note above) -- what remains of C1 is the human-readable reason (a future
+  per-node "log" dialog).  Still untouched: C2 init-time connect, H1
+  topic-read race, H2/H3 generation guard, M1 boolean->value, and the nits
+  (L2 dead var, N1 goto cleanup, N2 header docs, N4 IPv6 brackets).
+  Priority order to tackle: C2, H1, then H2/H3.  The tests above are a net
+  for that work, not a fix for it.
+
+(31) Adopt the generic node error state across all nodes that report
+errors.  TODO #30 introduced a uniform, centralized error indication on the
+core (added 2026-05-29):
+
+  - pn_node_set_has_error(node, gboolean) / pn_node_get_has_error() plus a
+    transient "has-error" property on PnNode (lib/pn-node.{c,h}).  Not
+    serialized (PnNode-owned props are skipped by should_serialize_property)
+    and not shown in the settings dialog (build_pn_node_tab allowlist).  No
+    ABI bump.
+  - The worksheet painter (pn-worksheet.c draw_node) paints ANY node whose
+    has-error is set with a red body + ❗ glyph (PN_NODE_ERROR_ICON,
+    U+2757), overriding the node's own colour/icon -- exactly like it greys
+    `disabled` nodes.  disabled wins over error.  Repaint is wired via
+    notify::has-error (on_node_notify_appearance).
+  - Worked examples: pn-mqtt.c and pn-mqtt-sink.c apply_visual_state now
+    keep their healthy green identity and only toggle has-error.
+
+  THE WORK: ~25 other nodes still hand-roll their own error/unconfigured
+  look with a private `#define PN_*_WARNING_ICON "❗"` + a pn_node_set_icon /
+  pn_node_set_color red swap.  Migrate each to pn_node_set_has_error so the
+  indication is uniform and the bespoke code goes away.  Known offenders
+  (grep WARNING_ICON):
+    lib/        pn-http, pn-ws, pn-tts, pn-sound, pn-inject, pn-meshtastic
+    plugins/    tasmota/{switch,relay-command,relay-status},
+                shell/{shell-command,tmux-monitor}, ollama,
+                sound-effects/sci-fi-sound,
+                network/{dns,ping,https-tunnel-sender,https-tunnel-receiver}
+  Per node: replace the WARNING_ICON swap with set_has_error, keep the
+  node's normal (healthy) colour/icon set unconditionally, drop the now-dead
+  define, and confirm the "unconfigured" vs "runtime error" states both map
+  onto has-error sensibly.  Caution: some of these use the ❗ for a
+  "needs configuration" state, not a runtime failure -- decide per node
+  whether that should read as an error (red) or stay a softer hint.
+
+  SEPARATE, STILL OPEN (the human-readable REASON): the per-node "log"
+  dialog that surfaces the last error text.  A Sink has no output port, so
+  the red+❗ is all it can show today; the log dialog is the place to show
+  WHY.  This is the remaining half of #30's C1 -- track it here too.
