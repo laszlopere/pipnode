@@ -33,10 +33,14 @@ G_BEGIN_DECLS
 /*  the pipeline.                                                      */
 /*                                                                     */
 /*  Properties:                                                        */
-/*    - #PnMqtt:url     – broker URL, e.g. tcp://mqtt.example:1883     */
-/*                        or ssl://mqtt.example:8883                   */
-/*    - #PnMqtt:topic   – MQTT topic filter to subscribe to (wildcards */
-/*                        + and # honoured); defaults to "#"           */
+/*    - #PnMqtt:broker-profile – id of the mqtt-broker vault profile   */
+/*                        to connect through; "" follows the primary,  */
+/*                        "@custom" uses the inline fields below        */
+/*    - #PnMqtt:url     – inline broker URL ("Custom settings" mode),  */
+/*                        e.g. tcp://mqtt.example:1883 or              */
+/*                        ssl://mqtt.example:8883                       */
+/*    - #PnMqtt:subscribe-topic – MQTT topic filter to subscribe to    */
+/*                        (wildcards + and # honoured); defaults to "#" */
 /*    - #PnMqtt:username / #PnMqtt:password – optional MQTT auth       */
 /*    - #PnMqtt:client-id – optional MQTT client id; auto-generated    */
 /*                          when left empty                            */

@@ -35,7 +35,15 @@ G_BEGIN_DECLS
 /*  process or shell out through a command node.                        */
 /*                                                                     */
 /*  Properties:                                                        */
-/*    - #PnMqttSink:url        – broker URL, same syntax as #PnMqtt:url */
+/*    - #PnMqttSink:broker-profile – id of the mqtt-broker vault        */
+/*                               profile to publish through; "" follows */
+/*                               the primary, "@custom" uses the inline */
+/*                               fields                                 */
+/*    - #PnMqttSink:url        – inline broker URL ("Custom settings"   */
+/*                               mode), same syntax as #PnMqtt:url      */
+/*    - #PnMqttSink:topic-template – optional publish-topic template;   */
+/*                               when empty the publish topic comes off */
+/*                               each inbound message's envelope topic  */
 /*    - #PnMqttSink:payload    – payload template; when empty the       */
 /*                               inbound `data.payload` is published    */
 /*                               verbatim (string -> raw bytes,         */

@@ -306,12 +306,18 @@ test_default_report_error_logs (void)
 
 /* Every error the base senses is funnelled through the report_error
  * vfunc, so a subclass override sees it.  An invalid broker URL on a
- * "Custom settings" node (inline url, no profile) drives the
- * invalid-URL path synchronously from the property setter. */
+ * "Custom settings" node (inline url, no profile) drives the invalid-URL
+ * path.  The connect is debounced onto an idle (review C2), so we pump the
+ * main context to let the restart run before checking the funnelled error. */
 static void
 test_error_funnel_reaches_subclass (void)
 {
     TestSink *self = g_object_new (test_sink_get_type (), NULL);
+
+    /* Drain the construction-time migrate + initial-connect idles first so
+     * they cannot land an unrelated error after we clear g_last_error. */
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
 
     g_free (g_last_error);
     g_last_error = NULL;
@@ -321,6 +327,10 @@ test_error_funnel_reaches_subclass (void)
      * rejects "tcp://", which the base reports as an error. */
     g_object_set (self, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
     g_object_set (self, "url", "tcp://", NULL);
+
+    /* Let the debounced restart_client run. */
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
 
     PN_CHECK (g_last_error != NULL);
     if (g_last_error != NULL)

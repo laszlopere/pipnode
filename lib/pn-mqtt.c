@@ -88,11 +88,38 @@ typedef struct
      * vault profile after its properties have loaded; 0 when not scheduled. */
     guint   migrate_idle_id;
 
+    /* Debounced (re)connect idle.  Property setters and vault changes do
+     * not reconnect synchronously — they coalesce into this single idle so
+     * loading a document (which fires many setters in a burst) results in
+     * one connect cycle, and so the initial connect runs after construction
+     * / deserialization is complete rather than from _init() (review C2). */
+    guint   restart_idle_id;
+
     /* Live mosquitto client + a flag tracking whether its background
      * loop thread is running.  Both are NULL / FALSE while the node
      * sits in its disconnected state. */
     struct mosquitto *client;
     gboolean          loop_running;
+
+    /* Per-client network context handed to libmosquitto as its user data,
+     * and a monotonically increasing generation counter bumped on every
+     * client (re)start.  The network-thread callbacks read the generation
+     * from their own context, not from priv, and stamp it on each state
+     * update they marshal to the main thread; the trampoline drops any
+     * update whose generation no longer matches priv->generation, so a
+     * stale session's queued callback cannot flip a freshly restarted node
+     * (review H2).  net_ctx is owned here and freed when its client is
+     * destroyed. */
+    gpointer          net_ctx;
+    guint             generation;
+
+    /* Subscribe topic/qos snapshot taken on the main thread when the client
+     * is (re)started, read by on_mqtt_connect on the network thread.  Reading
+     * the snapshot rather than priv->topic/priv->qos avoids a torn read / UAF
+     * when a setter frees priv->topic while libmosquitto's auto-reconnect
+     * re-fires on_mqtt_connect (review H1).  Owned here. */
+    gchar            *sub_topic;
+    int               sub_qos;
 
     /* Sticky "are we currently connected" flag, flipped by the
      * on_connect / on_disconnect callbacks (marshalled to the main
@@ -118,6 +145,18 @@ typedef struct
  * sustained-flood pathological case. */
 #define PN_MQTT_PENDING_MAX 10000
 
+/* Per-client network context (the user data we hand mosquitto_new).  Holds
+ * a borrowed pointer back to the node plus the generation this client was
+ * created with, so the network-thread callbacks know their own generation
+ * without racing a read of priv->generation.  The node owns the live one in
+ * priv->net_ctx and frees it when the client is destroyed; the client never
+ * outlives the node (dispose joins the network thread first). */
+typedef struct
+{
+    PnMqtt *self;       /* borrowed */
+    guint   generation;
+} PnMqttNetCtx;
+
 G_DEFINE_TYPE_WITH_PRIVATE (PnMqtt, pn_mqtt, PN_TYPE_NODE)
 
 #define PRIV(self) ((PnMqttPrivate *) pn_mqtt_get_instance_private (self))
@@ -136,7 +175,8 @@ enum {
 
 static GParamSpec *props[N_PROPS];
 
-static void restart_client (PnMqtt *self);
+static void restart_client  (PnMqtt *self);
+static void schedule_restart (PnMqtt *self);
 
 /* ------------------------------------------------------------------ */
 /*  Library init (one-shot)                                            */
@@ -182,9 +222,10 @@ resolve_connection (PnMqtt *self,
     PnMqttPrivate *priv = PRIV (self);
     PnProfile     *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
-    /* Per-field: a non-empty inline value overrides the profile's field, so a
-     * typed Broker URL takes effect even with a profile selected; blank fields
-     * still come from the profile (see pn_mqtt_resolve_connection). */
+    /* Profile-XOR-inline: when a profile resolves (an explicit id, or the
+     * primary when broker-profile is "") every field comes from it; the inline
+     * url/credentials are used only in "Custom settings" mode, where
+     * pn_node_get_profile returns NULL (see pn_mqtt_resolve_connection). */
     pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
                                 priv->client_id,
                                 out_url, out_user, out_pass, out_cid);
@@ -272,9 +313,8 @@ flush_pending_on_main (gpointer data)
 static void
 emit_message_on_main (PnMqtt *self, PnMessage *message)
 {
-    PnMqttPrivate *priv          = PRIV (self);
-    PnMessage     *dropped       = NULL;
-    gboolean       need_schedule = FALSE;
+    PnMqttPrivate *priv    = PRIV (self);
+    PnMessage     *dropped = NULL;
 
     g_mutex_lock (&priv->pending_lock);
     if (priv->pending.length >= PN_MQTT_PENDING_MAX)
@@ -287,19 +327,18 @@ emit_message_on_main (PnMqtt *self, PnMessage *message)
          * the same mutex so flush_pending_on_main can clear it
          * atomically with the queue swap. */
         priv->flush_idle_id = g_idle_add (flush_pending_on_main, self);
-        need_schedule = TRUE;
     }
     g_mutex_unlock (&priv->pending_lock);
 
     if (dropped != NULL)
         g_object_unref (dropped);
-    (void) need_schedule;
 }
 
 typedef struct
 {
     PnMqtt     *self;        /* strong ref */
     gboolean    connected;
+    guint       generation;  /* the client generation this update came from */
     PnLogLevel  level;       /* level for @reason, when non-NULL */
     gchar      *reason;      /* (nullable): line for the node Log dialog */
 } PnMqttConnStateClosure;
@@ -311,16 +350,18 @@ conn_state_trampoline (gpointer data)
     PnMqtt                 *self = c->self;
     PnMqttPrivate          *priv = PRIV (self);
 
-    /* Only honour the update if the node has not torn down its
-     * client in the meantime — a stale on_disconnect from an old
-     * session must not flip a freshly reconnected one back to red. */
-    if (priv->client != NULL)
+    /* Only honour the update if it comes from the current client: the node
+     * still holds a client AND the generation matches.  A stale callback
+     * from an old session — torn down and replaced while its update sat in
+     * the main-loop queue — has an out-of-date generation and is dropped, so
+     * it cannot flip a freshly reconnected node back to red (review H2). */
+    if (priv->client != NULL && c->generation == priv->generation)
     {
         priv->connected = c->connected;
         apply_visual_state (self);
         /* Surface the reason in the per-node Log dialog (we are now on
          * the main thread, so pn_node_log is safe).  Guarded by the same
-         * client != NULL check so a stale session's message is dropped. */
+         * checks so a stale session's message is dropped. */
         if (c->reason != NULL)
             pn_node_log (PN_NODE (self), c->level, "%s", c->reason);
     }
@@ -343,22 +384,25 @@ conn_state_closure_free (gpointer data)
  *  state-only update. */
 static void
 post_conn_state_on_main_full (PnMqtt      *self,
+                              guint        generation,
                               gboolean     connected,
                               PnLogLevel   level,
                               const gchar *fmt,
-                              ...) G_GNUC_PRINTF (4, 5);
+                              ...) G_GNUC_PRINTF (5, 6);
 
 static void
 post_conn_state_on_main_full (PnMqtt      *self,
+                              guint        generation,
                               gboolean     connected,
                               PnLogLevel   level,
                               const gchar *fmt,
                               ...)
 {
     PnMqttConnStateClosure *c = g_new0 (PnMqttConnStateClosure, 1);
-    c->self      = g_object_ref (self);
-    c->connected = connected;
-    c->level     = level;
+    c->self       = g_object_ref (self);
+    c->connected  = connected;
+    c->generation = generation;
+    c->level      = level;
     if (fmt != NULL)
     {
         va_list args;
@@ -375,9 +419,10 @@ post_conn_state_on_main_full (PnMqtt      *self,
 
 /** Convenience: state change with no Log-dialog line. */
 static void
-post_conn_state_on_main (PnMqtt *self, gboolean connected)
+post_conn_state_on_main (PnMqtt *self, guint generation, gboolean connected)
 {
-    post_conn_state_on_main_full (self, connected, PN_LOG_LEVEL_INFO, NULL);
+    post_conn_state_on_main_full (self, generation, connected,
+                                  PN_LOG_LEVEL_INFO, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -390,12 +435,14 @@ on_mqtt_connect (
         void             *obj,
         int               rc)
 {
-    PnMqtt        *self = PN_MQTT (obj);
+    PnMqttNetCtx  *ctx  = obj;
+    PnMqtt        *self = ctx->self;
     PnMqttPrivate *priv = PRIV (self);
 
     if (rc != 0)
     {
-        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_ERROR,
+        post_conn_state_on_main_full (self, ctx->generation, FALSE,
+                                      PN_LOG_LEVEL_ERROR,
                                       "connect refused: %s",
                                       mosquitto_connack_string (rc));
         return;
@@ -404,10 +451,16 @@ on_mqtt_connect (
     /* Re-subscribe on every (re)connect: the broker forgets our
      * subscriptions when the session goes down (we asked for clean
      * sessions in mosquitto_new), so each fresh CONNACK has to be
-     * paired with a fresh SUBSCRIBE. */
-    if (priv->topic != NULL && *priv->topic != '\0')
+     * paired with a fresh SUBSCRIBE.  We read the snapshot taken when
+     * this client was started (priv->sub_topic/sub_qos), not the live
+     * priv->topic/priv->qos: the snapshot is fixed for the client's
+     * lifetime and is only replaced after the network thread has been
+     * joined, so an auto-reconnect re-firing this callback never races a
+     * setter freeing priv->topic (review H1). */
+    if (priv->sub_topic != NULL && *priv->sub_topic != '\0')
     {
-        int err = mosquitto_subscribe (mosq, NULL, priv->topic, (int) priv->qos);
+        int err = mosquitto_subscribe (mosq, NULL, priv->sub_topic,
+                                       priv->sub_qos);
         if (err != MOSQ_ERR_SUCCESS)
         {
             /* We have a broker session but the subscription was refused
@@ -415,15 +468,17 @@ on_mqtt_connect (
              * receiving nothing.  Flip it to the error state rather than
              * a misleading healthy green so the canvas shows it is not
              * actually working. */
-            post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_ERROR,
+            post_conn_state_on_main_full (self, ctx->generation, FALSE,
+                                          PN_LOG_LEVEL_ERROR,
                                           "subscribe('%s') failed: %s",
-                                          priv->topic, mosquitto_strerror (err));
+                                          priv->sub_topic,
+                                          mosquitto_strerror (err));
             return;
         }
     }
 
-    post_conn_state_on_main_full (self, TRUE, PN_LOG_LEVEL_INFO,
-                                  "connected to broker");
+    post_conn_state_on_main_full (self, ctx->generation, TRUE,
+                                  PN_LOG_LEVEL_INFO, "connected to broker");
 }
 
 static void
@@ -432,7 +487,8 @@ on_mqtt_disconnect (
         void             *obj,
         int               rc)
 {
-    PnMqtt *self = PN_MQTT (obj);
+    PnMqttNetCtx *ctx  = obj;
+    PnMqtt       *self = ctx->self;
 
     (void) mosq;
 
@@ -441,13 +497,14 @@ on_mqtt_disconnect (
         /* Unexpected disconnect — libmosquitto's threaded loop will
          * try to reconnect on its own using the configured back-off,
          * so we just flip the visual state and let it work. */
-        post_conn_state_on_main_full (self, FALSE, PN_LOG_LEVEL_WARNING,
+        post_conn_state_on_main_full (self, ctx->generation, FALSE,
+                                      PN_LOG_LEVEL_WARNING,
                                       "disconnected (%s); reconnecting…",
                                       mosquitto_strerror (rc));
         return;
     }
 
-    post_conn_state_on_main (self, FALSE);
+    post_conn_state_on_main (self, ctx->generation, FALSE);
 }
 
 /** Build a #PnMessage carrying one MQTT publish.  Envelope topic is
@@ -493,9 +550,10 @@ on_mqtt_message (
         void                             *obj,
         const struct mosquitto_message   *m)
 {
-    PnMqtt      *self  = PN_MQTT (obj);
-    PnMqttClass *klass = PN_MQTT_GET_CLASS (self);
-    PnMessage   *msg;
+    PnMqttNetCtx *ctx   = obj;
+    PnMqtt       *self  = ctx->self;
+    PnMqttClass  *klass = PN_MQTT_GET_CLASS (self);
+    PnMessage    *msg;
 
     (void) mosq;
 
@@ -523,7 +581,14 @@ stop_client (PnMqtt *self)
     PnMqttPrivate *priv = PRIV (self);
 
     if (priv->client == NULL)
+    {
+        /* No live client, but a half-built one (connect/loop-start failed)
+         * may have left a context / snapshot behind — clear them so the
+         * next start begins clean. */
+        g_clear_pointer (&priv->net_ctx,   g_free);
+        g_clear_pointer (&priv->sub_topic, g_free);
         return;
+    }
 
     /* Order matters: ask for a clean MQTT-level disconnect first so
      * the broker sees a DISCONNECT rather than a TCP RST, then stop
@@ -540,15 +605,22 @@ stop_client (PnMqtt *self)
     mosquitto_destroy (priv->client);
     priv->client    = NULL;
     priv->connected = FALSE;
+
+    /* The network thread is joined, so no callback can still reach the
+     * context or the subscribe snapshot — safe to free now. */
+    g_clear_pointer (&priv->net_ctx,   g_free);
+    g_clear_pointer (&priv->sub_topic, g_free);
 }
 
 /** Tear down any running client and start a fresh one with the
- *  current configuration.  Called from every property setter and after the
- *  legacy-credentials migration changes the referenced profile. */
+ *  current configuration.  Reached only through schedule_restart()'s
+ *  debounced idle, so it runs once per burst of setter calls and after
+ *  construction / deserialization is complete (review C2). */
 static void
 restart_client (PnMqtt *self)
 {
     PnMqttPrivate *priv = PRIV (self);
+    PnMqttNetCtx  *ctx  = NULL;
     gchar         *host = NULL;
     int            port = 0;
     gboolean       tls  = FALSE;
@@ -563,21 +635,23 @@ restart_client (PnMqtt *self)
     resolve_connection (self, &url, &user, &pass, &cid);
 
     if (url == NULL || *url == '\0')
-    {
-        g_free (url); g_free (user); g_free (pass); g_free (cid);
-        apply_visual_state (self);
-        return;
-    }
+        goto out;
 
     if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
         pn_node_log_error (PN_NODE (self), "invalid broker URL '%s'", url);
-        g_free (url); g_free (user); g_free (pass); g_free (cid);
-        apply_visual_state (self);
-        return;
+        goto out;
     }
 
     ensure_mosquitto_initialised ();
+
+    /* Stamp a new generation for this client and hand it (with a back
+     * pointer to the node) to libmosquitto as the callback user data, so
+     * the network-thread callbacks can tag every state update with the
+     * generation the trampoline checks (review H2). */
+    ctx             = g_new0 (PnMqttNetCtx, 1);
+    ctx->self       = self;
+    ctx->generation = ++priv->generation;
 
     /* clean_session = TRUE: we do not persist subscriptions across
      * disconnects (we always re-subscribe in on_connect anyway), so
@@ -586,16 +660,15 @@ restart_client (PnMqtt *self)
      * the user has not pinned a fixed id. */
     priv->client = mosquitto_new ((cid != NULL && *cid != '\0') ? cid : NULL,
                                   TRUE,
-                                  self);
+                                  ctx);
     if (priv->client == NULL)
     {
         pn_node_log_error (PN_NODE (self), "client init failed: %s",
                            g_strerror (errno));
-        g_free (host);
-        g_free (url); g_free (user); g_free (pass); g_free (cid);
-        apply_visual_state (self);
-        return;
+        g_clear_pointer (&ctx, g_free);
+        goto out;
     }
+    priv->net_ctx = ctx;   /* owned; freed in stop_client / fail path */
 
     mosquitto_connect_callback_set    (priv->client, on_mqtt_connect);
     mosquitto_disconnect_callback_set (priv->client, on_mqtt_disconnect);
@@ -629,18 +702,19 @@ restart_client (PnMqtt *self)
                                mosquitto_strerror (err));
     }
 
+    /* Snapshot the subscribe topic/qos for the network thread before the
+     * loop starts; on_mqtt_connect reads this, not the live properties
+     * (review H1). */
+    priv->sub_topic = g_strdup (priv->topic);
+    priv->sub_qos   = (int) priv->qos;
+
     err = mosquitto_connect_async (priv->client, host, port,
                                    PN_MQTT_KEEPALIVE_SECONDS);
     if (err != MOSQ_ERR_SUCCESS)
     {
         pn_node_log_error (PN_NODE (self), "connect to %s:%d failed: %s",
                            host, port, mosquitto_strerror (err));
-        mosquitto_destroy (priv->client);
-        priv->client = NULL;
-        g_free (host);
-        g_free (url); g_free (user); g_free (pass); g_free (cid);
-        apply_visual_state (self);
-        return;
+        goto fail_destroy;
     }
 
     err = mosquitto_loop_start (priv->client);
@@ -648,21 +722,52 @@ restart_client (PnMqtt *self)
     {
         pn_node_log_error (PN_NODE (self), "network loop failed to start: %s",
                            mosquitto_strerror (err));
-        mosquitto_destroy (priv->client);
-        priv->client = NULL;
-        g_free (host);
-        g_free (url); g_free (user); g_free (pass); g_free (cid);
-        apply_visual_state (self);
-        return;
+        goto fail_destroy;
     }
     priv->loop_running = TRUE;
+    goto out;
 
+fail_destroy:
+    /* The loop never started, so no callback ran — tearing the client and
+     * its context down directly is safe. */
+    mosquitto_destroy (priv->client);
+    priv->client = NULL;
+    g_clear_pointer (&priv->net_ctx,   g_free);
+    g_clear_pointer (&priv->sub_topic, g_free);
+
+out:
     g_free (host);
     g_free (url); g_free (user); g_free (pass); g_free (cid);
     /* Visual state stays red until on_mqtt_connect lands a successful
      * CONNACK on the main thread — which is when we actually have a
      * working subscription, not just a TCP socket pending. */
     apply_visual_state (self);
+}
+
+/** Debounced (re)connect: coalesce a burst of setter / vault-change calls
+ *  into a single restart_client run on the next main-loop idle.  This both
+ *  collapses the ~N connect cycles a document load would otherwise trigger
+ *  (one per credential setter) and defers the very first connect until after
+ *  construction / deserialization — and after a subclass has finished its
+ *  own init — is complete (review C2). */
+static gboolean
+restart_client_idle (gpointer data)
+{
+    PnMqtt        *self = PN_MQTT (data);
+    PnMqttPrivate *priv = PRIV (self);
+
+    priv->restart_idle_id = 0;
+    restart_client (self);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+schedule_restart (PnMqtt *self)
+{
+    PnMqttPrivate *priv = PRIV (self);
+
+    if (priv->restart_idle_id == 0)
+        priv->restart_idle_id = g_idle_add (restart_client_idle, self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -790,36 +895,36 @@ pn_mqtt_set_property (
     case PROP_BROKER_PROFILE:
         g_free (priv->broker_profile);
         priv->broker_profile = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_URL:
         g_free (priv->url);
         priv->url = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_TOPIC:
         g_free (priv->topic);
         priv->topic = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_USERNAME:
         g_free (priv->username);
         priv->username = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_PASSWORD:
         g_free (priv->password);
         priv->password = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_CLIENT_ID:
         g_free (priv->client_id);
         priv->client_id = g_value_dup_string (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     case PROP_QOS:
         priv->qos = g_value_get_uint (value);
-        restart_client (self);
+        schedule_restart (self);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -835,7 +940,7 @@ pn_mqtt_set_property (
 static void
 on_vault_changed (gpointer self)
 {
-    restart_client (PN_MQTT (self));
+    schedule_restart (PN_MQTT (self));
 }
 
 static void
@@ -847,8 +952,14 @@ pn_mqtt_constructed (GObject *object)
     G_OBJECT_CLASS (pn_mqtt_parent_class)->constructed (object);
 
     /* See migrate_legacy_credentials(): deferred so it runs after the loader
-     * applies properties. */
+     * applies properties.  It is scheduled before the connect idle below so
+     * any broker-profile change it makes is folded into that same restart. */
     priv->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
+
+    /* Initial connect, debounced onto an idle so it runs after the loader has
+     * applied every property (and after a subclass has finished init), rather
+     * than synchronously from _init() before either is done (review C2). */
+    schedule_restart (self);
 
     /* Reconnect whenever the vault changes (auto-disconnected on finalize). */
     g_signal_connect_object (pn_vault_get_default (), "changed",
@@ -866,6 +977,11 @@ pn_mqtt_dispose (GObject *object)
     {
         g_source_remove (priv->migrate_idle_id);
         priv->migrate_idle_id = 0;
+    }
+    if (priv->restart_idle_id != 0)
+    {
+        g_source_remove (priv->restart_idle_id);
+        priv->restart_idle_id = 0;
     }
     /* stop_client joins libmosquitto's network thread first, so no new
      * messages can land in the pending queue past this point.  Then
@@ -902,6 +1018,10 @@ pn_mqtt_finalize (GObject *object)
     g_clear_pointer (&priv->username,  g_free);
     g_clear_pointer (&priv->password,  g_free);
     g_clear_pointer (&priv->client_id, g_free);
+
+    /* Belt and suspenders: dispose's stop_client already cleared these. */
+    g_clear_pointer (&priv->net_ctx,   g_free);
+    g_clear_pointer (&priv->sub_topic, g_free);
 
     g_mutex_clear (&priv->pending_lock);
 
@@ -1041,9 +1161,14 @@ pn_mqtt_init (PnMqtt *self)
     priv->client_id       = NULL;
     priv->qos             = 0;
     priv->migrate_idle_id = 0;
+    priv->restart_idle_id = 0;
     priv->client          = NULL;
     priv->loop_running    = FALSE;
     priv->connected       = FALSE;
+    priv->net_ctx         = NULL;
+    priv->generation      = 0;
+    priv->sub_topic       = NULL;
+    priv->sub_qos         = 0;
 
     g_mutex_init (&priv->pending_lock);
     g_queue_init (&priv->pending);
@@ -1052,10 +1177,9 @@ pn_mqtt_init (PnMqtt *self)
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 
-    /* Try to connect immediately with the default URL/topic so a
-     * freshly dropped node already produces output once the broker
-     * answers; the visual flips green from on_mqtt_connect. */
-    restart_client (self);
+    /* The initial connect is scheduled from constructed() (review C2), not
+     * here — see pn_mqtt_constructed().  Doing it in _init() would start the
+     * network thread before deserialization and any subclass init complete. */
 }
 
 /* ------------------------------------------------------------------ */

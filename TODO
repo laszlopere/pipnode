@@ -1027,6 +1027,17 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         Fix: defer the initial connect to constructed()/g_idle and
         debounce reconnects into one idle instead of reconnecting
         synchronously in each setter.
+        DONE 2026-05-29: both nodes gained schedule_restart() — a debounced
+        g_idle (restart_idle_id) that coalesces a burst of setter / vault-
+        change calls into ONE restart_client run.  The _init() call is gone;
+        the initial connect is scheduled from constructed() (after the migrate
+        idle, so a broker-profile change the migration makes folds into the
+        same restart) and thus runs only after deserialization + subclass init
+        are complete.  restart_idle_id is cancelled in dispose.  The Sink's
+        offline queue means a message arriving before the deferred connect is
+        buffered + flushed, so deferring loses nothing.  (test-pn-mqtt-sink's
+        error_funnel_subclass now pumps the main loop to let the debounced
+        restart run.)
 
   HIGH
   - H1  Network-thread read of priv->topic/priv->qos races runtime
@@ -1037,6 +1048,15 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         reconnect can read priv->topic while a setter frees/replaces it
         (torn read / UAF).  Fix: snapshot topic/qos at connect time or
         guard with the existing lock.
+        DONE 2026-05-29 (Source only; the Sink has no net-thread topic read):
+        restart_client snapshots priv->topic/qos into priv->sub_topic/sub_qos
+        on the main thread (after stop_client has joined the previous thread,
+        before loop_start), and on_mqtt_connect re-subscribes from the
+        snapshot, never the live property.  The snapshot is fixed for a
+        client's lifetime and only replaced after the next stop_client joins
+        the thread, so an auto-reconnect re-firing on_mqtt_connect cannot race
+        a setter freeing priv->topic.  sub_topic is owned, freed in
+        stop_client + finalize.
   - H2  Stale-disconnect race during reconnect-while-restarting, present
         EQUALLY in both nodes.  The conn-state trampoline guards only on
         client != NULL (pn-mqtt.c:413, pn-mqtt-sink.c:514); neither has a
@@ -1045,17 +1065,42 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         flip a live node back to red (and on the Source skip the genuine
         reconnect's re-subscribe).  Fix: capture a generation counter in
         the closure, compare in the trampoline.
+        DONE 2026-05-29: each client carries a heap PnMqtt[Sink]NetCtx
+        {self, generation} as its mosquitto_new user data instead of bare
+        `self`; restart_client bumps priv->generation per client and stamps it
+        on the ctx.  The net-thread callbacks read THEIR generation off the
+        ctx (no racy read of priv->generation) and pass it into the conn-state
+        closure; the trampoline honours an update only when client != NULL AND
+        c->generation == priv->generation, so a stale session's queued
+        trampoline is dropped.  net_ctx is owned in priv and freed when its
+        client is destroyed (stop_client / restart's fail path), after the
+        thread is joined.
   - H3  Sink drops buffered startup commands on flush failure:
         flush_pending (pn-mqtt-sink.c:476-492) pending_free's each entry
         unconditionally even when mosquitto_publish errored (:485),
         defeating the buffer-and-flush guarantee.  Fix: on NOMEM/CONN_LOST
         re-queue rather than discard.
+        DONE 2026-05-29: flush_pending now classifies the publish error.  On a
+        TRANSIENT error (MOSQ_ERR_NOMEM / CONN_LOST / NO_CONN — the link
+        dropped mid-flush) it re-queues the failed entry AND every still-
+        unflushed one (preserving order + original timestamps, by detaching
+        them from the collect_fresh array with index = NULL so the array's
+        free func skips them) and stops, so a buffered startup command
+        survives to the next reconnect.  A PERMANENT error (payload too large,
+        protocol) still drops that one entry and continues, since re-queueing
+        it would loop forever.
 
   MEDIUM
   - M1  build_mqtt_message (pn-mqtt.c:592-598) mirrors only DOUBLE/INT64
         JSON scalars to data.value; a bare true/false payload sets nothing
         (breaks the 0.0/1.0 boolean convention), and int64 loses precision
         via get_double.  Add a JSON-boolean -> 0.0/1.0 case.
+        DONE 2026-05-29: pn_mqtt_build_message (now in pn-mqtt-util.c) gained a
+        G_TYPE_BOOLEAN arm in the scalar->value mirror — false->0.0, true->1.0
+        per the project boolean convention.  test-pn-mqtt-util's old
+        message_json_bool_no_value (which PINNED the missing mirror) is now
+        message_json_bool_value, asserting 1.0/0.0.  (int64 precision left as
+        is — data.value is a double by contract.)
   - M2  Sink loses buffered messages on dispose (finalize :989) and on a
         runtime URL change keeps the backlog and flushes commands meant
         for broker A to broker B.  Decide + document; likely clear the
@@ -1072,15 +1117,23 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
   - L1  Source: subscribe failure (pn-mqtt.c:469-475) g_warns then flips
         the node GREEN anyway -> looks healthy, receives nothing.
   - L2  Dead variable need_schedule (pn-mqtt.c:375,388,394).
+        DONE 2026-05-29: removed from emit_message_on_main.
   - L3  Default topic "#" + a primary broker profile = a freshly dropped
         node auto-subscribes to the entire broker (footgun, intentional).
   - L4  Empty-payload publish is dropped (pn-mqtt-sink.c:383) -> cannot
         clear a retained topic with a null payload; document in help.
   - N1  restart_client repeats the g_free(url/user/pass/cid/host) cleanup
         block ~5x per file; an out: goto would remove the divergence risk.
+        DONE 2026-05-29: both restart_client bodies now use a single out:
+        label for the free + apply_visual_state tail and a fail_destroy:
+        label for the post-mosquitto_new failure paths (destroy client + free
+        net_ctx).  The ~5 duplicated cleanup blocks are gone.
   - N2  Stale header docs: pn-mqtt.h says property "topic" but the
         installed name is "subscribe-topic" (:1101); pn-mqtt-sink.h omits
         broker-profile/topic-template.
+        DONE 2026-05-29: pn-mqtt.h Properties block now lists broker-profile
+        + subscribe-topic (was "topic"); pn-mqtt-sink.h adds broker-profile +
+        topic-template and tags url as the inline "Custom settings" field.
   - N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
         risk); a shared static + shared test would cover both.
         DONE 2026-05-28: extracted to pn_mqtt_parse_url in pn-mqtt-util.c,
@@ -1090,6 +1143,13 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         inside the address.  Bracketed-IPv6 host[:port] is unsupported;
         handle '[...]' before scanning for the port colon (then add a
         parse-table case -- today's behaviour is a bug, so don't pin it).
+        DONE 2026-05-29: pn_mqtt_parse_url handles a leading '[' — host is the
+        bracket contents, an optional ":port" may follow the ']', and an
+        unterminated/empty/junk-after form is rejected.  Port parsing factored
+        into a parse_port_str helper (also requires the port token be fully
+        consumed, *endp=='\0').  New test-pn-mqtt-util url_ipv6 case covers
+        tcp://[::1], [::1], mqtts://[2001:db8::1], ...:port, and the malformed
+        rejections.
   - U1  Inline Broker URL silently ignored once any mqtt-broker profile
         exists: empty broker-profile -> pn_node_get_profile falls back to
         the PRIMARY profile, and pn_mqtt_resolve_connection takes every
@@ -1156,14 +1216,25 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
          -> "".
   test-pn-mqtt-util = 130 checks, test-pn-mqtt-resolve = 12; `make check` = 76/76.
 
-  STILL OPEN: the review BUGS themselves.  C1's VISUAL error indication is
-  DONE (generic pn_node_set_has_error + worksheet red/❗ painter; see the C1
-  note above) -- what remains of C1 is the human-readable reason (a future
-  per-node "log" dialog).  Still untouched: C2 init-time connect, H1
-  topic-read race, H2/H3 generation guard, M1 boolean->value, and the nits
-  (L2 dead var, N1 goto cleanup, N2 header docs, N4 IPv6 brackets).
-  Priority order to tackle: C2, H1, then H2/H3.  The tests above are a net
-  for that work, not a fix for it.
+  STILL OPEN: C1 fully CLOSED (visual + reason); C2, H1, H2, H3, M1 all
+  DONE 2026-05-29 (see the per-item notes above), as are the nits L2 (dead
+  var), N1 (goto cleanup), N2 (header docs), N3 (url-dedup, earlier), N4
+  (IPv6 brackets).  `make check` = 77/77; the python regression net
+  (test_plugin_load / test_credentials_migration / test_credentials_profile)
+  still PASSES with the deferred-connect change.
+
+  REMAINING (deferred / doc-only, not blocking):
+    - M2  Sink keeps its offline backlog across a runtime broker change, so
+          commands buffered for broker A can flush to broker B.  Decide +
+          document; likely clear the queue when the broker identity changes.
+    - M3  Profile lacks TLS CA-file / port-int / keepalive fields (private-CA
+          broker unconfigurable; keepalive hard-coded 60s).  Known/deferred.
+    - M4  payload_len (gsize) cast to int at the publish calls; >256MB hits
+          MQTT's limit.  Now at least surfaced via the Log dialog (C1).
+    - L3  Default topic "#" + primary profile auto-subscribes the whole
+          broker (intentional footgun).
+    - L4  Empty-payload publish is dropped -> cannot clear a retained topic
+          with a null payload; document in PnMqttSink help.
 
 (31) Adopt the generic node error state across all nodes that report
 errors.  TODO #30 introduced a uniform, centralized error indication on the

@@ -88,6 +88,30 @@ test_url_explicit_port (void)
     check_url_ok ("tcp://h:65535",                "h",             65535, FALSE);
 }
 
+/* Bracketed IPv6 literals: the host is everything between the brackets, so
+ * the ':' separators inside the address are not mistaken for the port
+ * delimiter (review finding N4).  An optional ":port" may follow the ']'. */
+static void
+test_url_ipv6 (void)
+{
+    /* No port -> scheme default; host has the brackets stripped. */
+    check_url_ok ("tcp://[::1]",                   "::1",            1883, FALSE);
+    check_url_ok ("[::1]",                          "::1",           1883, FALSE);
+    check_url_ok ("mqtts://[2001:db8::1]",         "2001:db8::1",    8883, TRUE);
+    /* Explicit port after the closing bracket. */
+    check_url_ok ("tcp://[::1]:1884",              "::1",            1884, FALSE);
+    check_url_ok ("ssl://[2001:db8::1]:9001",      "2001:db8::1",    9001, TRUE);
+
+    /* Malformed bracket forms are rejected. */
+    check_url_bad ("tcp://[::1");      /* unterminated */
+    check_url_bad ("tcp://[]");        /* empty host    */
+    check_url_bad ("tcp://[]:1883");   /* empty host    */
+    check_url_bad ("tcp://[::1]x");    /* junk after ]  */
+    check_url_bad ("tcp://[::1]:");    /* empty port    */
+    check_url_bad ("tcp://[::1]:abc"); /* bad port      */
+    check_url_bad ("tcp://[::1]:0");   /* port range    */
+}
+
 static void
 test_url_rejected (void)
 {
@@ -153,11 +177,11 @@ test_message_json_number (void)
     g_object_unref (m);
 }
 
-/* A JSON boolean lands on data.payload as a boolean, but — per review
- * finding M1 — is currently NOT mirrored onto data.value.  This test pins
- * today's behaviour so an intentional M1 fix shows up as a visible change. */
+/* A JSON boolean lands on data.payload as a boolean and — per the M1 fix —
+ * is mirrored onto data.value following the 0.0/1.0 boolean convention, so a
+ * `true`/`false` payload drives a downstream gate like a numeric 1/0 would. */
 static void
-test_message_json_bool_no_value (void)
+test_message_json_bool_value (void)
 {
     PnMessage *m = build_text ("t", "true", 0, FALSE);
     JsonNode  *payload = pn_message_get_member (m, "payload");
@@ -166,8 +190,15 @@ test_message_json_bool_no_value (void)
     PN_CHECK (payload != NULL && JSON_NODE_HOLDS_VALUE (payload));
     PN_CHECK (payload != NULL &&
               json_node_get_value_type (payload) == G_TYPE_BOOLEAN);
-    /* M1: no value mirror for booleans (yet). */
-    PN_CHECK_FALSE (pn_test_has (m, "value"));
+    PN_CHECK (pn_test_has (m, "value"));
+    PN_CHECK_NEAR (pn_test_num (m, "value"), 1.0, 1e-9);
+
+    g_object_unref (m);
+
+    /* false → 0.0 */
+    m = build_text ("t", "false", 0, FALSE);
+    PN_CHECK (pn_test_has (m, "value"));
+    PN_CHECK_NEAR (pn_test_num (m, "value"), 0.0, 1e-9);
 
     g_object_unref (m);
 }
@@ -460,10 +491,11 @@ main (int argc, char **argv)
     pn_test_init (&argc, &argv, "pn-mqtt-util");
     pn_test_add ("url_schemes",          test_url_schemes);
     pn_test_add ("url_explicit_port",    test_url_explicit_port);
+    pn_test_add ("url_ipv6",             test_url_ipv6);
     pn_test_add ("url_rejected",         test_url_rejected);
     pn_test_add ("message_json_object",  test_message_json_object);
     pn_test_add ("message_json_number",  test_message_json_number);
-    pn_test_add ("message_json_bool_no_value", test_message_json_bool_no_value);
+    pn_test_add ("message_json_bool_value", test_message_json_bool_value);
     pn_test_add ("message_text_numeric", test_message_text_numeric);
     pn_test_add ("message_text_plain",   test_message_text_plain);
     pn_test_add ("message_binary",       test_message_binary);

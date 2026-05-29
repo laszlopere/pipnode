@@ -32,6 +32,24 @@
 /*  URL parsing                                                        */
 /* ------------------------------------------------------------------ */
 
+/** Parse a decimal port (1..65535) from @s into @out_port.  @s must be
+ *  the whole port token (the strtol has to consume all of it).  Returns
+ *  %FALSE on a non-numeric, empty, or out-of-range value. */
+static gboolean
+parse_port_str (const gchar *s, int *out_port)
+{
+    gchar *endp;
+    glong  parsed;
+
+    errno  = 0;
+    parsed = strtol (s, &endp, 10);
+    if (errno != 0 || endp == s || *endp != '\0' || parsed <= 0 || parsed > 65535)
+        return FALSE;
+
+    *out_port = (int) parsed;
+    return TRUE;
+}
+
 gboolean
 pn_mqtt_parse_url (
         const gchar *url,
@@ -72,30 +90,56 @@ pn_mqtt_parse_url (
      * accept so a user typing just "mqtt.local:1883" into the URL
      * field still works without learning the scheme syntax. */
 
-    /* Reject an empty host part (e.g. just "tcp://"). */
-    if (*p == '\0' || *p == ':' || *p == '/')
-        return FALSE;
+    port = tls ? 8883 : 1883;
 
-    port  = tls ? 8883 : 1883;
-    colon = strchr (p, ':');
-    if (colon != NULL)
+    if (*p == '[')
     {
-        gchar  *endp;
-        glong   parsed;
+        /* Bracketed IPv6 literal: host is everything between the
+         * brackets, so the ':' separators inside the address are not
+         * mistaken for the port delimiter.  An optional ":port" may
+         * follow the closing ']'. */
+        const gchar *close = strchr (p, ']');
 
-        host = g_strndup (p, (gsize) (colon - p));
-        errno = 0;
-        parsed = strtol (colon + 1, &endp, 10);
-        if (errno != 0 || endp == colon + 1 || parsed <= 0 || parsed > 65535)
+        if (close == NULL || close == p + 1)   /* unterminated or empty "[]" */
+            return FALSE;
+
+        host = g_strndup (p + 1, (gsize) (close - (p + 1)));
+        p    = close + 1;
+
+        if (*p == ':')
+        {
+            if (!parse_port_str (p + 1, &port))
+            {
+                g_free (host);
+                return FALSE;
+            }
+        }
+        else if (*p != '\0')   /* junk after the closing bracket */
         {
             g_free (host);
             return FALSE;
         }
-        port = (int) parsed;
     }
     else
     {
-        host = g_strdup (p);
+        /* Reject an empty host part (e.g. just "tcp://"). */
+        if (*p == '\0' || *p == ':' || *p == '/')
+            return FALSE;
+
+        colon = strchr (p, ':');
+        if (colon != NULL)
+        {
+            host = g_strndup (p, (gsize) (colon - p));
+            if (!parse_port_str (colon + 1, &port))
+            {
+                g_free (host);
+                return FALSE;
+            }
+        }
+        else
+        {
+            host = g_strdup (p);
+        }
     }
 
     *out_host = host;
@@ -212,14 +256,22 @@ pn_mqtt_build_message (
          * takes ownership of the copy. */
         pn_message_set_member (msg, "payload", json_node_copy (json_root));
 
-        /* Bare JSON number → mirror onto data.value so a Graph just
-         * works without an extra Format step. */
-        if (JSON_NODE_HOLDS_VALUE (json_root) &&
-            (json_node_get_value_type (json_root) == G_TYPE_DOUBLE ||
-             json_node_get_value_type (json_root) == G_TYPE_INT64))
+        /* Bare JSON scalar → mirror onto data.value so a Graph just works
+         * without an extra Format step.  A JSON boolean follows the
+         * project's 0.0/1.0 boolean convention (false → 0.0, true → 1.0)
+         * so a `{"POWER":true}`-style payload — or a bare `true` — drives a
+         * downstream gate the same way a numeric 1 would. */
+        if (JSON_NODE_HOLDS_VALUE (json_root))
         {
-            pn_message_set_double (msg, "value",
-                                   json_node_get_double (json_root));
+            GType vt = json_node_get_value_type (json_root);
+
+            if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
+                pn_message_set_double (msg, "value",
+                                       json_node_get_double (json_root));
+            else if (vt == G_TYPE_BOOLEAN)
+                pn_message_set_double (msg, "value",
+                                       json_node_get_boolean (json_root) ? 1.0
+                                                                         : 0.0);
         }
     }
     else
