@@ -72,17 +72,18 @@
  * The LEN / AGE bounds and the queue policy itself live in pn-mqtt-util.h
  * (PN_MQTT_SINK_QUEUE_MAX_LEN / _MAX_AGE_US) so they can be unit-tested. */
 
-struct _PnMqttSink
+/* Private data.  Hidden in the .c so subclasses (PnMqttSink is now a
+ * derivable type) need not know the field layout; they reach the base's
+ * behaviour through the class vfuncs declared in pn-mqtt-sink.h.
+ *
+ * Mutated only on the main thread (property setters), read by both the
+ * main thread (receive path) and libmosquitto's network thread
+ * (callbacks).  The callbacks only read priv->connected (via the
+ * conn-state trampoline) so no mutex is required -- the publish path
+ * itself happens on the main thread inside receive, before handing bytes
+ * to mosquitto_publish which has its own internal locking. */
+typedef struct
 {
-    PnNode parent_instance;
-
-    /* Configuration.  Mutated only on the main thread (property
-     * setters), read by both the main thread (receive path) and
-     * libmosquitto's network thread (callbacks).  The callbacks only
-     * read self->connected (via the conn-state trampoline) so no
-     * mutex is required -- the publish path itself happens on the
-     * main thread inside receive, before handing bytes to
-     * mosquitto_publish which has its own internal locking. */
     /* Connection identity — prefer the referenced "mqtt-broker" vault
      * profile (broker_profile holds its id, "" follows the primary); the
      * inline url/username/password/client_id are the legacy fallback that
@@ -116,9 +117,11 @@ struct _PnMqttSink
      * Touched only on the main thread -- both the receive path and the
      * connect trampoline run there -- so it needs no locking. */
     GQueue           *pending;
-};
+} PnMqttSinkPrivate;
 
-G_DEFINE_TYPE (PnMqttSink, pn_mqtt_sink, PN_TYPE_NODE)
+G_DEFINE_TYPE_WITH_PRIVATE (PnMqttSink, pn_mqtt_sink, PN_TYPE_NODE)
+
+#define PRIV(self) ((PnMqttSinkPrivate *) pn_mqtt_sink_get_instance_private (self))
 
 enum {
     PROP_0,
@@ -137,6 +140,36 @@ enum {
 static GParamSpec *props[N_PROPS];
 
 static void restart_client (PnMqttSink *self);
+
+/* ------------------------------------------------------------------ */
+/*  Error reporting funnel                                             */
+/*                                                                     */
+/*  Every error the base senses is routed through the report_error     */
+/*  class vfunc rather than calling pn_node_log_error directly, so a    */
+/*  subclass that overrides the vfunc observes (and can react to) the   */
+/*  whole set -- publish rejections, connect refusals, invalid URLs,    */
+/*  auth/TLS setup failures.  Always invoked on the main thread (the    */
+/*  network-thread callbacks marshal their reason through the conn-     */
+/*  state trampoline first), so the default node-log call and any       */
+/*  subclass GObject work are safe.                                     */
+/* ------------------------------------------------------------------ */
+
+static void
+report_error (PnMqttSink *self, const gchar *fmt, ...) G_GNUC_PRINTF (2, 3);
+
+static void
+report_error (PnMqttSink *self, const gchar *fmt, ...)
+{
+    va_list  args;
+    gchar   *msg;
+
+    va_start (args, fmt);
+    msg = g_strdup_vprintf (fmt, args);
+    va_end (args);
+
+    PN_MQTT_SINK_GET_CLASS (self)->report_error (self, msg);
+    g_free (msg);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Library init (one-shot)                                            */
@@ -177,13 +210,14 @@ resolve_connection (PnMqttSink *self,
                     gchar **out_pass,
                     gchar **out_cid)
 {
-    PnProfile *p = pn_node_get_profile (PN_NODE (self), "broker-profile");
+    PnMqttSinkPrivate *priv = PRIV (self);
+    PnProfile         *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
 
     /* Per-field: a non-empty inline value overrides the profile's field, so a
      * typed Broker URL takes effect even with a profile selected; blank fields
      * still come from the profile (see pn_mqtt_resolve_connection). */
-    pn_mqtt_resolve_connection (p, self->url, self->username, self->password,
-                                self->client_id,
+    pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
+                                priv->client_id,
                                 out_url, out_user, out_pass, out_cid);
 }
 
@@ -198,14 +232,15 @@ resolve_connection (PnMqttSink *self,
 static void
 apply_visual_state (PnMqttSink *self)
 {
-    PnNode  *node = PN_NODE (self);
-    gchar   *url  = NULL;
-    gboolean ok;
+    PnMqttSinkPrivate *priv = PRIV (self);
+    PnNode            *node = PN_NODE (self);
+    gchar             *url  = NULL;
+    gboolean           ok;
 
     PnColor green = { 0.36, 0.66, 0.36, 1.0 };
 
     resolve_connection (self, &url, NULL, NULL, NULL);
-    ok = self->connected && url != NULL && *url != '\0' && !self->publish_error;
+    ok = priv->connected && url != NULL && *url != '\0' && !priv->publish_error;
     g_free (url);
 
     /* Keep the healthy green paper-plane identity at all times; the error
@@ -231,7 +266,9 @@ build_payload (
         gchar     **out_bytes,
         gsize      *out_len)
 {
-    return pn_mqtt_build_payload (self->payload_template, message,
+    PnMqttSinkPrivate *priv = PRIV (self);
+
+    return pn_mqtt_build_payload (priv->payload_template, message,
                                   pn_node_get_flow (PN_NODE (self)),
                                   out_bytes, out_len);
 }
@@ -256,36 +293,38 @@ enqueue_pending (
         int          qos,
         gboolean     retain)
 {
-    pn_mqtt_pending_enqueue (self->pending, topic, payload, payload_len,
+    PnMqttSinkPrivate *priv = PRIV (self);
+
+    pn_mqtt_pending_enqueue (priv->pending, topic, payload, payload_len,
                              qos, retain, g_get_monotonic_time ());
 }
 
 /** Publish every queued entry still younger than the freshness window,
  *  oldest first, discarding the rest.  Runs on the main thread from the
- *  connect trampoline once a session is up.  Requires self->client to
+ *  connect trampoline once a session is up.  Requires priv->client to
  *  be live and connected. */
 static void
 flush_pending (PnMqttSink *self)
 {
-    GPtrArray *fresh = pn_mqtt_pending_collect_fresh (
-            self->pending, g_get_monotonic_time (),
+    PnMqttSinkPrivate *priv  = PRIV (self);
+    GPtrArray         *fresh = pn_mqtt_pending_collect_fresh (
+            priv->pending, g_get_monotonic_time (),
             PN_MQTT_SINK_QUEUE_MAX_AGE_US);
     guint i;
 
     for (i = 0; i < fresh->len; i++)
     {
         PnMqttPending *p   = g_ptr_array_index (fresh, i);
-        int            err = mosquitto_publish (self->client,
+        int            err = mosquitto_publish (priv->client,
                                                 NULL,  /* mid -- not tracked */
                                                 p->topic,
                                                 (int) p->payload_len, p->payload,
                                                 p->qos, p->retain);
         if (err != MOSQ_ERR_SUCCESS)
         {
-            pn_node_log_error (PN_NODE (self),
-                               "queued publish to '%s' failed: %s",
-                               p->topic, mosquitto_strerror (err));
-            self->publish_error = TRUE;
+            report_error (self, "queued publish to '%s' failed: %s",
+                          p->topic, mosquitto_strerror (err));
+            priv->publish_error = TRUE;
         }
     }
 
@@ -312,10 +351,13 @@ typedef struct
 static gboolean
 conn_state_trampoline (gpointer data)
 {
-    PnMqttSinkConnStateClosure *c = data;
-    if (c->self->client != NULL)
+    PnMqttSinkConnStateClosure *c    = data;
+    PnMqttSink                 *self = c->self;
+    PnMqttSinkPrivate          *priv = PRIV (self);
+
+    if (priv->client != NULL)
     {
-        c->self->connected = c->connected;
+        priv->connected = c->connected;
         /* Session just came up: a fresh link clears any stale publish
          * error, then we drain whatever was held while offline so a
          * command issued before the connect completed (the
@@ -323,14 +365,22 @@ conn_state_trampoline (gpointer data)
          * re-sets the error flag if a queued publish fails. */
         if (c->connected)
         {
-            c->self->publish_error = FALSE;
-            flush_pending (c->self);
+            priv->publish_error = FALSE;
+            flush_pending (self);
         }
-        apply_visual_state (c->self);
+        apply_visual_state (self);
         /* Surface the reason in the per-node Log dialog (we are on the
-         * main thread now, so pn_node_log is safe). */
+         * main thread now, so both pn_node_log and the report_error
+         * funnel are safe).  Route error-level reasons through the funnel
+         * so a subclass senses connection failures too; non-error lines
+         * (the "connected" / clean-disconnect notes) log directly. */
         if (c->reason != NULL)
-            pn_node_log (PN_NODE (c->self), c->level, "%s", c->reason);
+        {
+            if (c->level == PN_LOG_LEVEL_ERROR)
+                report_error (self, "%s", c->reason);
+            else
+                pn_node_log (PN_NODE (self), c->level, "%s", c->reason);
+        }
     }
     return G_SOURCE_REMOVE;
 }
@@ -442,11 +492,20 @@ pn_mqtt_sink_receive (
         PnNode    *node,
         PnMessage *message)
 {
-    PnMqttSink  *self = PN_MQTT_SINK (node);
-    const gchar *publish_topic;
-    gchar       *topic_owned = NULL;
-    gchar       *payload = NULL;
-    gsize        payload_len = 0;
+    PnMqttSink        *self = PN_MQTT_SINK (node);
+    PnMqttSinkPrivate *priv = PRIV (self);
+    PnMqttSinkClass   *klass = PN_MQTT_SINK_GET_CLASS (self);
+    const gchar       *publish_topic;
+    gchar             *topic_owned = NULL;
+    gchar             *payload = NULL;
+    gsize              payload_len = 0;
+
+    /* Late subclass hook: reshape (or drop) the message on its way out
+     * before the base resolves topic / payload.  A device-specific Sink
+     * subclass overrides process_message to stamp the topic / payload it
+     * needs without an upstream PnRewrite; returning FALSE drops it. */
+    if (!klass->process_message (self, message))
+        return;
 
     /* Publish topic.  With an explicit template, expand it against this
      * node's variables (${nodeclass} / ${nodename} / ${hostname}) and
@@ -456,7 +515,7 @@ pn_mqtt_sink_receive (
      * cmnd/${data/device}/POWER) -> MQTT Sink` then drives the right
      * broker topic per message.  Messages with no resulting topic are
      * dropped. */
-    if (self->topic_template != NULL && *self->topic_template != '\0')
+    if (priv->topic_template != NULL && *priv->topic_template != '\0')
     {
         JsonObject      *root  = pn_json_lookup_root_for_message (message);
         gchar          **pairs = pn_node_dup_subst_pairs (node);
@@ -475,7 +534,7 @@ pn_mqtt_sink_receive (
         ctx.mode      = PN_SUBST_TEXT;
         ctx.miss      = PN_SUBST_MISS_EMPTY;
 
-        topic_owned = pn_subst_expand (self->topic_template, &ctx);
+        topic_owned = pn_subst_expand (priv->topic_template, &ctx);
 
         g_strfreev (pairs);
         json_object_unref (root);
@@ -504,29 +563,29 @@ pn_mqtt_sink_receive (
      * publish in the bounded, timestamped backlog and deliver it on
      * connect instead of dropping it, so an enforce-on-startup command
      * still reaches the relay. */
-    if (self->client != NULL && self->connected)
+    if (priv->client != NULL && priv->connected)
     {
-        gboolean was_error = self->publish_error;
-        int      err       = mosquitto_publish (self->client,
+        gboolean was_error = priv->publish_error;
+        int      err       = mosquitto_publish (priv->client,
                                      NULL,         /* mid -- we do not track */
                                      publish_topic,
                                      (int) payload_len,
                                      payload,
-                                     (int) self->qos,
-                                     self->retain);
+                                     (int) priv->qos,
+                                     priv->retain);
         if (err != MOSQ_ERR_SUCCESS)
         {
-            pn_node_log_error (PN_NODE (self), "publish to '%s' failed: %s",
-                               publish_topic, mosquitto_strerror (err));
-            self->publish_error = TRUE;
+            report_error (self, "publish to '%s' failed: %s",
+                          publish_topic, mosquitto_strerror (err));
+            priv->publish_error = TRUE;
         }
         else
         {
-            self->publish_error = FALSE;
+            priv->publish_error = FALSE;
         }
         /* Re-render only when the error state actually changed — a
          * healthy high-rate Sink should not repaint on every publish. */
-        if (self->publish_error != was_error)
+        if (priv->publish_error != was_error)
             apply_visual_state (self);
         g_free (payload);
     }
@@ -534,7 +593,7 @@ pn_mqtt_sink_receive (
     {
         /* Ownership of @payload transfers into the queue entry. */
         enqueue_pending (self, publish_topic, payload, payload_len,
-                         (int) self->qos, self->retain);
+                         (int) priv->qos, priv->retain);
     }
 
     g_free (topic_owned);
@@ -547,32 +606,35 @@ pn_mqtt_sink_receive (
 static void
 stop_client (PnMqttSink *self)
 {
-    if (self->client == NULL)
+    PnMqttSinkPrivate *priv = PRIV (self);
+
+    if (priv->client == NULL)
         return;
 
-    mosquitto_disconnect (self->client);
-    if (self->loop_running)
+    mosquitto_disconnect (priv->client);
+    if (priv->loop_running)
     {
-        mosquitto_loop_stop (self->client, TRUE);
-        self->loop_running = FALSE;
+        mosquitto_loop_stop (priv->client, TRUE);
+        priv->loop_running = FALSE;
     }
-    mosquitto_destroy (self->client);
-    self->client        = NULL;
-    self->connected     = FALSE;
-    self->publish_error = FALSE;
+    mosquitto_destroy (priv->client);
+    priv->client        = NULL;
+    priv->connected     = FALSE;
+    priv->publish_error = FALSE;
 }
 
 static void
 restart_client (PnMqttSink *self)
 {
-    gchar    *host = NULL;
-    int       port = 0;
-    gboolean  tls  = FALSE;
-    int       err;
-    gchar    *url  = NULL;
-    gchar    *user = NULL;
-    gchar    *pass = NULL;
-    gchar    *cid  = NULL;
+    PnMqttSinkPrivate *priv = PRIV (self);
+    gchar             *host = NULL;
+    int                port = 0;
+    gboolean           tls  = FALSE;
+    int                err;
+    gchar             *url  = NULL;
+    gchar             *user = NULL;
+    gchar             *pass = NULL;
+    gchar             *cid  = NULL;
 
     stop_client (self);
 
@@ -587,7 +649,7 @@ restart_client (PnMqttSink *self)
 
     if (!pn_mqtt_parse_url (url, &host, &port, &tls))
     {
-        pn_node_log_error (PN_NODE (self), "invalid broker URL '%s'", url);
+        report_error (self, "invalid broker URL '%s'", url);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
@@ -595,72 +657,71 @@ restart_client (PnMqttSink *self)
 
     ensure_mosquitto_initialised ();
 
-    self->client = mosquitto_new ((cid != NULL && *cid != '\0') ? cid : NULL,
+    priv->client = mosquitto_new ((cid != NULL && *cid != '\0') ? cid : NULL,
                                   TRUE,
                                   self);
-    if (self->client == NULL)
+    if (priv->client == NULL)
     {
-        pn_node_log_error (PN_NODE (self), "client init failed: %s",
-                           g_strerror (errno));
+        report_error (self, "client init failed: %s", g_strerror (errno));
         g_free (host);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
 
-    mosquitto_connect_callback_set    (self->client, on_mqtt_connect);
-    mosquitto_disconnect_callback_set (self->client, on_mqtt_disconnect);
+    mosquitto_connect_callback_set    (priv->client, on_mqtt_connect);
+    mosquitto_disconnect_callback_set (priv->client, on_mqtt_disconnect);
 
-    mosquitto_reconnect_delay_set (self->client,
+    mosquitto_reconnect_delay_set (priv->client,
             PN_MQTT_SINK_RECONNECT_DELAY_MIN,
             PN_MQTT_SINK_RECONNECT_DELAY_MAX,
             TRUE);
 
     if (user != NULL && *user != '\0')
     {
-        err = mosquitto_username_pw_set (self->client,
+        err = mosquitto_username_pw_set (priv->client,
                 user,
                 (pass != NULL && *pass != '\0') ? pass : NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            pn_node_log_error (PN_NODE (self), "username/password rejected: %s",
-                               mosquitto_strerror (err));
+            report_error (self, "username/password rejected: %s",
+                          mosquitto_strerror (err));
     }
 
     if (tls)
     {
-        err = mosquitto_tls_set (self->client, NULL, NULL, NULL, NULL, NULL);
+        err = mosquitto_tls_set (priv->client, NULL, NULL, NULL, NULL, NULL);
         if (err != MOSQ_ERR_SUCCESS)
-            pn_node_log_error (PN_NODE (self), "TLS setup failed: %s",
-                               mosquitto_strerror (err));
+            report_error (self, "TLS setup failed: %s",
+                          mosquitto_strerror (err));
     }
 
-    err = mosquitto_connect_async (self->client, host, port,
+    err = mosquitto_connect_async (priv->client, host, port,
                                    PN_MQTT_SINK_KEEPALIVE_SECONDS);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        pn_node_log_error (PN_NODE (self), "connect to %s:%d failed: %s",
-                           host, port, mosquitto_strerror (err));
-        mosquitto_destroy (self->client);
-        self->client = NULL;
+        report_error (self, "connect to %s:%d failed: %s",
+                      host, port, mosquitto_strerror (err));
+        mosquitto_destroy (priv->client);
+        priv->client = NULL;
         g_free (host);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
 
-    err = mosquitto_loop_start (self->client);
+    err = mosquitto_loop_start (priv->client);
     if (err != MOSQ_ERR_SUCCESS)
     {
-        pn_node_log_error (PN_NODE (self), "network loop failed to start: %s",
-                           mosquitto_strerror (err));
-        mosquitto_destroy (self->client);
-        self->client = NULL;
+        report_error (self, "network loop failed to start: %s",
+                      mosquitto_strerror (err));
+        mosquitto_destroy (priv->client);
+        priv->client = NULL;
         g_free (host);
         g_free (url); g_free (user); g_free (pass); g_free (cid);
         apply_visual_state (self);
         return;
     }
-    self->loop_running = TRUE;
+    priv->loop_running = TRUE;
 
     g_free (host);
     g_free (url); g_free (user); g_free (pass); g_free (cid);
@@ -678,19 +739,20 @@ pn_mqtt_sink_get_property (
         GValue     *value,
         GParamSpec *pspec)
 {
-    PnMqttSink *self = PN_MQTT_SINK (object);
+    PnMqttSink        *self = PN_MQTT_SINK (object);
+    PnMqttSinkPrivate *priv = PRIV (self);
 
     switch (prop_id)
     {
-    case PROP_BROKER_PROFILE: g_value_set_string (value, self->broker_profile); break;
-    case PROP_URL:       g_value_set_string  (value, self->url);              break;
-    case PROP_TOPIC:     g_value_set_string  (value, self->topic_template);   break;
-    case PROP_PAYLOAD:   g_value_set_string  (value, self->payload_template); break;
-    case PROP_RETAIN:    g_value_set_boolean (value, self->retain);           break;
-    case PROP_USERNAME:  g_value_set_string  (value, self->username);         break;
-    case PROP_PASSWORD:  g_value_set_string  (value, self->password);         break;
-    case PROP_CLIENT_ID: g_value_set_string  (value, self->client_id);        break;
-    case PROP_QOS:       g_value_set_uint    (value, self->qos);              break;
+    case PROP_BROKER_PROFILE: g_value_set_string (value, priv->broker_profile); break;
+    case PROP_URL:       g_value_set_string  (value, priv->url);              break;
+    case PROP_TOPIC:     g_value_set_string  (value, priv->topic_template);   break;
+    case PROP_PAYLOAD:   g_value_set_string  (value, priv->payload_template); break;
+    case PROP_RETAIN:    g_value_set_boolean (value, priv->retain);           break;
+    case PROP_USERNAME:  g_value_set_string  (value, priv->username);         break;
+    case PROP_PASSWORD:  g_value_set_string  (value, priv->password);         break;
+    case PROP_CLIENT_ID: g_value_set_string  (value, priv->client_id);        break;
+    case PROP_QOS:       g_value_set_uint    (value, priv->qos);              break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -703,48 +765,49 @@ pn_mqtt_sink_set_property (
         const GValue *value,
         GParamSpec   *pspec)
 {
-    PnMqttSink *self = PN_MQTT_SINK (object);
+    PnMqttSink        *self = PN_MQTT_SINK (object);
+    PnMqttSinkPrivate *priv = PRIV (self);
 
     switch (prop_id)
     {
     case PROP_BROKER_PROFILE:
-        g_free (self->broker_profile);
-        self->broker_profile = g_value_dup_string (value);
+        g_free (priv->broker_profile);
+        priv->broker_profile = g_value_dup_string (value);
         restart_client (self);
         break;
     case PROP_URL:
-        g_free (self->url);
-        self->url = g_value_dup_string (value);
+        g_free (priv->url);
+        priv->url = g_value_dup_string (value);
         restart_client (self);
         break;
     case PROP_TOPIC:
-        g_free (self->topic_template);
-        self->topic_template = g_value_dup_string (value);
+        g_free (priv->topic_template);
+        priv->topic_template = g_value_dup_string (value);
         break;
     case PROP_PAYLOAD:
-        g_free (self->payload_template);
-        self->payload_template = g_value_dup_string (value);
+        g_free (priv->payload_template);
+        priv->payload_template = g_value_dup_string (value);
         break;
     case PROP_RETAIN:
-        self->retain = g_value_get_boolean (value);
+        priv->retain = g_value_get_boolean (value);
         break;
     case PROP_USERNAME:
-        g_free (self->username);
-        self->username = g_value_dup_string (value);
+        g_free (priv->username);
+        priv->username = g_value_dup_string (value);
         restart_client (self);
         break;
     case PROP_PASSWORD:
-        g_free (self->password);
-        self->password = g_value_dup_string (value);
+        g_free (priv->password);
+        priv->password = g_value_dup_string (value);
         restart_client (self);
         break;
     case PROP_CLIENT_ID:
-        g_free (self->client_id);
-        self->client_id = g_value_dup_string (value);
+        g_free (priv->client_id);
+        priv->client_id = g_value_dup_string (value);
         restart_client (self);
         break;
     case PROP_QOS:
-        self->qos = g_value_get_uint (value);
+        priv->qos = g_value_get_uint (value);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -760,20 +823,21 @@ pn_mqtt_sink_set_property (
 static gboolean
 migrate_legacy_credentials (gpointer data)
 {
-    PnMqttSink  *self = PN_MQTT_SINK (data);
-    const gchar *names[]  = { "url", "username", "password", "client-id" };
-    const gchar *values[4];
-    gchar       *id;
+    PnMqttSink        *self = PN_MQTT_SINK (data);
+    PnMqttSinkPrivate *priv = PRIV (self);
+    const gchar       *names[]  = { "url", "username", "password", "client-id" };
+    const gchar       *values[4];
+    gchar             *id;
 
-    self->migrate_idle_id = 0;
+    priv->migrate_idle_id = 0;
 
     /* "Custom settings" mode: keep the inline fields as the connection config. */
-    if (g_strcmp0 (self->broker_profile, PN_PROFILE_REF_CUSTOM) == 0)
+    if (g_strcmp0 (priv->broker_profile, PN_PROFILE_REF_CUSTOM) == 0)
         return G_SOURCE_REMOVE;
 
     /* A real profile is selected: inline data is stale (it only exists in Custom
      * mode).  Clear it so the saved file and the dialog widgets are empty. */
-    if (self->broker_profile != NULL && *self->broker_profile != '\0')
+    if (priv->broker_profile != NULL && *priv->broker_profile != '\0')
     {
         g_object_set (self, "url", "", "username", "", "password", "",
                       "client-id", "", NULL);
@@ -782,25 +846,25 @@ migrate_legacy_credentials (gpointer data)
 
     /* broker-profile == "" (Default): new-model Default nodes have empty inline
      * fields, so these legacy branches only fire for pre-broker-profile files. */
-    if ((self->username == NULL || *self->username == '\0') &&
-        (self->password == NULL || *self->password == '\0'))
+    if ((priv->username == NULL || *priv->username == '\0') &&
+        (priv->password == NULL || *priv->password == '\0'))
     {
         /* No inline credentials to migrate.  A legacy node with a typed inline
          * url was effectively using "custom settings"; mark it so it keeps that
          * url under the new model. */
-        if (self->url != NULL && *self->url != '\0')
+        if (priv->url != NULL && *priv->url != '\0')
             g_object_set (self, "broker-profile", PN_PROFILE_REF_CUSTOM, NULL);
         return G_SOURCE_REMOVE;
     }
 
-    values[0] = self->url       ? self->url       : "";
-    values[1] = self->username  ? self->username  : "";
-    values[2] = self->password  ? self->password  : "";
-    values[3] = self->client_id ? self->client_id : "";
+    values[0] = priv->url       ? priv->url       : "";
+    values[1] = priv->username  ? priv->username  : "";
+    values[2] = priv->password  ? priv->password  : "";
+    values[3] = priv->client_id ? priv->client_id : "";
 
     id = pn_vault_import_inline_profile (
             PN_PROFILE_TYPE_MQTT_BROKER,
-            (self->url != NULL && *self->url != '\0') ? self->url
+            (priv->url != NULL && *priv->url != '\0') ? priv->url
                                                       : "MQTT broker",
             names, values, G_N_ELEMENTS (names));
     if (id != NULL)
@@ -826,11 +890,12 @@ on_vault_changed (gpointer self)
 static void
 pn_mqtt_sink_constructed (GObject *object)
 {
-    PnMqttSink *self = PN_MQTT_SINK (object);
+    PnMqttSink        *self = PN_MQTT_SINK (object);
+    PnMqttSinkPrivate *priv = PRIV (self);
 
     G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->constructed (object);
 
-    self->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
+    priv->migrate_idle_id = g_idle_add (migrate_legacy_credentials, self);
 
     g_signal_connect_object (pn_vault_get_default (), "changed",
                              G_CALLBACK (on_vault_changed), self,
@@ -840,12 +905,13 @@ pn_mqtt_sink_constructed (GObject *object)
 static void
 pn_mqtt_sink_dispose (GObject *object)
 {
-    PnMqttSink *self = PN_MQTT_SINK (object);
+    PnMqttSink        *self = PN_MQTT_SINK (object);
+    PnMqttSinkPrivate *priv = PRIV (self);
 
-    if (self->migrate_idle_id != 0)
+    if (priv->migrate_idle_id != 0)
     {
-        g_source_remove (self->migrate_idle_id);
-        self->migrate_idle_id = 0;
+        g_source_remove (priv->migrate_idle_id);
+        priv->migrate_idle_id = 0;
     }
     stop_client (self);
 
@@ -855,23 +921,42 @@ pn_mqtt_sink_dispose (GObject *object)
 static void
 pn_mqtt_sink_finalize (GObject *object)
 {
-    PnMqttSink *self = PN_MQTT_SINK (object);
+    PnMqttSink        *self = PN_MQTT_SINK (object);
+    PnMqttSinkPrivate *priv = PRIV (self);
 
-    g_clear_pointer (&self->broker_profile,   g_free);
-    g_clear_pointer (&self->url,              g_free);
-    g_clear_pointer (&self->topic_template,   g_free);
-    g_clear_pointer (&self->payload_template, g_free);
-    g_clear_pointer (&self->username,         g_free);
-    g_clear_pointer (&self->password,         g_free);
-    g_clear_pointer (&self->client_id,        g_free);
+    g_clear_pointer (&priv->broker_profile,   g_free);
+    g_clear_pointer (&priv->url,              g_free);
+    g_clear_pointer (&priv->topic_template,   g_free);
+    g_clear_pointer (&priv->payload_template, g_free);
+    g_clear_pointer (&priv->username,         g_free);
+    g_clear_pointer (&priv->password,         g_free);
+    g_clear_pointer (&priv->client_id,        g_free);
 
-    if (self->pending != NULL)
+    if (priv->pending != NULL)
     {
-        g_queue_free_full (self->pending, pn_mqtt_pending_free);
-        self->pending = NULL;
+        g_queue_free_full (priv->pending, pn_mqtt_pending_free);
+        priv->pending = NULL;
     }
 
     G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->finalize (object);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Default vfunc implementations                                      */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_mqtt_sink_real_process_message (PnMqttSink *self, PnMessage *message)
+{
+    (void) self;
+    (void) message;
+    return TRUE;
+}
+
+void
+pn_mqtt_sink_real_report_error (PnMqttSink *self, const gchar *message)
+{
+    pn_node_log_error (PN_NODE (self), "%s", message);
 }
 
 static void
@@ -885,6 +970,9 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
     object_class->constructed  = pn_mqtt_sink_constructed;
     object_class->dispose      = pn_mqtt_sink_dispose;
     object_class->finalize     = pn_mqtt_sink_finalize;
+
+    klass->process_message     = pn_mqtt_sink_real_process_message;
+    klass->report_error        = pn_mqtt_sink_real_report_error;
 
     node_class->receive        = pn_mqtt_sink_receive;
 
@@ -1014,23 +1102,24 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
 static void
 pn_mqtt_sink_init (PnMqttSink *self)
 {
-    PnNode *node = PN_NODE (self);
+    PnMqttSinkPrivate *priv = PRIV (self);
+    PnNode            *node = PN_NODE (self);
 
-    self->broker_profile   = g_strdup ("");
-    self->url              = g_strdup (PN_MQTT_SINK_DEFAULT_URL);
-    self->topic_template   = NULL;
-    self->payload_template = NULL;
-    self->username         = NULL;
-    self->password         = NULL;
-    self->client_id        = NULL;
-    self->qos              = 0;
-    self->retain           = FALSE;
-    self->migrate_idle_id  = 0;
-    self->client           = NULL;
-    self->loop_running     = FALSE;
-    self->connected        = FALSE;
-    self->publish_error    = FALSE;
-    self->pending          = g_queue_new ();
+    priv->broker_profile   = g_strdup ("");
+    priv->url              = g_strdup (PN_MQTT_SINK_DEFAULT_URL);
+    priv->topic_template   = NULL;
+    priv->payload_template = NULL;
+    priv->username         = NULL;
+    priv->password         = NULL;
+    priv->client_id        = NULL;
+    priv->qos              = 0;
+    priv->retain           = FALSE;
+    priv->migrate_idle_id  = 0;
+    priv->client           = NULL;
+    priv->loop_running     = FALSE;
+    priv->connected        = FALSE;
+    priv->publish_error    = FALSE;
+    priv->pending          = g_queue_new ();
 
     pn_node_set_class_name (node, "MQTT Sink");
     pn_node_set_has_input  (node, TRUE);

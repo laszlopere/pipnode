@@ -1586,7 +1586,64 @@ to `#PnWebsocketClass`; a stale plugin built against the smaller v7
 class must be rebuilt against v8.
 
 
-20. REFERENCE PLUGINS IN THE TREE
+20. MQTT SINK / SOURCE BASE CLASSES
+-----------------------------------
+
+A device-specific MQTT node should derive from the bundled MQTT base
+classes rather than opening its own libmosquitto client: `#PnMqtt`
+(`<pipnode/pn-mqtt.h>`, the Source) and `#PnMqttSink`
+(`<pipnode/pn-mqtt-sink.h>`, the Sink).  Both are
+`G_DECLARE_DERIVABLE_TYPE`s in the GTK-free core.  The base owns the
+broker connection, the `mqtt-broker` profile binding (section 18), the
+automatic reconnect loop, the offline-publish backlog (Sink), and the
+red "needs configuration / disconnected" body state; the subclass only
+sees the messages and the errors.
+
+Source (`#PnMqtt`) overrides two vfuncs:
+
+      gboolean (*accept_topic)    (PnMqtt *self, const gchar *topic);
+      gboolean (*process_message) (PnMqtt *self, PnMessage *message);
+
+`accept_topic` runs on libmosquitto's network thread as soon as a
+PUBLISH lands, before it is decoded -- return %FALSE to drop it cheaply
+(the right hook for "ignore everything outside topic prefix X").
+`process_message` runs on the main thread on the fully-built message --
+mutate it in place to reshape, or return %FALSE to drop without
+emitting.
+
+Sink (`#PnMqttSink`) overrides two vfuncs:
+
+      gboolean (*process_message) (PnMqttSink *self, PnMessage *message);
+      void     (*report_error)    (PnMqttSink *self, const gchar *message);
+
+`process_message` runs on the main thread on the inbound message BEFORE
+the base resolves the publish topic / payload -- override it to stamp
+the topic / payload a particular relay or bridge expects instead of
+relying on an upstream `#PnRewrite`; return %FALSE to drop.
+
+Sensing errors.  Per section 12 a plugin must not rely on stdout/stderr
+to tell the user something went wrong.  The Sink funnels every error it
+detects -- a rejected publish, a refused or failed connect, an invalid
+broker URL, a TLS / auth setup failure -- through the `report_error`
+vfunc, always on the main thread.  The default implementation records
+the message in the per-node Log ring at `#PN_LOG_LEVEL_ERROR`
+(`pn_node_log_error`), which surfaces in the per-node Log dialog.  A
+subclass overrides it to react further (a device-specific note, its own
+state, a failure `#PnMessage` on a node that carries an output port).
+
+Chaining keeps a subclass future-proof if the defaults gain behaviour:
+call up to `pn_mqtt_real_accept_topic` / `pn_mqtt_real_process_message`,
+or `pn_mqtt_sink_real_process_message` /
+`pn_mqtt_sink_real_report_error`, to extend rather than replace the
+base.  Both `#PnMqttClass` and `#PnMqttSinkClass` carry reserved vfunc
+slots so further extension points can land without breaking out-of-tree
+subclasses.  Both bases live in the GTK-free core, so a device MQTT node
+ships as a single core-only `.so`; the broker-profile picker in the
+dialog comes from the profile-ref param-spec tag with no editor-side
+code in the plugin.
+
+
+21. REFERENCE PLUGINS IN THE TREE
 ---------------------------------
 
 The source tree carries a handful of plugins you can read for
@@ -1637,7 +1694,7 @@ worked examples; they all build out of the box from a fresh
         the clearest worked examples of `PnSettingsSchema`.
 
 
-21. QUICK CHECKLIST
+22. QUICK CHECKLIST
 -------------------
 
 Before publishing a plugin, walk through this list:
