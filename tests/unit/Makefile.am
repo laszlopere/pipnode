@@ -100,6 +100,7 @@ check_PROGRAMS = \
 	test-pn-mesh-pb \
 	test-pn-mesh-frame \
 	test-pn-mesh-qr \
+	test-pn-mesh-inuse \
 	test-pn-mqtt \
 	test-pn-mqtt-sink \
 	test-pn-mqtt-profile \
@@ -118,6 +119,7 @@ test_pn_ws_SOURCES           = test-pn-ws.c           pntest.c pntest.h
 test_pn_mesh_pb_SOURCES      = test-pn-mesh-pb.c      pntest.c pntest.h
 test_pn_mesh_frame_SOURCES   = test-pn-mesh-frame.c   pntest.c pntest.h
 test_pn_mesh_qr_SOURCES      = test-pn-mesh-qr.c      pntest.c pntest.h
+test_pn_mesh_inuse_SOURCES   = test-pn-mesh-inuse.c   pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h

@@ -126,6 +126,36 @@ build_device_row (PnMeshDevice *device)
     }
     gtk_box_pack_start (GTK_BOX (box), subtitle, FALSE, FALSE, 0);
 
+    /* A port another process already holds open (typically a Zigbee /
+     * serial daemon that grabbed a generic CP2102 dongle the VID:PID
+     * match mistook for a Heltec -- TODO #33) must never be touched.
+     * Render the row insensitive (so it cannot be clicked, keyboard-
+     * selected, or activated) and spell out why.  The auto-select and
+     * activation paths skip in-use devices too -- see on_scan_done and
+     * on_row_activated_thunk -- because programmatic selection bypasses
+     * widget sensitivity. */
+    if (device->in_use)
+    {
+        GtkWidget *reason;
+        gchar     *text;
+
+        text = g_strdup_printf ("In use by %s — cannot connect",
+                                device->in_use_by != NULL
+                                        ? device->in_use_by
+                                        : "another process");
+        reason = gtk_label_new (text);
+        g_free (text);
+        gtk_label_set_xalign (GTK_LABEL (reason), 0.0);
+        gtk_label_set_line_wrap (GTK_LABEL (reason), TRUE);
+        gtk_box_pack_start (GTK_BOX (box), reason, FALSE, FALSE, 0);
+
+        gtk_widget_set_sensitive (row, FALSE);
+        gtk_widget_set_tooltip_text (
+                row, "This serial port is open in another program. "
+                     "Pipnode will not connect to it so it cannot "
+                     "disturb that program's device.");
+    }
+
     gtk_container_add (GTK_CONTAINER (row), box);
 
     /* Hand the row our own copy of the descriptor; row-destroy frees it. */
@@ -171,6 +201,31 @@ static void
 set_scanning (DeviceListCtx *ctx, gboolean scanning)
 {
     ctx->scanning = scanning;
+}
+
+/* First row whose device is actually connectable (not held open by
+ * another process).  Programmatic selection bypasses widget sensitivity,
+ * so the auto-select path must skip in-use rows explicitly -- otherwise
+ * it would "connect" to a disabled device and try to open its port. */
+static GtkListBoxRow *
+first_connectable_row (GtkListBox *list)
+{
+    GList         *rows = gtk_container_get_children (GTK_CONTAINER (list));
+    GtkListBoxRow *out  = NULL;
+    GList         *l;
+
+    for (l = rows; l != NULL; l = l->next)
+    {
+        PnMeshDevice *d = g_object_get_data (G_OBJECT (l->data),
+                                             PN_MESH_ROW_DEVICE_QDATA);
+        if (d != NULL && !d->in_use)
+        {
+            out = GTK_LIST_BOX_ROW (l->data);
+            break;
+        }
+    }
+    g_list_free (rows);
+    return out;
 }
 
 static void
@@ -231,7 +286,9 @@ on_scan_done (GObject *source, GAsyncResult *result, gpointer user_data)
             {
                 PnMeshDevice *d = g_object_get_data (
                         G_OBJECT (l->data), PN_MESH_ROW_DEVICE_QDATA);
-                if (d != NULL &&
+                /* Skip a now-in-use match: never re-activate a device
+                 * that another process grabbed since the last scan. */
+                if (d != NULL && !d->in_use &&
                     g_strcmp0 (d->tty, ctx->activated_tty) == 0)
                 {
                     target = GTK_LIST_BOX_ROW (l->data);
@@ -243,7 +300,7 @@ on_scan_done (GObject *source, GAsyncResult *result, gpointer user_data)
 
         if (target == NULL &&
             (ctx->auto_select_pending || ctx->activated_tty != NULL))
-            target = gtk_list_box_get_row_at_index (ctx->list, 0);
+            target = first_connectable_row (ctx->list);
 
         ctx->auto_select_pending = FALSE;
 
@@ -253,7 +310,7 @@ on_scan_done (GObject *source, GAsyncResult *result, gpointer user_data)
                     g_object_get_data (G_OBJECT (target),
                                        PN_MESH_ROW_DEVICE_QDATA);
             gtk_list_box_select_row (ctx->list, target);
-            if (device != NULL && ctx->activated_cb != NULL)
+            if (device != NULL && !device->in_use && ctx->activated_cb != NULL)
             {
                 g_free (ctx->activated_tty);
                 ctx->activated_tty = g_strdup (device->tty);
@@ -495,7 +552,10 @@ on_row_activated_thunk (GtkListBox    *box,
     if (ctx->activated_cb == NULL || row == NULL)
         return;
     device = g_object_get_data (G_OBJECT (row), PN_MESH_ROW_DEVICE_QDATA);
-    if (device != NULL)
+    /* An in-use device's row is insensitive, so GTK should not fire
+     * row-activated for it -- but guard anyway: never hand a port held
+     * by another process to the connection code. */
+    if (device != NULL && !device->in_use)
     {
         g_free (ctx->activated_tty);
         ctx->activated_tty = g_strdup (device->tty);

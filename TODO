@@ -1334,3 +1334,33 @@ core (added 2026-05-29):
   lib/pn-set.c, lib/pn-rewrite.c, lib/pn-debug.c.
   NOT nodes -- leave as-is: pn-node.c, pn-worksheet.c, pn-profile-schema.c,
   pn-settings-schema.c, the pn-mesh-* dialog/list files.
+
+(33) Meshtastic discovery: stop treating a BARE 10c4:ea60 as a Meshtastic
+device.  The VID:PID table in lib/pn-mesh-discover.c (KNOWN_DEVICES) matches
+the Heltec V3 on 10c4:ea60 -- but that is the GENERIC Silicon Labs CP2102 /
+CP2102N USB-UART chip, used by countless unrelated boards.  In particular the
+common Sonoff/ITead Zigbee dongles (ZBDongle-P) are CP2102N -> 10c4:ea60, so a
+plugged-in Zigbee coordinator shows up in the Meshtastic dialog as a "Heltec
+V3".  Picking it aims the Meshtastic want_config_id handshake at a Z-Stack
+UART (root cause of the 2026-05-29 zigbee2mqtt CPU-spin incident: pipnode
+opened the shared /dev/ttyUSB and wrote Meshtastic frames into it; zigbee2mqtt
+choked on the corrupted byte stream).
+
+  MITIGATED 2026-05-29 (see the in-use guard added the same day): such a
+  device, while it is open by zigbee2mqtt (or anything else), now appears
+  DISABLED in the list with an "in use by <proc>" note and can never be
+  opened (pn_mesh_tty_in_use + TIOCEXCL in pn-mesh-serial.c).  But that only
+  helps WHILE the other process holds the port -- an idle, unclaimed CP2102
+  Zigbee dongle would still be mislabelled "Heltec V3" and be connectable.
+
+  THE WORK (why it is hard): sysfs alone cannot disambiguate -- the product /
+  manufacturer / serial strings are the chip's generic defaults
+  ("CP2102 USB to UART Bridge Controller" / "Silicon Labs"), identical on a
+  Heltec and a Zigbee dongle.  The only reliable tell is a safe, read-only
+  probe over the wire (e.g. a Meshtastic want_config_id and a bounded wait for
+  a valid 0x94 0xC3 frame) -- but ANY write is exactly what we must NOT do to
+  a non-Meshtastic device.  Options to weigh: (a) mark generic-CP2102 matches
+  as "unverified / possibly another device" in the UI and require an explicit
+  user confirm before the first write; (b) keep a denylist of known-NON-mesh
+  CP2102 product/serial strings; (c) cross-check against a system Zigbee/serial
+  registry.  None is clean; deferred deliberately.

@@ -40,6 +40,10 @@
 
 #include "pn-mesh-discover.h"
 
+#include <limits.h>   /* PATH_MAX */
+#include <stdlib.h>   /* realpath, strtol */
+#include <unistd.h>   /* getpid */
+
 /* ------------------------------------------------------------------ */
 /*  PnMeshDevice                                                       */
 /* ------------------------------------------------------------------ */
@@ -57,6 +61,7 @@ pn_mesh_device_free (PnMeshDevice *device)
     g_free (device->product);
     g_free (device->serial);
     g_free (device->tty);
+    g_free (device->in_use_by);
     g_slice_free (PnMeshDevice, device);
 }
 
@@ -76,6 +81,8 @@ pn_mesh_device_copy (const PnMeshDevice *src)
     out->product      = g_strdup (src->product);
     out->serial       = g_strdup (src->serial);
     out->tty          = g_strdup (src->tty);
+    out->in_use       = src->in_use;
+    out->in_use_by    = g_strdup (src->in_use_by);
     return out;
 }
 
@@ -257,6 +264,143 @@ find_tty_device (const gchar *usb_path)
 }
 
 /* ------------------------------------------------------------------ */
+/*  In-use detection (/proc walk)                                       */
+/* ------------------------------------------------------------------ */
+
+/* realpath() into a freshly-allocated string, falling back to a plain
+ * g_strdup of @path when it cannot be resolved (deleted file, EACCES,
+ * ...).  Both a /proc/<pid>/fd/N symlink target and a /dev tty are run
+ * through this so they compare on equal footing. */
+static gchar *
+canonicalize (const gchar *path)
+{
+    char resolved[PATH_MAX];
+
+    if (path != NULL && realpath (path, resolved) != NULL)
+        return g_strdup (resolved);
+    return g_strdup (path != NULL ? path : "");
+}
+
+gboolean
+pn_mesh_path_held_by_pid (pid_t pid, const gchar *path)
+{
+    gchar       *fd_dir;
+    GDir        *d;
+    const gchar *name;
+    gchar       *want;
+    gboolean     held = FALSE;
+
+    if (path == NULL)
+        return FALSE;
+
+    want   = canonicalize (path);
+    fd_dir = g_strdup_printf ("/proc/%ld/fd", (long) pid);
+    d = g_dir_open (fd_dir, 0, NULL);
+    g_free (fd_dir);
+    if (d == NULL)              /* no such pid, or another user's process */
+    {
+        g_free (want);
+        return FALSE;
+    }
+
+    while (!held && (name = g_dir_read_name (d)) != NULL)
+    {
+        gchar *link = g_strdup_printf ("/proc/%ld/fd/%s", (long) pid, name);
+        gchar *tgt  = g_file_read_link (link, NULL);
+        g_free (link);
+
+        if (tgt != NULL)
+        {
+            gchar *canon = canonicalize (tgt);
+            if (g_strcmp0 (canon, want) == 0)
+                held = TRUE;
+            g_free (canon);
+            g_free (tgt);
+        }
+    }
+
+    g_dir_close (d);
+    g_free (want);
+    return held;
+}
+
+/* Best-effort human name for a pid: the basename of argv[0] from
+ * /proc/<pid>/cmdline (its fields are NUL-separated, so the buffer up to
+ * the first NUL *is* argv[0]).  Falls back to /proc/<pid>/comm.  cmdline
+ * is preferred because comm can be a thread name rather than the program
+ * -- e.g. node renames its main thread to "MainThread", which would be a
+ * baffling thing to show a user as "the program holding the port". */
+static gchar *
+read_proc_name (long pid)
+{
+    gchar *path;
+    gchar *raw  = NULL;
+    gsize  len  = 0;
+    gchar *name = NULL;
+
+    path = g_strdup_printf ("/proc/%ld/cmdline", pid);
+    if (g_file_get_contents (path, &raw, &len, NULL)
+        && len > 0 && raw[0] != '\0')
+        name = g_path_get_basename (raw);
+    g_free (path);
+    g_free (raw);
+
+    if (name == NULL)   /* kernel thread (empty cmdline) or read failed */
+    {
+        gchar *base = g_strdup_printf ("/proc/%ld", pid);
+        name = read_sysfs_attr (base, "comm");
+        g_free (base);
+    }
+    return name;
+}
+
+gboolean
+pn_mesh_tty_in_use (const gchar *tty, gchar **holder_out)
+{
+    GDir        *proc;
+    const gchar *name;
+    long         self   = (long) getpid ();
+    gboolean     in_use = FALSE;
+
+    if (holder_out != NULL)
+        *holder_out = NULL;
+    if (tty == NULL)
+        return FALSE;
+
+    proc = g_dir_open ("/proc", 0, NULL);
+    if (proc == NULL)
+        return FALSE;
+
+    while (!in_use && (name = g_dir_read_name (proc)) != NULL)
+    {
+        char *end;
+        long  pid;
+
+        pid = strtol (name, &end, 10);
+        if (*end != '\0' || pid <= 0)   /* skip non-pid entries in /proc */
+            continue;
+        if (pid == self)                /* a port WE hold is not "in use" */
+            continue;
+
+        if (pn_mesh_path_held_by_pid ((pid_t) pid, tty))
+        {
+            in_use = TRUE;
+            if (holder_out != NULL)
+            {
+                gchar *name = read_proc_name (pid);
+                *holder_out = name != NULL
+                        ? g_strdup_printf ("%s (pid %ld)", name, pid)
+                        : g_strdup_printf ("pid %ld", pid);
+                g_free (name);
+            }
+        }
+    }
+
+    g_dir_close (proc);
+    return in_use;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Synchronous scan                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -330,6 +474,12 @@ pn_mesh_discover_sync (void)
             pn_mesh_device_free (device);
             continue;
         }
+
+        /* Flag a port already held open by another process (e.g. a
+         * Zigbee daemon that grabbed a generic CP2102 dongle).  The UI
+         * shows such a row disabled and the open path refuses it, so we
+         * never disturb a device that is not actually ours -- TODO #33. */
+        device->in_use = pn_mesh_tty_in_use (device->tty, &device->in_use_by);
 
         g_ptr_array_add (out, device);
     }

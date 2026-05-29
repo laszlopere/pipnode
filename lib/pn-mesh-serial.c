@@ -36,6 +36,7 @@
 #endif
 
 #include "pn-mesh-serial.h"
+#include "pn-mesh-discover.h"   /* pn_mesh_tty_in_use */
 
 #include <gio/gio.h>
 
@@ -43,6 +44,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <string.h>
+#include <sys/ioctl.h>   /* TIOCEXCL */
 #include <termios.h>
 #include <unistd.h>
 
@@ -232,6 +234,15 @@ open_configured (const gchar *path, GError **error)
         return -1;
     }
 
+    /* Claim the port exclusively so a later opener (or a racing scan that
+     * just missed an in-use check) gets EBUSY instead of sharing the line
+     * with us.  Best-effort: TIOCEXCL only blocks SUBSEQUENT opens, so it
+     * cannot evict a daemon that opened first -- pn_mesh_tty_in_use() in
+     * pn_mesh_serial_open() is what catches that case up front. */
+    if (ioctl (fd, TIOCEXCL) != 0)
+        g_debug ("TIOCEXCL on %s failed (%s) -- continuing without "
+                 "exclusive lock", path, g_strerror (errno));
+
     if (!configure_termios (fd, error))
     {
         close (fd);
@@ -256,6 +267,24 @@ pn_mesh_serial_open (const gchar *path, GError **error)
 {
     PnMeshSerial *self;
     int           fd;
+    gchar        *holder = NULL;
+
+    g_return_val_if_fail (path != NULL, NULL);
+
+    /* Hard guard: never open a port another process already holds.  This
+     * is what keeps the Meshtastic handshake away from a Zigbee dongle
+     * (or any other serial daemon's device) that the generic CP2102
+     * VID:PID match would otherwise let through -- TODO #33.  We refuse
+     * BEFORE open() so the device is not disturbed at all (no DTR/RTS
+     * toggle, no termios reconfigure, no stray bytes). */
+    if (pn_mesh_tty_in_use (path, &holder))
+    {
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_BUSY,
+                     "%s is already in use by %s; refusing to open it.",
+                     path, holder != NULL ? holder : "another process");
+        g_free (holder);
+        return NULL;
+    }
 
     fd = open_configured (path, error);
     if (fd < 0)

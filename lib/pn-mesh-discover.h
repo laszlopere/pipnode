@@ -18,6 +18,7 @@
 
 #include <glib.h>
 #include <gio/gio.h>
+#include <sys/types.h>   /* pid_t */
 
 G_BEGIN_DECLS
 
@@ -39,10 +40,37 @@ typedef struct
     gchar *product;       /* sysfs `product` (USB-string), may be NULL   */
     gchar *serial;        /* sysfs `serial`, may be NULL                 */
     gchar *tty;           /* absolute /dev/ttyXXX path                   */
+
+    /* TRUE when @tty is currently held open by another process (most
+     * commonly a Zigbee/serial daemon that grabbed a generic CP2102
+     * dongle -- see TODO #33).  Such a device must never be opened or
+     * written to; the UI shows it disabled.  @in_use_by is a
+     * human-readable holder description ("zigbee2mqtt (pid 1768043)"),
+     * NULL when the holder could not be named (e.g. owned by another
+     * user, so its /proc is unreadable). */
+    gboolean in_use;
+    gchar   *in_use_by;
 } PnMeshDevice;
 
 void               pn_mesh_device_free (PnMeshDevice *device);
 PnMeshDevice      *pn_mesh_device_copy (const PnMeshDevice *device);
+
+/* Is @tty currently held open by a process OTHER than ourselves?  Walks
+ * /proc/<pid>/fd looking for a descriptor that resolves to @tty.  When a
+ * holder is found and @holder_out is non-NULL, *holder_out is set to a
+ * newly-allocated "<comm> (pid N)" string (caller g_free()s); it is left
+ * NULL otherwise.  Best-effort: holders owned by another user (whose
+ * /proc/<pid>/fd we cannot read) are invisible, so a FALSE return means
+ * "no detectable holder", not a hard guarantee -- the exclusive-open
+ * (TIOCEXCL) in pn-mesh-serial.c is the second line of defence.  Safe to
+ * call from a worker thread; pure /proc reads, never touches @tty itself. */
+gboolean pn_mesh_tty_in_use (const gchar *tty, gchar **holder_out);
+
+/* Lower-level helper behind pn_mesh_tty_in_use(): does process @pid hold
+ * any open descriptor that resolves to @path?  Exposed for unit testing
+ * (the public wrapper above skips our own pid, which makes self-checks
+ * impossible to assert).  Returns FALSE on any access error. */
+gboolean pn_mesh_path_held_by_pid (pid_t pid, const gchar *path);
 
 /* Synchronous USB scan.  Walks /sys/bus/usb/devices/ matching against
  * the same VID:PID table pip-mesh uses; resolves each match's tty via
