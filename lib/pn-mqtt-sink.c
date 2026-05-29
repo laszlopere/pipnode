@@ -124,12 +124,12 @@ enum {
     PROP_0,
     PROP_BROKER_PROFILE,
     PROP_URL,
-    PROP_TOPIC,
-    PROP_PAYLOAD,
-    PROP_RETAIN,
     PROP_USERNAME,
     PROP_PASSWORD,
     PROP_CLIENT_ID,
+    PROP_TOPIC,
+    PROP_PAYLOAD,
+    PROP_RETAIN,
     PROP_QOS,
     N_PROPS,
 };
@@ -928,6 +928,36 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             PN_MQTT_SINK_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_USERNAME] = g_param_spec_string (
+            "username", "Username",
+            "MQTT username.  Empty disables auth.",
+            NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_PASSWORD] = g_param_spec_string (
+            "password", "Password",
+            "MQTT password; only sent when username is also set.  Legacy "
+            "inline fallback — new configurations keep it in an mqtt-broker "
+            "vault profile; tagged secret so it is never written to the "
+            "workflow file.",
+            NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_secret (props[PROP_PASSWORD]);
+
+    props[PROP_CLIENT_ID] = g_param_spec_string (
+            "client-id", "Client ID",
+            "MQTT client identifier.  Empty asks libmosquitto to "
+            "generate a random one -- fine for most cases.  Pin a "
+            "fixed id when the broker enforces an ACL by client id "
+            "(and use a *different* id from any paired MQTT Source on "
+            "the same broker, since two clients with the same id kick "
+            "each other off).",
+            NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Not profile-related: the publish topic/payload/retain + QoS sit
+     * together at the end of the dialog, after the broker/credential
+     * fields. */
     props[PROP_TOPIC] = g_param_spec_string (
             "topic-template", "Topic template",
             "Optional publish-topic template.  When empty the publish "
@@ -965,33 +995,6 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
             "publishes are retained for exactly this reason); leave "
             "off for transient events.",
             FALSE,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    props[PROP_USERNAME] = g_param_spec_string (
-            "username", "Username",
-            "MQTT username.  Empty disables auth.",
-            NULL,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    props[PROP_PASSWORD] = g_param_spec_string (
-            "password", "Password",
-            "MQTT password; only sent when username is also set.  Legacy "
-            "inline fallback — new configurations keep it in an mqtt-broker "
-            "vault profile; tagged secret so it is never written to the "
-            "workflow file.",
-            NULL,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-    pn_param_spec_set_secret (props[PROP_PASSWORD]);
-
-    props[PROP_CLIENT_ID] = g_param_spec_string (
-            "client-id", "Client ID",
-            "MQTT client identifier.  Empty asks libmosquitto to "
-            "generate a random one -- fine for most cases.  Pin a "
-            "fixed id when the broker enforces an ACL by client id "
-            "(and use a *different* id from any paired MQTT Source on "
-            "the same broker, since two clients with the same id kick "
-            "each other off).",
-            NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_QOS] = g_param_spec_uint (

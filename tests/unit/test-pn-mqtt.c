@@ -134,6 +134,56 @@ test_property_roundtrip (void)
     g_object_unref (self);
 }
 
+/* The node dialog lays one editor row out per editable property in
+ * g_object_class_list_properties() order (see build_property_grid() in
+ * pn-node-dialog.c), filtering exactly as below.  Pin that order so the
+ * "Subscribe topic / Subscribe QoS sit last, after the broker/credential
+ * fields" layout can't silently regress: the profile-ref inline fields
+ * (url/username/password/client-id) stay grouped right after the picker,
+ * then the non-profile subscribe settings come last and adjacent. */
+static void
+test_property_order (void)
+{
+    static const gchar *expected[] = {
+        "broker-profile",
+        "url",
+        "username",
+        "password",
+        "client-id",
+        "subscribe-topic",
+        "qos",
+    };
+    GObjectClass *object_class = g_type_class_ref (PN_TYPE_MQTT);
+    guint         n_props      = 0;
+    GParamSpec  **pspecs       = g_object_class_list_properties (object_class,
+                                                                &n_props);
+    guint         row          = 0;
+    guint         i;
+
+    for (i = 0; i < n_props; i++)
+    {
+        GParamSpec *p = pspecs[i];
+
+        /* Same filter the dialog applies: own properties only, writable,
+         * not construct-only. */
+        if (p->owner_type != PN_TYPE_MQTT)
+            continue;
+        if ((p->flags & G_PARAM_WRITABLE) == 0)
+            continue;
+        if ((p->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
+            continue;
+
+        if (row < G_N_ELEMENTS (expected))
+            PN_CHECK_CMPSTR (g_param_spec_get_name (p), ==, expected[row]);
+        row++;
+    }
+
+    PN_CHECK_CMPINT (row, ==, G_N_ELEMENTS (expected));
+
+    g_free (pspecs);
+    g_type_class_unref (object_class);
+}
+
 static void
 test_broker_profile_ref_tag (void)
 {
@@ -158,6 +208,7 @@ main (int argc, char **argv)
     pn_test_add ("class_metadata",        test_class_metadata);
     pn_test_add ("property_defaults",     test_property_defaults);
     pn_test_add ("property_roundtrip",    test_property_roundtrip);
+    pn_test_add ("property_order",        test_property_order);
     pn_test_add ("broker_profile_ref",    test_broker_profile_ref_tag);
     return pn_test_run ();
 }

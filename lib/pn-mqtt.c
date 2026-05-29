@@ -126,10 +126,10 @@ enum {
     PROP_0,
     PROP_BROKER_PROFILE,
     PROP_URL,
-    PROP_TOPIC,
     PROP_USERNAME,
     PROP_PASSWORD,
     PROP_CLIENT_ID,
+    PROP_TOPIC,
     PROP_QOS,
     N_PROPS,
 };
@@ -980,15 +980,6 @@ pn_mqtt_class_init (PnMqttClass *klass)
             PN_MQTT_DEFAULT_URL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
-    props[PROP_TOPIC] = g_param_spec_string (
-            "subscribe-topic", "Subscribe topic",
-            "MQTT topic filter to subscribe to.  Honours the standard "
-            "MQTT wildcards: + matches a single level, # matches the "
-            "remainder of the topic.  Defaults to \"#\" so the node "
-            "produces output as soon as it connects.",
-            PN_MQTT_DEFAULT_TOPIC,
-            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
     props[PROP_USERNAME] = g_param_spec_string (
             "username", "Username",
             "MQTT username.  Empty disables auth.",
@@ -1012,6 +1003,17 @@ pn_mqtt_class_init (PnMqttClass *klass)
             "a fixed id when the broker enforces an ACL by client "
             "id.",
             NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Not profile-related: the subscribe topic + QoS sit together at the
+     * end of the dialog, after the broker/credential fields. */
+    props[PROP_TOPIC] = g_param_spec_string (
+            "subscribe-topic", "Subscribe topic",
+            "MQTT topic filter to subscribe to.  Honours the standard "
+            "MQTT wildcards: + matches a single level, # matches the "
+            "remainder of the topic.  Defaults to \"#\" so the node "
+            "produces output as soon as it connects.",
+            PN_MQTT_DEFAULT_TOPIC,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_QOS] = g_param_spec_uint (
