@@ -599,10 +599,11 @@ pn_rgba_to_color_value (
 #define PROFILE_REF_KEY "pn-profile-ref-binding"
 
 typedef struct {
-    GObject         *target;   /* borrowed */
-    gchar           *prop;     /* owned    */
-    gchar           *type_id;  /* owned    */
-    GtkComboBoxText *combo;    /* borrowed */
+    GObject         *target;          /* borrowed */
+    gchar           *prop;            /* owned    */
+    gchar           *type_id;         /* owned    */
+    gchar           *custom_trigger;  /* owned, NULL = no "Custom settings" */
+    GtkComboBoxText *combo;           /* borrowed */
     gboolean         syncing;
 } ProfileRefBinding;
 
@@ -612,6 +613,7 @@ profile_ref_binding_free (gpointer data)
     ProfileRefBinding *b = data;
     g_free (b->prop);
     g_free (b->type_id);
+    g_free (b->custom_trigger);
     g_free (b);
 }
 
@@ -636,6 +638,12 @@ profile_ref_populate (ProfileRefBinding *b)
         : g_strdup ("Default (none set)");
     gtk_combo_box_text_append (b->combo, "", def_label);
     g_free (def_label);
+
+    /* Opt-in "Custom settings" entry: the node uses its own inline settings
+     * (PN_PROFILE_REF_CUSTOM resolves to no profile). */
+    if (b->custom_trigger != NULL)
+        gtk_combo_box_text_append (b->combo, PN_PROFILE_REF_CUSTOM,
+                                   "Custom settings");
 
     profiles = pn_vault_list_profiles (vault, b->type_id);
     for (l = profiles; l != NULL; l = l->next)
@@ -691,6 +699,36 @@ on_profile_ref_refresh (gpointer combo)
         profile_ref_populate (b);
 }
 
+/* The node's inline trigger property (e.g. "url") was edited: switch the
+ * picker to "Custom settings" so the inline settings take effect.  Only flips
+ * when the trigger now has a non-empty value (clearing it should not strand the
+ * node on an empty custom config), and is a no-op when already custom. */
+static void
+on_profile_ref_trigger_changed (GObject *target, GParamSpec *pspec,
+                                gpointer combo)
+{
+    ProfileRefBinding *b = g_object_get_data (G_OBJECT (combo), PROFILE_REF_KEY);
+    gchar             *trigger_val = NULL;
+    gchar             *current     = NULL;
+
+    (void) pspec;
+    if (b == NULL || b->syncing)
+        return;
+
+    g_object_get (target, b->custom_trigger, &trigger_val, NULL);
+    if (trigger_val == NULL || *trigger_val == '\0')
+    {
+        g_free (trigger_val);
+        return;
+    }
+    g_free (trigger_val);
+
+    g_object_get (b->target, b->prop, &current, NULL);
+    if (g_strcmp0 (current, PN_PROFILE_REF_CUSTOM) != 0)
+        g_object_set (b->target, b->prop, PN_PROFILE_REF_CUSTOM, NULL);
+    g_free (current);
+}
+
 static void
 on_profile_ref_edit_clicked (GtkButton *button, gpointer user_data)
 {
@@ -720,6 +758,8 @@ build_profile_ref_editor (GObject     *target,
     b->target  = target;
     b->prop    = g_strdup (pspec->name);
     b->type_id = g_strdup (type_id);
+    b->custom_trigger =
+        g_strdup (pn_param_spec_get_profile_ref_custom_trigger (pspec));
     b->combo   = GTK_COMBO_BOX_TEXT (combo);
 
     gtk_widget_set_hexpand (combo, TRUE);
@@ -743,6 +783,17 @@ build_profile_ref_editor (GObject     *target,
                              G_CALLBACK (on_profile_ref_target_notify),
                              combo, 0);
     g_free (sig);
+
+    /* When tagged, editing the inline trigger property (e.g. "url") flips the
+     * picker to "Custom settings" (auto-disconnected with the combo). */
+    if (b->custom_trigger != NULL)
+    {
+        sig = g_strdup_printf ("notify::%s", b->custom_trigger);
+        g_signal_connect_object (target, sig,
+                                 G_CALLBACK (on_profile_ref_trigger_changed),
+                                 combo, 0);
+        g_free (sig);
+    }
 
     /* Keep the list and the "Default (…)" label live while the dialog is open
      * (auto-disconnected with the combo). */

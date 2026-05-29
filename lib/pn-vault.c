@@ -866,6 +866,14 @@ pn_node_get_profile (PnNode *self, const gchar *ref_prop_name)
     g_object_get (self, ref_prop_name, &ref, NULL);
     vault = pn_vault_get_default ();
 
+    /* The "Custom settings" sentinel means "no profile — use the node's own
+     * inline settings": resolve to NULL with no primary fallback. */
+    if (g_strcmp0 (ref, PN_PROFILE_REF_CUSTOM) == 0)
+    {
+        g_free (ref);
+        return NULL;
+    }
+
     if (ref != NULL && *ref != '\0')
         profile = pn_vault_get_profile (vault, ref);
 

@@ -1121,6 +1121,46 @@ void         pn_param_spec_set_profile_ref (GParamSpec  *pspec,
 const gchar *pn_param_spec_get_profile_ref (GParamSpec *pspec);
 
 /**
+ * PN_PROFILE_REF_CUSTOM:
+ *
+ * Reserved profile-ref value meaning "no profile — use the node's own inline
+ * settings instead" (the "Custom settings" choice in the picker).  A profile-ref
+ * property normally stores either "" (follow the type's primary profile) or a
+ * vault profile id; this sentinel is the third state.  pn_node_get_profile()
+ * returns %NULL for it (no primary fallback), so a node resolves to its inline
+ * fields.  The leading '@' keeps it from colliding with a real vault profile id.
+ * Only profile-ref properties tagged with
+ * pn_param_spec_set_profile_ref_custom_trigger() offer this value.
+ */
+#define PN_PROFILE_REF_CUSTOM "@custom"
+
+/**
+ * pn_param_spec_set_profile_ref_custom_trigger:
+ * @pspec:        a string #GParamSpec already tagged with pn_param_spec_set_profile_ref()
+ * @trigger_prop: name of a sibling inline property (e.g. "url") whose user-edit
+ *                should switch the picker to "Custom settings"
+ *
+ * Opts a profile-ref property into offering a "Custom settings" entry
+ * (#PN_PROFILE_REF_CUSTOM) in its picker, alongside the "Default" entry and the
+ * vault profiles.  When the user edits @trigger_prop in the dialog, the picker
+ * flips to "Custom settings" so the node's inline settings take effect.  Tag once
+ * in `_class_init`, after pn_param_spec_set_profile_ref().  The string is copied.
+ */
+void         pn_param_spec_set_profile_ref_custom_trigger (GParamSpec  *pspec,
+                                                           const gchar *trigger_prop);
+
+/**
+ * pn_param_spec_get_profile_ref_custom_trigger:
+ * @pspec: a #GParamSpec
+ *
+ * Returns: (transfer none) (nullable): the trigger property name @pspec was
+ *   tagged with via pn_param_spec_set_profile_ref_custom_trigger(), or %NULL when
+ *   untagged.  A non-%NULL result means the picker should offer "Custom settings".
+ *   Borrowed — valid for the lifetime of @pspec.
+ */
+const gchar *pn_param_spec_get_profile_ref_custom_trigger (GParamSpec *pspec);
+
+/**
  * pn_param_spec_set_secret:
  * @pspec: a string-typed #GParamSpec holding a credential
  *
