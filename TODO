@@ -1003,16 +1003,19 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         TEXTUAL-REASON MECHANISM DONE 2026-05-29 (#32): the agreed
         per-node "log" dialog now exists -- every PnNode carries a log
         ring (pn_node_log) and the right-click menu opens a live console
-        (PnLogDialog).  STILL OPEN for C1: WIRING the MQTT nodes to it.
-        pn-mqtt.c / pn-mqtt-sink.c still only g_warning; they need to call
-        pn_node_log from their failure paths so the reason is readable in
-        the app.  CAUTION: both warn from libmosquitto's NETWORK thread, so
-        they must log from their main-thread marshal points (conn_state_
-        trampoline, flush_pending_on_main), NOT inline -- see #32's
-        checklist.  Source could ALSO emit success=FALSE downstream
-        (Weather pattern); Sink has no output, so the log dialog is its
-        only readable channel.  The g_warning/g_message calls stay as
-        supplementary diagnostics for terminal runs.
+        (PnLogDialog).
+        C1 NOW CLOSED 2026-05-29: pn-mqtt.c and pn-mqtt-sink.c report their
+        failures through pn_node_log so the REASON is readable in the node's
+        Log dialog.  restart_client failures (main thread) log directly; the
+        net-thread reasons (connect refused / subscribe failed / disconnect /
+        connected, plus the Sink's live & queued publish failures) ride the
+        existing main-thread conn-state trampoline (post_conn_state_on_main_
+        full) so log-changed is emitted on the main loop.  The g_warning/
+        g_message calls were then REMOVED (the user did not want the stderr
+        noise once the Log dialog covered it) -- pn_node_log is the sole
+        reporting channel for these nodes now.  (The Source could ALSO
+        emit success=FALSE downstream per the Weather pattern -- not needed
+        now that the log dialog covers both Source and the output-less Sink.)
   - C2  restart_client() runs from _init() (pn-mqtt.c:1173,
         pn-mqtt-sink.c:1154), before construction/deserialization is done.
         Source: starts the network thread before a SUBCLASS (Sink,
@@ -1087,6 +1090,31 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         inside the address.  Bracketed-IPv6 host[:port] is unsupported;
         handle '[...]' before scanning for the port colon (then add a
         parse-table case -- today's behaviour is a bug, so don't pin it).
+  - U1  Inline Broker URL silently ignored once any mqtt-broker profile
+        exists: empty broker-profile -> pn_node_get_profile falls back to
+        the PRIMARY profile, and pn_mqtt_resolve_connection takes every
+        field from a non-NULL profile, so a typed url did nothing (user
+        report 2026-05-29: "no matter what I write to Broker URL it keeps
+        using the saved broker").
+        DONE 2026-05-29 (final model = explicit "Custom settings"): the Broker
+        profile picker gained a third choice.  broker-profile now has three
+        states -- "" = Default/primary profile, "<id>" = that profile, and the
+        reserved sentinel PN_PROFILE_REF_CUSTOM ("@custom") = "Custom settings",
+        i.e. use the node's own inline url/credentials.  pn_node_get_profile()
+        returns NULL for the sentinel (no primary fallback), so resolution is
+        back to the simple profile-XOR-inline (pn_mqtt_resolve_connection
+        reverted from the interim per-field variant).  Editing the inline url
+        in the dialog auto-selects "Custom settings" (generic, opt-in:
+        pn_param_spec_set_profile_ref_custom_trigger(pspec,"url") makes the
+        shared profile-ref combo in pn-node-dialog.c add the entry + flip on
+        the trigger's notify).  Legacy nodes with no profile + a typed inline
+        url are migrated to the sentinel on load so they keep their url.
+        Applies to BOTH Source and Sink.  Covered by test-pn-mqtt-resolve.c
+        (profile_wins, custom_sentinel_uses_inline); documented in the url
+        property blurb + PnMqtt.html / PnMqttSink.html.
+        (History: first shipped "explicit profile wins, typed url overrides
+        only the primary fallback", then a per-field variant; the user chose
+        this explicit-mode model as the clearest.)
 
   TEST COVERAGE -- DONE 2026-05-28.  The pure logic was extracted into a
   new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
@@ -1197,9 +1225,17 @@ core (added 2026-05-29):
     [ ] lib/pn-http.c          [worker: auto-trigger; log from the tick's
                                 main-thread emit path]
     [ ] lib/pn-weather.c       [worker: auto-trigger, same as pn-http]
-    [ ] lib/pn-mqtt.c          [worker: libmosquitto net thread; log from
-                                conn_state_trampoline / flush_pending_on_main]
-    [ ] lib/pn-mqtt-sink.c     [worker: libmosquitto net thread, as pn-mqtt]
+    [x] lib/pn-mqtt.c          DONE 2026-05-29: restart_client failures (main
+                                thread) log directly; net-thread reasons
+                                (connect refused / subscribe failed / disconnect
+                                / connected) carried through the conn-state
+                                trampoline (post_conn_state_on_main_full) and
+                                logged on the main thread.  The g_warning/
+                                g_message calls were REMOVED (user: stop the
+                                stderr noise) -- pn_node_log is the sole channel.
+    [x] lib/pn-mqtt-sink.c     DONE 2026-05-29: same pattern; plus the live /
+                                queued publish failures (main thread) log
+                                directly.  g_warning/g_message removed too.
     [ ] lib/pn-ws.c            [check thread of the warning site]
     [ ] lib/pn-tts.c           [check: GSubprocess callback vs worker]
     [ ] lib/pn-sound.c
