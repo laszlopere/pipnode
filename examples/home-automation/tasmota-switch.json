@@ -15,7 +15,7 @@
       "properties" : {
         "broker-profile" : "",
         "url" : "",
-        "topic" : "#",
+        "subscribe-topic" : "#",
         "username" : "",
         "client-id" : "",
         "qos" : 0
