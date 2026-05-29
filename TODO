@@ -999,11 +999,19 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         cleared on the next good publish or reconnect) so a publish that
         fails while the session is up turns the node red instead of
         silently dropping the message.  Source subscribe-failure now goes
-        red instead of green (also closes L1).  STILL OPEN for C1: the
-        human-readable REASON.  Source has an output port so it could
-        emit success=FALSE downstream (Weather pattern); Sink has none --
-        the agreed next step is a per-node "log" dialog that surfaces the
-        last error text.  The g_warning/g_message calls are kept as
+        red instead of green (also closes L1).
+        TEXTUAL-REASON MECHANISM DONE 2026-05-29 (#32): the agreed
+        per-node "log" dialog now exists -- every PnNode carries a log
+        ring (pn_node_log) and the right-click menu opens a live console
+        (PnLogDialog).  STILL OPEN for C1: WIRING the MQTT nodes to it.
+        pn-mqtt.c / pn-mqtt-sink.c still only g_warning; they need to call
+        pn_node_log from their failure paths so the reason is readable in
+        the app.  CAUTION: both warn from libmosquitto's NETWORK thread, so
+        they must log from their main-thread marshal points (conn_state_
+        trampoline, flush_pending_on_main), NOT inline -- see #32's
+        checklist.  Source could ALSO emit success=FALSE downstream
+        (Weather pattern); Sink has no output, so the log dialog is its
+        only readable channel.  The g_warning/g_message calls stay as
         supplementary diagnostics for terminal runs.
   - C2  restart_client() runs from _init() (pn-mqtt.c:1173,
         pn-mqtt-sink.c:1154), before construction/deserialization is done.
