@@ -463,6 +463,11 @@ apply_zoom_anchor (gpointer data)
 #define PN_NODE_HEIGHT     (PN_GRID_STEP * 2)   /*  40 */
 #define PN_NODE_ICON_WIDTH (PN_GRID_STEP * 2)   /*  40 */
 #define PN_NODE_RADIUS       4.0
+/* Error-state decoration.  Any node whose pn_node_get_has_error() is set
+ * is painted with this body colour and warning glyph (overriding the
+ * node's own colour/icon) so every node type gets a uniform "I am
+ * broken" indication without painting its own.  ❗ U+2757. */
+#define PN_NODE_ERROR_ICON   "\xe2\x9d\x97"
 /* Horizontal breathing room inside the label area: keeps the text
  * (or its trailing ellipsis) from butting up against the icon-panel
  * separator on the left and the rounded outer edge on the right.
@@ -587,6 +592,7 @@ draw_node (
     const gboolean has_input  = pn_node_get_has_input  (node);
     const gboolean has_output = pn_node_get_has_output (node);
     const gboolean disabled   = pn_node_get_disabled   (node);
+    const gboolean has_error  = pn_node_get_has_error  (node);
     const double   x = pos->x;
     const double   y = pos->y;
     /* Standard styling fills the *header* portion of the footprint —
@@ -596,17 +602,29 @@ draw_node (
     double         full_h;
     const double   header_h = pn_node_get_header_height (node);
     pn_node_get_size (node, &full_w, &full_h);
-    /* Override the node's body colour with neutral grey while
-     * disabled, so the inert state reads at a glance.  All downstream
-     * shading (outline, icon panel, separator) is derived from r/g/b
-     * so this single substitution greys the entire node. */
+    /* Override the node's body colour: neutral grey while disabled (so
+     * the inert state reads at a glance), red while in an error state
+     * (so a broken node stands out).  Disabled wins — a node the user
+     * turned off is inert and not "erroring".  All downstream shading
+     * (outline, icon panel, separator) is derived from r/g/b so this
+     * single substitution recolours the entire node. */
     const GdkRGBA  grey      = { 0.72, 0.72, 0.72, 1.0 };
-    const double   r = disabled ? grey.red   : col->red;
-    const double   g = disabled ? grey.green : col->green;
-    const double   b = disabled ? grey.blue  : col->blue;
+    const GdkRGBA  errcol    = { 0.86, 0.30, 0.28, 1.0 };
+    const GdkRGBA *bodycol   = disabled  ? &grey
+                             : has_error ? &errcol
+                                         : col;
+    const double   r = bodycol->red;
+    const double   g = bodycol->green;
+    const double   b = bodycol->blue;
 
     if (icon  == NULL) icon  = "";
     if (label == NULL) label = "";
+
+    /* The error state also swaps the node's own glyph for a warning
+     * mark, mirroring the body recolour.  Disabled keeps the node's
+     * normal icon (greyed), since an inert node is not erroring. */
+    if (has_error && !disabled)
+        icon = PN_NODE_ERROR_ICON;
 
     /* Drop shadow — drawn first so it sits underneath the node body. */
     paint_drop_shadow (cr, x, y, full_w, header_h, PN_NODE_RADIUS);
@@ -2780,10 +2798,10 @@ pn_worksheet_draw (
 /*  Demo wiring                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Repaint whenever a node's "disabled" property flips, since the
- *  painter recolours the body in grey for inert nodes. */
+/** Repaint whenever a node property that the painter recolours by flips
+ *  — "disabled" (grey body) or "has-error" (red body + warning glyph). */
 static void
-on_node_notify_disabled (
+on_node_notify_appearance (
         GObject    *object,
         GParamSpec *pspec,
         gpointer    user_data)
@@ -2937,7 +2955,10 @@ on_node_added_to_store (
     (void) index;
 
     g_signal_connect (node, "notify::disabled",
-                      G_CALLBACK (on_node_notify_disabled),
+                      G_CALLBACK (on_node_notify_appearance),
+                      user_data);
+    g_signal_connect (node, "notify::has-error",
+                      G_CALLBACK (on_node_notify_appearance),
                       user_data);
     g_signal_connect (node, "notify::position",
                       G_CALLBACK (on_node_notify_position),
@@ -2995,8 +3016,10 @@ on_node_removed_from_store (
     (void) store;
     (void) index;
 
+    /* Disconnects every handler registered with this function — both the
+     * notify::disabled and notify::has-error connections. */
     g_signal_handlers_disconnect_by_func (
-            node, G_CALLBACK (on_node_notify_disabled), self);
+            node, G_CALLBACK (on_node_notify_appearance), self);
     g_signal_handlers_disconnect_by_func (
             node, G_CALLBACK (on_node_notify_position), self);
 

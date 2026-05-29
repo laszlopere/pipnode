@@ -77,6 +77,16 @@ typedef struct
      * the single-input behaviour with this left at 0. */
     gint     n_inputs;
     gboolean disabled;
+    /* Transient runtime "this node is in an error state" flag.  Set by a
+     * node when its work fails (e.g. an MQTT broker connection drops or a
+     * publish is rejected) and cleared on recovery.  Purely visual — the
+     * worksheet painter draws the node body red with a warning glyph while
+     * it is set, giving any node a uniform "I am broken" indication
+     * without each type having to paint its own.  Not persisted: it is
+     * recomputed at runtime, so it is deliberately left out of the on-disk
+     * format (see should_serialize_property: PnNode-owned props are
+     * skipped). */
+    gboolean has_error;
     /* Spreadsheet-style sheet tag.  No UI yet — the property is in
      * place so a future commit can grow per-sheet tabs without
      * requiring a save-format migration.  Defaults to "Worksheet"
@@ -113,6 +123,7 @@ enum {
     PROP_HAS_INPUT,
     PROP_HAS_OUTPUT,
     PROP_DISABLED,
+    PROP_HAS_ERROR,
     PROP_WORKSHEET,
     PROP_TOPIC,
     N_PROPS,
@@ -245,6 +256,9 @@ pn_node_get_property (
     case PROP_DISABLED:
         g_value_set_boolean (value, priv->disabled);
         break;
+    case PROP_HAS_ERROR:
+        g_value_set_boolean (value, priv->has_error);
+        break;
     case PROP_WORKSHEET:
         g_value_set_string (value, priv->worksheet);
         break;
@@ -302,6 +316,9 @@ pn_node_set_property (
         break;
     case PROP_DISABLED:
         pn_node_set_disabled (self, g_value_get_boolean (value));
+        break;
+    case PROP_HAS_ERROR:
+        pn_node_set_has_error (self, g_value_get_boolean (value));
         break;
     case PROP_WORKSHEET:
         pn_node_set_worksheet (self, g_value_get_string (value));
@@ -396,6 +413,15 @@ pn_node_class_init (PnNodeClass *klass)
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_HAS_ERROR] = g_param_spec_boolean (
+            "has-error", "Has error",
+            "Transient runtime flag: when TRUE the node is in an error "
+            "state (its work is failing) and the worksheet paints it red "
+            "with a warning glyph.  Recomputed at runtime and never "
+            "persisted to the save file.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_WORKSHEET] = g_param_spec_string (
             "worksheet", "Worksheet",
             "Spreadsheet-style sheet tag the node is filed under. "
@@ -478,6 +504,7 @@ pn_node_init (PnNode *self)
     priv->has_output = TRUE;
     priv->n_inputs   = 0;   /* 0 ⇒ derive from has_input (single input) */
     priv->disabled   = FALSE;
+    priv->has_error  = FALSE;
     /* "Worksheet" is the canonical default sheet tag — see the
      * field comment for the rationale. */
     priv->worksheet  = g_strdup ("Worksheet");
@@ -1019,6 +1046,33 @@ pn_node_set_disabled (
 
     priv->disabled = disabled;
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_DISABLED]);
+}
+
+gboolean
+pn_node_get_has_error (PnNode *self)
+{
+    PnNodePrivate *priv;
+    g_return_val_if_fail (PN_IS_NODE (self), FALSE);
+    priv = pn_node_get_instance_private (self);
+    return priv->has_error;
+}
+
+void
+pn_node_set_has_error (
+        PnNode  *self,
+        gboolean has_error)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    has_error = !!has_error;
+    if (priv->has_error == has_error)
+        return;
+
+    priv->has_error = has_error;
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HAS_ERROR]);
 }
 
 const gchar *

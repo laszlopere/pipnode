@@ -32,11 +32,11 @@
 
 #include <errno.h>
 
-/* Visual states.  Same colour split as PnMqtt so the source/sink pair
- * reads as a matched set: green (fa-paper-plane) while a session is up
- * AND the publish topic field is non-empty; red (❗) otherwise. */
+/* Healthy node glyph.  Matches PnMqtt: green fa-paper-plane while the
+ * session is up.  The error indication (red body + warning glyph) is
+ * painted centrally by the worksheet when pn_node_set_has_error() is set,
+ * so the node only carries its normal "all good" icon here. */
 #define PN_MQTT_SINK_NORMAL_ICON  "\xef\x87\x98"  /* fa-paper-plane U+F1D8 */
-#define PN_MQTT_SINK_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
 /* No built-in broker URL: like PnMqtt, a site-specific address does not
  * belong in the plugin source.  The broker comes from the referenced
@@ -103,6 +103,14 @@ struct _PnMqttSink
     struct mosquitto *client;
     gboolean          loop_running;
     gboolean          connected;
+
+    /* Sticky "the last publish failed" flag.  A Sink has no output port
+     * to emit a failure message on, so a publish that mosquitto rejects
+     * (broken connection, payload too large, …) would otherwise be
+     * invisible.  We flip the node to its error visual while it is set
+     * and clear it again on the next successful publish or on reconnect.
+     * Touched only on the main thread (receive + connect trampoline). */
+    gboolean          publish_error;
 
     /* Offline publish backlog (PnMqttPending*, head = oldest).
      * Touched only on the main thread -- both the receive path and the
@@ -191,22 +199,18 @@ apply_visual_state (PnMqttSink *self)
     gchar   *url  = NULL;
     gboolean ok;
 
+    PnColor green = { 0.36, 0.66, 0.36, 1.0 };
+
     resolve_connection (self, &url, NULL, NULL, NULL);
-    ok = self->connected && url != NULL && *url != '\0';
+    ok = self->connected && url != NULL && *url != '\0' && !self->publish_error;
     g_free (url);
 
-    if (ok)
-    {
-        PnColor green = { 0.36, 0.66, 0.36, 1.0 };
-        pn_node_set_color (node, &green);
-        pn_node_set_icon  (node, PN_MQTT_SINK_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_MQTT_SINK_WARNING_ICON);
-    }
+    /* Keep the healthy green paper-plane identity at all times; the error
+     * overlay (red body + warning glyph) is painted by the worksheet
+     * whenever has-error is set, so here we only toggle that flag. */
+    pn_node_set_color     (node, &green);
+    pn_node_set_icon      (node, PN_MQTT_SINK_NORMAL_ICON);
+    pn_node_set_has_error (node, !ok);
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,8 +278,11 @@ flush_pending (PnMqttSink *self)
                                                 (int) p->payload_len, p->payload,
                                                 p->qos, p->retain);
         if (err != MOSQ_ERR_SUCCESS)
+        {
             g_warning ("pn-mqtt-sink: queued publish('%s') failed: %s",
                        p->topic, mosquitto_strerror (err));
+            self->publish_error = TRUE;
+        }
     }
 
     g_ptr_array_unref (fresh);   /* frees the entries via pn_mqtt_pending_free */
@@ -303,11 +310,16 @@ conn_state_trampoline (gpointer data)
     if (c->self->client != NULL)
     {
         c->self->connected = c->connected;
-        /* Session just came up: drain whatever was held while offline so
-         * a command issued before the connect completed (the
-         * enforce-on-startup case) reaches the broker now. */
+        /* Session just came up: a fresh link clears any stale publish
+         * error, then we drain whatever was held while offline so a
+         * command issued before the connect completed (the
+         * enforce-on-startup case) reaches the broker now — the flush
+         * re-sets the error flag if a queued publish fails. */
         if (c->connected)
+        {
+            c->self->publish_error = FALSE;
             flush_pending (c->self);
+        }
         apply_visual_state (c->self);
     }
     return G_SOURCE_REMOVE;
@@ -449,7 +461,8 @@ pn_mqtt_sink_receive (
      * still reaches the relay. */
     if (self->client != NULL && self->connected)
     {
-        int err = mosquitto_publish (self->client,
+        gboolean was_error = self->publish_error;
+        int      err       = mosquitto_publish (self->client,
                                      NULL,         /* mid -- we do not track */
                                      publish_topic,
                                      (int) payload_len,
@@ -457,8 +470,19 @@ pn_mqtt_sink_receive (
                                      (int) self->qos,
                                      self->retain);
         if (err != MOSQ_ERR_SUCCESS)
+        {
             g_warning ("pn-mqtt-sink: publish('%s') failed: %s",
                        publish_topic, mosquitto_strerror (err));
+            self->publish_error = TRUE;
+        }
+        else
+        {
+            self->publish_error = FALSE;
+        }
+        /* Re-render only when the error state actually changed — a
+         * healthy high-rate Sink should not repaint on every publish. */
+        if (self->publish_error != was_error)
+            apply_visual_state (self);
         g_free (payload);
     }
     else
@@ -488,8 +512,9 @@ stop_client (PnMqttSink *self)
         self->loop_running = FALSE;
     }
     mosquitto_destroy (self->client);
-    self->client    = NULL;
-    self->connected = FALSE;
+    self->client        = NULL;
+    self->connected     = FALSE;
+    self->publish_error = FALSE;
 }
 
 static void
@@ -930,6 +955,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     self->client           = NULL;
     self->loop_running     = FALSE;
     self->connected        = FALSE;
+    self->publish_error    = FALSE;
     self->pending          = g_queue_new ();
 
     pn_node_set_class_name (node, "MQTT Sink");

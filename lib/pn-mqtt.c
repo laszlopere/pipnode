@@ -27,10 +27,10 @@
 
 #include <errno.h>
 
-/* Visual states.  Body colour carries the alert; the icon panel is
- * rendered in white on top. */
+/* Healthy node glyph.  The error indication (red body + warning glyph)
+ * is painted centrally by the worksheet when pn_node_set_has_error() is
+ * set, so the node only carries its normal "all good" icon here. */
 #define PN_MQTT_NORMAL_ICON  "\xef\x82\x9e"  /* fa-rss U+F09E */
-#define PN_MQTT_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
 /* Default topic.  "#" matches every topic on the broker, so a node pointed
  * at a broker produces output without further configuration.  The broker URL
@@ -191,33 +191,27 @@ resolve_connection (PnMqtt *self,
 /*  Visual state                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Flip the node body between the connected (green RSS) and the
- *  unconfigured / disconnected (red ❗) appearance based on whether
- *  @priv->connected is set and the effective URL is non-empty. */
+/** Update the node's error indication: it is "ok" when a broker session
+ *  is up (@priv->connected) and the effective URL is non-empty.  The node
+ *  keeps its healthy green RSS identity at all times; the error overlay
+ *  (red body + warning glyph) is painted by the worksheet whenever the
+ *  has-error flag is set, so here we only toggle that flag. */
 static void
 apply_visual_state (PnMqtt *self)
 {
-    PnMqttPrivate *priv = PRIV (self);
-    PnNode        *node = PN_NODE (self);
-    gchar         *url  = NULL;
+    PnMqttPrivate *priv  = PRIV (self);
+    PnNode        *node  = PN_NODE (self);
+    PnColor        green = { 0.36, 0.66, 0.36, 1.0 };
+    gchar         *url   = NULL;
     gboolean       ok;
 
     resolve_connection (self, &url, NULL, NULL, NULL);
     ok = priv->connected && url != NULL && *url != '\0';
     g_free (url);
 
-    if (ok)
-    {
-        PnColor green = { 0.36, 0.66, 0.36, 1.0 };
-        pn_node_set_color (node, &green);
-        pn_node_set_icon  (node, PN_MQTT_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_MQTT_WARNING_ICON);
-    }
+    pn_node_set_color     (node, &green);
+    pn_node_set_icon      (node, PN_MQTT_NORMAL_ICON);
+    pn_node_set_has_error (node, !ok);
 }
 
 /* ------------------------------------------------------------------ */
@@ -373,8 +367,17 @@ on_mqtt_connect (
     {
         int err = mosquitto_subscribe (mosq, NULL, priv->topic, (int) priv->qos);
         if (err != MOSQ_ERR_SUCCESS)
+        {
+            /* We have a broker session but the subscription was refused
+             * (typically an ACL denial) — the node would sit there
+             * receiving nothing.  Flip it to the error state rather than
+             * a misleading healthy green so the canvas shows it is not
+             * actually working. */
             g_warning ("pn-mqtt: subscribe('%s') failed: %s",
                        priv->topic, mosquitto_strerror (err));
+            post_conn_state_on_main (self, FALSE);
+            return;
+        }
     }
 
     post_conn_state_on_main (self, TRUE);

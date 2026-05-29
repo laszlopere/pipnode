@@ -616,6 +616,28 @@ gboolean        pn_node_get_disabled   (PnNode *self);
 void            pn_node_set_disabled   (PnNode *self, gboolean disabled);
 
 /**
+ * pn_node_get_has_error:
+ * @self: the node
+ *
+ * Returns: whether the node is currently in its error state.
+ */
+gboolean        pn_node_get_has_error  (PnNode *self);
+
+/**
+ * pn_node_set_has_error:
+ * @self:      the node
+ * @has_error: the new error state
+ *
+ * Sets the node's transient "I am in an error state" flag.  A node calls
+ * this when its work fails (e.g. a network connection drops or an operation
+ * is rejected) and clears it on recovery.  While set, the worksheet paints
+ * the node body red with a warning glyph, giving every node type a uniform
+ * error indication for free.  The flag is purely visual runtime state and is
+ * never written to the save file.
+ */
+void            pn_node_set_has_error  (PnNode *self, gboolean has_error);
+
+/**
  * pn_node_get_worksheet:
  * @self: the node
  *
