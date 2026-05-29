@@ -16,6 +16,8 @@
 #ifndef PN_NODE_H
 #define PN_NODE_H
 
+#include <stdarg.h>
+
 #include <glib-object.h>
 
 #include "pn-color.h"
@@ -57,6 +59,74 @@ GType    pn_point_get_type (void) G_GNUC_CONST;
 PnPoint *pn_point_new      (double x, double y);
 PnPoint *pn_point_copy     (const PnPoint *self);
 void     pn_point_free     (PnPoint *self);
+
+/* ------------------------------------------------------------------ */
+/*  PnLogEntry                                                         */
+/*                                                                     */
+/*  One line in a node's in-memory log ring.  Nodes report their own   */
+/*  diagnostics through pn_node_log() instead of printing to stdout /  */
+/*  stderr (invisible when pipnode is launched from a desktop icon);   */
+/*  the most recent entries are kept on the node and surfaced in the   */
+/*  per-node Log dialog.  Boxed so the GUI tier can copy an entry out  */
+/*  of the ring for display.                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * PnLogLevel:
+ * @PN_LOG_LEVEL_INFO:    informational progress note
+ * @PN_LOG_LEVEL_WARNING: something unexpected the node recovered from
+ * @PN_LOG_LEVEL_ERROR:   an operation failed
+ *
+ * Severity of a #PnLogEntry, used by the Log dialog to colour the row.
+ */
+typedef enum
+{
+    PN_LOG_LEVEL_INFO,
+    PN_LOG_LEVEL_WARNING,
+    PN_LOG_LEVEL_ERROR,
+} PnLogLevel;
+
+#define PN_TYPE_LOG_ENTRY (pn_log_entry_get_type ())
+
+typedef struct _PnLogEntry PnLogEntry;
+
+GType        pn_log_entry_get_type    (void) G_GNUC_CONST;
+PnLogEntry  *pn_log_entry_copy        (const PnLogEntry *self);
+void         pn_log_entry_free        (PnLogEntry *self);
+
+/**
+ * pn_log_entry_get_time:
+ * @self: a log entry
+ *
+ * Returns: the wall-clock time the entry was recorded, in microseconds
+ *   since the Unix epoch (as produced by g_get_real_time()).
+ */
+gint64       pn_log_entry_get_time    (const PnLogEntry *self);
+
+/**
+ * pn_log_entry_get_level:
+ * @self: a log entry
+ *
+ * Returns: the entry's #PnLogLevel.
+ */
+PnLogLevel   pn_log_entry_get_level   (const PnLogEntry *self);
+
+/**
+ * pn_log_entry_get_message:
+ * @self: a log entry
+ *
+ * Returns: (transfer none): the entry's text.  Owned by the entry.
+ */
+const gchar *pn_log_entry_get_message (const PnLogEntry *self);
+
+/**
+ * pn_log_level_to_string:
+ * @level: a #PnLogLevel
+ *
+ * Returns: (transfer none): a short uppercase label ("INFO", "WARNING",
+ *   "ERROR") for @level — a static string, never freed.
+ */
+const gchar *pn_log_level_to_string   (PnLogLevel level);
 
 /* ------------------------------------------------------------------ */
 /*  PnNode                                                             */
@@ -636,6 +706,71 @@ gboolean        pn_node_get_has_error  (PnNode *self);
  * never written to the save file.
  */
 void            pn_node_set_has_error  (PnNode *self, gboolean has_error);
+
+/**
+ * pn_node_log:
+ * @self:   the node
+ * @level:  severity of the entry
+ * @format: a printf-style format string
+ * @...:    arguments for @format
+ *
+ * Records a diagnostic line in the node's in-memory log ring.  This is
+ * the canonical way for a node implementation to report what it is
+ * doing or why it failed: the message is kept on the node (the oldest
+ * entries are dropped once the ring is full) and shown in the per-node
+ * Log dialog, rather than printed to stdout / stderr where it would be
+ * invisible under a desktop launcher.  Emits #PnNode::log-changed so an
+ * open Log dialog refreshes live.  Safe to call from the node's own
+ * code at any time.
+ */
+void            pn_node_log            (PnNode      *self,
+                                        PnLogLevel   level,
+                                        const gchar *format,
+                                        ...) G_GNUC_PRINTF (3, 4);
+
+/**
+ * pn_node_logv:
+ * @self:   the node
+ * @level:  severity of the entry
+ * @format: a printf-style format string
+ * @args:   arguments for @format as a #va_list
+ *
+ * <function>va_list</function> variant of pn_node_log().
+ */
+void            pn_node_logv           (PnNode      *self,
+                                        PnLogLevel   level,
+                                        const gchar *format,
+                                        va_list      args) G_GNUC_PRINTF (3, 0);
+
+/* Convenience wrappers around pn_node_log() that pin the level. */
+void            pn_node_log_info       (PnNode      *self,
+                                        const gchar *format,
+                                        ...) G_GNUC_PRINTF (2, 3);
+void            pn_node_log_warning    (PnNode      *self,
+                                        const gchar *format,
+                                        ...) G_GNUC_PRINTF (2, 3);
+void            pn_node_log_error      (PnNode      *self,
+                                        const gchar *format,
+                                        ...) G_GNUC_PRINTF (2, 3);
+
+/**
+ * pn_node_get_log:
+ * @self: the node
+ *
+ * Returns: (transfer none) (element-type PnLogEntry): the node's log
+ *   ring, oldest entry first.  Borrowed — owned by the node and valid
+ *   until the next pn_node_log() / pn_node_clear_log() call; copy any
+ *   entry you need to outlive that with pn_log_entry_copy().
+ */
+GPtrArray      *pn_node_get_log        (PnNode *self);
+
+/**
+ * pn_node_clear_log:
+ * @self: the node
+ *
+ * Empties the node's log ring and emits #PnNode::log-changed.
+ */
+void            pn_node_clear_log      (PnNode *self);
 
 /**
  * pn_node_get_worksheet:

@@ -104,8 +104,10 @@ check_PROGRAMS = \
 	test-pn-mqtt-sink \
 	test-pn-mqtt-profile \
 	test-pn-mqtt-util \
-	test-pn-mqtt-resolve
+	test-pn-mqtt-resolve \
+	test-pn-node-log
 
+test_pn_node_log_SOURCES     = test-pn-node-log.c     pntest.c pntest.h
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
 test_pn_settings_schema_SOURCES = test-pn-settings-schema.c pntest.c pntest.h

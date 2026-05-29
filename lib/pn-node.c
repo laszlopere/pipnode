@@ -52,8 +52,85 @@ pn_point_free (PnPoint *self)
 G_DEFINE_BOXED_TYPE (PnPoint, pn_point, pn_point_copy, pn_point_free)
 
 /* ------------------------------------------------------------------ */
+/*  PnLogEntry                                                         */
+/* ------------------------------------------------------------------ */
+
+struct _PnLogEntry
+{
+    gint64      timestamp;   /* g_get_real_time(): usec since the epoch */
+    PnLogLevel  level;
+    gchar      *message;
+};
+
+PnLogEntry *
+pn_log_entry_copy (const PnLogEntry *self)
+{
+    PnLogEntry *copy;
+
+    if (self == NULL)
+        return NULL;
+
+    copy            = g_new (PnLogEntry, 1);
+    copy->timestamp = self->timestamp;
+    copy->level     = self->level;
+    copy->message   = g_strdup (self->message);
+    return copy;
+}
+
+void
+pn_log_entry_free (PnLogEntry *self)
+{
+    if (self == NULL)
+        return;
+    g_free (self->message);
+    g_free (self);
+}
+
+G_DEFINE_BOXED_TYPE (PnLogEntry, pn_log_entry,
+                     pn_log_entry_copy, pn_log_entry_free)
+
+gint64
+pn_log_entry_get_time (const PnLogEntry *self)
+{
+    g_return_val_if_fail (self != NULL, 0);
+    return self->timestamp;
+}
+
+PnLogLevel
+pn_log_entry_get_level (const PnLogEntry *self)
+{
+    g_return_val_if_fail (self != NULL, PN_LOG_LEVEL_INFO);
+    return self->level;
+}
+
+const gchar *
+pn_log_entry_get_message (const PnLogEntry *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    return self->message;
+}
+
+const gchar *
+pn_log_level_to_string (PnLogLevel level)
+{
+    switch (level)
+    {
+    case PN_LOG_LEVEL_WARNING: return "WARNING";
+    case PN_LOG_LEVEL_ERROR:   return "ERROR";
+    case PN_LOG_LEVEL_INFO:
+    default:                   return "INFO";
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  PnNode                                                             */
 /* ------------------------------------------------------------------ */
+
+/* Cap on a node's in-memory log ring.  Logging is rare relative to
+ * message dispatch, so dropping the oldest entry from the head of a
+ * #GPtrArray (an O(n) memmove of <= this many pointers) is cheap enough
+ * not to warrant a real circular buffer. */
+#define PN_NODE_LOG_MAX 200
 
 typedef struct
 {
@@ -109,6 +186,10 @@ typedef struct
      * Accessed via g_atomic_pointer_* because the auto-trigger worker
      * thread reads it while the main thread sets it. */
     gpointer flow;
+    /* In-memory log ring of #PnLogEntry*, oldest first, capped at
+     * PN_NODE_LOG_MAX.  Filled by pn_node_log(); read by the per-node
+     * Log dialog.  Purely runtime state — never serialized. */
+    GPtrArray *log;
 } PnNodePrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnNode, pn_node, G_TYPE_OBJECT)
@@ -134,6 +215,7 @@ static GParamSpec *props[N_PROPS];
 enum {
     SIG_MESSAGE,
     SIG_REPAINT_NEEDED,
+    SIG_LOG_CHANGED,
     N_SIGNALS,
 };
 
@@ -343,6 +425,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->uuid,       g_free);
     g_clear_pointer (&priv->worksheet,  g_free);
     g_clear_pointer (&priv->topic,      g_free);
+    g_clear_pointer (&priv->log,        g_ptr_array_unref);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
 }
@@ -470,6 +553,20 @@ pn_node_class_init (PnNodeClass *klass)
             G_TYPE_NONE,
             0);
 
+    /* Emitted whenever the node's log ring changes — a new entry was
+     * appended (pn_node_log) or the ring was emptied (pn_node_clear_log).
+     * The per-node Log dialog listens and re-reads pn_node_get_log() so
+     * it updates live while the node is running. */
+    signals[SIG_LOG_CHANGED] = g_signal_new (
+            "log-changed",
+            PN_TYPE_NODE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            0);
+
     /* Default size vfuncs return the canonical 140×40 footprint;
      * subclasses override for nodes that paint outside that box. */
     klass->get_size          = pn_node_default_get_size;
@@ -512,6 +609,9 @@ pn_node_init (PnNode *self)
      * surfaces it through pn_node_default_topic_template() so the user
      * still sees an editable string. */
     priv->topic      = NULL;
+
+    priv->log = g_ptr_array_new_with_free_func (
+            (GDestroyNotify) pn_log_entry_free);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1073,6 +1173,118 @@ pn_node_set_has_error (
 
     priv->has_error = has_error;
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HAS_ERROR]);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Per-node log ring                                                  */
+/* ------------------------------------------------------------------ */
+
+void
+pn_node_logv (
+        PnNode      *self,
+        PnLogLevel   level,
+        const gchar *format,
+        va_list      args)
+{
+    PnNodePrivate *priv;
+    PnLogEntry    *entry;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    g_return_if_fail (format != NULL);
+
+    priv = pn_node_get_instance_private (self);
+
+    entry            = g_new (PnLogEntry, 1);
+    entry->timestamp = g_get_real_time ();
+    entry->level     = level;
+    entry->message   = g_strdup_vprintf (format, args);
+
+    /* Drop the oldest entry once the ring is full, so the node holds
+     * the most recent PN_NODE_LOG_MAX lines and no more. */
+    if (priv->log->len >= PN_NODE_LOG_MAX)
+        g_ptr_array_remove_index (priv->log, 0);
+    g_ptr_array_add (priv->log, entry);
+
+    g_signal_emit (self, signals[SIG_LOG_CHANGED], 0);
+}
+
+void
+pn_node_log (
+        PnNode      *self,
+        PnLogLevel   level,
+        const gchar *format,
+        ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    pn_node_logv (self, level, format, args);
+    va_end (args);
+}
+
+void
+pn_node_log_info (
+        PnNode      *self,
+        const gchar *format,
+        ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    pn_node_logv (self, PN_LOG_LEVEL_INFO, format, args);
+    va_end (args);
+}
+
+void
+pn_node_log_warning (
+        PnNode      *self,
+        const gchar *format,
+        ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    pn_node_logv (self, PN_LOG_LEVEL_WARNING, format, args);
+    va_end (args);
+}
+
+void
+pn_node_log_error (
+        PnNode      *self,
+        const gchar *format,
+        ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    pn_node_logv (self, PN_LOG_LEVEL_ERROR, format, args);
+    va_end (args);
+}
+
+GPtrArray *
+pn_node_get_log (PnNode *self)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+
+    priv = pn_node_get_instance_private (self);
+    return priv->log;
+}
+
+void
+pn_node_clear_log (PnNode *self)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    if (priv->log->len == 0)
+        return;
+
+    g_ptr_array_set_size (priv->log, 0);
+    g_signal_emit (self, signals[SIG_LOG_CHANGED], 0);
 }
 
 const gchar *
