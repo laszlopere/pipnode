@@ -13,11 +13,11 @@
         "y" : 80.0
       },
       "properties" : {
-        "broker-profile" : "@custom",
-        "url" : "tcp://mqtt.homelab.local:1883",
-        "topic" : "#",
+        "broker-profile" : "mqtt-broker",
+        "url" : "",
         "username" : "",
         "client-id" : "",
+        "subscribe-topic" : "#",
         "qos" : 0
       }
     },
