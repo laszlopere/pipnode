@@ -733,10 +733,19 @@ build_channel_row (const PnMeshChannel *ch)
     if (ch->role != ROLE_DISABLED)
     {
         gboolean enc = channel_is_encrypted (ch->psk, ch->psk_size);
+        /* Full-colour, theme-provided padlocks (the non-symbolic
+         * "changes-prevent"/"changes-allow" status icons) rather than
+         * the -symbolic variants, which GTK recolours to a single flat
+         * theme foreground and so always read as black/white. */
         psk_icon = gtk_image_new_from_icon_name (
-                enc ? "changes-prevent-symbolic"   /* closed padlock */
-                    : "changes-allow-symbolic",    /* open padlock   */
+                enc ? "changes-prevent"   /* closed padlock */
+                    : "changes-allow",    /* open padlock   */
                 GTK_ICON_SIZE_MENU);
+        /* Pin the pixel size: the theme ships the closed padlock at 16px
+         * but the open one only at 24px+, and the fixed-size status dirs
+         * mean GTK would otherwise render the open padlock noticeably
+         * larger.  Forcing 16px makes both scale to a matching size. */
+        gtk_image_set_pixel_size (GTK_IMAGE (psk_icon), 16);
         gtk_widget_set_tooltip_text (
                 psk_icon,
                 enc ? (ch->psk_size == 16 ? "Encrypted (AES-128)"
