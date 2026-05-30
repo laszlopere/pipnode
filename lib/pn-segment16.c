@@ -312,6 +312,9 @@ pn_segment16_class_init (PnSegment16Class *klass)
         pn_settings_schema_row (schema, "segment-color",       PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "unlit-segment-color", PN_EDITOR_AUTO);
 
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
         pn_node_class_set_settings_schema (node_class, schema);
     }
 }

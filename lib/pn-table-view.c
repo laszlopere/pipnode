@@ -33,6 +33,7 @@
 
 #include "pn-table-view.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <math.h>
 
@@ -614,6 +615,13 @@ pn_table_view_class_init (PnTableViewClass *klass)
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = FALSE;
+
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+        pn_node_class_set_settings_schema (node_class, schema);
+    }
 
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
             "background-color", "Background colour",

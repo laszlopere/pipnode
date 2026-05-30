@@ -28,6 +28,7 @@
 
 #include "pn-panel-display.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 
@@ -164,6 +165,15 @@ pn_panel_display_class_init (PnPanelDisplayClass *klass)
     node_class->category     = "Sinks";
     node_class->has_input    = TRUE;
     node_class->has_output   = FALSE;
+
+    /* No output port: this sink never stamps its own base topic onto an
+     * emitted message, so the inherited "topic" row is dead UI — hide it. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+        pn_node_class_set_settings_schema (node_class, schema);
+    }
 
     /* Emitted whenever the displayed string changes.  The panel engine
      * connects to this and forwards the new text to the applet over

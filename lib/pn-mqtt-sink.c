@@ -26,6 +26,7 @@
 #include "pn-vault.h"
 #include "pn-mqtt-profile.h"
 #include "pn-mqtt-util.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 #include <mosquitto.h>
@@ -1084,6 +1085,17 @@ pn_mqtt_sink_class_init (PnMqttSinkClass *klass)
     node_class->category       = "Network";
     node_class->has_input      = TRUE;
     node_class->has_output     = FALSE;
+
+    /* No output port: this Sink never stamps its own base topic onto an
+     * emitted message (the publish topic comes from the inbound envelope
+     * or the topic-template), so the inherited base "topic" row is dead
+     * UI -- hide it from the settings dialog. */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+        pn_node_class_set_settings_schema (node_class, schema);
+    }
 
     props[PROP_BROKER_PROFILE] = g_param_spec_string (
             "broker-profile", "Broker profile",

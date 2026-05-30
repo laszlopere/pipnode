@@ -19,6 +19,7 @@
 
 #include "pn-weather-report.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
 #include <math.h>
@@ -647,6 +648,13 @@ pn_weather_report_class_init (PnWeatherReportClass *klass)
     node_class->category     = "Sinks";
     node_class->has_input    = TRUE;
     node_class->has_output   = FALSE;
+
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+        pn_node_class_set_settings_schema (node_class, schema);
+    }
 
     props[PROP_SHOW_DETAILS] = g_param_spec_boolean (
             "show-details", "Show details",

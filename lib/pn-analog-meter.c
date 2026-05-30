@@ -826,6 +826,9 @@ pn_analog_meter_class_init (PnAnalogMeterClass *klass)
         pn_settings_schema_row (schema, "needle-color", PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "label-color",  PN_EDITOR_AUTO);
 
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
         pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
     }
 }

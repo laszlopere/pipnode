@@ -462,6 +462,9 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
         pn_settings_schema_row (schema, "pixel-color",       PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "unlit-pixel-color", PN_EDITOR_AUTO);
 
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
         pn_node_class_set_settings_schema (node_class, schema);
     }
 }

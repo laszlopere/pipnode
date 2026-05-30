@@ -20,6 +20,7 @@
 #include "pn-table.h"
 #include "pn-json-path.h"
 #include "pn-message.h"
+#include "pn-settings-schema.h"
 
 #include <math.h>
 #include <string.h>
@@ -658,6 +659,13 @@ pn_table_class_init (PnTableClass *klass)
     node_class->category          = "Sinks";
     node_class->has_input         = TRUE;
     node_class->has_output        = FALSE;
+
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+        pn_node_class_set_settings_schema (node_class, schema);
+    }
 
     props[PROP_COLUMNS] = g_param_spec_string (
             "columns", "Columns",

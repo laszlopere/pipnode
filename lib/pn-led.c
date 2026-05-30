@@ -491,6 +491,9 @@ pn_led_class_init (PnLedClass *klass)
         pn_settings_schema_enable_when_eq (schema, "hold-ms",
                                            "mode", "Flash");
 
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
         pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
     }
 }
