@@ -1480,14 +1480,28 @@ Phase tracker (mark DONE inline as each ships):
                  C unit tests + new test + plugin-gui-companion/dial/
                  multi-worksheet pass.  USER-verify the Devices menu still
                  opens the Meshtastic dialog.
-    [ ] Phase E  PLUGINS doc + sweep.  New section near §17: toolkit API
-                 + Devices-menu provider + no-ABI-bump rationale + worked
-                 example; document the three shared widgets.  Optionally
-                 sweep remaining mesh pages onto the form helpers.
+    [x] Phase E  PLUGINS doc.  New section 17b "DEVICE-DIALOG TOOLKIT
+                 (DEVICES MENU + DIALOG SHELL)" added after 17a (letter-
+                 suffix convention -> NO renumber of 18+): the three
+                 headers (pn-device-form / -dialog / -provider), the
+                 Devices-menu provider registry + register/list/present
+                 API, where-you-register (built-in pn-gui.c vs companion
+                 pn_plugin_gui_init), the no-ABI-bump rationale (new
+                 exported gui-tier symbols, not PnNodeClass vfuncs), the
+                 three shared widgets (PnDeviceCombo/Spin/InlineEditLabel),
+                 and the Meshtastic worked example.  Added 17a+17b as
+                 indented sub-entries to the CONTENTS TOC.  (Pre-existing
+                 TOC drift below 17 -- missing MQTT-base-classes section,
+                 off-by-one + duplicate "22" -- left as-is; out of scope.)
+                 OPTIONAL sweep of the remaining 12 hand-rolled mesh pages
+                 onto the form helpers NOT done (only identity+region use
+                 them, from Phase A); deferred -- sizable refactor needing
+                 per-page manual GUI re-verify, low payoff.
 
-Where we left off: Phases A + B + C + D DONE (pending USER-verify).
-Next: Phase E (PLUGINS doc + sweep) -- new section near §17: toolkit
-API + Devices-menu provider (pn-device-provider.h) + no-ABI-bump
-rationale + worked example; document the three shared widgets
-(PnDeviceCombo/Spin/InlineEditLabel).  Optionally sweep remaining mesh
-pages onto the form helpers.
+Where we left off: ALL phases (A-E) DONE.  TODO #34 COMPLETE -- the
+device-dialog toolkit (pn-device-form / -dialog / -provider) ships in
+libpipnode-gui, Meshtastic is refactored onto it AND registers as a
+Devices-menu provider, and PLUGINS §17b documents the toolkit for
+plugin companions.  Optional mesh-page form-helper sweep DROPPED (user
+decision: low payoff, manual-GUI-verify cost; only identity+region use
+the helpers, the other 12 pages keep their hand-rolled layouts).

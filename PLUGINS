@@ -30,6 +30,8 @@ CONTENTS
   15. Extending the node settings dialog (ABI v2)
   16. Declarative settings schema (the GTK-free default path)
   17. Companion GUI module: server-installable plugins (ABI v3)
+      17a. When a node stays a built-in instead
+      17b. Device-dialog toolkit (Devices menu + dialog shell)
   18. Host-provisioned profiles: credentials, settings, permissions (ABI v5)
   19. WebSocket source base class with optional profile binding (ABI v6)
   20. Reference plugins in the tree
@@ -1381,6 +1383,108 @@ clean seam and the only payoff is being a separately-installable `.so`,
 Meshtastic stays a built-in.  Reach for a companion only when the seam
 is cheap; when it is not, a built-in node with a gui-tier dialog is the
 right shape.
+
+
+17b. DEVICE-DIALOG TOOLKIT (DEVICES MENU + DIALOG SHELL)
+-------------------------------------------------------
+
+The settings dialog hooks above (sections 15-17) extend a *node's* own
+dialog -- the one you reach by double-clicking the node on the sheet.
+Some devices instead want a standalone configuration window reached from
+the editor's **Devices** menu: scan for the hardware, pick one, walk a
+notebook of settings pages, write them back.  The Meshtastic dialog is
+the worked example.  The device-dialog toolkit is the public gui-tier
+API a companion uses to build one of these without re-implementing the
+frame, exactly as `pn-node-dialog-helpers.h` does for node dialogs.
+
+It is three installed headers, all in `libpipnode-gui` (so a companion
+already links them; a headless logic `.so` never sees them):
+
+  - `pn-device-form.h` -- form helpers that fill a notebook tab with the
+    house style: `pn_device_form_new_tab` / `_add_section` (an expander
+    group), `_attach_label_row` (a "--"-fallback read-only value row),
+    `_attach_entry_row` (entry + Apply), `_attach_control_row` (the
+    region-cell + size-group idiom combos and spinners pack into),
+    `_key_label`, `_set_value`, and the combo helpers `_combo_fill` /
+    `_combo_select` / `_combo_get_id` (with `PnDeviceEnumEntry`).
+
+  - `pn-device-dialog.h` -- the "dialog shell" object `PnDeviceDialog`:
+    a modeless `GtkDialog` whose body is a `GtkNotebook` with a
+    ref-counted busy spinner floated over it (`pn_device_dialog_push_busy`
+    / `_pop_busy` / `_is_busy`) above a status bar (`_set_status` /
+    `_set_statusf`), plus a Close button.  You POPULATE it
+    (`_append_page`, `_set_pages_sensitive`) rather than subclass it.
+    Pass `PN_DEVICE_DIALOG_WITH_DEVICE_LIST` to `_new` and the shell also
+    builds the left-hand device-list pane (3-state empty/scanning/list
+    stack + `GtkListBox`), driven through `_set_scan_callback` /
+    `_set_selected_callback`, `_set_device_rows` (wholesale, with the
+    reselect/auto-select policy) or the incremental `_add` / `_update` /
+    `_remove_device_row`, `_set_list_hints`, `_set_auto_scan` and
+    `_reselect_device`.  The handle is owned by the underlying dialog --
+    never free it yourself.
+
+  - `pn-device-provider.h` -- the **Devices-menu provider registry**.
+    The menu is not hardcoded; it is built by enumerating this registry,
+    so a device kind advertises itself by registering a provider:
+
+        void pn_device_provider_register (const gchar *id,
+                                          const gchar *display_name,
+                                          const gchar *icon_name,
+                                          PnDeviceProviderPresentFunc present,
+                                          gpointer user_data,
+                                          GDestroyNotify destroy);
+
+    `id` is a stable machine key ("meshtastic"); the menu shows
+    `display_name` + `icon_name`; activating the entry calls `present
+    (parent, user_data)`, which opens (or raises) your dialog.
+    Registering an `id` that already exists REPLACES it in place (its
+    `destroy` runs), keeping menu order stable across a companion reload,
+    so registration is idempotent.  `pn_device_provider_list()` returns a
+    deep-copied snapshot of the registry in registration order;
+    `pn_device_provider_present(id, parent)` fires a provider by id.  The
+    registry is process-global, main-thread only, and has no unregister
+    (providers are resident-lifetime, like the GUI modules that register
+    them).
+
+WHERE YOU REGISTER -- and why no ABI bump:
+
+  - A BUILT-IN device kind registers from `pn_gui_install_builtin_nodes()`
+    in `pn-gui.c` (Meshtastic does, via `pn_mesh_dialog_register_provider()`).
+  - A PLUGIN registers from its companion's `pn_plugin_gui_init()`
+    (section 17) -- the same entry point that installs node-dialog
+    vfuncs.  The companion already links `libpipnode-gui`, so the toolkit
+    symbols resolve directly; no `g_type_from_name` dance is needed
+    because these are plain functions, not type-keyed vfunc slots.
+
+The whole toolkit is *new exported gui-tier symbols*, not new
+`PnNodeClass` vfuncs, so it does NOT bump `PN_PLUGIN_ABI_VERSION`: a
+companion built against an older ABI keeps loading, and one that wants a
+Devices entry simply calls these functions.  The Devices menu lives in
+its own translation unit (`src/pn-devices-menu.c`) that enumerates the
+registry, so adding a provider never touches `pn-window.c`.
+
+Three scroll/edit-safe widgets the form helpers (and your own tabs)
+build on are also public, in `pipnode.h`:
+
+    PnDeviceCombo     (`pn_device_combo_new`)            a GtkComboBoxText
+        that swallows the mouse wheel instead of stepping its selection
+        -- the wheel scrolls the enclosing dialog, as a user expects.
+    PnDeviceSpin      (`pn_device_spin_new_with_range`)  the same wheel-
+        safe treatment for a GtkSpinButton.
+    PnInlineEditLabel (`pn_inline_edit_label_new`)       a click-the-
+        pencil-to-edit label (a GtkStack swapping a GtkLabel for a
+        GtkEntry; GtkEditableLabel is GTK4-only).
+
+WORKED EXAMPLE -- Meshtastic (`lib/pn-mesh-dialog.c`).  It builds its
+window with `pn_device_dialog_new(..., PN_DEVICE_DIALOG_WITH_DEVICE_LIST)`,
+wires the shell's scan callback to its sysfs walk and the selected
+callback to a serial connect, fills each notebook tab with the
+`pn_device_form_*` helpers, drives `push_busy` / `pop_busy` around the
+3-second handshake, and advertises itself with
+`pn_mesh_dialog_register_provider()` ->
+`pn_device_provider_register("meshtastic", "Meshtastic",
+"network-wireless", ...)`.  An out-of-tree device plugin follows the same
+shape from its companion module.
 
 
 18. HOST-PROVISIONED PROFILES: CREDENTIALS, SETTINGS, PERMISSIONS (ABI v5)
