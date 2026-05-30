@@ -34,7 +34,6 @@
 #include "pn-device-dialog.h"
 #include "pn-device-form.h"
 #include "pn-mesh-connection.h"
-#include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-channels.h"
 #include "pn-mesh-page-device.h"
@@ -53,19 +52,17 @@
 
 #define PN_MESH_DIALOG_WIDTH   880
 #define PN_MESH_DIALOG_HEIGHT  560
-#define PN_MESH_DIALOG_DIVIDER 250
 #define PN_MESH_DIALOG_QDATA   "pn-mesh-dialog"
 
 typedef struct
 {
     GtkWidget        *dialog;
-    GtkWidget        *device_list;
 
     /* The reusable dialog frame: notebook (insensitive until a device
      * is picked so the user can see what tabs exist but cannot navigate
      * into empty forms), its ref-counted busy-spinner overlay, and the
      * status bar.  The busy overlay is raised by the handshake (entered
-     * in on_device_activated, dropped in on_connection_ready) and by
+     * in on_device_selected, dropped in on_connection_ready) and by
      * every page's set_writing transition; nesting keeps the spinner up
      * until the last waiter settles. */
     PnDeviceDialog   *shell;
@@ -109,6 +106,12 @@ typedef struct
      * activation so a still-pending old open is dropped on the floor
      * without disturbing the new one. */
     GCancellable     *open_cancellable;
+
+    /* Device-list scan (sysfs discovery the shell's list pane asks for
+     * via on_device_scan).  scanning guards against a Reload starting a
+     * second walk; scan_cancellable cancels an in-flight walk on close. */
+    gboolean          scanning;
+    GCancellable     *scan_cancellable;
 } MeshDialogCtx;
 
 /* ------------------------------------------------------------------ */
@@ -308,8 +311,8 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
         g_clear_error (&error);
         if (conn != NULL)
             pn_mesh_connection_close (conn);
-        /* Balance the push the cancelled on_device_activated paid in
-         * -- on_device_activated for the *new* device has already paid
+        /* Balance the push the cancelled on_device_selected paid in
+         * -- on_device_selected for the *new* device has already paid
          * its own push, so the counter stays at 1 until that new
          * handshake completes. */
         pn_device_dialog_pop_busy (ctx->shell);
@@ -417,17 +420,23 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
     }
 }
 
-/* Device row activated: tear down whatever is live, set up the
- * Identity page placeholder, kick off the async open. */
+/* Shell selected callback: a connectable device-list row was activated
+ * or auto-selected.  The PnDeviceRow's id is the tty path, its primary
+ * line the human-friendly kind -- everything the connect path needs.
+ * Tear down whatever is live, set up the Identity page placeholder,
+ * kick off the async open. */
 static void
-on_device_activated (const PnMeshDevice *device, gpointer user_data)
+on_device_selected (const PnDeviceRow *row, gpointer user_data)
 {
-    MeshDialogCtx *ctx = user_data;
+    MeshDialogCtx *ctx  = user_data;
+    const gchar   *tty  = row->id;
+    const gchar   *kind = row->primary;
 
     /* If this is the same device we are already on (or trying to
-     * reach), do nothing -- the user double-clicked by accident. */
+     * reach), do nothing -- a rescan re-selecting the live device, or
+     * an accidental double-click. */
     if (ctx->connection_tty != NULL
-        && g_strcmp0 (ctx->connection_tty, device->tty) == 0
+        && g_strcmp0 (ctx->connection_tty, tty) == 0
         && ctx->connection != NULL)
         return;
 
@@ -440,14 +449,14 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
     }
     drop_connection (ctx);
 
-    ctx->connection_kind = g_strdup (device->kind);
-    ctx->connection_tty  = g_strdup (device->tty);
+    ctx->connection_kind = g_strdup (kind);
+    ctx->connection_tty  = g_strdup (tty);
 
     /* Show the Identity page in "connecting" form -- kind and tty are
      * known immediately; the rest of the fields stay as em-dashes
      * until the handshake completes. */
     pn_mesh_page_identity_set_state (ctx->identity_page,
-                                     device->kind, device->tty, NULL, NULL);
+                                     kind, tty, NULL, NULL);
     /* The handshake takes 3-5 s and the pages would otherwise paint
      * with em-dashes for everything.  Worse, the user could switch to
      * a tab whose state hasn't arrived yet (Channels/Region/MQTT/...)
@@ -462,12 +471,84 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * the Identity row is what the user sees first. */
     pn_device_dialog_set_current_page (ctx->shell, 0);
 
-    set_statusf (ctx, "Connecting to %s on %s…",
-                 device->kind, device->tty);
+    set_statusf (ctx, "Connecting to %s on %s…", kind, tty);
 
     ctx->open_cancellable = g_cancellable_new ();
-    pn_mesh_connection_open_async (device->tty, ctx->open_cancellable,
+    pn_mesh_connection_open_async (tty, ctx->open_cancellable,
                                    on_connection_ready, ctx);
+}
+
+/* Shell scan callback: build the PnDeviceRow list from the sysfs
+ * discovery.  A fresh cancellable per scan; the previous one (if any)
+ * is left to settle harmlessly. */
+static void on_discover_done (GObject *source, GAsyncResult *result,
+                              gpointer user_data);
+
+static void
+on_device_scan (gpointer user_data)
+{
+    MeshDialogCtx *ctx = user_data;
+
+    /* Guard re-entrancy: a Reload while a discover is already running
+     * would start a second sysfs walk and double-populate the list. */
+    if (ctx->scanning)
+        return;
+    ctx->scanning = TRUE;
+
+    g_clear_object (&ctx->scan_cancellable);
+    ctx->scan_cancellable = g_cancellable_new ();
+    pn_mesh_discover_async (ctx->scan_cancellable, on_discover_done, ctx);
+}
+
+/* Map a discovered PnMeshDevice onto a PnDeviceRow: tty -> id, kind ->
+ * primary, tty -> secondary (shown dim), and the in-use state -> the
+ * disabled reason that greys the row out. */
+static void
+on_discover_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    MeshDialogCtx *ctx = user_data;
+    GPtrArray     *devices;
+    GPtrArray     *rows;
+    GError        *error = NULL;
+    guint          i;
+
+    (void) source;
+
+    devices = pn_mesh_discover_finish (result, &error);
+
+    ctx->scanning = FALSE;
+
+    /* Cancelled (dialog closing) or failed: leave the current list
+     * untouched -- a transient sysfs hiccup should not blank the rows
+     * the user is looking at. */
+    if (error != NULL)
+    {
+        if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            g_warning ("pn-mesh-discover: %s", error->message);
+        g_clear_error (&error);
+        if (devices != NULL)
+            g_ptr_array_unref (devices);
+        return;
+    }
+
+    rows = pn_device_row_array_new ();
+    for (i = 0; i < devices->len; i++)
+    {
+        const PnMeshDevice *d = g_ptr_array_index (devices, i);
+        gchar              *reason = NULL;
+
+        if (d->in_use)
+            reason = g_strdup_printf (
+                    "In use by %s — cannot connect",
+                    d->in_use_by != NULL ? d->in_use_by : "another process");
+        g_ptr_array_add (rows,
+                         pn_device_row_new (d->tty, d->kind, d->tty, reason));
+        g_free (reason);
+    }
+    g_ptr_array_unref (devices);
+
+    pn_device_dialog_set_device_rows (ctx->shell, rows);
+    g_ptr_array_unref (rows);
 }
 
 /* ------------------------------------------------------------------ */
@@ -506,18 +587,16 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
     GtkWidget *dialog;
 
     /* The reusable shell carries the modeless dialog, Close button,
-     * notebook + busy overlay and status bar.  We populate its
-     * notebook with the seven mesh tabs and hand it the device list as
-     * the left pane. */
-    ctx->shell = pn_device_dialog_new (parent, "Meshtastic Devices");
+     * notebook + busy overlay, status bar AND the left device-list pane
+     * (PN_DEVICE_DIALOG_WITH_DEVICE_LIST).  We populate its notebook
+     * with the seven mesh tabs and feed the list pane from sysfs
+     * discovery via the scan / selected callbacks. */
+    ctx->shell = pn_device_dialog_new (parent, "Meshtastic Devices",
+                                       PN_DEVICE_DIALOG_WITH_DEVICE_LIST);
     dialog = pn_device_dialog_get_dialog (ctx->shell);
     gtk_window_set_default_size (GTK_WINDOW (dialog),
                                  PN_MESH_DIALOG_WIDTH,
                                  PN_MESH_DIALOG_HEIGHT);
-
-    ctx->device_list = pn_mesh_device_list_new ();
-    pn_mesh_device_list_set_activated_callback (
-            ctx->device_list, on_device_activated, ctx);
 
     /* Seven tabs grouped by what the user is trying to do (not by which
      * protobuf tree the setting lives in); each tab is a scrolled
@@ -691,12 +770,19 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         pn_device_dialog_set_current_page (ctx->shell, 0);
     }
 
-    /* Hand the device list to the shell as the left pane (the shell
-     * already owns the notebook + busy overlay on the right) and seed
-     * the status line. */
-    pn_device_dialog_set_sidebar (ctx->shell, ctx->device_list,
-                                  PN_MESH_DIALOG_DIVIDER);
+    /* Wire the list pane: Meshtastic-specific empty-state hints, the
+     * sysfs scan + connect callbacks, and the scan-on-open behaviour
+     * (reproducing the previous device list's auto-scan). */
+    pn_device_dialog_set_list_hints (
+            ctx->shell,
+            "network-wireless-disabled", "Looking for devices…",
+            "Right-click to reload.",
+            "dialog-question", "No Meshtastic devices found.",
+            "Plug one in and right-click → Reload.");
+    pn_device_dialog_set_scan_callback     (ctx->shell, on_device_scan, ctx);
+    pn_device_dialog_set_selected_callback (ctx->shell, on_device_selected, ctx);
     set_status (ctx, "Ready. Press Scan to look for connected devices.");
+    pn_device_dialog_set_auto_scan (ctx->shell, TRUE);
 
     gtk_widget_show_all (gtk_dialog_get_content_area (GTK_DIALOG (dialog)));
     /* set_state(NULL) on every page right after build so the initial
@@ -719,6 +805,11 @@ mesh_dialog_ctx_free (gpointer data)
     {
         g_cancellable_cancel (ctx->open_cancellable);
         g_clear_object (&ctx->open_cancellable);
+    }
+    if (ctx->scan_cancellable != NULL)
+    {
+        g_cancellable_cancel (ctx->scan_cancellable);
+        g_clear_object (&ctx->scan_cancellable);
     }
     /* The shell is a sibling qdata on the same dialog; its free order
      * relative to ours is not guaranteed, so drop our reference before

@@ -1437,15 +1437,24 @@ Phase tracker (mark DONE inline as each ships):
                  NULL-safe).  Clean build, 78 unit tests + plugin-load/
                  gui-companion pass.  USER-verify, incl. busy overlay
                  mid-handshake.
-    [ ] Phase C  Device-list pane.  PN_DEVICE_DIALOG_WITH_DEVICE_LIST +
+    [x] Phase C  Device-list pane.  PN_DEVICE_DIALOG_WITH_DEVICE_LIST +
                  PnDeviceRow {id,primary,secondary,disabled_reason}
                  (+new/copy/free+array_new) + scan/selected callbacks +
-                 set_device_rows (wholesale) + add/update/remove_device_row
-                 (incremental) + set_list_hints + set_auto_scan +
-                 reselect_device.  Port mesh onto it (wholesale; map
-                 PnMeshDevice.kind/tty/in_use/in_use_by); delete
-                 pn-mesh-device-list.{c,h}.  USER-verify scan/select/
-                 in-use/rescan parity.
+                 set_device_rows (wholesale, runs the reselect/auto-select
+                 policy) + add/update/remove_device_row (incremental) +
+                 set_list_hints + set_auto_scan + reselect_device, all in
+                 pn-device-dialog.{c,h}.  Ported mesh onto it: the shell
+                 owns the 3-state stack + listbox + right-click Reload +
+                 auto-scan idle + selection policy; the mesh keeps only the
+                 sysfs scan (on_device_scan -> pn_mesh_discover_async ->
+                 on_discover_done maps PnMeshDevice.kind/tty/in_use/
+                 in_use_by -> PnDeviceRow -> set_device_rows) and connect
+                 (on_device_selected reads row->id=tty, row->primary=kind).
+                 Deleted pn-mesh-device-list.{c,h}.  Scan re-entrancy +
+                 cancellable now mesh-side (ctx->scanning/scan_cancellable,
+                 cancelled in free); discover G_IO_ERROR_CANCELLED suppressed.
+                 Clean build, 78 unit tests + plugin gui-companion pass.
+                 USER-verify scan/select/in-use/rescan parity.
     [ ] Phase D  Provider + menu.  pn-device-provider.{c,h}: register(id,
                  display,icon,present_cb,ud,free) dedup by id, list(),
                  present(id,parent).  Meshtastic registers via
@@ -1459,9 +1468,11 @@ Phase tracker (mark DONE inline as each ships):
                  example; document the three shared widgets.  Optionally
                  sweep remaining mesh pages onto the form helpers.
 
-Where we left off: Phases A + B DONE (pending USER-verify).  Next:
-Phase C (device-list pane) -- absorb pn-mesh-device-list into the shell
-behind PN_DEVICE_DIALOG_WITH_DEVICE_LIST, replacing the Phase B
-set_sidebar(caller-built list) seam.  The shell already builds the
-HPaned; Phase C makes it build the list widget itself and exposes
-PnDeviceRow + scan/selected callbacks.
+Where we left off: Phases A + B + C DONE (pending USER-verify).  Next:
+Phase D (provider + Devices menu) -- pn-device-provider.{c,h}:
+register(id,display,icon,present_cb,ud,free) dedup by id, list(),
+present(id,parent); Meshtastic registers via
+pn_mesh_dialog_register_provider() from pn_gui_install_builtin_nodes();
+src/pn-devices-menu.c enumerates providers (drops pn-mesh-dialog.h);
+add tests/test_devices_menu_providers.py.  Then Phase E (PLUGINS doc +
+sweep).

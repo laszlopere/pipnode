@@ -275,8 +275,6 @@ libpipnode_gui_la_SOURCES = \
 	pn-led-gui.h \
 	pn-matrix57-gui.c \
 	pn-matrix57-gui.h \
-	pn-mesh-device-list.c \
-	pn-mesh-device-list.h \
 	pn-mesh-dialog.c \
 	pn-mesh-dialog.h \
 	pn-mesh-page-channels.c \
@@ -502,7 +500,6 @@ pipnode_gui_headers = \
 	pn-label-gui.h \
 	pn-led-gui.h \
 	pn-matrix57-gui.h \
-	pn-mesh-device-list.h \
 	pn-mesh-dialog.h \
 	pn-mesh-page-busy.h \
 	pn-mesh-page-channels.h \
