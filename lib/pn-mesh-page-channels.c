@@ -220,19 +220,22 @@ set_writing (ChannelsCtx *ctx, gboolean writing)
 /*  PSK generation + validation                                         */
 /* ------------------------------------------------------------------ */
 
-/* Read 32 bytes (256 bits) from /dev/urandom and return them base64-
- * encoded (the same encoding the Meshtastic phone app and channel URLs
- * use -- e.g. the default key is "AQ==").  Caller g_free()s.  Returns
- * NULL on a read failure (extremely unlikely on Linux; the page falls
- * back to GLib's PRNG with a warning if it happens). */
+/* Read @n bytes from /dev/urandom and return them base64-encoded (the
+ * same encoding the Meshtastic phone app and channel URLs use).  @n is
+ * the AES key length -- 16 for AES-128, 32 for AES-256.  Caller
+ * g_free()s.  Returns NULL on a read failure (extremely unlikely on
+ * Linux; the page falls back to GLib's PRNG with a warning if it
+ * happens). */
 static gchar *
-generate_psk_b64 (void)
+generate_psk_b64_len (gsize n)
 {
     guint8         buf[32];
     GFile         *urandom;
     GFileInputStream *in;
     gssize         got;
     gsize          i;
+
+    g_return_val_if_fail (n > 0 && n <= sizeof buf, NULL);
 
     urandom = g_file_new_for_path ("/dev/urandom");
     in = g_file_read (urandom, NULL, NULL);
@@ -242,19 +245,19 @@ generate_psk_b64 (void)
         g_warning ("pn-mesh-page-channels: /dev/urandom unavailable, "
                    "falling back to GLib PRNG (NOT cryptographically "
                    "strong); regenerate the PSK on a real Linux host.");
-        for (i = 0; i < sizeof buf; i++)
+        for (i = 0; i < n; i++)
             buf[i] = (guint8) g_random_int_range (0, 256);
     }
     else
     {
         got = g_input_stream_read (G_INPUT_STREAM (in),
-                                   buf, sizeof buf, NULL, NULL);
+                                   buf, n, NULL, NULL);
         g_object_unref (in);
-        if (got != (gssize) sizeof buf)
+        if (got != (gssize) n)
             return NULL;
     }
 
-    return g_base64_encode (buf, sizeof buf);
+    return g_base64_encode (buf, n);
 }
 
 /* Validate @s and decode into a freshly malloc'd byte buffer.  @s is
@@ -382,7 +385,7 @@ populate_details (ChannelsCtx *ctx, const PnMeshChannel *ch)
         /* Pre-fill a fresh private key so the common "add a private
          * channel" case is one click; clear it for an open channel.
          * New channels default to no MQTT bridging and no position. */
-        gchar *psk = generate_psk_b64 ();
+        gchar *psk = generate_psk_b64_len (32);
         gtk_entry_set_text (ctx->name_entry, "");
         gtk_entry_set_placeholder_text (ctx->name_entry, "e.g. MyMesh");
         gtk_entry_set_text (ctx->psk_entry, psk != NULL ? psk : "");
@@ -603,22 +606,72 @@ on_delete_clicked (GtkButton *button, gpointer user_data)
             NULL, on_channel_write_done, page);
 }
 
+/* The "key kind" each Generate-menu item carries as qdata.  The AES
+ * kinds double as the byte length passed to generate_psk_b64_len (); the
+ * two short kinds are handled specially (no randomness involved). */
+#define KEY_KIND_EMPTY    0   /* open channel: clear the field          */
+#define KEY_KIND_DEFAULT  1   /* the 1-byte well-known default ("AQ==")  */
+#define KEY_KIND_AES128  16   /* 16 random bytes                         */
+#define KEY_KIND_AES256  32   /* 32 random bytes                         */
+
+#define PN_KEY_KIND_QDATA "pn-key-kind"
+
+/* A Generate-menu item was chosen: set the PSK entry to a key of the
+ * item's kind.  EMPTY clears the field; DEFAULT writes the fixed 1-byte
+ * default key (0x01 -> "AQ=="); the AES kinds pull fresh random bytes. */
 static void
-on_generate_clicked (GtkButton *button, gpointer user_data)
+on_generate_key (GtkMenuItem *item, gpointer user_data)
 {
     GtkWidget   *page = user_data;
     ChannelsCtx *ctx  = g_object_get_data (G_OBJECT (page),
                                            PN_MESH_CHANNELS_CTX_QDATA);
+    guint  kind;
     gchar *key;
 
-    (void) button;
     if (ctx == NULL)
         return;
-    key = generate_psk_b64 ();
+
+    kind = GPOINTER_TO_UINT (
+            g_object_get_data (G_OBJECT (item), PN_KEY_KIND_QDATA));
+
+    if (kind == KEY_KIND_EMPTY)
+    {
+        gtk_entry_set_text (ctx->psk_entry, "");
+        return;
+    }
+
+    if (kind == KEY_KIND_DEFAULT)
+    {
+        /* The publicly-known default key is the single byte 0x01, which
+         * base64-encodes to "AQ==" -- compute it rather than hard-coding
+         * the literal so the encoding stays in one place. */
+        guint8 b = 0x01;
+        key = g_base64_encode (&b, 1);
+    }
+    else
+    {
+        key = generate_psk_b64_len ((gsize) kind);
+    }
+
     if (key == NULL)
         return;
     gtk_entry_set_text (ctx->psk_entry, key);
     g_free (key);
+}
+
+/* Append one Generate-menu entry that produces a key of @kind. */
+static void
+add_generate_item (GtkWidget   *menu,
+                   const gchar *label,
+                   guint        kind,
+                   GtkWidget   *page)
+{
+    GtkWidget *item = gtk_menu_item_new_with_label (label);
+
+    g_object_set_data (G_OBJECT (item), PN_KEY_KIND_QDATA,
+                       GUINT_TO_POINTER (kind));
+    g_signal_connect (item, "activate", G_CALLBACK (on_generate_key), page);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), item);
 }
 
 /* ------------------------------------------------------------------ */
@@ -936,9 +989,36 @@ pn_mesh_page_channels_new (void)
     gtk_entry_set_max_length (GTK_ENTRY (psk_entry), 48);
     gtk_widget_set_hexpand   (psk_entry, TRUE);
     gtk_box_pack_start (GTK_BOX (psk_row), psk_entry, TRUE, TRUE, 0);
-    generate = gtk_button_new_with_mnemonic ("_Generate");
+    /* Generate is a dropdown: the user picks the key type Meshtastic
+     * supports -- a random AES-256 / AES-128 key, the 1-byte default
+     * key ("AQ=="), or no key at all (open channel). */
+    generate = gtk_menu_button_new ();
     gtk_widget_set_tooltip_text (generate,
-            "Read 32 bytes from /dev/urandom for a fresh AES-256 key.");
+            "Set the channel key: a fresh random AES key, the default "
+            "\"AQ==\" key, or no key (open channel).");
+    {
+        GtkWidget *gen_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+        GtkWidget *gen_lbl = gtk_label_new_with_mnemonic ("_Generate");
+        GtkWidget *gen_arrow = gtk_image_new_from_icon_name (
+                "pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+        GtkWidget *gen_menu = gtk_menu_new ();
+
+        gtk_label_set_mnemonic_widget (GTK_LABEL (gen_lbl), generate);
+        gtk_box_pack_start (GTK_BOX (gen_box), gen_lbl,   FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (gen_box), gen_arrow, FALSE, FALSE, 0);
+        gtk_container_add (GTK_CONTAINER (generate), gen_box);
+
+        add_generate_item (gen_menu, "AES-256 key (random)",
+                           KEY_KIND_AES256, page);
+        add_generate_item (gen_menu, "AES-128 key (random)",
+                           KEY_KIND_AES128, page);
+        add_generate_item (gen_menu, "Default key (AQ==)",
+                           KEY_KIND_DEFAULT, page);
+        add_generate_item (gen_menu, "No key (open channel)",
+                           KEY_KIND_EMPTY, page);
+        gtk_widget_show_all (gen_menu);
+        gtk_menu_button_set_popup (GTK_MENU_BUTTON (generate), gen_menu);
+    }
     gtk_box_pack_start (GTK_BOX (psk_row), generate, FALSE, FALSE, 0);
     gtk_grid_attach (GTK_GRID (detail_grid), psk_row, 1, 1, 1, 1);
 
@@ -1007,8 +1087,8 @@ pn_mesh_page_channels_new (void)
 
     g_signal_connect (list, "row-selected",
                       G_CALLBACK (on_row_selected), page);
-    g_signal_connect (generate, "clicked",
-                      G_CALLBACK (on_generate_clicked), page);
+    /* Generate's behaviour lives on its dropdown menu items
+     * (on_generate_key), wired in add_generate_item above. */
     g_signal_connect (apply, "clicked",
                       G_CALLBACK (on_apply_clicked), page);
     g_signal_connect (delete_btn, "clicked",
