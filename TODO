@@ -1366,102 +1366,77 @@ choked on the corrupted byte stream).
   registry.  None is clean; deferred deliberately.
 
 (34) Device-dialog toolkit + PnDeviceProvider (was TODO #29 Phase 8).
-The editor's Devices -> Meshtastic dialog (lib/pn-mesh-dialog.c +
-lib/pn-mesh-page-*.c) is the model for how a device-config dialog
-should look: HPaned with a left device-list pane (Scan + 3-state
-GtkStack + GtkListBox), a right GtkNotebook of expander-sectioned
-tabs, a reference-counted busy spinner overlay, a bottom status bar.
-Every visual idiom (bold "key" labels, read-only "--"-fallback value
-rows, entry+Apply rows, enum combos) is currently re-implemented
-PRIVATELY inside each mesh page (make_key, attach_label_row,
-attach_entry_row, fill_combo/select_combo_by_id/get_combo_id,
-build_tab, add_expander).  We want plugins to build their OWN device
-dialogs that look identical to this one and stay identical when the
-GUI changes -- without a rigid framework (arbitrary GTK still
-allowed).  Solution: a small PUBLIC toolkit in libpipnode-gui that
-plugin GUI companions (already link libpipnode-gui) consume, exactly
-the way lib/pn-node-dialog-helpers.h already lets plugin NODE dialogs
-match the host.  Plus the plugin-registered Devices menu so a
-plugin's dialog appears alongside Meshtastic.  Meshtastic is
-refactored ONTO the toolkit to dogfood it (host and plugin dialogs
-can never visually drift apart).
+The Devices -> Meshtastic dialog (lib/pn-mesh-dialog.c,
+lib/pn-mesh-page-*.c) is the model: HPaned left device-list pane (Scan +
+3-state GtkStack + GtkListBox), right GtkNotebook of expander-sectioned
+tabs, ref-counted busy overlay, status bar.  Its idioms (key labels,
+"--"-fallback value rows, entry+Apply rows, enum combos) are
+re-implemented privately in each mesh page.  Goal: a PUBLIC toolkit in
+libpipnode-gui that plugin GUI companions consume to build identical
+device dialogs (as lib/pn-node-dialog-helpers.h does for NODE dialogs),
+plus a plugin-registered Devices menu.  Meshtastic refactors onto the
+toolkit to dogfood it.
 
-Decisions: (a) all new code is gui-tier, in lib/, as new PUBLIC
-headers installed into includedir/pipnode; core stays GTK-free; the
-provider registry lives in gui (its factory callback builds a GTK
-dialog).  (b) NO ABI bump -- new exported libpipnode-gui symbols, NOT
-PnNodeClass/PnWebsocketClass vfuncs (same kind as the pn_node_dialog_*
-helpers; cf the §15.5 framing that the v2 bump was for the vfuncs, not
-the helper header).  (c) a ready "dialog shell" object the plugin
-POPULATES (not a subclass-everything base) + free-function form
-helpers.
+Already-shipped public gui-tier widgets (in pipnode.h) the toolkit and
+plugins build on -- fold into the form helpers, don't reinvent:
+    PnDeviceCombo     (pn-device-combo)      scroll-safe GtkComboBoxText
+    PnDeviceSpin      (pn-device-spin)       scroll-safe GtkSpinButton
+    PnInlineEditLabel (pn-inline-edit-label) click-to-edit label
+
+Decisions: (a) new code gui-tier, in lib/, PUBLIC installed headers;
+core stays GTK-free.  (b) NO ABI bump -- new exported symbols, not
+PnNodeClass vfuncs.  (c) a "dialog shell" object the plugin POPULATES +
+free-function form helpers (not a subclass-everything base).
 
 New files (all lib/, all installed headers):
-    lib/pn-device-form.{c,h}      -- form helpers (extracted mesh privates)
-    lib/pn-device-dialog.{c,h}    -- the "dialog shell" object
-    lib/pn-device-provider.{c,h}  -- provider registration + enumeration
+    pn-device-form.{c,h}      form helpers (extracted mesh privates)
+    pn-device-dialog.{c,h}    the "dialog shell" object
+    pn-device-provider.{c,h}  provider registration + enumeration
 
-Build: lib/Makefile.am (6 sources -> libpipnode_gui_la_SOURCES, 3
-headers -> pipnode_gui_headers), lib/pipnode.h (3 includes).  No
-configure.ac / src/Makefile.am change.  No AM_MAINTAINER_MODE: run
-automake && ./config.status after the Makefile.am edit.  sudo make
-install after, so plugin companions can #include the new headers.
+Build: lib/Makefile.am (6 sources, 3 headers), lib/pipnode.h (3
+includes).  No AM_MAINTAINER_MODE: run automake && ./config.status after
+the edit, then sudo make install so companions can #include the headers.
 
-Open question (flagged, NOT acted on during the refactor): the mesh
-list currently auto-scans on open (idle_start_initial_scan in
-pn-mesh-device-list.c), which sits in tension with #29's "no
-auto-detect on open" hard rule.  The refactor REPRODUCES current
-shipped behaviour exactly; revisit the rule separately.
+Open question (NOT acted on): the mesh list auto-scans on open
+(idle_start_initial_scan, pn-mesh-device-list.c), in tension with #29's
+"no auto-detect on open" rule.  Refactor reproduces shipped behaviour;
+revisit separately.
 
-Phase tracker (mark DONE inline as each ships; "where we left off"
-lives here so future sessions can pick up without re-reading chat):
-
-    [ ] Phase A  Form helpers.  pn-device-form.{c,h}: key_label,
-                 new_tab, add_section, attach_label_row, set_value,
-                 attach_entry_row, PnDeviceEnumEntry +
-                 combo_fill/select/get_id.  Wire Makefile.am +
-                 pipnode.h.  Refactor pn-mesh-page-identity.c and
-                 pn-mesh-page-region.c onto them, deleting their
-                 private copies (make_key/attach_*/EnumEntry/
-                 fill_combo/select_combo_by_id/get_combo_id).
-                 USER-verify the two pages look unchanged.
-    [ ] Phase B  Dialog shell (no list).  pn-device-dialog.{c,h}:
-                 opaque PnDeviceDialog (owned by its GtkDialog via
-                 qdata), notebook + append_page + set_pages_sensitive,
-                 ref-counted push/pop_busy + overlay (clamp at zero),
-                 status bar set_status/set_statusf.  FLAGS_NONE path
-                 only (no left pane yet).  Refactor pn-mesh-dialog.c's
-                 FRAME onto it (drop build_tab/add_expander/
-                 build_status_bar/show_loading/hide_loading/
-                 busy_inc/busy_dec) while KEEPING pn-mesh-device-list
-                 as the left pane.  USER-verify mesh unchanged, incl.
-                 busy overlay under a mid-handshake Apply.
-    [ ] Phase C  Device-list pane.  Add PN_DEVICE_DIALOG_WITH_DEVICE_LIST
-                 + PnDeviceRow {id,primary,secondary,disabled_reason}
+Phase tracker (mark DONE inline as each ships):
+    [ ] Phase A  Form helpers.  pn-device-form.{c,h}: key_label, new_tab,
+                 add_section, attach_label_row, set_value,
+                 attach_entry_row, PnDeviceEnumEntry + combo_fill/select/
+                 get_id (combos/spinners use PnDeviceCombo/PnDeviceSpin).
+                 Refactor pn-mesh-page-identity.c + pn-mesh-page-region.c
+                 onto them, deleting the private copies.  USER-verify
+                 unchanged.
+    [ ] Phase B  Dialog shell (no list).  pn-device-dialog.{c,h}: opaque
+                 PnDeviceDialog (owned via qdata), notebook + append_page
+                 + set_pages_sensitive, ref-counted push/pop_busy overlay,
+                 status bar set_status/set_statusf.  Refactor
+                 pn-mesh-dialog.c's frame onto it, keeping
+                 pn-mesh-device-list as left pane.  USER-verify, incl.
+                 busy overlay mid-handshake.
+    [ ] Phase C  Device-list pane.  PN_DEVICE_DIALOG_WITH_DEVICE_LIST +
+                 PnDeviceRow {id,primary,secondary,disabled_reason}
                  (+new/copy/free+array_new) + scan/selected callbacks +
-                 FOUR row mutators (set_device_rows wholesale,
-                 add/update/remove_device_row incremental -- for
-                 trickle-in discovery + live row status; all keep the
-                 3-state stack + selection consistent) + set_list_hints
-                 + set_auto_scan + reselect_device.  Port the mesh
-                 dialog onto it (mesh uses wholesale set_device_rows;
-                 map PnMeshDevice.kind/tty/in_use/in_use_by ->
-                 primary/secondary/id/disabled_reason); delete
+                 set_device_rows (wholesale) + add/update/remove_device_row
+                 (incremental) + set_list_hints + set_auto_scan +
+                 reselect_device.  Port mesh onto it (wholesale; map
+                 PnMeshDevice.kind/tty/in_use/in_use_by); delete
                  pn-mesh-device-list.{c,h}.  USER-verify scan/select/
-                 in-use-row/rescan parity.
-    [ ] Phase D  Provider + menu.  pn-device-provider.{c,h}:
-                 register(id,display,icon,present_cb,ud,free) dedup by
-                 id, list(), present(id,parent).  Meshtastic registers
-                 via pn_mesh_dialog_register_provider() called from
-                 pn_gui_install_builtin_nodes() (before the window/menu
-                 builds).  src/pn-devices-menu.c enumerates providers
-                 instead of the hardcoded entry (drops pn-mesh-dialog.h).
-                 src/pn-window.c untouched.  Add
-                 tests/test_devices_menu_providers.py smoke test.
-    [ ] Phase E  PLUGINS doc + sweep.  New section near §17 (companion
-                 GUI module): toolkit API + Devices-menu provider +
-                 the no-ABI-bump rationale + a worked companion
-                 example.  Optionally sweep the remaining mesh pages
-                 onto the form helpers.
+                 in-use/rescan parity.
+    [ ] Phase D  Provider + menu.  pn-device-provider.{c,h}: register(id,
+                 display,icon,present_cb,ud,free) dedup by id, list(),
+                 present(id,parent).  Meshtastic registers via
+                 pn_mesh_dialog_register_provider() from
+                 pn_gui_install_builtin_nodes().  src/pn-devices-menu.c
+                 enumerates providers (drops pn-mesh-dialog.h);
+                 pn-window.c untouched.  Add
+                 tests/test_devices_menu_providers.py.
+    [ ] Phase E  PLUGINS doc + sweep.  New section near §17: toolkit API
+                 + Devices-menu provider + no-ABI-bump rationale + worked
+                 example; document the three shared widgets.  Optionally
+                 sweep remaining mesh pages onto the form helpers.
 
 Where we left off: not started.
