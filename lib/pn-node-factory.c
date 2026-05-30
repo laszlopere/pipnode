@@ -77,6 +77,7 @@
 #include "pn-text-view.h"
 #include "pn-threshold.h"
 #include "pn-throttle.h"
+#include "pn-topic.h"
 #include "pn-tts.h"
 #include "pn-watchdog.h"
 #include "pn-weather.h"
@@ -266,6 +267,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_REWRITE);
     pn_node_factory_register (self, PN_TYPE_SET);
     pn_node_factory_register (self, PN_TYPE_TEXT);
+    pn_node_factory_register (self, PN_TYPE_TOPIC);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);

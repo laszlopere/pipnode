@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Topic (PnTopic) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTopic">Topic</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnTopic</code>.
+</p>
+<p>
+Rewrites a message's topic to this node's own topic, then forwards the
+message otherwise untouched. Use it to re-tag a stream mid-flow &mdash; for
+example to give messages a stable topic before they reach an MQTT sink or a
+subscriber that routes on topic.
+</p>
+<p>
+The node adds no property of its own. The topic it stamps is the ordinary
+<em>Topic</em> field every node carries, edited in the node's settings
+dialog. It supports the usual placeholders &mdash; <code>${nodeclass}</code>,
+<code>${nodename}</code>, and <code>${hostname}</code> &mdash; which are
+resolved at emit time, exactly as when any node stamps its own outgoing
+topic. Left blank, it falls back to the default
+<code>/pnode/${nodeclass}/${nodename}</code> template.
+</p>
+
+</body>
+</html>

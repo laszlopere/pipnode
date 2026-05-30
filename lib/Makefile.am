@@ -173,6 +173,8 @@ libpipnode_core_la_SOURCES = \
 	pn-text.h \
 	pn-text-view.c \
 	pn-text-view.h \
+	pn-topic.c \
+	pn-topic.h \
 	pn-threshold.c \
 	pn-threshold.h \
 	pn-throttle.c \
@@ -463,6 +465,7 @@ pipnode_core_headers = \
 	pn-table-view.h \
 	pn-text.h \
 	pn-text-view.h \
+	pn-topic.h \
 	pn-threshold.h \
 	pn-throttle.h \
 	pn-tts.h \
