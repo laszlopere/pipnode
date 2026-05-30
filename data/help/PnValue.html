@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Value (PnValue) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnValue">Value</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnValue</code>.
+</p>
+<p>
+Overwrites <code>data.value</code> with a fixed number, regardless of what
+arrived. Use it to inject a constant numeric payload into a flow &mdash; a
+setpoint, a threshold, a literal reading. The rest of the message (its
+<code>topic</code>, <code>id</code>, and any other <code>data</code> members)
+passes through untouched, and the message is always forwarded.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>value</code></td>
+      <td>The fixed double written to <code>data.value</code> on every
+          message. Set it with the spin button in the node's settings
+          dialog.</td></tr>
+</table>
+
+</body>
+</html>

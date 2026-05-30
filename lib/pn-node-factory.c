@@ -79,6 +79,7 @@
 #include "pn-throttle.h"
 #include "pn-topic.h"
 #include "pn-tts.h"
+#include "pn-value.h"
 #include "pn-watchdog.h"
 #include "pn-weather.h"
 #include "pn-weather-report.h"
@@ -268,6 +269,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_SET);
     pn_node_factory_register (self, PN_TYPE_TEXT);
     pn_node_factory_register (self, PN_TYPE_TOPIC);
+    pn_node_factory_register (self, PN_TYPE_VALUE);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);

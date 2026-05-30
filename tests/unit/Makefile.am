@@ -46,6 +46,7 @@ check_PROGRAMS = \
 	test-pn-set \
 	test-pn-text \
 	test-pn-topic \
+	test-pn-value \
 	test-pn-filter \
 	test-pn-rewrite \
 	test-pn-expression2 \
@@ -139,6 +140,7 @@ test_pn_panel_display_SOURCES = test-pn-panel-display.c pntest.c pntest.h
 test_pn_set_SOURCES          = test-pn-set.c          pntest.c pntest.h
 test_pn_text_SOURCES         = test-pn-text.c         pntest.c pntest.h
 test_pn_topic_SOURCES        = test-pn-topic.c        pntest.c pntest.h
+test_pn_value_SOURCES        = test-pn-value.c        pntest.c pntest.h
 test_pn_filter_SOURCES       = test-pn-filter.c       pntest.c pntest.h
 test_pn_rewrite_SOURCES      = test-pn-rewrite.c      pntest.c pntest.h
 test_pn_expression2_SOURCES  = test-pn-expression2.c  pntest.c pntest.h

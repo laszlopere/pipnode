@@ -65,6 +65,7 @@ pnhelp_DATA = \
 	help/PnThreshold.html \
 	help/PnThrottle.html \
 	help/PnTts.html \
+	help/PnValue.html \
 	help/PnWatchdog.html \
 	help/PnWeather.html \
 	help/PnWeatherReport.html

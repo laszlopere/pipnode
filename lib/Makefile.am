@@ -183,6 +183,8 @@ libpipnode_core_la_SOURCES = \
 	pn-tts.h \
 	pn-tz-table.c \
 	pn-tz-table.h \
+	pn-value.c \
+	pn-value.h \
 	pn-var-store.c \
 	pn-var-store.h \
 	pn-vault.c \
@@ -470,6 +472,7 @@ pipnode_core_headers = \
 	pn-throttle.h \
 	pn-tts.h \
 	pn-tz-table.h \
+	pn-value.h \
 	pn-var-store.h \
 	pn-vault.h \
 	pn-watchdog.h \
