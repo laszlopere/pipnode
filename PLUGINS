@@ -1203,15 +1203,24 @@ a plugin that subclasses one of the base classes in sections 19 / 20
 tailors the inherited rows without touching the base class.
 
 The base `topic` property is the worked example.  A topic template is
-only meaningful for nodes that EMIT messages, so the host hides the
-Topic row by default for any node whose class declares no output port
-(`pn_node_class_get_has_output()` is %FALSE) -- a sink or a display
-node shows no Topic row with zero plugin work.  A node overrides that
-baseline in either direction with a schema row: tag `topic` HIDDEN to
-drop it from an emitter that should not stamp a topic (an MQTT Sink
-that republishes on the message's own topic), or name a plain `topic`
-row to force it visible on a node the has-output default would hide.
-An explicit schema row always wins over the has-output default.
+only meaningful for nodes that EMIT a message stamped with it, so a
+node that never does -- a sink, or a display that only consumes its
+input -- hides the row explicitly:
+
+```c
+PnSettingsSchema *schema = pn_settings_schema_new ();
+pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+```
+
+There is no automatic host default -- visibility is whatever the
+schemas in the chain say -- so the decision is explicit and auditable
+per type.  Tagging the row on a shared base class (the image-filter
+base, an MQTT-sink base) hides it for every leaf at once; a leaf that
+DOES want the Topic row back names a plain `topic` row (no HIDDEN) to
+override the base.  The MQTT Sink is the canonical case: it republishes
+on the incoming message's own topic, so it hides the base Topic row.
 
 `PN_ROW_FLAG_HIDDEN` lives in qdata with the rest of the schema, so it
 changes neither the `PnNodeClass` layout nor the plugin ABI (see 16.5).

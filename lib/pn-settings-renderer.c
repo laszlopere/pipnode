@@ -796,7 +796,12 @@ build_tab_grid (PnSettingsSchema *schema,
         if ((pspec->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
             continue;
 
-        flags  = pn_settings_schema_row_get_flags (schema, tab, r);
+        flags = pn_settings_schema_row_get_flags (schema, tab, r);
+
+        /* A hidden row is omitted entirely — never built, no grid cell. */
+        if ((flags & PN_ROW_FLAG_HIDDEN) != 0)
+            continue;
+
         editor = build_row_editor (
                 G_OBJECT (node), pspec,
                 pn_settings_schema_row_kind       (schema, tab, r),

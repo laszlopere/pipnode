@@ -1265,6 +1265,13 @@ build_tab_for_type (
         if ((pspecs[i]->flags & G_PARAM_CONSTRUCT_ONLY) != 0)
             continue;
 
+        /* Skip a row a schema in the class chain marks PN_ROW_FLAG_HIDDEN
+         * (resolved leaf -> base, so a subclass can hide it). */
+        if (PN_IS_NODE (target) &&
+            pn_node_class_property_row_hidden (PN_NODE_GET_CLASS (target),
+                                               pspecs[i]->name))
+            continue;
+
         attach_property_row (GTK_GRID (grid), target, pspecs[i], row, parent);
         row++;
     }
@@ -1408,9 +1415,18 @@ build_pn_node_tab (GObject   *target,
     for (i = 0; i < G_N_ELEMENTS (order); i++)
     {
         GParamSpec *pspec = g_object_class_find_property (klass, order[i]);
-        if (pspec != NULL)
-            attach_property_row (GTK_GRID (grid), target, pspec, row++,
-                                 parent);
+        if (pspec == NULL)
+            continue;
+
+        /* A node type can hide an inherited base row (notably "topic" on a
+         * sink that never stamps one) by tagging it PN_ROW_FLAG_HIDDEN in
+         * its schema; resolved leaf -> base so subclasses can override. */
+        if (PN_IS_NODE (target) &&
+            pn_node_class_property_row_hidden (PN_NODE_GET_CLASS (target),
+                                               order[i]))
+            continue;
+
+        attach_property_row (GTK_GRID (grid), target, pspec, row++, parent);
     }
 
     g_type_class_unref (klass);

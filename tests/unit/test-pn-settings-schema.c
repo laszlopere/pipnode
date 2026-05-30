@@ -38,6 +38,24 @@ G_DEFINE_TYPE (TestNode, test_node, PN_TYPE_NODE)
 static void test_node_class_init (TestNodeClass *klass) { (void) klass; }
 static void test_node_init       (TestNode      *self)  { (void) self; }
 
+/* A derivable base + leaf so chain resolution of row visibility (a subclass
+ * overriding a base class's hidden row) can be exercised. */
+typedef struct { PnNode      parent_instance; } TestBase;
+typedef struct { PnNodeClass parent_class;    } TestBaseClass;
+static GType test_base_get_type (void);
+G_DEFINE_TYPE (TestBase, test_base, PN_TYPE_NODE)
+static void test_base_class_init (TestBaseClass *k) { (void) k; }
+static void test_base_init       (TestBase      *s) { (void) s; }
+#define TEST_TYPE_BASE (test_base_get_type ())
+
+typedef struct { TestBase      parent_instance; } TestLeaf;
+typedef struct { TestBaseClass parent_class;    } TestLeafClass;
+static GType test_leaf_get_type (void);
+G_DEFINE_TYPE (TestLeaf, test_leaf, TEST_TYPE_BASE)
+static void test_leaf_class_init (TestLeafClass *k) { (void) k; }
+static void test_leaf_init       (TestLeaf      *s) { (void) s; }
+#define TEST_TYPE_LEAF (test_leaf_get_type ())
+
 static void
 test_empty (void)
 {
@@ -225,6 +243,45 @@ test_class_attach (void)
     g_type_class_unref (klass);
 }
 
+/* PN_ROW_FLAG_HIDDEN is resolved across the class chain (leaf -> PnNode):
+ * a base class can hide a row, a subclass inherits the hide, and a subclass
+ * can re-show it by naming the same row without the flag (nearest wins). */
+static void
+test_row_hidden_chain (void)
+{
+    PnNodeClass      *base = g_type_class_ref (TEST_TYPE_BASE);
+    PnNodeClass      *leaf = g_type_class_ref (TEST_TYPE_LEAF);
+    PnSettingsSchema *bs   = pn_settings_schema_new ();
+
+    /* No schema attached anywhere: nothing is hidden. */
+    PN_CHECK_FALSE (pn_node_class_property_row_hidden (leaf, "topic"));
+
+    /* Base hides "topic"; the leaf inherits the decision. */
+    pn_settings_schema_row       (bs, "topic", PN_EDITOR_AUTO);
+    pn_settings_schema_row_flags (bs, "topic", PN_ROW_FLAG_HIDDEN);
+    pn_node_class_set_settings_schema (base, bs);          /* transfer full */
+
+    PN_CHECK (pn_node_class_property_row_hidden (base, "topic"));
+    PN_CHECK (pn_node_class_property_row_hidden (leaf, "topic"));
+
+    /* A property no schema in the chain names is never hidden. */
+    PN_CHECK_FALSE (pn_node_class_property_row_hidden (leaf, "name"));
+
+    /* The leaf re-shows "topic" with a plain row: nearest (leaf) wins. */
+    {
+        PnSettingsSchema *ls = pn_settings_schema_new ();
+        pn_settings_schema_row (ls, "topic", PN_EDITOR_AUTO);  /* no HIDDEN */
+        pn_node_class_set_settings_schema (leaf, ls);
+
+        PN_CHECK_FALSE (pn_node_class_property_row_hidden (leaf, "topic"));
+        /* The base still hides it for its own instances. */
+        PN_CHECK (pn_node_class_property_row_hidden (base, "topic"));
+    }
+
+    g_type_class_unref (leaf);
+    g_type_class_unref (base);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -238,5 +295,6 @@ main (int argc, char **argv)
     pn_test_add ("out_of_range",   test_out_of_range);
     pn_test_add ("boxed",          test_boxed);
     pn_test_add ("class_attach",   test_class_attach);
+    pn_test_add ("row_hidden_chain", test_row_hidden_chain);
     return pn_test_run ();
 }

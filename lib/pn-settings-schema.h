@@ -89,14 +89,20 @@ typedef enum
  *                          that read better full width.
  * @PN_ROW_FLAG_READONLY:   present the editor disabled regardless of the
  *                          property's writability.
+ * @PN_ROW_FLAG_HIDDEN:     omit the row from the dialog entirely — it is
+ *                          never built (unlike %PN_ROW_FLAG_READONLY, which
+ *                          shows it greyed out).  Resolved across the class
+ *                          chain so a subclass can hide an inherited row;
+ *                          see pn_node_class_property_row_hidden().
  *
- * Per-row layout tweaks, OR-able.
+ * Per-row layout / visibility tweaks, OR-able.
  */
 typedef enum
 {
     PN_ROW_FLAG_NONE       = 0,
     PN_ROW_FLAG_FULL_WIDTH = 1 << 0,
-    PN_ROW_FLAG_READONLY   = 1 << 1
+    PN_ROW_FLAG_READONLY   = 1 << 1,
+    PN_ROW_FLAG_HIDDEN     = 1 << 2
 } PnRowFlags;
 
 GType pn_settings_schema_get_type (void) G_GNUC_CONST;
@@ -223,6 +229,23 @@ void              pn_node_class_set_settings_schema (PnNodeClass      *klass,
  *   #GType (not inherited), or %NULL.
  */
 PnSettingsSchema *pn_node_class_get_settings_schema (PnNodeClass      *klass);
+
+/**
+ * pn_node_class_property_row_hidden:
+ * @klass: a #PnNodeClass — pass the LEAF class (`PN_NODE_GET_CLASS (node)`)
+ * @prop:  the GObject property name to test
+ *
+ * Resolve whether @prop's dialog row carries %PN_ROW_FLAG_HIDDEN, consulting
+ * the settings schema of every class from @klass up to #PnNode.  The NEAREST
+ * class (leaf first) whose schema names @prop decides, so a subclass can hide
+ * a row a base class declares — or re-show one a base hid by naming the same
+ * row without the flag.  Returns %FALSE when no schema in the chain names
+ * @prop.  GTK-free: it reads only schema data and the #GType hierarchy.
+ *
+ * Returns: %TRUE if the row should be omitted from the node dialog.
+ */
+gboolean          pn_node_class_property_row_hidden (PnNodeClass      *klass,
+                                                     const gchar      *prop);
 
 /* ---- read-back (used by the GUI renderer and the unit test) ----- */
 

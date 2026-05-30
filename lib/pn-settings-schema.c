@@ -358,6 +358,71 @@ pn_node_class_get_settings_schema (PnNodeClass *klass)
                              pn_node_class_schema_quark ());
 }
 
+/* Locate @prop in @schema and return its row flags, or PN_ROW_FLAG_NONE
+ * with *found left FALSE if no row names it. */
+static PnRowFlags
+schema_lookup_row_flags (PnSettingsSchema *schema,
+                         const gchar      *prop,
+                         gboolean         *found)
+{
+    guint n_tabs = pn_settings_schema_get_n_tabs (schema);
+    guint t;
+
+    for (t = 0; t < n_tabs; t++)
+    {
+        guint n_rows = pn_settings_schema_get_n_rows (schema, t);
+        guint r;
+
+        for (r = 0; r < n_rows; r++)
+        {
+            if (g_strcmp0 (pn_settings_schema_row_prop (schema, t, r),
+                           prop) == 0)
+            {
+                *found = TRUE;
+                return pn_settings_schema_row_get_flags (schema, t, r);
+            }
+        }
+    }
+
+    return PN_ROW_FLAG_NONE;
+}
+
+gboolean
+pn_node_class_property_row_hidden (PnNodeClass *klass,
+                                   const gchar *prop)
+{
+    GType t;
+
+    g_return_val_if_fail (PN_IS_NODE_CLASS (klass), FALSE);
+    g_return_val_if_fail (prop != NULL, FALSE);
+
+    /* Walk the type chain leaf -> PnNode.  The nearest class whose schema
+     * names @prop wins, so a subclass overrides a base class's row (hiding
+     * an inherited property, or re-showing one the base hid). */
+    for (t = G_TYPE_FROM_CLASS (klass);
+         t != G_TYPE_INVALID && g_type_is_a (t, PN_TYPE_NODE);
+         t = g_type_parent (t))
+    {
+        gpointer          kt = g_type_class_peek (t);
+        PnSettingsSchema *schema;
+        gboolean          found = FALSE;
+        PnRowFlags        flags;
+
+        if (kt == NULL || !PN_IS_NODE_CLASS (kt))
+            continue;
+
+        schema = pn_node_class_get_settings_schema (PN_NODE_CLASS (kt));
+        if (schema == NULL)
+            continue;
+
+        flags = schema_lookup_row_flags (schema, prop, &found);
+        if (found)
+            return (flags & PN_ROW_FLAG_HIDDEN) != 0;
+    }
+
+    return FALSE;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Read-back accessors                                                */
 /* ------------------------------------------------------------------ */
