@@ -29,6 +29,8 @@
 
 #include "pn-mesh-page-telemetry.h"
 
+#include "pn-device-spin.h"
+
 #define PN_MESH_TELEMETRY_CTX_QDATA "pn-mesh-page-telemetry-ctx"
 
 typedef struct
@@ -395,7 +397,7 @@ make_switch (void)
 static GtkSpinButton *
 make_interval_spin (GtkWidget *cell)
 {
-    GtkWidget       *w   = gtk_spin_button_new_with_range (0, 86400, 1);
+    GtkWidget       *w   = pn_device_spin_new_with_range (0, 86400, 1);
     GtkWidget       *suf = gtk_label_new (" s");
     GtkStyleContext *sc  = gtk_widget_get_style_context (suf);
     gtk_style_context_add_class (sc, "dim-label");

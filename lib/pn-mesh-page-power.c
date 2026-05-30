@@ -29,6 +29,8 @@
 
 #include "pn-mesh-page-power.h"
 
+#include "pn-device-spin.h"
+
 #define PN_MESH_POWER_CTX_QDATA "pn-mesh-page-power-ctx"
 
 typedef struct
@@ -327,7 +329,7 @@ pn_mesh_page_power_new (void)
 
     cell = add_row (GTK_GRID (grid), row++, "On-battery shutdown");
     /* 0 = never; the firmware accepts any uint32. */
-    shutdown = gtk_spin_button_new_with_range (0, 86400 * 30, 60);
+    shutdown = pn_device_spin_new_with_range (0, 86400 * 30, 60);
     gtk_widget_set_tooltip_text (shutdown,
             "Seconds the device stays on after USB power is removed "
             "before it shuts down.  0 means \"never auto-shutdown\".");
@@ -338,7 +340,7 @@ pn_mesh_page_power_new (void)
     cell = add_row (GTK_GRID (grid), row++, "ADC multiplier");
     /* Float spin button: 0 = firmware default; the range covers the
      * realistic calibration offsets a user would punch in (1.5–4.0). */
-    adc = gtk_spin_button_new_with_range (0.0, 10.0, 0.01);
+    adc = pn_device_spin_new_with_range (0.0, 10.0, 0.01);
     gtk_spin_button_set_digits (GTK_SPIN_BUTTON (adc), 3);
     gtk_widget_set_tooltip_text (adc,
             "Multiplier applied to the battery-voltage ADC reading.  "
@@ -349,7 +351,7 @@ pn_mesh_page_power_new (void)
     ctx->adc_spin = GTK_SPIN_BUTTON (adc);
 
     cell = add_row (GTK_GRID (grid), row++, "Wait for Bluetooth");
-    wait_bluetooth = gtk_spin_button_new_with_range (0, 3600, 5);
+    wait_bluetooth = pn_device_spin_new_with_range (0, 3600, 5);
     gtk_widget_set_tooltip_text (wait_bluetooth,
             "Seconds the device stays awake at boot waiting for a "
             "Bluetooth client before entering sleep.  0 uses the "
@@ -359,7 +361,7 @@ pn_mesh_page_power_new (void)
     ctx->wait_bluetooth_spin = GTK_SPIN_BUTTON (wait_bluetooth);
 
     cell = add_row (GTK_GRID (grid), row++, "Super-deep sleep");
-    sds = gtk_spin_button_new_with_range (0, 86400 * 365, 60);
+    sds = pn_device_spin_new_with_range (0, 86400 * 365, 60);
     gtk_widget_set_tooltip_text (sds,
             "Seconds before the device enters Super-Deep-Sleep "
             "(\"SDS\") after going idle.  0 uses the firmware "
@@ -369,7 +371,7 @@ pn_mesh_page_power_new (void)
     ctx->sds_spin = GTK_SPIN_BUTTON (sds);
 
     cell = add_row (GTK_GRID (grid), row++, "Light sleep");
-    ls = gtk_spin_button_new_with_range (0, 86400, 30);
+    ls = pn_device_spin_new_with_range (0, 86400, 30);
     gtk_widget_set_tooltip_text (ls,
             "Seconds before the device enters Light-Sleep after "
             "going idle.  0 uses the firmware default.");
@@ -378,7 +380,7 @@ pn_mesh_page_power_new (void)
     ctx->ls_spin = GTK_SPIN_BUTTON (ls);
 
     cell = add_row (GTK_GRID (grid), row++, "Minimum awake");
-    min_wake = gtk_spin_button_new_with_range (0, 3600, 5);
+    min_wake = pn_device_spin_new_with_range (0, 3600, 5);
     gtk_widget_set_tooltip_text (min_wake,
             "Minimum seconds the device stays awake between sleep "
             "cycles.  0 uses the firmware default.");

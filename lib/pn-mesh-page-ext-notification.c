@@ -30,6 +30,8 @@
 
 #include "pn-mesh-page-ext-notification.h"
 
+#include "pn-device-spin.h"
+
 #define PN_MESH_EXT_NOTIFICATION_CTX_QDATA "pn-mesh-page-ext-notification-ctx"
 
 typedef struct
@@ -412,7 +414,7 @@ pn_mesh_page_ext_notification_new (void)
             "Seconds to keep repeating the notification. 0 fires the "
             "notification once and stops -- the fix for a device that "
             "won't stop beeping.");
-    w = gtk_spin_button_new_with_range (0, 3600, 1);
+    w = pn_device_spin_new_with_range (0, 3600, 1);
     gtk_box_pack_start (GTK_BOX (cell), w, FALSE, FALSE, 0);
     {
         GtkWidget *suffix = gtk_label_new (" s");
@@ -424,7 +426,7 @@ pn_mesh_page_ext_notification_new (void)
 
     cell = add_row (GTK_GRID (grid), row++, "Output duration",
             "Length of each on/off cycle on the output pin.");
-    w = gtk_spin_button_new_with_range (0, 600000, 100);
+    w = pn_device_spin_new_with_range (0, 600000, 100);
     gtk_box_pack_start (GTK_BOX (cell), w, FALSE, FALSE, 0);
     {
         GtkWidget *suffix = gtk_label_new (" ms");
@@ -443,19 +445,19 @@ pn_mesh_page_ext_notification_new (void)
 
     cell = add_row (GTK_GRID (grid), row++, "Output GPIO (LED)",
             "Primary GPIO pin driven on alert. 0 = no LED output.");
-    w = gtk_spin_button_new_with_range (0, 64, 1);
+    w = pn_device_spin_new_with_range (0, 64, 1);
     gtk_box_pack_start (GTK_BOX (cell), w, FALSE, FALSE, 0);
     ctx->output_spin = GTK_SPIN_BUTTON (w);
 
     cell = add_row (GTK_GRID (grid), row++, "Vibra GPIO",
             "Secondary GPIO pin for a vibration motor. 0 = none.");
-    w = gtk_spin_button_new_with_range (0, 64, 1);
+    w = pn_device_spin_new_with_range (0, 64, 1);
     gtk_box_pack_start (GTK_BOX (cell), w, FALSE, FALSE, 0);
     ctx->output_vibra_spin = GTK_SPIN_BUTTON (w);
 
     cell = add_row (GTK_GRID (grid), row++, "Buzzer GPIO",
             "Third GPIO pin for a buzzer. 0 = none.");
-    w = gtk_spin_button_new_with_range (0, 64, 1);
+    w = pn_device_spin_new_with_range (0, 64, 1);
     gtk_box_pack_start (GTK_BOX (cell), w, FALSE, FALSE, 0);
     ctx->output_buzzer_spin = GTK_SPIN_BUTTON (w);
 

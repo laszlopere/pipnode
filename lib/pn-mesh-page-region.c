@@ -40,6 +40,7 @@
 #include "pn-mesh-page-region.h"
 
 #include "pn-device-combo.h"
+#include "pn-device-spin.h"
 
 #define PN_MESH_REGION_CTX_QDATA "pn-mesh-page-region-ctx"
 
@@ -416,7 +417,7 @@ pn_mesh_page_region_new (void)
     cell = add_row (GTK_GRID (grid), row++, "Hop limit");
     /* Meshtastic firmware caps hop_limit at 7 (the protocol's hard
      * limit); 3 is the firmware default for a fresh device. */
-    hop = gtk_spin_button_new_with_range (0, 7, 1);
+    hop = pn_device_spin_new_with_range (0, 7, 1);
     gtk_widget_set_tooltip_text (hop,
             "Maximum number of mesh hops a packet may take.  3 is "
             "a good default; higher values flood the mesh more.");
@@ -427,7 +428,7 @@ pn_mesh_page_region_new (void)
     /* dBm.  Meshtastic clamps the effective value to whatever the
      * region+hardware allows, but 0..30 covers every legitimate
      * setting and 0 means "let the firmware pick a safe max". */
-    tx_power = gtk_spin_button_new_with_range (0, 30, 1);
+    tx_power = pn_device_spin_new_with_range (0, 30, 1);
     gtk_widget_set_tooltip_text (tx_power,
             "Transmit power in dBm.  0 lets the firmware pick the "
             "regional default; the firmware caps the effective "

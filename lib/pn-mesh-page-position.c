@@ -36,6 +36,7 @@
 #include "pn-mesh-page-position.h"
 
 #include "pn-device-combo.h"
+#include "pn-device-spin.h"
 
 #define PN_MESH_POSITION_CTX_QDATA "pn-mesh-page-position-ctx"
 
@@ -386,7 +387,7 @@ pn_mesh_page_position_new (void)
     /* 0 = device default; cap at 86400 (one day) -- the firmware
      * accepts any uint32 but anything past a few hours is functionally
      * equivalent to "off" and confuses users. */
-    gps_update_secs = gtk_spin_button_new_with_range (0, 86400, 30);
+    gps_update_secs = pn_device_spin_new_with_range (0, 86400, 30);
     gtk_widget_set_tooltip_text (gps_update_secs,
             "Seconds between GPS sampling attempts.  0 lets the "
             "firmware pick its default.");
@@ -407,7 +408,7 @@ pn_mesh_page_position_new (void)
     cell = add_row (GTK_GRID (grid), row++, "Broadcast interval");
     /* 0 = device default; the firmware ships about 900 s (15 min) as
      * its default if unset. */
-    broadcast_secs = gtk_spin_button_new_with_range (0, 86400, 60);
+    broadcast_secs = pn_device_spin_new_with_range (0, 86400, 60);
     gtk_widget_set_tooltip_text (broadcast_secs,
             "Seconds between Position packets sent on the mesh.  "
             "0 lets the firmware pick its default (~15 min).");
@@ -426,7 +427,7 @@ pn_mesh_page_position_new (void)
     ctx->smart_broadcast_switch = GTK_SWITCH (smart_broadcast);
 
     cell = add_row (GTK_GRID (grid), row++, "Smart minimum distance");
-    smart_min_distance = gtk_spin_button_new_with_range (0, 100000, 10);
+    smart_min_distance = pn_device_spin_new_with_range (0, 100000, 10);
     gtk_widget_set_tooltip_text (smart_min_distance,
             "Distance (in metres) the node must have moved before a "
             "smart-broadcast Position packet is sent.  Only used "
@@ -436,7 +437,7 @@ pn_mesh_page_position_new (void)
     ctx->smart_min_distance_spin = GTK_SPIN_BUTTON (smart_min_distance);
 
     cell = add_row (GTK_GRID (grid), row++, "Smart minimum interval");
-    smart_min_interval = gtk_spin_button_new_with_range (0, 86400, 30);
+    smart_min_interval = pn_device_spin_new_with_range (0, 86400, 30);
     gtk_widget_set_tooltip_text (smart_min_interval,
             "Minimum seconds between two smart-broadcast Position "
             "packets, regardless of movement.  Only used when "

@@ -31,6 +31,7 @@
 #include "pn-mesh-page-device.h"
 
 #include "pn-device-combo.h"
+#include "pn-device-spin.h"
 
 #define PN_MESH_DEVICE_CTX_QDATA "pn-mesh-page-device-ctx"
 
@@ -404,7 +405,7 @@ pn_mesh_page_device_new (void)
 
     cell = add_row (GTK_GRID (grid), row++, "NodeInfo broadcast interval");
     /* 0 = firmware default (~3 hours).  Cap at 86400 (one day). */
-    node_info_secs = gtk_spin_button_new_with_range (0, 86400, 60);
+    node_info_secs = pn_device_spin_new_with_range (0, 86400, 60);
     gtk_widget_set_tooltip_text (node_info_secs,
             "Seconds between NodeInfo broadcasts (the heartbeat that "
             "tells other nodes this one is alive).  0 lets the firmware "
@@ -416,7 +417,7 @@ pn_mesh_page_device_new (void)
     cell = add_row (GTK_GRID (grid), row++, "Button GPIO");
     /* GPIO 0 means "use the board's default" upstream; cap at 48 (well
      * past the highest pin on any current Meshtastic board). */
-    button_gpio = gtk_spin_button_new_with_range (0, 48, 1);
+    button_gpio = pn_device_spin_new_with_range (0, 48, 1);
     gtk_widget_set_tooltip_text (button_gpio,
             "GPIO pin for the user button.  0 lets the firmware use the "
             "board's default; non-zero overrides it.  Board-specific "
@@ -425,7 +426,7 @@ pn_mesh_page_device_new (void)
     ctx->button_gpio_spin = GTK_SPIN_BUTTON (button_gpio);
 
     cell = add_row (GTK_GRID (grid), row++, "Buzzer GPIO");
-    buzzer_gpio = gtk_spin_button_new_with_range (0, 48, 1);
+    buzzer_gpio = pn_device_spin_new_with_range (0, 48, 1);
     gtk_widget_set_tooltip_text (buzzer_gpio,
             "GPIO pin for the optional buzzer.  0 lets the firmware use "
             "the board's default; non-zero overrides it.");
