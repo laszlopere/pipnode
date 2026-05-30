@@ -227,6 +227,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-node-dialog-helpers.h \
 	pn-device-combo.c \
 	pn-device-combo.h \
+	pn-device-form.c \
+	pn-device-form.h \
 	pn-device-spin.c \
 	pn-device-spin.h \
 	pn-analog-meter-gui.c \
@@ -474,6 +476,7 @@ pipnode_core_headers = \
 pipnode_gui_headers = \
 	pipnode.h \
 	pn-device-combo.h \
+	pn-device-form.h \
 	pn-device-spin.h \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \

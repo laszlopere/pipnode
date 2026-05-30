@@ -35,6 +35,7 @@
 
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-formats.h"
+#include "pn-device-form.h"
 #include "pn-inline-edit-label.h"
 
 #define PN_MESH_PAGE_CTX_QDATA "pn-mesh-page-identity-ctx"
@@ -102,35 +103,6 @@ identity_ctx_free (gpointer data)
 /*  Field row helpers                                                   */
 /* ------------------------------------------------------------------ */
 
-static GtkWidget *
-make_key (const gchar *text)
-{
-    GtkWidget *key = gtk_label_new (text);
-    PangoAttrList *attrs = pango_attr_list_new ();
-    gtk_label_set_xalign (GTK_LABEL (key), 0.0);
-    pango_attr_list_insert (attrs,
-                            pango_attr_weight_new (PANGO_WEIGHT_BOLD));
-    gtk_label_set_attributes (GTK_LABEL (key), attrs);
-    pango_attr_list_unref (attrs);
-    gtk_widget_set_margin_end (key, 16);
-    return key;
-}
-
-static GtkLabel *
-attach_label_row (GtkGrid *grid, gint row, const gchar *key_text)
-{
-    GtkWidget *val = gtk_label_new ("—");
-
-    gtk_grid_attach (grid, make_key (key_text), 0, row, 1, 1);
-
-    gtk_label_set_xalign     (GTK_LABEL (val), 0.0);
-    gtk_label_set_selectable (GTK_LABEL (val), TRUE);
-    gtk_label_set_ellipsize  (GTK_LABEL (val), PANGO_ELLIPSIZE_END);
-    gtk_widget_set_hexpand   (val, TRUE);
-    gtk_grid_attach (grid, val, 1, row, 1, 1);
-    return GTK_LABEL (val);
-}
-
 /* Row with a key label and an inline click-to-edit value on the right.
  * The value commits on Enter (or focus-out) and cancels on Escape via
  * the PnInlineEditLabel widget, so there is no separate Apply button --
@@ -141,7 +113,7 @@ attach_inline_edit_row (GtkGrid *grid, gint row, const gchar *key_text,
 {
     GtkWidget *edit = pn_inline_edit_label_new ();
 
-    gtk_grid_attach (grid, make_key (key_text), 0, row, 1, 1);
+    gtk_grid_attach (grid, pn_device_form_key_label (key_text), 0, row, 1, 1);
 
     /* Mirror the device-enforced name limit client-side -- mostly so
      * the 4-character short name cannot grow past what the firmware
@@ -156,15 +128,8 @@ attach_inline_edit_row (GtkGrid *grid, gint row, const gchar *key_text,
 }
 
 /* ------------------------------------------------------------------ */
-/*  set_label helpers                                                   */
+/*  Capability / channel formatting                                     */
 /* ------------------------------------------------------------------ */
-
-static void
-set_label (GtkLabel *label, const gchar *text)
-{
-    gtk_label_set_text (label,
-                        (text != NULL && *text != '\0') ? text : "—");
-}
 
 /* Build a "wifi · bluetooth · ethernet" line from the boolean flags,
  * or "—" if none.  Reads nicer than three separate rows. */
@@ -385,20 +350,20 @@ pn_mesh_page_identity_new (void)
 
     ctx = g_slice_new0 (IdentityCtx);
 
-    ctx->kind_label     = attach_label_row (GTK_GRID (grid), row++, "Device");
-    ctx->tty_label      = attach_label_row (GTK_GRID (grid), row++, "Serial port");
-    ctx->firmware_label = attach_label_row (GTK_GRID (grid), row++, "Firmware");
-    ctx->node_num_label = attach_label_row (GTK_GRID (grid), row++, "Mesh node #");
+    ctx->kind_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Device");
+    ctx->tty_label      = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Serial port");
+    ctx->firmware_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Firmware");
+    ctx->node_num_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Mesh node #");
 
     ctx->long_name_edit = attach_inline_edit_row (
             GTK_GRID (grid), row++, "Long name", PN_MESH_LONG_NAME_MAX);
     ctx->short_name_edit = attach_inline_edit_row (
             GTK_GRID (grid), row++, "Short name", PN_MESH_SHORT_NAME_MAX);
 
-    ctx->hw_model_label = attach_label_row (GTK_GRID (grid), row++, "Hardware model");
-    ctx->role_label     = attach_label_row (GTK_GRID (grid), row++, "Role");
-    ctx->caps_label     = attach_label_row (GTK_GRID (grid), row++, "Capabilities");
-    ctx->channels_label = attach_label_row (GTK_GRID (grid), row++, "Channels");
+    ctx->hw_model_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Hardware model");
+    ctx->role_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Role");
+    ctx->caps_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Capabilities");
+    ctx->channels_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Channels");
 
     g_object_set_data_full (G_OBJECT (page), PN_MESH_PAGE_CTX_QDATA,
                             ctx, identity_ctx_free);
@@ -434,7 +399,7 @@ refresh_from_state (GtkWidget *page)
     if (state == NULL)
         return;
 
-    set_label (ctx->firmware_label,
+    pn_device_form_set_value (ctx->firmware_label,
                state->have_metadata ? state->firmware_version : NULL);
 
     {
@@ -442,7 +407,7 @@ refresh_from_state (GtkWidget *page)
                 ? g_strdup_printf ("%u (%s)",
                                    state->my_node_num, state->owner_id)
                 : g_strdup_printf ("%u", state->my_node_num);
-        set_label (ctx->node_num_label, node_text);
+        pn_device_form_set_value (ctx->node_num_label, node_text);
         g_free (node_text);
     }
 
@@ -468,7 +433,7 @@ refresh_from_state (GtkWidget *page)
         guint32 hw = state->have_metadata && state->hw_model != 0
                 ? state->hw_model : state->owner_hw_model;
         gchar *txt = hw != 0 ? pn_mesh_format_hw_model (hw) : g_strdup ("—");
-        set_label (ctx->hw_model_label, txt);
+        pn_device_form_set_value (ctx->hw_model_label, txt);
         g_free (txt);
     }
 
@@ -477,18 +442,18 @@ refresh_from_state (GtkWidget *page)
         if (role != NULL)
         {
             gchar *txt = g_strdup_printf ("%s (#%u)", role, state->role);
-            set_label (ctx->role_label, txt);
+            pn_device_form_set_value (ctx->role_label, txt);
             g_free (txt);
         }
         else
         {
-            set_label (ctx->role_label, NULL);
+            pn_device_form_set_value (ctx->role_label, NULL);
         }
     }
 
     {
         gchar *caps = state->have_metadata ? format_caps (state) : NULL;
-        set_label (ctx->caps_label, caps);
+        pn_device_form_set_value (ctx->caps_label, caps);
         g_free (caps);
     }
 
@@ -500,7 +465,7 @@ refresh_from_state (GtkWidget *page)
                                    active, state->channels->len);
         else
             txt = g_strdup_printf ("%u", active);
-        set_label (ctx->channels_label, txt);
+        pn_device_form_set_value (ctx->channels_label, txt);
         g_free (txt);
     }
 }
@@ -520,19 +485,19 @@ pn_mesh_page_identity_set_state (GtkWidget         *page,
 
     ctx->connection = connection;
 
-    set_label (ctx->kind_label, device_kind);
-    set_label (ctx->tty_label,  tty_path);
+    pn_device_form_set_value (ctx->kind_label, device_kind);
+    pn_device_form_set_value (ctx->tty_label,  tty_path);
 
     if (state == NULL)
     {
-        set_label (ctx->firmware_label, NULL);
-        set_label (ctx->node_num_label, NULL);
+        pn_device_form_set_value (ctx->firmware_label, NULL);
+        pn_device_form_set_value (ctx->node_num_label, NULL);
         pn_inline_edit_label_set_text (ctx->long_name_edit, "");
         pn_inline_edit_label_set_text (ctx->short_name_edit, "");
-        set_label (ctx->hw_model_label, NULL);
-        set_label (ctx->role_label,     NULL);
-        set_label (ctx->caps_label,     NULL);
-        set_label (ctx->channels_label, NULL);
+        pn_device_form_set_value (ctx->hw_model_label, NULL);
+        pn_device_form_set_value (ctx->role_label,     NULL);
+        pn_device_form_set_value (ctx->caps_label,     NULL);
+        pn_device_form_set_value (ctx->channels_label, NULL);
         set_writing (ctx, FALSE);   /* re-evaluate Apply enable */
         return;
     }

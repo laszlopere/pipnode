@@ -40,6 +40,7 @@
 #include "pn-mesh-page-region.h"
 
 #include "pn-device-combo.h"
+#include "pn-device-form.h"
 #include "pn-device-spin.h"
 
 #define PN_MESH_REGION_CTX_QDATA "pn-mesh-page-region-ctx"
@@ -85,9 +86,7 @@ region_ctx_free (gpointer data)
  * /usr/bin/pip-mesh's format_region.  The first row (UNSET) is the
  * device's "unconfigured" state -- shown so a Heltec straight out
  * of the box reads as "(unset — pick one)" rather than blank. */
-typedef struct { guint32 id; const char *name; } EnumEntry;
-
-static const EnumEntry REGIONS[] = {
+static const PnDeviceEnumEntry REGIONS[] = {
     {  0, "UNSET" },
     {  1, "US" },
     {  2, "EU_433" },
@@ -112,7 +111,7 @@ static const EnumEntry REGIONS[] = {
 /* Modem preset (Meshtastic Config.LoRaConfig.ModemPreset).  Note the
  * sparse numbering: upstream skipped 1 and 2 when reorganising the
  * presets, so the row at index 1 of this array carries id=3 etc. */
-static const EnumEntry MODEM_PRESETS[] = {
+static const PnDeviceEnumEntry MODEM_PRESETS[] = {
     { 0, "LONG_FAST" },
     { 3, "MEDIUM_SLOW" },
     { 4, "MEDIUM_FAST" },
@@ -122,61 +121,6 @@ static const EnumEntry MODEM_PRESETS[] = {
     { 8, "SHORT_TURBO" },
     { 9, "LONG_TURBO" },
 };
-
-/* Populate a GtkComboBoxText from an enum table; the row's `id` is
- * the stringified enum integer so we can fetch it back with
- * gtk_combo_box_get_active_id and parse without an index lookup. */
-static void
-fill_combo (GtkComboBoxText *combo,
-            const EnumEntry *table, gsize n)
-{
-    gsize i;
-    for (i = 0; i < n; i++)
-    {
-        gchar id[12];
-        g_snprintf (id, sizeof id, "%u", table[i].id);
-        gtk_combo_box_text_append (combo, id, table[i].name);
-    }
-}
-
-/* Select the row whose enum id matches @value; if it isn't in the
- * table, append a synthetic "<value>" entry so the user can see what
- * the device has even when we don't know its name. */
-static void
-select_combo_by_id (GtkComboBoxText *combo,
-                    const EnumEntry *table, gsize n,
-                    guint32 value)
-{
-    gchar id[12];
-    gsize i;
-
-    for (i = 0; i < n; i++)
-        if (table[i].id == value)
-        {
-            g_snprintf (id, sizeof id, "%u", value);
-            gtk_combo_box_set_active_id (GTK_COMBO_BOX (combo), id);
-            return;
-        }
-
-    /* Unknown id from a newer firmware: surface it rather than silently
-     * snapping to a different value the user didn't choose. */
-    g_snprintf (id, sizeof id, "%u", value);
-    {
-        gchar *label = g_strdup_printf ("(unknown #%u)", value);
-        gtk_combo_box_text_append (combo, id, label);
-        g_free (label);
-    }
-    gtk_combo_box_set_active_id (GTK_COMBO_BOX (combo), id);
-}
-
-static guint32
-get_combo_id (GtkComboBoxText *combo, guint32 fallback)
-{
-    const gchar *id = gtk_combo_box_get_active_id (GTK_COMBO_BOX (combo));
-    if (id == NULL)
-        return fallback;
-    return (guint32) g_ascii_strtoull (id, NULL, 10);
-}
 
 /* ------------------------------------------------------------------ */
 /*  Status + writing flag                                               */
@@ -264,8 +208,8 @@ on_apply_clicked (GtkButton *button, gpointer user_data)
         return;
 
     cfg.use_preset  = ctx->last_use_preset;
-    cfg.modem_preset = get_combo_id (ctx->preset_combo, 0);
-    cfg.region       = get_combo_id (ctx->region_combo, 0);
+    cfg.modem_preset = pn_device_form_combo_get_id (ctx->preset_combo, 0);
+    cfg.region       = pn_device_form_combo_get_id (ctx->region_combo, 0);
     cfg.hop_limit    = (guint32) gtk_spin_button_get_value_as_int (ctx->hop_spin);
     cfg.tx_enabled   = gtk_switch_get_active (ctx->tx_enabled_switch);
     cfg.tx_power     = (guint32) gtk_spin_button_get_value_as_int (ctx->tx_power_spin);
@@ -283,68 +227,6 @@ on_apply_clicked (GtkButton *button, gpointer user_data)
 /* ------------------------------------------------------------------ */
 /*  Construction                                                        */
 /* ------------------------------------------------------------------ */
-
-#define VALUE_MIN_WIDTH 260
-
-static void
-on_cell_realize (GtkWidget *cell, gpointer user_data)
-{
-    GtkSizeGroup *sg = user_data;
-    GList        *children = gtk_container_get_children (GTK_CONTAINER (cell));
-
-    /* Combos, spin buttons and entries share a common width via the
-     * size group so the value column lines up.  A switch is naturally
-     * narrow and already left-aligned (halign START), so leave it out
-     * -- otherwise the size group stretches it to the widest control. */
-    if (children != NULL && !GTK_IS_SWITCH (children->data)) {
-        GtkWidget *first = children->data;
-        gtk_widget_set_size_request (first, VALUE_MIN_WIDTH, -1);
-        gtk_size_group_add_widget (sg, first);
-    }
-    g_list_free (children);
-    g_signal_handlers_disconnect_by_func (cell, on_cell_realize, sg);
-}
-
-static GtkSizeGroup *
-get_value_size_group (GtkGrid *grid)
-{
-    GtkSizeGroup *sg = g_object_get_data (G_OBJECT (grid), "value-sg");
-    if (sg == NULL) {
-        sg = gtk_size_group_new (GTK_SIZE_GROUP_HORIZONTAL);
-        g_object_set_data_full (G_OBJECT (grid), "value-sg",
-                                sg, g_object_unref);
-    }
-    return sg;
-}
-
-/* Build the standard "bold key | control" grid row.  Returns the
- * holder cell so the caller can attach whichever control widget. */
-static GtkWidget *
-add_row (GtkGrid *grid, gint row, const gchar *label_text)
-{
-    GtkWidget *key = gtk_label_new (label_text);
-    PangoAttrList *attrs = pango_attr_list_new ();
-
-    pango_attr_list_insert (attrs,
-                            pango_attr_weight_new (PANGO_WEIGHT_BOLD));
-    gtk_label_set_attributes (GTK_LABEL (key), attrs);
-    pango_attr_list_unref (attrs);
-    gtk_label_set_xalign (GTK_LABEL (key), 0.0);
-    gtk_widget_set_margin_end (key, 16);
-    gtk_grid_attach (grid, key, 0, row, 1, 1);
-
-    /* Holder ensures the control sits flush-left rather than
-     * stretching to fill an over-wide column. */
-    {
-        GtkWidget *cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-        gtk_widget_set_hexpand (cell, TRUE);
-        gtk_grid_attach (grid, cell, 1, row, 1, 1);
-        g_signal_connect (cell, "realize",
-                          G_CALLBACK (on_cell_realize),
-                          get_value_size_group (grid));
-        return cell;
-    }
-}
 
 GtkWidget *
 pn_mesh_page_region_new (void)
@@ -394,27 +276,27 @@ pn_mesh_page_region_new (void)
     ctx = g_slice_new0 (RegionCtx);
     ctx->last_use_preset = TRUE;
 
-    cell = add_row (GTK_GRID (grid), row++, "Region");
+    cell = pn_device_form_attach_control_row (GTK_GRID (grid), row++, "Region");
     region = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (region,
             "Regulatory domain.  Sets the allowed LoRa frequency "
             "band; pick the one for your country.");
-    fill_combo (GTK_COMBO_BOX_TEXT (region), REGIONS, G_N_ELEMENTS (REGIONS));
+    pn_device_form_combo_fill (GTK_COMBO_BOX_TEXT (region), REGIONS, G_N_ELEMENTS (REGIONS));
     gtk_box_pack_start (GTK_BOX (cell), region, FALSE, FALSE, 0);
     ctx->region_combo = GTK_COMBO_BOX_TEXT (region);
 
-    cell = add_row (GTK_GRID (grid), row++, "Modem preset");
+    cell = pn_device_form_attach_control_row (GTK_GRID (grid), row++, "Modem preset");
     preset = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (preset,
             "Bandwidth / spreading-factor preset.  LONG_FAST is "
             "the firmware default; SHORT_* presets are faster but "
             "have less range.");
-    fill_combo (GTK_COMBO_BOX_TEXT (preset),
+    pn_device_form_combo_fill (GTK_COMBO_BOX_TEXT (preset),
                 MODEM_PRESETS, G_N_ELEMENTS (MODEM_PRESETS));
     gtk_box_pack_start (GTK_BOX (cell), preset, FALSE, FALSE, 0);
     ctx->preset_combo = GTK_COMBO_BOX_TEXT (preset);
 
-    cell = add_row (GTK_GRID (grid), row++, "Hop limit");
+    cell = pn_device_form_attach_control_row (GTK_GRID (grid), row++, "Hop limit");
     /* Meshtastic firmware caps hop_limit at 7 (the protocol's hard
      * limit); 3 is the firmware default for a fresh device. */
     hop = pn_device_spin_new_with_range (0, 7, 1);
@@ -424,7 +306,7 @@ pn_mesh_page_region_new (void)
     gtk_box_pack_start (GTK_BOX (cell), hop, FALSE, FALSE, 0);
     ctx->hop_spin = GTK_SPIN_BUTTON (hop);
 
-    cell = add_row (GTK_GRID (grid), row++, "TX power");
+    cell = pn_device_form_attach_control_row (GTK_GRID (grid), row++, "TX power");
     /* dBm.  Meshtastic clamps the effective value to whatever the
      * region+hardware allows, but 0..30 covers every legitimate
      * setting and 0 means "let the firmware pick a safe max". */
@@ -442,7 +324,7 @@ pn_mesh_page_region_new (void)
     }
     ctx->tx_power_spin = GTK_SPIN_BUTTON (tx_power);
 
-    cell = add_row (GTK_GRID (grid), row++, "TX enabled");
+    cell = pn_device_form_attach_control_row (GTK_GRID (grid), row++, "TX enabled");
     tx_enabled = gtk_switch_new ();
     gtk_widget_set_halign (tx_enabled, GTK_ALIGN_START);
     gtk_widget_set_tooltip_text (tx_enabled,
@@ -508,9 +390,9 @@ pn_mesh_page_region_set_state (GtkWidget         *page,
     ctx->last_channel_num = state->lora_channel_num;
     ctx->last_use_preset  = state->lora_use_preset;
 
-    select_combo_by_id (ctx->region_combo, REGIONS,
+    pn_device_form_combo_select (ctx->region_combo, REGIONS,
                         G_N_ELEMENTS (REGIONS), state->lora_region);
-    select_combo_by_id (ctx->preset_combo, MODEM_PRESETS,
+    pn_device_form_combo_select (ctx->preset_combo, MODEM_PRESETS,
                         G_N_ELEMENTS (MODEM_PRESETS),
                         state->lora_modem_preset);
     gtk_spin_button_set_value (ctx->hop_spin,

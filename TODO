@@ -1403,13 +1403,19 @@ Open question (NOT acted on): the mesh list auto-scans on open
 revisit separately.
 
 Phase tracker (mark DONE inline as each ships):
-    [ ] Phase A  Form helpers.  pn-device-form.{c,h}: key_label, new_tab,
+    [x] Phase A  Form helpers.  pn-device-form.{c,h}: key_label, new_tab,
                  add_section, attach_label_row, set_value,
-                 attach_entry_row, PnDeviceEnumEntry + combo_fill/select/
-                 get_id (combos/spinners use PnDeviceCombo/PnDeviceSpin).
-                 Refactor pn-mesh-page-identity.c + pn-mesh-page-region.c
-                 onto them, deleting the private copies.  USER-verify
-                 unchanged.
+                 attach_control_row (the region cell+size-group idiom;
+                 added alongside the named helpers because combos/
+                 spinners pack into it), attach_entry_row, PnDeviceEnumEntry
+                 + combo_fill/select/get_id (combos/spinners use
+                 PnDeviceCombo/PnDeviceSpin).  Refactored identity (make_key,
+                 attach_label_row, set_label gone; attach_inline_edit_row
+                 kept private, now built on key_label) + region (EnumEntry,
+                 fill_combo, select_combo_by_id, get_combo_id, add_row,
+                 on_cell_realize, get_value_size_group gone) onto them.
+                 Wired lib/Makefile.am (sources+headers) + pipnode.h.
+                 Clean build, 78 unit tests pass.  USER-verify unchanged.
     [ ] Phase B  Dialog shell (no list).  pn-device-dialog.{c,h}: opaque
                  PnDeviceDialog (owned via qdata), notebook + append_page
                  + set_pages_sensitive, ref-counted push/pop_busy overlay,
@@ -1439,4 +1445,9 @@ Phase tracker (mark DONE inline as each ships):
                  example; document the three shared widgets.  Optionally
                  sweep remaining mesh pages onto the form helpers.
 
-Where we left off: not started.
+Where we left off: Phase A DONE (pending USER-verify of the Identity
++ Region pages looking/behaving unchanged).  Next: Phase B (dialog
+shell).  Note for Phase B: pn_device_form_new_tab + add_section are
+already written but not yet consumed -- the mesh dialog's build_tab /
+add_expander still have private copies; fold them onto the helpers when
+refactoring pn-mesh-dialog.c.
