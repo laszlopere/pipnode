@@ -269,8 +269,12 @@ find_tty_device (const gchar *usb_path)
 
 /* realpath() into a freshly-allocated string, falling back to a plain
  * g_strdup of @path when it cannot be resolved (deleted file, EACCES,
- * ...).  Both a /proc/<pid>/fd/N symlink target and a /dev tty are run
- * through this so they compare on equal footing. */
+ * ...).  Used ONLY on the queried tty (a local /dev path), so a by-id
+ * symlink resolves to the same /dev/ttyUSBx the kernel reports for an
+ * open fd.  Never call this on an arbitrary other process's fd target:
+ * realpath() re-walks every path component, and a target on a stale
+ * network mount -- or behind a symlink cycle -- blocks in uninterruptible
+ * I/O (the cause of a hang here and in the live device scan). */
 static gchar *
 canonicalize (const gchar *path)
 {
@@ -306,15 +310,20 @@ pn_mesh_path_held_by_pid (pid_t pid, const gchar *path)
     while (!held && (name = g_dir_read_name (d)) != NULL)
     {
         gchar *link = g_strdup_printf ("/proc/%ld/fd/%s", (long) pid, name);
+        /* The /proc/<pid>/fd/N magic symlink is already resolved by the
+         * kernel to the opened file's canonical path, so reading it once
+         * yields a path we can compare directly against @want.  We must
+         * NOT realpath() it: a target on a stale network mount or behind a
+         * symlink cycle would block forever while realpath re-walks it
+         * (see canonicalize()).  g_file_read_link() touches only the
+         * in-kernel dentry path and never the backing store. */
         gchar *tgt  = g_file_read_link (link, NULL);
         g_free (link);
 
         if (tgt != NULL)
         {
-            gchar *canon = canonicalize (tgt);
-            if (g_strcmp0 (canon, want) == 0)
+            if (g_strcmp0 (tgt, want) == 0)
                 held = TRUE;
-            g_free (canon);
             g_free (tgt);
         }
     }
