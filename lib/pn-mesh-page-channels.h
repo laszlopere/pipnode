@@ -56,6 +56,19 @@ void       pn_mesh_page_channels_set_busy_callback (
         PnMeshPageBusyFunc        callback,
         gpointer                  user_data);
 
+/* Fired after a channel write (add / edit / delete) has been verified
+ * and the page has re-read the connection's channel snapshot.  The
+ * dialog uses this to re-push the now-updated state to sibling pages
+ * that mirror the channel list (notably Share), which would otherwise
+ * keep showing the channels as they were when the device first
+ * connected. */
+typedef void (*PnMeshChannelsChangedFunc) (gpointer user_data);
+
+void       pn_mesh_page_channels_set_changed_callback (
+        GtkWidget                 *page,
+        PnMeshChannelsChangedFunc  callback,
+        gpointer                   user_data);
+
 G_END_DECLS
 
 #endif /* PN_MESH_PAGE_CHANNELS_H */

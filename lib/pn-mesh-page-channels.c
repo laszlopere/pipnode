@@ -104,6 +104,9 @@ typedef struct
 
     PnMeshPageBusyFunc       busy_cb;
     gpointer                 busy_ud;
+
+    PnMeshChannelsChangedFunc changed_cb;
+    gpointer                  changed_ud;
 } ChannelsCtx;
 
 static void
@@ -475,6 +478,12 @@ on_channel_write_done (GObject *source, GAsyncResult *res, gpointer user_data)
     emit_status (ctx, ctx->pending_status != NULL ? ctx->pending_status
                                                   : "Channel saved.");
     set_writing (ctx, FALSE);
+
+    /* The channel set just changed under the dialog's feet; sibling
+     * pages that mirror the list (Share) are still showing the old
+     * snapshot.  Let the dialog re-push state to them. */
+    if (ctx->changed_cb != NULL)
+        ctx->changed_cb (ctx->changed_ud);
 }
 
 static void
@@ -1058,4 +1067,19 @@ pn_mesh_page_channels_set_busy_callback (GtkWidget          *page,
 
     ctx->busy_cb = callback;
     ctx->busy_ud = user_data;
+}
+
+void
+pn_mesh_page_channels_set_changed_callback (GtkWidget                 *page,
+                                            PnMeshChannelsChangedFunc  callback,
+                                            gpointer                   user_data)
+{
+    ChannelsCtx *ctx;
+
+    g_return_if_fail (GTK_IS_WIDGET (page));
+    ctx = g_object_get_data (G_OBJECT (page), PN_MESH_CHANNELS_CTX_QDATA);
+    g_return_if_fail (ctx != NULL);
+
+    ctx->changed_cb = callback;
+    ctx->changed_ud = user_data;
 }

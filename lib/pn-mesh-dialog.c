@@ -242,6 +242,27 @@ on_page_busy (gboolean busy, gpointer user_data)
         busy_dec (ctx);
 }
 
+/* Channels-page changed callback: a channel was added / edited /
+ * deleted and the connection's snapshot now differs from what the
+ * Share page captured when the device connected.  Re-push the live
+ * state so its channel checklist (and the QR / URL it drives) match
+ * the Channels page again.  Guard on a live connection: the Channels
+ * page only fires this after a verified write, so one is always
+ * present, but staying defensive keeps a late callback from handing
+ * the Share page a freed state. */
+static void
+on_channels_changed (gpointer user_data)
+{
+    MeshDialogCtx *ctx = user_data;
+
+    if (ctx->connection == NULL)
+        return;
+
+    pn_mesh_page_share_set_state (
+            ctx->share_page,
+            pn_mesh_connection_get_state (ctx->connection));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Test page monitor timer                                             */
 /* ------------------------------------------------------------------ */
@@ -712,6 +733,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->region_page,           on_page_busy, ctx);
         pn_mesh_page_channels_set_busy_callback (
                 ctx->channels_page,         on_page_busy, ctx);
+        /* Keep the Share page's channel checklist in step with edits
+         * made on the Channels page (same Radio tab). */
+        pn_mesh_page_channels_set_changed_callback (
+                ctx->channels_page,         on_channels_changed, ctx);
         pn_mesh_page_ext_notification_set_busy_callback (
                 ctx->ext_notification_page, on_page_busy, ctx);
         pn_mesh_page_mqtt_set_busy_callback (
