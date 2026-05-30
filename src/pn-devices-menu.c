@@ -14,18 +14,19 @@
  */
 
 /* ------------------------------------------------------------------ */
-/*  Devices menu — Phase 1 scaffold.                                   */
+/*  Devices menu — provider-driven (TODO #34 Phase D).                 */
 /*                                                                     */
-/*  Today: one hardcoded entry that launches the Meshtastic            */
-/*  configuration dialog.  Phase 8 of TODO #29 turns this into a       */
-/*  plugin-registered list (PnDeviceProvider), so other plugins        */
-/*  (Tasmota, Zigbee, Kodi) can append their own entries.  Keeping the */
-/*  menu in its own file means that switch will not touch pn-window.c. */
+/*  One entry per registered #PnDeviceProvider, in registration order. */
+/*  Built-in device kinds register from pn_gui_install_builtin_nodes() */
+/*  and plugins from their GUI companions, so this file never names a  */
+/*  particular device — it just enumerates the registry and routes     */
+/*  each activation back through pn_device_provider_present().  That    */
+/*  keeps the switch to plugin-supplied entries out of pn-window.c.    */
 /* ------------------------------------------------------------------ */
 
 #include "pn-devices-menu.h"
 
-#include "pn-mesh-dialog.h"
+#include "pn-device-provider.h"
 
 /* GTK 3 deprecates GtkImageMenuItem but the editor's menubar uses it
  * throughout for icon-bearing items (see create_image_menu_item in
@@ -34,71 +35,96 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 
 typedef struct
 {
-    GtkWindow *parent;
-} DevicesMenuCtx;
+    GtkWindow *parent;   /* the editor window; not owned */
+    gchar     *id;       /* provider id to present */
+} DevicesMenuItem;
 
 static void
-devices_menu_ctx_free (gpointer data, GClosure *closure)
+devices_menu_item_free (gpointer data, GClosure *closure)
 {
+    DevicesMenuItem *item = data;
+
     (void) closure;
-    g_slice_free (DevicesMenuCtx, data);
+    g_free (item->id);
+    g_slice_free (DevicesMenuItem, item);
 }
 
-/* Open (or raise) the Meshtastic configuration dialog. */
+/* Open (or raise) the configuration dialog for this entry's provider. */
 static void
-action_meshtastic (GtkMenuItem *item, gpointer user_data)
+action_present_provider (GtkMenuItem *menu_item, gpointer user_data)
 {
-    DevicesMenuCtx *ctx = user_data;
+    DevicesMenuItem *item = user_data;
 
-    (void) item;
-    pn_mesh_dialog_present (ctx->parent);
+    (void) menu_item;
+    pn_device_provider_present (item->id, item->parent);
 }
 
 /* Build a menu item with a themed icon + label + activate handler.
  * Mirrors the (file-private) helper in pn-window.c so the Devices entries
  * line up visually with File/Edit/View/Help items. */
 static GtkWidget *
-build_image_item (const gchar *icon_name,
-                  const gchar *label,
-                  GCallback    callback,
-                  gpointer     user_data,
+build_image_item (const gchar   *icon_name,
+                  const gchar   *label,
+                  GCallback      callback,
+                  gpointer       user_data,
                   GClosureNotify notify)
 {
     GtkWidget *item;
-    GtkWidget *image;
 
-    item  = gtk_image_menu_item_new_with_mnemonic (label);
-    image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_MENU);
-    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM (item), image);
-    gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (item),
-                                               TRUE);
+    item = gtk_image_menu_item_new_with_mnemonic (label);
+    if (icon_name != NULL)
+    {
+        GtkWidget *image = gtk_image_new_from_icon_name (icon_name,
+                                                         GTK_ICON_SIZE_MENU);
+        gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM (item), image);
+        gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (item),
+                                                   TRUE);
+    }
 
     g_signal_connect_data (item, "activate", callback,
                            user_data, notify, 0);
     return item;
 }
 
+/* Append "…" to a provider's display name to signal it opens a dialog,
+ * matching the editor's other dialog-opening menu items. */
+static gchar *
+ellipsized_label (const gchar *display_name)
+{
+    return g_strconcat (display_name, "…", NULL);
+}
+
 GtkWidget *
 pn_devices_menu_new (GtkWindow *parent_window, GtkAccelGroup *accel_group)
 {
-    GtkWidget      *menu;
-    DevicesMenuCtx *ctx;
+    GtkWidget *menu;
+    GList     *providers, *l;
 
     (void) accel_group;   /* no accelerators on these entries yet */
 
     menu = gtk_menu_new ();
 
-    ctx = g_slice_new0 (DevicesMenuCtx);
-    ctx->parent = parent_window;
+    providers = pn_device_provider_list ();
+    for (l = providers; l != NULL; l = l->next)
+    {
+        PnDeviceProviderInfo *info = l->data;
+        DevicesMenuItem      *item;
+        gchar                *label;
 
-    /* "network-wireless" reads as "talk to a radio device" and is shipped
-     * by every common icon theme; the dialog itself shows the per-device
-     * branding once it is open. */
-    gtk_menu_shell_append (
-            GTK_MENU_SHELL (menu),
-            build_image_item ("network-wireless", "_Meshtastic…",
-                              G_CALLBACK (action_meshtastic),
-                              ctx, devices_menu_ctx_free));
+        item = g_slice_new0 (DevicesMenuItem);
+        item->parent = parent_window;
+        item->id     = g_strdup (info->id);
+
+        label = ellipsized_label (info->display_name);
+        gtk_menu_shell_append (
+                GTK_MENU_SHELL (menu),
+                build_image_item (info->icon_name, label,
+                                  G_CALLBACK (action_present_provider),
+                                  item, devices_menu_item_free));
+        g_free (label);
+    }
+    g_list_free_full (providers,
+                      (GDestroyNotify) pn_device_provider_info_free);
 
     return menu;
 }

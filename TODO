@@ -1455,24 +1455,39 @@ Phase tracker (mark DONE inline as each ships):
                  cancelled in free); discover G_IO_ERROR_CANCELLED suppressed.
                  Clean build, 78 unit tests + plugin gui-companion pass.
                  USER-verify scan/select/in-use/rescan parity.
-    [ ] Phase D  Provider + menu.  pn-device-provider.{c,h}: register(id,
-                 display,icon,present_cb,ud,free) dedup by id, list(),
-                 present(id,parent).  Meshtastic registers via
-                 pn_mesh_dialog_register_provider() from
+    [x] Phase D  Provider + menu.  pn-device-provider.{c,h}:
+                 pn_device_provider_register(id,display,icon,present_cb,
+                 ud,destroy) dedup by id (re-register replaces in place,
+                 keeps list position so menu order is stable across a
+                 companion reload), pn_device_provider_list() ->
+                 deep-copied PnDeviceProviderInfo* GList in registration
+                 order (+_info_free), pn_device_provider_present(id,
+                 parent).  Process-global registry, no unregister
+                 (providers are resident-lifetime).  Wired into
+                 lib/Makefile.am (gui SOURCES + headers) + pipnode.h.
+                 Meshtastic registers via pn_mesh_dialog_register_provider()
+                 (thin trampoline -> pn_mesh_dialog_present, icon
+                 network-wireless) called from
                  pn_gui_install_builtin_nodes().  src/pn-devices-menu.c
-                 enumerates providers (drops pn-mesh-dialog.h);
-                 pn-window.c untouched.  Add
-                 tests/test_devices_menu_providers.py.
+                 now enumerates pn_device_provider_list() (one "<name>…"
+                 item each, routes activate -> pn_device_provider_present);
+                 dropped pn-mesh-dialog.h; pn-window.c untouched (still
+                 just calls pn_devices_menu_new).  Test: new D-Bus method
+                 GetDeviceProviders (snapshots the same registry the menu
+                 reads) in pn-application.c + tests/test_devices_menu_
+                 providers.py asserting "meshtastic" present (added to
+                 tests/Makefile.am TESTS).  Clean build (no warnings), 81
+                 C unit tests + new test + plugin-gui-companion/dial/
+                 multi-worksheet pass.  USER-verify the Devices menu still
+                 opens the Meshtastic dialog.
     [ ] Phase E  PLUGINS doc + sweep.  New section near §17: toolkit API
                  + Devices-menu provider + no-ABI-bump rationale + worked
                  example; document the three shared widgets.  Optionally
                  sweep remaining mesh pages onto the form helpers.
 
-Where we left off: Phases A + B + C DONE (pending USER-verify).  Next:
-Phase D (provider + Devices menu) -- pn-device-provider.{c,h}:
-register(id,display,icon,present_cb,ud,free) dedup by id, list(),
-present(id,parent); Meshtastic registers via
-pn_mesh_dialog_register_provider() from pn_gui_install_builtin_nodes();
-src/pn-devices-menu.c enumerates providers (drops pn-mesh-dialog.h);
-add tests/test_devices_menu_providers.py.  Then Phase E (PLUGINS doc +
-sweep).
+Where we left off: Phases A + B + C + D DONE (pending USER-verify).
+Next: Phase E (PLUGINS doc + sweep) -- new section near §17: toolkit
+API + Devices-menu provider (pn-device-provider.h) + no-ABI-bump
+rationale + worked example; document the three shared widgets
+(PnDeviceCombo/Spin/InlineEditLabel).  Optionally sweep remaining mesh
+pages onto the form helpers.

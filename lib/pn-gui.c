@@ -38,6 +38,7 @@
 #include "pn-label-gui.h"
 #include "pn-led-gui.h"
 #include "pn-matrix57-gui.h"
+#include "pn-mesh-dialog.h"
 #include "pn-meshtastic-gui.h"
 #include "pn-notify-gui.h"
 #include "pn-numeric-gui.h"
@@ -86,6 +87,12 @@ pn_gui_install_builtin_nodes (void)
     pn_text_view_gui_install ();
     pn_tts_gui_install ();
     pn_weather_report_gui_install ();
+
+    /* Device providers: advertise the built-in device dialogs in the
+     * editor's Devices menu (TODO #34 Phase D).  The menu is built by
+     * enumerating the provider registry, so this is the only place a
+     * built-in device kind names itself. */
+    pn_mesh_dialog_register_provider ();
 }
 
 /* ------------------------------------------------------------------ */

@@ -25,6 +25,7 @@
 #include "pn-device-combo.h"
 #include "pn-device-dialog.h"
 #include "pn-device-form.h"
+#include "pn-device-provider.h"
 #include "pn-device-spin.h"
 #include "pn-dial.h"
 #include "pn-edge.h"

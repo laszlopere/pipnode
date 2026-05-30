@@ -33,6 +33,7 @@
 #include "pn-mesh-dialog.h"
 #include "pn-device-dialog.h"
 #include "pn-device-form.h"
+#include "pn-device-provider.h"
 #include "pn-mesh-connection.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-channels.h"
@@ -867,4 +868,25 @@ pn_mesh_dialog_present (GtkWindow *parent_window)
     }
 
     gtk_window_present (GTK_WINDOW (dialog));
+}
+
+/* Provider adapter: the registry's present callback carries a user_data
+ * we do not need, so trampoline to the plain present(). */
+static void
+mesh_provider_present (GtkWindow *parent, gpointer user_data)
+{
+    (void) user_data;
+    pn_mesh_dialog_present (parent);
+}
+
+void
+pn_mesh_dialog_register_provider (void)
+{
+    /* "network-wireless" reads as "talk to a radio device" and ships
+     * with every common icon theme; the dialog shows the per-device
+     * branding once open.  (Matches the icon the hardcoded menu entry
+     * used before the registry existed.) */
+    pn_device_provider_register ("meshtastic", "Meshtastic",
+                                 "network-wireless",
+                                 mesh_provider_present, NULL, NULL);
 }

@@ -38,6 +38,13 @@ G_BEGIN_DECLS
  * existing instance rather than creating a second one. */
 void pn_mesh_dialog_present (GtkWindow *parent_window);
 
+/* Advertise Meshtastic in the editor's Devices menu by registering a
+ * provider (id "meshtastic") whose present callback is
+ * pn_mesh_dialog_present().  Called once from
+ * pn_gui_install_builtin_nodes(); idempotent (a second call replaces
+ * the same id).  See pn-device-provider.h. */
+void pn_mesh_dialog_register_provider (void);
+
 G_END_DECLS
 
 #endif /* PN_MESH_DIALOG_H */

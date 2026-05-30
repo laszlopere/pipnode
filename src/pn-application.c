@@ -19,6 +19,7 @@
 
 #include "pn-application.h"
 #include "pn-window.h"
+#include "pn-device-provider.h"
 #include "pn-worksheet.h"
 #include "pn-node-factory.h"
 #include "pn-node-store.h"
@@ -208,6 +209,9 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='prop' direction='in'/>"
     "      <arg type='s' name='text' direction='in'/>"
     "      <arg type='b' name='ok'   direction='out'/>"
+    "    </method>"
+    "    <method name='GetDeviceProviders'>"
+    "      <arg type='as' name='ids' direction='out'/>"
     "    </method>"
     "  </interface>"
     "</node>";
@@ -1069,6 +1073,27 @@ handle_worksheet_method_call (
         ok = pn_window_set_dialog_editor_text (PN_WINDOW (win), prop, text);
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "GetDeviceProviders") == 0)
+    {
+        /* Snapshot the Devices-menu provider registry (TODO #34 Phase D).
+         * The Devices menu is built by enumerating exactly this list, so
+         * a provider's presence here is its presence in the menu. */
+        GList           *providers, *l;
+        GVariantBuilder  builder;
+
+        providers = pn_device_provider_list ();
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
+        for (l = providers; l != NULL; l = l->next)
+        {
+            PnDeviceProviderInfo *info = l->data;
+            g_variant_builder_add (&builder, "s", info->id);
+        }
+        g_list_free_full (providers,
+                          (GDestroyNotify) pn_device_provider_info_free);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(as)", &builder));
     }
     else
     {
