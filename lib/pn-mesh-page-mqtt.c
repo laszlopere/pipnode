@@ -317,6 +317,34 @@ make_switch (void)
     return sw;
 }
 
+/* Toggle a password entry between hidden and visible when its reveal
+ * icon is clicked -- the same gesture the credentials dialog uses for
+ * secret fields. */
+static void
+on_reveal_icon_press (GtkEntry             *entry,
+                      GtkEntryIconPosition  pos,
+                      GdkEvent             *event,
+                      gpointer              user_data)
+{
+    (void) event; (void) user_data;
+    if (pos == GTK_ENTRY_ICON_SECONDARY)
+        gtk_entry_set_visibility (entry, !gtk_entry_get_visibility (entry));
+}
+
+/* Add a clickable eye icon to a (hidden) password entry so the user can
+ * peek at what they typed. */
+static void
+add_password_reveal_icon (GtkEntry *entry)
+{
+    gtk_entry_set_icon_from_icon_name (entry, GTK_ENTRY_ICON_SECONDARY,
+                                       "view-reveal-symbolic");
+    gtk_entry_set_icon_activatable (entry, GTK_ENTRY_ICON_SECONDARY, TRUE);
+    gtk_entry_set_icon_tooltip_text (entry, GTK_ENTRY_ICON_SECONDARY,
+                                     "Show or hide the password");
+    g_signal_connect (entry, "icon-press",
+                      G_CALLBACK (on_reveal_icon_press), NULL);
+}
+
 GtkWidget *
 pn_mesh_page_mqtt_new (void)
 {
@@ -404,6 +432,7 @@ pn_mesh_page_mqtt_new (void)
     w = gtk_entry_new ();
     gtk_entry_set_visibility (GTK_ENTRY (w), FALSE);
     gtk_widget_set_hexpand (w, TRUE);
+    add_password_reveal_icon (GTK_ENTRY (w));
     gtk_box_pack_start (GTK_BOX (cell), w, TRUE, TRUE, 0);
     ctx->password_entry = GTK_ENTRY (w);
 
