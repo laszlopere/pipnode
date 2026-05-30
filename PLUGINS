@@ -1121,8 +1121,9 @@ void pn_settings_schema_choices (PnSettingsSchema *self,
                                  const gchar *prop,
                                  const gchar *const *choices);
 
-/* Per-row layout: PN_ROW_FLAG_FULL_WIDTH (span both columns, no label
- * cell) and/or PN_ROW_FLAG_READONLY (always disabled). */
+/* Per-row layout / visibility: PN_ROW_FLAG_FULL_WIDTH (span both columns,
+ * no label cell), PN_ROW_FLAG_READONLY (always disabled), and
+ * PN_ROW_FLAG_HIDDEN (drop the row from the dialog entirely -- see 16.3). */
 void pn_settings_schema_row_flags (PnSettingsSchema *self,
                                    const gchar *prop, PnRowFlags flags);
 
@@ -1180,7 +1181,42 @@ pn_settings_schema_row (schema, "size",    PN_EDITOR_SPIN);
 pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
 ```
 
-16.3 When the schema is not enough
+16.3 Hiding a property row -- including an inherited one
+-------------------------------------------------------
+
+`PN_ROW_FLAG_HIDDEN` drops a property row from the dialog completely.
+Unlike `PN_ROW_FLAG_READONLY` (which shows the row greyed out) the row
+is never built at all.  Tag it like any other row flag:
+
+```c
+pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+```
+
+The flag works for ANY property, including one a PARENT class declared.
+Row visibility is resolved by walking the node's class chain from the
+leaf down to the class that declared the property, and the NEAREST
+schema that names the row wins.  So a base class can ship a property
+and a subclass can hide it; conversely a base class can hide a row by
+default and a subclass can force it back by naming the SAME row with no
+`PN_ROW_FLAG_HIDDEN` bit (`PN_ROW_FLAG_NONE` re-shows it).  This is how
+a plugin that subclasses one of the base classes in sections 19 / 20
+tailors the inherited rows without touching the base class.
+
+The base `topic` property is the worked example.  A topic template is
+only meaningful for nodes that EMIT messages, so the host hides the
+Topic row by default for any node whose class declares no output port
+(`pn_node_class_get_has_output()` is %FALSE) -- a sink or a display
+node shows no Topic row with zero plugin work.  A node overrides that
+baseline in either direction with a schema row: tag `topic` HIDDEN to
+drop it from an emitter that should not stamp a topic (an MQTT Sink
+that republishes on the message's own topic), or name a plain `topic`
+row to force it visible on a node the has-output default would hide.
+An explicit schema row always wins over the has-output default.
+
+`PN_ROW_FLAG_HIDDEN` lives in qdata with the rest of the schema, so it
+changes neither the `PnNodeClass` layout nor the plugin ABI (see 16.5).
+
+16.4 When the schema is not enough
 ----------------------------------
 
 The schema deliberately does NOT cover everything.  A combo whose
@@ -1194,7 +1230,7 @@ paths compose: an imperative `build_*` vfunc on a class always WINS over
 that class's schema, so you can describe the static rows as data and
 override only the one dynamic row in a companion.
 
-16.4 ABI note
+16.5 ABI note
 -------------
 
 The schema lives in qdata, not in the `PnNodeClass` struct, so using it
