@@ -225,6 +225,8 @@ libpipnode_core_la_LDFLAGS = -version-info 0:0:0 -no-undefined
 libpipnode_gui_la_SOURCES = \
 	pipnode.h \
 	pn-node-dialog-helpers.h \
+	pn-device-combo.c \
+	pn-device-combo.h \
 	pn-analog-meter-gui.c \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.c \
@@ -469,6 +471,7 @@ pipnode_core_headers = \
 
 pipnode_gui_headers = \
 	pipnode.h \
+	pn-device-combo.h \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \

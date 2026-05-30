@@ -22,6 +22,7 @@
 #include "pn-analog-meter.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
+#include "pn-device-combo.h"
 #include "pn-dial.h"
 #include "pn-edge.h"
 #include "pn-expr-parser.h"

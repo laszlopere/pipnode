@@ -30,6 +30,8 @@
 
 #include "pn-mesh-page-device.h"
 
+#include "pn-device-combo.h"
+
 #define PN_MESH_DEVICE_CTX_QDATA "pn-mesh-page-device-ctx"
 
 typedef struct
@@ -379,7 +381,7 @@ pn_mesh_page_device_new (void)
     ctx = g_slice_new0 (DeviceCtx);
 
     cell = add_row (GTK_GRID (grid), row++, "Role");
-    role = gtk_combo_box_text_new ();
+    role = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (role,
             "CLIENT is the normal handheld role; ROUTER nodes prioritise "
             "forwarding; REPEATER nodes forward without consuming "
@@ -390,7 +392,7 @@ pn_mesh_page_device_new (void)
     ctx->role_combo = GTK_COMBO_BOX_TEXT (role);
 
     cell = add_row (GTK_GRID (grid), row++, "Rebroadcast mode");
-    rebroadcast = gtk_combo_box_text_new ();
+    rebroadcast = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (rebroadcast,
             "Which packets the node forwards on the mesh.  ALL is the "
             "default; LOCAL_ONLY / KNOWN_ONLY / NONE progressively "

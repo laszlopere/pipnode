@@ -39,6 +39,8 @@
 
 #include "pn-mesh-page-test.h"
 
+#include "pn-device-combo.h"
+
 #include <time.h>
 
 #define PN_MESH_TEST_CTX_QDATA "pn-mesh-page-test-ctx"
@@ -118,7 +120,7 @@ pn_mesh_page_test_new (void)
     label = gtk_label_new ("Channel:");
     gtk_box_pack_start (GTK_BOX (row), label, FALSE, FALSE, 0);
 
-    ctx->channel_combo = GTK_COMBO_BOX_TEXT (gtk_combo_box_text_new ());
+    ctx->channel_combo = GTK_COMBO_BOX_TEXT (pn_device_combo_new ());
     gtk_box_pack_start (GTK_BOX (row),
                         GTK_WIDGET (ctx->channel_combo),
                         FALSE, FALSE, 0);

@@ -35,6 +35,8 @@
 
 #include "pn-mesh-page-position.h"
 
+#include "pn-device-combo.h"
+
 #define PN_MESH_POSITION_CTX_QDATA "pn-mesh-page-position-ctx"
 
 typedef struct
@@ -369,7 +371,7 @@ pn_mesh_page_position_new (void)
     ctx = g_slice_new0 (PositionCtx);
 
     cell = add_row (GTK_GRID (grid), row++, "GPS mode");
-    gps_mode = gtk_combo_box_text_new ();
+    gps_mode = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (gps_mode,
             "ENABLED keeps the GPS running and uses real fixes; "
             "DISABLED turns it off; NOT_PRESENT tells the firmware "

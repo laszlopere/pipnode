@@ -39,6 +39,8 @@
 
 #include "pn-mesh-page-region.h"
 
+#include "pn-device-combo.h"
+
 #define PN_MESH_REGION_CTX_QDATA "pn-mesh-page-region-ctx"
 
 typedef struct
@@ -392,7 +394,7 @@ pn_mesh_page_region_new (void)
     ctx->last_use_preset = TRUE;
 
     cell = add_row (GTK_GRID (grid), row++, "Region");
-    region = gtk_combo_box_text_new ();
+    region = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (region,
             "Regulatory domain.  Sets the allowed LoRa frequency "
             "band; pick the one for your country.");
@@ -401,7 +403,7 @@ pn_mesh_page_region_new (void)
     ctx->region_combo = GTK_COMBO_BOX_TEXT (region);
 
     cell = add_row (GTK_GRID (grid), row++, "Modem preset");
-    preset = gtk_combo_box_text_new ();
+    preset = pn_device_combo_new ();
     gtk_widget_set_tooltip_text (preset,
             "Bandwidth / spreading-factor preset.  LONG_FAST is "
             "the firmware default; SHORT_* presets are faster but "
