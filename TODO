@@ -1416,13 +1416,27 @@ Phase tracker (mark DONE inline as each ships):
                  on_cell_realize, get_value_size_group gone) onto them.
                  Wired lib/Makefile.am (sources+headers) + pipnode.h.
                  Clean build, 78 unit tests pass.  USER-verify unchanged.
-    [ ] Phase B  Dialog shell (no list).  pn-device-dialog.{c,h}: opaque
-                 PnDeviceDialog (owned via qdata), notebook + append_page
-                 + set_pages_sensitive, ref-counted push/pop_busy overlay,
-                 status bar set_status/set_statusf.  Refactor
-                 pn-mesh-dialog.c's frame onto it, keeping
-                 pn-mesh-device-list as left pane.  USER-verify, incl.
-                 busy overlay mid-handshake.
+    [x] Phase B  Dialog shell (no list).  pn-device-dialog.{c,h}: opaque
+                 PnDeviceDialog (owned via the GtkDialog's qdata), new/
+                 get_dialog/get_notebook, append_page + get/set_current_page
+                 + set_pages_sensitive, ref-counted push/pop_busy overlay
+                 (+is_busy), set_status/set_statusf, set_sidebar (lifts the
+                 notebook-overlay body into an HPaned in place; the
+                 caller-supplied left pane until Phase C's built-in list).
+                 Refactored pn-mesh-dialog.c's frame onto it: dropped the
+                 private status bar / busy_inc/dec / show_loading/hide_loading
+                 / notebook+overlay build, kept pn-mesh-device-list as the
+                 sidebar, and folded build_tab/add_expander onto the Phase A
+                 pn_device_form_new_tab/_add_section (dogfooding A).
+                 Subtlety: shell pop_busy re-enables the notebook on the
+                 1->0 edge unconditionally; the two cases that must stay
+                 disabled (connection failure; drop_connection tail) get an
+                 explicit set_pages_sensitive(FALSE).  Teardown: ctx->shell
+                 nulled in mesh_dialog_ctx_free before drop_connection
+                 (sibling-qdata free order unguaranteed; all shell calls
+                 NULL-safe).  Clean build, 78 unit tests + plugin-load/
+                 gui-companion pass.  USER-verify, incl. busy overlay
+                 mid-handshake.
     [ ] Phase C  Device-list pane.  PN_DEVICE_DIALOG_WITH_DEVICE_LIST +
                  PnDeviceRow {id,primary,secondary,disabled_reason}
                  (+new/copy/free+array_new) + scan/selected callbacks +
@@ -1445,9 +1459,9 @@ Phase tracker (mark DONE inline as each ships):
                  example; document the three shared widgets.  Optionally
                  sweep remaining mesh pages onto the form helpers.
 
-Where we left off: Phase A DONE (pending USER-verify of the Identity
-+ Region pages looking/behaving unchanged).  Next: Phase B (dialog
-shell).  Note for Phase B: pn_device_form_new_tab + add_section are
-already written but not yet consumed -- the mesh dialog's build_tab /
-add_expander still have private copies; fold them onto the helpers when
-refactoring pn-mesh-dialog.c.
+Where we left off: Phases A + B DONE (pending USER-verify).  Next:
+Phase C (device-list pane) -- absorb pn-mesh-device-list into the shell
+behind PN_DEVICE_DIALOG_WITH_DEVICE_LIST, replacing the Phase B
+set_sidebar(caller-built list) seam.  The shell already builds the
+HPaned; Phase C makes it build the list widget itself and exposes
+PnDeviceRow + scan/selected callbacks.

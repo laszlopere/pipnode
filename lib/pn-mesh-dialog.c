@@ -31,6 +31,8 @@
 #endif
 
 #include "pn-mesh-dialog.h"
+#include "pn-device-dialog.h"
+#include "pn-device-form.h"
 #include "pn-mesh-connection.h"
 #include "pn-mesh-device-list.h"
 #include "pn-mesh-discover.h"
@@ -58,31 +60,15 @@ typedef struct
 {
     GtkWidget        *dialog;
     GtkWidget        *device_list;
-    GtkNotebook      *notebook;        /* always visible; insensitive
-                                        * until a device is picked so
-                                        * the user can see what tabs
-                                        * exist but cannot navigate
-                                        * into empty forms */
-    GtkWidget        *loading_overlay; /* big spinner + label layered
-                                        * over the notebook via a
-                                        * GtkOverlay; visible whenever
-                                        * the dialog is waiting on the
-                                        * device (the want_config_id
-                                        * handshake, an admin write,
-                                        * the verify-cycle re-read
-                                        * after a write) so the user
-                                        * cannot switch tabs or
-                                        * trigger a second write while
-                                        * the serial port is in use */
-    GtkSpinner       *loading_spinner;
 
-    /* Reference-counted busy state.  Bumped by the handshake (entered
+    /* The reusable dialog frame: notebook (insensitive until a device
+     * is picked so the user can see what tabs exist but cannot navigate
+     * into empty forms), its ref-counted busy-spinner overlay, and the
+     * status bar.  The busy overlay is raised by the handshake (entered
      * in on_device_activated, dropped in on_connection_ready) and by
-     * every page's set_writing transition.  The overlay is shown on
-     * the 0→1 edge and hidden on the 1→0 edge so concurrent waiters
-     * (theoretical: one handshake + one stale-conn write completing)
-     * keep the spinner up until the last one settles. */
-    gint              busy_count;
+     * every page's set_writing transition; nesting keeps the spinner up
+     * until the last waiter settles. */
+    PnDeviceDialog   *shell;
 
     GtkWidget        *identity_page;
     GtkWidget        *region_page;
@@ -98,7 +84,6 @@ typedef struct
     GtkWidget        *device_page;
     GtkWidget        *network_page;
     GtkWidget        *security_page;
-    GtkLabel         *status_label;
 
     /* Main-loop timer that drives the Test page's live receive log
      * (Phase 7).  Active only while a connection is live -- started
@@ -106,8 +91,8 @@ typedef struct
      * handler always drains pending text events from the connection
      * queue (so worker-thread parses during verify-cycles still land
      * in the UI), but only calls pn_mesh_connection_pump_monitor()
-     * when busy_count == 0 -- otherwise the timer and a worker would
-     * race on the same fd.  0 means "no timer installed". */
+     * when the shell is not busy -- otherwise the timer and a worker
+     * would race on the same fd.  0 means "no timer installed". */
     guint             monitor_timer_id;
 
     /* Active session, if any.  NULL when no device is selected or
@@ -127,13 +112,13 @@ typedef struct
 } MeshDialogCtx;
 
 /* ------------------------------------------------------------------ */
-/*  Status bar                                                          */
+/*  Status bar + busy overlay (delegated to the dialog shell)           */
 /* ------------------------------------------------------------------ */
 
 static void
 set_status (MeshDialogCtx *ctx, const gchar *text)
 {
-    gtk_label_set_text (ctx->status_label, text);
+    pn_device_dialog_set_status (ctx->shell, text);
 }
 
 static void
@@ -164,82 +149,25 @@ on_page_status (const gchar *msg, gpointer user_data)
     set_status ((MeshDialogCtx *) user_data, msg);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Loading overlay                                                     */
-/* ------------------------------------------------------------------ */
-
-/* Show the big spinner over the notebook and lock the notebook so
- * the user cannot switch tabs (or read a half-populated form) while
- * a device round-trip is in flight.  Driven by the busy counter
- * (busy_inc / busy_dec); pages and the handshake share the same
- * overlay so concurrent waiters do not flicker the spinner. */
-static void
-show_loading (MeshDialogCtx *ctx)
-{
-    if (ctx->notebook != NULL)
-        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
-    if (ctx->loading_overlay != NULL)
-    {
-        gtk_widget_show (ctx->loading_overlay);
-        if (ctx->loading_spinner != NULL)
-            gtk_spinner_start (ctx->loading_spinner);
-    }
-}
-
-static void
-hide_loading (MeshDialogCtx *ctx)
-{
-    if (ctx->loading_overlay != NULL)
-    {
-        if (ctx->loading_spinner != NULL)
-            gtk_spinner_stop (ctx->loading_spinner);
-        gtk_widget_hide (ctx->loading_overlay);
-    }
-    /* Re-enable the notebook when there's a live connection.  Earlier
-     * pages got away without this because every Apply re-ran the full
-     * 3-5 s handshake, leaving the user with the impression that the
-     * spinner -> motion -> updated values cycle had handed control
-     * back.  The Phase 7 Send path is one frame with no verify cycle
-     * (~tens of ms total), so the stuck-insensitive notebook is
-     * immediately visible.  Skipping when ctx->connection is NULL
-     * keeps the initial drop_connection during build from lighting
-     * the notebook up before a device is picked. */
-    if (ctx->connection != NULL && ctx->notebook != NULL)
-        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
-}
-
-/* Bump the busy refcount.  Shows the overlay on the 0→1 edge. */
-static void
-busy_inc (MeshDialogCtx *ctx)
-{
-    if (ctx->busy_count++ == 0)
-        show_loading (ctx);
-}
-
-/* Drop the busy refcount.  Hides the overlay on the 1→0 edge.
- * Clamps at zero so a stray FALSE never drives the counter negative. */
-static void
-busy_dec (MeshDialogCtx *ctx)
-{
-    if (ctx->busy_count == 0)
-        return;
-    if (--ctx->busy_count == 0)
-        hide_loading (ctx);
-}
-
 /* Page-side busy callback: pages emit this from set_writing() on each
- * TRUE/FALSE transition while a write is in flight.  The dialog turns
- * those into refcount bumps so multiple pages can be (theoretically)
- * waiting simultaneously without one hiding the overlay early. */
+ * TRUE/FALSE transition while a write is in flight.  The shell's
+ * ref-counted overlay floats the spinner and locks the notebook for
+ * the duration, so multiple pages can be (theoretically) waiting at
+ * once without one hiding the overlay early.
+ *
+ * The shell re-enables the notebook on the 1->0 edge unconditionally;
+ * the two cases where it must stay disabled (a fresh open during build,
+ * and a connection failure) are handled by an explicit
+ * set_pages_sensitive(FALSE) at those sites. */
 static void
 on_page_busy (gboolean busy, gpointer user_data)
 {
     MeshDialogCtx *ctx = user_data;
 
     if (busy)
-        busy_inc (ctx);
+        pn_device_dialog_push_busy (ctx->shell);
     else
-        busy_dec (ctx);
+        pn_device_dialog_pop_busy (ctx->shell);
 }
 
 /* Channels-page changed callback: a channel was added / edited /
@@ -288,10 +216,10 @@ on_monitor_tick (gpointer user_data)
     }
 
     /* Pump the serial fd only when nothing else is reading from it.
-     * busy_count > 0 means a write/handshake worker thread owns the
+     * A busy shell means a write/handshake worker thread owns the
      * fd; skipping the pump here avoids a same-fd read race that
      * would corrupt the frame reader's running state. */
-    if (ctx->busy_count == 0 && ctx->connection != NULL)
+    if (!pn_device_dialog_is_busy (ctx->shell) && ctx->connection != NULL)
         pn_mesh_connection_pump_monitor (ctx->connection);
 
     return G_SOURCE_CONTINUE;
@@ -352,12 +280,13 @@ drop_connection (MeshDialogCtx *ctx)
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
      * once they pick one, but they cannot click into an empty form.
-     * The overlay is driven by the busy counter -- pages emit
+     * The shell's overlay is driven by the busy counter -- pages emit
      * busy(FALSE) from their set_writing(FALSE) transitions during
      * the set_state(NULL) calls above, balancing any in-flight write
-     * the previous connection had on the books. */
-    if (ctx->notebook != NULL)
-        gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), FALSE);
+     * the previous connection had on the books.  This explicit disable
+     * at the tail wins over any 1->0 pop that re-enabled the notebook
+     * while those balancing transitions ran. */
+    pn_device_dialog_set_pages_sensitive (ctx->shell, FALSE);
 }
 
 static void
@@ -379,11 +308,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
         g_clear_error (&error);
         if (conn != NULL)
             pn_mesh_connection_close (conn);
-        /* Balance the busy_inc the cancelled on_device_activated
-         * paid in -- on_device_activated for the *new* device has
-         * already paid its own inc, so the counter stays at 1 until
-         * that new handshake completes. */
-        busy_dec (ctx);
+        /* Balance the push the cancelled on_device_activated paid in
+         * -- on_device_activated for the *new* device has already paid
+         * its own push, so the counter stays at 1 until that new
+         * handshake completes. */
+        pn_device_dialog_pop_busy (ctx->shell);
         return;
     }
 
@@ -396,9 +325,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
         /* Tabs stay visible but their content is empty -- each page's
          * set_state(NULL) repaints itself as a "no device" placeholder.
          * Drop the loading overlay so the failure status is readable
-         * underneath; notebook stays insensitive (drop_connection set
-         * it that way and we never flipped it back). */
-        busy_dec (ctx);
+         * underneath.  The shell re-enables the notebook on this 1->0
+         * pop, so disable it again explicitly: a failed connect must
+         * leave the empty tabs unnavigable. */
+        pn_device_dialog_pop_busy (ctx->shell);
+        pn_device_dialog_set_pages_sensitive (ctx->shell, FALSE);
         return;
     }
 
@@ -461,9 +392,11 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     /* Light up the notebook now that there's actually content to
      * navigate to.  drop_connection() reverses this on the next
-     * device switch or dialog close. */
-    busy_dec (ctx);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->notebook), TRUE);
+     * device switch or dialog close.  The pop already re-enables on
+     * the 1->0 edge; the explicit set keeps it lit even if a stray
+     * waiter held the counter above zero. */
+    pn_device_dialog_pop_busy (ctx->shell);
+    pn_device_dialog_set_pages_sensitive (ctx->shell, TRUE);
 
     /* Start the Test page receive-log timer.  Ticks every 300 ms,
      * pumping the serial fd whenever no write is in flight, and
@@ -472,7 +405,7 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
     start_monitor_timer (ctx);
     /* Jump to the Device tab (index 0) so the Identity expander
      * shows the just-completed handshake. */
-    gtk_notebook_set_current_page (ctx->notebook, 0);
+    pn_device_dialog_set_current_page (ctx->shell, 0);
 
     {
         const PnMeshState *st = pn_mesh_connection_get_state (conn);
@@ -524,10 +457,10 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
      * counter mirrors the same overlay that pages float during a
      * write, so a stale write completing during a fresh handshake
      * does not hide the spinner out from under the new handshake. */
-    busy_inc (ctx);
+    pn_device_dialog_push_busy (ctx->shell);
     /* Snap to the Device tab (index 0) so when the handshake completes
      * the Identity row is what the user sees first. */
-    gtk_notebook_set_current_page (ctx->notebook, 0);
+    pn_device_dialog_set_current_page (ctx->shell, 0);
 
     set_statusf (ctx, "Connecting to %s on %s…",
                  device->kind, device->tty);
@@ -541,77 +474,10 @@ on_device_activated (const PnMeshDevice *device, gpointer user_data)
 /*  Construction                                                        */
 /* ------------------------------------------------------------------ */
 
-static GtkWidget *
-build_status_bar (MeshDialogCtx *ctx)
-{
-    GtkWidget *bar = gtk_label_new (
-            "Ready. Press Scan to look for connected devices.");
-
-    gtk_label_set_xalign (GTK_LABEL (bar), 0.0);
-    gtk_widget_set_margin_start  (bar, 6);
-    gtk_widget_set_margin_end    (bar, 6);
-    gtk_widget_set_margin_top    (bar, 2);
-    gtk_widget_set_margin_bottom (bar, 4);
-    /* Long error strings get an ellipsis so they do not stretch the
-     * dialog.  The label is selectable so the user can copy any
-     * error text out for support. */
-    gtk_label_set_ellipsize (GTK_LABEL (bar), PANGO_ELLIPSIZE_END);
-    gtk_label_set_selectable (GTK_LABEL (bar), TRUE);
-
-    ctx->status_label = GTK_LABEL (bar);
-    return bar;
-}
-
-/* Build one top-level tab: a scrolled vertical box of GtkExpanders.
- * The caller appends one expander per sub-section by passing each
- * (title, child) pair to add_expander() below. */
-static GtkWidget *
-build_tab (GtkWidget **inner_box_out)
-{
-    GtkWidget *scrolled;
-    GtkWidget *box;
-
-    scrolled = gtk_scrolled_window_new (NULL, NULL);
-    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
-                                    GTK_POLICY_NEVER,
-                                    GTK_POLICY_AUTOMATIC);
-
-    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_set_margin_start  (box, 12);
-    gtk_widget_set_margin_end    (box, 12);
-    gtk_widget_set_margin_top    (box, 12);
-    gtk_widget_set_margin_bottom (box, 12);
-    gtk_container_add (GTK_CONTAINER (scrolled), box);
-
-    *inner_box_out = box;
-    return scrolled;
-}
-
-/* Wrap @child in a GtkExpander with @title in its header; pack into
- * @parent.  Defaults to expanded so a freshly-opened tab reveals
- * everything; the user can collapse what they don't want. */
-static void
-add_expander (GtkWidget *parent, const gchar *title, GtkWidget *child)
-{
-    GtkWidget *expander = gtk_expander_new (title);
-
-    /* Bolded label looks more like a section heading than a plain
-     * expander caption and stays legible alongside the scroll arrows. */
-    {
-        GtkWidget     *label = gtk_label_new (NULL);
-        PangoAttrList *attrs = pango_attr_list_new ();
-        gchar         *markup;
-
-        markup = g_markup_printf_escaped ("<b>%s</b>", title);
-        gtk_label_set_markup (GTK_LABEL (label), markup);
-        g_free (markup);
-        pango_attr_list_unref (attrs);
-        gtk_expander_set_label_widget (GTK_EXPANDER (expander), label);
-    }
-    gtk_expander_set_expanded (GTK_EXPANDER (expander), TRUE);
-    gtk_container_add (GTK_CONTAINER (expander), child);
-    gtk_box_pack_start (GTK_BOX (parent), expander, FALSE, FALSE, 0);
-}
+/* The status bar, busy overlay and per-tab scrolled box / expander
+ * sections are now provided by the dialog shell (pn-device-dialog.h)
+ * and the form helpers (pn_device_form_new_tab / _add_section).  Only
+ * the placeholder below stays mesh-specific. */
 
 /* Placeholder text for a tab whose modules haven't been ported yet
  * (Phases 10/11/12+).  Visible as a dim row so the user knows the
@@ -638,49 +504,27 @@ static GtkWidget *
 build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
 {
     GtkWidget *dialog;
-    GtkWidget *content;
-    GtkWidget *paned;
-    GtkWidget *notebook;
 
-    dialog = gtk_dialog_new_with_buttons (
-            "Meshtastic Devices",
-            parent,
-            GTK_DIALOG_DESTROY_WITH_PARENT,
-            "_Close", GTK_RESPONSE_CLOSE,
-            NULL);
+    /* The reusable shell carries the modeless dialog, Close button,
+     * notebook + busy overlay and status bar.  We populate its
+     * notebook with the seven mesh tabs and hand it the device list as
+     * the left pane. */
+    ctx->shell = pn_device_dialog_new (parent, "Meshtastic Devices");
+    dialog = pn_device_dialog_get_dialog (ctx->shell);
     gtk_window_set_default_size (GTK_WINDOW (dialog),
                                  PN_MESH_DIALOG_WIDTH,
                                  PN_MESH_DIALOG_HEIGHT);
-    gtk_window_set_modal (GTK_WINDOW (dialog), FALSE);
-
-    g_signal_connect (dialog, "response",
-                      G_CALLBACK (gtk_widget_destroy), NULL);
-
-    content = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
-    gtk_box_set_spacing (GTK_BOX (content), 0);
-
-    paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_position (GTK_PANED (paned), PN_MESH_DIALOG_DIVIDER);
-    gtk_paned_set_wide_handle (GTK_PANED (paned), TRUE);
 
     ctx->device_list = pn_mesh_device_list_new ();
     pn_mesh_device_list_set_activated_callback (
             ctx->device_list, on_device_activated, ctx);
 
-    /* Right pane: a GtkNotebook with seven tabs grouped by what the
-     * user is trying to do (not by which protobuf tree the setting
-     * lives in); each tab is a vertical box of GtkExpanders, one per
-     * sub-section.  Tabs / expanders that are empty in this phase
-     * carry a placeholder pointing at the phase number that fills
-     * them in.  GtkNotebook (rather than GtkStack + GtkStackSwitcher)
-     * matches the worksheet's tab visual in the main window: tabs
-     * size to their labels, no homogeneous-button stretching, no
-     * heavy "view switcher" padding. */
+    /* Seven tabs grouped by what the user is trying to do (not by which
+     * protobuf tree the setting lives in); each tab is a scrolled
+     * vertical box of GtkExpanders, one per sub-section.  Tabs /
+     * expanders that are empty in this phase carry a placeholder
+     * pointing at the phase number that fills them in. */
     {
-        notebook = gtk_notebook_new ();
-        gtk_notebook_set_scrollable (GTK_NOTEBOOK (notebook), TRUE);
-        ctx->notebook = GTK_NOTEBOOK (notebook);
-
         /* Build each page widget once; it is reusable across the
          * dialog's lifetime, repainting via set_state on every
          * device switch. */
@@ -758,71 +602,65 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
 
         /* Tab 1: Device  (Identity + Device role/GPIO + Power + Security). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "Identity",            ctx->identity_page);
-            add_expander (inner, "Device role & GPIO",  ctx->device_page);
-            add_expander (inner, "Power",               ctx->power_page);
-            add_expander (inner, "Security",            ctx->security_page);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Device"));
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "Identity",            ctx->identity_page);
+            pn_device_form_add_section (inner, "Device role & GPIO",  ctx->device_page);
+            pn_device_form_add_section (inner, "Power",               ctx->power_page);
+            pn_device_form_add_section (inner, "Security",            ctx->security_page);
+            pn_device_dialog_append_page (ctx->shell, tab, "Device");
         }
 
         /* Tab 2: Radio  (Region+LoRa, Channels, Share, Position). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "Region & LoRa", ctx->region_page);
-            add_expander (inner, "Channels",      ctx->channels_page);
-            add_expander (inner, "Share",         ctx->share_page);
-            add_expander (inner, "Position",      ctx->position_page);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Radio"));
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "Region & LoRa", ctx->region_page);
+            pn_device_form_add_section (inner, "Channels",      ctx->channels_page);
+            pn_device_form_add_section (inner, "Share",         ctx->share_page);
+            pn_device_form_add_section (inner, "Position",      ctx->position_page);
+            pn_device_dialog_append_page (ctx->shell, tab, "Radio");
         }
 
         /* Tab 3: Network  (WiFi / Ethernet / IPv6 + MQTT).  Serial /
          * Bluetooth deferred to Phase 11/13 (no donor code). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "WiFi, Ethernet & IPv6", ctx->network_page);
-            add_expander (inner, "MQTT",                  ctx->mqtt_page);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Network"));
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "WiFi, Ethernet & IPv6", ctx->network_page);
+            pn_device_form_add_section (inner, "MQTT",                  ctx->mqtt_page);
+            pn_device_dialog_append_page (ctx->shell, tab, "Network");
         }
 
         /* Tab 4: Notifications  (External Notification now; Canned / Status /
          * Audio / Ambient Lighting in Phase 10/11). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "External Notification",
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "External Notification",
                           ctx->ext_notification_page);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Notifications"));
+            pn_device_dialog_append_page (ctx->shell, tab, "Notifications");
         }
 
         /* Tab 5: Telemetry  (Telemetry now; NeighborInfo / DetectionSensor /
          * RangeTest / Paxcounter land in Phase 11+). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "Telemetry", ctx->telemetry_page);
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "Telemetry", ctx->telemetry_page);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
                         "Neighbor Info, Detection Sensor, Range Test "
                         "and Paxcounter land in later phases."),
                     FALSE, FALSE, 0);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Telemetry"));
+            pn_device_dialog_append_page (ctx->shell, tab, "Telemetry");
         }
 
         /* Tab 6: Mesh tools  (Phase 11/13). */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
                         "Store & Forward, Traffic Management, Remote "
                         "Hardware, Display config, and TAK land in "
                         "Phase 11/13."),
                     FALSE, FALSE, 0);
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Mesh tools"));
+            pn_device_dialog_append_page (ctx->shell, tab, "Mesh tools");
         }
 
         /* Tab 7: Diagnostics  (Known Nodes + Test, Phase 7).
@@ -830,8 +668,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
          * height; the Test expander packs TRUE/TRUE so the live
          * receive log fills the remaining vertical space below it. */
         {
-            GtkWidget *inner, *tab = build_tab (&inner);
-            add_expander (inner, "Known Nodes", ctx->known_nodes_page);
+            GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "Known Nodes", ctx->known_nodes_page);
             {
                 GtkWidget *expander = gtk_expander_new (NULL);
                 GtkWidget *label    = gtk_label_new (NULL);
@@ -847,71 +685,20 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 gtk_box_pack_start (GTK_BOX (inner), expander,
                                     TRUE, TRUE, 0);
             }
-            gtk_notebook_append_page (GTK_NOTEBOOK (notebook), tab,
-                                      gtk_label_new ("Diagnostics"));
+            pn_device_dialog_append_page (ctx->shell, tab, "Diagnostics");
         }
 
-        gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 0);
-
-        /* Wrap the notebook in a GtkOverlay so we can float a big
-         * spinner on top while the dialog is waiting on the device
-         * (handshake or any write's verify-cycle).  The notebook
-         * stays the bottom (interactive) layer; the spinner+label
-         * box is the top (passive) overlay child, set no_show_all so
-         * gtk_widget_show_all on the dialog does NOT reveal it --
-         * show_loading() flips its visibility. */
-        {
-            GtkWidget *overlay;
-            GtkWidget *box;
-            GtkWidget *spinner;
-            GtkWidget *label;
-
-            overlay = gtk_overlay_new ();
-            gtk_container_add (GTK_CONTAINER (overlay), notebook);
-
-            box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-            /* Centred horizontally + vertically so the spinner lands
-             * in the middle of the right pane regardless of dialog
-             * size.  halign/valign on the overlay child decides
-             * placement; without them the child would fill the whole
-             * overlay and the spinner would be top-left. */
-            gtk_widget_set_halign (box, GTK_ALIGN_CENTER);
-            gtk_widget_set_valign (box, GTK_ALIGN_CENTER);
-            gtk_widget_set_no_show_all (box, TRUE);
-
-            spinner = gtk_spinner_new ();
-            /* GtkSpinner has no intrinsic size beyond the theme's
-             * "spinner-size" — bump it to something a user notices
-             * across the whole pane. */
-            gtk_widget_set_size_request (spinner, 64, 64);
-            gtk_widget_show (spinner);
-            gtk_box_pack_start (GTK_BOX (box), spinner, FALSE, FALSE, 0);
-
-            label = gtk_label_new (NULL);
-            gtk_label_set_markup (GTK_LABEL (label),
-                    "<b><span size=\"large\">Talking to device…</span></b>");
-            gtk_widget_show (label);
-            gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
-
-            gtk_overlay_add_overlay (GTK_OVERLAY (overlay), box);
-
-            ctx->loading_overlay = box;
-            ctx->loading_spinner = GTK_SPINNER (spinner);
-
-            gtk_paned_pack1 (GTK_PANED (paned), ctx->device_list, FALSE, FALSE);
-            gtk_paned_pack2 (GTK_PANED (paned), overlay,          TRUE,  FALSE);
-        }
+        pn_device_dialog_set_current_page (ctx->shell, 0);
     }
 
-    gtk_box_pack_start (GTK_BOX (content), paned, TRUE, TRUE, 0);
+    /* Hand the device list to the shell as the left pane (the shell
+     * already owns the notebook + busy overlay on the right) and seed
+     * the status line. */
+    pn_device_dialog_set_sidebar (ctx->shell, ctx->device_list,
+                                  PN_MESH_DIALOG_DIVIDER);
+    set_status (ctx, "Ready. Press Scan to look for connected devices.");
 
-    gtk_box_pack_start (GTK_BOX (content),
-                        gtk_separator_new (GTK_ORIENTATION_HORIZONTAL),
-                        FALSE, FALSE, 0);
-    gtk_box_pack_start (GTK_BOX (content), build_status_bar (ctx),
-                        FALSE, FALSE, 0);
-
-    gtk_widget_show_all (content);
+    gtk_widget_show_all (gtk_dialog_get_content_area (GTK_DIALOG (dialog)));
     /* set_state(NULL) on every page right after build so the initial
      * "no device" placeholders paint immediately; otherwise the user
      * sees stale labels until the first device activation. */
@@ -933,6 +720,13 @@ mesh_dialog_ctx_free (gpointer data)
         g_cancellable_cancel (ctx->open_cancellable);
         g_clear_object (&ctx->open_cancellable);
     }
+    /* The shell is a sibling qdata on the same dialog; its free order
+     * relative to ours is not guaranteed, so drop our reference before
+     * tearing the connection down.  drop_connection's shell calls then
+     * become safe no-ops (every pn_device_dialog_* call NULL-checks),
+     * and no page's set_state(NULL) busy/status callback reaches a
+     * possibly-freed shell. */
+    ctx->shell = NULL;
     drop_connection (ctx);
     g_slice_free (MeshDialogCtx, ctx);
 }
