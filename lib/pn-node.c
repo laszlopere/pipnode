@@ -1619,6 +1619,36 @@ pn_param_spec_get_multiline (GParamSpec *pspec)
 }
 
 static GQuark
+pn_param_spec_full_width_quark (void)
+{
+    /* Same single-threaded lazy cache as the multiline quark above. */
+    static GQuark q = 0;
+    if (q == 0)
+        q = g_quark_from_static_string ("pn-param-spec-full-width");
+    return q;
+}
+
+void
+pn_param_spec_set_full_width (GParamSpec *pspec)
+{
+    g_return_if_fail (G_IS_PARAM_SPEC (pspec));
+
+    /* Self-pointer marker, exactly like the multiline tag. */
+    g_param_spec_set_qdata (pspec,
+                            pn_param_spec_full_width_quark (),
+                            pspec);
+}
+
+gboolean
+pn_param_spec_get_full_width (GParamSpec *pspec)
+{
+    if (pspec == NULL)
+        return FALSE;
+    return g_param_spec_get_qdata (
+                   pspec, pn_param_spec_full_width_quark ()) != NULL;
+}
+
+static GQuark
 pn_param_spec_hostname_hint_quark (void)
 {
     /* Same single-threaded lazy cache as the multiline quark above --

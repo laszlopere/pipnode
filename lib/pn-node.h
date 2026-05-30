@@ -1065,6 +1065,34 @@ void     pn_param_spec_set_multiline (GParamSpec *pspec);
 gboolean pn_param_spec_get_multiline (GParamSpec *pspec);
 
 /**
+ * pn_param_spec_set_full_width:
+ * @pspec: a #GParamSpec
+ *
+ * Marks @pspec as wanting its editor to span the full width of the
+ * settings dialog row, with no caption label to its left.  The node
+ * dialog normally lays each property out as a "<nick>: <editor>" pair;
+ * a property tagged this way instead gets its editor attached across
+ * both grid columns and the label is omitted.  Use it for a node whose
+ * single editor is self-explanatory (e.g. a lone multi-line text body),
+ * where the caption would only repeat the node's own name.  Stored as
+ * #GQuark-keyed qdata like pn_param_spec_set_multiline(), so plugin
+ * node types can opt in the same way.  Read with
+ * pn_param_spec_get_full_width().
+ */
+void     pn_param_spec_set_full_width (GParamSpec *pspec);
+
+/**
+ * pn_param_spec_get_full_width:
+ * @pspec: a #GParamSpec
+ *
+ * Returns whether @pspec was tagged via pn_param_spec_set_full_width().
+ * The node-settings dialog calls this to decide whether to drop the
+ * caption label and let the editor span the row.  Returns %FALSE for
+ * any param spec that was never tagged, including %NULL.
+ */
+gboolean pn_param_spec_get_full_width (GParamSpec *pspec);
+
+/**
  * pn_param_spec_set_hostname_hint:
  * @pspec: a string-typed #GParamSpec (typically the `"hostname"`
  *         property of a host-monitoring node)

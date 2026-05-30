@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text (PnText) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnText">Text</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnText</code>.
+</p>
+<p>
+Overwrites <code>data.output</code> with a fixed, pre-configured string,
+regardless of what arrived. Use it to inject a constant message body &mdash;
+a label, a canned notification, a literal payload &mdash; into a flow. The
+rest of the message (its <code>topic</code>, <code>id</code>, and any other
+<code>data</code> members) passes through untouched, and the message is
+always forwarded.
+</p>
+<p>
+The text is edited in a multi-line editor in the property dialog. Leading
+and trailing newline characters are stripped before the value is written,
+so a block typed with a stray blank first or last line still yields a clean
+payload. Interior newlines and non-newline whitespace are preserved.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>text</code></td>
+      <td>The fixed string written to <code>data.output</code> on every
+          message. Edited in a multi-line editor; leading and trailing
+          newlines are removed.</td></tr>
+</table>
+
+</body>
+</html>

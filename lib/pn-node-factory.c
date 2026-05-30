@@ -73,6 +73,7 @@
 #include "pn-table.h"
 #include "pn-table-model.h"
 #include "pn-table-view.h"
+#include "pn-text.h"
 #include "pn-text-view.h"
 #include "pn-threshold.h"
 #include "pn-throttle.h"
@@ -264,6 +265,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_RATE);
     pn_node_factory_register (self, PN_TYPE_REWRITE);
     pn_node_factory_register (self, PN_TYPE_SET);
+    pn_node_factory_register (self, PN_TYPE_TEXT);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
     pn_node_factory_register (self, PN_TYPE_TABLE_MODEL);

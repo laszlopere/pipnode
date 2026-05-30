@@ -1225,6 +1225,18 @@ attach_property_row (
         nick = pspec->name;
 
     editor = dispatch_property_editor (target, pspec, parent);
+
+    /* A property tagged full-width drops its caption label and spans
+     * both grid columns — used for a self-explanatory lone editor (e.g.
+     * a multi-line text body) where the label would only echo the node
+     * name. */
+    if (pn_param_spec_get_full_width (pspec))
+    {
+        gtk_widget_set_hexpand (editor, TRUE);
+        gtk_grid_attach (grid, editor, 0, row, 2, 1);
+        return;
+    }
+
     pn_node_dialog_attach_row (grid, row, nick, editor);
 }
 

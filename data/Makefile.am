@@ -59,6 +59,7 @@ pnhelp_DATA = \
 	help/PnTable.html \
 	help/PnTableModel.html \
 	help/PnTableView.html \
+	help/PnText.html \
 	help/PnTextView.html \
 	help/PnThreshold.html \
 	help/PnThrottle.html \
