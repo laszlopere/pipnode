@@ -81,6 +81,14 @@ PnMeshSerial *pn_mesh_serial_open  (const gchar *path, GError **error);
 /* Close the fd and free.  No-op on %NULL. */
 void          pn_mesh_serial_close (PnMeshSerial *self);
 
+/* The underlying file descriptor, or -1 if closed.  Exposed so a caller
+ * that has to poll() the serial fd alongside other descriptors (the
+ * Meshtastic node multiplexes it with a wake pipe in its worker thread)
+ * can do so directly; ordinary I/O should still go through the read /
+ * write_frame helpers.  The returned fd stays owned by @self -- do not
+ * close it. */
+int           pn_mesh_serial_get_fd (PnMeshSerial *self);
+
 /* Drain bytes the device may have emitted before we opened (and
  * anything queued by an earlier session).  pip-mesh uses a 200 ms
  * cat-and-discard at the same point in its flow; we do the same.

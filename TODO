@@ -1650,11 +1650,23 @@ streaming session and keeps its own loop).
   find_tty_under's one-level + nested sysfs walk, and list_devices' sorted
   NULL-terminated /dev contract.
 
-  37.2 Unify the open into pn_mesh_serial_open as BEST-OF-BOTH: keep the
-  dialog's refuse-BEFORE-open guard (pn_mesh_tty_in_use -> no DTR/RTS toggle
-  on an in-use device) AND add the node's flock(LOCK_EX) + O_CLOEXEC (the
-  serial.c open currently lacks both).  Then delete pn-meshtastic.c's private
-  serial_open().
+  37.2 DONE Unify the open into pn_mesh_serial_open as BEST-OF-BOTH: kept
+  the dialog's refuse-BEFORE-open guard (pn_mesh_tty_in_use -> no DTR/RTS
+  toggle on an in-use device) AND folded in the node's flock(LOCK_EX) +
+  O_CLOEXEC (serial.c's open lacked both).  The node's private serial_open()
+  is deleted; pn_meshtastic_read_channels() and worker_main() now open
+  through pn_mesh_serial_open() and pull the raw fd via the new
+  pn_mesh_serial_get_fd() accessor for their existing poll()/serial_write_all
+  loops (the frame codec + write path converge in #37.3).  EBUSY detection
+  moved from errno to g_error_matches(G_IO_ERROR_BUSY); the busy banner /
+  auto-revert behaviour is unchanged.  GOTCHA settled: flock lives in
+  pn_mesh_serial_open(), NOT open_configured() -- reopen() opens the new fd
+  while the old still holds the lock, and two fds on one file conflict even
+  within a process, so a flock in the shared helper would make every
+  set_channel flash-commit bounce fail with EWOULDBLOCK.  Behaviour pinned by
+  the #37.1 net: test-pn-mesh-node's 3 serial-open cases were repointed at
+  pn_mesh_serial_open (exclusive case now asserts G_IO_ERROR_BUSY via flock,
+  since pn_mesh_tty_in_use skips our own pid); all 84 unit tests pass.
 
   37.3 Share discovery + framing: node uses pn-mesh-discover + PnMeshFrame
   Reader / pn_mesh_serial_write_frame; drop its duplicate sysfs walk and the

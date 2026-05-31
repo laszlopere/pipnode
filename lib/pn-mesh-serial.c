@@ -44,6 +44,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <string.h>
+#include <sys/file.h>    /* flock */
 #include <sys/ioctl.h>   /* TIOCEXCL */
 #include <termios.h>
 #include <unistd.h>
@@ -225,8 +226,10 @@ open_configured (const gchar *path, GError **error)
 
     /* O_NOCTTY: opening a tty shouldn't make it our controlling
      * terminal.  O_NONBLOCK: a USB CDC-ACM device can stall open() on
-     * dropped DTR otherwise -- we clear the flag once the fd is up. */
-    fd = open (path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+     * dropped DTR otherwise -- we clear the flag once the fd is up.
+     * O_CLOEXEC: a worksheet that spawns a child must not leak the radio
+     * fd into it (TODO #37.2 -- folded in from the node's open). */
+    fd = open (path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0)
     {
         g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errno),
@@ -290,6 +293,30 @@ pn_mesh_serial_open (const gchar *path, GError **error)
     if (fd < 0)
         return NULL;
 
+    /* Advisory exclusive lock on top of the pre-open guard + TIOCEXCL:
+     * flock(2) is honoured by every modern serial peer (gpsd, chrony,
+     * minicom, cu, pyserial, the Meshtastic CLI) and -- unlike
+     * pn_mesh_tty_in_use(), which skips our own pid -- it is what stops a
+     * SECOND pipnode node (or the Devices dialog) in THIS process from
+     * grabbing a port a node already holds.  LOCK_NB so a contended port
+     * fails fast instead of blocking the worker thread.  Released by the
+     * close(fd) in pn_mesh_serial_close().  TODO #37.2: folded in from
+     * the node's private open, which is now deleted.
+     *
+     * Deliberately NOT in open_configured(): pn_mesh_serial_reopen()
+     * opens the new fd while the old one still holds the lock, and two
+     * file descriptions on the same file conflict even within one
+     * process -- a flock there would make every reopen (the set_channel
+     * flash-commit bounce) fail with EWOULDBLOCK. */
+    if (flock (fd, LOCK_EX | LOCK_NB) != 0)
+    {
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_BUSY,
+                     "%s is already locked by another process; "
+                     "refusing to open it.", path);
+        close (fd);
+        return NULL;
+    }
+
     self = g_slice_new0 (PnMeshSerial);
     self->fd   = fd;
     self->path = g_strdup (path);
@@ -324,6 +351,13 @@ pn_mesh_serial_close (PnMeshSerial *self)
         close (self->fd);
     g_free (self->path);
     g_slice_free (PnMeshSerial, self);
+}
+
+int
+pn_mesh_serial_get_fd (PnMeshSerial *self)
+{
+    g_return_val_if_fail (self != NULL, -1);
+    return self->fd;
 }
 
 void

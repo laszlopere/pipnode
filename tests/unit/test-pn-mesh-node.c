@@ -23,6 +23,14 @@
  * CURRENT byte-level and open-time behaviour so the convergence can be
  * proven a no-op on the live-messaging hot path.
  *
+ * TODO #37.2 (DONE) converged the OPEN: the node's private serial_open()
+ * is gone and both callers now open through the shared
+ * pn_mesh_serial_open().  The "Serial open" cases below therefore drive
+ * that shared function (proving it kept the node's flock + O_CLOEXEC +
+ * raw 8N1 guarantees while gaining the dialog's pre-open in-use guard);
+ * the frame codec, protobuf primitives and sysfs discovery are still the
+ * node's own copies, pinned here until #37.3 converges them too.
+ *
  * The functions under test are static, so we compile the node's
  * translation unit straight into the test (the shell- and
  * host-monitoring-node tests do the same with their out-of-lib nodes;
@@ -46,7 +54,6 @@
 #include "config.h"
 #endif
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +66,10 @@
 
 /* The node's translation unit, static helpers and all. */
 #include "pn-meshtastic.c"
+
+/* The shared serial transport the node's open converged onto (#37.2);
+ * its definition comes from the linked libpipnode-core. */
+#include "pn-mesh-serial.h"
 
 /* ================================================================== */
 /*  Frame TX: envelope + outbound message construction                 */
@@ -416,7 +427,8 @@ open_pty (gchar **slave_out)
     return master;
 }
 
-/* serial_open configures raw 115200 8N1 and keeps the fd close-on-exec. */
+/* The shared pn_mesh_serial_open (#37.2) configures raw 115200 8N1 and
+ * keeps the fd close-on-exec -- the guarantees the node's open carried. */
 static void
 test_serial_open_termios_cloexec (void)
 {
@@ -426,10 +438,14 @@ test_serial_open_termios_cloexec (void)
     if (master < 0)
         return;
 
-    int fd = serial_open (path);
-    PN_CHECK (fd >= 0);
-    if (fd >= 0)
+    GError       *error  = NULL;
+    PnMeshSerial *serial = pn_mesh_serial_open (path, &error);
+    PN_CHECK (serial != NULL);
+    if (serial != NULL)
     {
+        int fd = pn_mesh_serial_get_fd (serial);
+        PN_CHECK (fd >= 0);
+
         /* O_CLOEXEC survived to the fd. */
         int flags = fcntl (fd, F_GETFD);
         PN_CHECK (flags >= 0 && (flags & FD_CLOEXEC));
@@ -444,16 +460,19 @@ test_serial_open_termios_cloexec (void)
         PN_CHECK ((t.c_cflag & CSTOPB) == 0);
         PN_CHECK ((t.c_lflag & (ICANON | ECHO)) == 0);  /* raw */
 
-        close (fd);
+        pn_mesh_serial_close (serial);
     }
+    g_clear_error (&error);
 
     close (master);
     g_free (path);
 }
 
-/* A second serial_open on a port the node already holds is refused with
- * EBUSY (flock LOCK_EX + TIOCEXCL).  This guarantee is what #37.2 must
- * preserve while ADDING the dialog's pre-open in-use guard. */
+/* A second open on a port we already hold is refused with
+ * G_IO_ERROR_BUSY.  pn_mesh_tty_in_use() skips our own pid, so this case
+ * specifically exercises the flock(LOCK_EX) #37.2 folded in from the
+ * node -- the in-use guard alone would let a same-process re-open
+ * through. */
 static void
 test_serial_open_exclusive (void)
 {
@@ -463,31 +482,39 @@ test_serial_open_exclusive (void)
     if (master < 0)
         return;
 
-    int fd1 = serial_open (path);
-    PN_CHECK (fd1 >= 0);
-    if (fd1 >= 0)
+    GError       *err1 = NULL;
+    PnMeshSerial *s1   = pn_mesh_serial_open (path, &err1);
+    PN_CHECK (s1 != NULL);
+    if (s1 != NULL)
     {
-        errno = 0;
-        int fd2 = serial_open (path);
-        PN_CHECK (fd2 < 0);
-        PN_CHECK_CMPINT (errno, ==, EBUSY);
-        if (fd2 >= 0)
-            close (fd2);
-        close (fd1);
+        GError       *err2 = NULL;
+        PnMeshSerial *s2   = pn_mesh_serial_open (path, &err2);
+        PN_CHECK (s2 == NULL);
+        PN_CHECK (g_error_matches (err2, G_IO_ERROR, G_IO_ERROR_BUSY));
+        if (s2 != NULL)
+            pn_mesh_serial_close (s2);
+        g_clear_error (&err2);
+        pn_mesh_serial_close (s1);
     }
+    g_clear_error (&err1);
 
     close (master);
     g_free (path);
 }
 
-/* A path that does not exist fails cleanly (-1), not a crash. */
+/* A path that does not exist fails cleanly (NULL + error set), not a
+ * crash. */
 static void
 test_serial_open_missing (void)
 {
-    int fd = serial_open ("/dev/pn-mesh-node-does-not-exist");
-    PN_CHECK (fd < 0);
-    if (fd >= 0)
-        close (fd);
+    GError       *error  = NULL;
+    PnMeshSerial *serial =
+        pn_mesh_serial_open ("/dev/pn-mesh-node-does-not-exist", &error);
+    PN_CHECK (serial == NULL);
+    PN_CHECK (error != NULL);
+    if (serial != NULL)
+        pn_mesh_serial_close (serial);
+    g_clear_error (&error);
 }
 
 /* ================================================================== */

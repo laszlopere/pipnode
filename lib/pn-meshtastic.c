@@ -19,7 +19,9 @@
 
 #include "pn-meshtastic.h"
 #include "pn-message.h"
+#include "pn-mesh-serial.h"   /* shared transport: pn_mesh_serial_open + fd */
 
+#include <gio/gio.h>          /* G_IO_ERROR / g_error_matches */
 #include <json-glib/json-glib.h>
 
 #include <dirent.h>
@@ -31,8 +33,6 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/file.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 
 /* ------------------------------------------------------------------ */
@@ -851,56 +851,16 @@ parse_mesh_packet (const guint8 *buf, gsize len, PnMeshDecodedText *out)
 /*  Serial port helpers                                                */
 /* ------------------------------------------------------------------ */
 
-/** Open @path with raw 115200 8N1, return the fd or -1 on error. */
-static int
-serial_open (const gchar *path)
-{
-    int fd = open (path, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0)
-        return -1;
-
-    /* Refuse the device if another process — or another node in this
-     * one — already holds it.  flock(2) is advisory but honoured by
-     * every modern serial peer (gpsd, chrony, minicom, cu, pyserial,
-     * the Meshtastic CLI); TIOCEXCL hardens against tools that don't
-     * flock at all (cat, echo, the legacy bash prototype) by making
-     * future non-root open()s on the same tty return EBUSY.  Both are
-     * released by the existing close(fd) paths. */
-    if (flock (fd, LOCK_EX | LOCK_NB) != 0)
-    {
-        int saved = (errno == EWOULDBLOCK) ? EBUSY : errno;
-        close (fd);
-        errno = saved;
-        return -1;
-    }
-    ioctl (fd, TIOCEXCL);
-
-    struct termios t;
-    if (tcgetattr (fd, &t) != 0)
-    {
-        close (fd);
-        return -1;
-    }
-    cfmakeraw (&t);
-    cfsetispeed (&t, B115200);
-    cfsetospeed (&t, B115200);
-    t.c_cflag |= (CLOCAL | CREAD);
-    t.c_cflag &= ~(PARENB | CSTOPB | CRTSCTS);
-    t.c_cflag &= ~CSIZE;
-    t.c_cflag |= CS8;
-    t.c_cc[VMIN]  = 0;
-    t.c_cc[VTIME] = 0;
-    if (tcsetattr (fd, TCSANOW, &t) != 0)
-    {
-        close (fd);
-        return -1;
-    }
-    /* Discard any junk left in the kernel buffer from a previous
-     * session — typically the tail end of a config stream from the
-     * last process to hold the port. */
-    tcflush (fd, TCIOFLUSH);
-    return fd;
-}
+/* The serial open lives in the shared transport now.  TODO #37.2 folded
+ * this node's private serial_open() into pn_mesh_serial_open()
+ * (pn-mesh-serial.c) as the best-of-both: the Devices dialog's
+ * refuse-before-open in-use guard (pn_mesh_tty_in_use) PLUS this node's
+ * flock(LOCK_EX) + O_CLOEXEC exclusivity + raw 115200 8N1 termios.  Both
+ * callers here open through it and pull the raw fd via
+ * pn_mesh_serial_get_fd() for their existing poll()/write loops; the
+ * frame codec and write path converge onto the shared module in #37.3.
+ * serial_write_all() below stays for now -- it is the node's blocking
+ * writer, replaced by pn_mesh_serial_write_frame() in #37.3. */
 
 /** Blocking write that retries on EAGAIN/EINTR until either all bytes
  *  are sent, an error occurs, or @deadline_ms (monotonic-wallclock
@@ -1207,14 +1167,19 @@ pn_meshtastic_list_channels (const gchar *device_path)
     if (device_path == NULL || *device_path == '\0')
         return NULL;
 
-    int fd = serial_open (device_path);
-    if (fd < 0)
+    PnMeshSerial *serial = pn_mesh_serial_open (device_path, NULL);
+    if (serial == NULL)
         return NULL;
+    int fd = pn_mesh_serial_get_fd (serial);
+    /* Discard any junk the previous session left in the kernel buffer
+     * before the handshake's first read (the shared open does not flush;
+     * the node always has). */
+    tcflush (fd, TCIOFLUSH);
 
     PnMeshSession session;
     mesh_session_init (&session);
     run_handshake (fd, &session, PN_MESH_HANDSHAKE_TIMEOUT_MS);
-    close (fd);
+    pn_mesh_serial_close (serial);
 
     if (session.channels == NULL || session.channels->len == 0)
     {
@@ -1667,11 +1632,16 @@ worker_main (gpointer data)
 {
     PnMeshtastic *self = data;
 
-    int fd = serial_open (self->device);
-    if (fd < 0)
+    GError       *open_error = NULL;
+    PnMeshSerial *serial     = pn_mesh_serial_open (self->device, &open_error);
+    if (serial == NULL)
     {
-        int err = errno;
-        emit_error_message (self, g_strerror (err));
+        /* The shared open reports contention (its in-use guard or our
+         * flock) as G_IO_ERROR_BUSY; everything else (ENOENT, EACCES, …)
+         * comes through with its own code. */
+        gboolean busy = g_error_matches (open_error, G_IO_ERROR,
+                                         G_IO_ERROR_BUSY);
+        emit_error_message (self, open_error->message);
         /* If the device is busy (held by another node in this process
          * or by an unrelated process / tool), clear the selection so
          * the node lands back in the warning state and the dialog's
@@ -1683,14 +1653,19 @@ worker_main (gpointer data)
          * busy path on the node *before* the clear so the dialog's
          * status row keeps showing "Device /dev/foo is busy." after
          * the auto-revert lands. */
-        if (err == EBUSY)
+        if (busy)
         {
             set_last_busy_path_on_main (self, self->device);
             clear_device_on_main (self);
         }
+        g_clear_error (&open_error);
         set_busy_on_main (self, FALSE);
         return NULL;
     }
+    int fd = pn_mesh_serial_get_fd (serial);
+    /* The shared open does not flush; the node always discarded stale
+     * bytes from a prior session before the handshake's first read. */
+    tcflush (fd, TCIOFLUSH);
 
     PnMeshSession session;
     mesh_session_init (&session);
@@ -1854,7 +1829,7 @@ worker_main (gpointer data)
 
     g_byte_array_free (rx, TRUE);
     mesh_session_clear (&session);
-    close (fd);
+    pn_mesh_serial_close (serial);
     return NULL;
 }
 
