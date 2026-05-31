@@ -1471,10 +1471,11 @@ Devices entry simply calls these functions.  The Devices menu lives in
 its own translation unit (`src/pn-devices-menu.c`) that enumerates the
 registry, so adding a provider never touches `pn-window.c`.
 
-Five building-block widgets the form helpers (and your own tabs) build on
+Six building-block widgets the form helpers (and your own tabs) build on
 are public too -- each its own installed header (`pn-device-combo.h`,
 `pn-device-spin.h`, `pn-inline-edit-label.h`, `pn-foldable.h`,
-`pn-action-button.h`), and all pulled in by `pipnode.h`:
+`pn-action-button.h`, `pn-value-label.h`), and all pulled in by
+`pipnode.h`:
 
     PnDeviceCombo     (`pn_device_combo_new`)            a GtkComboBoxText
         that swallows the mouse wheel instead of stepping its selection
@@ -1501,6 +1502,15 @@ are public too -- each its own installed header (`pn-device-combo.h`,
         the same in every dialog.  `pn_action_button_new_from_icon_name`
         for an icon-only button; `pn_action_button_set_style` to re-accent
         one later.
+    PnValueLabel      (`pn_value_label_new`)             a read-only
+        "key: value" field as one packable widget -- a bold key beside a
+        selectable, "—"-fallback value.  The same look
+        `pn_device_form_attach_label_row` bakes into a grid row, but with
+        no grid: pack it into any GtkBox or PnFoldable body to drop a
+        single read-out (a firmware version, a coordinator model, a
+        connection state) next to a combo or button.
+        `pn_value_label_set_value` (plain text, "—" when empty) or
+        `pn_value_label_set_markup` (a coloured state bullet).
 
 WORKED EXAMPLE -- Meshtastic (`lib/pn-mesh-dialog.c`).  It builds its
 window with `pn_device_dialog_new(..., PN_DEVICE_DIALOG_WITH_DEVICE_LIST)`,

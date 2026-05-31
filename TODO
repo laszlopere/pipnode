@@ -1580,3 +1580,19 @@ broken down later.
   form-helpers list.  NOT dogfooded into the Meshtastic dialog and the
   zigbee plugin is untouched (separate repo) -- this only adds the tools so
   plugins can adopt them.  Clean lib build.
+
+  DONE 2026-05-31 (third widget): PnValueLabel -- lib/pn-value-label.{c,h},
+  a GtkBox subclass that is a read-only "key: value" field as ONE packable
+  widget: a bold key (matching pn_device_form_key_label) beside a
+  selectable, ellipsizing, "—"-fallback value, carrying a "pn-value-label"
+  CSS class.  It is the same field pn_device_form_attach_label_row bakes
+  into a grid row, but freed from the grid so a plugin can drop a single
+  read-out into any GtkBox / PnFoldable body next to a combo or button.
+  API: pn_value_label_new(key), _set_value (plain text, "—" placeholder),
+  _set_markup (coloured state bullet etc.), _get_value.  New exported
+  gui-tier symbol, not a PnNodeClass vfunc -- no ABI bump.  Wired into
+  lib/Makefile.am (SOURCES + installed headers) + pipnode.h; documented in
+  PLUGINS §17b widgets list (now six building blocks).  Not dogfooded into
+  the Meshtastic dialog yet (its readouts still use attach_label_row grids,
+  which is fine); the zigbee plugin is untouched (separate repo).  Clean
+  lib build.

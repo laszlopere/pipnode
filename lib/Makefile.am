@@ -245,6 +245,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-device-spin.h \
 	pn-foldable.c \
 	pn-foldable.h \
+	pn-value-label.c \
+	pn-value-label.h \
 	pn-analog-meter-gui.c \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.c \
@@ -497,6 +499,7 @@ pipnode_gui_headers = \
 	pn-device-provider.h \
 	pn-device-spin.h \
 	pn-foldable.h \
+	pn-value-label.h \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \

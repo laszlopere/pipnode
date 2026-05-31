@@ -61,6 +61,7 @@
 #include "pn-switch.h"
 #include "pn-throttle.h"
 #include "pn-tts.h"
+#include "pn-value-label.h"
 #include "pn-var-store.h"
 #include "pn-watchdog.h"
 #include "pn-wire.h"
