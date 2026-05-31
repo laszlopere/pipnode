@@ -18,9 +18,10 @@
 /*                                                                     */
 /*  Switches for is_managed, serial-API, debug-log-API and             */
 /*  admin-channel-enabled; read-only base64 view of the X25519         */
-/*  public/private/admin keys.  An "I understand the risks" checkbox  */
-/*  gates the Apply button -- a careless write can lock the user out  */
-/*  of admin (is_managed=TRUE without an admin_key, etc.).             */
+/*  public/private/admin keys.  A careless write can lock the user    */
+/*  out of admin (is_managed=TRUE without an admin_key, etc.), so the  */
+/*  Apply button wears the blue "suggested" accent to mark it as the   */
+/*  page's deliberate, committing action.                              */
 /*                                                                     */
 /*  Key bytes are round-tripped verbatim.  No UI for editing them in   */
 /*  this phase; typing 32 random bytes by hand is not useful.          */
@@ -44,7 +45,6 @@ typedef struct
     GtkSwitch *serial_enabled_switch;
     GtkSwitch *debug_log_api_switch;
     GtkSwitch *admin_channel_switch;
-    GtkCheckButton *understand_check;
     GtkButton *apply_button;
 
     PnMeshConnection *connection;
@@ -87,10 +87,7 @@ emit_status (SecurityCtx *ctx, const gchar *msg)
 static gboolean
 apply_should_enable (SecurityCtx *ctx)
 {
-    return !ctx->writing
-        && ctx->connection != NULL
-        && gtk_toggle_button_get_active (
-                GTK_TOGGLE_BUTTON (ctx->understand_check));
+    return !ctx->writing && ctx->connection != NULL;
 }
 
 static void
@@ -103,24 +100,10 @@ set_writing (SecurityCtx *ctx, gboolean writing)
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->serial_enabled_switch), enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->debug_log_api_switch),  enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->admin_channel_switch),  enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->understand_check),      enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),
                               apply_should_enable (ctx));
     if (transition && ctx->busy_cb != NULL)
         ctx->busy_cb (writing, ctx->busy_ud);
-}
-
-static void
-on_understand_toggled (GtkToggleButton *btn, gpointer user_data)
-{
-    GtkWidget   *page = user_data;
-    SecurityCtx *ctx  = g_object_get_data (G_OBJECT (page),
-                                           PN_MESH_SECURITY_CTX_QDATA);
-    (void) btn;
-    if (ctx == NULL)
-        return;
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),
-                              apply_should_enable (ctx));
 }
 
 /* ------------------------------------------------------------------ */
@@ -158,10 +141,6 @@ on_set_security_config_done (GObject *source, GAsyncResult *res, gpointer user_d
         return;
     }
 
-    /* On success, drop the "I understand" check so the next write
-     * requires an explicit re-confirmation. */
-    gtk_toggle_button_set_active (
-            GTK_TOGGLE_BUTTON (ctx->understand_check), FALSE);
     pn_mesh_page_security_set_state (
             page,
             pn_mesh_connection_get_state (ctx->connection),
@@ -180,9 +159,6 @@ on_apply_clicked (GtkButton *button, gpointer user_data)
 
     (void) button;
     if (ctx == NULL || ctx->connection == NULL || ctx->writing)
-        return;
-    if (!gtk_toggle_button_get_active (
-                GTK_TOGGLE_BUTTON (ctx->understand_check)))
         return;
 
     cfg.public_key             = ctx->last_public_key;
@@ -339,7 +315,6 @@ pn_mesh_page_security_new (void)
     GtkWidget   *public_key_label;
     GtkWidget   *private_key_label;
     GtkWidget   *admin_keys_label;
-    GtkWidget   *understand;
     GtkWidget   *apply_box;
     GtkWidget   *apply;
     SecurityCtx *ctx;
@@ -356,8 +331,7 @@ pn_mesh_page_security_new (void)
             "the X25519 keypair the device uses for admin authentication. "
             " A mistake here can lock you out: enabling \"Managed\" "
             "without an admin key in the list below disables local "
-            "admin until the device is re-flashed.  Apply is disabled "
-            "until you tick \"I understand the risks\".");
+            "admin until the device is re-flashed.");
     gtk_label_set_xalign      (GTK_LABEL (subtitle), 0.0);
     gtk_label_set_line_wrap   (GTK_LABEL (subtitle), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
@@ -437,22 +411,8 @@ pn_mesh_page_security_new (void)
     apply_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_set_margin_top (apply_box, 18);
 
-    understand = gtk_check_button_new_with_mnemonic (
-            "I _understand the risks");
-    gtk_widget_set_tooltip_text (understand,
-            "Required before Apply is enabled.  A mistake on this page "
-            "can lock you out of admin until the device is re-flashed.");
-    gtk_box_pack_start (GTK_BOX (apply_box), understand, FALSE, FALSE, 0);
-    ctx->understand_check = GTK_CHECK_BUTTON (understand);
-
-    {
-        GtkWidget *spacer = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-        gtk_widget_set_hexpand (spacer, TRUE);
-        gtk_box_pack_start (GTK_BOX (apply_box), spacer, TRUE, TRUE, 0);
-    }
-
     apply = pn_action_button_new ("_Apply security settings",
-                                  PN_ACTION_BUTTON_NORMAL);
+                                  PN_ACTION_BUTTON_SUGGESTED);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  Key bytes are "
             "shipped back verbatim — only the switches change.");
@@ -465,8 +425,6 @@ pn_mesh_page_security_new (void)
                             ctx, security_ctx_free);
     g_signal_connect (apply, "clicked",
                       G_CALLBACK (on_apply_clicked), page);
-    g_signal_connect (understand, "toggled",
-                      G_CALLBACK (on_understand_toggled), page);
 
     return page;
 }
@@ -490,11 +448,6 @@ pn_mesh_page_security_set_state (GtkWidget         *page,
     g_return_if_fail (ctx != NULL);
 
     ctx->connection = connection;
-
-    /* Always reset the "I understand" check on any state refresh so
-     * post-handshake Apply needs a fresh re-confirmation. */
-    gtk_toggle_button_set_active (
-            GTK_TOGGLE_BUTTON (ctx->understand_check), FALSE);
 
     if (state == NULL || !state->have_security)
     {
