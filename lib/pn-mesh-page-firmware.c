@@ -29,6 +29,7 @@
 
 #include "pn-mesh-page-firmware.h"
 
+#include "pn-device-form.h"
 #include "pn-mesh-formats.h"
 #include "pn-value-label.h"
 
@@ -185,19 +186,27 @@ pn_mesh_page_firmware_new (void)
     gtk_box_pack_start (GTK_BOX (page), fw, FALSE, FALSE, 0);
     ctx->fw_value = PN_VALUE_LABEL (fw);
 
-    g_object_unref (keys);   /* the value labels hold their own refs */
+    /* The clickable flasher URL, shown as a "Web Flasher: <link>" row whose
+     * bold key lines up with the Hardware / Firmware read-outs above it. */
+    {
+        GtkWidget *flash_key = pn_device_form_key_label ("Web Flasher");
 
-    /* The clickable flasher URL.  Left-aligned in its own row so it reads
-     * as a link rather than stretching across the form. */
-    link = gtk_link_button_new_with_label (PN_MESH_FLASHER_URL,
-                                           PN_MESH_FLASHER_URL);
-    gtk_widget_set_tooltip_text (link,
-            "Open the Meshtastic web flasher.  pipnode disconnects from "
-            "the device first so your browser can flash it.");
-    link_align = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_margin_top (link_align, 12);
-    gtk_box_pack_start (GTK_BOX (link_align), link, FALSE, FALSE, 0);
-    gtk_box_pack_start (GTK_BOX (page), link_align, FALSE, FALSE, 0);
+        gtk_size_group_add_widget (keys, flash_key);
+
+        link = gtk_link_button_new_with_label (PN_MESH_FLASHER_URL,
+                                               PN_MESH_FLASHER_URL);
+        gtk_widget_set_tooltip_text (link,
+                "Open the Meshtastic web flasher.  pipnode disconnects from "
+                "the device first so your browser can flash it.");
+        gtk_widget_set_halign (link, GTK_ALIGN_START);
+
+        link_align = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_box_pack_start (GTK_BOX (link_align), flash_key, FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (link_align), link, FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (page), link_align, FALSE, FALSE, 0);
+    }
+
+    g_object_unref (keys);   /* the value labels hold their own refs */
 
     g_object_set_data_full (G_OBJECT (page), PN_MESH_FIRMWARE_CTX_QDATA,
                             ctx, firmware_ctx_free);
