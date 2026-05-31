@@ -1668,11 +1668,37 @@ streaming session and keeps its own loop).
   pn_mesh_serial_open (exclusive case now asserts G_IO_ERROR_BUSY via flock,
   since pn_mesh_tty_in_use skips our own pid); all 84 unit tests pass.
 
-  37.3 Share discovery + framing: node uses pn-mesh-discover + PnMeshFrame
-  Reader / pn_mesh_serial_write_frame; drop its duplicate sysfs walk and the
-  second frame-magic codec (PN_MESH_FRAME_SYNC1/2 vs FRAME_MAGIC_0/1).
-  Reconcile the two VID:PID lists into one -- the single home for #33's bare
-  CP2102 handling and #36's ModemManager-ignore.
+  37.3 DONE Share discovery + framing.  The node's second frame-magic codec
+  is gone: frame_wrap()/frame_extract()/PnFrameFn + PN_MESH_FRAME_SYNC1/2 +
+  PN_MESH_FRAME_MAX deleted.  TX now builds a bare ToRadio PAYLOAD
+  (build_text/want_config/heartbeat_payload) and pn_mesh_serial_write_frame()
+  adds the 0x94 0xC3 + BE-len envelope; RX re-frames through
+  PnMeshFrameReader (run_handshake + worker_main feed it and drain take()).
+  serial_write_all() deleted too -- the shared open is blocking (it clears
+  O_NONBLOCK after termios), so write_frame's EINTR-loop is the correct
+  writer; the node's old EAGAIN/poll/deadline writer was only needed for its
+  own non-blocking fd.  run_handshake() now takes PnMeshSerial* (writes via
+  the shared writer, still reads the raw fd so worker_main can keep
+  multiplexing it against the wake pipe in one poll()).  Discovery: the
+  node's sysfs walk + its copy of the VID:PID table (known_devices,
+  sysfs_read_id, find_tty_under) deleted; pn_meshtastic_list_devices()
+  delegates to pn_mesh_discover_sync() and flattens the rich rows to the
+  historical sorted/NUL-terminated tty strv -- ONE table (discover's
+  KNOWN_DEVICES) is now the single home for #33's bare-CP2102 and #36's
+  MM-ignore work.  DELIBERATE reconciliation of the #37.1 divergence: a
+  zero-length frame is now YIELDED (the reader's behaviour) instead of the
+  node's old skip -- harmless, the per-frame parsers no-op on len==0.
+  Characterization net repointed: test-pn-mesh-node drops the frame_wrap/
+  frame_extract cases (RX framing lives in test-pn-mesh-frame) and the
+  find_tty/known_devices cases, gains write_frame_envelope (pty round-trip
+  pinning the on-wire envelope) and payload-only build_*_payload byte
+  vectors; NEW test-pn-mesh-discover compiles pn-mesh-discover.c directly to
+  pin KNOWN_DEVICES / match_known_device / find_tty_device (one-level +
+  nested + non-interface) that the node test used to cover.  Full suite green
+  (0 failed); clean top-level build.
 
   37.4 Verify parity (node messaging + dialog config both still work, headless
-  and GUI) then remove the dead duplicates.
+  and GUI) then remove the dead duplicates.  [The headless half is covered by
+  37.3's green net + clean build; the live GUI smoke test on real hardware
+  -- send/receive a text via the node, edit channels via the dialog -- is the
+  remaining hands-on step.]

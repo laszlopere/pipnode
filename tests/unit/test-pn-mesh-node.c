@@ -13,23 +13,35 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Characterization tests for the Meshtastic *node*'s private serial
- * stack (TODO #37.1).  The node (pn-meshtastic.c) carries its OWN copy
+/* Characterization tests for the Meshtastic *node*'s serial stack
+ * (TODO #37.1).  The node (pn-meshtastic.c) used to carry its OWN copy
  * of the serial open, the sysfs USB scan, the 0x94 0xC3 frame codec and
  * the protobuf primitives -- divergent from, but parallel to, the
- * Devices-dialog stack (pn-mesh-serial.c / pn-mesh-discover.c, already
- * covered by test-pn-mesh-frame / -inuse / -pb).  Before #37.2/#37.3
- * converge the two onto one shared transport, these tests pin the node's
- * CURRENT byte-level and open-time behaviour so the convergence can be
- * proven a no-op on the live-messaging hot path.
+ * Devices-dialog stack (pn-mesh-serial.c / pn-mesh-discover.c, covered
+ * by test-pn-mesh-frame / -inuse / -pb).  TODO #37 converged the two
+ * onto one shared transport; these tests pinned the node's byte-level
+ * and open-time behaviour so each step could be proven a no-op on the
+ * live-messaging hot path.
  *
- * TODO #37.2 (DONE) converged the OPEN: the node's private serial_open()
- * is gone and both callers now open through the shared
- * pn_mesh_serial_open().  The "Serial open" cases below therefore drive
- * that shared function (proving it kept the node's flock + O_CLOEXEC +
- * raw 8N1 guarantees while gaining the dialog's pre-open in-use guard);
- * the frame codec, protobuf primitives and sysfs discovery are still the
- * node's own copies, pinned here until #37.3 converges them too.
+ * What converged, and where each guarantee is pinned now:
+ *   #37.2 (open)     -- serial_open() is gone; both callers open through
+ *                       pn_mesh_serial_open().  The "Serial open" cases
+ *                       below drive that shared function.
+ *   #37.3 (framing)  -- frame_wrap()/frame_extract() are gone.  TX builds
+ *                       a bare ToRadio PAYLOAD and lets
+ *                       pn_mesh_serial_write_frame() add the 0x94 0xC3
+ *                       envelope (pinned by the round-trip case here +
+ *                       the build_*_payload byte vectors); RX re-frames
+ *                       through PnMeshFrameReader (the accumulator
+ *                       behaviour now lives in test-pn-mesh-frame).
+ *   #37.3 (discovery)-- the node's sysfs walk + known-device table are
+ *                       gone; pn_meshtastic_list_devices() delegates to
+ *                       pn_mesh_discover_sync() (the canonical scan +
+ *                       table are pinned by test-pn-mesh-discover).
+ *
+ * What remains the node's own code, still pinned here: the protobuf
+ * primitives, the outbound ToRadio builders, and the end-to-end
+ * list_devices contract.
  *
  * The functions under test are static, so we compile the node's
  * translation unit straight into the test (the shell- and
@@ -38,11 +50,9 @@
  * copies of the node's few exported symbols win at link time and we only
  * ever call the static helpers -- the GObject is never instantiated).
  *
- * Everything stays headless: the frame/protobuf cases are pure byte
- * vectors, the open cases run against an anonymous pseudo-terminal, and
- * the discovery cases use a synthetic /sys-like tree under a tmpdir
- * (resolving to the always-present /dev/null).  No real radio, no
- * network, no display. */
+ * Everything stays headless: the protobuf cases are pure byte vectors,
+ * the open + envelope cases run against an anonymous pseudo-terminal.
+ * No real radio, no network, no display. */
 
 /* posix_openpt/grantpt/unlockpt/ptsname need the XSI feature macro, and
  * the build does not set one globally; declare it before any libc header. */
@@ -91,30 +101,13 @@ check_frame_bytes (GBytes *frame, const guint8 *expect, gsize expect_len)
         PN_CHECK (memcmp (data, expect, expect_len) == 0);
 }
 
-/* frame_wrap prepends 0x94 0xC3 + big-endian 16-bit payload length,
- * then the payload verbatim. */
+/* build_text_payload encodes ToRadio{ packet=MeshPacket{ to=BCAST,
+ * channel=ch, decoded=Data{ portnum=TEXT, payload=text } } } -- the bare
+ * ToRadio payload, no serial envelope (that is added at write time by
+ * pn_mesh_serial_write_frame; see test_write_frame_envelope).  Pin the
+ * exact wire bytes for a known (text, channel). */
 static void
-test_frame_wrap_envelope (void)
-{
-    static const guint8 payload[] = { 0xDE, 0xAD, 0xBE, 0xEF };
-    static const guint8 expect[]  = { 0x94, 0xC3, 0x00, 0x04,
-                                      0xDE, 0xAD, 0xBE, 0xEF };
-    GBytes *frame = frame_wrap (payload, sizeof payload);
-    check_frame_bytes (frame, expect, sizeof expect);
-    g_bytes_unref (frame);
-
-    /* A zero-length payload still gets the 4-byte header. */
-    static const guint8 expect0[] = { 0x94, 0xC3, 0x00, 0x00 };
-    frame = frame_wrap (NULL, 0);
-    check_frame_bytes (frame, expect0, sizeof expect0);
-    g_bytes_unref (frame);
-}
-
-/* build_text_frame encodes ToRadio{ packet=MeshPacket{ to=BCAST,
- * channel=ch, decoded=Data{ portnum=TEXT, payload=text } } } and wraps
- * it.  Pin the exact wire bytes for a known (text, channel). */
-static void
-test_text_frame_bytes (void)
+test_text_payload_bytes (void)
 {
     /* "hi" on channel 0:
      *   Data     = 08 01            (portnum=1)
@@ -122,10 +115,8 @@ test_text_frame_bytes (void)
      *   MeshPkt  = 15 FF FF FF FF   (to=0xFFFFFFFF, fixed32 LE)
      *              18 00            (channel=0)
      *              22 06 <Data>     (decoded, len 6)
-     *   ToRadio  = 0A 0F <MeshPkt>  (packet, len 15)
-     *   Frame    = 94 C3 00 11 <ToRadio>   (payload len 17) */
+     *   ToRadio  = 0A 0F <MeshPkt>  (packet, len 15) */
     static const guint8 expect[] = {
-        0x94, 0xC3, 0x00, 0x11,
         0x0A, 0x0F,
         0x15, 0xFF, 0xFF, 0xFF, 0xFF,
         0x18, 0x00,
@@ -133,18 +124,17 @@ test_text_frame_bytes (void)
         0x08, 0x01,
         0x12, 0x02, 0x68, 0x69,
     };
-    GBytes *frame = build_text_frame ("hi", 0);
-    check_frame_bytes (frame, expect, sizeof expect);
-    g_bytes_unref (frame);
+    GBytes *payload = build_text_payload ("hi", 0);
+    check_frame_bytes (payload, expect, sizeof expect);
+    g_bytes_unref (payload);
 }
 
 /* A non-zero channel index rides as a plain varint in field 3. */
 static void
-test_text_frame_channel_index (void)
+test_text_payload_channel_index (void)
 {
     /* "x" on channel 2 -- only the channel varint and lengths change. */
     static const guint8 expect[] = {
-        0x94, 0xC3, 0x00, 0x10,
         0x0A, 0x0E,
         0x15, 0xFF, 0xFF, 0xFF, 0xFF,
         0x18, 0x02,
@@ -152,31 +142,31 @@ test_text_frame_channel_index (void)
         0x08, 0x01,
         0x12, 0x01, 0x78,
     };
-    GBytes *frame = build_text_frame ("x", 2);
-    check_frame_bytes (frame, expect, sizeof expect);
-    g_bytes_unref (frame);
+    GBytes *payload = build_text_payload ("x", 2);
+    check_frame_bytes (payload, expect, sizeof expect);
+    g_bytes_unref (payload);
 }
 
-/* build_want_config_frame is ToRadio{ want_config_id=1 } -- field 3
+/* build_want_config_payload is ToRadio{ want_config_id=1 } -- field 3
  * varint = 1. */
 static void
-test_want_config_frame_bytes (void)
+test_want_config_payload_bytes (void)
 {
-    static const guint8 expect[] = { 0x94, 0xC3, 0x00, 0x02, 0x18, 0x01 };
-    GBytes *frame = build_want_config_frame ();
-    check_frame_bytes (frame, expect, sizeof expect);
-    g_bytes_unref (frame);
+    static const guint8 expect[] = { 0x18, 0x01 };
+    GBytes *payload = build_want_config_payload ();
+    check_frame_bytes (payload, expect, sizeof expect);
+    g_bytes_unref (payload);
 }
 
-/* build_heartbeat_frame is ToRadio{ heartbeat=Heartbeat{} } -- field 7,
+/* build_heartbeat_payload is ToRadio{ heartbeat=Heartbeat{} } -- field 7,
  * length-delimited, zero payload bytes. */
 static void
-test_heartbeat_frame_bytes (void)
+test_heartbeat_payload_bytes (void)
 {
-    static const guint8 expect[] = { 0x94, 0xC3, 0x00, 0x02, 0x3A, 0x00 };
-    GBytes *frame = build_heartbeat_frame ();
-    check_frame_bytes (frame, expect, sizeof expect);
-    g_bytes_unref (frame);
+    static const guint8 expect[] = { 0x3A, 0x00 };
+    GBytes *payload = build_heartbeat_payload ();
+    check_frame_bytes (payload, expect, sizeof expect);
+    g_bytes_unref (payload);
 }
 
 /* ================================================================== */
@@ -235,175 +225,13 @@ test_pb_fixed32_roundtrip (void)
     g_byte_array_free (out, TRUE);
 }
 
-/* ================================================================== */
-/*  Frame RX: the in-place accumulator (frame_extract)                 */
-/* ================================================================== */
-
-/* Collector callback: copy each extracted payload into a GPtrArray of
- * GBytes for inspection. */
-static void
-collect_payload (const guint8 *payload, gsize len, gpointer ud)
-{
-    GPtrArray *out = ud;
-    g_ptr_array_add (out, g_bytes_new (payload, len));
-}
-
-/* Append one on-wire frame (header + payload) to @rx. */
-static void
-append_frame (GByteArray *rx, const guint8 *payload, gsize len)
-{
-    guint8 hdr[4] = { 0x94, 0xC3,
-                      (guint8) ((len >> 8) & 0xFF),
-                      (guint8) (len & 0xFF) };
-    g_byte_array_append (rx, hdr, 4);
-    if (len > 0)
-        g_byte_array_append (rx, payload, (guint) len);
-}
-
-/* Two back-to-back frames in one buffer come out in feed order, and the
- * buffer is fully drained afterwards. */
-static void
-test_extract_two_clean (void)
-{
-    GByteArray *rx  = g_byte_array_new ();
-    GPtrArray  *got = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
-
-    append_frame (rx, (const guint8 *) "alpha", 5);
-    append_frame (rx, (const guint8 *) "be",    2);
-
-    frame_extract (rx, collect_payload, got);
-
-    PN_CHECK_CMPINT (got->len, ==, 2);
-    PN_CHECK_CMPINT (rx->len,  ==, 0);
-    if (got->len == 2)
-    {
-        gsize n = 0;
-        const guint8 *p = g_bytes_get_data (g_ptr_array_index (got, 0), &n);
-        PN_CHECK (n == 5 && memcmp (p, "alpha", 5) == 0);
-        p = g_bytes_get_data (g_ptr_array_index (got, 1), &n);
-        PN_CHECK (n == 2 && memcmp (p, "be", 2) == 0);
-    }
-
-    g_ptr_array_unref (got);
-    g_byte_array_unref (rx);
-}
-
-/* A frame split across two feeds: the first feed holds only part of the
- * payload (no complete frame yet), and the partial bytes are preserved
- * in @rx for the next feed, which completes it. */
-static void
-test_extract_split_payload (void)
-{
-    GByteArray *rx  = g_byte_array_new ();
-    GPtrArray  *got = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
-
-    /* Header + 3 of 6 payload bytes. */
-    static const guint8 part1[] = { 0x94, 0xC3, 0x00, 0x06, 'a', 'b', 'c' };
-    g_byte_array_append (rx, part1, sizeof part1);
-    frame_extract (rx, collect_payload, got);
-    PN_CHECK_CMPINT (got->len, ==, 0);   /* nothing complete yet */
-    PN_CHECK_CMPINT (rx->len,  ==, sizeof part1);  /* preserved verbatim */
-
-    /* Remaining 3 payload bytes. */
-    static const guint8 part2[] = { 'd', 'e', 'f' };
-    g_byte_array_append (rx, part2, sizeof part2);
-    frame_extract (rx, collect_payload, got);
-    PN_CHECK_CMPINT (got->len, ==, 1);
-    PN_CHECK_CMPINT (rx->len,  ==, 0);
-    if (got->len == 1)
-    {
-        gsize n = 0;
-        const guint8 *p = g_bytes_get_data (g_ptr_array_index (got, 0), &n);
-        PN_CHECK (n == 6 && memcmp (p, "abcdef", 6) == 0);
-    }
-
-    g_ptr_array_unref (got);
-    g_byte_array_unref (rx);
-}
-
-/* Junk bytes (including a lone 0x94 not followed by 0xC3) before the
- * first real magic are skipped without losing the following frame. */
-static void
-test_extract_junk_before_magic (void)
-{
-    GByteArray *rx  = g_byte_array_new ();
-    GPtrArray  *got = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
-
-    static const guint8 junk[] = { 0x00, 0x94, 0x42, 0xFF };  /* lone 0x94 */
-    g_byte_array_append (rx, junk, sizeof junk);
-    append_frame (rx, (const guint8 *) "after", 5);
-
-    frame_extract (rx, collect_payload, got);
-
-    PN_CHECK_CMPINT (got->len, ==, 1);
-    PN_CHECK_CMPINT (rx->len,  ==, 0);
-    if (got->len == 1)
-    {
-        gsize n = 0;
-        const guint8 *p = g_bytes_get_data (g_ptr_array_index (got, 0), &n);
-        PN_CHECK (n == 5 && memcmp (p, "after", 5) == 0);
-    }
-
-    g_ptr_array_unref (got);
-    g_byte_array_unref (rx);
-}
-
-/* CHARACTERIZATION OF A DIVERGENCE: the node's frame_extract treats a
- * length-zero header as desync and skips it (unlike the dialog reader,
- * which yields an empty frame -- see test-pn-mesh-frame's
- * zero_length_frame).  A real frame following a zero-length header is
- * still recovered.  Pinning this so #37.3 makes the reconciliation a
- * deliberate choice, not an accident. */
-static void
-test_extract_zero_length_is_skipped (void)
-{
-    GByteArray *rx  = g_byte_array_new ();
-    GPtrArray  *got = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
-
-    static const guint8 zero_hdr[] = { 0x94, 0xC3, 0x00, 0x00 };
-    g_byte_array_append (rx, zero_hdr, sizeof zero_hdr);
-    append_frame (rx, (const guint8 *) "real", 4);
-
-    frame_extract (rx, collect_payload, got);
-
-    PN_CHECK_CMPINT (got->len, ==, 1);   /* zero-length yields nothing */
-    if (got->len == 1)
-    {
-        gsize n = 0;
-        const guint8 *p = g_bytes_get_data (g_ptr_array_index (got, 0), &n);
-        PN_CHECK (n == 4 && memcmp (p, "real", 4) == 0);
-    }
-
-    g_ptr_array_unref (got);
-    g_byte_array_unref (rx);
-}
-
-/* A coincidental 0x94 0xC3 that claims a payload larger than
- * PN_MESH_FRAME_MAX is desync: drop the sync byte and keep scanning so a
- * genuine frame that follows is still recovered. */
-static void
-test_extract_oversized_recovery (void)
-{
-    GByteArray *rx  = g_byte_array_new ();
-    GPtrArray  *got = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
-
-    static const guint8 bogus[] = { 0x94, 0xC3, 0xFF, 0xFF };  /* claims 65535 */
-    g_byte_array_append (rx, bogus, sizeof bogus);
-    append_frame (rx, (const guint8 *) "recover", 7);
-
-    frame_extract (rx, collect_payload, got);
-
-    PN_CHECK_CMPINT (got->len, ==, 1);
-    if (got->len == 1)
-    {
-        gsize n = 0;
-        const guint8 *p = g_bytes_get_data (g_ptr_array_index (got, 0), &n);
-        PN_CHECK (n == 7 && memcmp (p, "recover", 7) == 0);
-    }
-
-    g_ptr_array_unref (got);
-    g_byte_array_unref (rx);
-}
+/* The RX accumulator is the shared PnMeshFrameReader now (#37.3); its
+ * clean / split / junk / magic-split / zero-length / oversized-recovery
+ * behaviour is pinned by test-pn-mesh-frame, so the node no longer
+ * carries its own copy of those cases.  The deliberate reconciliation of
+ * the old node-vs-dialog divergence: a zero-length header now yields an
+ * empty frame (the reader's behaviour) instead of being silently
+ * skipped, which the node's per-frame parsers treat as a harmless no-op. */
 
 /* ================================================================== */
 /*  Serial open: flock + TIOCEXCL exclusivity, O_CLOEXEC, raw 8N1       */
@@ -518,89 +346,63 @@ test_serial_open_missing (void)
 }
 
 /* ================================================================== */
-/*  Discovery: known-device table + sysfs tty walk + list contract     */
+/*  Frame TX envelope: build payload -> write through the shared writer  */
 /* ================================================================== */
 
-/* Pin the VID:PID:label table that #37.3 must reconcile with the
- * dialog's list (and that #33's bare-CP2102 / #36's MM-ignore work keys
- * off).  A board added to the pip-mesh prototype but forgotten here
- * silently drops out of the device combo, so the exact set is the
- * contract. */
+/* The end of the node's TX path: a builder produces the bare ToRadio
+ * payload and pn_mesh_serial_write_frame() (#37.3, shared transport)
+ * wraps it in the 0x94 0xC3 + big-endian length envelope on the wire.
+ * Open a pty, send a known want_config payload, and read the raw bytes
+ * back off the master to pin the exact on-wire framing the node now
+ * emits -- this is where the envelope that frame_wrap() used to add is
+ * verified after convergence. */
 static void
-test_known_devices_table (void)
+test_write_frame_envelope (void)
 {
-    static const struct { const gchar *vid, *pid, *label; } expect[] = {
-        { "10c4", "ea60", "Heltec V3"        },
-        { "239a", "0029", "Tracker"          },
-        { "239a", "8027", "SenseCAP Tracker" },
-        { "239a", "8029", "Tracker"          },
-    };
+    gchar *path   = NULL;
+    int    master = open_pty (&path);
+    PN_CHECK (master >= 0);
+    if (master < 0)
+        return;
 
-    PN_CHECK_CMPINT (G_N_ELEMENTS (known_devices), ==, G_N_ELEMENTS (expect));
-    for (gsize i = 0; i < G_N_ELEMENTS (expect); i++)
+    GError       *error  = NULL;
+    PnMeshSerial *serial = pn_mesh_serial_open (path, &error);
+    PN_CHECK (serial != NULL);
+    if (serial != NULL)
     {
-        PN_CHECK_CMPSTR (known_devices[i].vendor,  ==, expect[i].vid);
-        PN_CHECK_CMPSTR (known_devices[i].product, ==, expect[i].pid);
-        PN_CHECK_CMPSTR (known_devices[i].label,   ==, expect[i].label);
+        GBytes       *payload = build_want_config_payload ();
+        gsize         plen;
+        const guint8 *pdata = g_bytes_get_data (payload, &plen);
+
+        PN_CHECK (pn_mesh_serial_write_frame (serial, pdata, plen, NULL));
+
+        /* ToRadio{ want_config_id=1 } = 18 01, wrapped: 94 C3 00 02 18 01. */
+        static const guint8 expect[] = { 0x94, 0xC3, 0x00, 0x02, 0x18, 0x01 };
+        guint8  got[sizeof expect];
+        gssize  n = read (master, got, sizeof got);
+        PN_CHECK_CMPINT (n, ==, (gssize) sizeof expect);
+        if (n == (gssize) sizeof expect)
+            PN_CHECK (memcmp (got, expect, sizeof expect) == 0);
+
+        g_bytes_unref (payload);
+        pn_mesh_serial_close (serial);
     }
+    g_clear_error (&error);
+
+    close (master);
+    g_free (path);
 }
 
-/* Build the directory chain @rel under @root (slash-separated). */
-static void
-make_dirs (const gchar *root, const gchar *rel)
-{
-    gchar *full = g_build_filename (root, rel, NULL);
-    g_mkdir_with_parents (full, 0755);
-    g_free (full);
-}
+/* ================================================================== */
+/*  Discovery: end-to-end list contract                                */
+/* ================================================================== */
 
-/* find_tty_under resolves the common one-level layout
- * <dev>/<intf>/tty/<ttyXXX>.  We name the leaf "null" so the
- * g_file_test("/dev/null") existence gate passes deterministically. */
-static void
-test_find_tty_one_level (void)
-{
-    gchar *root = g_dir_make_tmp ("pn-mesh-node-tty-XXXXXX", NULL);
-    PN_CHECK (root != NULL);
-    if (root == NULL)
-        return;
-
-    make_dirs (root, "intf0/tty/null");
-    gchar *tty = find_tty_under (root);
-    PN_CHECK_CMPSTR (tty, ==, "/dev/null");
-    g_free (tty);
-
-    gchar *intf = g_build_filename (root, "intf0", NULL);
-    gchar *ttyd = g_build_filename (intf, "tty", NULL);
-    gchar *leaf = g_build_filename (ttyd, "null", NULL);
-    g_rmdir (leaf); g_rmdir (ttyd); g_rmdir (intf); g_rmdir (root);
-    g_free (leaf); g_free (ttyd); g_free (intf);
-    g_free (root);
-}
-
-/* The one-deeper nesting (devices like SenseCAP) is also resolved via
- * the function's recursive descent. */
-static void
-test_find_tty_nested (void)
-{
-    gchar *root = g_dir_make_tmp ("pn-mesh-node-tty2-XXXXXX", NULL);
-    PN_CHECK (root != NULL);
-    if (root == NULL)
-        return;
-
-    make_dirs (root, "intf0/sub/iface/tty/null");
-    gchar *tty = find_tty_under (root);
-    PN_CHECK_CMPSTR (tty, ==, "/dev/null");
-    g_free (tty);
-
-    /* Best-effort recursive cleanup of the synthetic tree. */
-    gchar *rm = g_strdup_printf ("rm -rf %s", root);
-    if (system (rm) != 0) { /* ignore */ }
-    g_free (rm);
-    g_free (root);
-}
-
-/* pn_meshtastic_list_devices() reads the real /sys, so its contents are
+/* The known-device VID:PID table and the sysfs tty walk are the shared
+ * pn-mesh-discover module now (#37.3), pinned by test-pn-mesh-discover.
+ * pn_meshtastic_list_devices() delegates to it; what stays the node's
+ * contract is the shape it hands the dialog combo.
+ *
+ * pn_meshtastic_list_devices() reads the real /sys, so its contents are
  * machine-dependent, but the contract is not: a non-NULL,
  * NULL-terminated, ascending-sorted strv of /dev paths. */
 static void
@@ -626,33 +428,25 @@ main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-mesh-node");
 
-    /* Frame TX */
-    pn_test_add ("frame_wrap_envelope",      test_frame_wrap_envelope);
-    pn_test_add ("text_frame_bytes",         test_text_frame_bytes);
-    pn_test_add ("text_frame_channel_index", test_text_frame_channel_index);
-    pn_test_add ("want_config_frame_bytes",  test_want_config_frame_bytes);
-    pn_test_add ("heartbeat_frame_bytes",    test_heartbeat_frame_bytes);
+    /* Frame TX: outbound ToRadio payloads */
+    pn_test_add ("text_payload_bytes",         test_text_payload_bytes);
+    pn_test_add ("text_payload_channel_index", test_text_payload_channel_index);
+    pn_test_add ("want_config_payload_bytes",  test_want_config_payload_bytes);
+    pn_test_add ("heartbeat_payload_bytes",    test_heartbeat_payload_bytes);
 
     /* Protobuf primitives */
     pn_test_add ("pb_varint_roundtrip",      test_pb_varint_roundtrip);
     pn_test_add ("pb_fixed32_roundtrip",     test_pb_fixed32_roundtrip);
-
-    /* Frame RX */
-    pn_test_add ("extract_two_clean",        test_extract_two_clean);
-    pn_test_add ("extract_split_payload",    test_extract_split_payload);
-    pn_test_add ("extract_junk_before_magic", test_extract_junk_before_magic);
-    pn_test_add ("extract_zero_length_skip", test_extract_zero_length_is_skipped);
-    pn_test_add ("extract_oversized_recover", test_extract_oversized_recovery);
 
     /* Serial open */
     pn_test_add ("serial_open_termios",      test_serial_open_termios_cloexec);
     pn_test_add ("serial_open_exclusive",    test_serial_open_exclusive);
     pn_test_add ("serial_open_missing",      test_serial_open_missing);
 
+    /* Frame TX envelope (build payload -> shared writer -> wire) */
+    pn_test_add ("write_frame_envelope",     test_write_frame_envelope);
+
     /* Discovery */
-    pn_test_add ("known_devices_table",      test_known_devices_table);
-    pn_test_add ("find_tty_one_level",       test_find_tty_one_level);
-    pn_test_add ("find_tty_nested",          test_find_tty_nested);
     pn_test_add ("list_devices_contract",    test_list_devices_contract);
 
     return pn_test_run ();

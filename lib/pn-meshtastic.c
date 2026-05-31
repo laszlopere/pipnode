@@ -19,7 +19,8 @@
 
 #include "pn-meshtastic.h"
 #include "pn-message.h"
-#include "pn-mesh-serial.h"   /* shared transport: pn_mesh_serial_open + fd */
+#include "pn-mesh-serial.h"     /* shared transport: open + frame reader/writer */
+#include "pn-mesh-discover.h"   /* shared USB scan: pn_mesh_discover_sync */
 
 #include <gio/gio.h>          /* G_IO_ERROR / g_error_matches */
 #include <json-glib/json-glib.h>
@@ -35,35 +36,20 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+/* The Meshtastic USB VID:PID table + sysfs scan live in the shared
+ * pn-mesh-discover module (TODO #37.3) -- pn_meshtastic_list_devices()
+ * delegates to pn_mesh_discover_sync() so the dialog and the node match
+ * one and the same device set (and one home for #33's bare-CP2102 and
+ * #36's ModemManager-ignore handling). */
+
 /* ------------------------------------------------------------------ */
-/*  USB device table                                                   */
+/*  Protobuf constants                                                  */
 /*                                                                     */
-/*  Mirrors the KNOWN_DEVICES table the pip-mesh bash prototype keeps  */
-/*  (see /usr/bin/pip-mesh around line 88).  A new board added there   */
-/*  must also be added here for it to appear in the device combo.     */
+/*  The 0x94 0xC3 serial framing lives in the shared transport         */
+/*  (pn-mesh-serial.c) -- TODO #37.3 dropped this node's private        */
+/*  copy of the magic/length codec in favour of PnMeshFrameReader on    */
+/*  the RX side and pn_mesh_serial_write_frame on the TX side.          */
 /* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    const gchar *vendor;
-    const gchar *product;
-    const gchar *label;
-} PnMeshKnownDevice;
-
-static const PnMeshKnownDevice known_devices[] = {
-    { "10c4", "ea60", "Heltec V3"        },
-    { "239a", "0029", "Tracker"          },
-    { "239a", "8027", "SenseCAP Tracker" },
-    { "239a", "8029", "Tracker"          },
-};
-
-/* ------------------------------------------------------------------ */
-/*  Frame and protobuf constants                                       */
-/* ------------------------------------------------------------------ */
-
-#define PN_MESH_FRAME_SYNC1 0x94
-#define PN_MESH_FRAME_SYNC2 0xC3
-#define PN_MESH_FRAME_MAX   512
 
 /* Wire types per the protobuf spec. */
 #define PN_PB_WT_VARINT  0
@@ -357,82 +343,22 @@ pb_skip_field (const guint8 *buf,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Frame layer                                                        */
-/* ------------------------------------------------------------------ */
-
-/** Build a serial frame around @payload: 0x94 0xC3 BE16(len) <payload>.
- *  Returns a freshly-allocated #GBytes. */
-static GBytes *
-frame_wrap (const guint8 *payload, gsize len)
-{
-    guint8 *buf = g_malloc (len + 4);
-    buf[0] = PN_MESH_FRAME_SYNC1;
-    buf[1] = PN_MESH_FRAME_SYNC2;
-    buf[2] = (len >> 8) & 0xFFu;
-    buf[3] = (len     ) & 0xFFu;
-    if (len > 0)
-        memcpy (buf + 4, payload, len);
-    return g_bytes_new_take (buf, len + 4);
-}
-
-/** Pull complete frames out of @rx in place.  For each frame the
- *  callback is invoked with the payload pointer and length; once the
- *  callback returns the frame's bytes are removed from the buffer.
- *  A partial trailing frame is left in place for the next call. */
-typedef void (*PnFrameFn) (const guint8 *payload, gsize len, gpointer ud);
-
-static void
-frame_extract (GByteArray *rx, PnFrameFn cb, gpointer ud)
-{
-    gsize i = 0;
-    while (i + 4 <= rx->len)
-    {
-        if (rx->data[i] != PN_MESH_FRAME_SYNC1)
-        {
-            i++;
-            continue;
-        }
-        if (rx->data[i + 1] != PN_MESH_FRAME_SYNC2)
-        {
-            i++;
-            continue;
-        }
-        guint16 plen = ((guint16) rx->data[i + 2] << 8)
-                     | ((guint16) rx->data[i + 3]);
-        if (plen == 0 || plen > PN_MESH_FRAME_MAX)
-        {
-            /* Bad length — desync.  Skip the sync byte and keep
-             * scanning so we don't lose a real frame that happened
-             * to follow garbage. */
-            i++;
-            continue;
-        }
-        if (i + 4 + plen > rx->len)
-        {
-            /* Frame still arriving; preserve it for the next read. */
-            break;
-        }
-        cb (rx->data + i + 4, plen, ud);
-        i += 4 + plen;
-    }
-    if (i > 0)
-        g_byte_array_remove_range (rx, 0, i);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Outbound message construction                                      */
+/*                                                                     */
+/*  Each builder returns the bare ToRadio protobuf PAYLOAD; the         */
+/*  0x94 0xC3 + length envelope is added by pn_mesh_serial_write_frame  */
+/*  at the moment of transmission (TODO #37.3).                         */
 /* ------------------------------------------------------------------ */
 
 /** Build a ToRadio { packet=MeshPacket { to=BCAST, channel=ch,
- *  decoded=Data { portnum=TEXT, payload=text } } } and wrap it in a
- *  serial frame.  Mirrors build_send_text_frame in pip-mesh. */
+ *  decoded=Data { portnum=TEXT, payload=text } } } payload.  Mirrors
+ *  build_send_text_frame in pip-mesh. */
 static GBytes *
-build_text_frame (const gchar *text, guint channel_index)
+build_text_payload (const gchar *text, guint channel_index)
 {
     GByteArray *data_msg = g_byte_array_new ();
     GByteArray *mesh_pkt = g_byte_array_new ();
     GByteArray *to_radio = g_byte_array_new ();
-    GBytes     *frame;
 
     /* Data { portnum=1, payload=<utf8 text> } */
     pb_encode_varint_field (data_msg, 1, PN_MESH_PORT_TEXT);
@@ -447,46 +373,37 @@ build_text_frame (const gchar *text, guint channel_index)
     /* ToRadio { packet=MeshPacket } */
     pb_encode_len_field (to_radio, 1, mesh_pkt->data, mesh_pkt->len);
 
-    frame = frame_wrap (to_radio->data, to_radio->len);
-
     g_byte_array_free (data_msg, TRUE);
     g_byte_array_free (mesh_pkt, TRUE);
-    g_byte_array_free (to_radio, TRUE);
-    return frame;
+    return g_byte_array_free_to_bytes (to_radio);
 }
 
-/** Build a bare ToRadio { want_config_id=1 } frame to kick the device
+/** Build a bare ToRadio { want_config_id=1 } payload to kick the device
  *  into streaming its configuration. */
 static GBytes *
-build_want_config_frame (void)
+build_want_config_payload (void)
 {
     GByteArray *to_radio = g_byte_array_new ();
-    GBytes     *frame;
 
     /* ToRadio.want_config_id = field 3 varint = 1 */
     pb_encode_varint_field (to_radio, 3, 1);
 
-    frame = frame_wrap (to_radio->data, to_radio->len);
-    g_byte_array_free (to_radio, TRUE);
-    return frame;
+    return g_byte_array_free_to_bytes (to_radio);
 }
 
-/** Build a ToRadio { heartbeat = Heartbeat{} } keepalive frame.  The
+/** Build a ToRadio { heartbeat = Heartbeat{} } keepalive payload.  The
  *  Heartbeat message has no fields, so the encoded form is a single
  *  length-delimited record carrying an empty payload (field 7, wire
  *  type 2, length 0). */
 static GBytes *
-build_heartbeat_frame (void)
+build_heartbeat_payload (void)
 {
     GByteArray *to_radio = g_byte_array_new ();
-    GBytes     *frame;
 
     /* ToRadio.heartbeat = field 7, length-delimited, zero bytes. */
     pb_encode_len_field (to_radio, 7, NULL, 0);
 
-    frame = frame_wrap (to_radio->data, to_radio->len);
-    g_byte_array_free (to_radio, TRUE);
-    return frame;
+    return g_byte_array_free_to_bytes (to_radio);
 }
 
 /* ------------------------------------------------------------------ */
@@ -851,127 +768,20 @@ parse_mesh_packet (const guint8 *buf, gsize len, PnMeshDecodedText *out)
 /*  Serial port helpers                                                */
 /* ------------------------------------------------------------------ */
 
-/* The serial open lives in the shared transport now.  TODO #37.2 folded
- * this node's private serial_open() into pn_mesh_serial_open()
- * (pn-mesh-serial.c) as the best-of-both: the Devices dialog's
- * refuse-before-open in-use guard (pn_mesh_tty_in_use) PLUS this node's
- * flock(LOCK_EX) + O_CLOEXEC exclusivity + raw 115200 8N1 termios.  Both
- * callers here open through it and pull the raw fd via
- * pn_mesh_serial_get_fd() for their existing poll()/write loops; the
- * frame codec and write path converge onto the shared module in #37.3.
- * serial_write_all() below stays for now -- it is the node's blocking
- * writer, replaced by pn_mesh_serial_write_frame() in #37.3. */
-
-/** Blocking write that retries on EAGAIN/EINTR until either all bytes
- *  are sent, an error occurs, or @deadline_ms (monotonic-wallclock
- *  milliseconds since some epoch; 0 = no timeout) elapses.  Returns
- *  the number of bytes actually written, or -1 on hard error. */
-static gssize
-serial_write_all (int fd, const guint8 *buf, gsize len, gint64 deadline_us)
-{
-    gsize written = 0;
-    while (written < len)
-    {
-        ssize_t n = write (fd, buf + written, len - written);
-        if (n > 0)
-        {
-            written += n;
-            continue;
-        }
-        if (n < 0 && (errno == EAGAIN || errno == EINTR))
-        {
-            struct pollfd pfd = { fd, POLLOUT, 0 };
-            int           timeout_ms = -1;
-            if (deadline_us > 0)
-            {
-                gint64 now = g_get_monotonic_time ();
-                if (now >= deadline_us)
-                    return written;
-                timeout_ms = (int) ((deadline_us - now) / 1000);
-            }
-            poll (&pfd, 1, timeout_ms);
-            continue;
-        }
-        return -1;
-    }
-    return (gssize) written;
-}
+/* The serial transport is fully shared now.  TODO #37.2 folded this
+ * node's private serial_open() into pn_mesh_serial_open() (the
+ * best-of-both: the Devices dialog's refuse-before-open in-use guard
+ * PLUS the node's flock(LOCK_EX) + O_CLOEXEC exclusivity + raw 115200
+ * 8N1 termios), and TODO #37.3 dropped the node's own frame codec and
+ * blocking writer too: TX goes through pn_mesh_serial_write_frame()
+ * (which adds the 0x94 0xC3 envelope), RX re-frames through a
+ * PnMeshFrameReader.  The fd from pn_mesh_serial_get_fd() is still used
+ * directly where the worker has to multiplex the serial read against
+ * its wake pipe in a single poll(). */
 
 /* ------------------------------------------------------------------ */
 /*  USB device enumeration                                             */
 /* ------------------------------------------------------------------ */
-
-/** Read a 4-byte hex sysfs attribute (e.g. /sys/.../idVendor) and
- *  return the trimmed lowercase value, or %NULL on read error. */
-static gchar *
-sysfs_read_id (const gchar *path)
-{
-    gchar  *contents = NULL;
-    gsize   len      = 0;
-    if (!g_file_get_contents (path, &contents, &len, NULL))
-        return NULL;
-    g_strstrip (contents);
-    return contents;  /* already lowercase from kernel */
-}
-
-/** Walk @parent looking for a tty subdirectory whose entries name a
- *  device under /dev (e.g. ttyUSB0).  One level of nesting is
- *  searched (USB serial devices on this kernel typically expose
- *  <intf>/tty/ttyXXX, but a couple expose <intf>/<sub>/tty/ttyXXX).
- *  Returns "/dev/ttyXXX" or %NULL. */
-static gchar *
-find_tty_under (const gchar *parent)
-{
-    GDir *d = g_dir_open (parent, 0, NULL);
-    if (d == NULL)
-        return NULL;
-
-    gchar *result = NULL;
-    const gchar *name;
-    while (result == NULL && (name = g_dir_read_name (d)) != NULL)
-    {
-        gchar *child = g_build_filename (parent, name, NULL);
-        gchar *tty   = g_build_filename (child, "tty", NULL);
-        GDir  *td    = g_dir_open (tty, 0, NULL);
-        if (td != NULL)
-        {
-            const gchar *t;
-            while ((t = g_dir_read_name (td)) != NULL)
-            {
-                gchar *candidate = g_build_filename ("/dev", t, NULL);
-                if (g_file_test (candidate, G_FILE_TEST_EXISTS))
-                {
-                    result = candidate;
-                    break;
-                }
-                g_free (candidate);
-            }
-            g_dir_close (td);
-        }
-        g_free (tty);
-        if (result == NULL)
-        {
-            /* One nested level for devices like SenseCAP which expose
-             * intf/sub/tty/ttyXXX. */
-            GDir *sd = g_dir_open (child, 0, NULL);
-            if (sd != NULL)
-            {
-                const gchar *sub;
-                while (result == NULL && (sub = g_dir_read_name (sd)) != NULL)
-                {
-                    gchar *sub_path = g_build_filename (child, sub, NULL);
-                    if (g_file_test (sub_path, G_FILE_TEST_IS_DIR))
-                        result = find_tty_under (sub_path);
-                    g_free (sub_path);
-                }
-                g_dir_close (sd);
-            }
-        }
-        g_free (child);
-    }
-    g_dir_close (d);
-    return result;
-}
 
 static gint
 strv_sort_cmp (gconstpointer a, gconstpointer b)
@@ -983,47 +793,24 @@ strv_sort_cmp (gconstpointer a, gconstpointer b)
 gchar **
 pn_meshtastic_list_devices (void)
 {
-    GPtrArray *paths = g_ptr_array_new ();
-    GDir      *root  = g_dir_open ("/sys/bus/usb/devices", 0, NULL);
+    /* The USB scan + VID:PID table + tty-walk are the shared
+     * pn-mesh-discover module now (TODO #37.3 dropped this node's
+     * duplicate sysfs walk and its own copy of the known-device table).
+     * The dialog combo only needs the tty paths, so we flatten the rich
+     * PnMeshDevice rows down to their @tty and keep the historical
+     * contract: ascending-sorted, NUL-terminated strv.  In-use rows are
+     * still listed here (the open path's guard refuses them at connect
+     * time) exactly as before. */
+    GPtrArray *devices = pn_mesh_discover_sync ();
+    GPtrArray *paths   = g_ptr_array_new ();
 
-    if (root != NULL)
+    for (guint i = 0; i < devices->len; i++)
     {
-        const gchar *name;
-        while ((name = g_dir_read_name (root)) != NULL)
-        {
-            gchar *base    = g_build_filename ("/sys/bus/usb/devices", name, NULL);
-            gchar *vid_p   = g_build_filename (base, "idVendor",  NULL);
-            gchar *pid_p   = g_build_filename (base, "idProduct", NULL);
-            gchar *vid     = sysfs_read_id (vid_p);
-            gchar *pid     = sysfs_read_id (pid_p);
-
-            if (vid != NULL && pid != NULL)
-            {
-                gboolean match = FALSE;
-                for (gsize i = 0; i < G_N_ELEMENTS (known_devices); i++)
-                {
-                    if (g_strcmp0 (vid, known_devices[i].vendor)  == 0 &&
-                        g_strcmp0 (pid, known_devices[i].product) == 0)
-                    {
-                        match = TRUE;
-                        break;
-                    }
-                }
-                if (match)
-                {
-                    gchar *tty = find_tty_under (base);
-                    if (tty != NULL)
-                        g_ptr_array_add (paths, tty);
-                }
-            }
-            g_free (vid);
-            g_free (pid);
-            g_free (vid_p);
-            g_free (pid_p);
-            g_free (base);
-        }
-        g_dir_close (root);
+        const PnMeshDevice *dev = g_ptr_array_index (devices, i);
+        if (dev->tty != NULL)
+            g_ptr_array_add (paths, g_strdup (dev->tty));
     }
+    g_ptr_array_unref (devices);
 
     g_ptr_array_sort (paths, strv_sort_cmp);
     g_ptr_array_add  (paths, NULL);
@@ -1095,23 +882,24 @@ handshake_on_frame (const guint8 *payload, gsize len, gpointer ud)
 }
 
 static gboolean
-run_handshake (int fd, PnMeshSession *session, gint timeout_ms)
+run_handshake (PnMeshSerial *serial, PnMeshSession *session, gint timeout_ms)
 {
-    /* Send the want_config_id kick. */
-    GBytes *kick = build_want_config_frame ();
-    gsize   klen;
-    const guint8 *kdata = g_bytes_get_data (kick, &klen);
-    gint64  send_deadline = g_get_monotonic_time () + 1 * G_TIME_SPAN_SECOND;
-    if (serial_write_all (fd, kdata, klen, send_deadline) != (gssize) klen)
-    {
-        g_bytes_unref (kick);
-        return FALSE;
-    }
-    g_bytes_unref (kick);
+    int fd = pn_mesh_serial_get_fd (serial);
 
-    /* Read until config_complete or timeout. */
-    GByteArray *rx = g_byte_array_new ();
-    PnHandshakeCtx ctx = { session };
+    /* Send the want_config_id kick through the shared framed writer
+     * (it adds the 0x94 0xC3 envelope). */
+    GBytes       *kick  = build_want_config_payload ();
+    gsize         klen;
+    const guint8 *kdata = g_bytes_get_data (kick, &klen);
+    gboolean      sent  = pn_mesh_serial_write_frame (serial, kdata, klen, NULL);
+    g_bytes_unref (kick);
+    if (!sent)
+        return FALSE;
+
+    /* Read until config_complete or timeout, re-framing the raw byte
+     * stream through the shared PnMeshFrameReader. */
+    PnMeshFrameReader *reader = pn_mesh_frame_reader_new ();
+    PnHandshakeCtx     ctx    = { session };
     gint64 deadline = g_get_monotonic_time ()
                     + (gint64) timeout_ms * 1000;
 
@@ -1133,8 +921,15 @@ run_handshake (int fd, PnMeshSession *session, gint timeout_ms)
         ssize_t n = read (fd, buf, sizeof buf);
         if (n > 0)
         {
-            g_byte_array_append (rx, buf, n);
-            frame_extract (rx, handshake_on_frame, &ctx);
+            GBytes *frame;
+            pn_mesh_frame_reader_feed (reader, buf, (gsize) n);
+            while ((frame = pn_mesh_frame_reader_take (reader)) != NULL)
+            {
+                gsize         flen;
+                const guint8 *fdata = g_bytes_get_data (frame, &flen);
+                handshake_on_frame (fdata, flen, &ctx);
+                g_bytes_unref (frame);
+            }
         }
         else if (n == 0)
         {
@@ -1145,7 +940,7 @@ run_handshake (int fd, PnMeshSession *session, gint timeout_ms)
             break;
         }
     }
-    g_byte_array_free (rx, TRUE);
+    pn_mesh_frame_reader_free (reader);
     return session->config_complete;
 }
 
@@ -1178,7 +973,7 @@ pn_meshtastic_list_channels (const gchar *device_path)
 
     PnMeshSession session;
     mesh_session_init (&session);
-    run_handshake (fd, &session, PN_MESH_HANDSHAKE_TIMEOUT_MS);
+    run_handshake (serial, &session, PN_MESH_HANDSHAKE_TIMEOUT_MS);
     pn_mesh_serial_close (serial);
 
     if (session.channels == NULL || session.channels->len == 0)
@@ -1674,7 +1469,7 @@ worker_main (gpointer data)
      * arrives we keep the partial session and run the read loop with
      * whatever channel list we did get.  A device that comes online
      * mid-handshake will still send text messages we can decode. */
-    run_handshake (fd, &session, PN_MESH_HANDSHAKE_TIMEOUT_MS);
+    run_handshake (serial, &session, PN_MESH_HANDSHAKE_TIMEOUT_MS);
     publish_channel_cache (self, &session);
     /* Push the local NodeInfo's hw_model captured during the handshake
      * to the node's read-only `hw-model` property so the settings
@@ -1695,8 +1490,8 @@ worker_main (gpointer data)
      * the GAsyncQueue, which is not user-visible work. */
     set_busy_on_main (self, FALSE);
 
-    GByteArray *rx  = g_byte_array_new ();
-    PnReadCtx   ctx = { self, &session };
+    PnMeshFrameReader *reader = pn_mesh_frame_reader_new ();
+    PnReadCtx          ctx    = { self, &session };
 
     /* Deadline (monotonic, microseconds) for the next outbound heartbeat
      * frame.  Reset whenever we send any ToRadio traffic — the firmware
@@ -1732,18 +1527,18 @@ worker_main (gpointer data)
 
         if (pr == 0 || g_get_monotonic_time () >= next_heartbeat_us)
         {
-            GBytes       *frame = build_heartbeat_frame ();
+            GBytes       *payload = build_heartbeat_payload ();
             gsize         hlen;
-            const guint8 *hbuf  = g_bytes_get_data (frame, &hlen);
-            gint64        deadline = g_get_monotonic_time ()
-                                   + 2 * G_TIME_SPAN_SECOND;
-            if (serial_write_all (fd, hbuf, hlen, deadline) < 0)
+            const guint8 *hbuf    = g_bytes_get_data (payload, &hlen);
+            GError       *werr    = NULL;
+            if (!pn_mesh_serial_write_frame (serial, hbuf, hlen, &werr))
             {
-                emit_error_message (self, g_strerror (errno));
-                g_bytes_unref (frame);
+                emit_error_message (self, werr->message);
+                g_clear_error (&werr);
+                g_bytes_unref (payload);
                 break;
             }
-            g_bytes_unref (frame);
+            g_bytes_unref (payload);
             next_heartbeat_us = g_get_monotonic_time ()
                               + (gint64) PN_MESH_HEARTBEAT_INTERVAL_MS * 1000;
         }
@@ -1760,8 +1555,15 @@ worker_main (gpointer data)
             ssize_t n = read (fd, buf, sizeof buf);
             if (n > 0)
             {
-                g_byte_array_append (rx, buf, n);
-                frame_extract (rx, worker_on_frame, &ctx);
+                GBytes *frame;
+                pn_mesh_frame_reader_feed (reader, buf, (gsize) n);
+                while ((frame = pn_mesh_frame_reader_take (reader)) != NULL)
+                {
+                    gsize         flen;
+                    const guint8 *fdata = g_bytes_get_data (frame, &flen);
+                    worker_on_frame (fdata, flen, &ctx);
+                    g_bytes_unref (frame);
+                }
             }
             else if (n == 0)
             {
@@ -1809,14 +1611,16 @@ worker_main (gpointer data)
                     }
                 }
 
-                GBytes       *frame = build_text_frame (out->text, ch_index);
+                GBytes       *payload = build_text_payload (out->text, ch_index);
                 gsize         olen;
-                const guint8 *obuf = g_bytes_get_data (frame, &olen);
-                gint64        deadline = g_get_monotonic_time ()
-                                       + 2 * G_TIME_SPAN_SECOND;
-                if (serial_write_all (fd, obuf, olen, deadline) < 0)
-                    emit_error_message (self, g_strerror (errno));
-                g_bytes_unref (frame);
+                const guint8 *obuf    = g_bytes_get_data (payload, &olen);
+                GError       *werr    = NULL;
+                if (!pn_mesh_serial_write_frame (serial, obuf, olen, &werr))
+                {
+                    emit_error_message (self, werr->message);
+                    g_clear_error (&werr);
+                }
+                g_bytes_unref (payload);
                 mesh_outbox_free (out);
                 /* The outbound text frame doubles as a keepalive — push
                  * the next heartbeat deadline forward so we don't waste
@@ -1827,7 +1631,7 @@ worker_main (gpointer data)
         }
     }
 
-    g_byte_array_free (rx, TRUE);
+    pn_mesh_frame_reader_free (reader);
     mesh_session_clear (&session);
     pn_mesh_serial_close (serial);
     return NULL;
