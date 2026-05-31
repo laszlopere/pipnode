@@ -118,7 +118,8 @@ on_play_done (GObject *source, GAsyncResult *result, gpointer user_data)
     g_subprocess_wait_finish (sub, result, &error);
     if (error != NULL)
     {
-        g_warning ("pn-sci-fi-sound: playback failed: %s", error->message);
+        pn_node_log_error (PN_NODE (self),
+                           "Playback failed: %s", error->message);
         g_error_free (error);
     }
 
@@ -141,8 +142,9 @@ sci_fi_sound_play_file (PnSciFiSound *self, const gchar *path)
     player = pn_sci_fi_find_player ();
     if (player == NULL)
     {
-        g_warning ("pn-sci-fi-sound: no media player found "
-                   "(install mpv, ffplay, or gst-play-1.0)");
+        pn_node_log_error (PN_NODE (self),
+                           "No media player found "
+                           "(install mpv, ffplay, or gst-play-1.0).");
         return FALSE;
     }
 
@@ -157,8 +159,9 @@ sci_fi_sound_play_file (PnSciFiSound *self, const gchar *path)
 
     if (sub == NULL)
     {
-        g_warning ("pn-sci-fi-sound: failed to spawn player: %s",
-                   error ? error->message : "(unknown)");
+        pn_node_log_error (PN_NODE (self),
+                           "Could not start the media player: %s",
+                           error ? error->message : "(unknown)");
         g_clear_error (&error);
         return FALSE;
     }

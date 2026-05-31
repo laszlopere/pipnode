@@ -305,9 +305,10 @@ out:
  *  this run) but a warning is logged so the operator sees why the
  *  files did not land on disk. */
 static GTlsCertificate *
-mint_and_persist (const gchar *cert_path,
-                  const gchar *key_path,
-                  GError     **error)
+mint_and_persist (PnHttpsTunnelReceiver *self,
+                  const gchar           *cert_path,
+                  const gchar           *key_path,
+                  GError               **error)
 {
     GTlsCertificate *cert;
     gchar           *cert_pem = NULL;
@@ -324,14 +325,16 @@ mint_and_persist (const gchar *cert_path,
      * twice does not warrant deduplication. */
     dir = g_path_get_dirname (cert_path);
     if (g_mkdir_with_parents (dir, 0700) != 0)
-        g_warning ("pn-https-tunnel-receiver: failed to create '%s': %s",
-                   dir, g_strerror (errno));
+        pn_node_log_warning (PN_NODE (self),
+                             "Could not create '%s': %s",
+                             dir, g_strerror (errno));
     g_free (dir);
 
     dir = g_path_get_dirname (key_path);
     if (g_mkdir_with_parents (dir, 0700) != 0)
-        g_warning ("pn-https-tunnel-receiver: failed to create '%s': %s",
-                   dir, g_strerror (errno));
+        pn_node_log_warning (PN_NODE (self),
+                             "Could not create '%s': %s",
+                             dir, g_strerror (errno));
     g_free (dir);
 
     /* The cert is public — world-readable is fine.  The key is not;
@@ -339,23 +342,26 @@ mint_and_persist (const gchar *cert_path,
      * g_file_set_contents leaves the file at the umask default. */
     if (!g_file_set_contents (cert_path, cert_pem, -1, &werr))
     {
-        g_warning ("pn-https-tunnel-receiver: failed to persist certificate to "
-                   "'%s': %s — server will use an ephemeral cert this "
-                   "run", cert_path, werr->message);
+        pn_node_log_warning (PN_NODE (self),
+                             "Could not save the certificate to '%s': %s "
+                             "— using an ephemeral cert this run",
+                             cert_path, werr->message);
         g_clear_error (&werr);
     }
 
     if (!g_file_set_contents (key_path, key_pem, -1, &werr))
     {
-        g_warning ("pn-https-tunnel-receiver: failed to persist private key to "
-                   "'%s': %s — server will use an ephemeral cert this "
-                   "run", key_path, werr->message);
+        pn_node_log_warning (PN_NODE (self),
+                             "Could not save the private key to '%s': %s "
+                             "— using an ephemeral cert this run",
+                             key_path, werr->message);
         g_clear_error (&werr);
     }
     else if (g_chmod (key_path, 0600) != 0)
     {
-        g_warning ("pn-https-tunnel-receiver: failed to chmod 0600 on '%s': %s",
-                   key_path, g_strerror (errno));
+        pn_node_log_warning (PN_NODE (self),
+                             "Could not chmod 0600 on '%s': %s",
+                             key_path, g_strerror (errno));
     }
 
     g_free (cert_pem);
@@ -389,7 +395,7 @@ load_certificate (PnHttpsTunnelReceiver *self, GError **error)
                                                      error);
         }
 
-        return mint_and_persist (self->cert_path, self->key_path, error);
+        return mint_and_persist (self, self->cert_path, self->key_path, error);
     }
 
     /* Both paths empty — happens with older worksheets saved before
@@ -711,8 +717,9 @@ restart_server (PnHttpsTunnelReceiver *self)
     cert = load_certificate (self, &error);
     if (cert == NULL)
     {
-        g_warning ("pn-https-tunnel-receiver: certificate load failed: %s",
-                   error ? error->message : "(unknown)");
+        pn_node_log_error (PN_NODE (self),
+                           "Certificate load failed: %s",
+                           error ? error->message : "(unknown)");
         g_clear_error (&error);
         apply_visual_state (self);
         return;
@@ -745,8 +752,9 @@ restart_server (PnHttpsTunnelReceiver *self)
     if (!soup_server_listen_all (self->server, self->port,
                                  SOUP_SERVER_LISTEN_HTTPS, &error))
     {
-        g_warning ("pn-https-tunnel-receiver: failed to listen on port %u: %s",
-                   self->port, error ? error->message : "(unknown)");
+        pn_node_log_error (PN_NODE (self),
+                           "Could not listen on port %u: %s",
+                           self->port, error ? error->message : "(unknown)");
         g_clear_error (&error);
         stop_server (self);
     }

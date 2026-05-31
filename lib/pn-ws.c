@@ -301,11 +301,13 @@ default_accept_certificate (
     return FALSE;
 }
 
-/** Default failure seam: do nothing.  The base class also g_warning()s
- *  the same line for developer diagnostics, so this default leaves no
- *  trace silently — it is the subclass's responsibility (per PLUGINS
- *  §12) to override and emit a `success = FALSE` PnMessage so the
- *  failure becomes visible on the canvas. */
+/** Default failure seam: do nothing.  The base class logs nothing here
+ *  (see notify_connection_failed for why a per-retry log would spam),
+ *  so this default leaves no trace — it is the subclass's
+ *  responsibility (per PLUGINS §12) to override and emit a
+ *  `success = FALSE` PnMessage so the failure becomes visible on the
+ *  canvas, and to call pn_node_log() if a durable diagnostic is
+ *  wanted. */
 static void
 default_connection_failed (
         PnWebsocket *self,
@@ -554,8 +556,8 @@ on_ws_error (
     /* Soup raises this for protocol/transport errors; the "closed"
      * signal follows so the actual reconnect happens in on_ws_closed.
      * Fan the cause out through notify_connection_failed so a subclass
-     * can emit a failure PnMessage (the developer-facing g_warning is
-     * issued inside the helper). */
+     * can emit a failure PnMessage (the base class logs nothing here —
+     * see that helper for why). */
     notify_connection_failed (self, error ? error->message : NULL);
 }
 

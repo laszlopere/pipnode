@@ -324,8 +324,10 @@ pn_http_trigger (PnAutoTrigger *trigger)
 
     if (!spawned)
     {
-        g_warning ("pn-http: failed to spawn '%s': %s",
-                   cmd, error ? error->message : "(unknown)");
+        pn_auto_trigger_log_on_main (
+                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
+                "Request could not start curl: %s",
+                error ? error->message : "(unknown)");
         g_clear_error (&error);
     }
 

@@ -209,8 +209,10 @@ pn_ping_trigger (PnAutoTrigger *trigger)
 
     if (!spawned)
     {
-        g_warning ("pn-ping: failed to spawn '%s': %s",
-                   cmd, error ? error->message : "(unknown)");
+        pn_auto_trigger_log_on_main (
+                trigger, PN_LOG_LEVEL_ERROR,
+                "Could not start ping for '%s': %s",
+                host, error ? error->message : "(unknown)");
         g_clear_error (&error);
     }
     else

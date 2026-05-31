@@ -230,6 +230,90 @@ pn_auto_trigger_emit_on_main (
 }
 
 /* ------------------------------------------------------------------ */
+/*  log_on_main trampoline                                             */
+/*                                                                     */
+/*  pn_node_log() must run on the main thread, but subclasses do       */
+/*  their blocking work (and discover their failures) on the worker.   */
+/*  This marshals the formatted line across, mirroring                 */
+/*  emit_on_main above.                                                */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    PnNode     *node;  /* strong ref */
+    PnLogLevel  level;
+    gchar      *text;  /* owned */
+} PnLogClosure;
+
+static gboolean
+log_on_main_trampoline (gpointer data)
+{
+    PnLogClosure *c = data;
+
+    pn_node_log (c->node, c->level, "%s", c->text);
+
+    return G_SOURCE_REMOVE;
+}
+
+static void
+log_closure_free (gpointer data)
+{
+    PnLogClosure *c = data;
+
+    g_free (c->text);
+    g_clear_object (&c->node);
+    g_free (c);
+}
+
+void
+pn_auto_trigger_log_on_main (
+        PnAutoTrigger *self,
+        PnLogLevel     level,
+        const gchar   *format,
+        ...)
+{
+    PnAutoTriggerPrivate *priv;
+    PnLogClosure         *c;
+    gchar                *text;
+    va_list               args;
+    gboolean              sync;
+
+    g_return_if_fail (PN_IS_AUTO_TRIGGER (self));
+    g_return_if_fail (format != NULL);
+
+    va_start (args, format);
+    text = g_strdup_vprintf (format, args);
+    va_end (args);
+
+    priv = pn_auto_trigger_get_instance_private (self);
+
+    g_mutex_lock (&priv->mutex);
+    sync = priv->deliver_sync;
+    g_mutex_unlock (&priv->mutex);
+
+    /* Synchronous one-shot path (pn_auto_trigger_run_once_sync): the
+     * trigger runs on the calling thread with no main loop, so append
+     * straight away. */
+    if (sync)
+    {
+        pn_node_log (PN_NODE (self), level, "%s", text);
+        g_free (text);
+        return;
+    }
+
+    c = g_new0 (PnLogClosure, 1);
+    c->node  = g_object_ref (PN_NODE (self));
+    c->level = level;
+    c->text  = text;  /* transfer */
+
+    g_main_context_invoke_full (NULL,
+                                G_PRIORITY_DEFAULT,
+                                log_on_main_trampoline,
+                                c,
+                                log_closure_free);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Property plumbing                                                  */
 /* ------------------------------------------------------------------ */
 

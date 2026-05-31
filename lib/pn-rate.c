@@ -475,8 +475,10 @@ pn_rate_emit_message (
     parser = json_parser_new ();
     if (!json_parser_load_from_data (parser, stdout_text, -1, &error))
     {
-        g_warning ("pn-rate: parse error: %s",
-                   error ? error->message : "(unknown)");
+        pn_auto_trigger_log_on_main (
+                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_WARNING,
+                "Could not parse the exchange-rate reply: %s",
+                error ? error->message : "(unknown)");
         g_clear_error (&error);
         g_object_unref (parser);
         return;

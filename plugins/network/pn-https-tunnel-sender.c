@@ -273,6 +273,15 @@ on_accept_certificate (
 /*  Send                                                               */
 /* ------------------------------------------------------------------ */
 
+/* The async POST callback runs after the node may have started to
+ * dispose (the cancellable fires on dispose), so it carries a strong
+ * node ref of its own to log against safely. */
+typedef struct
+{
+    PnNode      *node;  /* strong ref */
+    SoupMessage *msg;   /* borrowed; kept alive by the creation ref */
+} SendCtx;
+
 static void
 on_send_finished (
         GObject      *source,
@@ -280,7 +289,8 @@ on_send_finished (
         gpointer      user_data)
 {
     SoupSession  *session = SOUP_SESSION (source);
-    SoupMessage  *msg     = SOUP_MESSAGE (user_data);
+    SendCtx      *ctx     = user_data;
+    SoupMessage  *msg     = ctx->msg;
     GInputStream *stream;
     GError       *error   = NULL;
 
@@ -294,18 +304,21 @@ on_send_finished (
     {
         if (error != NULL && !g_error_matches (error, G_IO_ERROR,
                                                G_IO_ERROR_CANCELLED))
-            g_warning ("pn-https-tunnel-sender: POST failed: %s", error->message);
+            pn_node_log_error (ctx->node, "POST failed: %s", error->message);
         g_clear_error (&error);
     }
     else
     {
         guint status = soup_message_get_status (msg);
         if (status < 200 || status >= 300)
-            g_warning ("pn-https-tunnel-sender: POST returned HTTP %u", status);
+            pn_node_log_warning (ctx->node,
+                                 "POST returned HTTP %u", status);
         g_object_unref (stream);
     }
 
     g_object_unref (msg);
+    g_object_unref (ctx->node);
+    g_free (ctx);
 }
 
 static void
@@ -328,7 +341,7 @@ pn_https_tunnel_sender_receive (PnNode *node, PnMessage *message)
     msg = soup_message_new (SOUP_METHOD_POST, self->url);
     if (msg == NULL)
     {
-        g_warning ("pn-https-tunnel-sender: invalid URL '%s'", self->url);
+        pn_node_log_error (node, "Invalid URL '%s'", self->url);
         return;
     }
 
@@ -357,15 +370,18 @@ pn_https_tunnel_sender_receive (PnNode *node, PnMessage *message)
                                               body_bytes);
     g_bytes_unref (body_bytes);
 
-    /* Ref the SoupMessage for the async callback; soup_session_send_async
-     * does not retain it for us.  Released in on_send_finished. */
+    /* The SoupMessage's creation ref keeps it alive across the async
+     * call; on_send_finished releases it (together with the context's
+     * node ref).  soup_session_send_async does not retain it for us. */
+    SendCtx *ctx = g_new0 (SendCtx, 1);
+    ctx->node = g_object_ref (node);
+    ctx->msg  = msg;
     soup_session_send_async (self->session,
-                             g_object_ref (msg),
+                             msg,
                              G_PRIORITY_DEFAULT,
                              self->cancellable,
                              on_send_finished,
-                             msg);
-    g_object_unref (msg);  /* the ref we just passed into send_async */
+                             ctx);
 }
 
 /* ------------------------------------------------------------------ */

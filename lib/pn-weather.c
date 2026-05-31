@@ -447,8 +447,10 @@ weather_geocode (PnWeather *self, const gchar *city)
     if (!spawned)
     {
         gchar *cause = error ? g_strdup (error->message) : NULL;
-        g_warning ("pn-weather: failed to spawn geocoding curl: %s",
-                   cause ? cause : "(unknown)");
+        pn_auto_trigger_log_on_main (
+                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
+                "Location lookup could not start curl: %s",
+                cause ? cause : "(unknown)");
         failure = cause
                 ? g_strdup_printf (
                         "Location lookup could not start curl: %s", cause)

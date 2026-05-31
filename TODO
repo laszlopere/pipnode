@@ -1293,21 +1293,25 @@ core (added 2026-05-29):
     - docs: PLUGINS §12 (third failure channel + threading contract).
     - worked example: lib/pn-notify.c logs INFO per notification + WARNING/
       ERROR from its main-thread D-Bus paths (replacing its g_warning calls).
-  STILL OPEN (the rollout -- do later): port the remaining nodes that
-  g_warning/g_message on failure over to pn_node_log so the user can read
-  them in the per-node Log dialog instead of an unread journal.  Per node:
-  decide which lines are user-facing (-> pn_node_log_{info,warning,error})
-  vs developer-only (leave as g_warning), then move the user-facing ones.
+  DONE (rollout) 2026-05-31: every node on the checklist now reports its
+  user-facing failures through pn_node_log instead of g_warning/g_message,
+  so they land in the per-node Log dialog rather than an unread journal.
+
+  Worker-thread seam: the auto-trigger family (http/weather/rate, plus the
+  dns/ping plugin nodes) discover failures on the worker thread, where
+  pn_node_log is illegal.  Added pn_auto_trigger_log_on_main() to the shared
+  PnAutoTrigger base -- it formats the line and marshals it to the main loop
+  via g_main_context_invoke_full (mirroring emit_on_main), and appends
+  synchronously under run_once_sync.  All five worker-thread nodes log
+  through it.  Covered by tests/unit/test-pn-auto-trigger.c (log_on_main_sync).
 
   CAUTION (threading): pn_node_log must be called on the main loop thread
   (same contract as receive / pn_node_emit_message).  Nodes that warn from
-  a worker thread must log from their EXISTING main-thread marshal point,
-  NOT inline at the current g_warning site -- see the [worker] notes below.
+  a worker thread log via pn_auto_trigger_log_on_main, NOT inline.
 
-  Checklist (grep 'g_warning\|g_message' in each; tick when migrated):
-    [ ] lib/pn-http.c          [worker: auto-trigger; log from the tick's
-                                main-thread emit path]
-    [ ] lib/pn-weather.c       [worker: auto-trigger, same as pn-http]
+  Checklist (all migrated; g_warning/g_message removed from each):
+    [x] lib/pn-http.c          worker: pn_auto_trigger_log_on_main (spawn fail)
+    [x] lib/pn-weather.c       worker: pn_auto_trigger_log_on_main (geocode spawn)
     [x] lib/pn-mqtt.c          DONE 2026-05-29: restart_client failures (main
                                 thread) log directly; net-thread reasons
                                 (connect refused / subscribe failed / disconnect
@@ -1319,21 +1323,37 @@ core (added 2026-05-29):
     [x] lib/pn-mqtt-sink.c     DONE 2026-05-29: same pattern; plus the live /
                                 queued publish failures (main thread) log
                                 directly.  g_warning/g_message removed too.
-    [ ] lib/pn-ws.c            [check thread of the warning site]
-    [ ] lib/pn-tts.c           [check: GSubprocess callback vs worker]
-    [ ] lib/pn-sound.c
-    [ ] lib/pn-rate.c
-    [ ] plugins/network/pn-dns.c
-    [ ] plugins/network/pn-ping.c
-    [ ] plugins/network/pn-https-tunnel-sender.c
-    [ ] plugins/network/pn-https-tunnel-receiver.c
-    [ ] plugins/ollama/pn-ollama.c
-    [ ] plugins/sound-effects/pn-sci-fi-sound.c
-  Lower priority / probably developer-only (parse + config warnings, not
-  runtime failures -- migrate only if a user would benefit): lib/pn-filter.c,
-  lib/pn-set.c, lib/pn-rewrite.c, lib/pn-debug.c.
+    [x] lib/pn-ws.c            NO real warnings -- the base class deliberately
+                                logs nothing per failure (auto-reconnect would
+                                spam); failures surface via the subclass's
+                                success=FALSE PnMessage seam (PLUGINS §12).
+                                Only fixed two stale comments that claimed a
+                                base-class g_warning that did not exist.
+    [x] lib/pn-tts.c           main thread (subprocess cb + receive): direct
+                                pn_node_log_{error,warning} (no engine / not
+                                installed / no voice / spawn fail / queue full).
+    [x] lib/pn-sound.c         main thread: direct pn_node_log_error.
+    [x] lib/pn-rate.c          worker (emit_message vfunc): pn_auto_trigger_log_on_main.
+    [x] plugins/network/pn-dns.c   worker: pn_auto_trigger_log_on_main
+                                (threaded the node into query_one).
+    [x] plugins/network/pn-ping.c  worker: pn_auto_trigger_log_on_main.
+    [x] plugins/network/pn-https-tunnel-sender.c  main (Soup async cb): direct
+                                pn_node_log; carried a strong node ref into the
+                                send callback via a SendCtx (cancellable fires
+                                on dispose, so a borrowed pointer was unsafe).
+    [x] plugins/network/pn-https-tunnel-receiver.c  main: direct pn_node_log
+                                (cert load / listen fail / cert-persist best-
+                                effort warnings; threaded self into mint_and_persist).
+    [x] plugins/ollama/pn-ollama.c  main (Soup async cb): direct pn_node_log
+                                via the existing GenerateCtx->self.
+    [x] plugins/sound-effects/pn-sci-fi-sound.c  main: direct pn_node_log.
+  Lower priority / left as developer-only (parse + config warnings, not
+  runtime failures -- per the original "migrate only if a user would benefit"
+  call, kept as g_warning): lib/pn-filter.c, lib/pn-set.c, lib/pn-rewrite.c,
+  lib/pn-debug.c.
   NOT nodes -- leave as-is: pn-node.c, pn-worksheet.c, pn-profile-schema.c,
   pn-settings-schema.c, the pn-mesh-* dialog/list files.
+  TODO #32 COMPLETE.
 
 (33) Meshtastic discovery: stop treating a BARE 10c4:ea60 as a Meshtastic
 device.  The VID:PID table in lib/pn-mesh-discover.c (KNOWN_DEVICES) matches

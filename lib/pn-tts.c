@@ -325,7 +325,8 @@ on_speak_done (
     g_subprocess_communicate_finish (sub, result, NULL, NULL, &error);
     if (error != NULL)
     {
-        g_warning ("pn-tts: pipeline failed: %s", error->message);
+        pn_node_log_error (PN_NODE (self),
+                           "Speech pipeline failed: %s", error->message);
         g_error_free (error);
     }
 
@@ -368,13 +369,15 @@ pn_tts_speak (
 
     if (eng == NULL)
     {
-        g_warning ("pn-tts: no engine selected; refusing to speak");
+        pn_node_log_error (PN_NODE (self),
+                           "No speech engine selected; refusing to speak.");
         return;
     }
 
     if (!engine_is_installed (eng))
     {
-        g_warning ("pn-tts: engine '%s' is not installed", eng->id);
+        pn_node_log_error (PN_NODE (self),
+                           "Speech engine '%s' is not installed.", eng->id);
         return;
     }
 
@@ -385,8 +388,9 @@ pn_tts_speak (
 
     if (!have_voice && eng->cmd_no_voice == NULL)
     {
-        g_warning ("pn-tts: %s requires a voice; refusing to speak",
-                   eng->label);
+        pn_node_log_error (PN_NODE (self),
+                           "%s requires a voice; refusing to speak.",
+                           eng->label);
         return;
     }
 
@@ -442,8 +446,9 @@ pn_tts_speak (
 
     if (sub == NULL)
     {
-        g_warning ("pn-tts: failed to spawn pipeline: %s",
-                   error ? error->message : "(unknown)");
+        pn_node_log_error (PN_NODE (self),
+                           "Could not start the speech pipeline: %s",
+                           error ? error->message : "(unknown)");
         g_clear_error (&error);
         return;
     }
@@ -572,8 +577,9 @@ pn_tts_receive (
         (self->max_queue > 0 &&
          (gint) g_queue_get_length (self->pending) >= self->max_queue))
     {
-        g_warning ("pn-tts: queue full (max-queue=%d), dropping utterance",
-                   self->max_queue);
+        pn_node_log_warning (PN_NODE (self),
+                             "Queue full (max-queue=%d); dropping utterance.",
+                             self->max_queue);
         g_free (voice);
         return;
     }

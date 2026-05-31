@@ -781,6 +781,13 @@ to the same plugin) does not require a per-class override.
   example: it logs an INFO line per notification it dispatches and
   a WARNING/ERROR line from its main-thread D-Bus paths.
 
+  `PnAutoTrigger` subclasses (periodic source nodes whose `trigger`
+  vfunc runs on a worker thread) can skip the hand-rolled marshal:
+  call `pn_auto_trigger_log_on_main (self, PN_LOG_LEVEL_*, fmt, ...)`
+  straight from the worker.  It formats the line and hands it to the
+  main loop for you, the worker-safe counterpart to
+  `pn_auto_trigger_emit_on_main`.  The Ping/DNS plugin nodes use it.
+
   `pn_node_log` does NOT echo to stdout/stderr.  Reserve `g_warning`
   and friends for the developer-only diagnostics described above;
   use `pn_node_log` for anything you want the user to be able to

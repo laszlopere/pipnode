@@ -248,7 +248,8 @@ on_generate_done (
     {
         if (error != NULL && !g_error_matches (error, G_IO_ERROR,
                                                G_IO_ERROR_CANCELLED))
-            g_warning ("pn-ollama: POST failed: %s", error->message);
+            pn_node_log_error (PN_NODE (ctx->self),
+                               "POST failed: %s", error->message);
         g_clear_error (&error);
         generate_ctx_free (ctx);
         return;
@@ -259,10 +260,11 @@ on_generate_done (
 
     if (status < 200 || status >= 300)
     {
-        g_warning ("pn-ollama: HTTP %u from %s", status,
-                   soup_message_get_uri (ctx->msg)
-                       ? g_uri_to_string (soup_message_get_uri (ctx->msg))
-                       : "(unknown)");
+        GUri  *uri = soup_message_get_uri (ctx->msg);
+        gchar *uri_str = uri ? g_uri_to_string (uri) : NULL;
+        pn_node_log_error (PN_NODE (ctx->self), "HTTP %u from %s",
+                           status, uri_str ? uri_str : "(unknown)");
+        g_free (uri_str);
         g_bytes_unref (bytes);
         generate_ctx_free (ctx);
         return;
@@ -273,8 +275,9 @@ on_generate_done (
 
     if (response == NULL)
     {
-        g_warning ("pn-ollama: bad reply: %s",
-                   parse_err ? parse_err : "(unknown)");
+        pn_node_log_error (PN_NODE (ctx->self),
+                           "Could not parse the model reply: %s",
+                           parse_err ? parse_err : "(unknown)");
         g_free (parse_err);
         generate_ctx_free (ctx);
         return;
@@ -390,7 +393,7 @@ pn_ollama_receive (
     g_free (url);
     if (msg == NULL)
     {
-        g_warning ("pn-ollama: invalid endpoint URL");
+        pn_node_log_error (PN_NODE (self), "Invalid endpoint URL.");
         g_free (body);
         return;
     }

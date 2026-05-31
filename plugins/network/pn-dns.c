@@ -195,6 +195,7 @@ split_names (const gchar *raw)
  *  @timeout is the per-query timeout in whole seconds. */
 static gboolean
 query_one (
+        PnDns       *self,
         const gchar *server,
         const gchar *name,
         guint        timeout)
@@ -233,8 +234,10 @@ query_one (
 
     if (!spawned)
     {
-        g_warning ("pn-dns: failed to spawn '%s': %s",
-                   cmd, error ? error->message : "(unknown)");
+        pn_auto_trigger_log_on_main (
+                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
+                "Could not start the DNS lookup for '%s': %s",
+                name, error ? error->message : "(unknown)");
         g_clear_error (&error);
     }
     else if (g_spawn_check_wait_status (exit_status, NULL))
@@ -306,7 +309,7 @@ pn_dns_trigger (PnAutoTrigger *trigger)
 
     for (i = 0; names[i] != NULL; i++)
     {
-        gboolean ok = query_one (server, names[i], timeout);
+        gboolean ok = query_one (self, server, names[i], timeout);
         if (ok)
             n_ok++;
         json_object_set_boolean_member (per_name_obj, names[i], ok);

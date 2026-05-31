@@ -100,6 +100,26 @@ void  pn_auto_trigger_kick       (PnAutoTrigger *self);
 void  pn_auto_trigger_emit_on_main (PnAutoTrigger *self, PnMessage *message);
 
 /**
+ * pn_auto_trigger_log_on_main:
+ * @self: the auto-trigger instance
+ * @level: a #PnLogLevel
+ * @format: a printf-style format string
+ * @...: arguments for @format
+ *
+ * Records a diagnostic on @self's per-node log ring (see pn_node_log())
+ * from the worker thread.  pn_node_log() may only run on the main
+ * thread, so the formatted line is marshalled there before it is
+ * appended — making this the worker-safe counterpart to pn_node_log().
+ * During pn_auto_trigger_run_once_sync() the line is appended
+ * synchronously on the calling thread instead.  Safe to call from the
+ * worker thread.
+ */
+void  pn_auto_trigger_log_on_main (PnAutoTrigger *self,
+                                   PnLogLevel     level,
+                                   const gchar   *format,
+                                   ...) G_GNUC_PRINTF (3, 4);
+
+/**
  * pn_auto_trigger_run_once_sync:
  * @self: the auto-trigger instance
  *

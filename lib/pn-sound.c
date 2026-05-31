@@ -113,7 +113,8 @@ on_play_done (
     g_subprocess_wait_finish (sub, result, &error);
     if (error != NULL)
     {
-        g_warning ("pn-sound: paplay failed: %s", error->message);
+        pn_node_log_error (PN_NODE (self),
+                           "paplay failed: %s", error->message);
         g_error_free (error);
     }
 
@@ -173,8 +174,9 @@ pn_sound_play (
 
     if (sub == NULL)
     {
-        g_warning ("pn-sound: failed to spawn paplay: %s",
-                   error ? error->message : "(unknown)");
+        pn_node_log_error (PN_NODE (self),
+                           "Could not start paplay: %s",
+                           error ? error->message : "(unknown)");
         g_clear_error (&error);
         return FALSE;
     }

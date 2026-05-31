@@ -53,6 +53,12 @@ test_trigger_trigger (PnAutoTrigger *trigger)
     pn_message_set_double (msg, "value", 42.0);
     pn_message_set_string (msg, "output", "tick");
 
+    /* Real IO subclasses discover failures on the worker thread and
+     * report them through this helper, which marshals to the main
+     * thread (or appends synchronously under run_once_sync). */
+    pn_auto_trigger_log_on_main (trigger, PN_LOG_LEVEL_WARNING,
+                                 "tick %u", self->trigger_calls);
+
     pn_auto_trigger_emit_on_main (trigger, msg);   /* transfer */
 }
 
@@ -131,6 +137,34 @@ test_run_once_sync_repeats (void)
 }
 
 static void
+test_log_on_main_sync (void)
+{
+    TestTrigger *node = g_object_new (TEST_TYPE_TRIGGER,
+                                      "autostart", FALSE, NULL);
+    GPtrArray   *log;
+
+    /* Under run_once_sync the helper appends straight away on the
+     * calling thread, so the entry is visible without spinning a main
+     * loop. */
+    pn_auto_trigger_run_once_sync (PN_AUTO_TRIGGER (node));
+    pn_auto_trigger_run_once_sync (PN_AUTO_TRIGGER (node));
+
+    log = pn_node_get_log (PN_NODE (node));
+    PN_CHECK_CMPINT (log->len, ==, 2);
+    {
+        const PnLogEntry *e0 = g_ptr_array_index (log, 0);
+        const PnLogEntry *e1 = g_ptr_array_index (log, 1);
+
+        PN_CHECK_CMPINT (pn_log_entry_get_level (e0), ==,
+                         PN_LOG_LEVEL_WARNING);
+        PN_CHECK_CMPSTR (pn_log_entry_get_message (e0), ==, "tick 1");
+        PN_CHECK_CMPSTR (pn_log_entry_get_message (e1), ==, "tick 2");
+    }
+
+    g_object_unref (node);
+}
+
+static void
 test_autostart_false_is_quiescent (void)
 {
     Capture      cap       = { 0 };
@@ -183,6 +217,7 @@ main (int argc, char **argv)
     pn_test_init (&argc, &argv, "pn-auto-trigger");
     pn_test_add ("run_once_sync_emits",   test_run_once_sync_emits);
     pn_test_add ("run_once_sync_repeats", test_run_once_sync_repeats);
+    pn_test_add ("log_on_main_sync",      test_log_on_main_sync);
     pn_test_add ("autostart_quiescent",   test_autostart_false_is_quiescent);
     pn_test_add ("period_clamping",       test_period_clamping);
     return pn_test_run ();
