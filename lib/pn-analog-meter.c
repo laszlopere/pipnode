@@ -872,7 +872,12 @@ pn_analog_meter_init (PnAnalogMeter *self)
         PnColor yellow = { 0.92, 0.76, 0.27, 1.0 };
         pn_node_set_color (node, &yellow);
     }
-    pn_node_set_class_name (node, "AnalogMeter");
+    /* Class label is pinned on PnNodeClass.class_name in class_init and
+     * resolved through pn_node_get_class_name()'s class fallback; do NOT
+     * seed it per-instance here.  PnAnalogMeter is a base class (the
+     * Tasmota energy sensors descend from it via PnTasmotaEnergyMeter),
+     * and a per-instance "AnalogMeter" would shadow the label a subclass
+     * pins in its own class_init. */
     pn_node_set_icon       (node, "\xef\x83\xa4");
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);

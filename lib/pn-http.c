@@ -448,7 +448,11 @@ pn_http_init (PnHttp *self)
     g_mutex_init (&priv->mutex);
     priv->url = NULL;
 
-    pn_node_set_class_name (node, "Http Client");
+    /* Class label is pinned on PnNodeClass.class_name in class_init and
+     * resolved through pn_node_get_class_name()'s class fallback; do NOT
+     * seed it per-instance here.  PnHttp is a base class (PnRate,
+     * PnWeather subclass it), and a per-instance "Http Client" would
+     * shadow the label those subclasses pin in their own class_init. */
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 

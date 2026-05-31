@@ -1234,7 +1234,11 @@ pn_mqtt_sink_init (PnMqttSink *self)
     priv->generation       = 0;
     priv->pending          = g_queue_new ();
 
-    pn_node_set_class_name (node, "MQTT Sink");
+    /* Class label is pinned on PnNodeClass.class_name in class_init and
+     * resolved through pn_node_get_class_name()'s class fallback; do NOT
+     * seed it per-instance here.  PnMqttSink is a base class, and a
+     * per-instance "MQTT Sink" would shadow the label a subclass pins in
+     * its own class_init. */
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, FALSE);
 

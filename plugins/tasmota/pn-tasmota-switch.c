@@ -418,11 +418,13 @@ pn_tasmota_switch_class_init (PnTasmotaSwitchClass *klass)
 static void
 pn_tasmota_switch_init (PnTasmotaSwitch *self)
 {
-    PnNode *node = PN_NODE (self);
-
     self->switch_name = NULL;
 
-    pn_node_set_class_name (node, "Tasmota Switch");
+    /* No per-instance class label: "Tasmota Switch" is pinned on
+     * PnNodeClass.class_name in class_init and resolved through
+     * pn_node_get_class_name()'s class fallback.  (The base PnSwitch no
+     * longer stomps a per-instance "Switch" either, so this subclass no
+     * longer needs to re-stomp the correct label after it.) */
 
     /* Default the base #PnSwitch startup announce OFF: our
      * build_outbound_message() emits an MQTT relay *command*

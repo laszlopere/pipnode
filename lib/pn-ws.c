@@ -949,6 +949,11 @@ pn_websocket_class_init (PnWebsocketClass *klass)
 
     /* Stable palette glyph regardless of instance state. */
     node_class->palette_icon = PN_WS_NORMAL_ICON;
+    /* Pin the class label here (not per-instance in init): PnWebSocket is
+     * a base class, and pn_node_get_class_name() falls back to this field,
+     * so a subclass can override it from its own class_init without the
+     * base stomping a per-instance "WebSocket" over the top. */
+    node_class->class_name   = "WebSocket";
     node_class->has_input    = FALSE;
     node_class->has_output   = TRUE;
 
@@ -984,7 +989,10 @@ pn_websocket_init (PnWebsocket *self)
     priv->vault_handler      = 0;
     priv->initial_resync_id  = 0;
 
-    pn_node_set_class_name (node, "WebSocket");
+    /* Class label is pinned on PnNodeClass.class_name in class_init (see
+     * above) and resolved through pn_node_get_class_name()'s class
+     * fallback; do NOT seed it per-instance here or it would shadow a
+     * subclass's own label. */
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
 

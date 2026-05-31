@@ -459,7 +459,14 @@ pn_switch_init (PnSwitch *self)
     priv->announce_on_startup = TRUE;
     priv->startup_emit_id     = 0;
 
-    pn_node_set_class_name (node, "Switch");
+    /* The class label is pinned on PnNodeClass.class_name in class_init
+     * and resolved through pn_node_get_class_name()'s class fallback --
+     * do NOT seed it per-instance here.  A per-instance "Switch" would
+     * shadow the class-level label a subclass installs in its own
+     * class_init (e.g. a plugin's "Zigbee Switch"), since the instance
+     * value wins over the class field for every PnSwitch *and* every
+     * subclass that runs this init.  The visual fields below still need
+     * seeding because their getters have no class fallback. */
     pn_node_set_icon       (node, PN_SWITCH_ICON);
     pn_node_set_has_input  (node, TRUE);
     pn_node_set_has_output (node, TRUE);
