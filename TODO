@@ -1628,3 +1628,35 @@ framing only).  37.1-37.4 all DONE; full C unit suite green (83 binaries,
   live send/receive through the node + a channel edit through the Devices
   dialog against the real Heltec V3 -- is the user's hands-on smoke test
   (per the manual-GUI-testing rule); no code depends on its outcome.
+
+(38) HTTP transport + weather providers.  Two independent improvements,
+grouped here only because both touch the PnHttp/PnWeather stack; neither is
+a prerequisite for the other.
+
+  38.1 Drop curl from PnHttp; implement HTTP natively in C.  Today the whole
+  PnHttp family (and PnWeather on top of it) shells out to curl via
+  g_spawn_command_line_sync -- build_command() assembles a curl command line
+  with --max-time / --write-out '<sentinel>%{http_code}' and the worker
+  thread spawns it, then pn_http_split_body_and_status() recovers the body
+  and status from the sentinel.  Replace that with a proper in-process C
+  implementation so there is no curl subprocess dependency.  libsoup-3.0 is
+  already linked into the build, so a SoupSession on the worker thread is the
+  natural fit (matches the "pure C, no helper subprocesses" rule).  Must
+  preserve the existing build_command()/emit_message() contract behaviour:
+  per-tick timeout (capped one second below the poll period), HTTP status
+  exposed to subclasses alongside the body, --location-style redirect
+  following, and the Accept: application/json header.  Decide whether
+  build_command() stays (returning a request descriptor instead of a shell
+  string) or is replaced by a request-building vfunc; either way keep
+  PnWeather's two-request geocode-then-forecast override working.
+
+  38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
+  weather provider.  api.met.no's Locationforecast is free and key-less
+  (global coverage), so it slots in beside Open-Meteo and Bright Sky as a new
+  PnWeatherProvider enum value.  It is keyed on lat/lon (reuse the existing
+  Open-Meteo geocode step) and needs its own URL builder + a
+  pn_weather_parse_met_no_current() parser, mirroring how Bright Sky was
+  added.  CAVEAT: met.no REQUIRES a descriptive User-Agent header
+  identifying the application (it rejects default/empty UAs) and expects
+  callers to honour caching via If-Modified-Since / Expires; plan the
+  request headers accordingly.
