@@ -1624,3 +1624,31 @@ VID:PIDs (packaging step), and/or inhibit the device over MM's D-Bus API
 around open.  Caveat: 10c4:ea60 is generic CP2102 (see #33); a blanket
 ignore also hides real CP2102 modems.  Touches system config -- weigh against
 the minimal-invasive-packaging line.
+
+(37) Converge the two Meshtastic serial stacks.  The Devices dialog
+(pn-mesh-serial.c / pn-mesh-discover.c / pn-mesh-connection.c) and the
+Meshtastic NODE (pn-meshtastic.c) -- both GTK-free core -- each carry their
+OWN careful-but-divergent serial open, sysfs USB scan and 0x94 0xC3 frame
+codec.  Neither is careless; they just differ, and #33/#36 would otherwise
+have to be fixed twice.  Share the transport+discovery+framing layer (NOT the
+whole snapshot-oriented PnMeshConnection -- the node needs a long-lived
+streaming session and keeps its own loop).
+
+  37.1 Characterization tests first (hot path: live messaging).  Pin the
+  node's current open / discovery / frame behaviour before touching it, per
+  the tests-before-refactor rule.
+
+  37.2 Unify the open into pn_mesh_serial_open as BEST-OF-BOTH: keep the
+  dialog's refuse-BEFORE-open guard (pn_mesh_tty_in_use -> no DTR/RTS toggle
+  on an in-use device) AND add the node's flock(LOCK_EX) + O_CLOEXEC (the
+  serial.c open currently lacks both).  Then delete pn-meshtastic.c's private
+  serial_open().
+
+  37.3 Share discovery + framing: node uses pn-mesh-discover + PnMeshFrame
+  Reader / pn_mesh_serial_write_frame; drop its duplicate sysfs walk and the
+  second frame-magic codec (PN_MESH_FRAME_SYNC1/2 vs FRAME_MAGIC_0/1).
+  Reconcile the two VID:PID lists into one -- the single home for #33's bare
+  CP2102 handling and #36's ModemManager-ignore.
+
+  37.4 Verify parity (node messaging + dialog config both still work, headless
+  and GUI) then remove the dead duplicates.
