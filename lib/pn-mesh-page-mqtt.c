@@ -351,7 +351,6 @@ pn_mesh_page_mqtt_new (void)
 {
     MqttCtx   *ctx;
     GtkWidget *page;
-    GtkWidget *subtitle;
     GtkWidget *unavailable;
     GtkWidget *grid;
     GtkWidget *cell;
@@ -367,19 +366,6 @@ pn_mesh_page_mqtt_new (void)
     gtk_widget_set_margin_end    (page, 12);
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
-
-    subtitle = gtk_label_new (
-            "Bridges the device's mesh traffic to an MQTT broker so "
-            "internet-connected nodes can forward messages off-radio.  "
-            "Leave Address blank to use the upstream default broker.");
-    gtk_label_set_xalign      (GTK_LABEL (subtitle), 0.0);
-    gtk_label_set_line_wrap   (GTK_LABEL (subtitle), TRUE);
-    gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (subtitle);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
     unavailable = gtk_label_new (
             "The device has not reported its MQTT configuration. Try "

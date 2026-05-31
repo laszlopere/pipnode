@@ -233,7 +233,6 @@ GtkWidget *
 pn_mesh_page_region_new (void)
 {
     GtkWidget *page;
-    GtkWidget *subtitle;
     GtkWidget *grid;
     GtkWidget *cell;
     GtkWidget *region;
@@ -253,20 +252,6 @@ pn_mesh_page_region_new (void)
     gtk_widget_set_margin_end    (page, 12);
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
-
-    subtitle = gtk_label_new (
-            "Regulatory region, radio preset, hop limit and "
-            "transmit power.  Apply writes the whole LoRa block at "
-            "once; changes to the region or modem preset commonly "
-            "reboot the device for the radio to re-initialise.");
-    gtk_label_set_xalign      (GTK_LABEL (subtitle), 0.0);
-    gtk_label_set_line_wrap   (GTK_LABEL (subtitle), TRUE);
-    gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (subtitle);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
     grid = gtk_grid_new ();
     gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);

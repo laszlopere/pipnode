@@ -18,9 +18,10 @@
 /*                                                                     */
 /*  Hand-off to the official web flasher rather than flashing in-app:  */
 /*  the device's hardware model + firmware version as guidance, plus a */
-/*  clickable flasher URL.  Activating the link releases pipnode's      */
-/*  serial connection (so the browser's WebSerial can claim the port)   */
-/*  and opens flasher.meshtastic.org in the user's browser.             */
+/*  clickable flasher URL.  Activating the link opens                   */
+/*  flasher.meshtastic.org in the user's browser and then closes the    */
+/*  Meshtastic Devices dialog, whose teardown frees the serial port so  */
+/*  the browser's WebSerial can claim it.                               */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -49,8 +50,8 @@ typedef struct
      * flash.  Mirrors set_state's state != NULL. */
     gboolean      connected;
 
-    PnMeshFirmwareReleaseFunc release_cb;
-    gpointer                  release_ud;
+    PnMeshFirmwareCloseFunc close_cb;
+    gpointer                close_ud;
 } FirmwareCtx;
 
 static void
@@ -64,63 +65,68 @@ firmware_ctx_free (gpointer data)
 /* ------------------------------------------------------------------ */
 
 static gboolean
-on_flasher_link (GtkLinkButton *link, gpointer user_data)
+on_flasher_link (GtkLabel *link, const gchar *uri, gpointer user_data)
 {
     GtkWidget   *page = user_data;
     FirmwareCtx *ctx  = g_object_get_data (G_OBJECT (page),
                                            PN_MESH_FIRMWARE_CTX_QDATA);
-    GtkWidget   *top   = gtk_widget_get_toplevel (page);
+    GtkWidget   *top    = gtk_widget_get_toplevel (page);
     GtkWindow   *parent = GTK_IS_WINDOW (top) ? GTK_WINDOW (top) : NULL;
     GError      *error  = NULL;
+    GtkWidget   *dlg;
+    GtkWidget   *ok;
+    gint         resp;
+    PnMeshFirmwareCloseFunc close_cb;
+    gpointer                close_ud;
 
     (void) link;
+    (void) uri;
     if (ctx == NULL)
         return FALSE;   /* let GTK open it the default way */
 
-    /* If we hold the port, the browser cannot open it.  Confirm the
-     * hand-off, then have the dialog drop the connection (closing the fd
-     * frees /dev/tty*).  Parented to the dialog window so the nested
-     * modal stacks correctly over it. */
-    if (ctx->connected)
-    {
-        GtkWidget *dlg;
-        GtkWidget *ok;
-        gint       resp;
+    /* The browser's WebSerial needs exclusive access to the port, which
+     * pipnode holds for the whole session -- so opening the flasher closes
+     * this dialog (its teardown frees the fd).  Confirm first, since that
+     * ends the configuring session.  Parented to the dialog window so the
+     * nested modal stacks correctly over it. */
+    dlg = gtk_message_dialog_new (
+            parent,
+            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+            GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+            "Open the web flasher and close this dialog?");
+    gtk_message_dialog_format_secondary_text (
+            GTK_MESSAGE_DIALOG (dlg),
+            ctx->connected
+            ? "Flashing runs in your browser, which needs exclusive access "
+              "to the serial port.  The Meshtastic Devices dialog will "
+              "close and pipnode will disconnect from this device so the "
+              "browser can use the port.  The web flasher works in Chrome "
+              "or Edge.\n\n"
+              "When flashing is done, reopen Devices \342\206\222 Meshtastic "
+              "and Scan to reconnect."
+            : "Flashing runs in your browser, which needs exclusive access "
+              "to the serial port.  The Meshtastic Devices dialog will "
+              "close so the browser can use the port.  The web flasher "
+              "works in Chrome or Edge.\n\n"
+              "When flashing is done, reopen Devices \342\206\222 Meshtastic "
+              "and Scan to reconnect.");
+    gtk_dialog_add_button (GTK_DIALOG (dlg), "_Cancel", GTK_RESPONSE_CANCEL);
+    ok = gtk_dialog_add_button (GTK_DIALOG (dlg), "_Open Flasher",
+                                GTK_RESPONSE_ACCEPT);
+    gtk_style_context_add_class (gtk_widget_get_style_context (ok),
+                                 "suggested-action");
+    gtk_dialog_set_default_response (GTK_DIALOG (dlg), GTK_RESPONSE_ACCEPT);
+    resp = gtk_dialog_run (GTK_DIALOG (dlg));
+    gtk_widget_destroy (dlg);
 
-        dlg = gtk_message_dialog_new (
-                parent,
-                GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
-                "Disconnect from the device and open the web flasher?");
-        gtk_message_dialog_format_secondary_text (
-                GTK_MESSAGE_DIALOG (dlg),
-                "Flashing runs in your browser and needs exclusive access "
-                "to the serial port, so pipnode will disconnect from this "
-                "device first.  The web flasher works in Chrome or Edge.\n\n"
-                "After flashing, Scan and reconnect to configure the "
-                "device.");
-        gtk_dialog_add_button (GTK_DIALOG (dlg), "_Cancel",
-                               GTK_RESPONSE_CANCEL);
-        ok = gtk_dialog_add_button (GTK_DIALOG (dlg), "_Disconnect & Flash",
-                                    GTK_RESPONSE_ACCEPT);
-        gtk_style_context_add_class (gtk_widget_get_style_context (ok),
-                                     "suggested-action");
-        gtk_dialog_set_default_response (GTK_DIALOG (dlg),
-                                         GTK_RESPONSE_ACCEPT);
-        resp = gtk_dialog_run (GTK_DIALOG (dlg));
-        gtk_widget_destroy (dlg);
+    if (resp != GTK_RESPONSE_ACCEPT)
+        return TRUE;   /* handled: do not navigate */
 
-        if (resp != GTK_RESPONSE_ACCEPT)
-            return TRUE;   /* handled: do not navigate */
-
-        if (ctx->release_cb != NULL)
-            ctx->release_cb (ctx->release_ud);   /* dialog closes the fd */
-    }
-
-    /* Open the flasher.  gtk_show_uri_on_window launches the user's
-     * default browser; if that is not Chromium-based the flasher page
-     * itself reports that WebSerial is unsupported, which is clearer than
-     * anything we could pre-empt here. */
+    /* Open the flasher while the dialog window is still alive --
+     * gtk_show_uri_on_window needs a valid parent for its timestamp.  If
+     * the browser is not Chromium-based the flasher page itself reports
+     * that WebSerial is unsupported, clearer than anything we could
+     * pre-empt here. */
     if (!gtk_show_uri_on_window (parent, PN_MESH_FLASHER_URL,
                                  GDK_CURRENT_TIME, &error))
     {
@@ -129,6 +135,14 @@ on_flasher_link (GtkLinkButton *link, gpointer user_data)
                    error != NULL ? error->message : "(unknown error)");
         g_clear_error (&error);
     }
+
+    /* Now close the dialog (which releases the serial port).  Grab the
+     * callback first: the call destroys this page and frees ctx, so we
+     * must not touch ctx -- or page or parent -- afterwards. */
+    close_cb = ctx->close_cb;
+    close_ud = ctx->close_ud;
+    if (close_cb != NULL)
+        close_cb (close_ud);
 
     return TRUE;   /* we handled the activation */
 }
@@ -141,7 +155,6 @@ GtkWidget *
 pn_mesh_page_firmware_new (void)
 {
     GtkWidget    *page;
-    GtkWidget    *subtitle;
     GtkWidget    *hw;
     GtkWidget    *fw;
     GtkSizeGroup *keys;
@@ -154,21 +167,6 @@ pn_mesh_page_firmware_new (void)
     gtk_widget_set_margin_end    (page, 12);
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
-
-    subtitle = gtk_label_new (
-            "Meshtastic firmware is flashed from the official web flasher, "
-            "which talks to the device directly from your browser (Chrome "
-            "or Edge).  Opening it disconnects pipnode from the device so "
-            "the browser can use the serial port; Scan and reconnect once "
-            "flashing is done.");
-    gtk_label_set_xalign          (GTK_LABEL (subtitle), 0.0);
-    gtk_label_set_line_wrap       (GTK_LABEL (subtitle), TRUE);
-    gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (subtitle);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
     ctx = g_slice_new0 (FirmwareCtx);
 
@@ -187,18 +185,23 @@ pn_mesh_page_firmware_new (void)
     ctx->fw_value = PN_VALUE_LABEL (fw);
 
     /* The clickable flasher URL, shown as a "Web Flasher: <link>" row whose
-     * bold key lines up with the Hardware / Firmware read-outs above it. */
+     * bold key lines up with the Hardware / Firmware read-outs above it.
+     * A plain GtkLabel with link markup -- not a GtkLinkButton -- so the
+     * URL has no button padding and its text starts flush with the value
+     * labels above it. */
     {
         GtkWidget *flash_key = pn_device_form_key_label ("Web Flasher");
 
         gtk_size_group_add_widget (keys, flash_key);
 
-        link = gtk_link_button_new_with_label (PN_MESH_FLASHER_URL,
-                                               PN_MESH_FLASHER_URL);
+        link = gtk_label_new (NULL);
+        gtk_label_set_markup (GTK_LABEL (link),
+                "<a href=\"" PN_MESH_FLASHER_URL "\">"
+                PN_MESH_FLASHER_URL "</a>");
+        gtk_label_set_xalign (GTK_LABEL (link), 0.0);
         gtk_widget_set_tooltip_text (link,
-                "Open the Meshtastic web flasher.  pipnode disconnects from "
-                "the device first so your browser can flash it.");
-        gtk_widget_set_halign (link, GTK_ALIGN_START);
+                "Open the Meshtastic web flasher.  The Devices dialog "
+                "closes so your browser can use the serial port.");
 
         link_align = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_box_pack_start (GTK_BOX (link_align), flash_key, FALSE, FALSE, 0);
@@ -258,9 +261,9 @@ pn_mesh_page_firmware_set_state (GtkWidget         *page,
 }
 
 void
-pn_mesh_page_firmware_set_release_callback (
+pn_mesh_page_firmware_set_close_callback (
         GtkWidget                  *page,
-        PnMeshFirmwareReleaseFunc   callback,
+        PnMeshFirmwareCloseFunc     callback,
         gpointer                    user_data)
 {
     FirmwareCtx *ctx;
@@ -269,6 +272,6 @@ pn_mesh_page_firmware_set_release_callback (
     ctx = g_object_get_data (G_OBJECT (page), PN_MESH_FIRMWARE_CTX_QDATA);
     g_return_if_fail (ctx != NULL);
 
-    ctx->release_cb = callback;
-    ctx->release_ud = user_data;
+    ctx->close_cb = callback;
+    ctx->close_ud = user_data;
 }

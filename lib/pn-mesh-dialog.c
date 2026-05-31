@@ -297,19 +297,18 @@ drop_connection (MeshDialogCtx *ctx)
     pn_device_dialog_set_pages_sensitive (ctx->shell, FALSE);
 }
 
-/* Firmware page asked to hand the serial port to the browser flasher:
- * tear down our live session (closing the fd frees /dev/tty*) so the
- * browser's WebSerial can claim it.  drop_connection() greys the
- * notebook and re-sets every page to its "no device" state, so the user
- * is back at the pick-a-device screen; Scan reconnects after flashing. */
+/* Firmware page handed the serial port to the browser flasher: close the
+ * whole Meshtastic Devices dialog so the browser's WebSerial can claim the
+ * port.  Destroying the dialog runs mesh_dialog_ctx_free -> drop_connection,
+ * which closes our fd and frees /dev/tty*.  The user reopens Devices ->
+ * Meshtastic and Scans to reconnect once flashing is done. */
 static void
-on_firmware_release (gpointer user_data)
+on_firmware_close (gpointer user_data)
 {
     MeshDialogCtx *ctx = user_data;
 
-    drop_connection (ctx);
-    set_status (ctx, "Disconnected for flashing. Flash in your browser, "
-                     "then Scan and reconnect.");
+    if (ctx->dialog != NULL)
+        gtk_widget_destroy (ctx->dialog);
 }
 
 static void
@@ -703,28 +702,48 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         pn_mesh_page_security_set_busy_callback (
                 ctx->security_page,         on_page_busy, ctx);
         /* Firmware page hands the serial port to the browser flasher;
-         * it asks us to close the connection first. */
-        pn_mesh_page_firmware_set_release_callback (
-                ctx->firmware_page,         on_firmware_release, ctx);
+         * once it has opened the flasher it asks us to close the dialog,
+         * whose teardown frees the port. */
+        pn_mesh_page_firmware_set_close_callback (
+                ctx->firmware_page,         on_firmware_close, ctx);
 
         /* Tab 1: Device  (Identity + Device role/GPIO + Power + Security). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "Identity",
-                    "The node's long and short names and how it identifies "
-                    "itself on the mesh.", ctx->identity_page);
+                    "What the device reported during the configuration "
+                    "handshake.  Long / short name changes are written "
+                    "live and verified by a round-trip read.",
+                    ctx->identity_page);
             pn_device_form_add_section (inner, "Device role & GPIO",
-                    "How this node behaves on the mesh and the GPIO pins for "
-                    "its button and buzzer.", ctx->device_page);
+                    "Device role determines how this node behaves on the mesh "
+                    "(client, router, repeater, …).  Rebroadcast mode controls "
+                    "which packets are forwarded.  Apply writes the whole "
+                    "DeviceConfig block; tzdef, buzzer mode and the other "
+                    "advanced flags are kept verbatim from the device.",
+                    ctx->device_page);
             pn_device_form_add_section (inner, "Power",
-                    "Battery, charging and sleep behaviour for this device.",
+                    "Battery-saving behaviour, sleep timings, on-battery "
+                    "shutdown threshold and ADC calibration.  The sleep/wake "
+                    "timings apply only while power saving is on.  Apply writes "
+                    "the whole PowerConfig block at once.  Leave intervals "
+                    "at 0 to use the firmware's hardware-specific defaults.",
                     ctx->power_page);
             pn_device_form_add_section (inner, "Security",
-                    "Admin and public keys that authorise remote configuration "
-                    "of this node.", ctx->security_page);
+                    "Admin and serial-API permissions, plus a read-only view of "
+                    "the X25519 keypair the device uses for admin authentication. "
+                    " A mistake here can lock you out: enabling \"Managed\" "
+                    "without an admin key in the list below disables local "
+                    "admin until the device is re-flashed.",
+                    ctx->security_page);
             pn_device_form_add_section (inner, "Firmware",
-                    "Flash or update this device's Meshtastic firmware using "
-                    "the official web flasher.", ctx->firmware_page);
+                    "Meshtastic firmware is flashed from the official web "
+                    "flasher, which talks to the device directly from your "
+                    "browser (Chrome or Edge).  Opening it closes this dialog "
+                    "so the browser can use the serial port; reopen "
+                    "Devices → Meshtastic and Scan to reconnect once flashing "
+                    "is done.",
+                    ctx->firmware_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Device");
         }
 
@@ -732,17 +751,27 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "Region & LoRa",
-                    "Regulatory region and the LoRa modem preset that trade "
-                    "range against speed.", ctx->region_page);
+                    "Regulatory region, radio preset, hop limit and "
+                    "transmit power.  Apply writes the whole LoRa block at "
+                    "once; changes to the region or modem preset commonly "
+                    "reboot the device for the radio to re-initialise.",
+                    ctx->region_page);
             pn_device_form_add_section (inner, "Channels",
-                    "The mesh channels this node uses and their encryption "
-                    "keys.", ctx->channels_page);
+                    "Every channel slot the device exposes.  Select a slot to "
+                    "edit it below; the primary channel is what nodes talk on "
+                    "by default, secondary channels are private groups your "
+                    "peers must also configure.  Select an empty slot to add a "
+                    "new channel.  Changes affect the device live -- no reboot.",
+                    ctx->channels_page);
             pn_device_form_add_section (inner, "Share",
                     "Share this node's channel set with others via a URL or "
                     "QR code.", ctx->share_page);
             pn_device_form_add_section (inner, "Position",
-                    "Whether and how often this node broadcasts its GPS "
-                    "position.", ctx->position_page);
+                    "GPS mode and how often the device broadcasts its "
+                    "position on the mesh.  Apply writes the whole "
+                    "PositionConfig block at once; GPIO assignments and "
+                    "position flags are kept verbatim from the device.",
+                    ctx->position_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Radio");
         }
 
@@ -751,11 +780,16 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "WiFi, Ethernet & IPv6",
-                    "Wired and wireless network connectivity for this node.",
+                    "WiFi, Ethernet and IPv6 settings.  WiFi requires firmware "
+                    "built with WiFi support (most ESP32 boards).  Apply writes "
+                    "the whole NetworkConfig block; NTP / syslog / static IP "
+                    "settings are kept verbatim from the device.",
                     ctx->network_page);
             pn_device_form_add_section (inner, "MQTT",
-                    "Bridge the mesh to an MQTT broker for internet-linked "
-                    "messaging.", ctx->mqtt_page);
+                    "Bridges the device's mesh traffic to an MQTT broker so "
+                    "internet-connected nodes can forward messages off-radio.  "
+                    "Leave Address blank to use the upstream default broker.",
+                    ctx->mqtt_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Network");
         }
 
@@ -764,8 +798,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "External Notification",
-                    "Drive an LED, buzzer or vibration motor when messages "
-                    "arrive.", ctx->ext_notification_page);
+                    "Drives the device's onboard LED / buzzer / vibration "
+                    "motor on incoming traffic.  Set Nag timeout to 0 to "
+                    "stop the device repeating notifications.",
+                    ctx->ext_notification_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Notifications");
         }
 
@@ -774,8 +810,11 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "Telemetry",
-                    "Which sensor metrics this node measures and how often it "
-                    "reports them.", ctx->telemetry_page);
+                    "How often the device broadcasts its own metrics.  Each "
+                    "sub-system has its own enable + interval; intervals are "
+                    "in seconds (0 disables periodic broadcasts for that "
+                    "sub-system).",
+                    ctx->telemetry_page);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
                         "Neighbor Info, Detection Sensor, Range Test "

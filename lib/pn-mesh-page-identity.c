@@ -336,7 +336,6 @@ GtkWidget *
 pn_mesh_page_identity_new (void)
 {
     GtkWidget    *page;
-    GtkWidget    *subtitle;
     GtkWidget    *rows;
     GtkSizeGroup *key_sg;
     IdentityCtx  *ctx;
@@ -349,19 +348,6 @@ pn_mesh_page_identity_new (void)
     gtk_widget_set_margin_end    (page, 12);
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
-
-    subtitle = gtk_label_new (
-            "What the device reported during the configuration "
-            "handshake.  Long / short name changes are written "
-            "live and verified by a round-trip read.");
-    gtk_label_set_xalign (GTK_LABEL (subtitle), 0.0);
-    gtk_label_set_line_wrap (GTK_LABEL (subtitle), TRUE);
-    gtk_label_set_max_width_chars (GTK_LABEL (subtitle), 72);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (subtitle);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
     /* A packed column of rows rather than a grid: each read-only row is a
      * standalone PnValueLabel, the two writable rows are inline editors,
