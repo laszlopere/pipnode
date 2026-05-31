@@ -16,6 +16,7 @@
 #ifndef PIPNODE_H
 #define PIPNODE_H
 
+#include "pn-action-button.h"
 #include "pn-auto-injector.h"
 #include "pn-auto-random.h"
 #include "pn-auto-trigger.h"

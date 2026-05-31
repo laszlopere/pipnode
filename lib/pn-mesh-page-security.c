@@ -31,6 +31,7 @@
 #endif
 
 #include "pn-mesh-page-security.h"
+#include "pn-action-button.h"
 
 #define PN_MESH_SECURITY_CTX_QDATA "pn-mesh-page-security-ctx"
 
@@ -450,7 +451,8 @@ pn_mesh_page_security_new (void)
         gtk_box_pack_start (GTK_BOX (apply_box), spacer, TRUE, TRUE, 0);
     }
 
-    apply = gtk_button_new_with_mnemonic ("_Apply security settings");
+    apply = pn_action_button_new ("_Apply security settings",
+                                  PN_ACTION_BUTTON_SUGGESTED);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  Key bytes are "
             "shipped back verbatim — only the switches change.");

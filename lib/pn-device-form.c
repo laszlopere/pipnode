@@ -92,6 +92,20 @@ pn_device_form_add_section (GtkWidget   *parent,
     gtk_box_pack_start (GTK_BOX (parent), foldable, FALSE, FALSE, 0);
 }
 
+GtkWidget *
+pn_device_form_add_action_bar (GtkWidget *parent)
+{
+    GtkWidget *bar;
+
+    g_return_val_if_fail (GTK_IS_BOX (parent), NULL);
+
+    bar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign     (bar, GTK_ALIGN_END);
+    gtk_widget_set_margin_top (bar, 8);
+    gtk_box_pack_start (GTK_BOX (parent), bar, FALSE, FALSE, 0);
+    return bar;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Rows                                                                */
 /* ------------------------------------------------------------------ */

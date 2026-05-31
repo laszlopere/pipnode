@@ -28,6 +28,7 @@
 #endif
 
 #include "pn-mesh-page-network.h"
+#include "pn-action-button.h"
 
 #define PN_MESH_NETWORK_CTX_QDATA "pn-mesh-page-network-ctx"
 
@@ -356,7 +357,8 @@ pn_mesh_page_network_new (void)
     gtk_widget_set_margin_top (apply_box, 18);
     gtk_widget_set_halign     (apply_box, GTK_ALIGN_END);
 
-    apply = gtk_button_new_with_mnemonic ("_Apply network settings");
+    apply = pn_action_button_new ("_Apply network settings",
+                                  PN_ACTION_BUTTON_SUGGESTED);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  The device "
             "re-handshakes after the write to confirm the change took.");

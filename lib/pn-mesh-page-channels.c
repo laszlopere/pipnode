@@ -46,6 +46,7 @@
 #endif
 
 #include "pn-mesh-page-channels.h"
+#include "pn-action-button.h"
 
 #include <gio/gio.h>
 
@@ -1050,7 +1051,8 @@ pn_mesh_page_channels_new (void)
     button_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_margin_top (button_row, 6);
 
-    delete_btn = gtk_button_new_with_mnemonic ("_Delete channel");
+    delete_btn = pn_action_button_new ("_Delete channel",
+                                       PN_ACTION_BUTTON_DESTRUCTIVE);
     gtk_widget_set_tooltip_text (delete_btn,
             "Disable this slot.  Only secondary channels can be deleted; "
             "the primary channel is protected.");
@@ -1065,7 +1067,8 @@ pn_mesh_page_channels_new (void)
     gtk_widget_set_valign (spinner, GTK_ALIGN_CENTER);
     gtk_box_pack_start (GTK_BOX (button_row), spinner, FALSE, FALSE, 0);
 
-    apply = gtk_button_new_with_mnemonic ("_Apply changes");
+    apply = pn_action_button_new ("_Apply changes",
+                                  PN_ACTION_BUTTON_SUGGESTED);
     gtk_widget_set_tooltip_text (apply,
             "Write the values above to the selected slot.  The device is "
             "read back to confirm the change took.");

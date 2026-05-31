@@ -1406,8 +1406,10 @@ already links them; a headless logic `.so` never sees them):
     below), `_attach_label_row` (a "--"-fallback read-only value row),
     `_attach_entry_row` (entry + Apply), `_attach_control_row` (the
     region-cell + size-group idiom combos and spinners pack into),
-    `_key_label`, `_set_value`, and the combo helpers `_combo_fill` /
-    `_combo_select` / `_combo_get_id` (with `PnDeviceEnumEntry`).
+    `_key_label`, `_set_value`, `_add_action_bar` (a right-aligned,
+    top-margined bar to pack a section's Apply/Delete buttons into), and
+    the combo helpers `_combo_fill` / `_combo_select` / `_combo_get_id`
+    (with `PnDeviceEnumEntry`).
 
   - `pn-device-dialog.h` -- the "dialog shell" object `PnDeviceDialog`:
     a modeless `GtkDialog` whose body is a `GtkNotebook` with a
@@ -1464,8 +1466,10 @@ Devices entry simply calls these functions.  The Devices menu lives in
 its own translation unit (`src/pn-devices-menu.c`) that enumerates the
 registry, so adding a provider never touches `pn-window.c`.
 
-Four widgets the form helpers (and your own tabs) build on are also
-public, in `pipnode.h`:
+Five building-block widgets the form helpers (and your own tabs) build on
+are public too -- each its own installed header (`pn-device-combo.h`,
+`pn-device-spin.h`, `pn-inline-edit-label.h`, `pn-foldable.h`,
+`pn-action-button.h`), and all pulled in by `pipnode.h`:
 
     PnDeviceCombo     (`pn_device_combo_new`)            a GtkComboBoxText
         that swallows the mouse wheel instead of stepping its selection
@@ -1483,6 +1487,15 @@ public, in `pipnode.h`:
         gtk_box_pack_start onto `pn_foldable_get_content_area`).  Prefer
         it (or `pn_device_form_add_section`, which wraps it) over a raw
         GtkExpander so every device section reads and folds the same.
+    PnActionButton    (`pn_action_button_new`)           a GtkButton with
+        one of a fixed set of accents (`PnActionButtonStyle`): NORMAL, or
+        SUGGESTED (blue -- a section's committing Apply/Save/Install) or
+        DESTRUCTIVE (red -- a dangerous Delete/Remove/Reset).  Picks the
+        right GTK style class for you; use it instead of hand-adding
+        "suggested-action"/"destructive-action" so the same intent looks
+        the same in every dialog.  `pn_action_button_new_from_icon_name`
+        for an icon-only button; `pn_action_button_set_style` to re-accent
+        one later.
 
 WORKED EXAMPLE -- Meshtastic (`lib/pn-mesh-dialog.c`).  It builds its
 window with `pn_device_dialog_new(..., PN_DEVICE_DIALOG_WITH_DEVICE_LIST)`,

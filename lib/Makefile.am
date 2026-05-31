@@ -231,6 +231,8 @@ libpipnode_core_la_LDFLAGS = -version-info 0:0:0 -no-undefined
 libpipnode_gui_la_SOURCES = \
 	pipnode.h \
 	pn-node-dialog-helpers.h \
+	pn-action-button.c \
+	pn-action-button.h \
 	pn-device-combo.c \
 	pn-device-combo.h \
 	pn-device-dialog.c \
@@ -488,6 +490,7 @@ pipnode_core_headers = \
 
 pipnode_gui_headers = \
 	pipnode.h \
+	pn-action-button.h \
 	pn-device-combo.h \
 	pn-device-dialog.h \
 	pn-device-form.h \

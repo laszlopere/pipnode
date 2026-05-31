@@ -1549,3 +1549,19 @@ broken down later.
   (its zb_add_section_desc passes 3 args + builds its own desc label);
   that repo must route its desc into the new param and rebuild before its
   Devices dialog works again -- NOT done here (separate repo).
+
+  DONE 2026-05-31 (second widget): PnActionButton -- lib/pn-action-
+  button.{c,h}, a GtkButton subclass with a fixed accent vocabulary
+  (PnActionButtonStyle: NORMAL / SUGGESTED=blue "suggested-action" for a
+  section's committing Apply, Save, Install / DESTRUCTIVE=red
+  "destructive-action" for Delete, Remove, Reset).  Centralises the
+  GTK-style-class choice so the same intent looks the same everywhere;
+  always carries a "pn-action-button" CSS class.  Constructors
+  pn_action_button_new (mnemonic label) + _new_from_icon_name, plus
+  _set_style/_get_style.  Companion layout helper
+  pn_device_form_add_action_bar() returns the right-aligned, top-margined
+  bar a section's buttons pack into (matches the zigbee Apply box).
+  Dogfooded: the Meshtastic dialog's 10 "_Apply <section> settings"
+  buttons are now SUGGESTED (blue) and "_Delete channel" is DESTRUCTIVE
+  (red).  Wired into lib/Makefile.am + pipnode.h; documented in PLUGINS
+  §17b (widgets list + form-helpers).  Clean build, 81 unit tests pass.

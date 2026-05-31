@@ -28,6 +28,7 @@
 #endif
 
 #include "pn-mesh-page-power.h"
+#include "pn-action-button.h"
 
 #include "pn-device-spin.h"
 
@@ -392,7 +393,8 @@ pn_mesh_page_power_new (void)
     gtk_widget_set_margin_top (apply_box, 18);
     gtk_widget_set_halign     (apply_box, GTK_ALIGN_END);
 
-    apply = gtk_button_new_with_mnemonic ("_Apply power settings");
+    apply = pn_action_button_new ("_Apply power settings",
+                                  PN_ACTION_BUTTON_SUGGESTED);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  The current "
             "values are read back to confirm the change took.");

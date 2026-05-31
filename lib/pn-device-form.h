@@ -62,6 +62,14 @@ void       pn_device_form_add_section (GtkWidget   *parent,
                                        const gchar *description,
                                        GtkWidget   *child);
 
+/* Append a right-aligned, top-margined action bar to @parent (a section
+ * body or tab box) and return it.  Pack a section's committing button --
+ * a #PnActionButton, typically PN_ACTION_BUTTON_SUGGESTED for an Apply --
+ * into it with gtk_box_pack_start(); add a destructive button here too if
+ * the section has one.  Gives every section's buttons the same placement.
+ * Owned by @parent. */
+GtkWidget *pn_device_form_add_action_bar (GtkWidget *parent);
+
 /* ------------------------------------------------------------------ */
 /*  Rows                                                                */
 /* ------------------------------------------------------------------ */
