@@ -58,7 +58,11 @@ fields it surfaces (<code>apparent_temperature</code>,
 <code>is_day</code>, <code>cloud_cover</code>,
 <code>pressure_msl</code>, <code>precipitation</code>,
 <code>wind_direction_10m</code>, and the observation
-<code>time</code>). Missing fields are shown as an em-dash rather than a
+<code>time</code>). When the Weather node uses the <em>Bright Sky</em>
+provider, whose reading is nested under <code>data/raw/weather</code>
+instead, the pressure and cloud-cover tiles fall back to that object
+(both use the same <code>pressure_msl</code> and <code>cloud_cover</code>
+member names). Missing fields are shown as an em-dash rather than a
 zero. Before the first message arrives the card shows a
 &ldquo;Waiting for weather&rdquo; placeholder; a message whose
 <code>success</code> is false shows the failure reason from

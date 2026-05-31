@@ -463,6 +463,12 @@ paint_report (const PnWeatherReportPaintState *ps,
 {
     JsonObject  *raw  = obj_obj (data, "raw");
     JsonObject  *cur  = obj_obj (raw, "current");
+    /* Bright Sky nests its current reading under "weather" rather than
+     * Open-Meteo's "current".  The Weather node does not promote pressure
+     * or cloud cover to named members, so for Bright Sky readings those
+     * tiles can only be filled from this raw sub-object — which happens to
+     * use the same "pressure_msl"/"cloud_cover" names Open-Meteo does. */
+    JsonObject  *bsky = obj_obj (raw, "weather");
 
     const PnColor *fg  = &ps->font_color;
     const PnColor *mut = &ps->secondary_color;
@@ -478,9 +484,11 @@ paint_report (const PnWeatherReportPaintState *ps,
     gboolean have_hum    = obj_num (data, "humidity", &hum);
     gboolean have_wind   = obj_num (data, "wind_speed", &wind);
     gboolean have_wdir   = obj_num (cur, "wind_direction_10m", &wdir);
-    gboolean have_cloud  = obj_num (cur, "cloud_cover", &cloud);
-    gboolean have_press  = obj_num (cur, "pressure_msl", &press) ||
-                           obj_num (cur, "surface_pressure", &press);
+    gboolean have_cloud  = obj_num (cur,  "cloud_cover", &cloud) ||
+                           obj_num (bsky, "cloud_cover", &cloud);
+    gboolean have_press  = obj_num (cur,  "pressure_msl", &press) ||
+                           obj_num (cur,  "surface_pressure", &press) ||
+                           obj_num (bsky, "pressure_msl", &press);
     gboolean have_precip = obj_num (cur, "precipitation", &precip);
     gint     code        = obj_num (data, "weather_code", &code_d)
                            ? (gint) code_d : -1;
