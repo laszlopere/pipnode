@@ -1634,9 +1634,21 @@ have to be fixed twice.  Share the transport+discovery+framing layer (NOT the
 whole snapshot-oriented PnMeshConnection -- the node needs a long-lived
 streaming session and keeps its own loop).
 
-  37.1 Characterization tests first (hot path: live messaging).  Pin the
+  37.1 DONE Characterization tests first (hot path: live messaging).  Pin the
   node's current open / discovery / frame behaviour before touching it, per
-  the tests-before-refactor rule.
+  the tests-before-refactor rule.  tests/unit/test-pn-mesh-node.c compiles the
+  node TU directly (libpipnode-core links as a .so, so the test's own copies of
+  the few exported symbols win and only the static helpers are exercised; the
+  GObject is never instantiated).  19 cases / 105 checks pin: the 0x94 0xC3
+  frame envelope + exact ToRadio/MeshPacket/Data wire bytes for text /
+  want_config / heartbeat; the varint+fixed32 protobuf primitives; the
+  frame_extract accumulator (clean / split / junk / oversized-recovery, and the
+  DIVERGENCE that the node DROPS a zero-length frame where the dialog reader
+  yields it -- so 37.3's reconciliation is a deliberate choice); serial_open's
+  flock+TIOCEXCL EBUSY exclusivity, O_CLOEXEC and raw 115200 8N1 (against a
+  pseudo-terminal); and discovery -- the known_devices VID:PID:label table,
+  find_tty_under's one-level + nested sysfs walk, and list_devices' sorted
+  NULL-terminated /dev contract.
 
   37.2 Unify the open into pn_mesh_serial_open as BEST-OF-BOTH: keep the
   dialog's refuse-BEFORE-open guard (pn_mesh_tty_in_use -> no DTR/RTS toggle
