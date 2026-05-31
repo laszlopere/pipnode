@@ -41,6 +41,7 @@
 #include <gtk/gtk.h>
 #include <pango/pangocairo.h>
 #include <math.h>
+#include <stdlib.h>
 
 #define DEG (G_PI / 180.0)
 
@@ -247,14 +248,14 @@ set_sky_source (const PnSunPathSnapshot *s, cairo_t *cr,
 /*  Ground disc + compass cross                                        */
 /* ------------------------------------------------------------------ */
 
+/* Lay down the projected outline of the ground disc as the current path
+ * (no fill/stroke), so callers can fill it, stroke it, or clip to it. */
 static void
-paint_ground (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
+ground_disc_path (const Cam *c, cairo_t *cr)
 {
-    const PnColor *g = &s->ground_color;
-    int            i;
-    const int      K = 72;
+    const int K = 72;
+    int       i;
 
-    /* Filled disc. */
     cairo_new_path (cr);
     for (i = 0; i <= K; i++)
     {
@@ -266,6 +267,15 @@ paint_ground (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
         else        cairo_line_to (cr, sx, sy);
     }
     cairo_close_path (cr);
+}
+
+static void
+paint_ground (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
+{
+    const PnColor *g = &s->ground_color;
+
+    /* Filled disc. */
+    ground_disc_path (c, cr);
     cairo_set_source_rgba (cr, g->red, g->green, g->blue, g->alpha);
     cairo_fill_preserve (cr);
     cairo_set_source_rgba (cr, g->red * 0.6, g->green * 0.6, g->blue * 0.6,
@@ -385,31 +395,166 @@ add_face (GArray *prims, const Cam *c, const PnColor *base,
     g_array_append_val (prims, prim);
 }
 
+/* Rigid quarter-turn of the house about the vertical axis: (x,y) ->
+ * (-y, x).  Applied to every vertex so the ridge runs east-west. */
+static V3
+rot_z90 (V3 p)
+{
+    V3 o = { -p.y, p.x, p.z };
+    return o;
+}
+
+/* The ten house vertices — b0..b3 base (z=0), w0..w3 wall top (z=hw),
+ * r0/r1 ridge ends — turned 90°.  Shared by the house painter and the
+ * shadow projector so the two always describe the same solid. */
 static void
-add_house (GArray *prims, const Cam *c)
+house_vertices (V3 v[10])
 {
     const double s  = HOUSE_HALF;
     const double hw = HOUSE_WALL;
     const double hr = HOUSE_WALL + HOUSE_RIDGE;
+    const V3 base[10] = {
+        { -s, -s, 0 }, {  s, -s, 0 }, {  s,  s, 0 }, { -s,  s, 0 },
+        { -s, -s, hw}, {  s, -s, hw}, {  s,  s, hw}, { -s,  s, hw},
+        {  0, -s, hr}, {  0,  s, hr},
+    };
+    int i;
 
+    for (i = 0; i < 10; i++)
+        v[i] = rot_z90 (base[i]);
+}
+
+static void
+add_house (GArray *prims, const Cam *c)
+{
     /* Wall white and a slightly warmer roof so the planes read apart
      * even before the shading. */
     const PnColor wall = { 0.96, 0.96, 0.97, 1.0 };
     const PnColor roof = { 0.78, 0.42, 0.34, 1.0 };
+    V3  v[10];
+    V3  b0, b1, b2, b3, w0, w1, w2, w3, r0, r1;
 
-    /* Base corners (z=0), wall-top corners (z=hw), ridge ends (x=0). */
-    V3 b0 = { -s, -s, 0 }, b1 = {  s, -s, 0 }, b2 = {  s,  s, 0 }, b3 = { -s,  s, 0 };
-    V3 w0 = { -s, -s, hw}, w1 = {  s, -s, hw}, w2 = {  s,  s, hw}, w3 = { -s,  s, hw};
-    V3 r0 = {  0, -s, hr}, r1 = {  0,  s, hr};
+    house_vertices (v);
+    b0 = v[0]; b1 = v[1]; b2 = v[2]; b3 = v[3];
+    w0 = v[4]; w1 = v[5]; w2 = v[6]; w3 = v[7];
+    r0 = v[8]; r1 = v[9];
 
-    /* Four walls (the gable ends are pentagons up to the ridge). */
-    add_face (prims, c, &wall, (V3[]){ b1, b2, w2, w1 }, 4);            /* east  */
-    add_face (prims, c, &wall, (V3[]){ b3, b0, w0, w3 }, 4);            /* west  */
-    add_face (prims, c, &wall, (V3[]){ b0, b1, w1, r0, w0 }, 5);       /* south gable */
-    add_face (prims, c, &wall, (V3[]){ b2, b3, w3, r1, w2 }, 5);       /* north gable */
-    /* Two roof slopes. */
-    add_face (prims, c, &roof, (V3[]){ w1, w2, r1, r0 }, 4);           /* east slope */
-    add_face (prims, c, &roof, (V3[]){ w3, w0, r0, r1 }, 4);           /* west slope */
+    /* Two plain walls and two gable-end pentagons (up to the ridge),
+     * then the two roof slopes.  The face topology is the un-rotated
+     * house's; the quarter-turn is baked into the vertices. */
+    add_face (prims, c, &wall, (V3[]){ b1, b2, w2, w1 }, 4);
+    add_face (prims, c, &wall, (V3[]){ b3, b0, w0, w3 }, 4);
+    add_face (prims, c, &wall, (V3[]){ b0, b1, w1, r0, w0 }, 5);
+    add_face (prims, c, &wall, (V3[]){ b2, b3, w3, r1, w2 }, 5);
+    add_face (prims, c, &roof, (V3[]){ w1, w2, r1, r0 }, 4);
+    add_face (prims, c, &roof, (V3[]){ w3, w0, r0, r1 }, 4);
+}
+
+/* ------------------------------------------------------------------ */
+/*  House shadow (projected onto the ground along the Sun's rays)      */
+/* ------------------------------------------------------------------ */
+
+typedef struct { double x, y; } P2;
+
+static int
+p2_cmp (const void *a, const void *b)
+{
+    const P2 *p = a;
+    const P2 *q = b;
+    if (p->x < q->x) return -1;
+    if (p->x > q->x) return  1;
+    if (p->y < q->y) return -1;
+    if (p->y > q->y) return  1;
+    return 0;
+}
+
+static double
+cross2 (P2 o, P2 a, P2 b)
+{
+    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/* Andrew's monotone-chain convex hull of @n points into @out (capacity
+ * >= 2*@n + 1); returns the hull vertex count, ordered around the
+ * boundary.  @pts is reordered in place. */
+static int
+convex_hull (P2 *pts, int n, P2 *out)
+{
+    int k = 0, i, lower;
+
+    if (n < 3)
+    {
+        for (i = 0; i < n; i++) out[i] = pts[i];
+        return n;
+    }
+
+    qsort (pts, n, sizeof (P2), p2_cmp);
+
+    for (i = 0; i < n; i++)
+    {
+        while (k >= 2 && cross2 (out[k - 2], out[k - 1], pts[i]) <= 0) k--;
+        out[k++] = pts[i];
+    }
+    lower = k + 1;
+    for (i = n - 2; i >= 0; i--)
+    {
+        while (k >= lower && cross2 (out[k - 2], out[k - 1], pts[i]) <= 0) k--;
+        out[k++] = pts[i];
+    }
+    return k - 1;   /* last point repeats the first */
+}
+
+/* Slide every house vertex away from the Sun, onto the ground plane, and
+ * fill the resulting silhouette (the convex hull of the projected
+ * vertices, the house being convex) as a soft shadow clipped to the
+ * ground disc.  Skipped when the Sun is below — or barely above — the
+ * horizon, where the shadow is undefined or runs off to infinity. */
+static void
+paint_shadow (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
+{
+    V3     v[10];
+    P2     gp[10];
+    P2     hull[21];
+    int    nh, i;
+    double alt = s->sun_altitude * DEG;
+    double az  = s->sun_azimuth  * DEG;
+    double cot;
+
+    if (!s->show_house || !s->have_data || !s->success || !s->sun_up)
+        return;
+    if (s->sun_altitude < 3.0)
+        return;
+
+    cot = cos (alt) / sin (alt);
+
+    house_vertices (v);
+    for (i = 0; i < 10; i++)
+    {
+        gp[i].x = v[i].x - v[i].z * cot * sin (az);
+        gp[i].y = v[i].y - v[i].z * cot * cos (az);
+    }
+
+    nh = convex_hull (gp, 10, hull);
+    if (nh < 3)
+        return;
+
+    cairo_save (cr);
+    ground_disc_path (c, cr);
+    cairo_clip (cr);
+
+    cairo_new_path (cr);
+    for (i = 0; i < nh; i++)
+    {
+        double sx, sy;
+        V3     p = { hull[i].x, hull[i].y, 0.0 };
+        project (c, p, &sx, &sy, NULL);
+        if (i == 0) cairo_move_to (cr, sx, sy);
+        else        cairo_line_to (cr, sx, sy);
+    }
+    cairo_close_path (cr);
+    cairo_set_source_rgba (cr, 0.08, 0.11, 0.10, 0.30);
+    cairo_fill (cr);
+    cairo_restore (cr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -599,25 +744,36 @@ setup_camera (Cam *c, const PnSunPathSnapshot *s,
     double pitch = s->pitch * DEG;
     double cp    = cos (pitch);
     double sp    = sin (pitch);
-    double sx, sy;
+    double top, bottom, sx, sy;
 
     c->cyaw   = cos (s->yaw * DEG);
     c->syaw   = sin (s->yaw * DEG);
     c->cpitch = cp;
     c->spitch = sp;
 
-    /* Horizontal half-extent ≈ R_LABEL, vertical extent ≈ the zenith
-     * height (cp) plus the near rim drop (R_GROUND * sp).  Fit both with
-     * a little margin. */
-    sx = (w * 0.5 * 0.88) / R_LABEL;
-    sy = (h * 0.84) / (cp + R_GROUND * sp + 0.18);
+    /* Vertical extents from the scene origin, in world units.  The disc
+     * (and the compass labels just beyond its rim, at R_LABEL) projects
+     * to an ellipse whose half-height is R_LABEL*sp: its far rim sits
+     * R_LABEL*sp above the origin, its near rim the same below.  The arc
+     * peaks at the zenith, cp above.  Looking down (sp -> 1) the disc
+     * fills the height, so the rim term — not the shrinking zenith — is
+     * what must drive the fit, otherwise the circle overflows the frame.
+     *   - top:    higher of the zenith (cp) and the far rim (R_LABEL*sp)
+     *   - bottom: the near rim (R_LABEL*sp) */
+    top    = fmax (cp, R_LABEL * sp);
+    bottom = R_LABEL * sp;
+
+    /* Horizontal half-extent is R_LABEL regardless of pitch (the camera
+     * only tips about the east axis, leaving the x span unchanged). */
+    sx = (w * 0.5 * 0.90) / R_LABEL;
+    sy = (h * 0.90) / (top + bottom + 0.12);
     c->scale = MIN (sx, sy);
 
-    /* Centre the figure vertically: the origin projects to (cx, cy); the
-     * top is cy − scale*cp and the near rim is cy + scale*R_GROUND*sp. */
+    /* Centre the figure vertically: the origin projects to (cx, cy), the
+     * top edge to cy − scale*top and the bottom edge to cy + scale*bottom. */
     c->cx = x + w * 0.5;
     c->cy = y + h * 0.5
-          + c->scale * (cp - R_GROUND * sp) * 0.5;
+          + c->scale * (top - bottom) * 0.5;
 }
 
 /* ------------------------------------------------------------------ */
@@ -634,9 +790,11 @@ paint_scene (const PnSunPathSnapshot *s, cairo_t *cr,
 
     setup_camera (&c, s, x, y, w, h);
 
-    /* Back-to-front floor layers. */
+    /* Back-to-front floor layers: the underground arc, the ground disc,
+     * then the house shadow cast onto it. */
     paint_underground_arc (&c, s, cr);
     paint_ground (&c, s, cr);
+    paint_shadow (&c, s, cr);
 
     /* Everything with real depth goes through the sorted list. */
     prims = g_array_new (FALSE, FALSE, sizeof (Prim));

@@ -30,12 +30,38 @@
         "target" : "Debug View",
         "format" : "JSON"
       }
+    },
+    {
+      "type" : "PnSunPath",
+      "uuid" : "32dd2204-9d8d-4bb9-9719-8817afb91634",
+      "name" : "Sun Path 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "view-yaw" : 2.53887939453125,
+        "view-pitch" : 51.385910034179688,
+        "show-house" : true,
+        "background-color" : "rgb(92,133,189)",
+        "background-color2" : "rgb(219,212,184)",
+        "background-gradient" : "Vertical",
+        "ground-color" : "rgba(107,140,128,0.55)",
+        "path-color" : "rgb(33,115,102)",
+        "sun-color" : "rgb(250,204,46)",
+        "text-color" : "rgb(33,41,51)"
+      }
     }
   ],
   "connections" : [
     {
       "source_id" : "42f8cc15-4a2e-409b-b8f4-df905d61f262",
       "target_id" : "4a3ac62a-357a-46ad-95da-de52e0616865"
+    },
+    {
+      "source_id" : "42f8cc15-4a2e-409b-b8f4-df905d61f262",
+      "target_id" : "32dd2204-9d8d-4bb9-9719-8817afb91634"
     }
   ],
   "sheets" : [
