@@ -1614,3 +1614,13 @@ broken down later.
   set_value.  PLUGINS §17b PnValueLabel entry documents the hook + names
   this as the worked example.  Clean build, 81 unit tests pass; GUI
   alignment to be eyeballed in a running instance.
+
+(36) Stop ModemManager from probing Meshtastic serial devices.  When a tty
+appears, ModemManager (root) opens it and fires AT commands -- which toggles
+DTR/RTS (rebooting the ESP32) and races pipnode's open.  pipnode's in-use
+guard is a /proc scan that can't see root-owned holders, so it misses MM.
+Fix: ship a udev rule setting ID_MM_DEVICE_IGNORE=1 for the Meshtastic
+VID:PIDs (packaging step), and/or inhibit the device over MM's D-Bus API
+around open.  Caveat: 10c4:ea60 is generic CP2102 (see #33); a blanket
+ignore also hides real CP2102 modems.  Touches system config -- weigh against
+the minimal-invasive-packaging line.
