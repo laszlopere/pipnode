@@ -14,7 +14,7 @@
       "properties" : {
         "period" : 600,
         "url" : "https://api.open-meteo.com/v1/forecast",
-        "city" : "Budapest",
+        "city" : "Pécs",
         "provider" : "Open-Meteo (global)"
       }
     },
@@ -23,7 +23,6 @@
       "uuid" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5",
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
-      "disabled" : true,
       "position" : {
         "x" : 280.0,
         "y" : 60.0
@@ -88,7 +87,7 @@
         "secondary-font-color" : "rgb(117,117,117)",
         "background-color" : "rgb(255,255,255)",
         "background-color2" : "rgb(204,227,247)",
-        "background-gradient" : "Solid (no gradient)"
+        "background-gradient" : "Horizontal"
       }
     }
   ],
