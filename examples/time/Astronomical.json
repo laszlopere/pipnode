@@ -1,0 +1,45 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnAstronomical",
+      "uuid" : "42f8cc15-4a2e-409b-b8f4-df905d61f262",
+      "name" : "Astronomical 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "period" : 60,
+        "city" : "Pécs",
+        "datum" : "The Sun is up"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "4a3ac62a-357a-46ad-95da-de52e0616865",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "42f8cc15-4a2e-409b-b8f4-df905d61f262",
+      "target_id" : "4a3ac62a-357a-46ad-95da-de52e0616865"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

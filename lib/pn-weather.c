@@ -51,6 +51,7 @@
 
 #include "pn-weather.h"
 #include "pn-message.h"
+#include "pn-geocode.h"
 
 #include <json-glib/json-glib.h>
 #include <math.h>
@@ -60,7 +61,6 @@
 #define PN_WEATHER_ICON            "\xef\x83\x82"
 
 #define PN_WEATHER_FORECAST_URL    "https://api.open-meteo.com/v1/forecast"
-#define PN_WEATHER_GEOCODE_URL     "https://geocoding-api.open-meteo.com/v1/search"
 #define PN_WEATHER_BRIGHTSKY_URL   "https://api.brightsky.dev/current_weather"
 
 /* The "provider" property, registered as an enum so the settings dialog
@@ -580,135 +580,27 @@ weather_format_http_error (const gchar      *what,
 static void
 weather_geocode (PnWeather *self, const gchar *city)
 {
-    gchar      *escaped = g_uri_escape_string (city, NULL, FALSE);
-    gchar      *url     = g_strdup_printf (
-            "%s?name=%s&count=1&language=en&format=json",
-            PN_WEATHER_GEOCODE_URL, escaped);
-    gchar      *cmd     = weather_curl_command (url, 10u);
-    gchar      *stdout_text = NULL;
-    gchar      *stderr_text = NULL;
-    gint        exit_status = 0;
-    GError     *error   = NULL;
-    gboolean    spawned;
-    gboolean    resolved = FALSE;
-    gboolean    have_results = FALSE;
-    gdouble     lat = 0.0, lon = 0.0;
-    gchar      *name = NULL;
-    gchar      *country = NULL;
-    gchar      *body = NULL;
-    gint        http_status = 0;
-    gchar      *failure = NULL;
+    /* Geocoding is always Open-Meteo's (global) endpoint, regardless of
+     * the selected forecast provider; pn_geocode does the curl + parse. */
+    PnGeocodeResult res = { 0 };
 
-    spawned = g_spawn_command_line_sync (cmd, &stdout_text, &stderr_text,
-                                         &exit_status, &error);
-
-    if (!spawned)
-    {
-        gchar *cause = error ? g_strdup (error->message) : NULL;
-        pn_auto_trigger_log_on_main (
-                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
-                "Location lookup could not start curl: %s",
-                cause ? cause : "(unknown)");
-        failure = cause
-                ? g_strdup_printf (
-                        "Location lookup could not start curl: %s", cause)
-                : g_strdup ("Location lookup could not start curl.");
-        g_free (cause);
-    }
-    else
-    {
-        pn_http_split_body_and_status (stdout_text, &body, &http_status);
-
-        if (g_spawn_check_wait_status (exit_status, NULL) &&
-            (http_status == 0 || (http_status >= 200 && http_status < 300)) &&
-            body != NULL && *body != '\0')
-        {
-            JsonParser *parser = json_parser_new ();
-
-            if (json_parser_load_from_data (parser, body, -1, NULL))
-            {
-                JsonNode *root = json_parser_get_root (parser);
-
-                if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
-                {
-                    JsonObject *obj = json_node_get_object (root);
-
-                    if (json_object_has_member (obj, "results"))
-                    {
-                        JsonNode *rn = json_object_get_member (obj, "results");
-
-                        if (JSON_NODE_HOLDS_ARRAY (rn) &&
-                            json_array_get_length (json_node_get_array (rn)) > 0)
-                        {
-                            JsonObject *hit = json_array_get_object_element (
-                                    json_node_get_array (rn), 0);
-
-                            have_results = TRUE;
-                            lat = obj_number (hit, "latitude",  (gdouble) NAN);
-                            lon = obj_number (hit, "longitude", (gdouble) NAN);
-
-                            if (isfinite (lat) && isfinite (lon))
-                            {
-                                resolved = TRUE;
-                                if (json_object_has_member (hit, "name"))
-                                    name = g_strdup (
-                                            json_object_get_string_member (
-                                                    hit, "name"));
-                                if (json_object_has_member (hit, "country"))
-                                    country = g_strdup (
-                                            json_object_get_string_member (
-                                                    hit, "country"));
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                failure = g_strdup (
-                        "Location lookup returned a non-JSON response.");
-            }
-            g_object_unref (parser);
-
-            if (!resolved && failure == NULL)
-            {
-                /* HTTP 200 with no usable hit — Open-Meteo's standard
-                 * "place not found" answer is an absent or empty
-                 * results array, not an error envelope. */
-                failure = have_results
-                        ? g_strdup_printf (
-                                "Open-Meteo found a location for \"%s\" but "
-                                "it had no coordinates.", city)
-                        : g_strdup_printf (
-                                "Open-Meteo could not find a location named "
-                                "\"%s\".", city);
-            }
-        }
-        else if (failure == NULL)
-        {
-            /* Geocoding is always Open-Meteo's (global) endpoint,
-             * regardless of the selected forecast provider. */
-            failure = weather_format_http_error (
-                    "Location lookup", PN_WEATHER_PROVIDER_OPEN_METEO,
-                    TRUE, exit_status, stderr_text, http_status, body);
-        }
-    }
+    pn_geocode_resolve_sync (city, 10u, &res);
 
     g_mutex_lock (&self->mutex);
     g_free (self->resolved_name);
     g_free (self->country);
     g_free (self->geo_key);
     g_clear_pointer (&self->geo_error, g_free);
-    if (resolved)
+    if (res.resolved)
     {
         self->have_coords   = TRUE;
-        self->latitude      = lat;
-        self->longitude     = lon;
-        self->resolved_name = name ? name : g_strdup (city);
-        self->country       = country;        /* may be NULL */
+        self->latitude      = res.latitude;
+        self->longitude     = res.longitude;
+        self->resolved_name = res.name ? res.name : g_strdup (city);
+        self->country       = res.country;    /* may be NULL */
         self->geo_key       = g_strdup (city);
-        name = NULL;
-        country = NULL;
+        res.name    = NULL;                    /* ownership transferred */
+        res.country = NULL;
     }
     else
     {
@@ -716,21 +608,12 @@ weather_geocode (PnWeather *self, const gchar *city)
         self->resolved_name = NULL;
         self->country       = NULL;
         self->geo_key       = NULL;           /* force a retry next tick */
-        self->geo_error     = failure;
-        failure = NULL;
+        self->geo_error     = res.error;      /* may be NULL */
+        res.error = NULL;
     }
     g_mutex_unlock (&self->mutex);
 
-    g_clear_error (&error);
-    g_free (failure);
-    g_free (name);
-    g_free (country);
-    g_free (body);
-    g_free (stdout_text);
-    g_free (stderr_text);
-    g_free (cmd);
-    g_free (url);
-    g_free (escaped);
+    pn_geocode_result_clear (&res);
 }
 
 /* Ensure cached coordinates match the configured city, geocoding when

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Astronomical (PnAstronomical) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnAstronomical">Astronomical</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnAstronomical</code>.
+</p>
+<p>
+Emits the Sun's position and the day's solar events for a named place,
+recomputed every <code>period</code> seconds. Type a <code>city</code>
+and the node resolves it to coordinates once through Open-Meteo's free,
+key-less geocoder (the only network call &mdash; cached until the city
+changes); every figure after that is computed locally from the NOAA
+solar-position equations, so it keeps ticking with no further requests.
+The most common use is the boolean <em>Sun up/down</em> signal &mdash;
+wire <code>data.value</code> into an <em>Edge</em> detector to act on
+sunrise and sunset, or into a <em>Switch</em>/<em>Filter</em> to gate a
+flow on daylight.
+</p>
+<p>
+The <code>datum</code> property (a combobox) picks which computed
+quantity becomes the canonical <code>data.value</code>. The default,
+<em>The Sun is up</em>, emits <code>1.0</code> when the Sun is above the
+horizon and <code>0.0</code> when below (the standard &minus;0.833&deg;
+sunrise/sunset horizon, so it agrees with the reported times); <em>The
+Sun is down</em> is its inverse, handy for gating a flow on darkness
+without a separate inverter. Whatever the selected datum, every message
+also carries the full set of fields below, so a downstream node can read
+any of them regardless of the combobox.
+</p>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The quantity chosen by <code>datum</code> &mdash; a 1.0/0.0
+          boolean for <em>The Sun is up</em> / <em>The Sun is down</em>,
+          or the altitude, azimuth, or day length.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>true</code> once the city is resolved; <code>false</code>
+          with a reason in <code>data.output</code> while the lookup is
+          unresolved.</td></tr>
+  <tr><td><code>data.sun_up</code></td>
+      <td>Boolean: is the Sun above the horizon right now.</td></tr>
+  <tr><td><code>data.sun_altitude</code></td>
+      <td>Solar altitude in degrees (negative below the horizon).</td></tr>
+  <tr><td><code>data.sun_azimuth</code></td>
+      <td>Solar azimuth in degrees, 0&deg; = north, clockwise.</td></tr>
+  <tr><td><code>data.sunrise</code> / <code>data.sunset</code></td>
+      <td>Times of today's sunrise and sunset as ISO 8601 strings in the
+          location's time zone, e.g.
+          <code>2026-06-21T04:43:00+02:00</code>. Omitted during polar
+          day/night when the Sun does not cross the horizon.</td></tr>
+  <tr><td><code>data.solar_noon</code></td>
+      <td>Time the Sun is highest, as an ISO 8601 string in the
+          location's time zone.</td></tr>
+  <tr><td><code>data.timezone</code></td>
+      <td>IANA name of the location's time zone, e.g.
+          <code>Europe/Berlin</code> (omitted if the geocoder did not
+          supply one, in which case times fall back to UTC).</td></tr>
+  <tr><td><code>data.day_length</code></td>
+      <td>Hours of daylight today (0 in polar night, 24 in polar
+          day).</td></tr>
+  <tr><td><code>data.latitude</code> / <code>data.longitude</code></td>
+      <td>The resolved coordinates of the city.</td></tr>
+  <tr><td><code>data.city</code> / <code>data.country</code></td>
+      <td>The canonical place name the geocoder returned.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>A short summary, e.g. <em>At Berlin the Sun is up</em>; the
+          numeric detail lives in the fields above.</td></tr>
+</table>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>city</code></td>
+      <td>Place to compute for, e.g. <em>Berlin</em>. Geocoded once via
+          Open-Meteo.</td></tr>
+  <tr><td><code>datum</code></td>
+      <td>Which computed quantity drives <code>data.value</code>:
+          <em>The Sun is up</em> (default, 1.0 when up), <em>The Sun is
+          down</em> (1.0 when down), Sun altitude, Sun azimuth, or Day
+          length.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between emissions. The default is 60; the position
+          drifts slowly, so a short period is rarely needed.</td></tr>
+</table>
+<p>
+Sunrise, sunset and solar noon are reported for the UTC calendar day of
+the current instant, as ISO 8601 timestamps carrying the location's own
+UTC offset &mdash; so the wall-clock part already reads in local time for
+the place, and a <em>Format</em> node can restyle them as needed.
+</p>
+
+</body>
+</html>

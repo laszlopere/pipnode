@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "pn-analog-meter.h"
+#include "pn-astronomical.h"
 #include "pn-auto-injector.h"
 #include "pn-auto-random.h"
 #include "pn-chat.h"
@@ -222,6 +223,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_PANEL_INPUT);
     pn_node_factory_register (self, PN_TYPE_AUTO_INJECTOR);
     pn_node_factory_register (self, PN_TYPE_AUTO_RANDOM);
+    pn_node_factory_register (self, PN_TYPE_ASTRONOMICAL);
 
     /* Host monitoring.  System Load, Net Connections, Disk I/O,
      * Network I/O, CPU, CPU Temperature, Ambient Temperature and

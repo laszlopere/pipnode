@@ -29,6 +29,8 @@ libpipnode_core_la_SOURCES = \
 	pn-plugin.h \
 	pn-analog-meter.c \
 	pn-analog-meter.h \
+	pn-astronomical.c \
+	pn-astronomical.h \
 	pn-auto-injector.c \
 	pn-auto-injector.h \
 	pn-auto-random.c \
@@ -77,6 +79,8 @@ libpipnode_core_la_SOURCES = \
 	pn-flow.h \
 	pn-format.c \
 	pn-format.h \
+	pn-geocode.c \
+	pn-geocode.h \
 	pn-graph.c \
 	pn-graph.h \
 	pn-http.c \
@@ -407,6 +411,7 @@ pipnodeincludedir = $(includedir)/pipnode
 pipnode_core_headers = \
 	pn-plugin.h \
 	pn-analog-meter.h \
+	pn-astronomical.h \
 	pn-auto-injector.h \
 	pn-auto-random.h \
 	pn-auto-trigger.h \
@@ -430,6 +435,7 @@ pipnode_core_headers = \
 	pn-filter.h \
 	pn-flow.h \
 	pn-format.h \
+	pn-geocode.h \
 	pn-graph.h \
 	pn-http.h \
 	pn-image-message.h \

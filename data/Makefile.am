@@ -11,6 +11,7 @@ pnhelp_DATA = \
 	help/help-index.html \
 	help/PnAnalogClock.html \
 	help/PnAnalogMeter.html \
+	help/PnAstronomical.html \
 	help/PnAutoInjector.html \
 	help/PnAutoRandom.html \
 	help/PnChat.html \
