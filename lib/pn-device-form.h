@@ -51,11 +51,15 @@ GtkWidget *pn_device_form_key_label (const gchar *text);
  * sub-section. */
 GtkWidget *pn_device_form_new_tab (GtkWidget **inner_box_out);
 
-/* Wrap @child in a #GtkExpander titled @title (rendered bold, expanded
- * by default) and pack it into @parent (an inner box from
- * pn_device_form_new_tab()). */
+/* Wrap @child in a #PnFoldable titled @title (rendered bold, expanded by
+ * default) and pack it into @parent (an inner box from
+ * pn_device_form_new_tab()).  @description is mandatory -- it becomes the
+ * dim, wrapping line shown first inside the section, above @child --
+ * keeping every section self-documenting and uniform with the rest of
+ * pipnode's foldables. */
 void       pn_device_form_add_section (GtkWidget   *parent,
                                        const gchar *title,
+                                       const gchar *description,
                                        GtkWidget   *child);
 
 /* ------------------------------------------------------------------ */

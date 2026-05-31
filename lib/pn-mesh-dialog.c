@@ -34,6 +34,7 @@
 #include "pn-device-dialog.h"
 #include "pn-device-form.h"
 #include "pn-device-provider.h"
+#include "pn-foldable.h"
 #include "pn-mesh-connection.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-channels.h"
@@ -683,20 +684,36 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         /* Tab 1: Device  (Identity + Device role/GPIO + Power + Security). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
-            pn_device_form_add_section (inner, "Identity",            ctx->identity_page);
-            pn_device_form_add_section (inner, "Device role & GPIO",  ctx->device_page);
-            pn_device_form_add_section (inner, "Power",               ctx->power_page);
-            pn_device_form_add_section (inner, "Security",            ctx->security_page);
+            pn_device_form_add_section (inner, "Identity",
+                    "The node's long and short names and how it identifies "
+                    "itself on the mesh.", ctx->identity_page);
+            pn_device_form_add_section (inner, "Device role & GPIO",
+                    "How this node behaves on the mesh and the GPIO pins for "
+                    "its button and buzzer.", ctx->device_page);
+            pn_device_form_add_section (inner, "Power",
+                    "Battery, charging and sleep behaviour for this device.",
+                    ctx->power_page);
+            pn_device_form_add_section (inner, "Security",
+                    "Admin and public keys that authorise remote configuration "
+                    "of this node.", ctx->security_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Device");
         }
 
         /* Tab 2: Radio  (Region+LoRa, Channels, Share, Position). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
-            pn_device_form_add_section (inner, "Region & LoRa", ctx->region_page);
-            pn_device_form_add_section (inner, "Channels",      ctx->channels_page);
-            pn_device_form_add_section (inner, "Share",         ctx->share_page);
-            pn_device_form_add_section (inner, "Position",      ctx->position_page);
+            pn_device_form_add_section (inner, "Region & LoRa",
+                    "Regulatory region and the LoRa modem preset that trade "
+                    "range against speed.", ctx->region_page);
+            pn_device_form_add_section (inner, "Channels",
+                    "The mesh channels this node uses and their encryption "
+                    "keys.", ctx->channels_page);
+            pn_device_form_add_section (inner, "Share",
+                    "Share this node's channel set with others via a URL or "
+                    "QR code.", ctx->share_page);
+            pn_device_form_add_section (inner, "Position",
+                    "Whether and how often this node broadcasts its GPS "
+                    "position.", ctx->position_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Radio");
         }
 
@@ -704,8 +721,12 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
          * Bluetooth deferred to Phase 11/13 (no donor code). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
-            pn_device_form_add_section (inner, "WiFi, Ethernet & IPv6", ctx->network_page);
-            pn_device_form_add_section (inner, "MQTT",                  ctx->mqtt_page);
+            pn_device_form_add_section (inner, "WiFi, Ethernet & IPv6",
+                    "Wired and wireless network connectivity for this node.",
+                    ctx->network_page);
+            pn_device_form_add_section (inner, "MQTT",
+                    "Bridge the mesh to an MQTT broker for internet-linked "
+                    "messaging.", ctx->mqtt_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Network");
         }
 
@@ -714,7 +735,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "External Notification",
-                          ctx->ext_notification_page);
+                    "Drive an LED, buzzer or vibration motor when messages "
+                    "arrive.", ctx->ext_notification_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Notifications");
         }
 
@@ -722,7 +744,9 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
          * RangeTest / Paxcounter land in Phase 11+). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
-            pn_device_form_add_section (inner, "Telemetry", ctx->telemetry_page);
+            pn_device_form_add_section (inner, "Telemetry",
+                    "Which sensor metrics this node measures and how often it "
+                    "reports them.", ctx->telemetry_page);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
                         "Neighbor Info, Detection Sensor, Range Test "
@@ -749,20 +773,19 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
          * receive log fills the remaining vertical space below it. */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
-            pn_device_form_add_section (inner, "Known Nodes", ctx->known_nodes_page);
+            pn_device_form_add_section (inner, "Known Nodes",
+                    "Every node this device has heard from, with signal and "
+                    "last-seen details.", ctx->known_nodes_page);
             {
-                GtkWidget *expander = gtk_expander_new (NULL);
-                GtkWidget *label    = gtk_label_new (NULL);
-                gchar     *markup;
-
-                markup = g_markup_printf_escaped ("<b>%s</b>", "Test");
-                gtk_label_set_markup (GTK_LABEL (label), markup);
-                g_free (markup);
-                gtk_expander_set_label_widget (GTK_EXPANDER (expander),
-                                               label);
-                gtk_expander_set_expanded (GTK_EXPANDER (expander), TRUE);
-                gtk_container_add (GTK_CONTAINER (expander), ctx->test_page);
-                gtk_box_pack_start (GTK_BOX (inner), expander,
+                /* Packed TRUE/TRUE (not via pn_device_form_add_section,
+                 * which packs FALSE/FALSE) so the live receive log fills
+                 * the vertical space left below Known Nodes. */
+                GtkWidget *foldable = pn_foldable_new (
+                        "Test",
+                        "Send a test message and watch packets arrive live "
+                        "from the mesh.");
+                gtk_container_add (GTK_CONTAINER (foldable), ctx->test_page);
+                gtk_box_pack_start (GTK_BOX (inner), foldable,
                                     TRUE, TRUE, 0);
             }
             pn_device_dialog_append_page (ctx->shell, tab, "Diagnostics");

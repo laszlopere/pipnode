@@ -27,6 +27,7 @@
 #endif
 
 #include "pn-device-form.h"
+#include "pn-foldable.h"
 
 /* ------------------------------------------------------------------ */
 /*  Section scaffolding                                                 */
@@ -74,28 +75,21 @@ pn_device_form_new_tab (GtkWidget **inner_box_out)
 void
 pn_device_form_add_section (GtkWidget   *parent,
                             const gchar *title,
+                            const gchar *description,
                             GtkWidget   *child)
 {
-    GtkWidget *expander;
+    GtkWidget *foldable;
 
     g_return_if_fail (GTK_IS_BOX (parent));
+    g_return_if_fail (description != NULL);
     g_return_if_fail (GTK_IS_WIDGET (child));
 
-    expander = gtk_expander_new (title);
-
-    /* Bolded label looks more like a section heading than a plain
-     * expander caption and stays legible alongside the scroll arrows. */
-    {
-        GtkWidget *label  = gtk_label_new (NULL);
-        gchar     *markup = g_markup_printf_escaped ("<b>%s</b>",
-                                                     title != NULL ? title : "");
-        gtk_label_set_markup (GTK_LABEL (label), markup);
-        g_free (markup);
-        gtk_expander_set_label_widget (GTK_EXPANDER (expander), label);
-    }
-    gtk_expander_set_expanded (GTK_EXPANDER (expander), TRUE);
-    gtk_container_add (GTK_CONTAINER (expander), child);
-    gtk_box_pack_start (GTK_BOX (parent), expander, FALSE, FALSE, 0);
+    /* PnFoldable carries the bold heading, the mandatory description line
+     * and the shared foldable styling; gtk_container_add() packs @child
+     * into the body after the description. */
+    foldable = pn_foldable_new (title, description);
+    gtk_container_add (GTK_CONTAINER (foldable), child);
+    gtk_box_pack_start (GTK_BOX (parent), foldable, FALSE, FALSE, 0);
 }
 
 /* ------------------------------------------------------------------ */

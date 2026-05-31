@@ -1401,8 +1401,9 @@ It is three installed headers, all in `libpipnode-gui` (so a companion
 already links them; a headless logic `.so` never sees them):
 
   - `pn-device-form.h` -- form helpers that fill a notebook tab with the
-    house style: `pn_device_form_new_tab` / `_add_section` (an expander
-    group), `_attach_label_row` (a "--"-fallback read-only value row),
+    house style: `pn_device_form_new_tab` / `_add_section` (a `PnFoldable`
+    group -- its `description` argument is MANDATORY, see the widgets list
+    below), `_attach_label_row` (a "--"-fallback read-only value row),
     `_attach_entry_row` (entry + Apply), `_attach_control_row` (the
     region-cell + size-group idiom combos and spinners pack into),
     `_key_label`, `_set_value`, and the combo helpers `_combo_fill` /
@@ -1463,8 +1464,8 @@ Devices entry simply calls these functions.  The Devices menu lives in
 its own translation unit (`src/pn-devices-menu.c`) that enumerates the
 registry, so adding a provider never touches `pn-window.c`.
 
-Three scroll/edit-safe widgets the form helpers (and your own tabs)
-build on are also public, in `pipnode.h`:
+Four widgets the form helpers (and your own tabs) build on are also
+public, in `pipnode.h`:
 
     PnDeviceCombo     (`pn_device_combo_new`)            a GtkComboBoxText
         that swallows the mouse wheel instead of stepping its selection
@@ -1474,6 +1475,14 @@ build on are also public, in `pipnode.h`:
     PnInlineEditLabel (`pn_inline_edit_label_new`)       a click-the-
         pencil-to-edit label (a GtkStack swapping a GtkLabel for a
         GtkEntry; GtkEditableLabel is GTK4-only).
+    PnFoldable        (`pn_foldable_new`)                a GtkExpander
+        section with one consistent look: a bold title and a MANDATORY
+        `description` -- a dim, wrapping line that is the first thing
+        inside the folded body, above your content.  It is its own
+        content container (gtk_container_add packs after the description;
+        gtk_box_pack_start onto `pn_foldable_get_content_area`).  Prefer
+        it (or `pn_device_form_add_section`, which wraps it) over a raw
+        GtkExpander so every device section reads and folds the same.
 
 WORKED EXAMPLE -- Meshtastic (`lib/pn-mesh-dialog.c`).  It builds its
 window with `pn_device_dialog_new(..., PN_DEVICE_DIALOG_WITH_DEVICE_LIST)`,

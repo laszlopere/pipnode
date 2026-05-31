@@ -35,6 +35,7 @@
 #include "pn-filedrop.h"
 #include "pn-filter.h"
 #include "pn-flow.h"
+#include "pn-foldable.h"
 #include "pn-format.h"
 #include "pn-graph.h"
 #include "pn-help-browser.h"
