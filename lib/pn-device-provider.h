@@ -51,7 +51,12 @@ typedef void (*PnDeviceProviderPresentFunc) (GtkWindow *parent,
  * @id            stable machine identifier, e.g. "meshtastic"; used to
  *                dedup and to address pn_device_provider_present().
  * @display_name  human label for the menu entry, e.g. "Meshtastic".
- * @icon_name     themed icon name for the entry, or NULL for none.
+ * @icon_name     icon for the entry, or NULL for none.  A themed icon
+ *                name (e.g. "network-wireless") is looked up in the icon
+ *                theme; an ABSOLUTE path (e.g. "/usr/share/.../foo.png")
+ *                is loaded from that file and scaled to the menu icon
+ *                size.  A plugin shipping its own icon should pass an
+ *                absolute path to its installed file.
  * @present       callback that opens the provider's dialog (required).
  * @user_data     opaque pointer handed back to @present.
  * @destroy       optional notifier run on @user_data if a later

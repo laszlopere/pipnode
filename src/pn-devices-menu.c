@@ -59,11 +59,44 @@ action_present_provider (GtkMenuItem *menu_item, gpointer user_data)
     pn_device_provider_present (item->id, item->parent);
 }
 
-/* Build a menu item with a themed icon + label + activate handler.
+/* Turn a provider's icon spec into a menu-sized #GtkImage.  An absolute
+ * path is loaded from that file (scaled down to the menu icon size so a
+ * large source image does not inflate the row); any other string is taken
+ * as a themed icon name.  An absolute path can never be a valid themed
+ * name, so the two namespaces never collide.  Returns NULL only when a
+ * file path fails to load, in which case the entry shows no icon. */
+static GtkWidget *
+device_icon_image_new (const gchar *icon)
+{
+    GdkPixbuf *pixbuf;
+    GtkWidget *image;
+    GError    *error = NULL;
+    gint       w = 16, h = 16;
+
+    if (!g_path_is_absolute (icon))
+        return gtk_image_new_from_icon_name (icon, GTK_ICON_SIZE_MENU);
+
+    gtk_icon_size_lookup (GTK_ICON_SIZE_MENU, &w, &h);
+    pixbuf = gdk_pixbuf_new_from_file_at_scale (icon, w, h, TRUE, &error);
+    if (pixbuf == NULL)
+    {
+        g_warning ("Devices menu: cannot load icon file '%s': %s",
+                   icon, error->message);
+        g_clear_error (&error);
+        return NULL;
+    }
+
+    image = gtk_image_new_from_pixbuf (pixbuf);
+    g_object_unref (pixbuf);
+    return image;
+}
+
+/* Build a menu item with an icon + label + activate handler.  @icon is a
+ * themed icon name or an absolute icon-file path (see device_icon_image_new).
  * Mirrors the (file-private) helper in pn-window.c so the Devices entries
  * line up visually with File/Edit/View/Help items. */
 static GtkWidget *
-build_image_item (const gchar   *icon_name,
+build_image_item (const gchar   *icon,
                   const gchar   *label,
                   GCallback      callback,
                   gpointer       user_data,
@@ -72,13 +105,15 @@ build_image_item (const gchar   *icon_name,
     GtkWidget *item;
 
     item = gtk_image_menu_item_new_with_mnemonic (label);
-    if (icon_name != NULL)
+    if (icon != NULL)
     {
-        GtkWidget *image = gtk_image_new_from_icon_name (icon_name,
-                                                         GTK_ICON_SIZE_MENU);
-        gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM (item), image);
-        gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (item),
-                                                   TRUE);
+        GtkWidget *image = device_icon_image_new (icon);
+        if (image != NULL)
+        {
+            gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM (item), image);
+            gtk_image_menu_item_set_always_show_image (
+                    GTK_IMAGE_MENU_ITEM (item), TRUE);
+        }
     }
 
     g_signal_connect_data (item, "activate", callback,

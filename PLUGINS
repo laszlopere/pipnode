@@ -1444,7 +1444,13 @@ already links them; a headless logic `.so` never sees them):
 
     `id` is a stable machine key ("meshtastic"); the menu shows
     `display_name` + `icon_name`; activating the entry calls `present
-    (parent, user_data)`, which opens (or raises) your dialog.
+    (parent, user_data)`, which opens (or raises) your dialog.  `icon_name`
+    may be NULL, a themed icon name ("network-wireless", looked up in the
+    icon theme), or an ABSOLUTE path to an icon file -- the latter is
+    loaded from disk and scaled to the menu icon size, so a plugin that
+    ships its own icon just passes the absolute path to its installed file
+    (an absolute path is never a valid themed name, so the two never
+    collide).
     Registering an `id` that already exists REPLACES it in place (its
     `destroy` runs), keeping menu order stable across a companion reload,
     so registration is idempotent.  `pn_device_provider_list()` returns a
