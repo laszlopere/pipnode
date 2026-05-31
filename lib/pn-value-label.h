@@ -55,6 +55,15 @@ void         pn_value_label_set_markup (PnValueLabel *self,
 /* The current value text (the raw label text, i.e. "—" when empty). */
 const gchar *pn_value_label_get_value (PnValueLabel *self);
 
+/* Add this field's key label to @group.  Stacking several #PnValueLabel
+ * rows in a box leaves their values ragged because each key sizes itself;
+ * dropping every key into one horizontal #GtkSizeGroup (the caller owns
+ * it) makes the keys a common width so the values line up into a column,
+ * the way a grid would.  Mix in other rows -- an inline editor, a
+ * combo -- by adding their key labels to the same group. */
+void         pn_value_label_set_key_size_group (PnValueLabel *self,
+                                                GtkSizeGroup *group);
+
 G_END_DECLS
 
 #endif /* PN_VALUE_LABEL_H */

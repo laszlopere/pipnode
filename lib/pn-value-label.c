@@ -30,6 +30,7 @@
 struct _PnValueLabel
 {
     GtkBox     parent_instance;
+    GtkWidget *key;     /* the left-hand bold key label (owned by the box) */
     GtkWidget *value;   /* the right-hand value label (owned by the box) */
 };
 
@@ -68,6 +69,7 @@ pn_value_label_new (const gchar *key)
     pango_attr_list_unref (attrs);
     gtk_widget_set_margin_end (klabel, 16);
     gtk_box_pack_start (GTK_BOX (self), klabel, FALSE, FALSE, 0);
+    self->key = klabel;
 
     /* Selectable, ellipsizing value that fills the rest of the row,
      * starting on the "—" placeholder. */
@@ -103,4 +105,13 @@ pn_value_label_get_value (PnValueLabel *self)
 {
     g_return_val_if_fail (PN_IS_VALUE_LABEL (self), NULL);
     return gtk_label_get_text (GTK_LABEL (self->value));
+}
+
+void
+pn_value_label_set_key_size_group (PnValueLabel *self,
+                                   GtkSizeGroup *group)
+{
+    g_return_if_fail (PN_IS_VALUE_LABEL (self));
+    g_return_if_fail (GTK_IS_SIZE_GROUP (group));
+    gtk_size_group_add_widget (group, self->key);
 }

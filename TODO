@@ -1596,3 +1596,21 @@ broken down later.
   the Meshtastic dialog yet (its readouts still use attach_label_row grids,
   which is fine); the zigbee plugin is untouched (separate repo).  Clean
   lib build.
+
+  DONE 2026-05-31 (PnValueLabel dogfooded + alignment hook): the only
+  read-only readouts in the Meshtastic dialog are the Identity section's
+  rows (lib/pn-mesh-page-identity.c), and they sat in ONE grid interleaved
+  with the two inline name editors -- a naive swap into that grid would
+  misalign the value column (PnValueLabel's own key+16px margin vs the
+  grid geometry).  So PnValueLabel gained pn_value_label_set_key_size_group
+  (adds its key to a caller-owned GtkSizeGroup so stacked rows' values line
+  up into a column without a grid), and the Identity section was rebuilt as
+  a packed vertical column: 8 read-only rows are now add_value_row()
+  PnValueLabels, the 2 writable rows are add_inline_edit_row() hboxes, and
+  every key (PnValueLabel keys + the inline editors' pn_device_form_key_
+  label keys) joins one shared size group so the whole section stays
+  aligned.  The grid + the local attach_inline_edit_row()/value-size-group
+  plumbing are gone.  pn_device_form_set_value(ctx->*) -> pn_value_label_
+  set_value.  PLUGINS §17b PnValueLabel entry documents the hook + names
+  this as the worked example.  Clean build, 81 unit tests pass; GUI
+  alignment to be eyeballed in a running instance.

@@ -1510,7 +1510,14 @@ are public too -- each its own installed header (`pn-device-combo.h`,
         single read-out (a firmware version, a coordinator model, a
         connection state) next to a combo or button.
         `pn_value_label_set_value` (plain text, "—" when empty) or
-        `pn_value_label_set_markup` (a coloured state bullet).
+        `pn_value_label_set_markup` (a coloured state bullet).  Stacking
+        several as an info block?  `pn_value_label_set_key_size_group`
+        drops each key into one #GtkSizeGroup so the values line up into a
+        column (add other rows' key labels to the same group to align an
+        inline editor or combo alongside).  The Meshtastic Identity section
+        (`lib/pn-mesh-page-identity.c`) is the worked example: a packed
+        column of PnValueLabel read-outs and two inline name editors, all
+        sharing one key group.
 
 WORKED EXAMPLE -- Meshtastic (`lib/pn-mesh-dialog.c`).  It builds its
 window with `pn_device_dialog_new(..., PN_DEVICE_DIALOG_WITH_DEVICE_LIST)`,

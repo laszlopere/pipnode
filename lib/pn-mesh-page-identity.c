@@ -37,6 +37,7 @@
 #include "pn-mesh-formats.h"
 #include "pn-device-form.h"
 #include "pn-inline-edit-label.h"
+#include "pn-value-label.h"
 
 #define PN_MESH_PAGE_CTX_QDATA "pn-mesh-page-identity-ctx"
 
@@ -47,17 +48,20 @@
 
 typedef struct
 {
-    /* Widget tree handles. */
-    GtkLabel *kind_label;
-    GtkLabel *tty_label;
-    GtkLabel *firmware_label;
-    GtkLabel *node_num_label;
+    /* Widget tree handles.  The read-only rows are #PnValueLabel fields
+     * packed into the page's column; the two writable rows are inline
+     * editors.  All keys share one size group (key_sg) so the values line
+     * up into a single column despite not living in a grid. */
+    PnValueLabel *kind_label;
+    PnValueLabel *tty_label;
+    PnValueLabel *firmware_label;
+    PnValueLabel *node_num_label;
     PnInlineEditLabel *long_name_edit;
     PnInlineEditLabel *short_name_edit;
-    GtkLabel *hw_model_label;
-    GtkLabel *role_label;
-    GtkLabel *channels_label;
-    GtkLabel *caps_label;
+    PnValueLabel *hw_model_label;
+    PnValueLabel *role_label;
+    PnValueLabel *channels_label;
+    PnValueLabel *caps_label;
 
     /* Borrowed; lifetime is the dialog's, not the page's. */
     PnMeshConnection *connection;
@@ -103,17 +107,33 @@ identity_ctx_free (gpointer data)
 /*  Field row helpers                                                   */
 /* ------------------------------------------------------------------ */
 
-/* Row with a key label and an inline click-to-edit value on the right.
- * The value commits on Enter (or focus-out) and cancels on Escape via
- * the PnInlineEditLabel widget, so there is no separate Apply button --
- * confirming the edit is what triggers the device write. */
-static PnInlineEditLabel *
-attach_inline_edit_row (GtkGrid *grid, gint row, const gchar *key_text,
-                        gint max_length)
+/* A read-only readout row packed into @box: a #PnValueLabel whose key
+ * joins @key_sg so its value lines up with every other row's. */
+static PnValueLabel *
+add_value_row (GtkWidget *box, GtkSizeGroup *key_sg, const gchar *key_text)
 {
+    GtkWidget *v = pn_value_label_new (key_text);
+
+    pn_value_label_set_key_size_group (PN_VALUE_LABEL (v), key_sg);
+    gtk_box_pack_start (GTK_BOX (box), v, FALSE, FALSE, 0);
+    return PN_VALUE_LABEL (v);
+}
+
+/* Row with a key label and an inline click-to-edit value on the right,
+ * packed into @box.  The value commits on Enter (or focus-out) and
+ * cancels on Escape via the PnInlineEditLabel widget, so there is no
+ * separate Apply button -- confirming the edit is what triggers the
+ * device write.  The key joins @key_sg so it aligns with the value rows. */
+static PnInlineEditLabel *
+add_inline_edit_row (GtkWidget *box, GtkSizeGroup *key_sg,
+                     const gchar *key_text, gint max_length)
+{
+    GtkWidget *row  = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget *key  = pn_device_form_key_label (key_text);
     GtkWidget *edit = pn_inline_edit_label_new ();
 
-    gtk_grid_attach (grid, pn_device_form_key_label (key_text), 0, row, 1, 1);
+    gtk_size_group_add_widget (key_sg, key);
+    gtk_box_pack_start (GTK_BOX (row), key, FALSE, FALSE, 0);
 
     /* Mirror the device-enforced name limit client-side -- mostly so
      * the 4-character short name cannot grow past what the firmware
@@ -122,8 +142,9 @@ attach_inline_edit_row (GtkGrid *grid, gint row, const gchar *key_text,
                                          max_length);
     gtk_widget_set_hexpand (edit, TRUE);
     gtk_widget_set_sensitive (edit, FALSE);   /* disabled until connected */
-    gtk_grid_attach (grid, edit, 1, row, 1, 1);
+    gtk_box_pack_start (GTK_BOX (row), edit, TRUE, TRUE, 0);
 
+    gtk_box_pack_start (GTK_BOX (box), row, FALSE, FALSE, 0);
     return PN_INLINE_EDIT_LABEL (edit);
 }
 
@@ -314,11 +335,11 @@ on_short_name_committed (PnInlineEditLabel *edit, const gchar *text,
 GtkWidget *
 pn_mesh_page_identity_new (void)
 {
-    GtkWidget   *page;
-    GtkWidget   *subtitle;
-    GtkWidget   *grid;
-    IdentityCtx *ctx;
-    gint         row = 0;
+    GtkWidget    *page;
+    GtkWidget    *subtitle;
+    GtkWidget    *rows;
+    GtkSizeGroup *key_sg;
+    IdentityCtx  *ctx;
 
     /* Hosted inside a GtkExpander, so the outer box wears small
      * margins and skips a redundant title row (the expander header
@@ -342,28 +363,33 @@ pn_mesh_page_identity_new (void)
     }
     gtk_box_pack_start (GTK_BOX (page), subtitle, FALSE, FALSE, 0);
 
-    grid = gtk_grid_new ();
-    gtk_grid_set_row_spacing    (GTK_GRID (grid), 6);
-    gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
-    gtk_widget_set_margin_top   (grid, 12);
-    gtk_box_pack_start (GTK_BOX (page), grid, FALSE, FALSE, 0);
+    /* A packed column of rows rather than a grid: each read-only row is a
+     * standalone PnValueLabel, the two writable rows are inline editors,
+     * and one shared size group on every key keeps the values aligned. */
+    rows = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_top (rows, 12);
+    gtk_box_pack_start (GTK_BOX (page), rows, FALSE, FALSE, 0);
+    key_sg = gtk_size_group_new (GTK_SIZE_GROUP_HORIZONTAL);
+    /* The page owns the group's ref; it dies with the widget tree. */
+    g_object_set_data_full (G_OBJECT (page), "pn-identity-key-sg",
+                            key_sg, g_object_unref);
 
     ctx = g_slice_new0 (IdentityCtx);
 
-    ctx->kind_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Device");
-    ctx->tty_label      = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Serial port");
-    ctx->firmware_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Firmware");
-    ctx->node_num_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Mesh node #");
+    ctx->kind_label     = add_value_row (rows, key_sg, "Device");
+    ctx->tty_label      = add_value_row (rows, key_sg, "Serial port");
+    ctx->firmware_label = add_value_row (rows, key_sg, "Firmware");
+    ctx->node_num_label = add_value_row (rows, key_sg, "Mesh node #");
 
-    ctx->long_name_edit = attach_inline_edit_row (
-            GTK_GRID (grid), row++, "Long name", PN_MESH_LONG_NAME_MAX);
-    ctx->short_name_edit = attach_inline_edit_row (
-            GTK_GRID (grid), row++, "Short name", PN_MESH_SHORT_NAME_MAX);
+    ctx->long_name_edit = add_inline_edit_row (
+            rows, key_sg, "Long name", PN_MESH_LONG_NAME_MAX);
+    ctx->short_name_edit = add_inline_edit_row (
+            rows, key_sg, "Short name", PN_MESH_SHORT_NAME_MAX);
 
-    ctx->hw_model_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Hardware model");
-    ctx->role_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Role");
-    ctx->caps_label     = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Capabilities");
-    ctx->channels_label = pn_device_form_attach_label_row (GTK_GRID (grid), row++, "Channels");
+    ctx->hw_model_label = add_value_row (rows, key_sg, "Hardware model");
+    ctx->role_label     = add_value_row (rows, key_sg, "Role");
+    ctx->caps_label     = add_value_row (rows, key_sg, "Capabilities");
+    ctx->channels_label = add_value_row (rows, key_sg, "Channels");
 
     g_object_set_data_full (G_OBJECT (page), PN_MESH_PAGE_CTX_QDATA,
                             ctx, identity_ctx_free);
@@ -399,7 +425,7 @@ refresh_from_state (GtkWidget *page)
     if (state == NULL)
         return;
 
-    pn_device_form_set_value (ctx->firmware_label,
+    pn_value_label_set_value (ctx->firmware_label,
                state->have_metadata ? state->firmware_version : NULL);
 
     {
@@ -407,7 +433,7 @@ refresh_from_state (GtkWidget *page)
                 ? g_strdup_printf ("%u (%s)",
                                    state->my_node_num, state->owner_id)
                 : g_strdup_printf ("%u", state->my_node_num);
-        pn_device_form_set_value (ctx->node_num_label, node_text);
+        pn_value_label_set_value (ctx->node_num_label, node_text);
         g_free (node_text);
     }
 
@@ -433,7 +459,7 @@ refresh_from_state (GtkWidget *page)
         guint32 hw = state->have_metadata && state->hw_model != 0
                 ? state->hw_model : state->owner_hw_model;
         gchar *txt = hw != 0 ? pn_mesh_format_hw_model (hw) : g_strdup ("—");
-        pn_device_form_set_value (ctx->hw_model_label, txt);
+        pn_value_label_set_value (ctx->hw_model_label, txt);
         g_free (txt);
     }
 
@@ -442,18 +468,18 @@ refresh_from_state (GtkWidget *page)
         if (role != NULL)
         {
             gchar *txt = g_strdup_printf ("%s (#%u)", role, state->role);
-            pn_device_form_set_value (ctx->role_label, txt);
+            pn_value_label_set_value (ctx->role_label, txt);
             g_free (txt);
         }
         else
         {
-            pn_device_form_set_value (ctx->role_label, NULL);
+            pn_value_label_set_value (ctx->role_label, NULL);
         }
     }
 
     {
         gchar *caps = state->have_metadata ? format_caps (state) : NULL;
-        pn_device_form_set_value (ctx->caps_label, caps);
+        pn_value_label_set_value (ctx->caps_label, caps);
         g_free (caps);
     }
 
@@ -465,7 +491,7 @@ refresh_from_state (GtkWidget *page)
                                    active, state->channels->len);
         else
             txt = g_strdup_printf ("%u", active);
-        pn_device_form_set_value (ctx->channels_label, txt);
+        pn_value_label_set_value (ctx->channels_label, txt);
         g_free (txt);
     }
 }
@@ -485,19 +511,19 @@ pn_mesh_page_identity_set_state (GtkWidget         *page,
 
     ctx->connection = connection;
 
-    pn_device_form_set_value (ctx->kind_label, device_kind);
-    pn_device_form_set_value (ctx->tty_label,  tty_path);
+    pn_value_label_set_value (ctx->kind_label, device_kind);
+    pn_value_label_set_value (ctx->tty_label,  tty_path);
 
     if (state == NULL)
     {
-        pn_device_form_set_value (ctx->firmware_label, NULL);
-        pn_device_form_set_value (ctx->node_num_label, NULL);
+        pn_value_label_set_value (ctx->firmware_label, NULL);
+        pn_value_label_set_value (ctx->node_num_label, NULL);
         pn_inline_edit_label_set_text (ctx->long_name_edit, "");
         pn_inline_edit_label_set_text (ctx->short_name_edit, "");
-        pn_device_form_set_value (ctx->hw_model_label, NULL);
-        pn_device_form_set_value (ctx->role_label,     NULL);
-        pn_device_form_set_value (ctx->caps_label,     NULL);
-        pn_device_form_set_value (ctx->channels_label, NULL);
+        pn_value_label_set_value (ctx->hw_model_label, NULL);
+        pn_value_label_set_value (ctx->role_label,     NULL);
+        pn_value_label_set_value (ctx->caps_label,     NULL);
+        pn_value_label_set_value (ctx->channels_label, NULL);
         set_writing (ctx, FALSE);   /* re-evaluate Apply enable */
         return;
     }
