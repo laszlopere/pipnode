@@ -53,6 +53,44 @@
         "sun-color" : "rgb(250,204,46)",
         "text-color" : "rgb(33,41,51)"
       }
+    },
+    {
+      "type" : "PnAstronomical",
+      "uuid" : "193b73cc-1987-4840-8515-9f38d55030e6",
+      "name" : "Astronomical 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "period" : 60,
+        "city" : "Tokyo",
+        "datum" : "The Sun is up"
+      }
+    },
+    {
+      "type" : "PnSunPath",
+      "uuid" : "5afd6b92-4bce-4271-9998-30decdb485da",
+      "name" : "Sun Path 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "view-yaw" : 1.83990478515625,
+        "view-pitch" : 23.45709228515625,
+        "house-heading" : 18.0,
+        "show-house" : true,
+        "background-color" : "rgb(92,133,189)",
+        "background-color2" : "rgb(219,212,184)",
+        "background-gradient" : "Vertical",
+        "ground-color" : "rgba(107,140,128,0.55)",
+        "path-color" : "rgb(33,115,102)",
+        "sun-color" : "rgb(250,204,46)",
+        "text-color" : "rgb(33,41,51)"
+      }
     }
   ],
   "connections" : [
@@ -63,6 +101,10 @@
     {
       "source_id" : "42f8cc15-4a2e-409b-b8f4-df905d61f262",
       "target_id" : "32dd2204-9d8d-4bb9-9719-8817afb91634"
+    },
+    {
+      "source_id" : "193b73cc-1987-4840-8515-9f38d55030e6",
+      "target_id" : "5afd6b92-4bce-4271-9998-30decdb485da"
     }
   ],
   "sheets" : [
