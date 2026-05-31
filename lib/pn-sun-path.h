@@ -78,6 +78,10 @@ typedef enum
 
 void pn_sun_path_rotate (PnSunPath *self, gdouble dyaw, gdouble dpitch);
 
+/* Spin the house about its own vertical axis by @ddeg degrees (wraps).
+ * Driven by the mouse wheel while the card is in the zoom overlay. */
+void pn_sun_path_spin_house (PnSunPath *self, gdouble ddeg);
+
 /* ------------------------------------------------------------------ */
 /*  GUI read seam (GTK-free)                                           */
 /*                                                                     */
@@ -98,6 +102,9 @@ typedef struct
     /* Orbit camera. */
     gdouble  yaw;       /* degrees, 0..360 */
     gdouble  pitch;     /* degrees, tilt above the horizon plane */
+
+    /* House heading: the direction the ridge faces, degrees, 0..360. */
+    gdouble  house_heading;
 
     /* Latest reading.  When @have_data is %FALSE the painter shows the
      * "waiting" notice; when @success is %FALSE it shows @output. */

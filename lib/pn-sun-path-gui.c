@@ -345,9 +345,14 @@ paint_underground_arc (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
 /*  House faces (appended to the depth-sorted primitive list)          */
 /* ------------------------------------------------------------------ */
 
+/* Append a flat-shaded face.  When @depth_override is finite it is used
+ * as the sort key instead of the face centroid — the solar panels use it
+ * to ride exactly in front of their roof slope rather than sorting on
+ * their own tiny centroids (which flips them behind the roof at some
+ * angles). */
 static void
-add_face (GArray *prims, const Cam *c, const PnColor *base,
-          const V3 *world, int n)
+add_face_ex (GArray *prims, const Cam *c, const PnColor *base,
+             const V3 *world, int n, double depth_override)
 {
     Prim   prim;
     V3     cm[5];
@@ -368,6 +373,8 @@ add_face (GArray *prims, const Cam *c, const PnColor *base,
         depth += cm[i].y;
     }
     depth /= n;
+    if (isfinite (depth_override))
+        depth = depth_override;
 
     /* Flat-shade from the camera-space normal, oriented toward the
      * viewer so the lit side is always the one we see. */
@@ -395,20 +402,29 @@ add_face (GArray *prims, const Cam *c, const PnColor *base,
     g_array_append_val (prims, prim);
 }
 
-/* Rigid quarter-turn of the house about the vertical axis: (x,y) ->
- * (-y, x).  Applied to every vertex so the ridge runs east-west. */
-static V3
-rot_z90 (V3 p)
+static void
+add_face (GArray *prims, const Cam *c, const PnColor *base,
+          const V3 *world, int n)
 {
-    V3 o = { -p.y, p.x, p.z };
+    add_face_ex (prims, c, base, world, n, (double) NAN);
+}
+
+/* Rotate @p about the vertical (z) axis by @deg degrees. */
+static V3
+rot_z (V3 p, double deg)
+{
+    double a  = deg * DEG;
+    double ca = cos (a), sa = sin (a);
+    V3 o = { p.x * ca - p.y * sa, p.x * sa + p.y * ca, p.z };
     return o;
 }
 
 /* The ten house vertices — b0..b3 base (z=0), w0..w3 wall top (z=hw),
- * r0/r1 ridge ends — turned 90°.  Shared by the house painter and the
- * shadow projector so the two always describe the same solid. */
+ * r0/r1 ridge ends — turned by @heading degrees about the vertical axis.
+ * Shared by the house painter, the shadow projector and the solar-panel
+ * tiler so they always describe the same solid. */
 static void
-house_vertices (V3 v[10])
+house_vertices (V3 v[10], double heading)
 {
     const double s  = HOUSE_HALF;
     const double hw = HOUSE_WALL;
@@ -421,11 +437,94 @@ house_vertices (V3 v[10])
     int i;
 
     for (i = 0; i < 10; i++)
-        v[i] = rot_z90 (base[i]);
+        v[i] = rot_z (base[i], heading);
+}
+
+/* Bilinear point on the roof quad with corners a(0,0) b(1,0) cc(1,1)
+ * d(0,1). */
+static V3
+quad_lerp (V3 a, V3 b, V3 cc, V3 d, double u, double t)
+{
+    double k00 = (1 - u) * (1 - t), k10 = u * (1 - t);
+    double k11 = u * t,             k01 = (1 - u) * t;
+    V3 r = {
+        k00 * a.x + k10 * b.x + k11 * cc.x + k01 * d.x,
+        k00 * a.y + k10 * b.y + k11 * cc.y + k01 * d.y,
+        k00 * a.z + k10 * b.z + k11 * cc.z + k01 * d.z,
+    };
+    return r;
+}
+
+/* Tile little dark rectangles over the w1-w2 roof slope (eave up to the
+ * ridge) so it reads as a solar array.  Every panel is given the slope's
+ * own sort depth (a hair in front), so the whole array paints as one unit
+ * right on top of that slope instead of each tile sorting on its own tiny
+ * centroid — which otherwise flips some tiles behind the roof as the
+ * scene turns and makes them blink out.  A small outward lift keeps them
+ * off the surface; the panels still only show when the slope faces the
+ * viewer, since they inherit its depth. */
+static void
+add_solar_panels (GArray *prims, const Cam *c, const V3 *v)
+{
+    const PnColor panel = { 0.05, 0.06, 0.11, 1.0 };
+    const int     cols  = 3;     /* along the ridge */
+    const int     rows  = 2;     /* eave -> ridge   */
+    const double  pad_u = 0.16;  /* side margin (along ridge), slope fraction */
+    const double  pad_t = 0.09;  /* eave/ridge margin — smaller, so the
+                                  * panels run ~20% taller up the slope */
+    const double  inset = 0.10;  /* gap fraction within each cell */
+    const double  lift  = 0.010; /* nudge off the roof, world units */
+    /* Slope corners: eave a=w1, b=w2 ; ridge d=r0 (over w1), cc=r1. */
+    V3     a = v[5], b = v[6], cc = v[9], d = v[8];
+    V3     nrm;
+    double len, slope_depth;
+    double cw = (1.0 - 2.0 * pad_u) / cols;   /* cell size in slope fraction */
+    double ch = (1.0 - 2.0 * pad_t) / rows;
+    int    i, j, k;
+
+    /* Outward roof normal (world), oriented up-and-out. */
+    {
+        V3 e1 = { b.x - a.x, b.y - a.y, b.z - a.z };
+        V3 e2 = { d.x - a.x, d.y - a.y, d.z - a.z };
+        nrm.x = e1.y * e2.z - e1.z * e2.y;
+        nrm.y = e1.z * e2.x - e1.x * e2.z;
+        nrm.z = e1.x * e2.y - e1.y * e2.x;
+        len = sqrt (nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z);
+        if (len < 1e-9) len = 1.0;
+        nrm.x /= len; nrm.y /= len; nrm.z /= len;
+        if (nrm.z < 0.0) { nrm.x = -nrm.x; nrm.y = -nrm.y; nrm.z = -nrm.z; }
+    }
+
+    /* The slope's centroid depth; panels sort just in front of it. */
+    slope_depth = (to_cam (c, a).y + to_cam (c, b).y +
+                   to_cam (c, cc).y + to_cam (c, d).y) * 0.25 - 0.02;
+
+    /* The 3x2 array is inset by @pad_u / @pad_t on each side, so it sits
+     * centred on the slope; each panel is its cell shrunk by @inset,
+     * leaving a gap of 2*@inset of a cell between neighbours. */
+    for (j = 0; j < rows; j++)
+        for (i = 0; i < cols; i++)
+        {
+            double u0 = pad_u + (i + inset) * cw, u1 = pad_u + (i + 1 - inset) * cw;
+            double t0 = pad_t + (j + inset) * ch, t1 = pad_t + (j + 1 - inset) * ch;
+            V3 p[4] = {
+                quad_lerp (a, b, cc, d, u0, t0),
+                quad_lerp (a, b, cc, d, u1, t0),
+                quad_lerp (a, b, cc, d, u1, t1),
+                quad_lerp (a, b, cc, d, u0, t1),
+            };
+            for (k = 0; k < 4; k++)
+            {
+                p[k].x += nrm.x * lift;
+                p[k].y += nrm.y * lift;
+                p[k].z += nrm.z * lift;
+            }
+            add_face_ex (prims, c, &panel, p, 4, slope_depth);
+        }
 }
 
 static void
-add_house (GArray *prims, const Cam *c)
+add_house (GArray *prims, const Cam *c, const PnSunPathSnapshot *s)
 {
     /* Wall white and a slightly warmer roof so the planes read apart
      * even before the shading. */
@@ -434,20 +533,23 @@ add_house (GArray *prims, const Cam *c)
     V3  v[10];
     V3  b0, b1, b2, b3, w0, w1, w2, w3, r0, r1;
 
-    house_vertices (v);
+    house_vertices (v, s->house_heading);
     b0 = v[0]; b1 = v[1]; b2 = v[2]; b3 = v[3];
     w0 = v[4]; w1 = v[5]; w2 = v[6]; w3 = v[7];
     r0 = v[8]; r1 = v[9];
 
     /* Two plain walls and two gable-end pentagons (up to the ridge),
      * then the two roof slopes.  The face topology is the un-rotated
-     * house's; the quarter-turn is baked into the vertices. */
+     * house's; the heading turn is baked into the vertices. */
     add_face (prims, c, &wall, (V3[]){ b1, b2, w2, w1 }, 4);
     add_face (prims, c, &wall, (V3[]){ b3, b0, w0, w3 }, 4);
     add_face (prims, c, &wall, (V3[]){ b0, b1, w1, r0, w0 }, 5);
     add_face (prims, c, &wall, (V3[]){ b2, b3, w3, r1, w2 }, 5);
     add_face (prims, c, &roof, (V3[]){ w1, w2, r1, r0 }, 4);
     add_face (prims, c, &roof, (V3[]){ w3, w0, r0, r1 }, 4);
+
+    /* Solar panels on the first slope. */
+    add_solar_panels (prims, c, v);
 }
 
 /* ------------------------------------------------------------------ */
@@ -527,7 +629,7 @@ paint_shadow (const Cam *c, const PnSunPathSnapshot *s, cairo_t *cr)
 
     cot = cos (alt) / sin (alt);
 
-    house_vertices (v);
+    house_vertices (v, s->house_heading);
     for (i = 0; i < 10; i++)
     {
         gp[i].x = v[i].x - v[i].z * cot * sin (az);
@@ -800,7 +902,7 @@ paint_scene (const PnSunPathSnapshot *s, cairo_t *cr,
     prims = g_array_new (FALSE, FALSE, sizeof (Prim));
     add_arc (prims, &c, s);
     if (s->show_house)
-        add_house (prims, &c);
+        add_house (prims, &c, s);
     add_labels (prims, &c, s);
     if (s->have_data && s->success)
         add_sun (prims, &c, s);

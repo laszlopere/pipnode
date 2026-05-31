@@ -112,6 +112,10 @@ struct _PnSunPath
     gdouble yaw;
     gdouble pitch;
 
+    /* House heading: which way the ridge faces, spun by the mouse wheel
+     * in the zoom overlay (serialised). */
+    gdouble house_heading;
+
     /* Display config. */
     PnColor      sky_color;
     PnColor      sky_color2;
@@ -129,6 +133,7 @@ enum {
     PROP_0,
     PROP_VIEW_YAW,
     PROP_VIEW_PITCH,
+    PROP_HOUSE_HEADING,
     PROP_SHOW_HOUSE,
     PROP_SKY_COLOR,
     PROP_SKY_COLOR2,
@@ -324,6 +329,36 @@ pn_sun_path_rotate (PnSunPath *self, gdouble dyaw, gdouble dpitch)
     pn_node_request_repaint (PN_NODE (self));
 }
 
+void
+pn_sun_path_spin_house (PnSunPath *self, gdouble ddeg)
+{
+    gdouble h;
+
+    g_return_if_fail (PN_IS_SUN_PATH (self));
+
+    if (ddeg == 0.0)
+        return;
+
+    h = fmod (self->house_heading + ddeg, 360.0);
+    if (h < 0.0)
+        h += 360.0;
+
+    if (h != self->house_heading)
+    {
+        self->house_heading = h;
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HOUSE_HEADING]);
+        pn_node_request_repaint (PN_NODE (self));
+    }
+}
+
+/* Mouse-wheel handler, invoked by the worksheet while the card is the
+ * zoom overlay: spin the house a chunk of a turn per notch. */
+static void
+pn_sun_path_scroll (PnNode *node, double dy)
+{
+    pn_sun_path_spin_house (PN_SUN_PATH (node), dy * 12.0);
+}
+
 /* ------------------------------------------------------------------ */
 /*  GUI read seam (GTK-free)                                           */
 /* ------------------------------------------------------------------ */
@@ -334,8 +369,9 @@ pn_sun_path_get_snapshot (PnSunPath *self, PnSunPathSnapshot *out)
     g_return_if_fail (PN_IS_SUN_PATH (self));
     g_return_if_fail (out != NULL);
 
-    out->yaw          = self->yaw;
-    out->pitch        = self->pitch;
+    out->yaw           = self->yaw;
+    out->pitch         = self->pitch;
+    out->house_heading = self->house_heading;
 
     out->have_data    = self->have_data;
     out->success      = self->success;
@@ -397,6 +433,7 @@ pn_sun_path_get_property (GObject    *object,
     {
     case PROP_VIEW_YAW:      g_value_set_double  (value, self->yaw);          break;
     case PROP_VIEW_PITCH:    g_value_set_double  (value, self->pitch);        break;
+    case PROP_HOUSE_HEADING: g_value_set_double  (value, self->house_heading);break;
     case PROP_SHOW_HOUSE:    g_value_set_boolean (value, self->show_house);   break;
     case PROP_SKY_GRADIENT:  g_value_set_enum    (value, self->sky_gradient); break;
     case PROP_SKY_COLOR:     g_value_set_boxed   (value, &self->sky_color);   break;
@@ -456,6 +493,18 @@ pn_sun_path_set_property (GObject      *object,
             {
                 self->pitch = v;
                 g_object_notify_by_pspec (object, props[PROP_VIEW_PITCH]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_HOUSE_HEADING:
+        {
+            gdouble v = fmod (g_value_get_double (value), 360.0);
+            if (v < 0.0) v += 360.0;
+            if (self->house_heading != v)
+            {
+                self->house_heading = v;
+                g_object_notify_by_pspec (object, props[PROP_HOUSE_HEADING]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -526,6 +575,9 @@ pn_sun_path_class_init (PnSunPathClass *klass)
     node_class->receive           = pn_sun_path_receive;
     node_class->get_size          = pn_sun_path_get_size;
     node_class->get_header_height  = pn_sun_path_get_header_height;
+    /* Mouse wheel over the lifted card spins the house (GTK-free, so the
+     * slot is wired here in the core rather than the gui tier). */
+    node_class->scroll            = pn_sun_path_scroll;
     /* The cairo 3D scene painter (paint_plot + the keep-aspect zoom flag)
      * is installed onto this class by the gui tier —
      * pn_sun_path_gui_install() in pn-sun-path-gui.c — so the headless
@@ -549,6 +601,9 @@ pn_sun_path_class_init (PnSunPathClass *klass)
         pn_settings_schema_row_flags (schema, "view-yaw", PN_ROW_FLAG_HIDDEN);
         pn_settings_schema_row       (schema, "view-pitch", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "view-pitch", PN_ROW_FLAG_HIDDEN);
+        /* The house heading is spun by the mouse wheel, not the dialog. */
+        pn_settings_schema_row       (schema, "house-heading", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "house-heading", PN_ROW_FLAG_HIDDEN);
         pn_node_class_set_settings_schema (node_class, schema);
     }
 
@@ -563,6 +618,13 @@ pn_sun_path_class_init (PnSunPathClass *klass)
             "Camera tilt above the horizon plane in degrees; driven by "
             "dragging the lifted card",
             PN_SP_PITCH_MIN, PN_SP_PITCH_MAX, PN_SP_DEFAULT_PITCH,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_HOUSE_HEADING] = g_param_spec_double (
+            "house-heading", "House heading",
+            "Direction the house ridge faces in degrees; spun by the mouse "
+            "wheel over the lifted card",
+            0.0, 360.0, 90.0,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_SHOW_HOUSE] = g_param_spec_boolean (
@@ -630,6 +692,7 @@ pn_sun_path_init (PnSunPath *self)
     self->success      = TRUE;
     self->yaw          = PN_SP_DEFAULT_YAW;
     self->pitch        = PN_SP_DEFAULT_PITCH;
+    self->house_heading = 90.0;   /* ridge east-west, as first shipped */
     self->show_house   = TRUE;
 
     /* A dusk-sky default: a soft blue fading to a warm horizon, a muted
