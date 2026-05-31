@@ -8,13 +8,14 @@
       "name" : "Weather 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 40.0,
-        "y" : 100.0
+        "x" : 60.0,
+        "y" : 140.0
       },
       "properties" : {
         "period" : 600,
         "url" : "https://api.open-meteo.com/v1/forecast",
-        "city" : "Budapest"
+        "city" : "Budapest",
+        "provider" : "Open-Meteo (global)"
       }
     },
     {
@@ -22,6 +23,7 @@
       "uuid" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5",
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
         "x" : 280.0,
         "y" : 60.0
@@ -51,16 +53,61 @@
         "background-color2" : "rgb(204,227,247)",
         "background-gradient" : "Diagonal"
       }
+    },
+    {
+      "type" : "PnWeather",
+      "uuid" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
+      "name" : "Weather 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.brightsky.dev/current_weather",
+        "city" : "Berlin",
+        "provider" : "Bright Sky (Germany / central Europe)"
+      }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "de588059-f331-4b0f-9624-a8af9054b519",
+      "name" : "Weather Report 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa",
+        "font-color" : "rgb(33,33,33)",
+        "secondary-font-color" : "rgb(117,117,117)",
+        "background-color" : "rgb(255,255,255)",
+        "background-color2" : "rgb(204,227,247)",
+        "background-gradient" : "Solid (no gradient)"
+      }
     }
   ],
   "connections" : [
     {
       "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "target_id" : "4e3b11c7-cbae-4c90-a267-cef50515fff9"
+    },
+    {
+      "source_id" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
+      "target_id" : "de588059-f331-4b0f-9624-a8af9054b519"
+    },
+    {
+      "source_id" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
       "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
     },
     {
       "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
-      "target_id" : "4e3b11c7-cbae-4c90-a267-cef50515fff9"
+      "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
     }
   ],
   "sheets" : [

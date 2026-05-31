@@ -15,20 +15,32 @@
 </p>
 <p>
 Auto-triggered source that polls the current weather for a named place
-from <a href="https://open-meteo.com/">Open-Meteo</a>, a free, key-less
-API. It is a specialised <em>Http Client</em>: each tick first resolves
-the configured city to latitude/longitude through Open-Meteo's geocoding
-endpoint (the result is cached until the city changes), then fetches the
-forecast for those coordinates. Because that is two requests rather than
-one, the node overrides the plain HTTP trigger while still reusing the
-same <code>curl</code> worker for the forecast fetch.
+from one of two free, key-less providers (selected with the
+<code>provider</code> property):
+</p>
+<ul>
+  <li><a href="https://open-meteo.com/">Open-Meteo</a> &mdash; global
+      coverage; the default.</li>
+  <li><a href="https://brightsky.dev/">Bright Sky</a> &mdash; DWD open
+      data, covering <strong>Germany and parts of central Europe</strong>
+      only. Outside that area the fetch reports that no station is near
+      the location; switch back to Open-Meteo for worldwide coverage.</li>
+</ul>
+<p>
+It is a specialised <em>Http Client</em>: each tick first resolves the
+configured city to latitude/longitude through Open-Meteo's geocoding
+endpoint (which is global and shared by both providers; the result is
+cached until the city changes), then fetches the forecast for those
+coordinates. Because that is two requests rather than one, the node
+overrides the plain HTTP trigger while still reusing the same
+<code>curl</code> worker for the forecast fetch.
 </p>
 <p>
 The default cadence is <strong>10&nbsp;minutes</strong> &mdash; weather
-moves slowly and Open-Meteo updates roughly hourly, so this stays well
-clear of the free tier's rate limits. Changing the <code>city</code>
-re-geocodes and fetches within seconds rather than waiting for the next
-period. While the city is empty the node enters its red
+moves slowly and the providers update roughly hourly, so this stays well
+clear of either free tier's rate limits. Changing the <code>city</code>
+or <code>provider</code> re-fetches within seconds rather than waiting
+for the next period. While the city is empty the node enters its red
 configuration-required state and does not poll.
 </p>
 
@@ -53,9 +65,10 @@ message carries these data-bag members:
   <tr><td><code>wind_speed</code></td>
       <td>Wind speed at 10&nbsp;m, km/h.</td></tr>
   <tr><td><code>weather_code</code></td>
-      <td>WMO weather code (integer).</td></tr>
+      <td>WMO weather code (integer). Open-Meteo only &mdash; Bright Sky
+          reports conditions as text, so it omits this.</td></tr>
   <tr><td><code>description</code></td>
-      <td>Human label for the weather code.</td></tr>
+      <td>Human label for the current conditions.</td></tr>
   <tr><td><code>city</code> / <code>country</code></td>
       <td>The resolved place.</td></tr>
   <tr><td><code>latitude</code> / <code>longitude</code></td>
@@ -76,10 +89,15 @@ message carries these data-bag members:
           <code>Berlin, US</code>). Resolved to coordinates via
           Open-Meteo's geocoding service before each forecast fetch.
           Required.</td></tr>
+  <tr><td><code>provider</code></td>
+      <td>Forecast source: <em>Open-Meteo</em> (global, default) or
+          <em>Bright Sky</em> (Germany / central Europe). Changing it
+          re-points <code>url</code> at that provider's default endpoint
+          and re-fetches.</td></tr>
   <tr><td><code>url</code></td>
-      <td>Open-Meteo forecast endpoint. Defaults to the public service;
-          point it at a self-hosted instance if you run one. The
-          geocoding endpoint is fixed.</td></tr>
+      <td>Forecast endpoint for the selected provider. Defaults to the
+          public service; point it at a self-hosted instance if you run
+          one. The geocoding endpoint is fixed.</td></tr>
   <tr><td><code>period</code></td>
       <td>Seconds between fetches (default 600).</td></tr>
 </table>

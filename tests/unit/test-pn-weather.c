@@ -152,6 +152,115 @@ test_code_description (void)
     PN_CHECK_CMPSTR (pn_weather_code_description (9999), ==, "Unknown conditions");
 }
 
+/* ---- Bright Sky parse seam ------------------------------------------ */
+
+static void
+test_bright_sky_full_reading (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    JsonObject       *o = root_object (
+        "{\"weather\":{"
+        "\"temperature\":21.9,"
+        "\"relative_humidity\":46,"
+        "\"wind_speed_10\":21.6,"
+        "\"condition\":\"dry\","
+        "\"icon\":\"partly-cloudy-day\"}}", &keep);
+
+    PN_CHECK (pn_weather_parse_bright_sky_current (o, &c));
+    PN_CHECK_NEAR  (c.temperature, 21.9, 1e-9);
+    PN_CHECK (c.has_humidity);
+    PN_CHECK_NEAR  (c.humidity, 46.0, 1e-9);
+    PN_CHECK (c.has_wind);
+    PN_CHECK_NEAR  (c.wind_speed, 21.6, 1e-9);
+    /* Bright Sky carries no WMO code; the label rides on description. */
+    PN_CHECK_FALSE (c.has_code);
+    PN_CHECK_CMPSTR (c.description, ==, "Partly cloudy");
+    PN_CHECK (c.reason == NULL);
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_bright_sky_temperature_only (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    JsonObject       *o = root_object (
+        "{\"weather\":{\"temperature\":-4,\"icon\":null,"
+        "\"condition\":null}}", &keep);
+
+    /* Temperature alone is usable; null icon/condition fall through to
+     * the generic label and the optional fields stay un-flagged. */
+    PN_CHECK (pn_weather_parse_bright_sky_current (o, &c));
+    PN_CHECK_NEAR (c.temperature, -4.0, 1e-9);
+    PN_CHECK_FALSE (c.has_humidity);
+    PN_CHECK_FALSE (c.has_wind);
+    PN_CHECK_CMPSTR (c.description, ==, "Unknown conditions");
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_bright_sky_detail_error (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    JsonObject       *o = root_object (
+        "{\"detail\":\"No sources match your criteria\"}", &keep);
+
+    /* Out-of-coverage answer: no reading, but the "detail" string is
+     * surfaced as the reason (mirrors Open-Meteo's "reason"). */
+    PN_CHECK_FALSE (pn_weather_parse_bright_sky_current (o, &c));
+    PN_CHECK_FALSE (c.ok);
+    PN_CHECK_CMPSTR (c.reason, ==, "No sources match your criteria");
+    PN_CHECK (c.description == NULL);
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_bright_sky_no_weather_and_null (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    JsonObject       *o = root_object ("{\"sources\":[]}", &keep);
+
+    PN_CHECK_FALSE (pn_weather_parse_bright_sky_current (o, &c));
+    PN_CHECK (c.reason == NULL);
+    g_object_unref (keep);
+
+    /* A NULL root (un-parseable body) is a safe no-op. */
+    PN_CHECK_FALSE (pn_weather_parse_bright_sky_current (NULL, &c));
+
+    g_free (c.reason);
+    g_free (c.description);
+}
+
+static void
+test_bright_sky_description (void)
+{
+    /* Icon wins when present. */
+    PN_CHECK_CMPSTR (pn_weather_bright_sky_description ("clear-night", "dry"),
+                     ==, "Clear sky");
+    PN_CHECK_CMPSTR (pn_weather_bright_sky_description ("thunderstorm", NULL),
+                     ==, "Thunderstorm");
+    /* Falls back to condition when icon is absent. */
+    PN_CHECK_CMPSTR (pn_weather_bright_sky_description (NULL, "rain"),
+                     ==, "Rain");
+    /* Both absent / unknown -> generic label. */
+    PN_CHECK_CMPSTR (pn_weather_bright_sky_description (NULL, NULL),
+                     ==, "Unknown conditions");
+    PN_CHECK_CMPSTR (pn_weather_bright_sky_description ("moonbeam", NULL),
+                     ==, "Unknown conditions");
+}
+
 int
 main (int argc, char **argv)
 {
@@ -162,5 +271,10 @@ main (int argc, char **argv)
     pn_test_add ("parse_current_no_temp",    test_parse_current_without_temperature);
     pn_test_add ("parse_no_current_and_null", test_parse_no_current_and_null);
     pn_test_add ("code_description",         test_code_description);
+    pn_test_add ("bright_sky_full_reading",  test_bright_sky_full_reading);
+    pn_test_add ("bright_sky_temp_only",     test_bright_sky_temperature_only);
+    pn_test_add ("bright_sky_detail_error",  test_bright_sky_detail_error);
+    pn_test_add ("bright_sky_no_weather",    test_bright_sky_no_weather_and_null);
+    pn_test_add ("bright_sky_description",   test_bright_sky_description);
     return pn_test_run ();
 }

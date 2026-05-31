@@ -16,15 +16,18 @@
 /* ------------------------------------------------------------------ */
 /*  PnWeather                                                          */
 /*                                                                     */
-/*  Polls current weather for a named place from Open-Meteo, a free,   */
-/*  key-less API.  Open-Meteo's forecast endpoint is keyed on          */
-/*  latitude/longitude, so a city name first has to be resolved to     */
-/*  coordinates through the separate geocoding endpoint.  That is two   */
-/*  HTTP requests, which does not fit #PnHttp's one-curl-per-tick       */
-/*  build_command/emit_message contract, so the trigger is overridden: */
-/*  it geocodes (caching the result until the city changes) and then    */
-/*  delegates to #PnHttp's own trigger for the forecast fetch, reusing  */
-/*  the curl spawn loop via build_command()/emit_message().            */
+/*  Polls current weather for a named place from one of two free,      */
+/*  key-less providers, chosen with the "provider" property:           */
+/*    - Open-Meteo (default) — global coverage.                        */
+/*    - Bright Sky           — DWD open data; Germany / central Europe. */
+/*  Both forecast endpoints are keyed on latitude/longitude, so a city  */
+/*  name first has to be resolved to coordinates through Open-Meteo's   */
+/*  (global) geocoding endpoint.  That is two HTTP requests, which does  */
+/*  not fit #PnHttp's one-curl-per-tick build_command/emit_message      */
+/*  contract, so the trigger is overridden: it geocodes (caching the    */
+/*  result until the city changes) and then delegates to #PnHttp's own  */
+/*  trigger for the forecast fetch, reusing the curl spawn loop via     */
+/*  build_command()/emit_message().                                     */
 /*                                                                     */
 /*  Emitted message (data bag):                                        */
 /*    success      - whether a current reading was obtained            */
@@ -32,8 +35,8 @@
 /*    temperature  - same as value, explicitly named                   */
 /*    humidity     - relative humidity, %                              */
 /*    wind_speed   - wind speed at 10 m, km/h                          */
-/*    weather_code - WMO weather code (integer)                        */
-/*    description  - human label for the weather code                  */
+/*    weather_code - WMO weather code (integer; Open-Meteo only)        */
+/*    description  - human label for the current conditions            */
 /*    city/country - the resolved place                                */
 /*    latitude/longitude - the resolved coordinates                    */
 /*    output       - one-line human summary                            */
@@ -58,6 +61,30 @@
 
 #define PN_WEATHER_FORECAST_URL    "https://api.open-meteo.com/v1/forecast"
 #define PN_WEATHER_GEOCODE_URL     "https://geocoding-api.open-meteo.com/v1/search"
+#define PN_WEATHER_BRIGHTSKY_URL   "https://api.brightsky.dev/current_weather"
+
+/* The "provider" property, registered as an enum so the settings dialog
+ * renders it as a combobox and it serialises by nick. */
+#define PN_TYPE_WEATHER_PROVIDER   (pn_weather_provider_get_type ())
+
+static GType
+pn_weather_provider_get_type (void)
+{
+    static gsize id = 0;
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_WEATHER_PROVIDER_OPEN_METEO, "PN_WEATHER_PROVIDER_OPEN_METEO",
+              "Open-Meteo (global)"                                            },
+            { PN_WEATHER_PROVIDER_BRIGHT_SKY, "PN_WEATHER_PROVIDER_BRIGHT_SKY",
+              "Bright Sky (Germany / central Europe)"                          },
+            { 0, NULL, NULL }
+        };
+        GType t = g_enum_register_static ("PnWeatherProvider", values);
+        g_once_init_leave (&id, t);
+    }
+    return id;
+}
 
 /* The "current" block we ask Open-Meteo for.  A handful of these are
  * promoted to named message members in pn_weather_emit_message(); the
@@ -85,6 +112,7 @@ struct _PnWeather
     GMutex   mutex;
 
     gchar   *city;          /* the configured place name (property)     */
+    PnWeatherProvider provider; /* which forecast provider (property)   */
 
     /* Cached geocoding result.  @geo_key is the city string the cached
      * coordinates belong to; when it differs from @city (or @have_coords
@@ -109,6 +137,7 @@ G_DEFINE_TYPE (PnWeather, pn_weather, PN_TYPE_HTTP)
 enum {
     PROP_0,
     PROP_CITY,
+    PROP_PROVIDER,
     N_PROPS,
 };
 
@@ -128,6 +157,34 @@ weather_dup_city_locked (PnWeather *self)
     g_mutex_unlock (&self->mutex);
 
     return copy;
+}
+
+static PnWeatherProvider
+weather_get_provider_locked (PnWeather *self)
+{
+    PnWeatherProvider p;
+
+    g_mutex_lock (&self->mutex);
+    p = self->provider;
+    g_mutex_unlock (&self->mutex);
+
+    return p;
+}
+
+/* Borrow a string member that may be absent or JSON null; %NULL when not
+ * a present string.  The result points into @obj's parser and is valid
+ * only while it lives. */
+static const gchar *
+obj_string (JsonObject *obj, const gchar *key)
+{
+    if (obj != NULL && json_object_has_member (obj, key))
+    {
+        JsonNode *n = json_object_get_member (obj, key);
+        if (JSON_NODE_HOLDS_VALUE (n) &&
+            json_node_get_value_type (n) == G_TYPE_STRING)
+            return json_node_get_string (n);
+    }
+    return NULL;
 }
 
 /* Read a JSON number that may be encoded as either a double or an
@@ -245,6 +302,94 @@ pn_weather_parse_current (JsonObject *root, PnWeatherCurrent *out)
     return out->ok;
 }
 
+/* Map a Bright Sky "icon" (the richer of its two condition fields) to a
+ * short English label, preferring the sky-state icon and falling back to
+ * the precipitation-type "condition" and then a generic string.  Bright
+ * Sky reports no WMO code, so this is how the conditions text is derived.
+ * Both arguments may be %NULL. */
+const gchar *
+pn_weather_bright_sky_description (const gchar *icon, const gchar *condition)
+{
+    if (icon != NULL)
+    {
+        if (!g_strcmp0 (icon, "clear-day") ||
+            !g_strcmp0 (icon, "clear-night"))         return "Clear sky";
+        if (!g_strcmp0 (icon, "partly-cloudy-day") ||
+            !g_strcmp0 (icon, "partly-cloudy-night")) return "Partly cloudy";
+        if (!g_strcmp0 (icon, "cloudy"))              return "Cloudy";
+        if (!g_strcmp0 (icon, "fog"))                 return "Fog";
+        if (!g_strcmp0 (icon, "wind"))                return "Windy";
+        if (!g_strcmp0 (icon, "rain"))                return "Rain";
+        if (!g_strcmp0 (icon, "sleet"))               return "Sleet";
+        if (!g_strcmp0 (icon, "snow"))                return "Snow";
+        if (!g_strcmp0 (icon, "hail"))                return "Hail";
+        if (!g_strcmp0 (icon, "thunderstorm"))        return "Thunderstorm";
+    }
+    if (condition != NULL)
+    {
+        if (!g_strcmp0 (condition, "dry"))            return "Clear";
+        if (!g_strcmp0 (condition, "fog"))            return "Fog";
+        if (!g_strcmp0 (condition, "rain"))           return "Rain";
+        if (!g_strcmp0 (condition, "sleet"))          return "Sleet";
+        if (!g_strcmp0 (condition, "snow"))           return "Snow";
+        if (!g_strcmp0 (condition, "hail"))           return "Hail";
+        if (!g_strcmp0 (condition, "thunderstorm"))   return "Thunderstorm";
+    }
+    return "Unknown conditions";
+}
+
+/* The Bright Sky counterpart of pn_weather_parse_current().  Bright Sky's
+ * /current_weather wraps the reading in a "weather" object and reports
+ * units that already match ours (°C, %RH, km/h), so the only shape
+ * differences are the member names and that conditions arrive as the
+ * "icon"/"condition" strings rather than a WMO code.  Pure: no I/O, no
+ * node state. */
+gboolean
+pn_weather_parse_bright_sky_current (JsonObject *root, PnWeatherCurrent *out)
+{
+    JsonNode *wn;
+
+    g_return_val_if_fail (out != NULL, FALSE);
+
+    if (root == NULL)
+        return FALSE;
+
+    /* Bright Sky reports problems as {"detail":"..."} (e.g. the HTTP 404
+     * "No sources match your criteria" returned outside its coverage). */
+    {
+        const gchar *detail = obj_string (root, "detail");
+        if (detail != NULL)
+            out->reason = g_strdup (detail);
+    }
+
+    if (!json_object_has_member (root, "weather"))
+        return out->ok;
+
+    wn = json_object_get_member (root, "weather");
+    if (JSON_NODE_HOLDS_OBJECT (wn))
+    {
+        JsonObject *w    = json_node_get_object (wn);
+        gdouble     temp = obj_number (w, "temperature",       (gdouble) NAN);
+        gdouble     hum  = obj_number (w, "relative_humidity", (gdouble) NAN);
+        /* Bright Sky exposes 10/30/60-minute wind averages; the 10-minute
+         * mean is the closest to "current". */
+        gdouble     wind = obj_number (w, "wind_speed_10",     (gdouble) NAN);
+
+        /* A finite temperature is the marker of a usable reading. */
+        if (isfinite (temp))
+        {
+            out->ok          = TRUE;
+            out->temperature = temp;
+            if (isfinite (hum))  { out->has_humidity = TRUE; out->humidity   = hum;  }
+            if (isfinite (wind)) { out->has_wind     = TRUE; out->wind_speed = wind; }
+            out->description = g_strdup (pn_weather_bright_sky_description (
+                    obj_string (w, "icon"), obj_string (w, "condition")));
+        }
+    }
+
+    return out->ok;
+}
+
 /* Build a curl command that GETs @url and prints the body followed by
  * the HTTP status sentinel that pn_http_split_body_and_status() looks
  * for.  Shared shape for both the geocoding and (via build_command)
@@ -303,12 +448,12 @@ weather_first_meaningful_line (const gchar *text)
     return NULL;
 }
 
-/* Parse @body as Open-Meteo's JSON error envelope and steal its
- * "reason" string; returns %NULL when the body is empty, not JSON, or
- * has no string-typed "reason" member.  Caller frees the result.  Used
- * to surface the provider's own explanation alongside the HTTP status
- * — Open-Meteo returns the rate-limit text in this field on HTTP 429,
- * and "No matching location found" on a real geocoding miss. */
+/* Parse @body as a provider JSON error envelope and steal its
+ * explanation string; returns %NULL when the body is empty, not JSON, or
+ * carries no such string.  Caller frees the result.  Used to surface the
+ * provider's own words alongside the HTTP status — Open-Meteo puts the
+ * rate-limit text and "No matching location found" in "reason", while
+ * Bright Sky uses "detail" (e.g. "No sources match your criteria"). */
 static gchar *
 weather_extract_reason (const gchar *body)
 {
@@ -326,14 +471,14 @@ weather_extract_reason (const gchar *body)
         root = json_parser_get_root (parser);
         if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
         {
+            const gchar *s;
+
             obj = json_node_get_object (root);
-            if (json_object_has_member (obj, "reason"))
-            {
-                JsonNode *rn = json_object_get_member (obj, "reason");
-                if (JSON_NODE_HOLDS_VALUE (rn) &&
-                    json_node_get_value_type (rn) == G_TYPE_STRING)
-                    reason = g_strdup (json_node_get_string (rn));
-            }
+            s = obj_string (obj, "reason");
+            if (s == NULL)
+                s = obj_string (obj, "detail");
+            if (s != NULL)
+                reason = g_strdup (s);
         }
     }
     g_object_unref (parser);
@@ -346,12 +491,13 @@ weather_extract_reason (const gchar *body)
  * Returns a newly-allocated string the caller frees.  Falls through to
  * a generic "request failed" when no field has anything useful. */
 static gchar *
-weather_format_http_error (const gchar *what,
-                           gboolean     spawned,
-                           gint         exit_status,
-                           const gchar *stderr_text,
-                           gint         http_status,
-                           const gchar *body)
+weather_format_http_error (const gchar      *what,
+                           PnWeatherProvider provider,
+                           gboolean          spawned,
+                           gint              exit_status,
+                           const gchar      *stderr_text,
+                           gint              http_status,
+                           const gchar      *body)
 {
     gchar *reason;
     gchar *err_line;
@@ -372,6 +518,18 @@ weather_format_http_error (const gchar *what,
                                 what, exit_status);
     }
 
+    /* Bright Sky answers HTTP 404 with "No sources match your criteria"
+     * for any location it has no nearby station for — which, for a
+     * geocoder that resolves the whole globe, mostly means "outside
+     * Bright Sky's coverage".  Translate that into an actionable hint
+     * rather than echoing the raw status. */
+    if (provider == PN_WEATHER_PROVIDER_BRIGHT_SKY && http_status == 404)
+        return g_strdup_printf (
+                "%s: Bright Sky has no weather station near this location. "
+                "It covers Germany and parts of central Europe \xe2\x80\x94 "
+                "switch the provider to Open-Meteo for worldwide coverage.",
+                what);
+
     reason = weather_extract_reason (body);
 
     if (http_status >= 400)
@@ -382,7 +540,7 @@ weather_format_http_error (const gchar *what,
                                    what, http_status, reason);
         else if (http_status == 429)
             out = g_strdup_printf (
-                    "%s rate-limited by Open-Meteo (HTTP 429). "
+                    "%s rate-limited by the weather provider (HTTP 429). "
                     "Increase the period and try again later.", what);
         else
             out = g_strdup_printf ("%s failed (HTTP %d).",
@@ -528,8 +686,10 @@ weather_geocode (PnWeather *self, const gchar *city)
         }
         else if (failure == NULL)
         {
+            /* Geocoding is always Open-Meteo's (global) endpoint,
+             * regardless of the selected forecast provider. */
             failure = weather_format_http_error (
-                    "Location lookup",
+                    "Location lookup", PN_WEATHER_PROVIDER_OPEN_METEO,
                     TRUE, exit_status, stderr_text, http_status, body);
         }
     }
@@ -673,31 +833,43 @@ pn_weather_is_configured (PnHttp *http)
 static gchar *
 pn_weather_build_command (PnHttp *http, guint timeout)
 {
-    PnWeather *self = PN_WEATHER (http);
-    gchar     *base = pn_http_dup_url (http);
-    gchar      latbuf[G_ASCII_DTOSTR_BUF_SIZE];
-    gchar      lonbuf[G_ASCII_DTOSTR_BUF_SIZE];
-    gdouble    lat, lon;
-    gchar     *full;
-    gchar     *cmd;
+    PnWeather        *self     = PN_WEATHER (http);
+    gchar            *base     = pn_http_dup_url (http);
+    PnWeatherProvider provider = weather_get_provider_locked (self);
+    gchar             latbuf[G_ASCII_DTOSTR_BUF_SIZE];
+    gchar             lonbuf[G_ASCII_DTOSTR_BUF_SIZE];
+    gdouble           lat, lon;
+    gchar            *full;
+    gchar            *cmd;
 
     g_mutex_lock (&self->mutex);
     lat = self->latitude;
     lon = self->longitude;
     g_mutex_unlock (&self->mutex);
 
-    /* Locale-independent formatting: the API wants a '.' decimal point
+    /* Locale-independent formatting: the APIs want a '.' decimal point
      * regardless of the host's LC_NUMERIC. */
     g_ascii_dtostr (latbuf, sizeof latbuf, lat);
     g_ascii_dtostr (lonbuf, sizeof lonbuf, lon);
 
-    /* timezone=auto makes Open-Meteo resolve the location's own timezone
-     * and stamp current.time in that local time; without it the API
-     * defaults to GMT, so the report's clock reads UTC. */
-    full = g_strdup_printf (
-            "%s?latitude=%s&longitude=%s&current=%s&timezone=auto",
-            base ? base : PN_WEATHER_FORECAST_URL,
-            latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
+    if (provider == PN_WEATHER_PROVIDER_BRIGHT_SKY)
+    {
+        /* Bright Sky's /current_weather takes lat/lon and returns the
+         * latest observation; no variable list or timezone knob. */
+        full = g_strdup_printf (
+                "%s?lat=%s&lon=%s",
+                base ? base : PN_WEATHER_BRIGHTSKY_URL, latbuf, lonbuf);
+    }
+    else
+    {
+        /* timezone=auto makes Open-Meteo resolve the location's own
+         * timezone and stamp current.time in that local time; without it
+         * the API defaults to GMT, so the report's clock reads UTC. */
+        full = g_strdup_printf (
+                "%s?latitude=%s&longitude=%s&current=%s&timezone=auto",
+                base ? base : PN_WEATHER_FORECAST_URL,
+                latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
+    }
     cmd = weather_curl_command (full, timeout);
 
     g_free (full);
@@ -723,13 +895,15 @@ pn_weather_emit_message (
     PnMessage   *msg;
     gchar       *name, *country;
     gdouble      lat, lon;
+    PnWeatherProvider provider;
 
-    /* Snapshot the resolved place for labelling the message. */
+    /* Snapshot the resolved place + selected provider for the message. */
     g_mutex_lock (&self->mutex);
-    name    = g_strdup (self->resolved_name);
-    country = g_strdup (self->country);
-    lat     = self->latitude;
-    lon     = self->longitude;
+    name     = g_strdup (self->resolved_name);
+    country  = g_strdup (self->country);
+    lat      = self->latitude;
+    lon      = self->longitude;
+    provider = self->provider;
     g_mutex_unlock (&self->mutex);
 
     /* weather_curl_command() includes the same HTTP-status sentinel as
@@ -773,16 +947,26 @@ pn_weather_emit_message (
                 pn_message_set_member (msg, "raw", json_node_copy (root));
 
             /* Pull the reading + any provider error out of the parsed
-             * body (see pn_weather_parse_current); the message/summary
+             * body with the matching provider parser; the message/summary
              * building below stays here because it needs the node's
              * resolved place name. */
             PnWeatherCurrent cur = { 0 };
 
-            pn_weather_parse_current (o, &cur);
+            if (provider == PN_WEATHER_PROVIDER_BRIGHT_SKY)
+                pn_weather_parse_bright_sky_current (o, &cur);
+            else
+                pn_weather_parse_current (o, &cur);
 
             if (cur.ok)
             {
-                GString *summary = g_string_new (NULL);
+                GString     *summary = g_string_new (NULL);
+                /* Open-Meteo carries a WMO code we map to a label; Bright
+                 * Sky already supplies the label in cur.description. */
+                const gchar *desc =
+                        cur.description != NULL ? cur.description
+                        : cur.has_code ? pn_weather_code_description (
+                                                 cur.weather_code)
+                        : NULL;
 
                 ok = TRUE;
                 pn_message_set_double (msg, "value",       cur.temperature);
@@ -791,6 +975,10 @@ pn_weather_emit_message (
                     pn_message_set_double (msg, "humidity", cur.humidity);
                 if (cur.has_wind)
                     pn_message_set_double (msg, "wind_speed", cur.wind_speed);
+                if (cur.has_code)
+                    pn_message_set_int (msg, "weather_code", cur.weather_code);
+                if (desc != NULL)
+                    pn_message_set_string (msg, "description", desc);
 
                 if (name != NULL)
                     g_string_append (summary, name);
@@ -801,15 +989,8 @@ pn_weather_emit_message (
                 g_string_append_printf (summary, "%.1f \xc2\xb0""C",
                                         cur.temperature);
 
-                if (cur.has_code)
-                {
-                    const gchar *desc =
-                            pn_weather_code_description (cur.weather_code);
-                    pn_message_set_int    (msg, "weather_code",
-                                           cur.weather_code);
-                    pn_message_set_string (msg, "description", desc);
+                if (desc != NULL)
                     g_string_append_printf (summary, ", %s", desc);
-                }
                 if (cur.has_humidity)
                     g_string_append_printf (summary, ", %.0f%% RH",
                                             cur.humidity);
@@ -823,7 +1004,7 @@ pn_weather_emit_message (
             else
             {
                 /* HTTP 200, JSON parsed, but no usable reading.  The
-                 * provider's "reason" (if any) explains why; otherwise
+                 * provider's error string (if any) explains why; otherwise
                  * the response shape was unexpected. */
                 failure = (cur.reason != NULL)
                         ? g_strdup_printf (
@@ -834,6 +1015,7 @@ pn_weather_emit_message (
                                 name ? name : "the configured location");
             }
             g_free (cur.reason);
+            g_free (cur.description);
         }
         else
         {
@@ -844,7 +1026,7 @@ pn_weather_emit_message (
     else if (failure == NULL)
     {
         failure = weather_format_http_error (
-                "Weather fetch",
+                "Weather fetch", provider,
                 spawned, exit_status, stderr_text, http_status, body);
     }
 
@@ -882,6 +1064,9 @@ pn_weather_get_property (
     {
     case PROP_CITY:
         g_value_take_string (value, weather_dup_city_locked (self));
+        break;
+    case PROP_PROVIDER:
+        g_value_set_enum (value, weather_get_provider_locked (self));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -929,6 +1114,36 @@ pn_weather_set_property (
 
             /* Show the new place's weather within seconds rather than
              * after a full period. */
+            if (PN_HTTP_GET_CLASS (self)->is_configured (http))
+                pn_auto_trigger_kick (PN_AUTO_TRIGGER (self));
+        }
+        break;
+    }
+    case PROP_PROVIDER:
+    {
+        PnWeatherProvider new_p = g_value_get_enum (value);
+        gboolean          changed;
+
+        g_mutex_lock (&self->mutex);
+        changed = self->provider != new_p;
+        if (changed)
+            self->provider = new_p;
+        g_mutex_unlock (&self->mutex);
+
+        if (changed)
+        {
+            /* Track the choice in the (overridable) forecast endpoint so
+             * the url field shows the active provider's default; the
+             * geocoder is shared, so the cached coordinates stay valid
+             * and only the forecast fetch changes. */
+            g_object_set (self, "url",
+                          new_p == PN_WEATHER_PROVIDER_BRIGHT_SKY
+                              ? PN_WEATHER_BRIGHTSKY_URL
+                              : PN_WEATHER_FORECAST_URL,
+                          NULL);
+            g_object_notify_by_pspec (object, props[PROP_PROVIDER]);
+
+            /* Refresh the reading from the new provider within seconds. */
             if (PN_HTTP_GET_CLASS (self)->is_configured (http))
                 pn_auto_trigger_kick (PN_AUTO_TRIGGER (self));
         }
@@ -993,6 +1208,15 @@ pn_weather_class_init (PnWeatherClass *klass)
             "\"Berlin, US\").  Resolved to coordinates via Open-Meteo's "
             "geocoding service before each forecast fetch.",
             "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_PROVIDER] = g_param_spec_enum (
+            "provider", "Provider",
+            "Which free, key-less forecast source to fetch from.  "
+            "Open-Meteo (the default) has global coverage; Bright Sky "
+            "serves DWD open data for Germany and parts of central "
+            "Europe.  The city is geocoded through Open-Meteo for both.",
+            PN_TYPE_WEATHER_PROVIDER, PN_WEATHER_PROVIDER_OPEN_METEO,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
