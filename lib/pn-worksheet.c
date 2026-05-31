@@ -32,6 +32,7 @@
 #include "pn-switch.h"
 #include "pn-knob.h"
 #include "pn-chat.h"
+#include "pn-sun-path.h"
 #include "pn-filedrop.h"
 #include "pn-palette.h"
 #include "pn-preferences.h"
@@ -235,6 +236,21 @@ struct _PnWorksheet
      *  cleared from on_node_removed_from_store so a delete during a
      *  typing session can never leave a dangling pointer. */
     PnChat  *focused_chat;
+
+    /** Drag-to-rotate state for a lifted #PnSunPath card.  While the
+     *  scene is in the zoom overlay a primary press on it begins an
+     *  orbit drag instead of collapsing the overlay: #sun_path_drag is
+     *  then %TRUE, #sun_path_press_{x,y} hold the press point (to tell a
+     *  click from a drag on release) and #sun_path_last_{x,y} the
+     *  previous motion sample (to feed per-frame deltas to
+     *  pn_sun_path_rotate).  #sun_path_dragged latches once the pointer
+     *  has moved past the click threshold so a release that barely moved
+     *  still dismisses the overlay.  The rotated node is always
+     *  #zoomed_node, so no separate borrowed pointer is needed. */
+    gboolean sun_path_drag;
+    gboolean sun_path_dragged;
+    double   sun_path_press_x, sun_path_press_y;
+    double   sun_path_last_x,  sun_path_last_y;
 
     /** Transient "magnification" readout shown while the user spins
      *  Ctrl+wheel.  #zoom_label_shown_us is the frame-clock timestamp
@@ -3042,6 +3058,8 @@ on_node_removed_from_store (
         self->zoomed_node = NULL;
         self->zoom_t       = 0.0;
         self->zoom_dir     = 0;
+        self->sun_path_drag    = FALSE;
+        self->sun_path_dragged = FALSE;
         if (self->zoom_tick_id != 0)
         {
             gtk_widget_remove_tick_callback (GTK_WIDGET (self),
@@ -4199,6 +4217,22 @@ on_button_press (
                 }
             }
 
+            /* Sun Path: a press on the lifted dome begins a drag-to-
+             * rotate gesture rather than collapsing the overlay.  The
+             * collapse is deferred to the release and only fires when the
+             * pointer barely moved (a click, not a drag).  Only meaningful
+             * once the in-animation has settled (zoom_dir == 0). */
+            if (PN_IS_SUN_PATH (self->zoomed_node) && self->zoom_dir == 0)
+            {
+                self->sun_path_drag    = TRUE;
+                self->sun_path_dragged = FALSE;
+                self->sun_path_press_x = event->x;
+                self->sun_path_press_y = event->y;
+                self->sun_path_last_x  = event->x;
+                self->sun_path_last_y  = event->y;
+                return GDK_EVENT_STOP;
+            }
+
             zoom_start_animation (self, -1);
         }
         return GDK_EVENT_STOP;
@@ -4439,6 +4473,30 @@ on_motion_notify (
 
     (void) user_data;
 
+    /* Sun Path orbit drag: while a lifted dome is being dragged, feed
+     * the per-frame pointer delta to the camera — horizontal spins the
+     * yaw (full circle), vertical tips the pitch.  Dragging up looks more
+     * top-down, so an upward (negative) dy raises the pitch. */
+    if (self->sun_path_drag && self->zoomed_node != NULL &&
+        PN_IS_SUN_PATH (self->zoomed_node))
+    {
+        const double rot_per_px = 0.5;
+        double dx = event->x - self->sun_path_last_x;
+        double dy = event->y - self->sun_path_last_y;
+
+        self->sun_path_last_x = event->x;
+        self->sun_path_last_y = event->y;
+
+        if (ABS (event->x - self->sun_path_press_x) > 3.0 ||
+            ABS (event->y - self->sun_path_press_y) > 3.0)
+            self->sun_path_dragged = TRUE;
+
+        pn_sun_path_rotate (PN_SUN_PATH (self->zoomed_node),
+                            dx * rot_per_px, -dy * rot_per_px);
+        gtk_widget_queue_draw (widget);
+        return GDK_EVENT_STOP;
+    }
+
     if (self->wire_source != NULL || self->wire_dest != NULL)
     {
         self->wire_cursor_x = wx;
@@ -4511,6 +4569,21 @@ on_button_release (
 
     if (event->button != GDK_BUTTON_PRIMARY)
         return GDK_EVENT_PROPAGATE;
+
+    /* End a Sun Path orbit drag.  A press that barely moved is a click,
+     * so collapse the overlay; a real drag just settles, leaving the
+     * rotated view lifted. */
+    if (self->sun_path_drag)
+    {
+        gboolean dragged = self->sun_path_dragged;
+
+        self->sun_path_drag    = FALSE;
+        self->sun_path_dragged = FALSE;
+
+        if (!dragged && self->zoomed_node != NULL && self->zoom_dir == 0)
+            zoom_start_animation (self, -1);
+        return GDK_EVENT_STOP;
+    }
 
     /* Inject buttons fire on press; release just drops the
      * pressed-down feedback so the tab pops back out.  Also cancel

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sun Path (PnSunPath) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnSunPath">Sun Path</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnSunPath</code>.
+</p>
+<p>
+Draws the message from an <a href="PnAstronomical.html">Astronomical</a>
+node as a small, rotatable 3D sky dome. A translucent ground disc carries
+the N/S/E/W compass marks, a single reference house sits at the centre,
+and the Sun's full-day track arcs over the dome &mdash; solid where the
+Sun is above the horizon, dashed where it dips below. A Sun glyph rides
+the arc at the live position the message reports. Wire it straight off an
+Astronomical node's output; it needs nothing more than one message to
+draw the whole day, because it recomputes the arc locally from the
+resolved <code>latitude</code>/<code>longitude</code> using the same NOAA
+solar-position math the source node uses.
+</p>
+<p>
+The card is the same size as the <a href="PnWeatherReport.html">Weather
+Report</a> and Graph cards, so the three read as a family on the canvas.
+</p>
+
+<h5>Rotating the dome</h5>
+<p>
+The scene is genuinely three-dimensional. Click the card to lift it into
+the centred zoom overlay, then <strong>drag</strong> to orbit the camera:
+dragging left/right spins the view a full circle (yaw), dragging
+up/down tilts it between a near-horizon and a top-down look (pitch). A
+plain click on the lifted card (without dragging) drops it back onto the
+canvas. The chosen view is remembered &mdash; it is saved with the
+worksheet and restored on load.
+</p>
+
+<table>
+  <tr><th>Member read</th><th>Use</th></tr>
+  <tr><td><code>data.success</code></td>
+      <td>When <code>false</code> the card shows <em>No position</em> and
+          the reason from <code>data.output</code>.</td></tr>
+  <tr><td><code>data.latitude</code> / <code>data.longitude</code></td>
+      <td>The place the Sun's daily arc is computed for.</td></tr>
+  <tr><td><code>data.sun_azimuth</code> / <code>data.sun_altitude</code></td>
+      <td>Where the Sun glyph rides the arc, and the alt/az readout.</td></tr>
+  <tr><td><code>data.sun_up</code></td>
+      <td>Whether the Sun glyph is drawn bright (above the horizon) or
+          dimmed (below).</td></tr>
+  <tr><td><code>data.city</code> / <code>data.country</code></td>
+      <td>The place name shown in the top-left corner.</td></tr>
+</table>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>show-house</code></td>
+      <td>Draw the reference house at the centre of the dome (on by
+          default).</td></tr>
+  <tr><td><code>background-color</code> /
+          <code>background-color2</code> /
+          <code>background-gradient</code></td>
+      <td>The sky fill: a flat colour, or a linear gradient between the
+          two colours in the chosen direction.</td></tr>
+  <tr><td><code>ground-color</code></td>
+      <td>Fill of the translucent ground disc (its alpha controls how
+          much shows through).</td></tr>
+  <tr><td><code>path-color</code></td>
+      <td>Colour of the Sun's daily track arc.</td></tr>
+  <tr><td><code>sun-color</code></td>
+      <td>Colour of the Sun glyph.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the compass labels and the place / readout text.</td></tr>
+</table>
+<p>
+The camera angles are stored as the hidden <code>view-yaw</code> and
+<code>view-pitch</code> properties; you normally set them by dragging
+rather than in this dialog.
+</p>
+
+</body>
+</html>

@@ -165,6 +165,8 @@ libpipnode_core_la_SOURCES = \
 	pn-subst.h \
 	pn-success.c \
 	pn-success.h \
+	pn-sun-path.c \
+	pn-sun-path.h \
 	pn-switch.c \
 	pn-switch.h \
 	pn-table-model.c \
@@ -353,6 +355,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-settings-renderer.h \
 	pn-sound-gui.c \
 	pn-sound-gui.h \
+	pn-sun-path-gui.c \
+	pn-sun-path-gui.h \
 	pn-switch-gui.c \
 	pn-switch-gui.h \
 	pn-table-gui.c \
@@ -477,6 +481,7 @@ pipnode_core_headers = \
 	pn-stats.h \
 	pn-subst.h \
 	pn-success.h \
+	pn-sun-path.h \
 	pn-switch.h \
 	pn-table-model.h \
 	pn-table.h \
@@ -553,6 +558,7 @@ pipnode_gui_headers = \
 	pn-set-gui.h \
 	pn-settings-renderer.h \
 	pn-sound-gui.h \
+	pn-sun-path-gui.h \
 	pn-switch-gui.h \
 	pn-table-gui.h \
 	pn-table-view-gui.h \

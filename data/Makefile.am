@@ -56,6 +56,7 @@ pnhelp_DATA = \
 	help/PnStaircase.html \
 	help/PnStats.html \
 	help/PnSuccess.html \
+	help/PnSunPath.html \
 	help/PnSwitch.html \
 	help/PnTable.html \
 	help/PnTableModel.html \

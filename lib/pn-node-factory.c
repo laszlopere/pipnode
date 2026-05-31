@@ -84,6 +84,7 @@
 #include "pn-watchdog.h"
 #include "pn-weather.h"
 #include "pn-weather-report.h"
+#include "pn-sun-path.h"
 
 /* ------------------------------------------------------------------ */
 /*  Registry entry                                                     */
@@ -290,6 +291,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_DEBUG);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
     pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
+    pn_node_factory_register (self, PN_TYPE_SUN_PATH);
     pn_node_factory_register (self, PN_TYPE_DIAL);
     pn_node_factory_register (self, PN_TYPE_ANALOG_METER);
     pn_node_factory_register (self, PN_TYPE_LED);
