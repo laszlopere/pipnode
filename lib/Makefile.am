@@ -295,6 +295,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-channels.h \
 	pn-mesh-page-ext-notification.c \
 	pn-mesh-page-ext-notification.h \
+	pn-mesh-page-firmware.c \
+	pn-mesh-page-firmware.h \
 	pn-mesh-page-busy.h \
 	pn-mesh-page-device.c \
 	pn-mesh-page-device.h \

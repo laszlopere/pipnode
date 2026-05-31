@@ -40,6 +40,7 @@
 #include "pn-mesh-page-channels.h"
 #include "pn-mesh-page-device.h"
 #include "pn-mesh-page-ext-notification.h"
+#include "pn-mesh-page-firmware.h"
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-page-known-nodes.h"
 #include "pn-mesh-page-mqtt.h"
@@ -83,6 +84,7 @@ typedef struct
     GtkWidget        *device_page;
     GtkWidget        *network_page;
     GtkWidget        *security_page;
+    GtkWidget        *firmware_page;
 
     /* Main-loop timer that drives the Test page's live receive log
      * (Phase 7).  Active only while a connection is live -- started
@@ -282,6 +284,7 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_device_set_state           (ctx->device_page,           NULL, NULL);
     pn_mesh_page_network_set_state          (ctx->network_page,          NULL, NULL);
     pn_mesh_page_security_set_state         (ctx->security_page,         NULL, NULL);
+    pn_mesh_page_firmware_set_state         (ctx->firmware_page,         NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
      * The user still sees every tab so they know what's available
      * once they pick one, but they cannot click into an empty form.
@@ -292,6 +295,21 @@ drop_connection (MeshDialogCtx *ctx)
      * at the tail wins over any 1->0 pop that re-enabled the notebook
      * while those balancing transitions ran. */
     pn_device_dialog_set_pages_sensitive (ctx->shell, FALSE);
+}
+
+/* Firmware page asked to hand the serial port to the browser flasher:
+ * tear down our live session (closing the fd frees /dev/tty*) so the
+ * browser's WebSerial can claim it.  drop_connection() greys the
+ * notebook and re-sets every page to its "no device" state, so the user
+ * is back at the pick-a-device screen; Scan reconnects after flashing. */
+static void
+on_firmware_release (gpointer user_data)
+{
+    MeshDialogCtx *ctx = user_data;
+
+    drop_connection (ctx);
+    set_status (ctx, "Disconnected for flashing. Flash in your browser, "
+                     "then Scan and reconnect.");
 }
 
 static void
@@ -395,6 +413,9 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             ctx->security_page,
             pn_mesh_connection_get_state (conn),
             conn);
+    pn_mesh_page_firmware_set_state (
+            ctx->firmware_page,
+            pn_mesh_connection_get_state (conn));
     /* Light up the notebook now that there's actually content to
      * navigate to.  drop_connection() reverses this on the next
      * device switch or dialog close.  The pop already re-enables on
@@ -623,6 +644,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->device_page           = pn_mesh_page_device_new ();
         ctx->network_page          = pn_mesh_page_network_new ();
         ctx->security_page         = pn_mesh_page_security_new ();
+        ctx->firmware_page         = pn_mesh_page_firmware_new ();
 
         pn_mesh_page_identity_set_status_callback (
                 ctx->identity_page,         on_page_status, ctx);
@@ -680,6 +702,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->network_page,          on_page_busy, ctx);
         pn_mesh_page_security_set_busy_callback (
                 ctx->security_page,         on_page_busy, ctx);
+        /* Firmware page hands the serial port to the browser flasher;
+         * it asks us to close the connection first. */
+        pn_mesh_page_firmware_set_release_callback (
+                ctx->firmware_page,         on_firmware_release, ctx);
 
         /* Tab 1: Device  (Identity + Device role/GPIO + Power + Security). */
         {
@@ -696,6 +722,9 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_form_add_section (inner, "Security",
                     "Admin and public keys that authorise remote configuration "
                     "of this node.", ctx->security_page);
+            pn_device_form_add_section (inner, "Firmware",
+                    "Flash or update this device's Meshtastic firmware using "
+                    "the official web flasher.", ctx->firmware_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Device");
         }
 
