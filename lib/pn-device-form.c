@@ -27,6 +27,7 @@
 #endif
 
 #include "pn-device-form.h"
+#include "pn-device-combo.h"
 #include "pn-foldable.h"
 
 /* ------------------------------------------------------------------ */
@@ -217,6 +218,54 @@ pn_device_form_attach_entry_row (GtkGrid     *grid,
     gtk_widget_set_hexpand (entry, TRUE);
     gtk_box_pack_start (GTK_BOX (cell), entry, TRUE, TRUE, 0);
     return GTK_ENTRY (entry);
+}
+
+GtkWidget *
+pn_device_form_reload_button_new (const gchar *tooltip,
+                                  GCallback    cb,
+                                  gpointer     user_data)
+{
+    GtkWidget *btn = gtk_button_new_from_icon_name ("view-refresh",
+                                                    GTK_ICON_SIZE_BUTTON);
+
+    /* Flat and vertically centred so it reads as a quiet affordance beside
+     * the value, not a primary button. */
+    gtk_button_set_relief (GTK_BUTTON (btn), GTK_RELIEF_NONE);
+    gtk_widget_set_valign  (btn, GTK_ALIGN_CENTER);
+    if (tooltip != NULL)
+        gtk_widget_set_tooltip_text (btn, tooltip);
+    if (cb != NULL)
+        g_signal_connect (btn, "clicked", cb, user_data);
+    return btn;
+}
+
+GtkComboBoxText *
+pn_device_form_attach_reload_combo (GtkGrid     *grid,
+                                    gint         row,
+                                    const gchar *key_text,
+                                    const gchar *reload_tooltip,
+                                    GCallback    reload_cb,
+                                    gpointer     user_data)
+{
+    GtkWidget *cell;
+    GtkWidget *combo;
+    GtkWidget *reload;
+
+    g_return_val_if_fail (GTK_IS_GRID (grid), NULL);
+
+    cell  = pn_device_form_attach_control_row (grid, row, key_text);
+    combo = pn_device_combo_new ();   /* wheel-safe GtkComboBoxText */
+    gtk_widget_set_hexpand (combo, TRUE);
+    gtk_box_pack_start (GTK_BOX (cell), combo, TRUE, TRUE, 0);
+
+    /* Reload lives in its own column 2, flush right of the value cell --
+     * the same placement the per-value refresh buttons use, so a column of
+     * reload affordances stays aligned however wide the controls grow. */
+    reload = pn_device_form_reload_button_new (reload_tooltip, reload_cb,
+                                               user_data);
+    gtk_grid_attach (grid, reload, 2, row, 1, 1);
+
+    return GTK_COMBO_BOX_TEXT (combo);
 }
 
 /* ------------------------------------------------------------------ */

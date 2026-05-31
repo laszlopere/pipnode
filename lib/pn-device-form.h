@@ -102,6 +102,33 @@ GtkEntry  *pn_device_form_attach_entry_row (GtkGrid     *grid,
                                             gint         row,
                                             const gchar *key_text);
 
+/* A small, flat "view-refresh" icon button -- the standard reload
+ * affordance a device dialog puts next to a value or list it can
+ * re-fetch from the device.  Centralises the look (no relief, vertically
+ * centred, the shared icon name) so every host and plugin dialog's reload
+ * button matches and future theming lands in one place.  @tooltip (may be
+ * NULL) describes what gets refreshed; @cb (may be NULL) is connected to
+ * "clicked" with @user_data.  Attach it into a row's column 2 with
+ * gtk_grid_attach() -- or let pn_device_form_attach_reload_combo() do that
+ * for the common combo case. */
+GtkWidget *pn_device_form_reload_button_new (const gchar *tooltip,
+                                             GCallback    cb,
+                                             gpointer     user_data);
+
+/* Convenience "key | combo | [reload]" row: builds a control row, packs a
+ * scroll-safe #PnDeviceCombo into the cell and attaches a
+ * pn_device_form_reload_button_new() in the row's column 2 (flush right, so
+ * a column of reload buttons lines up however wide the controls get).
+ * Returns the combo -- fill it with gtk_combo_box_text_append() and the
+ * enum-combo helpers; the reload callback repopulates it.  @reload_tooltip,
+ * @reload_cb and @user_data are forwarded to the button. */
+GtkComboBoxText *pn_device_form_attach_reload_combo (GtkGrid     *grid,
+                                                     gint         row,
+                                                     const gchar *key_text,
+                                                     const gchar *reload_tooltip,
+                                                     GCallback    reload_cb,
+                                                     gpointer     user_data);
+
 /* ------------------------------------------------------------------ */
 /*  Enum combos                                                         */
 /* ------------------------------------------------------------------ */

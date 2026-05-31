@@ -1565,3 +1565,18 @@ broken down later.
   buttons are now SUGGESTED (blue) and "_Delete channel" is DESTRUCTIVE
   (red).  Wired into lib/Makefile.am + pipnode.h; documented in PLUGINS
   §17b (widgets list + form-helpers).  Clean build, 81 unit tests pass.
+
+  DONE 2026-05-31 (reload affordance): the zigbee dialog (the READ-ONLY
+  model) hand-rolls the small "view-refresh" reload button THREE times --
+  zb_make_get_button (per-value get), the firmware re-check button, and
+  the same five lines of relief/valign/tooltip/clicked each time.  Lifted
+  that into two pn-device-form.h free functions (no new widget subclass,
+  no ABI bump -- new gui-tier exported symbols): pn_device_form_reload_
+  button_new (tooltip, cb, user_data) -> the one standard flat round-arrow
+  button, and pn_device_form_attach_reload_combo (grid, row, key, tooltip,
+  cb, user_data) -> a "key | PnDeviceCombo | reload" row that drops the
+  button into the row's flush-right column 2 (matching the zigbee per-value
+  placement) and returns the combo to fill.  Documented in PLUGINS §17b
+  form-helpers list.  NOT dogfooded into the Meshtastic dialog and the
+  zigbee plugin is untouched (separate repo) -- this only adds the tools so
+  plugins can adopt them.  Clean lib build.
