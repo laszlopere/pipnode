@@ -452,7 +452,7 @@ pn_mesh_page_security_new (void)
     }
 
     apply = pn_action_button_new ("_Apply security settings",
-                                  PN_ACTION_BUTTON_SUGGESTED);
+                                  PN_ACTION_BUTTON_NORMAL);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  Key bytes are "
             "shipped back verbatim — only the switches change.");

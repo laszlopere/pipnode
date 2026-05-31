@@ -358,7 +358,7 @@ pn_mesh_page_network_new (void)
     gtk_widget_set_halign     (apply_box, GTK_ALIGN_END);
 
     apply = pn_action_button_new ("_Apply network settings",
-                                  PN_ACTION_BUTTON_SUGGESTED);
+                                  PN_ACTION_BUTTON_NORMAL);
     gtk_widget_set_tooltip_text (apply,
             "Send the values above to the device.  The device "
             "re-handshakes after the write to confirm the change took.");

@@ -1068,7 +1068,7 @@ pn_mesh_page_channels_new (void)
     gtk_box_pack_start (GTK_BOX (button_row), spinner, FALSE, FALSE, 0);
 
     apply = pn_action_button_new ("_Apply changes",
-                                  PN_ACTION_BUTTON_SUGGESTED);
+                                  PN_ACTION_BUTTON_NORMAL);
     gtk_widget_set_tooltip_text (apply,
             "Write the values above to the selected slot.  The device is "
             "read back to confirm the change took.");
