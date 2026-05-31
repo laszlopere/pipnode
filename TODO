@@ -1625,14 +1625,20 @@ around open.  Caveat: 10c4:ea60 is generic CP2102 (see #33); a blanket
 ignore also hides real CP2102 modems.  Touches system config -- weigh against
 the minimal-invasive-packaging line.
 
-(37) Converge the two Meshtastic serial stacks.  The Devices dialog
+(37) DONE Converge the two Meshtastic serial stacks.  The Devices dialog
 (pn-mesh-serial.c / pn-mesh-discover.c / pn-mesh-connection.c) and the
-Meshtastic NODE (pn-meshtastic.c) -- both GTK-free core -- each carry their
+Meshtastic NODE (pn-meshtastic.c) -- both GTK-free core -- each carried their
 OWN careful-but-divergent serial open, sysfs USB scan and 0x94 0xC3 frame
 codec.  Neither is careless; they just differ, and #33/#36 would otherwise
-have to be fixed twice.  Share the transport+discovery+framing layer (NOT the
+have to be fixed twice.  Shared the transport+discovery+framing layer (NOT the
 whole snapshot-oriented PnMeshConnection -- the node needs a long-lived
-streaming session and keeps its own loop).
+streaming session and keeps its own loop).  RESULT: the node now opens via
+pn_mesh_serial_open (#37.2), frames via PnMeshFrameReader /
+pn_mesh_serial_write_frame and scans via pn_mesh_discover_sync (#37.3); the
+only Meshtastic code it still keeps is its own streaming FromRadio/ToRadio
+protobuf layer (deliberately out of scope -- #37 was transport+discovery+
+framing only).  37.1-37.4 all DONE; full C unit suite green (83 binaries,
+0 failed, test-pn-mesh-discover added).
 
   37.1 DONE Characterization tests first (hot path: live messaging).  Pin the
   node's current open / discovery / frame behaviour before touching it, per
@@ -1697,8 +1703,17 @@ streaming session and keeps its own loop).
   nested + non-interface) that the node test used to cover.  Full suite green
   (0 failed); clean top-level build.
 
-  37.4 Verify parity (node messaging + dialog config both still work, headless
-  and GUI) then remove the dead duplicates.  [The headless half is covered by
-  37.3's green net + clean build; the live GUI smoke test on real hardware
-  -- send/receive a text via the node, edit channels via the dialog -- is the
-  remaining hands-on step.]
+  37.4 DONE Verify parity + remove the dead duplicates.  The duplicate code
+  was deleted inline in 37.2/37.3 (no dead-but-present code was left to
+  sweep), so 37.4 is the final audit + cleanup: a -Wall -Wextra
+  -Wunused-function compile of pn-meshtastic.c confirms NO orphaned static
+  helper survived the convergence, and the now-stale system includes the
+  deleted open/scan/codec pulled in (<dirent.h>, <sys/stat.h>, <stdio.h>,
+  <stdint.h>) are removed -- <fcntl.h> stays (wake-pipe fcntl), <termios.h>
+  stays (tcflush).  Headless parity PROVEN: clean top-level build + full unit
+  suite green (the #37.1 net was repointed onto the shared modules in 37.3,
+  so a pass there IS the node-vs-dialog equivalence proof on the
+  byte/open/scan level).  The one piece a headless suite cannot cover -- a
+  live send/receive through the node + a channel edit through the Devices
+  dialog against the real Heltec V3 -- is the user's hands-on smoke test
+  (per the manual-GUI-testing rule); no code depends on its outcome.

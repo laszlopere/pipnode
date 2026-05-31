@@ -25,16 +25,12 @@
 #include <gio/gio.h>          /* G_IO_ERROR / g_error_matches */
 #include <json-glib/json-glib.h>
 
-#include <dirent.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <fcntl.h>      /* fcntl (wake pipe O_NONBLOCK) */
 #include <poll.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <string.h>
-#include <termios.h>
+#include <termios.h>    /* tcflush */
 #include <unistd.h>
-#include <sys/stat.h>
 
 /* The Meshtastic USB VID:PID table + sysfs scan live in the shared
  * pn-mesh-discover module (TODO #37.3) -- pn_meshtastic_list_devices()
