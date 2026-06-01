@@ -1222,3 +1222,138 @@ a prerequisite for the other.
   identifying the application (it rejects default/empty UAs) and expects
   callers to honour caching via If-Modified-Since / Expires; plan the
   request headers accordingly.
+
+(39) Node source code-review findings (from the 2026-06-01 fan-out review
+of every node-implementing source file -- ~70 core lib/pn-*.c nodes + 30
+-gui.c companions, the network/ollama/tasmota/sound-effects plugins, and
+the 54 plugins/image/pn-image-*.c filters).  Overall the tree is in very
+good shape: timer/idle/thread teardown in dispose/finalize, GObject
+refcounting + g_free pairing, the value>0.5 boolean convention, FA-4.7
+icons, and the shared rowstride-aware plugins/image/pn-image-ops.c helper
+layer are all sound.  These are the individual issues worth fixing, each
+tracked separately below.  (The hand-rolled WARNING_ICON nodes the review
+also re-flagged -- pn-inject, pn-sound, pn-tts, ollama, sci-fi-sound,
+tasmota/* -- are already TODO #31.3.  The subprocess-spawn items M6/M7/L4
+are the same "pure C, no helper subprocess" theme as #38.1, which covers
+PnHttp/curl specifically.)
+
+  HIGH
+  39.1  Ollama silently drops every message when "hostname" is empty
+        (plugins/ollama/pn-ollama.c:370).  Empty hostname is the INTENDED
+        default -- build_endpoint resolves ""->localhost and
+        refresh_visual_state shows the node as configured with only a model
+        set -- but receive()'s guard also rejects empty hostname, so a
+        freshly dropped Ollama node looks green/ready yet swallows all
+        input.  Fix: drop the hostname clause from the receive() guard to
+        match refresh_visual_state / build_endpoint.
+
+  MEDIUM
+  39.2  Expression parser has no recursion-depth limit -> C-stack-overflow
+        crash on pathological nesting (lib/pn-expr-parser.c, the
+        parse_factor<->parse_expression recursive descent).  A configured
+        expression like ((((...)))) or a long unary-minus chain overflows
+        the native stack and crashes the process with no recovery.  Input is
+        local node config (not network-facing), so impact is a user pasting
+        a bad expression.  Fix: add a depth counter to Ctx and error out
+        past a sane limit.  (pn-var-store.c's evaluator recurses to the same
+        depth; the parser is the gate that builds the tree.)
+  39.3  Graph 3D line mode overflows the PLplot cmap0 with >=9 series
+        (lib/pn-graph-gui.c:922).  paint_line_3d writes each series colour
+        to cmap0 slot 8+i (up to 19 for the 12-series cap) but
+        paint_setup_page never grows the colormap (no plscmap0n) and the
+        default cmap0 holds only 16 entries (0-15); series past slot 15
+        render in a stale/wrong colour.  Fix: plscmap0n(8 + nseries) before
+        the per-series loop in the 3D paths.  (3D-histogram path is
+        unaffected -- it reuses low slots.)  Triggers only at 9+ topics.
+  39.4  Table cell/title truncation can emit invalid UTF-8
+        (lib/pn-table-gui.c:80, fit_text_with_ellipsis).  The first
+        truncation pass cuts at a fixed 252-byte offset that is not
+        codepoint-aligned, so the inserted ellipsis can follow a partial
+        code point; the step-back realign loop only runs on SUBSEQUENT
+        passes, never the initial cut.  cairo renders tofu.  Fix: align the
+        first cut to a UTF-8 boundary (g_utf8_find_prev_char).  Triggers
+        only on >252-byte strings.
+  39.5  Image Pixelate dereferences dst before its NULL check
+        (plugins/image/pn-image-pixelate.c:54,56).  gdk_pixbuf_get_rowstride
+        /_get_pixels are called on dst before the `if (dst == NULL) return`
+        guard at :59, so the guard is dead and a failed gdk_pixbuf_copy
+        crashes the GTask worker thread.  Fix: move the NULL check above the
+        dereferences.  Low probability (copy only fails on OOM) but a clear
+        regression against the pattern every sibling node follows.
+  39.6  Image Dither has no NULL check on dst at all
+        (plugins/image/pn-image-dither.c:62-64) -- dst = gdk_pixbuf_copy(src)
+        is immediately dereferenced (unlike every sibling).  NULL dst ->
+        crash; the buf malloc at :51 also leaks on that (currently
+        impossible) path.  Fix: add the standard NULL guard + free buf.
+  39.7  Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188), violating
+        the "pure C, no helper subprocesses at runtime" rule.  Implement
+        audio playback in-process.  (on_play_done itself is safe -- holds a
+        ref on self, main-thread-only state.)  Sibling theme to #38.1.
+  39.8  Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c <cmd>`
+        per utterance (:433-475, :1040-1095, :1171-1288),
+        g_spawn_command_line_sync for `pactl list sinks`, and
+        `<engine> --voices` enumeration -- the most subprocess use in the
+        tree.  Port to in-process C.  Sibling theme to #38.1.
+
+  LOW / NIT
+  39.9  Numeric readout can cast an out-of-range double to gint64 (UB)
+        before the overload check (lib/pn-numeric-gui.c:199-201).  With
+        digits=12/decimals=6, scale=1e6; a finite but huge data.value (e.g.
+        1e300) makes av*scale ~1e306 and `(gint64) floor(av*scale+0.5)` is
+        computed BEFORE the `int_part > max_int` guard.  read_value only
+        filters non-finite, not out-of-gint64-range.  Fix: clamp av (or
+        test av*scale against G_MAXINT64) before the cast.
+  39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
+        (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
+        desktop launcher; convention prefers a node failure message / log.
+  39.11 Ollama cancellation lives in finalize, not dispose
+        (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
+        in-flight request -- on_generate_done holds a strong ref on self, so
+        finalize cannot run until the request completes and the
+        g_cancellable_cancel is dead code for that case.  No UAF, but
+        closing the worksheet pins the node until Ollama replies.  Fix:
+        cancel in dispose (the pn-ws.c / https-tunnel pattern).
+  39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async callback
+        g_object_ref's self but the spawned media player is never
+        terminated and the wait is never cancelled
+        (plugins/sound-effects/pn-sci-fi-sound.c:154 + overall).  No UAF
+        (the ref pins self until the player exits; on_play_done is
+        main-thread), but a node mid-playback can't be torn down and closing
+        the worksheet leaves the player running.  Also the per-message
+        subprocess spawn is the #38.1 convention theme (likely an inherent
+        exception for a GTK-free core audio node).
+  39.13 Ollama can pass NULL to json_node_get_object
+        (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
+        whitespace body as success with a NULL root, so
+        json_node_get_object(json_parser_get_root(parser)) emits a
+        g_critical (noisy, invisible under the launcher) before the
+        subsequent `root == NULL` check handles it cleanly.  Fix: NULL /
+        JSON_NODE_HOLDS_OBJECT guard the root before the call.
+  39.14 TTS queue can stall on a failed re-spawn (lib/pn-tts.c:336-350): in
+        on_speak_done, if pn_tts_speak fails to spawn the next utterance,
+        self->speaking stays FALSE and on_speak_done never fires again, so
+        the remaining backlog is stranded until the next inbound message
+        (self-heals on the next receive).  Fix: drain-retry the rest of the
+        queue on a failed re-spawn.
+  39.15 HTTPS-tunnel sender wires on_accept_certificate with g_signal_connect
+        (not _object) and never disconnects
+        (plugins/network/pn-https-tunnel-sender.c:352).  Not a live UAF --
+        the handler is a pure `return TRUE` that ignores user_data and dies
+        when msg is unref'd -- but fragile if it ever starts touching self.
+        Fix: g_signal_connect_object or disconnect explicitly.
+
+  CONSIDERED, NO ACTION (reviewed and judged not bugs; recorded so a future
+  pass doesn't re-litigate them):
+  - Weather-report's 15s clock_source is removed in finalize rather than
+    dispose (lib/pn-weather-report.c:614) -- safe: the timeout holds no ref
+    on self and only calls pn_node_request_repaint, finalize is reachable.
+  - Meshtastic's cross-thread set_*_on_main closures g_object_ref(self) and
+    briefly resurrect the object during dispose's worker join -- legal,
+    intentional GLib behaviour.
+  - Stats' g_get_monotonic_time()-derived slot modulo (lib/pn-stats.c:191)
+    -- monotonic time is non-negative on supported platforms.
+  - 52 of the 54 image filters are clean: the shared pn-image-ops.c helpers
+    (map_point/convolve/gradient/separable/median/compose) are rowstride-
+    aware, (gsize)-cast against w*h*nch overflow, divisor==0-guarded,
+    clamped, and NULL-checked.  Only the two hand-rolled loops (M4, M5)
+    slipped.
