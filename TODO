@@ -1,21 +1,7 @@
-(1) DONE Add a node similar to autoinject that injects random numbers (in the
-"value" field). The minimum/maximum values should be configurable together with
-the distribution function.
-
-(2) DONE Add a filter to pass the messages through except setting/adding the
-configured properties. The configuration dialog should make it possible to add
-arbitrary property/value pairs, similar way the Filter node settings supports a
-dynamic list of widgets.
-
 (3) Let us design a way to pass a two dimensional array of numbers in the
 message instead of one single numerical value. Maybe creating a new message
 class would be best, then the nodes could decide if they support one, the other
 or both message types?
-
-(10) DONE Let us add a lot more crypto currencies to the Rate node.
-
-(11) DONE Let us download icons for the known crpyto currencies from the web.
-Let us add them to the Rate node settings comboboxes.
 
 (12) Let us implement node measuring certain processes something like this
 ssh eth4 "pidstat -p 5365,6902 30 1 2>/dev/null | awk '/Average/ {print}'"
@@ -27,13 +13,6 @@ but the PID should be obtained by checking the pre-set process name(s).
 
 (13) Add a node to periodically check if a process exists on a remote host,
 report success if so, false if not. Report the PID as "value".
-
-(14) DONE Currently the functional tests having problems when an other instance of
-the pipnode runs because all instance tries to register for the same DBus name
-and so the functional tests can not contact the started program. Let us add a
-command line option to set the DBus name when pipnode is started and let's
-update all the functional tests to use a custom DBus name when starting the
-program.
 
 (15) The functional tests are executed very fast so that the user can't see what
 happens. Let us slow them down a little but. They can finish fast, but every
