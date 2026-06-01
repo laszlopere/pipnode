@@ -45,49 +45,6 @@ so the change is reproducible the next time the firmware is reset.
 sent to a tasmota device:
 mosquitto_pub -h mqtt.homelab.local -p 1883 -t 'cmnd/sonoff19/Status' -m '5'
 
-(23) Split libpipnode into a headless "core" library and a GTK "gui" library
-so pipnode-run can be installed and run on servers without pulling the GTK
-toolkit (gtk+-3.0, gtksourceview-4, webkit2gtk). The runtime is already
-headless-clean: src/pn-run.c, lib/pn-flow.c, lib/pn-node-factory.c and ~35 of
-the 71 lib sources make zero GTK/cairo calls. The two blockers are build-time:
-(a) one libpipnode.la compiles every source with GTK_CFLAGS and links the full
-toolkit, and both binaries link it; (b) lib/pn-node.h #includes <gtk/gtk.h> and
-bakes GdkRGBA + cairo_t*/GtkWidget*/GtkNotebook* into the PnNodeClass vtable, so
-even pure-logic nodes drag in GTK at compile time. ~15 "dual-nature" nodes
-(Rate, LED, Knob, Dial, Analog-Meter, Graph, Switch, Table, Chat...) mix
-receive() logic + cairo drawing (and sometimes a custom GTK dialog tab) in one
-.c file, so the split line is not a clean per-file cut. Refactor pn-node.h to
-forward-declare the GTK/cairo types used only in vfunc signatures so the class
-ABI (and plugin ABI) stays stable. Prerequisite: build the characterization
-tests first (a number of pipnode-run tests that lock down current headless
-behavior) so the refactor can be proven not to change behavior. Open decisions
-to settle before starting: (1) core dependency strictness -- pragmatic (drop
-the GTK toolkit but keep cairo/pango for offscreen drawing) vs strict (zero
-GTK/GDK/cairo, replace GdkRGBA with our own color type+parser); (2) whether
-visual nodes' logic must remain loadable headless or they become GUI-only;
-(3) whether to re-tier the bundled plugins (network/shell/tasmota -> core only)
-in the same pass.
-STATUS: DONE. The lib is split into a GTK-free libpipnode-core + libpipnode-gui;
-all 24 dual-nature nodes are split (logic -> core, drawing/dialog -> gui);
-pipnode-run links core only and is verified GTK-free (objdump DT_NEEDED). The
-plugin ABI (now v3) gained a companion GUI module (pn_plugin_gui_init in
-<plugin>-gui.so) so a plugin ships GTK-free logic the server installs + bespoke
-GUI the editor alone loads. A declarative GTK-free settings schema
-(PnSettingsSchema, stored via per-type qdata so no ABI change) lets most nodes
-customise their dialog with no GTK at all; the imperative build_* vfuncs remain
-the escape hatch and always win. All bundled plugins re-tiered: network/tasmota/
-image are core-only single .so; shell + sound-effects are two-tier (logic .so +
-companion -gui.so). Docs updated (PLUGINS schema/companion model + server-
-installable checklist; README "Running headless"; INSTALL "Runtime tiers and
-packaging" with the pipnode-core vs pipnode-gui distribution split). Decisions
-settled: (1) strict zero-graphics core (glib/gio/json-glib/libsoup/gmodule +
-gdk-pixbuf only); (2) visual nodes' logic stays headless-loadable; (3) bundled
-plugins re-tiered; no --disable-gui build switch (D5). DROPPED as out of scope
-(decided 2026-05-23): the list-of-records schema editor kind (Filter/Set would
-keep their imperative dialogs -- their logic is already headless) and full-GUI
-plugin nodes. The temporary HEADLESS-SPLIT-PLAN.md has been removed now that the
-work is complete.
-
 (26) The Text to Speech node should default to "any engine you find" + "any
 voice you find": on a fresh node, auto-detect the first available TTS engine
 (piper/espeak-ng/espeak/festival/flite on $PATH) and the first available voice
