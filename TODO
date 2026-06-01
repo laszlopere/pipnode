@@ -18,17 +18,6 @@ report success if so, false if not. Report the PID as "value".
 happens. Let us slow them down a little but. They can finish fast, but every
 step that causes visual update should take about 1 second at least.
 
-(19) Add an MQTT sink node that takes incoming messages and publishes them to
-the configured broker. Same connection properties as the source (url,
-username, password, client-id, TLS) QoS and retain
-flag. The published payload should be data.payload when present (serialised
-back to JSON when it is an object/array, or stringified when it is a
-scalar), falling back to a JSON dump of the whole data bag. This is the
-counterpart to the source the same way HTTPS Client is the counterpart to
-HTTPS Server. Also, we need to be able to get the topic from the incoming
-message, removing the leading /mqtt, ignoring the message if its topic does not
-start with /mqtt/.
-
 (20) Add an on-demand poll mechanism for Tasmota devices that piggybacks on
 the new MQTT sink: a node (or a worksheet recipe documented in the help)
 that publishes "cmnd/tasmotas/Status 5" to the broker and listens on
