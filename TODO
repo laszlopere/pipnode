@@ -843,7 +843,7 @@ are the findings worth fixing.  NOTE: pn-mesh-page-mqtt.c is the
 Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
 
   CRITICAL
-  - C1  Sink reports every failure only via g_warning/g_message ->
+  - [x] C1  Sink reports every failure only via g_warning/g_message ->
         invisible from the desktop launcher (violates the "errors via
         failure message, not stdout" rule; cf. pn-http.c:272).  Offenders
         in pn-mqtt-sink.c: queued-publish fail :486, live publish fail
@@ -884,7 +884,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         reporting channel for these nodes now.  (The Source could ALSO
         emit success=FALSE downstream per the Weather pattern -- not needed
         now that the log dialog covers both Source and the output-less Sink.)
-  - C2  restart_client() runs from _init() (pn-mqtt.c:1173,
+  - [x] C2  restart_client() runs from _init() (pn-mqtt.c:1173,
         pn-mqtt-sink.c:1154), before construction/deserialization is done.
         Source: starts the network thread before a SUBCLASS (Sink,
         Tasmota, Zigbee2MQTT) has initialized its private state, yet
@@ -908,7 +908,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         restart run.)
 
   HIGH
-  - H1  Network-thread read of priv->topic/priv->qos races runtime
+  - [x] H1  Network-thread read of priv->topic/priv->qos races runtime
         reconfigure (pn-mqtt.c:467-469).  The "no mutex for config fields"
         invariant assumes setters always stop_client (join the thread)
         first, but libmosquitto's AUTO-RECONNECT keeps the net thread
@@ -925,7 +925,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         the thread, so an auto-reconnect re-firing on_mqtt_connect cannot race
         a setter freeing priv->topic.  sub_topic is owned, freed in
         stop_client + finalize.
-  - H2  Stale-disconnect race during reconnect-while-restarting, present
+  - [x] H2  Stale-disconnect race during reconnect-while-restarting, present
         EQUALLY in both nodes.  The conn-state trampoline guards only on
         client != NULL (pn-mqtt.c:413, pn-mqtt-sink.c:514); neither has a
         real generation/epoch counter, so an old session's queued
@@ -943,7 +943,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         trampoline is dropped.  net_ctx is owned in priv and freed when its
         client is destroyed (stop_client / restart's fail path), after the
         thread is joined.
-  - H3  Sink drops buffered startup commands on flush failure:
+  - [x] H3  Sink drops buffered startup commands on flush failure:
         flush_pending (pn-mqtt-sink.c:476-492) pending_free's each entry
         unconditionally even when mosquitto_publish errored (:485),
         defeating the buffer-and-flush guarantee.  Fix: on NOMEM/CONN_LOST
@@ -959,7 +959,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         it would loop forever.
 
   MEDIUM
-  - M1  build_mqtt_message (pn-mqtt.c:592-598) mirrors only DOUBLE/INT64
+  - [x] M1  build_mqtt_message (pn-mqtt.c:592-598) mirrors only DOUBLE/INT64
         JSON scalars to data.value; a bare true/false payload sets nothing
         (breaks the 0.0/1.0 boolean convention), and int64 loses precision
         via get_double.  Add a JSON-boolean -> 0.0/1.0 case.
@@ -969,44 +969,44 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         message_json_bool_no_value (which PINNED the missing mirror) is now
         message_json_bool_value, asserting 1.0/0.0.  (int64 precision left as
         is — data.value is a double by contract.)
-  - M2  Sink loses buffered messages on dispose (finalize :989) and on a
+  - [ ] M2  Sink loses buffered messages on dispose (finalize :989) and on a
         runtime URL change keeps the backlog and flushes commands meant
         for broker A to broker B.  Decide + document; likely clear the
         queue when broker identity changes.
-  - M3  Profile lacks TLS/CA-file, port-as-int, and keepalive fields.
+  - [ ] M3  Profile lacks TLS/CA-file, port-as-int, and keepalive fields.
         TLS is inferred from URL scheme only and mosquitto_tls_set(...NULL)
         uses the system trust store (pn-mqtt.c:771), so a PRIVATE-CA broker
         is unconfigurable; keepalive hard-coded to 60s.  Known/deferred.
-  - M4  payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666; >256MB
+  - [ ] M4  payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666; >256MB
         hits MQTT's limit and mosquitto_publish rejects -- logged only to
         stderr (see C1).
 
   LOW / NIT
-  - L1  Source: subscribe failure (pn-mqtt.c:469-475) g_warns then flips
+  - [x] L1  Source: subscribe failure (pn-mqtt.c:469-475) g_warns then flips
         the node GREEN anyway -> looks healthy, receives nothing.
-  - L2  Dead variable need_schedule (pn-mqtt.c:375,388,394).
+  - [x] L2  Dead variable need_schedule (pn-mqtt.c:375,388,394).
         DONE 2026-05-29: removed from emit_message_on_main.
-  - L3  Default topic "#" + a primary broker profile = a freshly dropped
+  - [ ] L3  Default topic "#" + a primary broker profile = a freshly dropped
         node auto-subscribes to the entire broker (footgun, intentional).
-  - L4  Empty-payload publish is dropped (pn-mqtt-sink.c:383) -> cannot
+  - [ ] L4  Empty-payload publish is dropped (pn-mqtt-sink.c:383) -> cannot
         clear a retained topic with a null payload; document in help.
-  - N1  restart_client repeats the g_free(url/user/pass/cid/host) cleanup
+  - [x] N1  restart_client repeats the g_free(url/user/pass/cid/host) cleanup
         block ~5x per file; an out: goto would remove the divergence risk.
         DONE 2026-05-29: both restart_client bodies now use a single out:
         label for the free + apply_visual_state tail and a fail_destroy:
         label for the post-mosquitto_new failure paths (destroy client + free
         net_ctx).  The ~5 duplicated cleanup blocks are gone.
-  - N2  Stale header docs: pn-mqtt.h says property "topic" but the
+  - [x] N2  Stale header docs: pn-mqtt.h says property "topic" but the
         installed name is "subscribe-topic" (:1101); pn-mqtt-sink.h omits
         broker-profile/topic-template.
         DONE 2026-05-29: pn-mqtt.h Properties block now lists broker-profile
         + subscribe-topic (was "topic"); pn-mqtt-sink.h adds broker-profile +
         topic-template and tags url as the inline "Custom settings" field.
-  - N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
+  - [x] N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
         risk); a shared static + shared test would cover both.
         DONE 2026-05-28: extracted to pn_mqtt_parse_url in pn-mqtt-util.c,
         both nodes call it.
-  - N4  pn_mqtt_parse_url mis-parses IPv6 literals: it locates the port
+  - [x] N4  pn_mqtt_parse_url mis-parses IPv6 literals: it locates the port
         with strchr(p, ':'), so tcp://[::1]:1883 splits on the first ':'
         inside the address.  Bracketed-IPv6 host[:port] is unsupported;
         handle '[...]' before scanning for the port colon (then add a
@@ -1018,7 +1018,7 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
         consumed, *endp=='\0').  New test-pn-mqtt-util url_ipv6 case covers
         tcp://[::1], [::1], mqtts://[2001:db8::1], ...:port, and the malformed
         rejections.
-  - U1  Inline Broker URL silently ignored once any mqtt-broker profile
+  - [x] U1  Inline Broker URL silently ignored once any mqtt-broker profile
         exists: empty broker-profile -> pn_node_get_profile falls back to
         the PRIMARY profile, and pn_mqtt_resolve_connection takes every
         field from a non-NULL profile, so a typed url did nothing (user
@@ -1092,23 +1092,23 @@ Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
   still PASSES with the deferred-connect change.
 
   REMAINING (deferred / doc-only, not blocking):
-    - M2  Sink keeps its offline backlog across a runtime broker change, so
+    - [ ] M2  Sink keeps its offline backlog across a runtime broker change, so
           commands buffered for broker A can flush to broker B.  Decide +
           document; likely clear the queue when the broker identity changes.
-    - M3  Profile lacks TLS CA-file / port-int / keepalive fields (private-CA
+    - [ ] M3  Profile lacks TLS CA-file / port-int / keepalive fields (private-CA
           broker unconfigurable; keepalive hard-coded 60s).  Known/deferred.
-    - M4  payload_len (gsize) cast to int at the publish calls; >256MB hits
+    - [ ] M4  payload_len (gsize) cast to int at the publish calls; >256MB hits
           MQTT's limit.  Now at least surfaced via the Log dialog (C1).
-    - L3  Default topic "#" + primary profile auto-subscribes the whole
+    - [ ] L3  Default topic "#" + primary profile auto-subscribes the whole
           broker (intentional footgun).
-    - L4  Empty-payload publish is dropped -> cannot clear a retained topic
+    - [ ] L4  Empty-payload publish is dropped -> cannot clear a retained topic
           with a null payload; document in PnMqttSink help.
 
 (31) Adopt the generic node error state across all nodes that report
 errors.  TODO #30 introduced a uniform, centralized error indication on the
 core (added 2026-05-29).
 
-  31.1 Core infrastructure.  DONE.
+  [x] 31.1 Core infrastructure.  DONE.
     - pn_node_set_has_error(node, gboolean) / pn_node_get_has_error() plus a
       transient "has-error" property on PnNode (lib/pn-node.{c,h}).  Not
       serialized (PnNode-owned props are skipped by should_serialize_property)
@@ -1120,11 +1120,11 @@ core (added 2026-05-29).
       `disabled` nodes.  disabled wins over error.  Repaint is wired via
       notify::has-error (on_node_notify_appearance).
 
-  31.2 Worked examples.  DONE.
+  [x] 31.2 Worked examples.  DONE.
     pn-mqtt.c and pn-mqtt-sink.c apply_visual_state now keep their healthy
     green identity and only toggle has-error.
 
-  31.3 Migrate the remaining hand-rolled nodes.  TODO -- the open work.
+  [ ] 31.3 Migrate the remaining hand-rolled nodes.  TODO -- the open work.
     17 other nodes still hand-roll their own error/unconfigured look with a
     private `#define PN_*_WARNING_ICON "❗"` + a pn_node_set_icon /
     pn_node_set_color red swap.  Migrate each to pn_node_set_has_error so the
@@ -1142,7 +1142,7 @@ core (added 2026-05-29).
     "needs configuration" state, not a runtime failure -- decide per node
     whether that should read as an error (red) or stay a softer hint.
 
-  31.4 The human-readable REASON: the per-node "log" dialog that surfaces the
+  [x] 31.4 The human-readable REASON: the per-node "log" dialog that surfaces the
   last error text.  DONE 2026-05-29 (see #32).
     A Sink has no output port, so the red+❗ is all it can show on the canvas;
     the log dialog is the place to show WHY.  This was the remaining half of
@@ -1195,7 +1195,7 @@ the minimal-invasive-packaging line.
 grouped here only because both touch the PnHttp/PnWeather stack; neither is
 a prerequisite for the other.
 
-  38.1 Drop curl from PnHttp; implement HTTP natively in C.  Today the whole
+  [ ] 38.1 Drop curl from PnHttp; implement HTTP natively in C.  Today the whole
   PnHttp family (and PnWeather on top of it) shells out to curl via
   g_spawn_command_line_sync -- build_command() assembles a curl command line
   with --max-time / --write-out '<sentinel>%{http_code}' and the worker
@@ -1212,7 +1212,7 @@ a prerequisite for the other.
   string) or is replaced by a request-building vfunc; either way keep
   PnWeather's two-request geocode-then-forecast override working.
 
-  38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
+  [ ] 38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
   weather provider.  api.met.no's Locationforecast is free and key-less
   (global coverage), so it slots in beside Open-Meteo and Bright Sky as a new
   PnWeatherProvider enum value.  It is keyed on lat/lon (reuse the existing
@@ -1238,7 +1238,7 @@ are the same "pure C, no helper subprocess" theme as #38.1, which covers
 PnHttp/curl specifically.)
 
   HIGH
-  39.1  Ollama silently drops every message when "hostname" is empty
+  [ ] 39.1  Ollama silently drops every message when "hostname" is empty
         (plugins/ollama/pn-ollama.c:370).  Empty hostname is the INTENDED
         default -- build_endpoint resolves ""->localhost and
         refresh_visual_state shows the node as configured with only a model
@@ -1248,7 +1248,7 @@ PnHttp/curl specifically.)
         match refresh_visual_state / build_endpoint.
 
   MEDIUM
-  39.2  Expression parser has no recursion-depth limit -> C-stack-overflow
+  [ ] 39.2  Expression parser has no recursion-depth limit -> C-stack-overflow
         crash on pathological nesting (lib/pn-expr-parser.c, the
         parse_factor<->parse_expression recursive descent).  A configured
         expression like ((((...)))) or a long unary-minus chain overflows
@@ -1257,7 +1257,7 @@ PnHttp/curl specifically.)
         a bad expression.  Fix: add a depth counter to Ctx and error out
         past a sane limit.  (pn-var-store.c's evaluator recurses to the same
         depth; the parser is the gate that builds the tree.)
-  39.3  Graph 3D line mode overflows the PLplot cmap0 with >=9 series
+  [ ] 39.3  Graph 3D line mode overflows the PLplot cmap0 with >=9 series
         (lib/pn-graph-gui.c:922).  paint_line_3d writes each series colour
         to cmap0 slot 8+i (up to 19 for the 12-series cap) but
         paint_setup_page never grows the colormap (no plscmap0n) and the
@@ -1265,7 +1265,7 @@ PnHttp/curl specifically.)
         render in a stale/wrong colour.  Fix: plscmap0n(8 + nseries) before
         the per-series loop in the 3D paths.  (3D-histogram path is
         unaffected -- it reuses low slots.)  Triggers only at 9+ topics.
-  39.4  Table cell/title truncation can emit invalid UTF-8
+  [ ] 39.4  Table cell/title truncation can emit invalid UTF-8
         (lib/pn-table-gui.c:80, fit_text_with_ellipsis).  The first
         truncation pass cuts at a fixed 252-byte offset that is not
         codepoint-aligned, so the inserted ellipsis can follow a partial
@@ -1273,14 +1273,14 @@ PnHttp/curl specifically.)
         passes, never the initial cut.  cairo renders tofu.  Fix: align the
         first cut to a UTF-8 boundary (g_utf8_find_prev_char).  Triggers
         only on >252-byte strings.
-  39.5  Image Pixelate dereferences dst before its NULL check
+  [ ] 39.5  Image Pixelate dereferences dst before its NULL check
         (plugins/image/pn-image-pixelate.c:54,56).  gdk_pixbuf_get_rowstride
         /_get_pixels are called on dst before the `if (dst == NULL) return`
         guard at :59, so the guard is dead and a failed gdk_pixbuf_copy
         crashes the GTask worker thread.  Fix: move the NULL check above the
         dereferences.  Low probability (copy only fails on OOM) but a clear
         regression against the pattern every sibling node follows.
-  39.6  Image Dither has no NULL check on dst at all
+  [x] 39.6  Image Dither has no NULL check on dst at all
         (plugins/image/pn-image-dither.c:62-64) -- dst = gdk_pixbuf_copy(src)
         is immediately dereferenced (unlike every sibling).  NULL dst ->
         crash; the buf malloc at :51 also leaks on that (currently
@@ -1289,35 +1289,35 @@ PnHttp/curl specifically.)
         gdk_pixbuf_copy and, if so, g_free(buf) + return NULL before the
         rowstride/pixels dereferences -- matching the sibling guard in
         pn-image-pixelate.c.
-  39.7  Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188), violating
+  [ ] 39.7  Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188), violating
         the "pure C, no helper subprocesses at runtime" rule.  Implement
         audio playback in-process.  (on_play_done itself is safe -- holds a
         ref on self, main-thread-only state.)  Sibling theme to #38.1.
-  39.8  Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c <cmd>`
+  [ ] 39.8  Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c <cmd>`
         per utterance (:433-475, :1040-1095, :1171-1288),
         g_spawn_command_line_sync for `pactl list sinks`, and
         `<engine> --voices` enumeration -- the most subprocess use in the
         tree.  Port to in-process C.  Sibling theme to #38.1.
 
   LOW / NIT
-  39.9  Numeric readout can cast an out-of-range double to gint64 (UB)
+  [ ] 39.9  Numeric readout can cast an out-of-range double to gint64 (UB)
         before the overload check (lib/pn-numeric-gui.c:199-201).  With
         digits=12/decimals=6, scale=1e6; a finite but huge data.value (e.g.
         1e300) makes av*scale ~1e306 and `(gint64) floor(av*scale+0.5)` is
         computed BEFORE the `int_part > max_int` guard.  read_value only
         filters non-finite, not out-of-gint64-range.  Fix: clamp av (or
         test av*scale against G_MAXINT64) before the cast.
-  39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
+  [ ] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
         (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
         desktop launcher; convention prefers a node failure message / log.
-  39.11 Ollama cancellation lives in finalize, not dispose
+  [ ] 39.11 Ollama cancellation lives in finalize, not dispose
         (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
         in-flight request -- on_generate_done holds a strong ref on self, so
         finalize cannot run until the request completes and the
         g_cancellable_cancel is dead code for that case.  No UAF, but
         closing the worksheet pins the node until Ollama replies.  Fix:
         cancel in dispose (the pn-ws.c / https-tunnel pattern).
-  39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async callback
+  [ ] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async callback
         g_object_ref's self but the spawned media player is never
         terminated and the wait is never cancelled
         (plugins/sound-effects/pn-sci-fi-sound.c:154 + overall).  No UAF
@@ -1326,20 +1326,20 @@ PnHttp/curl specifically.)
         the worksheet leaves the player running.  Also the per-message
         subprocess spawn is the #38.1 convention theme (likely an inherent
         exception for a GTK-free core audio node).
-  39.13 Ollama can pass NULL to json_node_get_object
+  [ ] 39.13 Ollama can pass NULL to json_node_get_object
         (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
         whitespace body as success with a NULL root, so
         json_node_get_object(json_parser_get_root(parser)) emits a
         g_critical (noisy, invisible under the launcher) before the
         subsequent `root == NULL` check handles it cleanly.  Fix: NULL /
         JSON_NODE_HOLDS_OBJECT guard the root before the call.
-  39.14 TTS queue can stall on a failed re-spawn (lib/pn-tts.c:336-350): in
+  [ ] 39.14 TTS queue can stall on a failed re-spawn (lib/pn-tts.c:336-350): in
         on_speak_done, if pn_tts_speak fails to spawn the next utterance,
         self->speaking stays FALSE and on_speak_done never fires again, so
         the remaining backlog is stranded until the next inbound message
         (self-heals on the next receive).  Fix: drain-retry the rest of the
         queue on a failed re-spawn.
-  39.15 HTTPS-tunnel sender wires on_accept_certificate with g_signal_connect
+  [ ] 39.15 HTTPS-tunnel sender wires on_accept_certificate with g_signal_connect
         (not _object) and never disconnects
         (plugins/network/pn-https-tunnel-sender.c:352).  Not a live UAF --
         the handler is a pure `return TRUE` that ignores user_data and dies
