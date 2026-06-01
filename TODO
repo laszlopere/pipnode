@@ -1285,6 +1285,10 @@ PnHttp/curl specifically.)
         is immediately dereferenced (unlike every sibling).  NULL dst ->
         crash; the buf malloc at :51 also leaks on that (currently
         impossible) path.  Fix: add the standard NULL guard + free buf.
+        DONE 2026-06-01: dither_transform now checks dst == NULL right after
+        gdk_pixbuf_copy and, if so, g_free(buf) + return NULL before the
+        rowstride/pixels dereferences -- matching the sibling guard in
+        pn-image-pixelate.c.
   39.7  Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188), violating
         the "pure C, no helper subprocesses at runtime" rule.  Implement
         audio playback in-process.  (on_play_done itself is safe -- holds a

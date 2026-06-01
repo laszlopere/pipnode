@@ -59,7 +59,12 @@ dither_transform (GdkPixbuf *src, PnNode *node)
         }
     }
 
-    dst   = gdk_pixbuf_copy (src);  /* keeps pixels + alpha */
+    dst = gdk_pixbuf_copy (src);  /* keeps pixels + alpha */
+    if (dst == NULL)
+    {
+        g_free (buf);
+        return NULL;
+    }
     drs   = gdk_pixbuf_get_rowstride (dst);
     dbase = gdk_pixbuf_get_pixels    (dst);
 
