@@ -22,6 +22,7 @@
       "uuid" : "4a3ac62a-357a-46ad-95da-de52e0616865",
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
         "x" : 340.0,
         "y" : 80.0
@@ -41,8 +42,8 @@
         "y" : 140.0
       },
       "properties" : {
-        "view-yaw" : 0.72039794921875,
-        "view-pitch" : 23.45709228515625,
+        "view-yaw" : 3.2696533203125,
+        "view-pitch" : 33.997161865234375,
         "house-heading" : 270.0,
         "show-house" : true,
         "background-color" : "rgb(92,133,189)",
@@ -65,7 +66,7 @@
       },
       "properties" : {
         "period" : 60,
-        "city" : "Tokyo",
+        "city" : "Szajol",
         "datum" : "The Sun is up"
       }
     },
@@ -79,9 +80,9 @@
         "y" : 400.0
       },
       "properties" : {
-        "view-yaw" : 1.83990478515625,
-        "view-pitch" : 23.45709228515625,
-        "house-heading" : 18.0,
+        "view-yaw" : 1.65869140625,
+        "view-pitch" : 51.7684326171875,
+        "house-heading" : 294.0,
         "show-house" : true,
         "background-color" : "rgb(92,133,189)",
         "background-color2" : "rgb(219,212,184)",
@@ -105,6 +106,10 @@
     {
       "source_id" : "193b73cc-1987-4840-8515-9f38d55030e6",
       "target_id" : "5afd6b92-4bce-4271-9998-30decdb485da"
+    },
+    {
+      "source_id" : "193b73cc-1987-4840-8515-9f38d55030e6",
+      "target_id" : "4a3ac62a-357a-46ad-95da-de52e0616865"
     }
   ],
   "sheets" : [
