@@ -269,6 +269,10 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='value' direction='in'/>"
     "      <arg type='b' name='ok'    direction='out'/>"
     "    </method>"
+    "    <method name='SetNodeProperties'>"
+    "      <arg type='s'     name='uuid'  direction='in'/>"
+    "      <arg type='a{ss}' name='props' direction='in'/>"
+    "    </method>"
     "    <method name='AddNode'>"
     "      <arg type='s' name='type'  direction='in'/>"
     "      <arg type='d' name='x'     direction='in'/>"
@@ -634,6 +638,72 @@ worksheet_set_node_property (GDBusMethodInvocation *invocation,
 
     g_dbus_method_invocation_return_value (
             invocation, g_variant_new ("(b)", TRUE));
+}
+
+/** Complete SetNodeProperties (TODO #40.6): parse every (name,value) pair
+ *  in @props and, only if they ALL parse into a writable property, apply
+ *  them in one g_object_setv call.  All-or-nothing: the first unknown or
+ *  unparseable entry fails the whole call with UnknownProperty /
+ *  BadPropertyValue and the node is left exactly as it was, so an agent
+ *  never ends up with a half-configured node.  @props strings are
+ *  borrowed from the still-live method parameters. */
+static void
+worksheet_set_node_properties (GDBusMethodInvocation *invocation,
+                               PnNode *node, GVariant *props)
+{
+    GVariantIter  iter;
+    const gchar  *prop = NULL;
+    const gchar  *text = NULL;
+    GPtrArray    *names;
+    GArray       *values;
+
+    names  = g_ptr_array_new ();
+    values = g_array_new (FALSE, FALSE, sizeof (GValue));
+    g_array_set_clear_func (values, (GDestroyNotify) g_value_unset);
+
+    g_variant_iter_init (&iter, props);
+    while (g_variant_iter_next (&iter, "{&s&s}", &prop, &text))
+    {
+        GParamSpec *pspec;
+        GValue      value = G_VALUE_INIT;
+
+        pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (node), prop);
+        if (!pspec || (pspec->flags & G_PARAM_WRITABLE) == 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
+                    "Node has no writable property '%s'", prop);
+            goto out;
+        }
+
+        g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
+        if (!node_value_from_string (&value, text))
+        {
+            g_value_unset (&value);
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Cannot parse '%s' for property '%s'", text, prop);
+            goto out;
+        }
+
+        /* The array takes ownership of the parsed value (shallow copy of
+         * the GValue struct); its clear func unsets each on free. */
+        g_ptr_array_add (names, (gpointer) prop);
+        g_array_append_val (values, value);
+    }
+
+    /* Every pair validated — now nothing can fail, so apply atomically. */
+    g_object_setv (G_OBJECT (node), names->len,
+                   (const gchar **) names->pdata,
+                   (const GValue *) values->data);
+
+    g_dbus_method_invocation_return_value (invocation, NULL);
+
+out:
+    g_ptr_array_free (names, TRUE);
+    g_array_free (values, TRUE);
 }
 
 /** Shared by AddNode (index form) and AddNodeReturningUuid (TODO #40.4):
@@ -1241,6 +1311,28 @@ handle_worksheet_method_call (
         }
 
         worksheet_set_node_property (invocation, node, prop, text);
+    }
+    else if (g_strcmp0 (method_name, "SetNodeProperties") == 0)
+    {
+        const gchar *uuid  = NULL;
+        GVariant    *props = NULL;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&s@a{ss})", &uuid, &props);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            g_variant_unref (props);
+            return;
+        }
+
+        worksheet_set_node_properties (invocation, node, props);
+        g_variant_unref (props);
     }
     else if (g_strcmp0 (method_name, "AddNode") == 0)
     {

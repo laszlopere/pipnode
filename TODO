@@ -1439,10 +1439,25 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         ListWires/GetNodeWires read-back from both ends, port-2 wiring on a
         grown target, precise Disconnect + WireNotFound on repeat, and all five
         illegal-connection rejections + bad-uuid errors).
-  [ ] 40.6  Typed property get/set + batch.  Add uuid forms of GetNodeProperty/
+  [x] 40.6  Typed property get/set + batch.  Add uuid forms of GetNodeProperty/
         SetNodeProperty (the index forms exist) reusing node_value_to_string/
         node_value_from_string; add SetNodeProperties(uuid, a{ss}) applied
         atomically (all-or-nothing) so a node is configured in one call.
+        DONE: the by-uuid single getter/setter (GetNodePropertyByUuid /
+        SetNodePropertyByUuid) already landed in 40.1, so this added the batch:
+        SetNodeProperties(uuid, a{ss}) on org.pipas.pipnode.Worksheet, backed
+        by worksheet_set_node_properties().  It is genuinely all-or-nothing --
+        every pair is first resolved to a writable GParamSpec and parsed via
+        node_value_from_string into a buffered GValue; only once ALL pairs
+        validate are they applied in a single g_object_setv.  The first unknown
+        or unparseable entry fails the whole call (UnknownProperty /
+        BadPropertyValue) with the node left exactly as it was, so an agent
+        never ends up with a half-configured node.  Unknown uuid -> NodeNotFound.
+        Returns void (success == no error), like the other 40.4/40.5 mutators.
+        Covered by tests/test_dbus_batch_properties.py (mixed string/double/uint
+        batch read back through GetNodePropertyByUuid; atomicity proven on both
+        UnknownProperty and BadPropertyValue by checking an earlier pair did NOT
+        stick; bad-uuid NodeNotFound).  PHASE B (graph mutation) COMPLETE.
 
   PHASE C -- discovery (so the agent can work without reading C source)
   [ ] 40.7  Node-type catalog over D-Bus.  ListNodeTypes->a(sssbbs)
