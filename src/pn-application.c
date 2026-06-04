@@ -366,6 +366,24 @@ static const gchar worksheet_introspection_xml[] =
     "    <method name='GetDeviceProviders'>"
     "      <arg type='as' name='ids' direction='out'/>"
     "    </method>"
+    "    <method name='ListNodeTypes'>"
+    "      <arg type='a(sssbbs)' name='types' direction='out'/>"
+    "    </method>"
+    "    <method name='GetNodeTypeInfo'>"
+    "      <arg type='s' name='type'        direction='in'/>"
+    "      <arg type='s' name='class_name'  direction='out'/>"
+    "      <arg type='s' name='category'    direction='out'/>"
+    "      <arg type='b' name='has_input'   direction='out'/>"
+    "      <arg type='b' name='has_output'  direction='out'/>"
+    "      <arg type='s' name='plugin_name' direction='out'/>"
+    "      <arg type='s' name='icon'        direction='out'/>"
+    "      <arg type='s' name='color'       direction='out'/>"
+    "      <arg type='s' name='help_page'   direction='out'/>"
+    "    </method>"
+    "    <method name='ListNodeProperties'>"
+    "      <arg type='s'          name='uuid'  direction='in'/>"
+    "      <arg type='a(sssssb)'  name='props' direction='out'/>"
+    "    </method>"
     "  </interface>"
     "</node>";
 
@@ -494,8 +512,71 @@ node_value_to_string (const GValue *v)
         g_ascii_dtostr (buf, sizeof buf, (double) g_value_get_float (v));
         return g_strdup (buf);
     }
+    if (G_TYPE_IS_ENUM (t))
+    {
+        /* Render an enum as its value-nick — the same spelling
+         * node_value_from_string() parses back — so an enum property
+         * round-trips through Get/SetNodeProperty and reads naturally
+         * in the ListNodeProperties schema (TODO #40.8). */
+        GEnumClass *ec = g_type_class_ref (t);
+        GEnumValue *ev = g_enum_get_value (ec, g_value_get_enum (v));
+        gchar      *s  = g_strdup (ev != NULL ? ev->value_nick : "");
+        g_type_class_unref (ec);
+        return s;
+    }
 
     return g_strdup_value_contents (v);
+}
+
+/** Describe a #GParamSpec's value domain as a compact string for the
+ *  ListNodeProperties schema (TODO #40.8): an enum becomes its
+ *  pipe-separated value-nicks ("a|b|c"), a bounded numeric becomes
+ *  "min..max", everything else an empty string.  Newly allocated. */
+static gchar *
+node_pspec_constraints (GParamSpec *pspec)
+{
+    GType vt = G_PARAM_SPEC_VALUE_TYPE (pspec);
+
+    if (G_TYPE_IS_ENUM (vt))
+    {
+        GEnumClass *ec = g_type_class_ref (vt);
+        GString    *s  = g_string_new (NULL);
+        for (guint i = 0; i < ec->n_values; i++)
+        {
+            if (i > 0)
+                g_string_append_c (s, '|');
+            g_string_append (s, ec->values[i].value_nick);
+        }
+        g_type_class_unref (ec);
+        return g_string_free (s, FALSE);
+    }
+    if (G_IS_PARAM_SPEC_INT (pspec))
+    {
+        GParamSpecInt *p = G_PARAM_SPEC_INT (pspec);
+        return g_strdup_printf ("%d..%d", p->minimum, p->maximum);
+    }
+    if (G_IS_PARAM_SPEC_UINT (pspec))
+    {
+        GParamSpecUInt *p = G_PARAM_SPEC_UINT (pspec);
+        return g_strdup_printf ("%u..%u", p->minimum, p->maximum);
+    }
+    if (G_IS_PARAM_SPEC_DOUBLE (pspec))
+    {
+        GParamSpecDouble *p = G_PARAM_SPEC_DOUBLE (pspec);
+        gchar lo[G_ASCII_DTOSTR_BUF_SIZE], hi[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (lo, sizeof lo, p->minimum);
+        g_ascii_dtostr (hi, sizeof hi, p->maximum);
+        return g_strdup_printf ("%s..%s", lo, hi);
+    }
+    if (G_IS_PARAM_SPEC_FLOAT (pspec))
+    {
+        GParamSpecFloat *p = G_PARAM_SPEC_FLOAT (pspec);
+        gchar lo[G_ASCII_DTOSTR_BUF_SIZE], hi[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (lo, sizeof lo, (double) p->minimum);
+        g_ascii_dtostr (hi, sizeof hi, (double) p->maximum);
+        return g_strdup_printf ("%s..%s", lo, hi);
+    }
+    return g_strdup ("");
 }
 
 /** Parse @text into @value (already inited to the target type) for the
@@ -1905,6 +1986,160 @@ handle_worksheet_method_call (
         ok = pn_window_set_dialog_editor_text (PN_WINDOW (win), prop, text);
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "ListNodeTypes") == 0)
+    {
+        /* The install-accurate node palette (TODO #40.7): one tuple per
+         * type the factory knows about, in registration/palette order,
+         * including any types contributed by loaded plugins.  This is the
+         * runtime mirror of the pipnode-nodes skill — the skill carries
+         * the prose, this carries the live catalog. */
+        PnNodeFactory   *factory = pn_node_factory_get_default ();
+        guint            n       = pn_node_factory_get_n_types (factory);
+        GVariantBuilder  builder;
+        guint            i;
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sssbbs)"));
+        for (i = 0; i < n; i++)
+        {
+            GType        t   = pn_node_factory_get_type_at (factory, i);
+            const gchar *cls = pn_node_factory_get_class_name (factory, t);
+            const gchar *cat = pn_node_factory_get_category (factory, t);
+            const gchar *plg = pn_node_factory_get_plugin_name (factory, t);
+
+            g_variant_builder_add (
+                    &builder, "(sssbbs)",
+                    g_type_name (t),
+                    cls != NULL ? cls : "",
+                    cat != NULL ? cat : "",
+                    pn_node_factory_get_has_input  (factory, t),
+                    pn_node_factory_get_has_output (factory, t),
+                    plg != NULL ? plg : "");
+        }
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(sssbbs))", &builder));
+    }
+    else if (g_strcmp0 (method_name, "GetNodeTypeInfo") == 0)
+    {
+        /* Per-type detail the palette row omits (TODO #40.7): icon glyph,
+         * body colour, and the per-class help-page basename (PnXxx.html,
+         * the same anchor the in-app help browser resolves). */
+        PnNodeFactory *factory   = pn_node_factory_get_default ();
+        const gchar   *type_name = NULL;
+        GType          t;
+
+        g_variant_get (parameters, "(&s)", &type_name);
+
+        t = pn_node_factory_lookup (factory, type_name);
+        if (t == G_TYPE_INVALID)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
+                    "No such node type '%s'", type_name ? type_name : "");
+        }
+        else
+        {
+            const gchar   *cls   = pn_node_factory_get_class_name (factory, t);
+            const gchar   *cat   = pn_node_factory_get_category (factory, t);
+            const gchar   *plg   = pn_node_factory_get_plugin_name (factory, t);
+            const gchar   *icon  = pn_node_factory_get_icon (factory, t);
+            const PnColor *color = pn_node_factory_get_color (factory, t);
+            gchar         *colstr = color != NULL ? pn_color_to_string (color)
+                                                  : g_strdup ("");
+            gchar         *help   = g_strconcat (g_type_name (t), ".html", NULL);
+
+            g_dbus_method_invocation_return_value (
+                    invocation,
+                    g_variant_new ("(ssbbssss)",
+                                   cls  != NULL ? cls  : "",
+                                   cat  != NULL ? cat  : "",
+                                   pn_node_factory_get_has_input  (factory, t),
+                                   pn_node_factory_get_has_output (factory, t),
+                                   plg  != NULL ? plg  : "",
+                                   icon != NULL ? icon : "",
+                                   colstr,
+                                   help));
+            g_free (colstr);
+            g_free (help);
+        }
+    }
+    else if (g_strcmp0 (method_name, "ListNodeProperties") == 0)
+    {
+        /* The configurable surface of one live node (TODO #40.8): every
+         * installed GParamSpec rendered as
+         *   (name, value-type, current, default, constraints, writable)
+         * so an agent learns which properties exist, their types, their
+         * current and default values, the allowed enum nicks / numeric
+         * range, and whether SetNodeProperty can touch them — without
+         * reading the node's C source. */
+        const gchar  *uuid = NULL;
+        PnNode       *node;
+        GParamSpec  **specs;
+        guint         n_specs, i;
+        GVariantBuilder builder;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        specs = g_object_class_list_properties (
+                    G_OBJECT_GET_CLASS (node), &n_specs);
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sssssb)"));
+        for (i = 0; i < n_specs; i++)
+        {
+            GParamSpec *ps  = specs[i];
+            GType       vt  = G_PARAM_SPEC_VALUE_TYPE (ps);
+            gboolean    wr  = (ps->flags & G_PARAM_WRITABLE) != 0 &&
+                              (ps->flags & G_PARAM_CONSTRUCT_ONLY) == 0;
+            gchar      *cur;
+            gchar      *def;
+            gchar      *con = node_pspec_constraints (ps);
+
+            /* current value (only if readable) */
+            if (ps->flags & G_PARAM_READABLE)
+            {
+                GValue v = G_VALUE_INIT;
+                g_value_init (&v, vt);
+                g_object_get_property (G_OBJECT (node), ps->name, &v);
+                cur = node_value_to_string (&v);
+                g_value_unset (&v);
+            }
+            else
+            {
+                cur = g_strdup ("");
+            }
+
+            /* default value from the pspec */
+            {
+                GValue dv = G_VALUE_INIT;
+                g_value_init (&dv, vt);
+                g_param_value_set_default (ps, &dv);
+                def = node_value_to_string (&dv);
+                g_value_unset (&dv);
+            }
+
+            g_variant_builder_add (&builder, "(sssssb)",
+                                   ps->name,
+                                   g_type_name (vt),
+                                   cur, def, con, wr);
+            g_free (cur);
+            g_free (def);
+            g_free (con);
+        }
+        g_free (specs);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(sssssb))", &builder));
     }
     else if (g_strcmp0 (method_name, "GetDeviceProviders") == 0)
     {

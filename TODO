@@ -1460,19 +1460,55 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         stick; bad-uuid NodeNotFound).  PHASE B (graph mutation) COMPLETE.
 
   PHASE C -- discovery (so the agent can work without reading C source)
-  [ ] 40.7  Node-type catalog over D-Bus.  ListNodeTypes->a(sssbbs)
+  [x] 40.7  Node-type catalog over D-Bus.  ListNodeTypes->a(sssbbs)
         {type_name,class_name,category,has_input,has_output,plugin_name} from
         the factory enumeration API, plus GetNodeTypeInfo(type_name) adding
         icon/color/help-page basename (PnXxx.html).  This is the runtime mirror
         of the pipnode-nodes skill: the skill carries the prose semantics, this
         carries the live, install-accurate palette (including loaded plugins).
-  [ ] 40.8  Property schema introspection.  ListNodeProperties(uuid)->
+        DONE: both methods on org.pipas.pipnode.Worksheet (alongside the
+        existing global GetDeviceProviders query, same interface).
+        ListNodeTypes walks pn_node_factory_get_n_types/_get_type_at in
+        palette order and emits {g_type_name, get_class_name, get_category,
+        get_has_input, get_has_output, get_plugin_name} per type -- core
+        nodes report the factory's "Internal" plugin sentinel, plugin nodes
+        their backfilled name.  GetNodeTypeInfo(type)->(ssbbssss)
+        {class_name,category,has_input,has_output,plugin_name,icon,color,
+        help_page} via pn_node_factory_lookup (UnknownNodeType on miss),
+        with color = pn_color_to_string(get_color) and help_page =
+        "<g_type_name>.html" (the same anchor the in-app help browser
+        resolves).  NULL factory strings normalised to "".  Introspection
+        XML stays the single source of truth.  Covered by
+        tests/test_dbus_discovery.py (catalog enumerates PnDial with its
+        class/category/ports + Internal plugin_name; type-info adds
+        icon/color/PnDial.html; UnknownNodeType on a bogus type).
+  [x] 40.8  Property schema introspection.  ListNodeProperties(uuid)->
         a(ssssb) {name, gtype-nick, current, default, flags} where for enums
         the allowed nicks and for numerics the min/max are folded in from the
         GParamSpec (g_object_class_list_properties + G_PARAM_SPEC_ENUM /
         ParamSpecInt/Double ranges).  Without this the agent cannot know which
         properties exist, their types, or valid values -- it would have to
         guess.  Optionally surface the node's PnSettingsSchema grouping.
+        DONE: ListNodeProperties(uuid)->a(sssssb) on .Worksheet.  Settled
+        the sketch into six explicit columns:
+        {name, value-type (g_type_name of the pspec value type),
+        current (node_value_to_string of the live value, "" if !READABLE),
+        default (g_param_value_set_default rendered the same way),
+        constraints, writable}.  The TODO's "folded in" enum-nicks/min-max
+        became a dedicated `constraints` column via a new
+        node_pspec_constraints() helper -- enums -> "nick1|nick2|...",
+        bounded int/uint/double/float -> "min..max", else "".  `writable`
+        is true only when G_PARAM_WRITABLE && !G_PARAM_CONSTRUCT_ONLY (the
+        honest "can SetNodeProperty touch this on a live node").  node UUID
+        unknown -> NodeNotFound.  Side-fix: node_value_to_string now renders
+        an enum as its value-nick (was g_strdup_value_contents), so enum
+        current/default round-trip with node_value_from_string and read
+        naturally here -- GetNodeProperty(ByUuid) benefits too.  PnSettings
+        Schema grouping left unsurfaced (optional).  Covered by
+        tests/test_dbus_discovery.py (live PnDial: writable gchararray
+        'label' carrying its SetNodeProperty value; 'min-value' carrying a
+        min..max constraint; NodeNotFound on a bad uuid).  PHASE C
+        (discovery) COMPLETE.
 
   PHASE D -- whole-document operations (cheap bulk read/write)
   [ ] 40.9  Worksheet/document JSON round-trip.  GetWorksheetJson()->s and
