@@ -13,11 +13,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Unit tests for PnExpression2: evaluate an algebraic expression over
- * the numeric members of its two inputs, where input 1's members are
- * bound with a "1" suffix and input 2's with a "2" suffix.  The latest
- * value seen on each input is retained across messages, and any
- * unresolved variable forwards the message flagged as a failure. */
+/* Unit tests for PnExpression2: evaluate an algebraic expression over its
+ * two inputs.  Each input's last data.value is remembered (by the core's
+ * input-value collation) and bound under that input's name — value1 /
+ * value2 by default, or a renamed input's name.  Any other numeric member
+ * of the message being processed is bound with the arriving input's number
+ * as a suffix (a sibling data.temp as temp1/temp2), but these siblings are
+ * NOT remembered across inputs.  An unresolved variable forwards the
+ * message flagged as a failure. */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -93,21 +96,46 @@ static void
 test_named_siblings_get_input_suffix (void)
 {
     guint      emits;
-    /* The suffix scheme applies to every numeric member, not just
-     * "value": a member `a` on input 1 binds as `a1`, a member `b` on
-     * input 2 as `b2`. */
-    PnNode    *node = make_node ("a1 * b2", &emits);
+    /* A sibling numeric member of the message being processed is bound
+     * with the arriving input's suffix: arriving on input 1, data.value
+     * binds as `value1` (via its input name) and a sibling data.temp as
+     * `temp1`. */
+    PnNode    *node = make_node ("value1 * temp1", &emits);
+    PnMessage *m1   = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (m1, "value", 4.0);
+    pn_message_set_double (m1, "temp",  5.0);
+    pn_node_receive_message_on_input (node, m1, 0);   /* value1 * temp1 = 20 */
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK_NEAR   (pn_test_num (m1, "value"), 20.0, 1e-9);
+    PN_CHECK        (pn_test_bool (m1, "success"));
+
+    g_object_unref (m1);
+    g_object_unref (node);
+}
+
+static void
+test_renamed_inputs (void)
+{
+    guint      emits;
+    /* Renaming the inputs changes the variable names the latched values
+     * surface under, so the expression can refer to them directly. */
+    PnNode    *node = make_node ("left + right", &emits);
     PnMessage *m1   = pn_message_new (NULL, NULL);
     PnMessage *m2   = pn_message_new (NULL, NULL);
 
-    pn_message_set_double (m1, "a", 4.0);
-    pn_node_receive_message_on_input (node, m1, 0);   /* b2 still unbound */
+    pn_node_set_input_name (node, 0, "left");
+    pn_node_set_input_name (node, 1, "right");
+
+    pn_message_set_double (m1, "value", 2.0);
+    pn_node_receive_message_on_input (node, m1, 0);   /* right still unbound */
     PN_CHECK_FALSE (pn_test_bool (m1, "success"));
 
-    pn_message_set_double (m2, "b", 5.0);
-    pn_node_receive_message_on_input (node, m2, 1);   /* now a1 * b2 = 20 */
+    pn_message_set_double (m2, "value", 3.0);
+    pn_node_receive_message_on_input (node, m2, 1);   /* left remembered → 5 */
     PN_CHECK_CMPINT (emits, ==, 2);
-    PN_CHECK_NEAR   (pn_test_num (m2, "value"), 20.0, 1e-9);
+    PN_CHECK_NEAR   (pn_test_num (m2, "value"), 5.0, 1e-9);
     PN_CHECK        (pn_test_bool (m2, "success"));
 
     g_object_unref (m1);
@@ -142,6 +170,7 @@ main (int argc, char **argv)
     pn_test_add ("single_input",           test_single_input_expression);
     pn_test_add ("two_inputs_combined",    test_two_inputs_combined);
     pn_test_add ("named_siblings_suffix",  test_named_siblings_get_input_suffix);
+    pn_test_add ("renamed_inputs",         test_renamed_inputs);
     pn_test_add ("invalid_forwards_fail",  test_invalid_expression_forwards_failure);
     return pn_test_run ();
 }

@@ -20,15 +20,19 @@ from <strong>both</strong> input ports, e.g. <code>value1 + value2</code>
 or <code>(value1 - value2) / value2 * 100</code>.
 </p>
 <p>
-Each numeric member of the latest message on an input is bound as a
-variable named after the member with the input number appended:
-<strong>input&nbsp;1</strong> contributes <code>value1</code> (and a
-sibling <code>data.temp</code> as <code>temp1</code>),
-<strong>input&nbsp;2</strong> contributes <code>value2</code>,
-<code>temp2</code>, and so on. The node keeps the most recent values
-seen on each input and recomputes on <em>every</em> incoming message,
-writing the result to <code>data.value</code> of the message it just
-received before forwarding it.
+The node remembers the last <code>data.value</code> seen on each input
+and binds it under that input&rsquo;s <em>name</em> &mdash;
+<code>value1</code> for input&nbsp;1 and <code>value2</code> for
+input&nbsp;2 by default, or whatever you rename the inputs to. Because
+the values are remembered, both are available on <em>every</em>
+recompute even when only one input just fired. Any <em>other</em>
+numeric member of the message being processed is also bound, with the
+arriving input&rsquo;s number appended &mdash; a sibling
+<code>data.temp</code> arriving on input&nbsp;1 becomes
+<code>temp1</code>. Unlike the headline value, these sibling fields are
+<strong>not</strong> remembered across inputs: only the message actually
+being processed contributes them. The result is written to
+<code>data.value</code> of that message before it is forwarded.
 </p>
 
 <table>
@@ -42,9 +46,11 @@ received before forwarding it.
 <ul>
   <li><strong>Numbers:</strong> <code>12</code>, <code>12.3</code>,
       <code>.5</code>.</li>
-  <li><strong>Variables:</strong> any numeric data-bag member of either
-      input, suffixed by the input number, e.g. <code>value1</code>,
-      <code>value2</code>, <code>offset1</code>.</li>
+  <li><strong>Variables:</strong> each input&rsquo;s remembered
+      <code>data.value</code> under its input name (<code>value1</code>,
+      <code>value2</code>, or a renamed input&rsquo;s name), plus any
+      other numeric member of the message being processed suffixed by the
+      arriving input number, e.g. <code>temp1</code>, <code>offset2</code>.</li>
   <li><strong>Operators:</strong> <code>+</code> <code>-</code>
       <code>*</code> <code>/</code> with the usual precedence,
       parentheses for grouping, and unary minus.</li>

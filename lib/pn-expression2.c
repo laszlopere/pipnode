@@ -37,13 +37,6 @@ struct _PnExpression2
 
     PnExprParser *parser;      /* reused for every recompile                */
     PnVarStore   *vars;        /* reused per message; rebuilt each receive  */
-
-    /* Latest numeric members harvested from each input's most recent
-     * message: name (gchar*) -> value (gdouble*).  NULL until that
-     * input has received a message.  Harvested up front (before the
-     * incoming message is mutated) so a recompute never reads back a
-     * value this node itself just wrote. */
-    GHashTable   *inputs[PN_EXPRESSION2_N_INPUTS];
 };
 
 G_DEFINE_TYPE (PnExpression2, pn_expression2, PN_TYPE_NODE)
@@ -90,37 +83,18 @@ expr_recompile (PnExpression2 *self)
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Snapshot every numeric member of @data into a fresh name->value
- *  table.  Returns an (always non-NULL) table the caller owns. */
-static GHashTable *
-harvest_numbers (JsonObject *data)
+/** TRUE if @name is the display name of one of @node's inputs — i.e. a
+ *  member the core's input-value collation injected into the data bag.
+ *  Used to tell core-injected per-input headline values (bound by their
+ *  own name) apart from this message's own sibling fields (suffixed). */
+static gboolean
+is_input_name (PnNode *node, gint n, const gchar *name)
 {
-    GHashTable *t = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                           g_free, g_free);
-
-    if (data != NULL)
-    {
-        JsonObjectIter  iter;
-        const gchar    *name;
-        JsonNode       *val;
-
-        json_object_iter_init (&iter, data);
-        while (json_object_iter_next (&iter, &name, &val))
-        {
-            if (val != NULL && JSON_NODE_HOLDS_VALUE (val))
-            {
-                GType vt = json_node_get_value_type (val);
-                if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
-                {
-                    gdouble *boxed = g_new (gdouble, 1);
-                    *boxed = json_node_get_double (val);
-                    g_hash_table_insert (t, g_strdup (name), boxed);
-                }
-            }
-        }
-    }
-
-    return t;
+    gint i;
+    for (i = 0; i < n; i++)
+        if (g_strcmp0 (pn_node_get_input_name (node, i), name) == 0)
+            return TRUE;
+    return FALSE;
 }
 
 /** Write one program-assigned name onto the outgoing message as a
@@ -139,21 +113,21 @@ pn_expression2_receive (
         PnNode    *node,
         PnMessage *message)
 {
-    PnExpression2 *self = PN_EXPRESSION2 (node);
-    gint           idx  = pn_node_current_input ();
-    gdouble        result;
-    GError        *error = NULL;
-    guint          i;
+    PnExpression2  *self = PN_EXPRESSION2 (node);
+    gint            idx  = pn_node_current_input ();
+    gint            n    = pn_node_get_n_inputs (node);
+    JsonObject     *data;
+    JsonObjectIter  iter;
+    const gchar    *name;
+    JsonNode       *val;
+    gdouble         result;
+    GError         *error = NULL;
+    gint            i;
 
-    /* Stash this input's numeric members *before* we mutate the
-     * message below, so value1/value2 stay the inputs' values. */
     if (idx < 0)
         idx = 0;
-    else if (idx >= PN_EXPRESSION2_N_INPUTS)
-        idx = PN_EXPRESSION2_N_INPUTS - 1;
-
-    g_clear_pointer (&self->inputs[idx], g_hash_table_unref);
-    self->inputs[idx] = harvest_numbers (pn_message_get_data (message));
+    else if (idx >= n)
+        idx = n - 1;
 
     /* No usable expression: forward the message flagged as failed so a
      * downstream chain keeps flowing rather than stalling. */
@@ -168,23 +142,57 @@ pn_expression2_receive (
         return;
     }
 
-    /* Bind every numeric member of each input, suffixed with the
-     * 1-based input number: input 1 -> name1 (value1), input 2 ->
-     * name2 (value2). */
+    /* Build the variable set from the (already collated) data bag.  The
+     * core's input-value collation has latched each input's last
+     * /data/value and injected them under the inputs' display names, so
+     * value1/value2 (or whatever the inputs are named) are present even
+     * for inputs that did not just fire — that is what makes
+     * "value1 + value2" resolve automatically. */
     pn_var_store_clear (self->vars);
-    for (i = 0; i < PN_EXPRESSION2_N_INPUTS; i++)
+    data = pn_message_get_data (message);
+
+    /* (1) The latched per-input headline values, bound under their input
+     *     names exactly as the core injected them. */
+    for (i = 0; i < n; i++)
     {
-        GHashTableIter  it;
-        gpointer        k, v;
-
-        if (self->inputs[i] == NULL)
-            continue;
-
-        g_hash_table_iter_init (&it, self->inputs[i]);
-        while (g_hash_table_iter_next (&it, &k, &v))
+        const gchar *nm = pn_node_get_input_name (node, i);
+        JsonNode    *vn = (data != NULL) ? json_object_get_member (data, nm)
+                                         : NULL;
+        if (vn != NULL && JSON_NODE_HOLDS_VALUE (vn))
         {
-            gchar *vname = g_strdup_printf ("%s%u", (const gchar *) k, i + 1);
-            pn_var_store_set (self->vars, vname, *(const gdouble *) v);
+            GType vt = json_node_get_value_type (vn);
+            if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
+                pn_var_store_set (self->vars, nm, json_node_get_double (vn));
+        }
+    }
+
+    /* (2) Sibling numeric fields from *this* message only, suffixed with
+     *     the 1-based arriving input number (data.temp -> temp1/temp2,
+     *     ...).  Unlike the headline values these are not latched across
+     *     inputs — only the message actually being processed contributes
+     *     them.  Skip the input-name members (the latched values bound
+     *     above) and the bare reserved "value" (already surfaced under
+     *     its input name). */
+    if (data != NULL)
+    {
+        json_object_iter_init (&iter, data);
+        while (json_object_iter_next (&iter, &name, &val))
+        {
+            GType vt;
+            gchar *vname;
+
+            if (val == NULL || !JSON_NODE_HOLDS_VALUE (val))
+                continue;
+            vt = json_node_get_value_type (val);
+            if (vt != G_TYPE_DOUBLE && vt != G_TYPE_INT64)
+                continue;
+            if (g_strcmp0 (name, "value") == 0)
+                continue;
+            if (is_input_name (node, n, name))
+                continue;
+
+            vname = g_strdup_printf ("%s%d", name, idx + 1);
+            pn_var_store_set (self->vars, vname, json_node_get_double (val));
             g_free (vname);
         }
     }
@@ -277,16 +285,12 @@ static void
 pn_expression2_finalize (GObject *object)
 {
     PnExpression2 *self = PN_EXPRESSION2 (object);
-    guint          i;
 
     g_clear_pointer (&self->expression,  g_free);
     g_clear_pointer (&self->parse_error, g_free);
     g_clear_pointer (&self->ast,         pn_expr_node_free);
     g_clear_object  (&self->parser);
     g_clear_object  (&self->vars);
-
-    for (i = 0; i < PN_EXPRESSION2_N_INPUTS; i++)
-        g_clear_pointer (&self->inputs[i], g_hash_table_unref);
 
     G_OBJECT_CLASS (pn_expression2_parent_class)->finalize (object);
 }
@@ -312,16 +316,20 @@ pn_expression2_class_init (PnExpression2Class *klass)
     props[PROP_EXPRESSION] = g_param_spec_string (
             "expression", "Expression",
             "Algebraic expression evaluated on each message, e.g. "
-            "\"value1 + value2\". Numeric members of input 1 are bound "
-            "with a \"1\" suffix and input 2 with a \"2\" suffix "
-            "(data.value as `value1`/`value2`, a sibling data.temp as "
-            "`temp1`/`temp2`, ...); the result is written to data.value. "
-            "Comparisons (< > <= >= == !=) yield 1.0 (true) or 0.0 "
-            "(false). Functions: sin, cos, tan, log, log10, exp, sqrt, "
-            "abs, floor, ceil. Write several newline-separated statements "
-            "to compute step by step; `name = expr` binds a variable for "
-            "later lines and is also written to the outgoing message, and "
-            "data.value is the last statement's value.",
+            "\"value1 + value2\". Each input's last data.value is "
+            "remembered and bound under that input's name — `value1` and "
+            "`value2` by default, or whatever the inputs are renamed to — "
+            "so both inputs are available even when only one just fired. "
+            "Any other numeric member of the message being processed is "
+            "bound with the arriving input's number as a suffix (a sibling "
+            "data.temp as `temp1`/`temp2`); unlike the headline value these "
+            "siblings are not remembered across inputs. The result is "
+            "written to data.value. Comparisons (< > <= >= == !=) yield 1.0 "
+            "(true) or 0.0 (false). Functions: sin, cos, tan, log, log10, "
+            "exp, sqrt, abs, floor, ceil. Write several newline-separated "
+            "statements to compute step by step; `name = expr` binds a "
+            "variable for later lines and is also written to the outgoing "
+            "message, and data.value is the last statement's value.",
             "value1 + value2",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);
@@ -363,6 +371,10 @@ pn_expression2_init (PnExpression2 *self)
     pn_node_set_color      (node, &purple);
     pn_node_set_n_inputs   (node, PN_EXPRESSION2_N_INPUTS);  /* two inputs */
     pn_node_set_has_output (node, TRUE);
+    /* Let the core latch each input's /data/value and surface it under
+     * the input's name (value1/value2 by default) on every message, so
+     * the expression sees both inputs at once. */
+    pn_node_set_collate_inputs (node, TRUE);
 }
 
 /* ------------------------------------------------------------------ */

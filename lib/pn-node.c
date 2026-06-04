@@ -158,6 +158,17 @@ typedef struct
      * of g_strdup'd strings (NULL slot ⇒ use the "valueN" default).
      * NULL until the first get/set. */
     GPtrArray *input_names;
+    /* Opt-in (pn_node_set_collate_inputs) per-input latch of each input's
+     * last /data/value, used by multi-input nodes that combine their
+     * inputs.  Parallel to input_names: slot i holds an owned JsonNode
+     * copy of input i's most recent /data/value (the *typed* node, not a
+     * gdouble, so it keeps working when /data/value grows beyond double),
+     * or NULL until input i has carried a value.  Before each receive the
+     * core re-injects every latched value into the arriving message under
+     * its input's display name (see pn_node_collate_inputs).  Lazily
+     * allocated; NULL until first use.  Purely runtime — never serialized. */
+    GPtrArray *input_latch;
+    gboolean collate_inputs;
     gboolean disabled;
     /* Transient runtime "this node is in an error state" flag.  Set by a
      * node when its work fails (e.g. an MQTT broker connection drops or a
@@ -212,6 +223,7 @@ enum {
     PROP_HAS_ERROR,
     PROP_WORKSHEET,
     PROP_TOPIC,
+    PROP_COLLATE_INPUTS,
     N_PROPS,
 };
 
@@ -225,6 +237,12 @@ enum {
 };
 
 static guint signals[N_SIGNALS];
+
+/* Defined further down (next to the input-name helpers) but called from
+ * the dispatch path above it. */
+static void pn_node_collate_inputs (PnNode    *self,
+                                    PnMessage *message,
+                                    gint       input);
 
 /* ------------------------------------------------------------------ */
 /*  Default geometry                                                   */
@@ -374,6 +392,9 @@ pn_node_get_property (
             g_value_take_string (value,
                                  pn_node_default_topic_template (self));
         break;
+    case PROP_COLLATE_INPUTS:
+        g_value_set_boolean (value, priv->collate_inputs);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -423,6 +444,9 @@ pn_node_set_property (
     case PROP_TOPIC:
         pn_node_set_topic (self, g_value_get_string (value));
         break;
+    case PROP_COLLATE_INPUTS:
+        pn_node_set_collate_inputs (self, g_value_get_boolean (value));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -441,6 +465,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->worksheet,  g_free);
     g_clear_pointer (&priv->topic,      g_free);
     g_clear_pointer (&priv->input_names, g_ptr_array_unref);
+    g_clear_pointer (&priv->input_latch, g_ptr_array_unref);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
@@ -541,6 +566,17 @@ pn_node_class_init (PnNodeClass *klass)
             NULL,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_COLLATE_INPUTS] = g_param_spec_boolean (
+            "collate-inputs", "Collate Inputs",
+            "When TRUE and the node has two or more inputs, the core "
+            "latches each input's last /data/value and re-injects every "
+            "latched value into each arriving message's data bag under "
+            "the inputs' display names before receive() runs, so a "
+            "multi-input node sees all its inputs at once. Opt-in, set "
+            "from a node's own init(); runtime-only, never serialized.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Emitted whenever the node delivers a value to its output port. */
@@ -616,6 +652,9 @@ pn_node_init (PnNode *self)
     priv->has_input  = TRUE;
     priv->has_output = TRUE;
     priv->n_inputs   = 0;   /* 0 ⇒ derive from has_input (single input) */
+    /* input_latch left NULL — lazily allocated on first latch, and only
+     * when a multi-input node opts in via pn_node_set_collate_inputs(). */
+    priv->collate_inputs = FALSE;
     priv->disabled   = FALSE;
     priv->has_error  = FALSE;
     /* "Worksheet" is the canonical default sheet tag — see the
@@ -716,6 +755,10 @@ pn_node_receive_message_on_input (
         const gint prev_input = pn_node_current_input_idx;
 
         pn_node_current_input_idx = input;
+        /* Latch this input's value and surface every input under its
+         * name before the node processes the message (opt-in; no-op for
+         * single-input or non-collating nodes). */
+        pn_node_collate_inputs (self, message, input);
         pn_node_dispatch_depth++;
         klass->receive (self, message);
         pn_node_dispatch_depth--;
@@ -1105,6 +1148,11 @@ pn_node_set_n_inputs (
         return;
 
     priv->n_inputs = n;
+    /* Drop any per-input latches for inputs that no longer exist; the
+     * array's free-func unrefs the discarded JsonNodes.  (Growth is
+     * handled lazily by pn_node_ensure_input_latch.) */
+    if (priv->input_latch != NULL && (gint) priv->input_latch->len > n)
+        g_ptr_array_set_size (priv->input_latch, n);
     /* Keep the boolean consistent so has-input consumers (and the
      * save format, which still goes through it) agree with the count. */
     pn_node_set_has_input (self, n >= 1);
@@ -1176,6 +1224,114 @@ pn_node_set_input_name (
     /* NULL / "" reverts to the lazily-generated "valueN" default. */
     priv->input_names->pdata[index] =
             (name != NULL && *name != '\0') ? g_strdup (name) : NULL;
+}
+
+gboolean
+pn_node_get_collate_inputs (PnNode *self)
+{
+    PnNodePrivate *priv;
+    g_return_val_if_fail (PN_IS_NODE (self), FALSE);
+    priv = pn_node_get_instance_private (self);
+    return priv->collate_inputs;
+}
+
+void
+pn_node_set_collate_inputs (
+        PnNode   *self,
+        gboolean  collate)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    collate = !!collate;
+    if (priv->collate_inputs == collate)
+        return;
+
+    priv->collate_inputs = collate;
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_COLLATE_INPUTS]);
+}
+
+/* GPtrArray free-func for input_latch slots.  Unlike g_free, json_node_unref
+ * asserts on NULL, and the latch array is padded with NULL slots for inputs
+ * that have not carried a value yet — so the unref must be NULL-guarded. */
+static void
+pn_node_free_latched_node (gpointer node)
+{
+    if (node != NULL)
+        json_node_unref (node);
+}
+
+/* Grow priv->input_latch so index @n-1 is addressable, padding new slots
+ * with NULL ("no value latched yet").  Allocates the array on first use;
+ * the free-func unrefs the owned JsonNode copies on teardown/shrink. */
+static void
+pn_node_ensure_input_latch (PnNodePrivate *priv, gint n)
+{
+    if (priv->input_latch == NULL)
+        priv->input_latch =
+                g_ptr_array_new_with_free_func (pn_node_free_latched_node);
+    while ((gint) priv->input_latch->len < n)
+        g_ptr_array_add (priv->input_latch, NULL);
+}
+
+/* Latch @message's /data/value at input @input, then re-inject every
+ * latched input value into @message's data bag under its input's display
+ * name, so a multi-input node sees all of its inputs at once.  No-op
+ * unless the node opted in (pn_node_set_collate_inputs) and has >= 2
+ * inputs.  Invoked from pn_node_receive_message_on_input just before the
+ * node's receive(); see the input_latch field comment. */
+static void
+pn_node_collate_inputs (
+        PnNode    *self,
+        PnMessage *message,
+        gint       input)
+{
+    PnNodePrivate *priv = pn_node_get_instance_private (self);
+    gint           n    = pn_node_get_n_inputs (self);
+    JsonNode      *cur;
+    gint           i;
+
+    if (!priv->collate_inputs || n < 2)
+        return;
+
+    /* Guard against a stray dispatch index landing outside [0, n). */
+    if (input < 0)
+        input = 0;
+    else if (input >= n)
+        input = n - 1;
+
+    pn_node_ensure_input_latch (priv, n);
+
+    /* Latch this message's /data/value (the typed node, copied) at the
+     * arriving input.  A message with no value member keeps the prior
+     * latch — the other inputs are still injected below. */
+    cur = pn_message_get_member (message, "value");   /* borrowed */
+    if (cur != NULL)
+    {
+        JsonNode *old = priv->input_latch->pdata[input];
+        /* Assign in place to preserve the index→input mapping (do not use
+         * g_ptr_array_add/remove, which would reindex the slots). */
+        priv->input_latch->pdata[input] = json_node_copy (cur);
+        if (old != NULL)
+            json_node_unref (old);
+    }
+
+    /* Inject every latched value under its input's name.  Includes the
+     * just-latched current input, so /data/<name[input]> == /data/value.
+     * pn_message_set_member takes ownership, so each injection is a copy
+     * and our latch stays intact.  On a name collision the higher index
+     * (later iteration) wins. */
+    for (i = 0; i < n; i++)
+    {
+        JsonNode *latched = priv->input_latch->pdata[i];
+        if (latched == NULL)
+            continue;
+        pn_message_set_member (message,
+                               pn_node_get_input_name (self, i),
+                               json_node_copy (latched));
+    }
 }
 
 gboolean

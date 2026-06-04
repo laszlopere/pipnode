@@ -1,0 +1,120 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnExpression2",
+      "uuid" : "c4d8f740-d67d-4478-8abd-02f286b864d9",
+      "name" : "Calculator 2 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "expression" : "value1 + value2"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "478b0634-4ea7-490a-83dc-5fbd457c7442",
+      "name" : "Fine",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "min" : -5.0,
+        "max" : 5.0,
+        "value" : -4.1666666666666661
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "ad6f8db2-51b3-4520-b4c0-f8f7dca56e20",
+      "name" : "Coarse",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 100.0,
+        "value" : 100.0
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "fe0f0197-a06c-4a4a-96f4-7c93470f6d89",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "3af32bb6-d4d5-42b6-a61f-090678e7081a",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 540.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "ad6f8db2-51b3-4520-b4c0-f8f7dca56e20",
+      "target_id" : "c4d8f740-d67d-4478-8abd-02f286b864d9",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "478b0634-4ea7-490a-83dc-5fbd457c7442",
+      "target_id" : "c4d8f740-d67d-4478-8abd-02f286b864d9"
+    },
+    {
+      "source_id" : "c4d8f740-d67d-4478-8abd-02f286b864d9",
+      "target_id" : "fe0f0197-a06c-4a4a-96f4-7c93470f6d89"
+    },
+    {
+      "source_id" : "c4d8f740-d67d-4478-8abd-02f286b864d9",
+      "target_id" : "3af32bb6-d4d5-42b6-a61f-090678e7081a"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

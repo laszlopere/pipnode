@@ -729,6 +729,30 @@ void            pn_node_set_input_name (PnNode *self,
                                         gint    index,
                                         const gchar *name);
 
+/**
+ * pn_node_get_collate_inputs:
+ * @self: the node
+ *
+ * Returns whether the node opted into core input-value collation.
+ */
+gboolean        pn_node_get_collate_inputs (PnNode *self);
+
+/**
+ * pn_node_set_collate_inputs:
+ * @self: the node
+ * @collate: %TRUE to enable core input-value collation
+ *
+ * Opt a multi-input node into automatic value collation.  While enabled,
+ * and the node has two or more inputs, the core latches each input's last
+ * /data/value (as a typed node) and re-injects every latched value into
+ * each arriving message's data bag under its input's display name (see
+ * pn_node_get_input_name) before the node's receive() runs.  A node that
+ * combines its inputs — e.g. the Calculator — thus sees all of them at
+ * once without tracking per-input state itself.  Typically called once
+ * from the node's own init().  Runtime-only; never serialized.
+ */
+void            pn_node_set_collate_inputs (PnNode *self, gboolean collate);
+
 gboolean        pn_node_get_has_output (PnNode *self);
 void            pn_node_set_has_output (PnNode *self, gboolean has_output);
 
