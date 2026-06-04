@@ -730,6 +730,36 @@ void            pn_node_set_input_name (PnNode *self,
                                         const gchar *name);
 
 /**
+ * pn_node_set_input_count_property:
+ * @self: the node
+ * @prop_name: (nullable): name of an int GObject property controlling the
+ *   input count, or %NULL/empty to declare the count fixed
+ *
+ * Declares that the node's input count is user-adjustable through the named
+ * (integer) GObject property — e.g. the Calculator's "inputs".  The node
+ * dialog uses this purely as a UI hint: it renders a spin button for the
+ * property (its range read from the property's #GParamSpec) on a dedicated
+ * "Inputs" tab and rebuilds the per-input name fields live as the count
+ * changes.  The count value itself is carried by that ordinary property
+ * (and so persists through normal serialization); this declaration is
+ * transient and never serialized.
+ */
+void            pn_node_set_input_count_property (PnNode      *self,
+                                                  const gchar *prop_name);
+
+/**
+ * pn_node_get_input_count_property:
+ * @self: the node
+ *
+ * Returns the property name set by pn_node_set_input_count_property(), or
+ * %NULL when the node has a fixed input count.  The string is owned by
+ * @self.
+ *
+ * Returns: (transfer none) (nullable): the input-count property name.
+ */
+const gchar *   pn_node_get_input_count_property (PnNode *self);
+
+/**
  * pn_node_get_collate_inputs:
  * @self: the node
  *

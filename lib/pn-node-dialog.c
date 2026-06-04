@@ -1438,27 +1438,17 @@ on_input_name_changed (GtkEditable *editable, gpointer user_data)
     pn_node_request_repaint (b->node);
 }
 
-/** Append an "Input names" section to @grid for a node with more than
- *  one input: a heading followed by one entry per input, each pre-filled
- *  with the input's current name and reverting to "valueN" when cleared.
- *  Iterates the actual input count, so it handles three-or-more-input
- *  nodes, not just two.  A no-op (returns @row unchanged) for
- *  single-input and input-less nodes. */
-static guint
-build_input_names_section (GtkGrid *grid, PnNode *node, guint row)
+/** Build a grid of one labelled name-entry per input of @node: each
+ *  pre-filled with the input's current name, placeholdered with its
+ *  "valueN" default, and reverting to that default when cleared.
+ *  Iterates the actual input count, so it handles any number of inputs.
+ *  Returns a fresh grid (never %NULL) ready to drop into a container. */
+static GtkWidget *
+build_input_names_grid (PnNode *node)
 {
-    const gint n = pn_node_get_n_inputs (node);
-    GtkWidget *heading;
+    GtkWidget *grid = pn_node_dialog_new_property_grid ();
+    const gint n    = pn_node_get_n_inputs (node);
     gint       i;
-
-    if (n < 2)
-        return row;
-
-    heading = gtk_label_new (NULL);
-    gtk_label_set_markup  (GTK_LABEL (heading), "<b>Input names</b>");
-    gtk_widget_set_halign (heading, GTK_ALIGN_START);
-    gtk_widget_set_margin_top (heading, 6);
-    gtk_grid_attach (grid, heading, 0, row++, 2, 1);
 
     for (i = 0; i < n; i++)
     {
@@ -1478,13 +1468,121 @@ build_input_names_section (GtkGrid *grid, PnNode *node, guint row)
                                G_CALLBACK (on_input_name_changed),
                                bind, (GClosureNotify) g_free, 0);
 
-        pn_node_dialog_attach_row (grid, row++, rowlbl, entry);
+        pn_node_dialog_attach_row (GTK_GRID (grid), i, rowlbl, entry);
 
         g_free (deflt);
         g_free (rowlbl);
     }
 
-    return row;
+    return grid;
+}
+
+/* State shared between the input-count spin and the name fields it
+ * regenerates.  Lives as long as the "Inputs" tab (freed with it). */
+typedef struct
+{
+    PnNode    *node;       /* borrowed; outlives the dialog            */
+    GtkWidget *names_box;  /* container we refill with a fresh grid    */
+} InputsTabCtx;
+
+/** Replace the name fields in @ctx->names_box with a grid rebuilt for the
+ *  node's current input count, so adding/removing an input makes its name
+ *  field appear/disappear immediately. */
+static void
+rebuild_input_names (InputsTabCtx *ctx)
+{
+    /* Drop the previous grid (entry "changed" closures free their
+     * bindings) and drop in one sized to the new count. */
+    gtk_container_foreach (GTK_CONTAINER (ctx->names_box),
+                           (GtkCallback) gtk_widget_destroy, NULL);
+    gtk_container_add (GTK_CONTAINER (ctx->names_box),
+                       build_input_names_grid (ctx->node));
+    gtk_widget_show_all (ctx->names_box);
+}
+
+static void
+on_input_count_changed (GtkSpinButton *spin, gpointer user_data)
+{
+    InputsTabCtx *ctx  = user_data;
+    const gchar  *prop = pn_node_get_input_count_property (ctx->node);
+    gint          v    = gtk_spin_button_get_value_as_int (spin);
+
+    /* Drive the count through the node's own property so the change
+     * persists and repaints the worksheet (the node's setter calls
+     * pn_node_set_n_inputs + request_repaint); then resize the names. */
+    if (prop != NULL)
+        g_object_set (ctx->node, prop, v, NULL);
+    rebuild_input_names (ctx);
+}
+
+/** Append an input-count spin row to @box when @node declared an
+ *  input-count property (pn_node_set_input_count_property()) backed by an
+ *  int #GParamSpec.  The spin is ranged from that spec; on change it
+ *  drives the property (which persists the count and repaints the node)
+ *  and rebuilds @names_box live.  A no-op for fixed-count nodes. */
+static void
+maybe_add_input_count_spin (GtkWidget *box, GtkWidget *names_box, PnNode *node)
+{
+    const gchar   *prop  = pn_node_get_input_count_property (node);
+    GParamSpec    *pspec;
+    GParamSpecInt *p;
+    GtkWidget     *grid, *spin;
+    InputsTabCtx  *ctx;
+    gint           cur = 0;
+
+    if (prop == NULL)
+        return;
+    pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (node), prop);
+    if (pspec == NULL || !G_IS_PARAM_SPEC_INT (pspec))
+        return;
+
+    p    = G_PARAM_SPEC_INT (pspec);
+    grid = pn_node_dialog_new_property_grid ();
+    spin = gtk_spin_button_new_with_range (p->minimum, p->maximum, 1.0);
+
+    g_object_get (node, prop, &cur, NULL);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (spin), cur);
+    gtk_widget_set_name (spin, "pn-prop-inputs");
+    pn_node_dialog_attach_row (GTK_GRID (grid), 0, "Inputs", spin);
+    gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
+
+    ctx = g_new0 (InputsTabCtx, 1);
+    ctx->node      = node;
+    ctx->names_box = names_box;
+    /* The spin owns @ctx and frees it when the tab is destroyed. */
+    g_signal_connect_data (spin, "value-changed",
+                           G_CALLBACK (on_input_count_changed),
+                           ctx, (GClosureNotify) g_free, 0);
+}
+
+/** Build the "Inputs" tab: an optional input-count spin (when the node
+ *  declared an input-count property) above one editable name field per
+ *  input, the latter rebuilt live as the count changes.  Returns %NULL
+ *  for single-input nodes, which have nothing to configure here. */
+static GtkWidget *
+build_inputs_tab (PnNode *node)
+{
+    GtkWidget *box, *heading, *names_box;
+
+    if (pn_node_get_input_count_property (node) == NULL &&
+        pn_node_get_n_inputs (node) < 2)
+        return NULL;
+
+    box       = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    names_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+
+    /* Count spin first (if any), then the editable per-input names. */
+    maybe_add_input_count_spin (box, names_box, node);
+
+    heading = gtk_label_new (NULL);
+    gtk_label_set_markup  (GTK_LABEL (heading), "<b>Input names</b>");
+    gtk_widget_set_halign (heading, GTK_ALIGN_START);
+    g_object_set (heading, "margin-start", 12, "margin-top", 6, NULL);
+    gtk_box_pack_start (GTK_BOX (box), heading, FALSE, FALSE, 0);
+
+    gtk_container_add  (GTK_CONTAINER (names_box), build_input_names_grid (node));
+    gtk_box_pack_start (GTK_BOX (box), names_box, FALSE, FALSE, 0);
+    return box;
 }
 
 static GtkWidget *
@@ -1516,11 +1614,9 @@ build_pn_node_tab (GObject   *target,
         attach_property_row (GTK_GRID (grid), target, pspec, row++, parent);
     }
 
-    /* Multi-input nodes get an editable name per input below the base
-     * rows; ordinary single-input nodes add nothing. */
-    if (PN_IS_NODE (target))
-        row = build_input_names_section (GTK_GRID (grid),
-                                         PN_NODE (target), row);
+    /* The per-input names (and an optional input-count spin) live on
+     * their own "Inputs" tab built by build_inputs_tab(), appended right
+     * after this Node tab — see populate_notebook(). */
 
     g_type_class_unref (klass);
     return grid;
@@ -1696,6 +1792,17 @@ populate_notebook (PnNodeDialog *self)
                                   page,
                                   gtk_label_new (title));
         g_free (title);
+
+        /* Right after the base "Node" tab, slot in an "Inputs" tab for
+         * multi-input nodes: the editable per-input names and, when the
+         * node declared one, a spin to change the input count live. */
+        if (chain[i] == PN_TYPE_NODE)
+        {
+            GtkWidget *inputs = build_inputs_tab (self->node);
+            if (inputs != NULL)
+                gtk_notebook_append_page (GTK_NOTEBOOK (self->notebook),
+                                          inputs, gtk_label_new ("Inputs"));
+        }
     }
 
     /* Second pass: give each class along the chain a chance to

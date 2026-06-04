@@ -169,6 +169,14 @@ typedef struct
      * allocated; NULL until first use.  Purely runtime — never serialized. */
     GPtrArray *input_latch;
     gboolean collate_inputs;
+    /* Name of the GObject property a node exposes to let the user change
+     * its input count (Calculator 2's "inputs"), or NULL when the count
+     * is fixed.  Purely a UI hint: the node dialog renders a spin for this
+     * property (range from its #GParamSpec) on a dedicated "Inputs" tab and
+     * rebuilds the per-input name fields live as it changes.  The value
+     * itself persists through that ordinary property; this string is
+     * transient and never serialized. */
+    gchar   *input_count_prop;
     gboolean disabled;
     /* Transient runtime "this node is in an error state" flag.  Set by a
      * node when its work fails (e.g. an MQTT broker connection drops or a
@@ -466,6 +474,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->topic,      g_free);
     g_clear_pointer (&priv->input_names, g_ptr_array_unref);
     g_clear_pointer (&priv->input_latch, g_ptr_array_unref);
+    g_clear_pointer (&priv->input_count_prop, g_free);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
@@ -1224,6 +1233,33 @@ pn_node_set_input_name (
     /* NULL / "" reverts to the lazily-generated "valueN" default. */
     priv->input_names->pdata[index] =
             (name != NULL && *name != '\0') ? g_strdup (name) : NULL;
+}
+
+void
+pn_node_set_input_count_property (
+        PnNode      *self,
+        const gchar *prop_name)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    g_free (priv->input_count_prop);
+    priv->input_count_prop =
+            (prop_name != NULL && *prop_name != '\0')
+                    ? g_strdup (prop_name) : NULL;
+}
+
+const gchar *
+pn_node_get_input_count_property (PnNode *self)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+
+    priv = pn_node_get_instance_private (self);
+    return priv->input_count_prop;
 }
 
 gboolean
