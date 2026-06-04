@@ -35,11 +35,15 @@
 #endif
 
 #include <math.h>
+#include <string.h>
 #include <json-glib/json-glib.h>
 
 #include "pn-analog-clock.h"
+#include "pn-flow.h"
+#include "pn-json-path.h"
 #include "pn-message.h"
 #include "pn-settings-schema.h"
+#include "pn-subst.h"
 #include "pn-tz-table.h"
 
 /* ------------------------------------------------------------------ */
@@ -71,7 +75,8 @@ struct _PnAnalogClock
     PnNode    parent_instance;
 
     /* Configuration. */
-    gchar    *text;                   /* below the centre pivot */
+    gchar    *text;                   /* below the centre pivot — a ${...}
+                                       * template, expanded per message */
     gboolean  show_seconds;
     PnColor   face_color;             /* dial background */
     PnColor   marker_color;           /* hour markers + minute pips */
@@ -91,6 +96,11 @@ struct _PnAnalogClock
     gint64    value;
     gboolean  has_value;
     gint      offset_min;
+
+    /* The caption with its ${...} placeholders expanded against the most
+     * recent message; NULL until the first message lands (or while @text
+     * carries no placeholder, in which case @text is painted verbatim). */
+    gchar    *text_resolved;
 };
 
 G_DEFINE_FINAL_TYPE (PnAnalogClock, pn_analog_clock, PN_TYPE_NODE)
@@ -173,6 +183,61 @@ display_value (PnAnalogClock *self)
     return mod;
 }
 
+/* Expand the ${...} placeholders in the caption template against the
+ * incoming message — its data bag plus the envelope's topic/id/created —
+ * and then the document globals, exactly the resolver chain #PnFormat uses.
+ * Unknown keys render empty.  Returns a newly-allocated string. */
+static gchar *
+expand_caption (const gchar *tmpl, PnMessage *message, PnFlow *flow)
+{
+    PnSubstResolver  fields;
+    PnSubstResolver  globals;
+    PnSubstResolver *chain[3];
+    PnSubstContext   ctx;
+    JsonObject      *root;
+    gchar           *out;
+
+    root = pn_json_lookup_root_for_message (message);
+    pn_subst_resolver_json         (&fields,  root);
+    pn_flow_subst_resolver_globals (&globals, flow);
+    chain[0] = &fields;     /* message fields win */
+    chain[1] = &globals;    /* then document globals */
+    chain[2] = NULL;
+    ctx.resolvers = chain;
+    ctx.mode      = PN_SUBST_TEXT;
+    ctx.miss      = PN_SUBST_MISS_EMPTY;
+
+    out = pn_subst_expand (tmpl, &ctx);
+    json_object_unref (root);
+    return out;
+}
+
+/* Re-expand the caption for @message, repainting only when the visible text
+ * actually changes.  A template with no "${" is a literal — painted verbatim
+ * straight out of get_paint_state and skipped here, so a once-a-second clock
+ * feed with a fixed caption allocates nothing per tick. */
+static void
+update_caption (PnAnalogClock *self, PnMessage *message)
+{
+    gchar *expanded;
+
+    if (self->text == NULL || strstr (self->text, "${") == NULL)
+        return;
+
+    expanded = expand_caption (self->text, message,
+                               pn_node_get_flow (PN_NODE (self)));
+    if (g_strcmp0 (expanded, self->text_resolved) != 0)
+    {
+        g_free (self->text_resolved);
+        self->text_resolved = expanded;      /* transfer ownership */
+        pn_node_request_repaint (PN_NODE (self));
+    }
+    else
+    {
+        g_free (expanded);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
@@ -183,6 +248,10 @@ pn_analog_clock_receive (PnNode *node, PnMessage *message)
     PnAnalogClock *self = PN_ANALOG_CLOCK (node);
     gdouble        value;
     gint           new_offset = 0;
+
+    /* The caption tracks every message, even one carrying no numeric value,
+     * so a separate field (e.g. a station name) can drive it. */
+    update_caption (self, message);
 
     if (!read_value (message, &value))
         return;   /* nothing numeric to show — leave the face as-is */
@@ -245,7 +314,12 @@ pn_analog_clock_get_paint_state (PnAnalogClock           *self,
     out->minutes = (gint) ((v % PN_ACK_SECS_PER_HOUR) / PN_ACK_SECS_PER_MIN);
     out->seconds = (gint) (v % PN_ACK_SECS_PER_MIN);
 
-    out->text              = self->text;
+    /* The expanded caption once a message has resolved the placeholders;
+     * before that (and for a placeholder-free literal) the template itself,
+     * so the editor shows a meaningful caption at design time. */
+    out->text              = (self->text_resolved != NULL)
+                                 ? self->text_resolved
+                                 : self->text;
     out->show_seconds      = self->show_seconds;
     out->face_color        = self->face_color;
     out->marker_color      = self->marker_color;
@@ -351,6 +425,9 @@ pn_analog_clock_set_property (GObject      *object,
         {
             g_free (self->text);
             self->text = g_strdup (normalised);
+            /* Drop the stale expansion so the new template shows literally
+             * until the next message re-resolves it. */
+            g_clear_pointer (&self->text_resolved, g_free);
             g_object_notify_by_pspec (object, props[PROP_TEXT]);
             pn_node_request_repaint (PN_NODE (self));
         }
@@ -415,6 +492,7 @@ pn_analog_clock_finalize (GObject *object)
     PnAnalogClock *self = PN_ANALOG_CLOCK (object);
 
     g_free (self->text);
+    g_free (self->text_resolved);
     g_free (self->timezone);
 
     G_OBJECT_CLASS (pn_analog_clock_parent_class)->finalize (object);
@@ -452,8 +530,10 @@ pn_analog_clock_class_init (PnAnalogClockClass *klass)
     props[PROP_TEXT] = g_param_spec_string (
             "text", "Text",
             "Short caption drawn below the centre pivot in place of the "
-            "manufacturer logo a real wall clock carries.  Empty to "
-            "suppress.",
+            "manufacturer logo a real wall clock carries.  Supports "
+            "${...} placeholders expanded against each incoming message "
+            "(e.g. ${data/station}, ${topic}) and the document globals; an "
+            "unknown key renders empty.  Empty to suppress.",
             "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -561,10 +641,11 @@ pn_analog_clock_init (PnAnalogClock *self)
     self->second_hand_color  = (PnColor){ 0.85, 0.12, 0.10, 1.0 };
     self->text_color         = (PnColor){ 0.20, 0.20, 0.22, 1.0 };
 
-    self->timezone   = g_strdup (PN_TZ_NOT_SET);
-    self->value      = 0;
-    self->has_value  = FALSE;
-    self->offset_min = 0;
+    self->timezone      = g_strdup (PN_TZ_NOT_SET);
+    self->value         = 0;
+    self->has_value     = FALSE;
+    self->offset_min    = 0;
+    self->text_resolved = NULL;
 
     {
         PnColor amber = { 0.92, 0.76, 0.27, 1.0 };

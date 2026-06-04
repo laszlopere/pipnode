@@ -405,6 +405,85 @@ test_configured_overrides_message (void)
     g_object_unref (ac);
 }
 
+/* The caption is a ${...} template: it shows the literal template before any
+ * message (a design-time preview), then the expansion once a message lands.
+ * A value-less message still drives it, proving the caption tracks the wire
+ * independently of the time reading. */
+static void
+test_caption_expands_placeholder (void)
+{
+    PnAnalogClock          *ac = pn_analog_clock_new ();
+    PnAnalogClockPaintState st;
+    PnMessage              *m;
+
+    g_object_set (ac, "text", "${data/station}", NULL);
+
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK (g_strcmp0 (st.text, "${data/station}") == 0);
+
+    /* No numeric "value" — only the caption field. */
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_string (m, "station", "Budapest");
+    pn_node_receive_message (PN_NODE (ac), m);
+    g_object_unref (m);
+
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK        (g_strcmp0 (st.text, "Budapest") == 0);
+    PN_CHECK_CMPINT (st.hours, ==, 0);   /* time untouched by a value-less msg */
+
+    g_object_unref (ac);
+}
+
+/* An unknown placeholder key renders empty. */
+static void
+test_caption_unknown_key_is_empty (void)
+{
+    PnAnalogClock          *ac = pn_analog_clock_new ();
+    PnAnalogClockPaintState st;
+    PnMessage              *m;
+
+    g_object_set (ac, "text", "${data/missing}", NULL);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", 0.0);
+    pn_node_receive_message (PN_NODE (ac), m);
+    g_object_unref (m);
+
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK (g_strcmp0 (st.text, "") == 0);
+
+    g_object_unref (ac);
+}
+
+/* A caption with no "${" is a plain literal: it is painted verbatim and a
+ * message never changes it.  Retemplating drops the stale expansion so the
+ * new template shows literally again until the next message. */
+static void
+test_caption_literal_and_retemplate (void)
+{
+    PnAnalogClock          *ac = pn_analog_clock_new ();
+    PnAnalogClockPaintState st;
+    PnMessage              *m;
+
+    g_object_set (ac, "text", "Kitchen", NULL);
+
+    m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", 0.0);
+    pn_message_set_string (m, "station", "Budapest");
+    pn_node_receive_message (PN_NODE (ac), m);
+    g_object_unref (m);
+
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK (g_strcmp0 (st.text, "Kitchen") == 0);
+
+    /* Switch to a template — until the next message it shows literally. */
+    g_object_set (ac, "text", "${data/station}", NULL);
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK (g_strcmp0 (st.text, "${data/station}") == 0);
+
+    g_object_unref (ac);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -432,5 +511,11 @@ main (int argc, char **argv)
                  test_not_set_numeric_offset);
     pn_test_add ("configured_overrides_message",
                  test_configured_overrides_message);
+    pn_test_add ("caption_expands_placeholder",
+                 test_caption_expands_placeholder);
+    pn_test_add ("caption_unknown_key_is_empty",
+                 test_caption_unknown_key_is_empty);
+    pn_test_add ("caption_literal_and_retemplate",
+                 test_caption_literal_and_retemplate);
     return pn_test_run ();
 }

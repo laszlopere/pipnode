@@ -19,7 +19,9 @@ slim metallic bezel, twelve chunky black hour markers, sixty thin
 minute pips around the rim, and three drop-shadowed pivoted hands
 (hour, minute and an optional seconds). A configurable caption sits
 below the centre pivot in the place a manufacturer's logo would
-normally occupy on a real wall clock.
+normally occupy on a real wall clock; it may carry <code>${...}</code>
+placeholders that each incoming message fills in (see the
+<code>text</code> setting below).
 </p>
 <p>
 Logic is the same as the
@@ -59,8 +61,14 @@ Time through the combo or a numeric <code>-360</code> offset instead.
   <tr><th>Setting</th><th>Description</th></tr>
   <tr><td><code>text</code></td>
       <td>Short caption drawn below the centre pivot in place of the
-          manufacturer logo a real wall clock carries. Empty to
-          suppress.</td></tr>
+          manufacturer logo a real wall clock carries. Supports
+          <code>${...}</code> placeholders expanded against each incoming
+          message &mdash; its data bag (<code>${data/station}</code>) and
+          envelope (<code>${topic}</code>, <code>${id}</code>,
+          <code>${created}</code>) &mdash; and the document globals, the
+          same way the <a href="PnFormat.html">Format</a> node does. An
+          unknown key renders empty. A caption with no placeholder is a
+          plain literal. Empty to suppress.</td></tr>
   <tr><td><code>show-seconds</code></td>
       <td>Draw the thin seconds hand. Switch off for a quieter
           two-hand face that only updates once a minute.</td></tr>
