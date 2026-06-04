@@ -1307,3 +1307,138 @@ PnHttp/curl specifically.)
     aware, (gsize)-cast against w*h*nch overflow, divisor==0-guarded,
     clamped, and NULL-checked.  Only the two hand-rolled loops (M4, M5)
     slipped.
+
+(40) Comprehensive D-Bus automation interface for the editor, so Claude Code
+(and any other automation) can author and manipulate worksheets interactively
+-- read the graph, mutate nodes/wires/sheets, and observe changes live -- the
+machine-readable companion to the new pipnode-nodes skill (which gives the
+agent the semantics; this gives it the hands).  Build on what already exists:
+src/pn-application.c already registers an org.pipas.pipnode.Worksheet interface
+on the application object path (bus name = the application id, default
+org.pipas.pipnode, overridable with --dbus-name; see
+pn_application_dbus_register), tracking the active worksheet via
+get_worksheet().  Today that surface is index-addressed and test-shaped
+(GetNode/SetNodeProperty/AddNode/ConnectNodes by integer index, dialog-driving
+helpers).  The work here is to evolve it into a stable, UUID-addressed,
+introspectable, event-driven automation API without breaking the existing
+functional tests.  This is distinct from the panel applet's
+org.pipas.pipnode.Engine interface (panel-backed hidden window) -- that stays
+as-is; the two co-exist on the same bus name / connection.  Underlying model
+APIs already in place: pn_node_factory_get_n_types/get_type_at/get_class_name/
+get_category/get_has_input/get_has_output/get_plugin_name (type catalog);
+pn_node_get_uuid + pn_worksheet_focus_node_by_uuid (uuid addressing);
+pn_flow_add_node, pn_flow_add_sheet/remove_sheet/rename + "sheet-added/-removed"
+signals, pn_flow_list/get/set/remove_global, the flow's "modified" flag;
+pn_wire_new_to_input/get_target_input/set_target_input (port-aware wiring);
+pn_node_set_n_inputs/get_input_name (multi-input nodes);
+pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
+
+  PHASE A -- foundation (addressing + error contract + shape)
+  [ ] 40.1  UUID addressing throughout.  Add a uuid-addressed variant of every
+        node/wire method (the index forms stay so test_*.py keep working, but
+        are documented as legacy/test-only).  Indices shift the moment a node
+        is deleted, which makes them unusable for a multi-step agent edit;
+        pn_node_get_uuid is stable and already serialized.  A small
+        node_by_uuid() helper mirrors the existing node_index_of().
+  [ ] 40.2  Real error contract.  Replace the silent bool/empty-string returns
+        with g_dbus_method_invocation_return_error using a stable error domain
+        + enum (NoActiveSheet, NodeNotFound, WireNotFound, UnknownNodeType,
+        UnknownProperty, BadPropertyValue, IllegalConnection, SheetNotFound).
+        An agent needs to know WHY a call failed, not just that it returned
+        false.
+  [ ] 40.3  Decide the object/interface split and version it.  Keep
+        org.pipas.pipnode.Worksheet for active-sheet graph ops; add a sibling
+        org.pipas.pipnode.Editor (same object path) for document/window/sheet/
+        lifecycle ops (40.9-40.11).  Add a Version property (or
+        GetApiVersion) so a client can feature-detect.  Keep the introspection
+        XML the single source of truth.
+
+  PHASE B -- graph mutation (the core of "edit a workflow")
+  [ ] 40.4  Node lifecycle by uuid.  AddNode already returns an index -> add
+        AddNodeReturningUuid(type,x,y)->uuid; DeleteNode(uuid);
+        MoveNode(uuid,x,y); RenameNode(uuid,name); SetNodeInputCount(uuid,n)
+        (pn_node_set_n_inputs, for Calculator 2 and other multi-input nodes) +
+        SetNodeInputName(uuid,index,name).  PREREQ: there is an add path
+        (pn_flow_add_node) but no obvious by-uuid remove -- wire DeleteNode to
+        the editor's existing delete path (pn_worksheet_cut_selection / the
+        node store) or add pn_worksheet_delete_node_by_uuid; also delete the
+        node's incident wires.
+  [ ] 40.5  Port-aware wiring by uuid.  Today ConnectNodes(src,tgt) ignores the
+        target input port.  Add Connect(src_uuid,tgt_uuid,target_input)->
+        wire_uuid (pn_wire_new_to_input/set_target_input),
+        Disconnect(wire_uuid) (or by src/tgt/input), ListWires->
+        a(ssi s) {src_uuid,tgt_uuid,target_input,wire_uuid}, and
+        GetNodeWires(uuid).  Reject illegal connections (self-loop, duplicate,
+        input out of range, output->output) with IllegalConnection.
+  [ ] 40.6  Typed property get/set + batch.  Add uuid forms of GetNodeProperty/
+        SetNodeProperty (the index forms exist) reusing node_value_to_string/
+        node_value_from_string; add SetNodeProperties(uuid, a{ss}) applied
+        atomically (all-or-nothing) so a node is configured in one call.
+
+  PHASE C -- discovery (so the agent can work without reading C source)
+  [ ] 40.7  Node-type catalog over D-Bus.  ListNodeTypes->a(sssbbs)
+        {type_name,class_name,category,has_input,has_output,plugin_name} from
+        the factory enumeration API, plus GetNodeTypeInfo(type_name) adding
+        icon/color/help-page basename (PnXxx.html).  This is the runtime mirror
+        of the pipnode-nodes skill: the skill carries the prose semantics, this
+        carries the live, install-accurate palette (including loaded plugins).
+  [ ] 40.8  Property schema introspection.  ListNodeProperties(uuid)->
+        a(ssssb) {name, gtype-nick, current, default, flags} where for enums
+        the allowed nicks and for numerics the min/max are folded in from the
+        GParamSpec (g_object_class_list_properties + G_PARAM_SPEC_ENUM /
+        ParamSpecInt/Double ranges).  Without this the agent cannot know which
+        properties exist, their types, or valid values -- it would have to
+        guess.  Optionally surface the node's PnSettingsSchema grouping.
+
+  PHASE D -- whole-document operations (cheap bulk read/write)
+  [ ] 40.9  Worksheet/document JSON round-trip.  GetWorksheetJson()->s and
+        SetWorksheetJson(s) (active sheet), GetDocumentJson/SetDocumentJson
+        (whole file) reusing the existing save/load serializer that backs
+        SaveToFile/LoadFromFile.  Reading or rewriting a whole sheet in one
+        call is dramatically cheaper than dozens of per-node round-trips, and
+        round-trips the canonical on-disk format the agent already understands.
+        Add ValidateJson(s)->(ok,error) that parses-without-applying.
+  [ ] 40.10 Sheets + document lifecycle.  The interface only sees the active
+        worksheet today.  Add ListSheets/AddSheet/RemoveSheet/RenameSheet/
+        SelectSheet/GetActiveSheet (pn_flow_add_sheet/remove_sheet/rename +
+        active-sheet pointer) and New/Open(=LoadFromFile)/Save/SaveAs
+        (=SaveToFile)/GetCurrentPath/IsModified (the flow "modified" flag).
+  [ ] 40.11 Document globals.  ListGlobals/GetGlobal/SetGlobal(name,type,value)/
+        RemoveGlobal (pn_flow_list/get/set/remove_global) so the agent can wire
+        ${...} document variables the same way the Document Settings dialog
+        does.
+
+  PHASE E -- interactivity (observe + drive a running flow)
+  [ ] 40.12 Selection & view.  SelectNodes(uuids)/GetSelection/ClearSelection,
+        FocusNode(uuid) (pn_worksheet_focus_node_by_uuid), CenterOn(uuid) /
+        FitToContent, GetNodeGeometry(uuid)->(x,y,w,h) (pn_node_get_client_area)
+        and the existing Get/Set worksheet scroll -- so the agent can SHOW the
+        user what it just built/changed.
+  [ ] 40.13 Message injection + readback.  InjectMessage(uuid, json) delivers a
+        message to a node's input as if a wire carried it (generalises the
+        existing InjectDebugMessage; pn_node_receive_message_on_input), and
+        GetLastOutputMessage(uuid)->json returns the last message a node
+        emitted -- lets the agent test a flow it just built and read the result
+        without a Debug node.
+  [ ] 40.14 Signals for live observation.  Emit D-Bus signals
+        (g_dbus_connection_emit_signal) for NodeAdded/NodeRemoved/NodeMoved/
+        NodeRenamed/NodePropertyChanged, WireAdded/WireRemoved,
+        SelectionChanged, SheetChanged, DocumentModified, and a
+        MessageEmitted(node_uuid,topic,json) debug tap.  This is what makes the
+        interface INTERACTIVE: Claude Code subscribes and reacts to user edits
+        (or its own) instead of polling.  Bridge from the existing GObject
+        notifications (node-store changes, the flow's sheet-*/modified signals,
+        worksheet selection).
+  PHASE F -- hardening, docs, client, tests
+  [ ] 40.15 Reference docs + Python client + tests.  A DBUS-API.md (sibling to
+        PLUGINS) describing the contract, bus-name discovery, and worked
+        examples; a thin Python client helper (reused by the functional tests
+        and as the reference Claude Code drives); and functional tests for
+        every method/signal extending the existing --dbus-name harness
+        (tests/test_*.py).  Keep introspection XML authoritative.
+  [ ] 40.16 Safety / consent.  These methods mutate the user's open document on
+        the session bus.  Decide whether the mutating subset is always-on or
+        gated (env/flag), document the trust boundary, and consider a
+        confirmation affordance (or an "automation active" indicator) for
+        destructive ops -- the --dbus-name isolation already supports a
+        throwaway instance for unattended runs.
