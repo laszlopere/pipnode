@@ -86,6 +86,28 @@ void     pn_wire_set_target_input (PnWire *self, gint target_input);
  */
 void     pn_wire_disconnect (PnWire *self);
 
+/**
+ * pn_wire_get_uuid:
+ *
+ * The wire's stable per-session handle, minted at construction.  This is
+ * the identity the D-Bus automation API uses to address a single wire
+ * (TODO #40.5): it is unique among live wires but, unlike a node's UUID,
+ * is NOT serialized — a wire is fully described on disk by its endpoints
+ * and target_input, so a reloaded wire gets a fresh handle.
+ *
+ * Returns: (transfer none): the wire's UUID string, owned by @self.
+ */
+const gchar *pn_wire_get_uuid (PnWire *self);
+
+/**
+ * pn_wire_set_uuid:
+ * @uuid: (nullable): the handle to adopt, or %NULL/empty to regenerate
+ *
+ * Overrides the wire's session handle.  Passing %NULL or "" mints a
+ * fresh random one, mirroring pn_node_set_uuid().
+ */
+void     pn_wire_set_uuid    (PnWire *self, const gchar *uuid);
+
 G_END_DECLS
 
 #endif /* PN_WIRE_H */

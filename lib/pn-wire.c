@@ -27,6 +27,14 @@ struct _PnWire
     PnNode *source;
     PnNode *target;
 
+    /** Stable per-wire handle, minted at construction.  Unlike a node's
+     *  UUID this is a *session* identity: it is the handle the D-Bus
+     *  automation API hands back from Connect and addresses in
+     *  Disconnect/ListWires (TODO #40.5), and is NOT serialized — a wire
+     *  is fully described on disk by its endpoints + target_input, so a
+     *  reloaded wire simply gets a fresh handle. */
+    gchar  *uuid;
+
     /** Which of the target's input ports this wire feeds.  0 for the
      *  single-input nodes that make up almost every flow; >0 only when
      *  the target is a multi-input node (see pn_node_get_n_inputs()). */
@@ -191,6 +199,16 @@ pn_wire_dispose (GObject *object)
 }
 
 static void
+pn_wire_finalize (GObject *object)
+{
+    PnWire *self = PN_WIRE (object);
+
+    g_clear_pointer (&self->uuid, g_free);
+
+    G_OBJECT_CLASS (pn_wire_parent_class)->finalize (object);
+}
+
+static void
 pn_wire_class_init (PnWireClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
@@ -198,6 +216,7 @@ pn_wire_class_init (PnWireClass *klass)
     object_class->get_property = pn_wire_get_property;
     object_class->set_property = pn_wire_set_property;
     object_class->dispose      = pn_wire_dispose;
+    object_class->finalize     = pn_wire_finalize;
 
     props[PROP_SOURCE] = g_param_spec_object (
             "source", "Source",
@@ -241,6 +260,7 @@ pn_wire_init (PnWire *self)
 {
     self->source         = NULL;
     self->target         = NULL;
+    self->uuid           = g_uuid_string_random ();
     self->target_input   = 0;
     self->source_handler = 0;
 }
@@ -346,4 +366,25 @@ pn_wire_disconnect (PnWire *self)
 
     pn_wire_set_source (self, NULL);
     pn_wire_set_target (self, NULL);
+}
+
+const gchar *
+pn_wire_get_uuid (PnWire *self)
+{
+    g_return_val_if_fail (PN_IS_WIRE (self), NULL);
+    return self->uuid;
+}
+
+void
+pn_wire_set_uuid (
+        PnWire      *self,
+        const gchar *uuid)
+{
+    g_return_if_fail (PN_IS_WIRE (self));
+
+    /* %NULL/empty means "regenerate", mirroring pn_node_set_uuid(). */
+    g_free (self->uuid);
+    self->uuid = (uuid != NULL && *uuid != '\0')
+        ? g_strdup (uuid)
+        : g_uuid_string_random ();
 }

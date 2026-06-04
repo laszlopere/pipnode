@@ -1412,13 +1412,33 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         (add+resolve, move/rename read-back, grow-then-name inputs with the
         out-of-range + count<1 rejections, delete-drops-incident-wire, and the
         NodeNotFound/UnknownNodeType error names).
-  [ ] 40.5  Port-aware wiring by uuid.  Today ConnectNodes(src,tgt) ignores the
+  [x] 40.5  Port-aware wiring by uuid.  Today ConnectNodes(src,tgt) ignores the
         target input port.  Add Connect(src_uuid,tgt_uuid,target_input)->
         wire_uuid (pn_wire_new_to_input/set_target_input),
         Disconnect(wire_uuid) (or by src/tgt/input), ListWires->
         a(ssi s) {src_uuid,tgt_uuid,target_input,wire_uuid}, and
         GetNodeWires(uuid).  Reject illegal connections (self-loop, duplicate,
         input out of range, output->output) with IllegalConnection.
+        DONE: PnWire grew a session UUID first -- pn_wire_get_uuid/_set_uuid,
+        minted in init via g_uuid_string_random and freed in a new finalize.
+        It is deliberately NOT serialized (a wire is fully described on disk by
+        endpoints + target_input, so a reload mints a fresh handle); node UUIDs
+        remain the stable cross-save identity.  Four methods on
+        org.pipas.pipnode.Worksheet: Connect(src,tgt,target_input)->wire_uuid
+        (pn_wire_new_full + pn_wire_store_add), Disconnect(wire_uuid)
+        (wire_by_uuid -> pn_wire_store_remove, which severs routing via
+        pn_wire_disconnect), and ListWires / GetNodeWires(uuid) both returning
+        a(ssis) {src_uuid,tgt_uuid,target_input,wire_uuid} via a shared
+        wire_append_to_builder (dangling endpoint -> empty uuid).  Connect
+        rejects, all as IllegalConnection: self-loop, source-with-no-output,
+        target-with-no-input (the output->output case), target_input outside
+        [0,n_inputs), and a duplicate (same src+tgt+port); unknown node uuid ->
+        NodeNotFound, unknown wire uuid -> WireNotFound (the #40.2 contract,
+        WireNotFound now first used here).  Introspection XML stays the single
+        source of truth.  Covered by tests/test_dbus_port_wiring.py (connect +
+        ListWires/GetNodeWires read-back from both ends, port-2 wiring on a
+        grown target, precise Disconnect + WireNotFound on repeat, and all five
+        illegal-connection rejections + bad-uuid errors).
   [ ] 40.6  Typed property get/set + batch.  Add uuid forms of GetNodeProperty/
         SetNodeProperty (the index forms exist) reusing node_value_to_string/
         node_value_from_string; add SetNodeProperties(uuid, a{ss}) applied

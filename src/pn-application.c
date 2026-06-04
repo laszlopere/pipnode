@@ -312,6 +312,22 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='target'    direction='in'/>"
     "      <arg type='b' name='connected' direction='out'/>"
     "    </method>"
+    "    <method name='Connect'>"
+    "      <arg type='s' name='source'       direction='in'/>"
+    "      <arg type='s' name='target'       direction='in'/>"
+    "      <arg type='i' name='target_input' direction='in'/>"
+    "      <arg type='s' name='wire_uuid'    direction='out'/>"
+    "    </method>"
+    "    <method name='Disconnect'>"
+    "      <arg type='s' name='wire_uuid' direction='in'/>"
+    "    </method>"
+    "    <method name='ListWires'>"
+    "      <arg type='a(ssis)' name='wires' direction='out'/>"
+    "    </method>"
+    "    <method name='GetNodeWires'>"
+    "      <arg type='s'       name='uuid'  direction='in'/>"
+    "      <arg type='a(ssis)' name='wires' direction='out'/>"
+    "    </method>"
     "    <method name='OpenNodeDialog'>"
     "      <arg type='u' name='index'  direction='in'/>"
     "      <arg type='b' name='opened' direction='out'/>"
@@ -396,6 +412,49 @@ node_by_uuid (PnNodeStore *nodes, const gchar *uuid)
             return node;
     }
     return NULL;
+}
+
+/** The wire in @wires whose session handle equals @uuid, or %NULL.  The
+ *  by-UUID companion to node_by_uuid() for the port-aware wiring surface
+ *  (TODO #40.5): a wire's UUID is minted at construction and unique among
+ *  live wires, so Disconnect/GetNodeWires can address one precisely.  An
+ *  empty or %NULL @uuid never matches. */
+static PnWire *
+wire_by_uuid (PnWireStore *wires, const gchar *uuid)
+{
+    guint i, n;
+
+    if (uuid == NULL || *uuid == '\0')
+        return NULL;
+
+    n = pn_wire_store_get_length (wires);
+    for (i = 0; i < n; i++)
+    {
+        PnWire *wire = pn_wire_store_get_wire (wires, i);
+        if (wire != NULL && g_strcmp0 (pn_wire_get_uuid (wire), uuid) == 0)
+            return wire;
+    }
+    return NULL;
+}
+
+/** Append @wire to @builder as the {src_uuid, tgt_uuid, target_input,
+ *  wire_uuid} tuple ListWires / GetNodeWires report.  A dangling
+ *  endpoint (no source or target) contributes an empty UUID string so
+ *  the row count still mirrors the store. */
+static void
+wire_append_to_builder (GVariantBuilder *builder, PnWire *wire)
+{
+    PnNode      *src      = pn_wire_get_source (wire);
+    PnNode      *tgt      = pn_wire_get_target (wire);
+    const gchar *src_uuid = src != NULL ? pn_node_get_uuid (src) : NULL;
+    const gchar *tgt_uuid = tgt != NULL ? pn_node_get_uuid (tgt) : NULL;
+    const gchar *wire_uuid = pn_wire_get_uuid (wire);
+
+    g_variant_builder_add (builder, "(ssis)",
+                           src_uuid  ? src_uuid  : "",
+                           tgt_uuid  ? tgt_uuid  : "",
+                           pn_wire_get_target_input (wire),
+                           wire_uuid ? wire_uuid : "");
 }
 
 /** Render a node property's #GValue as a stable, locale-independent
@@ -1391,6 +1450,163 @@ handle_worksheet_method_call (
         }
 
         worksheet_connect_nodes (invocation, wires, source, target);
+    }
+    else if (g_strcmp0 (method_name, "Connect") == 0)
+    {
+        const gchar *src_uuid = NULL;
+        const gchar *dst_uuid = NULL;
+        gint         target_input;
+        PnNode      *source, *target;
+        PnWire      *wire;
+        guint        i, n;
+
+        g_variant_get (parameters, "(&s&si)",
+                       &src_uuid, &dst_uuid, &target_input);
+
+        source = node_by_uuid (nodes, src_uuid);
+        target = node_by_uuid (nodes, dst_uuid);
+        if (!source || !target)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'",
+                    !source ? (src_uuid ? src_uuid : "")
+                            : (dst_uuid ? dst_uuid : ""));
+            return;
+        }
+
+        /* Reject the connections the model cannot route, each with the
+         * stable IllegalConnection name so an agent can tell them apart
+         * by message: self-loop, output->non-input, and an input port
+         * that does not exist on the target. */
+        if (source == target)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                    "Cannot connect a node to itself");
+            return;
+        }
+        if (!pn_node_get_has_output (source))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                    "Source node '%s' has no output", src_uuid);
+            return;
+        }
+        if (!pn_node_get_has_input (target))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                    "Target node '%s' has no input", dst_uuid);
+            return;
+        }
+        if (target_input < 0 || target_input >= pn_node_get_n_inputs (target))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                    "Target input %d out of range (node has %d input(s))",
+                    target_input, pn_node_get_n_inputs (target));
+            return;
+        }
+
+        /* A duplicate (same source, same target, same port) would only
+         * double-deliver; reject it so ListWires stays a faithful map. */
+        n = pn_wire_store_get_length (wires);
+        for (i = 0; i < n; i++)
+        {
+            PnWire *w = pn_wire_store_get_wire (wires, i);
+            if (pn_wire_get_source (w) == source &&
+                pn_wire_get_target (w) == target &&
+                pn_wire_get_target_input (w) == target_input)
+            {
+                g_dbus_method_invocation_return_error (
+                        invocation,
+                        PN_WORKSHEET_ERROR,
+                        PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                        "A wire already feeds input %d of the target",
+                        target_input);
+                return;
+            }
+        }
+
+        wire = pn_wire_new_full (source, target, target_input);
+        pn_wire_store_add (wires, wire);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", pn_wire_get_uuid (wire)));
+        g_object_unref (wire);
+    }
+    else if (g_strcmp0 (method_name, "Disconnect") == 0)
+    {
+        const gchar *wire_uuid = NULL;
+        PnWire      *wire;
+
+        g_variant_get (parameters, "(&s)", &wire_uuid);
+
+        wire = wire_by_uuid (wires, wire_uuid);
+        if (!wire)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_WIRE_NOT_FOUND,
+                    "No wire with uuid '%s'", wire_uuid ? wire_uuid : "");
+            return;
+        }
+
+        /* Removal severs routing (pn_wire_store_remove -> pn_wire_disconnect)
+         * and drops the canvas line. */
+        pn_wire_store_remove (wires, wire);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "ListWires") == 0)
+    {
+        GVariantBuilder builder;
+        guint           i, n;
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssis)"));
+        n = pn_wire_store_get_length (wires);
+        for (i = 0; i < n; i++)
+            wire_append_to_builder (&builder,
+                                    pn_wire_store_get_wire (wires, i));
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(ssis))", &builder));
+    }
+    else if (g_strcmp0 (method_name, "GetNodeWires") == 0)
+    {
+        const gchar    *uuid = NULL;
+        PnNode         *node;
+        GVariantBuilder builder;
+        guint           i, n;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssis)"));
+        n = pn_wire_store_get_length (wires);
+        for (i = 0; i < n; i++)
+        {
+            PnWire *wire = pn_wire_store_get_wire (wires, i);
+            if (pn_wire_get_source (wire) == node ||
+                pn_wire_get_target (wire) == node)
+                wire_append_to_builder (&builder, wire);
+        }
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(ssis))", &builder));
     }
     else if (g_strcmp0 (method_name, "OpenNodeDialog") == 0)
     {
