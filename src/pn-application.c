@@ -496,6 +496,29 @@ get_window (GApplication *app)
     return PN_WINDOW (win);
 }
 
+/** Light the active window's "automation active" badge (TODO #40.16) for
+ *  any automation call that is not a pure read.  The mutating surface is
+ *  always-on on the session bus (a same-user trust boundary); this is the
+ *  visible counterpart to that decision, not a gate.  Readers are
+ *  recognised by their verb prefix (Get* / List* / Is*) plus the read-only
+ *  ValidateJson — every other method mutates the document, drives the
+ *  running flow, or moves the view, and so counts as visible activity. */
+static void
+note_automation_activity (GApplication *app, const gchar *method_name)
+{
+    PnWindow *win;
+
+    if (g_str_has_prefix (method_name, "Get")
+        || g_str_has_prefix (method_name, "List")
+        || g_str_has_prefix (method_name, "Is")
+        || g_strcmp0 (method_name, "ValidateJson") == 0)
+        return;
+
+    win = get_window (app);
+    if (win != NULL)
+        pn_window_note_automation_activity (win);
+}
+
 /** Index of the sheet named @name in @flow's tab order, or -1 when no
  *  such sheet exists.  The flow has no public name->index lookup, so the
  *  Editor surface walks pn_flow_get_sheets() to validate a sheet handle
@@ -1143,6 +1166,8 @@ handle_worksheet_method_call (
 
     nodes = pn_worksheet_get_nodes (worksheet);
     wires = pn_worksheet_get_wires (worksheet);
+
+    note_automation_activity (app, method_name);
 
     if (g_strcmp0 (method_name, "GetNodeCount") == 0)
     {
@@ -2992,6 +3017,8 @@ handle_editor_method_call (
         return;
     }
     flow = pn_window_get_flow (win);
+
+    note_automation_activity (app, method_name);
 
     /* ---- 40.9  whole-document / active-sheet JSON round-trip -------- */
     if (g_strcmp0 (method_name, "GetDocumentJson") == 0)

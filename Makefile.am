@@ -27,4 +27,4 @@ aclocaldir = $(datadir)/aclocal
 aclocal_DATA = m4/pipnode-plugin.m4
 
 EXTRA_DIST = pipnode-core.pc.in pipnode-gui.pc.in pipnode.pc.in \
-	m4/pipnode-plugin.m4 PLUGINS
+	m4/pipnode-plugin.m4 PLUGINS DBUS-API.md

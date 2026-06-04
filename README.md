@@ -115,6 +115,16 @@ extension kinds). The [`PLUGINS`](PLUGINS) guide walks through the ABI, the
 loader, and how to build and install a plugin — a minimal one is about fifty
 lines of C. Reference plugins live in `plugins/` and `tests/plugins/echo/`.
 
+## Automating the editor (D-Bus)
+
+The editor exposes a stable, introspectable D-Bus automation interface on the
+session bus so scripts — or an AI agent like Claude Code — can author and edit
+worksheets: read the graph, mutate nodes/wires/sheets, drive a running flow,
+and observe changes live. The [`DBUS-API.md`](DBUS-API.md) guide documents the
+contract, bus-name discovery, and worked examples; `tests/pndbus.py` is a
+dependency-light reference client (and the easiest thing to copy). Run several
+isolated instances with `pipnode-editor --dbus-name=<id>`.
+
 ## Ideas & feature requests
 
 Got an idea for a node or a feature? Open one on the

@@ -5,10 +5,12 @@ TESTS = \
 	test_clipboard_ops.py \
 	test_clock_debug_format.py \
 	test_dbus_batch_properties.py \
+	test_dbus_client.py \
 	test_dbus_discovery.py \
 	test_dbus_document.py \
 	test_dbus_editor_interface.py \
 	test_dbus_error_contract.py \
+	test_dbus_interactivity.py \
 	test_dbus_node_lifecycle.py \
 	test_dbus_port_wiring.py \
 	test_dbus_uuid_addressing.py \
@@ -26,7 +28,9 @@ TESTS = \
 	test_credentials_migration.py \
 	test_no_plugins_flag.py
 
-EXTRA_DIST = $(TESTS)
+# pndbus.py is the shared reference client the D-Bus tests import, not a
+# test itself, so it ships in the tarball but is not in TESTS.
+EXTRA_DIST = $(TESTS) pndbus.py
 
 # Point the test at the in-tree binary regardless of where automake's
 # test driver runs us from (in-tree vs VPATH builds).

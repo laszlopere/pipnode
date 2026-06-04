@@ -1663,15 +1663,52 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         DocumentModified signals end to end).  test_dbus_editor_interface.py
         updated to expect 1.2.  Phase F (40.15-40.16) remains.
   PHASE F -- hardening, docs, client, tests
-  [ ] 40.15 Reference docs + Python client + tests.  A DBUS-API.md (sibling to
+  [x] 40.15 Reference docs + Python client + tests.  A DBUS-API.md (sibling to
         PLUGINS) describing the contract, bus-name discovery, and worked
         examples; a thin Python client helper (reused by the functional tests
         and as the reference Claude Code drives); and functional tests for
         every method/signal extending the existing --dbus-name harness
         (tests/test_*.py).  Keep introspection XML authoritative.
-  [ ] 40.16 Safety / consent.  These methods mutate the user's open document on
+        DONE: DBUS-API.md added at the repo root (in top-level EXTRA_DIST
+        alongside PLUGINS) -- contract, bus-name/object-path discovery, both
+        interfaces' full method+signal+error catalogues, the message-JSON
+        envelope, gdbus + Python worked examples, and a §Safety section
+        documenting the 40.16 trust boundary.  README gained an "Automating
+        the editor (D-Bus)" section pointing at it.  The reference client is
+        tests/pndbus.py (PyGObject only): PipnodeEditor.launch() spawns a
+        throwaway instance under a unique --dbus-name; .connect_bus() attaches
+        to a running one; a raw ws()/ed() call layer turns remote errors into
+        PipnodeError(.short); subscribe()/pump()/seen()/events for signals;
+        and a typed convenience wrapper per documented method.  New
+        tests/test_dbus_client.py drives the WHOLE surface through the client
+        end to end (version, document JSON, sheets, globals, node lifecycle,
+        single+batch props, port wiring, discovery, selection/view, message
+        inject+readback, and the live signals).  Makefile fixes: added
+        test_dbus_client.py AND the previously-unlisted test_dbus_interactivity.py
+        to tests/Makefile.am TESTS, and pndbus.py to EXTRA_DIST (helper, not a
+        test).  Introspection XML stays the single source of truth.
+  [x] 40.16 Safety / consent.  These methods mutate the user's open document on
         the session bus.  Decide whether the mutating subset is always-on or
         gated (env/flag), document the trust boundary, and consider a
         confirmation affordance (or an "automation active" indicator) for
         destructive ops -- the --dbus-name isolation already supports a
         throwaway instance for unattended runs.
+        DONE (decided with the user): the mutating surface stays ALWAYS-ON --
+        the trust boundary is the session bus itself (same-user only, the same
+        boundary that already lets any same-user process read files / drive the
+        display); gating behind a flag would not raise it, only break
+        unattended automation.  Isolation is by instance (a throwaway
+        --dbus-name), not by permission.  The chosen affordance is an
+        "automation active" indicator: a new statusbar badge ("\xE2\x9A\xA1
+        automation") on PnWindow (pn_window_note_automation_activity() +
+        auto-hide-after-4s linger timer, finalize-cleaned), lit by the D-Bus
+        dispatch for every NON-read call -- note_automation_activity() in
+        pn-application.c at the top of both handle_worksheet_method_call and
+        handle_editor_method_call, skipping pure readers (Get*/List*/Is*/
+        ValidateJson).  Automation edits go through the same model paths as
+        user edits, so they appear in undo + the modified flag/title +
+        DocumentModified exactly as a manual edit would.  Trust boundary +
+        affordance documented in DBUS-API.md §"Safety and the trust boundary".
+
+        PHASE F COMPLETE.  TODO #40 (the comprehensive D-Bus automation
+        interface) is now DONE end to end -- Phases A-F all landed.

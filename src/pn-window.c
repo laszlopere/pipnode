@@ -59,6 +59,19 @@ struct _PnWindow
     GtkWidget   *worksheet;       /* alias for the active page's PnWorksheet */
     GtkWidget   *statusbar;
 
+    /* "Automation active" affordance (TODO #40.16).  A small badge packed
+     * at the end of the statusbar that lights up whenever a non-read
+     * D-Bus automation call (org.pipas.pipnode.Worksheet / .Editor) drives
+     * this window — so the user can see at a glance that something other
+     * than their own hands is touching the document.  The mutating surface
+     * is always-on on the session bus (a same-user trust boundary); this
+     * is the visible counterpart to that decision rather than a gate.
+     * Hidden by default; pn_window_note_automation_activity() shows it and
+     * (re)arms @automation_hide_source to fade it back out after a few
+     * seconds of automation silence. */
+    GtkWidget   *automation_badge;
+    guint        automation_hide_source;
+
     /* The single panel-applet GUI layout editor tab, or %NULL when none
      * is open.  Unlike the worksheet tabs this page is not backed by a
      * #PnFlow sheet — it is a standalone #PnPanelEditor the window owns
@@ -4438,6 +4451,21 @@ pn_window_constructed (GObject *object)
     gtk_box_pack_start (GTK_BOX (vbox), self->statusbar, FALSE, FALSE, 0);
     gtk_statusbar_push (GTK_STATUSBAR (self->statusbar), 0, "Ready");
 
+    /* Automation-active badge (TODO #40.16): packed at the trailing end of
+     * the statusbar (a horizontal GtkBox), hidden until automation drives
+     * the window.  Kept out of show_all's reach with gtk_widget_set_no_show_all
+     * so it stays invisible until note_automation_activity() reveals it. */
+    self->automation_badge = gtk_label_new ("\xE2\x9A\xA1 automation");
+    gtk_widget_set_tooltip_text (
+            self->automation_badge,
+            "An external program is editing this worksheet over D-Bus "
+            "(org.pipas.pipnode automation interface).");
+    gtk_widget_set_no_show_all (self->automation_badge, TRUE);
+    gtk_widget_set_margin_start (self->automation_badge, 8);
+    gtk_widget_set_margin_end   (self->automation_badge, 8);
+    gtk_box_pack_end (GTK_BOX (self->statusbar),
+                      self->automation_badge, FALSE, FALSE, 0);
+
     /* Panel-backed windows are built but never shown until the engine
      * present()s them for an "Edit…" request.  show_all on the toplevel
      * would realize *and* map it (gtk_window_show maps synchronously), so
@@ -4474,6 +4502,49 @@ pn_window_constructed (GObject *object)
     }
 }
 
+/* --- Automation-active badge (TODO #40.16) ------------------------------
+ *
+ * The mutating D-Bus surface is always-on (the session bus is a same-user
+ * trust boundary; --dbus-name gives a throwaway instance for unattended
+ * runs).  Rather than gate it, we make automation *visible*: every non-read
+ * automation call pings the active window here, which reveals a statusbar
+ * badge and (re)arms a short timer to hide it again once the automation
+ * goes quiet. */
+
+#define PN_AUTOMATION_BADGE_LINGER_SECONDS 4
+
+static gboolean
+hide_automation_badge (gpointer user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+
+    self->automation_hide_source = 0;
+    if (self->automation_badge != NULL)
+        gtk_widget_hide (self->automation_badge);
+
+    return G_SOURCE_REMOVE;
+}
+
+void
+pn_window_note_automation_activity (PnWindow *self)
+{
+    g_return_if_fail (PN_IS_WINDOW (self));
+
+    if (self->automation_badge == NULL)
+        return;
+
+    gtk_widget_show (self->automation_badge);
+
+    /* Slide the linger deadline forward on every call, so a burst of
+     * automation keeps the badge lit and it only fades once the traffic
+     * stops for PN_AUTOMATION_BADGE_LINGER_SECONDS. */
+    if (self->automation_hide_source != 0)
+        g_source_remove (self->automation_hide_source);
+    self->automation_hide_source =
+        g_timeout_add_seconds (PN_AUTOMATION_BADGE_LINGER_SECONDS,
+                               hide_automation_badge, self);
+}
+
 static void
 pn_window_finalize (GObject *object)
 {
@@ -4491,6 +4562,11 @@ pn_window_finalize (GObject *object)
     {
         g_source_remove (self->debug_drain_idle_id);
         self->debug_drain_idle_id = 0;
+    }
+    if (self->automation_hide_source != 0)
+    {
+        g_source_remove (self->automation_hide_source);
+        self->automation_hide_source = 0;
     }
     if (self->debug_pending_text != NULL)
     {

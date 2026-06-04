@@ -283,6 +283,18 @@ gboolean     pn_window_set_dialog_editor_text (PnWindow    *self,
                                                const gchar *prop,
                                                const gchar *text);
 
+/**
+ * pn_window_note_automation_activity:
+ * @self: the window
+ *
+ * Reveal the "automation active" badge in the statusbar and (re)arm its
+ * auto-hide timer.  Called by the D-Bus automation dispatch (TODO #40.16)
+ * for every non-read call, so the user can see when an external program is
+ * editing the worksheet over the org.pipas.pipnode automation interface.
+ * The badge fades a few seconds after the automation traffic stops.
+ */
+void         pn_window_note_automation_activity (PnWindow *self);
+
 G_END_DECLS
 
 #endif /* PN_WINDOW_H */
