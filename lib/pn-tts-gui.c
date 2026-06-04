@@ -110,9 +110,14 @@ voice_repopulate (GObject *target, GtkComboBoxText *combo)
 {
     gchar  *engine_id = NULL;
     gchar  *current   = NULL;
+    gchar  *language  = NULL;
     gchar **voices    = NULL;
 
-    g_object_get (target, "engine", &engine_id, "model", &current, NULL);
+    g_object_get (target,
+                  "engine",   &engine_id,
+                  "model",    &current,
+                  "language", &language,
+                  NULL);
 
     /* gtk_combo_box_text_remove_all() drops active-id; the property
      * still holds the user's pick so the SYNC_CREATE binding will
@@ -121,6 +126,8 @@ voice_repopulate (GObject *target, GtkComboBoxText *combo)
     gtk_combo_box_text_remove_all (combo);
 
     voices = pn_tts_engine_list_voices (engine_id);
+
+    gboolean have_language = language != NULL && *language != '\0';
 
     if (voices == NULL || voices[0] == NULL)
     {
@@ -133,31 +140,50 @@ voice_repopulate (GObject *target, GtkComboBoxText *combo)
     }
     else
     {
-        gboolean listed = FALSE;
+        gboolean listed     = FALSE;
+        gchar   *first_shown = NULL;   /* borrowed from `voices` */
+
         for (gchar **p = voices; *p != NULL; p++)
         {
+            /* Skip voices outside the chosen language so the combo
+             * shows just that locale's speakers.  Voices with no
+             * derivable locale (non-piper engines) are never filtered
+             * out, since have_language is only ever true for piper. */
+            if (have_language)
+            {
+                gchar   *lang = pn_tts_derive_voice_language (engine_id, *p);
+                gboolean keep = g_strcmp0 (lang, language) == 0;
+                g_free (lang);
+                if (!keep)
+                    continue;
+            }
+
             gchar *label = pn_tts_derive_voice_label (engine_id, *p);
             gtk_combo_box_text_append (combo, *p, label);
             g_free (label);
+
+            if (first_shown == NULL)
+                first_shown = *p;
             if (g_strcmp0 (*p, current) == 0)
                 listed = TRUE;
         }
 
-        /* When the current voice doesn't belong to the freshly-
-         * picked engine, auto-select the first one so the dialog
-         * always lands on a runnable configuration.  Note we do
-         * *not* append the orphan voice as a verbatim fallback the
-         * way the piper-only editor used to — that fallback was
-         * also reached when the user picked a different engine,
+        /* When the current voice isn't among the shown rows — a
+         * different engine was picked, or the language filter excludes
+         * it — auto-select the first listed voice so the dialog always
+         * lands on a runnable configuration.  We do *not* append the
+         * orphan voice as a verbatim fallback the way the piper-only
+         * editor used to: that fallback also fired on an engine switch,
          * leaving the previous engine's voice stuck in the combo
          * alongside the new list. */
-        if (!listed)
-            g_object_set (target, "model", voices[0], NULL);
+        if (!listed && first_shown != NULL)
+            g_object_set (target, "model", first_shown, NULL);
     }
 
     g_strfreev (voices);
     g_free (engine_id);
     g_free (current);
+    g_free (language);
 }
 
 static void
@@ -180,16 +206,98 @@ build_tts_model_editor (GObject    *target,
 
     voice_repopulate (target, GTK_COMBO_BOX_TEXT (combo));
 
-    /* Refresh the voice list whenever the engine changes so the user
-     * sees the new engine's voices without reopening the dialog.
-     * Tied to the combo's lifetime via g_signal_connect_object so the
-     * handler auto-disconnects when the dialog closes. */
+    /* Refresh the voice list whenever the engine OR the language
+     * filter changes so the user sees the right voices without
+     * reopening the dialog.  Tied to the combo's lifetime via
+     * g_signal_connect_object so the handlers auto-disconnect when the
+     * dialog closes. */
     g_signal_connect_object (target, "notify::engine",
+                             G_CALLBACK (on_engine_notify_repopulate),
+                             combo, 0);
+    g_signal_connect_object (target, "notify::language",
                              G_CALLBACK (on_engine_notify_repopulate),
                              combo, 0);
 
     gtk_widget_set_hexpand   (combo, TRUE);
     gtk_widget_set_sensitive (combo, writable);
+    g_object_bind_property (target, name, combo, "active-id", flags);
+    return combo;
+}
+
+/** Rebuild the language combo from the locales the currently-selected
+ *  engine's installed voices cover.  An "All languages" sentinel (id
+ *  "") leads the list and selects the unfiltered view.  Called at
+ *  build time and on every notify::engine, since only piper exposes
+ *  locales and a given voice directory may cover a different set.  When
+ *  the persisted language is no longer offered — switching away from
+ *  piper, say — it is reset to "" so the voice combo doesn't stay
+ *  filtered against a locale the engine can't satisfy. */
+static void
+language_repopulate (GObject *target, GtkComboBoxText *combo)
+{
+    gchar   *engine_id = NULL;
+    gchar   *current   = NULL;
+    gchar  **langs     = NULL;
+    gboolean listed    = FALSE;
+
+    g_object_get (target, "engine", &engine_id, "language", &current, NULL);
+
+    gtk_combo_box_text_remove_all (combo);
+    gtk_combo_box_text_append (combo, "", "All languages");
+
+    langs = pn_tts_engine_list_languages (engine_id);
+    for (gchar **p = langs; p != NULL && *p != NULL; p++)
+    {
+        const gchar *label = pn_tts_language_label (*p);
+        gtk_combo_box_text_append (combo, *p, label != NULL ? label : *p);
+        if (g_strcmp0 (*p, current) == 0)
+            listed = TRUE;
+    }
+
+    /* A configured locale the current engine can't offer (e.g. after
+     * switching off piper) drops back to "All languages" so the voice
+     * list isn't filtered against an impossible locale. */
+    if (!listed && current != NULL && *current != '\0')
+        g_object_set (target, "language", "", NULL);
+
+    /* Only piper yields locales; with none to choose from the combo is
+     * just the lone "All languages" sentinel, so disable it to signal
+     * that language filtering doesn't apply to this engine. */
+    gtk_widget_set_sensitive (GTK_WIDGET (combo),
+                              langs != NULL && langs[0] != NULL);
+
+    g_strfreev (langs);
+    g_free (engine_id);
+    g_free (current);
+}
+
+static void
+on_engine_notify_repopulate_lang (GObject    *target,
+                                  GParamSpec *pspec G_GNUC_UNUSED,
+                                  gpointer    user_data)
+{
+    language_repopulate (target, GTK_COMBO_BOX_TEXT (user_data));
+}
+
+static GtkWidget *
+build_tts_language_editor (GObject    *target,
+                           GParamSpec *pspec)
+{
+    const gchar  *name     = pspec->name;
+    gboolean      writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
+    GBindingFlags flags    = G_BINDING_SYNC_CREATE
+                             | (writable ? G_BINDING_BIDIRECTIONAL : 0);
+    GtkWidget    *combo    = gtk_combo_box_text_new ();
+
+    language_repopulate (target, GTK_COMBO_BOX_TEXT (combo));
+
+    /* Rebuild the locale list when the engine changes — different
+     * engines (and piper voice directories) cover different locales. */
+    g_signal_connect_object (target, "notify::engine",
+                             G_CALLBACK (on_engine_notify_repopulate_lang),
+                             combo, 0);
+
+    gtk_widget_set_hexpand (combo, TRUE);
     g_object_bind_property (target, name, combo, "active-id", flags);
     return combo;
 }
@@ -253,6 +361,8 @@ pn_tts_build_property_editor (PnNode      *self      G_GNUC_UNUSED,
         return build_tts_engine_editor (target, pspec);
     if (g_strcmp0 (pspec->name, "model") == 0)
         return build_tts_model_editor (target, pspec);
+    if (g_strcmp0 (pspec->name, "language") == 0)
+        return build_tts_language_editor (target, pspec);
     if (g_strcmp0 (pspec->name, "sink") == 0)
         return build_tts_sink_editor (target, pspec);
     return NULL;
@@ -333,6 +443,31 @@ tts_preview_state_free (gpointer data)
     g_free (st);
 }
 
+/** Sample utterance the preview speaks, matched to the selected voice's
+ *  language so the words make sense in the voice you are auditioning.
+ *  Only locales we have a phrase for get a localised sample; everything
+ *  else falls back to the English default.  Returned string is static —
+ *  do not free. */
+static const gchar *
+preview_sample_text (PnTts *self)
+{
+    gchar       *engine = NULL;
+    gchar       *model  = NULL;
+    gchar       *lang;
+    const gchar *text   = "This is a sample of the selected voice.";
+
+    g_object_get (self, "engine", &engine, "model", &model, NULL);
+    lang = pn_tts_derive_voice_language (engine, model);
+
+    if (g_strcmp0 (lang, "hu_HU") == 0)
+        text = "Ez a kiválasztott hang mintája.";
+
+    g_free (lang);
+    g_free (engine);
+    g_free (model);
+    return text;
+}
+
 static gboolean
 tts_preview_fire (gpointer user_data)
 {
@@ -346,9 +481,7 @@ tts_preview_fire (gpointer user_data)
      * red status row already tells the user why nothing happens. */
     g_object_get (st->self, "last-error", &last_error, NULL);
     if (last_error == NULL)
-        pn_tts_speak (st->self,
-                      "This is a sample of the selected voice.",
-                      NULL);
+        pn_tts_speak (st->self, preview_sample_text (st->self), NULL);
     g_free (last_error);
     return G_SOURCE_REMOVE;
 }
@@ -391,6 +524,7 @@ pn_tts_build_class_tab (PnNode    *self,
     GtkWidget  *status_label;
     GObjectClass *klass = G_OBJECT_GET_CLASS (self);
     GParamSpec *engine_pspec = g_object_class_find_property (klass, "engine");
+    GParamSpec *lang_pspec   = g_object_class_find_property (klass, "language");
     GParamSpec *model_pspec  = g_object_class_find_property (klass, "model");
     GParamSpec *psv_pspec    = g_object_class_find_property (klass,
                                                             "per-source-voice");
@@ -404,9 +538,19 @@ pn_tts_build_class_tab (PnNode    *self,
                                g_param_spec_get_nick (engine_pspec),
                                engine_editor);
 
+    /* Language sits above Voice and narrows it: picking a locale here
+     * filters the Voice combo (and the per-source picker) to that
+     * language's speakers.  Only piper voices carry a locale, so the
+     * combo is just a disabled "All languages" for the other engines. */
+    GtkWidget *language_editor = pn_tts_build_property_editor (
+            self, lang_pspec, target, parent);
+    pn_node_dialog_attach_row (GTK_GRID (grid), 1,
+                               g_param_spec_get_nick (lang_pspec),
+                               language_editor);
+
     model_editor = pn_tts_build_property_editor (
             self, model_pspec, target, parent);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 1,
+    pn_node_dialog_attach_row (GTK_GRID (grid), 2,
                                g_param_spec_get_nick (model_pspec),
                                model_editor);
 
@@ -415,7 +559,7 @@ pn_tts_build_class_tab (PnNode    *self,
      * adjacent makes the relationship obvious in the dialog. */
     GtkWidget *psv_editor = pn_node_dialog_default_editor (
             target, psv_pspec);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 2,
+    pn_node_dialog_attach_row (GTK_GRID (grid), 3,
                                g_param_spec_get_nick (psv_pspec),
                                psv_editor);
 
@@ -424,26 +568,26 @@ pn_tts_build_class_tab (PnNode    *self,
      * range, two-digit precision and 0.1 step out of the box. */
     GtkWidget *speed_editor = pn_node_dialog_default_editor (
             target, speed_pspec);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 3,
+    pn_node_dialog_attach_row (GTK_GRID (grid), 4,
                                g_param_spec_get_nick (speed_pspec),
                                speed_editor);
 
     GtkWidget *sink_editor = pn_tts_build_property_editor (
             self, sink_pspec, target, parent);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 4,
+    pn_node_dialog_attach_row (GTK_GRID (grid), 5,
                                g_param_spec_get_nick (sink_pspec),
                                sink_editor);
 
     GtkWidget *max_queue_editor = pn_node_dialog_default_editor (
             target, mq_pspec);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 5,
+    pn_node_dialog_attach_row (GTK_GRID (grid), 6,
                                g_param_spec_get_nick (mq_pspec),
                                max_queue_editor);
 
     status_label = gtk_label_new (NULL);
     gtk_label_set_xalign     (GTK_LABEL (status_label), 0.0);
     gtk_label_set_use_markup (GTK_LABEL (status_label), TRUE);
-    pn_node_dialog_attach_row (GTK_GRID (grid), 6, "Status", status_label);
+    pn_node_dialog_attach_row (GTK_GRID (grid), 7, "Status", status_label);
 
     update_status_label (target, NULL, status_label);
     g_signal_connect_object (target, "notify::engine",

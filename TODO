@@ -1712,3 +1712,35 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
 
         PHASE F COMPLETE.  TODO #40 (the comprehensive D-Bus automation
         interface) is now DONE end to end -- Phases A-F all landed.
+
+(41) Text to Speech node: language filter.  Installing voices for more than
+one language (e.g. Hungarian piper voices alongside the English ones) made the
+Voice combo unusable -- pn_tts_derive_voice_label strips the
+"<lang>_<COUNTRY>-" prefix, so "hu_HU-imre-medium" and "en_US-amy-medium" both
+collapse to bare "speaker-quality" labels with no way to tell the languages
+apart, and per-source-voice (on by default) hashed across every voice
+regardless of locale, randomly mixing languages.  Added a Language combo above
+Voice that lists the locales found among the installed voices and narrows the
+Voice list to the chosen one.
+  [x] 41.1  GTK-free core seam in pn-tts.[ch]: pn_tts_derive_voice_language
+        (piper voice id -> "<lang>_<COUNTRY>" locale key, NULL for non-piper /
+        prefixless ids), pn_tts_language_label (locale key -> friendly name via
+        a static table covering the piper catalog, NULL when unlisted so the
+        caller shows the raw key), pn_tts_engine_list_languages (sorted, deduped
+        locales among an engine's installed voices).
+  [x] 41.2  New persisted "language" property (nick "Language", default "" =
+        all languages).  No ABI bump -- it's a GObject property, not a
+        PnNodeClass vfunc; older saved flows lack the key and default cleanly,
+        and the D-Bus property surface picks it up automatically.
+  [x] 41.3  Receive-path honouring: pick_voice_for_message filters the engine's
+        voice list to the configured locale before the per-source hash, falling
+        back to the full list if the locale matches nothing (stale/uninstalled).
+  [x] 41.4  GUI tier (pn-tts-gui.c): Language combo row above Voice, populated
+        from pn_tts_engine_list_languages with an "All languages" sentinel,
+        disabled for engines that expose no locales (everything but piper).
+        Rebuilds on engine change (resetting an unsatisfiable locale to "");
+        voice_repopulate filters by the selected language and auto-selects the
+        first listed voice when the current one is filtered out.
+  [x] 41.5  Unit tests (language_piper / language_no_locale / language_label)
+        + help page (data/help/PnTts.html: new "language" row, cross-refs from
+        "model" and "per-source-voice").  DONE.

@@ -84,6 +84,54 @@ test_label_non_piper_verbatim (void)
 }
 
 static void
+test_language_piper (void)
+{
+    /* The locale grouping key is the "<lang>_<COUNTRY>" filename prefix,
+     * returned verbatim — directory and the rest of the name dropped. */
+    gchar *l = pn_tts_derive_voice_language (
+        "piper", "/home/me/.local/share/piper/voices/en_US-amy-medium.onnx");
+    PN_CHECK_CMPSTR (l, ==, "en_US");
+    g_free (l);
+
+    l = pn_tts_derive_voice_language ("piper", "hu_HU-imre-medium.onnx");
+    PN_CHECK_CMPSTR (l, ==, "hu_HU");
+    g_free (l);
+
+    /* The prefix-strip and the .onnx-strip are independent, same as the
+     * label deriver: a bare id with the prefix still yields its locale. */
+    l = pn_tts_derive_voice_language ("piper", "de_DE-thorsten-low");
+    PN_CHECK_CMPSTR (l, ==, "de_DE");
+    g_free (l);
+}
+
+static void
+test_language_no_locale (void)
+{
+    /* A piper id whose first dash-segment lacks an underscore is not a
+     * locale, so there is no language to group by. */
+    PN_CHECK (pn_tts_derive_voice_language ("piper", "voice-name.onnx") == NULL);
+    PN_CHECK (pn_tts_derive_voice_language ("piper", "simple.onnx") == NULL);
+
+    /* Other engines do not tag voices with a "<lang>_<COUNTRY>" locale,
+     * so the language is always NULL regardless of the id shape. */
+    PN_CHECK (pn_tts_derive_voice_language ("espeak", "en-us") == NULL);
+    PN_CHECK (pn_tts_derive_voice_language ("festival", "kal_diphone") == NULL);
+    PN_CHECK (pn_tts_derive_voice_language ("flite", "slt") == NULL);
+}
+
+static void
+test_language_label (void)
+{
+    /* Known locales map to a friendly name; unknown ones return NULL so
+     * the caller can fall back to showing the raw key. */
+    PN_CHECK_CMPSTR (pn_tts_language_label ("hu_HU"), ==, "Hungarian (Hungary)");
+    PN_CHECK_CMPSTR (pn_tts_language_label ("en_US"),
+                     ==, "English (United States)");
+    PN_CHECK (pn_tts_language_label ("zz_ZZ") == NULL);
+    PN_CHECK (pn_tts_language_label (NULL) == NULL);
+}
+
+static void
 test_voice_index_deterministic (void)
 {
     /* The same sender always lands on the same slot — that is the whole
@@ -145,6 +193,9 @@ main (int argc, char **argv)
     pn_test_add ("label_piper_no_lang_prefix", test_label_piper_no_lang_prefix);
     pn_test_add ("label_piper_prefix_no_suffix", test_label_piper_prefix_without_suffix);
     pn_test_add ("label_non_piper_verbatim",  test_label_non_piper_verbatim);
+    pn_test_add ("language_piper",            test_language_piper);
+    pn_test_add ("language_no_locale",        test_language_no_locale);
+    pn_test_add ("language_label",            test_language_label);
     pn_test_add ("voice_index_deterministic", test_voice_index_deterministic);
     pn_test_add ("voice_index_in_range",      test_voice_index_in_range);
     pn_test_add ("voice_index_edge_cases",    test_voice_index_edge_cases);

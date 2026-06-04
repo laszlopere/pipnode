@@ -52,6 +52,10 @@ static gchar  *speed_flag_espeak      (double speed);
 static gchar  *speed_flag_flite       (double speed);
 static gchar  *speed_flag_none        (double speed);
 
+/* Sorts a strv of paths/ids; defined low in the file but needed early
+ * by pn_tts_engine_list_languages. */
+static int     voice_model_path_compare (gconstpointer a, gconstpointer b);
+
 typedef struct
 {
     const gchar *id;              /* persisted in the saved flow */
@@ -209,6 +213,35 @@ pn_tts_engine_list_voices (const gchar *id)
     return eng->list_voices ();
 }
 
+gchar **
+pn_tts_engine_list_languages (const gchar *id)
+{
+    GPtrArray  *langs = g_ptr_array_new ();
+    GHashTable *seen  = g_hash_table_new (g_str_hash, g_str_equal);
+    gchar     **voices = pn_tts_engine_list_voices (id);
+
+    for (gchar **p = voices; p != NULL && *p != NULL; p++)
+    {
+        gchar *lang = pn_tts_derive_voice_language (id, *p);
+        if (lang == NULL)
+            continue;
+        if (g_hash_table_contains (seen, lang))
+        {
+            g_free (lang);
+            continue;
+        }
+        g_hash_table_add (seen, lang);   /* key owned by `langs` below */
+        g_ptr_array_add  (langs, lang);
+    }
+
+    g_strfreev (voices);
+    g_hash_table_destroy (seen);
+
+    g_ptr_array_sort (langs, voice_model_path_compare);
+    g_ptr_array_add  (langs, NULL);
+    return (gchar **) g_ptr_array_free (langs, FALSE);
+}
+
 struct _PnTts
 {
     PnNode parent_instance;
@@ -222,6 +255,15 @@ struct _PnTts
      * path for piper, an engine-specific short name for the others,
      * or the empty string when the engine has no voice selector. */
     gchar *model;
+
+    /* Locale key (e.g. "en_US", "hu_HU") restricting which voices are
+     * offered in the dialog and considered by the per-source voice
+     * picker.  Empty means "all languages" — no restriction, the
+     * original behaviour.  Only meaningful for piper, whose voice ids
+     * carry a locale prefix; ignored by engines that do not.  When set,
+     * pick_voice_for_message() draws only from this locale's voices so
+     * a mixed-language voice directory still speaks one language. */
+    gchar *language;
 
     /* Speed multiplier.  1.0 is the engine's natural rate; values
      * above 1.0 speak faster, below slower.  Translated to the
@@ -296,6 +338,7 @@ enum {
     PROP_0,
     PROP_ENGINE,
     PROP_MODEL,
+    PROP_LANGUAGE,
     PROP_SPEED,
     PROP_SINK,
     PROP_LAST_ERROR,
@@ -526,9 +569,36 @@ pick_voice_for_message (
         return NULL;
     }
 
-    guint n     = g_strv_length (voices);
-    gchar *out  = g_strdup (voices[pn_tts_voice_index_for (who, n)]);
+    /* When a language is configured, draw only from that locale's
+     * voices so a directory holding several languages still speaks the
+     * one the user picked.  Build a filtered view over `voices`
+     * (borrowed pointers — freed via the original array below).  If the
+     * filter matches nothing — a stale locale whose voices were
+     * uninstalled — fall back to the full list rather than going
+     * silent. */
+    GPtrArray *filtered = NULL;
+    if (self->language != NULL && *self->language != '\0')
+    {
+        filtered = g_ptr_array_new ();
+        for (gchar **p = voices; *p != NULL; p++)
+        {
+            gchar *lang = pn_tts_derive_voice_language (self->engine, *p);
+            if (g_strcmp0 (lang, self->language) == 0)
+                g_ptr_array_add (filtered, *p);
+            g_free (lang);
+        }
+    }
 
+    gchar * const *pool = (filtered != NULL && filtered->len > 0)
+                          ? (gchar * const *) filtered->pdata
+                          : voices;
+    guint  n   = (filtered != NULL && filtered->len > 0)
+                 ? filtered->len
+                 : g_strv_length (voices);
+    gchar *out = g_strdup (pool[pn_tts_voice_index_for (who, n)]);
+
+    if (filtered != NULL)
+        g_ptr_array_free (filtered, TRUE);
     g_strfreev (voices);
     return out;
 }
@@ -670,6 +740,9 @@ pn_tts_get_property (
     case PROP_MODEL:
         g_value_set_string (value, self->model);
         break;
+    case PROP_LANGUAGE:
+        g_value_set_string (value, self->language);
+        break;
     case PROP_SPEED:
         g_value_set_double (value, self->speed);
         break;
@@ -721,6 +794,17 @@ pn_tts_set_property (
                 g_free (self->model);
                 self->model = g_strdup (new_model);
                 g_object_notify_by_pspec (object, props[PROP_MODEL]);
+            }
+        }
+        break;
+    case PROP_LANGUAGE:
+        {
+            const gchar *new_lang = g_value_get_string (value);
+            if (g_strcmp0 (self->language, new_lang) != 0)
+            {
+                g_free (self->language);
+                self->language = g_strdup (new_lang != NULL ? new_lang : "");
+                g_object_notify_by_pspec (object, props[PROP_LANGUAGE]);
             }
         }
         break;
@@ -782,6 +866,7 @@ pn_tts_finalize (GObject *object)
 
     g_clear_pointer (&self->engine,     g_free);
     g_clear_pointer (&self->model,      g_free);
+    g_clear_pointer (&self->language,   g_free);
     g_clear_pointer (&self->sink,       g_free);
     g_clear_pointer (&self->last_error, g_free);
 
@@ -829,6 +914,88 @@ pn_tts_derive_voice_label (const gchar *engine_id, const gchar *id)
     return g_strdup (id);
 }
 
+gchar *
+pn_tts_derive_voice_language (const gchar *engine_id, const gchar *id)
+{
+    /* Only piper tags its voice ids with a locale (the
+     * "<lang>_<COUNTRY>-" filename prefix); every other engine names
+     * voices by speaker or by a bare language code that is not in this
+     * "<lang>_<COUNTRY>" shape, so there is no locale to group by. */
+    if (g_strcmp0 (engine_id, "piper") != 0 || id == NULL)
+        return NULL;
+
+    gchar  *base = g_path_get_basename (id);
+    gchar **parts = g_strsplit (base, "-", 2);
+    gchar  *out  = NULL;
+
+    /* Same prefix test pn_tts_derive_voice_label uses: the first
+     * dash-segment is a locale only when it contains an underscore
+     * (e.g. "en_US"), so "voice-name.onnx" yields no language. */
+    if (parts[0] != NULL && parts[1] != NULL &&
+        strchr (parts[0], '_') != NULL)
+        out = g_strdup (parts[0]);
+
+    g_strfreev (parts);
+    g_free (base);
+    return out;
+}
+
+const gchar *
+pn_tts_language_label (const gchar *code)
+{
+    /* Friendly names for the locales piper publishes voices for, so the
+     * dialog's Language combo reads "Hungarian" rather than "hu_HU".
+     * Unlisted codes return NULL and the caller shows the raw key, so a
+     * voice in a locale we have not tabulated still groups correctly. */
+    static const struct { const gchar *code; const gchar *label; } names[] = {
+        { "ar_JO", "Arabic (Jordan)" },
+        { "ca_ES", "Catalan (Spain)" },
+        { "cs_CZ", "Czech (Czechia)" },
+        { "cy_GB", "Welsh (United Kingdom)" },
+        { "da_DK", "Danish (Denmark)" },
+        { "de_DE", "German (Germany)" },
+        { "el_GR", "Greek (Greece)" },
+        { "en_GB", "English (United Kingdom)" },
+        { "en_US", "English (United States)" },
+        { "es_ES", "Spanish (Spain)" },
+        { "es_MX", "Spanish (Mexico)" },
+        { "fa_IR", "Persian (Iran)" },
+        { "fi_FI", "Finnish (Finland)" },
+        { "fr_FR", "French (France)" },
+        { "hu_HU", "Hungarian (Hungary)" },
+        { "is_IS", "Icelandic (Iceland)" },
+        { "it_IT", "Italian (Italy)" },
+        { "ka_GE", "Georgian (Georgia)" },
+        { "kk_KZ", "Kazakh (Kazakhstan)" },
+        { "lb_LU", "Luxembourgish (Luxembourg)" },
+        { "ne_NP", "Nepali (Nepal)" },
+        { "nl_BE", "Dutch (Belgium)" },
+        { "nl_NL", "Dutch (Netherlands)" },
+        { "no_NO", "Norwegian (Norway)" },
+        { "pl_PL", "Polish (Poland)" },
+        { "pt_BR", "Portuguese (Brazil)" },
+        { "pt_PT", "Portuguese (Portugal)" },
+        { "ro_RO", "Romanian (Romania)" },
+        { "ru_RU", "Russian (Russia)" },
+        { "sk_SK", "Slovak (Slovakia)" },
+        { "sl_SI", "Slovenian (Slovenia)" },
+        { "sr_RS", "Serbian (Serbia)" },
+        { "sv_SE", "Swedish (Sweden)" },
+        { "sw_CD", "Swahili (Congo)" },
+        { "tr_TR", "Turkish (Turkey)" },
+        { "uk_UA", "Ukrainian (Ukraine)" },
+        { "vi_VN", "Vietnamese (Vietnam)" },
+        { "zh_CN", "Chinese (China)" },
+    };
+
+    if (code == NULL)
+        return NULL;
+    for (gsize i = 0; i < G_N_ELEMENTS (names); i++)
+        if (g_strcmp0 (code, names[i].code) == 0)
+            return names[i].label;
+    return NULL;
+}
+
 static void
 pn_tts_class_init (PnTtsClass *klass)
 {
@@ -873,6 +1040,20 @@ pn_tts_class_init (PnTtsClass *klass)
             "Piper, an engine-specific voice name otherwise, or empty "
             "for engines that have no enumerable voice selector",
             NULL,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Locale filter for the voice list.  Empty == "all languages"
+     * (no restriction, the original behaviour); a locale key like
+     * "hu_HU" limits both the dialog's Voice combo and the per-source
+     * voice picker to that language's voices.  Only piper voices carry
+     * a locale, so the dialog's Language combo is empty for the other
+     * engines and the filter is a no-op there. */
+    props[PROP_LANGUAGE] = g_param_spec_string (
+            "language", "Language",
+            "Locale the voice list is restricted to (e.g. \"hu_HU\"); "
+            "empty offers all installed voices.  Only piper voices are "
+            "locale-tagged, so this has no effect on the other engines",
+            "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /* 0.5×–2× span covers the useful range of all four supported-
@@ -955,6 +1136,7 @@ pn_tts_init (PnTts *self)
 
     self->speaking         = FALSE;
     self->speed            = 1.0;
+    self->language         = g_strdup ("");
     self->sink             = g_strdup ("");
     self->last_error       = NULL;
     self->per_source_voice = TRUE;

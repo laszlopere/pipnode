@@ -83,6 +83,23 @@ gchar **pn_tts_list_audio_sinks  (void);
  * every other engine the id is returned verbatim.  Caller frees. */
 gchar *pn_tts_derive_voice_label (const gchar *engine_id, const gchar *id);
 
+/* Derive the locale key a voice belongs to, used to group voices by
+ * language in the settings dialog and to constrain the per-source voice
+ * picker.  Only the "piper" engine encodes a locale in its voice ids:
+ * the "<lang>_<COUNTRY>-" filename prefix is returned verbatim (e.g.
+ * "en_US-amy-medium.onnx" -> "en_US", "hu_HU-imre-medium.onnx" ->
+ * "hu_HU").  Returns %NULL for piper ids that lack the prefix and for
+ * every other engine (whose voice ids are not locale-tagged).  Caller
+ * frees a non-NULL result with g_free. */
+gchar *pn_tts_derive_voice_language (const gchar *engine_id, const gchar *id);
+
+/* Human-readable name for a locale key returned by
+ * pn_tts_derive_voice_language (e.g. "en_US" -> "English (United
+ * States)", "hu_HU" -> "Hungarian").  Returns a static string owned by
+ * the lookup table, or %NULL when the key is not in the table — callers
+ * fall back to showing the raw key.  Do not free. */
+const gchar *pn_tts_language_label (const gchar *code);
+
 /* Deterministically map a sender label to one of @n_voices slots, so a
  * given source always speaks in the same voice.  Returns 0 when
  * @n_voices is 0. */
@@ -117,6 +134,14 @@ const gchar *pn_tts_engine_label_for_id (const gchar *id);
  * is unknown or has no enumerable voice selector.  Caller owns the
  * array (free with g_strfreev). */
 gchar      **pn_tts_engine_list_voices  (const gchar *id);
+
+/* Distinct locale keys present among the engine identified by @id's
+ * installed voices, sorted and %NULL-terminated (e.g. {"en_US", "hu_HU",
+ * %NULL}).  Returns an empty array (still %NULL-terminated) when the
+ * engine is unknown, has no enumerable voices, or none of its voices
+ * carry a locale — which is every engine except piper.  Caller owns the
+ * array (free with g_strfreev). */
+gchar      **pn_tts_engine_list_languages (const gchar *id);
 
 /* Speak @text on @self using the configured engine/voice (or
  * @voice_override when non-NULL/non-empty for this call only).  Used by

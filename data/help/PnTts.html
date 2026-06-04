@@ -42,7 +42,25 @@ warning icon and surfaces the missing-binary message in the
           <code>~/.local/share/piper/voices</code>; for the eSpeak
           family and Flite it is an engine-specific voice name; for
           engines with no voice selector (Festival) the dialog shows
-          a single &ldquo;Default&rdquo; entry.</td></tr>
+          a single &ldquo;Default&rdquo; entry. The combo is narrowed
+          by the <code>language</code> filter below when one is
+          set.</td></tr>
+  <tr><td><code>language</code></td>
+      <td>Restricts the voice list to a single locale. Labelled
+          &ldquo;Language&rdquo; in the dialog, where the combo lists
+          every locale found among the installed Piper voices (e.g.
+          &ldquo;English (United States)&rdquo;, &ldquo;Hungarian
+          (Hungary)&rdquo;) plus an &ldquo;All languages&rdquo; entry
+          that imposes no filter. Picking a language narrows the
+          <code>model</code> combo to that locale's speakers and, when
+          <code>per-source-voice</code> is on, confines the automatic
+          per-speaker pick to the same locale &mdash; so a voices
+          directory holding several languages still speaks just the
+          one chosen. Only Piper voices carry a locale (in their
+          <code>&lt;lang&gt;_&lt;COUNTRY&gt;-</code> filename prefix),
+          so the combo is a disabled &ldquo;All languages&rdquo; for
+          the other engines. Empty (the default) offers every installed
+          voice, exactly as before.</td></tr>
   <tr><td><code>speed</code></td>
       <td>Playback rate multiplier in the range 0.5&ndash;2.0
           (1.0&nbsp;= engine default, &gt;1 faster, &lt;1 slower).
@@ -90,7 +108,9 @@ warning icon and surfaces the missing-binary message in the
           <code>PnOllama</code> reply on one wire and a
           <code>PnMeshtastic</code> message on another). The
           selection is deterministic, so the same speaker always
-          gets the same voice across runs. Turn the switch off to
+          gets the same voice across runs. When a
+          <code>language</code> is set, the automatic pick is confined
+          to that locale's voices. Turn the switch off to
           force every utterance through the configured
           <code>model</code>. Engines without an enumerable voice
           list (Festival) and messages with no source fall back to
