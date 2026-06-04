@@ -241,6 +241,7 @@ enum {
     SIG_MESSAGE,
     SIG_REPAINT_NEEDED,
     SIG_LOG_CHANGED,
+    SIG_INPUT_NAMES_CHANGED,
     N_SIGNALS,
 };
 
@@ -620,6 +621,20 @@ pn_node_class_init (PnNodeClass *klass)
      * it updates live while the node is running. */
     signals[SIG_LOG_CHANGED] = g_signal_new (
             "log-changed",
+            PN_TYPE_NODE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            0);
+
+    /* Emitted when a per-input display name changes (pn_node_set_input_name).
+     * These names round-trip to disk but live in a bespoke store rather than
+     * a GObject property, so they raise no "notify"; PnFlow listens to this
+     * signal to flag the document modified on a rename. */
+    signals[SIG_INPUT_NAMES_CHANGED] = g_signal_new (
+            "input-names-changed",
             PN_TYPE_NODE,
             G_SIGNAL_RUN_LAST,
             0,
@@ -1229,10 +1244,23 @@ pn_node_set_input_name (
     priv = pn_node_get_instance_private (self);
     pn_node_ensure_input_names (priv, index + 1);
 
-    g_free (priv->input_names->pdata[index]);
     /* NULL / "" reverts to the lazily-generated "valueN" default. */
-    priv->input_names->pdata[index] =
-            (name != NULL && *name != '\0') ? g_strdup (name) : NULL;
+    {
+        const gchar *old    = priv->input_names->pdata[index];
+        const gchar *wanted = (name != NULL && *name != '\0') ? name : NULL;
+
+        /* No-op when unchanged so re-applying the same text (e.g. the
+         * dialog echoing the current value back) does not flag the
+         * document dirty. */
+        if (g_strcmp0 (old, wanted) == 0)
+            return;
+
+        g_free (priv->input_names->pdata[index]);
+        priv->input_names->pdata[index] =
+                wanted != NULL ? g_strdup (wanted) : NULL;
+    }
+
+    g_signal_emit (self, signals[SIG_INPUT_NAMES_CHANGED], 0);
 }
 
 void

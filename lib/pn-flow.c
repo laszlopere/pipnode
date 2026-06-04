@@ -670,6 +670,16 @@ on_node_any_notify_mark (
     on_store_changed_mark_modified (user_data);
 }
 
+/* "input-names-changed" handler: a per-input rename is a document edit. */
+static void
+on_node_input_names_changed (
+        PnNode  *node,
+        gpointer user_data)
+{
+    (void) node;
+    on_store_changed_mark_modified (user_data);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Status-message routing                                             */
 /* ------------------------------------------------------------------ */
@@ -730,6 +740,12 @@ on_node_added (
      * trigger this hook. */
     g_signal_connect (node, "notify",
                       G_CALLBACK (on_node_any_notify_mark), self);
+
+    /* Per-input display names round-trip to disk but live outside the
+     * GObject property system, so they raise no "notify"; a rename
+     * marks the document modified through this dedicated signal. */
+    g_signal_connect (node, "input-names-changed",
+                      G_CALLBACK (on_node_input_names_changed), self);
 }
 
 static void
@@ -746,6 +762,8 @@ on_node_removed (
 
     g_signal_handlers_disconnect_by_func (
             node, G_CALLBACK (on_node_any_notify_mark), self);
+    g_signal_handlers_disconnect_by_func (
+            node, G_CALLBACK (on_node_input_names_changed), self);
     if (PN_IS_DEBUG (node))
     {
         g_signal_handlers_disconnect_by_func (
@@ -1043,6 +1061,41 @@ node_to_json (PnNode *node)
     g_free (specs);
 
     json_object_set_object_member (obj, "properties", props);
+
+    /* Per-input display names for multi-input nodes.  These live in a
+     * bespoke PnNode store (not a GObject property), so the generic
+     * property loop above never sees them — they need their own field.
+     * Only names the user actually customised are written: a name still
+     * equal to its "valueN" default round-trips by being regenerated on
+     * load, so single-input and untouched multi-input nodes leave the
+     * on-disk format unchanged.  Keyed by 0-based input index so a
+     * sparse set of renames stays compact. */
+    {
+        gint        n     = pn_node_get_n_inputs (node);
+        JsonObject *names = NULL;
+        gint        i;
+
+        for (i = 0; i < n; i++)
+        {
+            const gchar *nm    = pn_node_get_input_name (node, i);
+            gchar       *deflt = g_strdup_printf ("value%d", i + 1);
+
+            if (nm != NULL && g_strcmp0 (nm, deflt) != 0)
+            {
+                gchar *idx = g_strdup_printf ("%d", i);
+
+                if (names == NULL)
+                    names = json_object_new ();
+                json_object_set_string_member (names, idx, nm);
+                g_free (idx);
+            }
+            g_free (deflt);
+        }
+
+        if (names != NULL)
+            json_object_set_object_member (obj, "input-names", names);
+    }
+
     return obj;
 }
 
@@ -1194,6 +1247,34 @@ node_from_json (
             g_value_unset (&value);
         }
         g_list_free (members);
+    }
+
+    /* Restore per-input display names (see node_to_json).  Applied after
+     * the properties bag so the input count — carried by a subclass
+     * property such as Calculator's "inputs" — is already in place.
+     * Missing entries keep their lazily-generated "valueN" default. */
+    if (json_object_has_member (obj, "input-names"))
+    {
+        JsonObject *names = json_object_get_object_member (obj, "input-names");
+
+        if (names != NULL)
+        {
+            GList *members = json_object_get_members (names);
+            GList *iter;
+
+            for (iter = members; iter != NULL; iter = iter->next)
+            {
+                const gchar *idxs = iter->data;
+                JsonNode    *vn   = json_object_get_member (names, idxs);
+                gint64       idx  = g_ascii_strtoll (idxs, NULL, 10);
+
+                if (idx >= 0 && JSON_NODE_HOLDS_VALUE (vn)
+                    && json_node_get_value_type (vn) == G_TYPE_STRING)
+                    pn_node_set_input_name (node, (gint) idx,
+                                            json_node_get_string (vn));
+            }
+            g_list_free (members);
+        }
     }
 
     return node;

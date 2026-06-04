@@ -30,6 +30,8 @@
 #include "pn-node.h"
 #include "pn-inject.h"
 #include "pn-subst.h"
+#include "pn-expression2.h"
+#include "pn-node-store.h"
 
 #include <json-glib/json-glib.h>
 #include <glib/gstdio.h>
@@ -456,6 +458,74 @@ test_panel_layout_persists_when_closed (void)
     g_object_unref (flow);
 }
 
+/* Renaming a multi-input node's inputs dirties the flow: the names are
+ * document data that round-trips to disk. */
+static void
+test_input_names_mark_dirty (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_expression2_new ());
+
+    pn_flow_add_node (flow, node);
+    pn_flow_set_modified (flow, FALSE);
+
+    pn_node_set_input_name (node, 0, "price");
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    g_object_unref (flow);
+}
+
+/* The per-input names of a multi-input node survive a save/load to disk,
+ * alongside the input count.  Names left at their "valueN" default are
+ * not written, but reload regenerates them, so every input reads back
+ * with the right label. */
+static void
+test_input_names_disk_roundtrip (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_expression2_new ());
+    gchar  *path = NULL;
+    gint    fd;
+
+    /* Four inputs; rename two and leave the others at their defaults. */
+    g_object_set (node, "inputs", 4, NULL);
+    pn_node_set_input_name (node, 0, "price");
+    pn_node_set_input_name (node, 2, "quantity");
+
+    pn_flow_add_node (flow, node);
+
+    fd = g_file_open_tmp ("pn-flow-inputs-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+
+    {
+        PnNodeStore *nodes = pn_flow_get_nodes (flow);
+        PnNode      *got;
+
+        PN_CHECK_CMPINT (pn_node_store_get_length (nodes), ==, 1u);
+        got = pn_node_store_get_node (nodes, 0);
+
+        /* Input count round-tripped (via the subclass "inputs" prop)... */
+        PN_CHECK_CMPINT (pn_node_get_n_inputs (got), ==, 4);
+
+        /* ...and the custom names came back, with untouched inputs still
+         * carrying their regenerated "valueN" default. */
+        PN_CHECK_CMPSTR (pn_node_get_input_name (got, 0), ==, "price");
+        PN_CHECK_CMPSTR (pn_node_get_input_name (got, 1), ==, "value2");
+        PN_CHECK_CMPSTR (pn_node_get_input_name (got, 2), ==, "quantity");
+        PN_CHECK_CMPSTR (pn_node_get_input_name (got, 3), ==, "value4");
+    }
+
+    g_remove (path);
+    g_free (path);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -477,5 +547,7 @@ main (int argc, char **argv)
     pn_test_add ("panel_pos_disk",        test_panel_position_disk_roundtrip);
     pn_test_add ("panel_editor_open_flag", test_panel_editor_open_flag);
     pn_test_add ("panel_layout_persists", test_panel_layout_persists_when_closed);
+    pn_test_add ("input_names_dirty",     test_input_names_mark_dirty);
+    pn_test_add ("input_names_disk",      test_input_names_disk_roundtrip);
     return pn_test_run ();
 }
