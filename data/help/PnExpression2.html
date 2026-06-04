@@ -14,16 +14,20 @@
 <em>Group:</em> Filters. <em>Type:</em> <code>PnExpression2</code>.
 </p>
 <p>
-Two-input variant of the <a href="PnExpression.html">Expression</a>
-node. It evaluates an algebraic expression that can combine values
-from <strong>both</strong> input ports, e.g. <code>value1 + value2</code>
-or <code>(value1 - value2) / value2 * 100</code>.
+Multi-input variant of the <a href="PnExpression.html">Expression</a>
+node. It evaluates an algebraic expression that can combine values from
+<strong>all</strong> of its input ports, e.g. <code>value1 + value2</code>
+or <code>(value1 - value2) / value2 * 100</code>. The number of inputs is
+configurable from 2 to 8 via the <code>inputs</code> property, so an
+expression like <code>value1 + value2 + value3</code> can fold several
+streams together.
 </p>
 <p>
 The node remembers the last <code>data.value</code> seen on each input
 and binds it under that input&rsquo;s <em>name</em> &mdash;
-<code>value1</code> for input&nbsp;1 and <code>value2</code> for
-input&nbsp;2 by default, or whatever you rename the inputs to. Because
+<code>value1</code> for input&nbsp;1, <code>value2</code> for
+input&nbsp;2, and so on by default, or whatever you rename the inputs to.
+Because
 the values are remembered, both are available on <em>every</em>
 recompute even when only one input just fired. Any <em>other</em>
 numeric member of the message being processed is also bound, with the
@@ -37,6 +41,11 @@ being processed contributes them. The result is written to
 
 <table>
   <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>inputs</code></td>
+      <td>How many input ports the node has, from 2 to 8. Defaults to 2.
+          Each input&rsquo;s remembered value is bound as
+          <code>value1</code> &hellip; <code>valueN</code> (or the inputs&rsquo;
+          renamed names).</td></tr>
   <tr><td><code>expression</code></td>
       <td>The expression to evaluate. Defaults to
           <code>value1 + value2</code>.</td></tr>

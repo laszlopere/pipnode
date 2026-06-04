@@ -144,6 +144,72 @@ test_renamed_inputs (void)
 }
 
 static void
+test_default_input_count (void)
+{
+    PnNode *node = g_object_new (PN_TYPE_EXPRESSION2, NULL);
+    gint    inputs = 0;
+
+    /* Fresh node starts with two inputs, matching the property default. */
+    PN_CHECK_CMPINT (pn_node_get_n_inputs (node), ==, 2);
+    g_object_get (node, "inputs", &inputs, NULL);
+    PN_CHECK_CMPINT (inputs, ==, 2);
+
+    g_object_unref (node);
+}
+
+static void
+test_configurable_input_count (void)
+{
+    PnNode *node   = g_object_new (PN_TYPE_EXPRESSION2, NULL);
+    gint    inputs = 0;
+
+    /* Setting the property resizes the node's live input ports. */
+    g_object_set (node, "inputs", 5, NULL);
+    PN_CHECK_CMPINT (pn_node_get_n_inputs (node), ==, 5);
+    g_object_get (node, "inputs", &inputs, NULL);
+    PN_CHECK_CMPINT (inputs, ==, 5);
+
+    /* Shrinking works too. */
+    g_object_set (node, "inputs", 3, NULL);
+    PN_CHECK_CMPINT (pn_node_get_n_inputs (node), ==, 3);
+
+    g_object_unref (node);
+}
+
+static void
+test_three_inputs_combined (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("value1 + value2 + value3", &emits);
+    PnMessage *m1   = pn_message_new (NULL, NULL);
+    PnMessage *m2   = pn_message_new (NULL, NULL);
+    PnMessage *m3   = pn_message_new (NULL, NULL);
+
+    g_object_set (node, "inputs", 3, NULL);
+
+    /* Feed all three inputs; the collated latches make every value
+     * available once each input has fired. */
+    pn_message_set_double (m1, "value", 2.0);
+    pn_node_receive_message_on_input (node, m1, 0);   /* value2/value3 unbound */
+    PN_CHECK_FALSE (pn_test_bool (m1, "success"));
+
+    pn_message_set_double (m2, "value", 3.0);
+    pn_node_receive_message_on_input (node, m2, 1);   /* value3 still unbound */
+    PN_CHECK_FALSE (pn_test_bool (m2, "success"));
+
+    pn_message_set_double (m3, "value", 4.0);
+    pn_node_receive_message_on_input (node, m3, 2);   /* 2 + 3 + 4 = 9 */
+    PN_CHECK_CMPINT (emits, ==, 3);
+    PN_CHECK_NEAR   (pn_test_num (m3, "value"), 9.0, 1e-9);
+    PN_CHECK        (pn_test_bool (m3, "success"));
+
+    g_object_unref (m1);
+    g_object_unref (m2);
+    g_object_unref (m3);
+    g_object_unref (node);
+}
+
+static void
 test_invalid_expression_forwards_failure (void)
 {
     guint      emits;
@@ -168,7 +234,10 @@ main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-expression2");
     pn_test_add ("single_input",           test_single_input_expression);
+    pn_test_add ("default_input_count",    test_default_input_count);
+    pn_test_add ("configurable_inputs",    test_configurable_input_count);
     pn_test_add ("two_inputs_combined",    test_two_inputs_combined);
+    pn_test_add ("three_inputs_combined",  test_three_inputs_combined);
     pn_test_add ("named_siblings_suffix",  test_named_siblings_get_input_suffix);
     pn_test_add ("renamed_inputs",         test_renamed_inputs);
     pn_test_add ("invalid_forwards_fail",  test_invalid_expression_forwards_failure);
