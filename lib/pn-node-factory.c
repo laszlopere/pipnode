@@ -46,6 +46,7 @@
 #include "pn-filter.h"
 #include "pn-format.h"
 #include "pn-graph.h"
+#include "pn-xy-graph.h"
 #include "pn-http.h"
 #include "pn-inject.h"
 #include "pn-knob.h"
@@ -290,6 +291,7 @@ register_builtins (PnNodeFactory *self)
     /* Sinks. */
     pn_node_factory_register (self, PN_TYPE_DEBUG);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
+    pn_node_factory_register (self, PN_TYPE_XY_GRAPH);
     pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
     pn_node_factory_register (self, PN_TYPE_SUN_PATH);
     pn_node_factory_register (self, PN_TYPE_DIAL);

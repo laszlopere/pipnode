@@ -83,6 +83,8 @@ libpipnode_core_la_SOURCES = \
 	pn-geocode.h \
 	pn-graph.c \
 	pn-graph.h \
+	pn-xy-graph.c \
+	pn-xy-graph.h \
 	pn-http.c \
 	pn-http.h \
 	pn-image-message.c \
@@ -277,6 +279,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-filter-gui.h \
 	pn-graph-gui.c \
 	pn-graph-gui.h \
+	pn-xy-graph-gui.c \
+	pn-xy-graph-gui.h \
 	pn-gui.c \
 	pn-gui.h \
 	pn-help-browser.c \
@@ -441,6 +445,7 @@ pipnode_core_headers = \
 	pn-format.h \
 	pn-geocode.h \
 	pn-graph.h \
+	pn-xy-graph.h \
 	pn-http.h \
 	pn-image-message.h \
 	pn-inject.h \
@@ -525,6 +530,7 @@ pipnode_gui_headers = \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \
 	pn-graph-gui.h \
+	pn-xy-graph-gui.h \
 	pn-gui.h \
 	pn-help-browser.h \
 	pn-log-dialog.h \

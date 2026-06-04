@@ -32,6 +32,7 @@ pnhelp_DATA = \
 	help/PnFilter.html \
 	help/PnFormat.html \
 	help/PnGraph.html \
+	help/PnXYGraph.html \
 	help/PnHttp.html \
 	help/PnInject.html \
 	help/PnKnob.html \

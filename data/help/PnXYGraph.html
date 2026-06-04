@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>XY Graph (PnXYGraph) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnXYGraph">XY Graph</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnXYGraph</code>.
+</p>
+<p>
+Sink that scatter-plots a pair of numbers plucked from each incoming
+message. Unlike the <em>Graph</em> node &mdash; which plots one value
+against its arrival <em>time</em> &mdash; the XY Graph reads <em>both</em>
+coordinates from the message: the Y value from the <code>key</code> path
+(default <code>data/value</code>) and the X value from the
+<code>x-key</code> path (default <code>data/x</code>). A message that is
+missing either coordinate, or whose coordinate is non-numeric, plots no
+point. The header is rendered at twice the canonical width; below it
+(with a small gap) a plot rectangle shows the points, with both axes
+auto-ranging over the visible data. Plotting is done with PLplot.
+</p>
+<p>
+Each node keeps a ring of the most recent <code>max-points</code>
+samples <em>per topic</em>; older samples scroll off the end. Because
+the X axis is an explicit value rather than a clock, there is no time
+window or resolution to configure &mdash; the plot simply shows the last
+N points it has seen.
+</p>
+<h5>Multiple series</h5>
+<p>
+Every distinct <code>msg.topic</code> on the input wire is tracked as a
+separate series with its own ring. All series are overlaid on the same
+2D axes, each drawn in its own colour: series colours are derived from
+<code>line-color</code> by walking the HLS hue wheel in golden-angle
+steps so adjacent series read distinctly without the user having to pick
+a palette. The first series keeps the <code>line-color</code> exactly,
+so single-topic worksheets look unchanged. Up to 12 distinct topics are
+tracked; messages introducing a 13th topic are dropped silently so a
+pathological feed that synthesises a new topic per message cannot grow
+memory without bound.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>x-key</code></td>
+      <td>JSON path (&ldquo;/&rdquo;-separated, e.g.
+          <code>data/x</code>) to the value plotted on the X axis.
+          Resolves against the same root used by <em>Format</em>'s
+          placeholders. Numbers are accepted directly; strings are
+          parsed too &mdash; either as base-10 (with optional sign and
+          fractional part) or as a hex literal with a
+          <code>0x</code>/<code>0X</code> prefix. Missing, unparsable,
+          or non-finite values drop the whole sample.</td></tr>
+  <tr><td><code>key</code></td>
+      <td>JSON path to the value plotted on the Y axis (default
+          <code>data/value</code>). Parsed and coerced exactly like
+          <code>x-key</code>. Both an X and a Y value must resolve for a
+          point to be plotted.</td></tr>
+  <tr><td><code>max-points</code></td>
+      <td>How many of the most recent <code>(x, y)</code> samples to
+          keep and plot per series (2&ndash;2048, default 2048). Older
+          samples scroll off the end of the ring. Lowering it focuses
+          the plot on the latest data; raising it shows a longer
+          trail.</td></tr>
+  <tr><td><code>draw-style</code></td>
+      <td>How each series is drawn (the &ldquo;Draw as&rdquo; setting):
+          <em>Points</em> (default) marks each sample with a filled
+          circle &mdash; the natural scatter form &mdash; while
+          <em>Lines</em> connects the samples, in arrival order, with a
+          polyline, which reads as a trajectory. A series with a single
+          sample is always drawn as a point even in Lines mode (there is
+          no segment to draw).</td></tr>
+  <tr><td><code>line-color</code></td>
+      <td>Colour of the first series. Defaults to a dark blue that
+          reads well against a white background. When more than one
+          topic is present, subsequent series walk the hue wheel in
+          golden-angle steps from this base.</td></tr>
+  <tr><td><code>line-width</code></td>
+      <td>Stroke width of the polyline in <em>Lines</em> mode, or the
+          marker size scale in <em>Points</em> mode, in pixels
+          (1&ndash;8, default 2).</td></tr>
+  <tr><td><code>axis-color</code></td>
+      <td>Colour of the plot frame, ticks, and tick labels. The same
+          colour is used for the thin frame painted around the plot
+          rectangle.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the plot rectangle behind the data. Defaults
+          to white.</td></tr>
+  <tr><td><code>show-grid</code></td>
+      <td>When enabled, draws a thin grid through every major tick on
+          both axes for easier reading of values.</td></tr>
+  <tr><td><code>x-from-zero</code></td>
+      <td>Anchors the X axis at zero instead of auto-fitting it tightly
+          around the data. A series whose X values already straddle
+          zero is unaffected.</td></tr>
+  <tr><td><code>y-from-zero</code></td>
+      <td>Anchors the Y axis at zero instead of auto-fitting it tightly
+          around the data &mdash; useful when the absolute magnitude of
+          Y matters and tight auto-fit would exaggerate small
+          wobbles.</td></tr>
+</table>
+
+<p>
+In the node's settings dialog these properties are split across two
+tabs: <strong>Appearance</strong> collects how the plot is drawn
+(<code>draw-style</code>, <code>line-color</code>,
+<code>line-width</code>, <code>axis-color</code>,
+<code>background-color</code>, <code>show-grid</code>), while
+<strong>Data</strong> collects what is plotted and how the axes are
+framed (<code>x-key</code>, <code>key</code>, <code>max-points</code>,
+<code>x-from-zero</code>, <code>y-from-zero</code>).
+</p>
+
+</body>
+</html>
