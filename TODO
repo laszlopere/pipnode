@@ -1384,7 +1384,7 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         a live call on each interface, GetApiVersion, Version property).
 
   PHASE B -- graph mutation (the core of "edit a workflow")
-  [ ] 40.4  Node lifecycle by uuid.  AddNode already returns an index -> add
+  [x] 40.4  Node lifecycle by uuid.  AddNode already returns an index -> add
         AddNodeReturningUuid(type,x,y)->uuid; DeleteNode(uuid);
         MoveNode(uuid,x,y); RenameNode(uuid,name); SetNodeInputCount(uuid,n)
         (pn_node_set_n_inputs, for Calculator 2 and other multi-input nodes) +
@@ -1393,6 +1393,25 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         the editor's existing delete path (pn_worksheet_cut_selection / the
         node store) or add pn_worksheet_delete_node_by_uuid; also delete the
         node's incident wires.
+        DONE: all six methods on org.pipas.pipnode.Worksheet.  AddNode and the
+        new AddNodeReturningUuid share an extracted worksheet_add_node() helper
+        (factory create -> place -> pn_flow_add_node, the palette-drop path);
+        AddNode keeps returning the index, AddNodeReturningUuid returns the
+        node's stable pn_node_get_uuid.  DeleteNode resolves by uuid then routes
+        through the existing incident-wire-aware delete path: the static
+        worksheet_delete_node() in pn-worksheet.c was promoted to public
+        pn_worksheet_delete_node() (now also used by the context-menu Delete and
+        the keyboard delete-selection handler), so the D-Bus delete drops the
+        node AND every wire touching it in one place.  MoveNode ->
+        pn_node_set_position, RenameNode -> pn_node_set_name, SetNodeInputCount
+        -> pn_node_set_n_inputs (rejects n<1 as BadPropertyValue),
+        SetNodeInputName -> pn_node_set_input_name (rejects index outside
+        [0,n_inputs) as BadPropertyValue).  Every uuid form returns NodeNotFound
+        for an unknown handle (40.2 contract); introspection XML stays the
+        single source of truth.  Covered by tests/test_dbus_node_lifecycle.py
+        (add+resolve, move/rename read-back, grow-then-name inputs with the
+        out-of-range + count<1 rejections, delete-drops-incident-wire, and the
+        NodeNotFound/UnknownNodeType error names).
   [ ] 40.5  Port-aware wiring by uuid.  Today ConnectNodes(src,tgt) ignores the
         target input port.  Add Connect(src_uuid,tgt_uuid,target_input)->
         wire_uuid (pn_wire_new_to_input/set_target_input),

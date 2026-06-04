@@ -170,6 +170,20 @@ void       pn_worksheet_copy_selection     (PnWorksheet *self);
 void       pn_worksheet_cut_selection      (PnWorksheet *self);
 
 /**
+ * pn_worksheet_delete_node:
+ * @self: a #PnWorksheet
+ * @node: a node currently in @self
+ *
+ * Removes @node from the worksheet together with every wire that
+ * references it as a source or a target, so the graph is never left
+ * with a dangling endpoint.  This is the single delete path shared by
+ * the context-menu Delete, the keyboard delete-selection handler, and
+ * the D-Bus DeleteNode automation method (TODO #40.4).
+ */
+void       pn_worksheet_delete_node        (PnWorksheet *self,
+                                            PnNode      *node);
+
+/**
  * pn_worksheet_paste_from_clipboard:
  *
  * Asynchronously fetches text from the default GTK clipboard and, if

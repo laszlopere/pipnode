@@ -275,6 +275,33 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='d' name='y'     direction='in'/>"
     "      <arg type='i' name='index' direction='out'/>"
     "    </method>"
+    "    <method name='AddNodeReturningUuid'>"
+    "      <arg type='s' name='type' direction='in'/>"
+    "      <arg type='d' name='x'    direction='in'/>"
+    "      <arg type='d' name='y'    direction='in'/>"
+    "      <arg type='s' name='uuid' direction='out'/>"
+    "    </method>"
+    "    <method name='DeleteNode'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "    </method>"
+    "    <method name='MoveNode'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='d' name='x'    direction='in'/>"
+    "      <arg type='d' name='y'    direction='in'/>"
+    "    </method>"
+    "    <method name='RenameNode'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='s' name='name' direction='in'/>"
+    "    </method>"
+    "    <method name='SetNodeInputCount'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
+    "      <arg type='i' name='count' direction='in'/>"
+    "    </method>"
+    "    <method name='SetNodeInputName'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
+    "      <arg type='i' name='index' direction='in'/>"
+    "      <arg type='s' name='name'  direction='in'/>"
+    "    </method>"
     "    <method name='ConnectNodes'>"
     "      <arg type='u' name='source'    direction='in'/>"
     "      <arg type='u' name='target'    direction='in'/>"
@@ -548,6 +575,53 @@ worksheet_set_node_property (GDBusMethodInvocation *invocation,
 
     g_dbus_method_invocation_return_value (
             invocation, g_variant_new ("(b)", TRUE));
+}
+
+/** Shared by AddNode (index form) and AddNodeReturningUuid (TODO #40.4):
+ *  create a node of @type_name, place it at (@x,@y), and add it to the
+ *  active flow via the same path a palette drop takes, so every view
+ *  stays in sync.  On success the node is owned by the flow/store and a
+ *  borrowed pointer is returned (still alive); on failure the invocation
+ *  is completed with an UnknownNodeType / Failed error and %NULL is
+ *  returned, so the caller need only `if (!node) return;`. */
+static PnNode *
+worksheet_add_node (GDBusMethodInvocation *invocation,
+                    PnWorksheet *worksheet,
+                    const gchar *type_name, gdouble x, gdouble y)
+{
+    GType   type;
+    PnNode *node;
+    PnPoint pos;
+
+    type = pn_node_factory_lookup (
+            pn_node_factory_get_default (), type_name);
+    if (type == G_TYPE_INVALID || !g_type_is_a (type, PN_TYPE_NODE))
+    {
+        g_dbus_method_invocation_return_error (
+                invocation,
+                PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
+                "Unknown node type '%s'", type_name);
+        return NULL;
+    }
+
+    node = pn_node_factory_create_for_type (
+            pn_node_factory_get_default (), type);
+    if (!node)
+    {
+        g_dbus_method_invocation_return_error (
+                invocation,
+                PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                "Could not create node of type '%s'", type_name);
+        return NULL;
+    }
+
+    pos.x = x;
+    pos.y = y;
+    pn_node_set_position (node, &pos);
+    pn_flow_add_node (pn_worksheet_get_flow (worksheet), node);
+    g_object_unref (node);      /* the flow/store now owns the reference */
+
+    return node;                /* borrowed; still alive in the store */
 }
 
 /** Complete ConnectNodes / ConnectNodesByUuid: wire @source's output to
@@ -1113,54 +1187,167 @@ handle_worksheet_method_call (
     {
         const gchar *type_name = NULL;
         gdouble      x, y;
-        GType        type;
         PnNode      *node;
-        PnPoint      pos;
-        gint         idx = -1;
-        guint        i, n;
 
         g_variant_get (parameters, "(&sdd)", &type_name, &x, &y);
 
-        type = pn_node_factory_lookup (
-                pn_node_factory_get_default (), type_name);
-        if (type == G_TYPE_INVALID || !g_type_is_a (type, PN_TYPE_NODE))
-        {
-            g_dbus_method_invocation_return_error (
-                    invocation,
-                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
-                    "Unknown node type '%s'", type_name);
+        node = worksheet_add_node (invocation, worksheet, type_name, x, y);
+        if (!node)
             return;
-        }
 
-        /* Same path as a palette drop: build through the factory, place
-         * it, and add it to the flow so every view stays in sync. */
-        node = pn_node_factory_create_for_type (
-                pn_node_factory_get_default (), type);
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(i)", node_index_of (nodes, node)));
+    }
+    else if (g_strcmp0 (method_name, "AddNodeReturningUuid") == 0)
+    {
+        const gchar *type_name = NULL;
+        gdouble      x, y;
+        PnNode      *node;
+        const gchar *uuid;
+
+        g_variant_get (parameters, "(&sdd)", &type_name, &x, &y);
+
+        node = worksheet_add_node (invocation, worksheet, type_name, x, y);
+        if (!node)
+            return;
+
+        /* A node minted via the factory always carries a fresh UUID; the
+         * stable handle is what an agent addresses every later call by. */
+        uuid = pn_node_get_uuid (node);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", uuid ? uuid : ""));
+    }
+    else if (g_strcmp0 (method_name, "DeleteNode") == 0)
+    {
+        const gchar *uuid = NULL;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
         if (!node)
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
-                    "Could not create node of type '%s'", type_name);
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        /* The shared delete path drops the node together with every wire
+         * incident on it, so the graph is never left dangling. */
+        pn_worksheet_delete_node (worksheet, node);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "MoveNode") == 0)
+    {
+        const gchar *uuid = NULL;
+        gdouble      x, y;
+        PnNode      *node;
+        PnPoint      pos;
+
+        g_variant_get (parameters, "(&sdd)", &uuid, &x, &y);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
 
         pos.x = x;
         pos.y = y;
         pn_node_set_position (node, &pos);
-        pn_flow_add_node (pn_worksheet_get_flow (worksheet), node);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "RenameNode") == 0)
+    {
+        const gchar *uuid = NULL;
+        const gchar *name = NULL;
+        PnNode      *node;
 
-        n = pn_node_store_get_length (nodes);
-        for (i = 0; i < n; i++)
-            if (pn_node_store_get_node (nodes, i) == node)
-            {
-                idx = (gint) i;
-                break;
-            }
-        g_object_unref (node);
+        g_variant_get (parameters, "(&s&s)", &uuid, &name);
 
-        g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(i)", idx));
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        pn_node_set_name (node, name);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "SetNodeInputCount") == 0)
+    {
+        const gchar *uuid = NULL;
+        gint         count;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&si)", &uuid, &count);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        /* A multi-input node needs at least one input; reject nonsense
+         * rather than silently turning the node's input off. */
+        if (count < 1)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Input count must be >= 1, got %d", count);
+            return;
+        }
+
+        pn_node_set_n_inputs (node, count);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "SetNodeInputName") == 0)
+    {
+        const gchar *uuid = NULL;
+        gint         index;
+        const gchar *name = NULL;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&si&s)", &uuid, &index, &name);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        if (index < 0 || index >= pn_node_get_n_inputs (node))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Input index %d out of range (node has %d input(s))",
+                    index, pn_node_get_n_inputs (node));
+            return;
+        }
+
+        pn_node_set_input_name (node, index, name);
+        g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "ConnectNodes") == 0)
     {

@@ -6,6 +6,7 @@ TESTS = \
 	test_clock_debug_format.py \
 	test_dbus_editor_interface.py \
 	test_dbus_error_contract.py \
+	test_dbus_node_lifecycle.py \
 	test_dbus_uuid_addressing.py \
 	test_debug_view_toggle.py \
 	test_debug_view_wide_window.py \

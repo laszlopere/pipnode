@@ -3591,12 +3591,15 @@ wire_exists (
 /** Drop @node from the worksheet, removing every wire that references
  *  it as either source or target.  Wires are scanned back-to-front so
  *  index shifts during removal stay benign. */
-static void
-worksheet_delete_node (
+void
+pn_worksheet_delete_node (
         PnWorksheet *self,
         PnNode      *node)
 {
     gint i;
+
+    g_return_if_fail (PN_IS_WORKSHEET (self));
+    g_return_if_fail (PN_IS_NODE (node));
 
     for (i = (gint) pn_wire_store_get_length (self->wires) - 1; i >= 0; i--)
     {
@@ -3657,7 +3660,7 @@ on_node_menu_delete (
             GTK_MENU (gtk_widget_get_parent (GTK_WIDGET (item))));
 
     if (attached != NULL && PN_IS_WORKSHEET (attached))
-        worksheet_delete_node (PN_WORKSHEET (attached), node);
+        pn_worksheet_delete_node (PN_WORKSHEET (attached), node);
 }
 
 static void
@@ -4812,7 +4815,7 @@ delete_selected_nodes (PnWorksheet *self)
         victims = g_list_prepend (victims, g_object_ref (key));
 
     for (l = victims; l != NULL; l = l->next)
-        worksheet_delete_node (self, PN_NODE (l->data));
+        pn_worksheet_delete_node (self, PN_NODE (l->data));
 
     g_list_free_full (victims, g_object_unref);
 }
