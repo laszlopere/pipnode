@@ -58,6 +58,55 @@ gboolean     pn_window_load_file     (PnWindow      *self,
                                       GError       **error);
 
 /**
+ * pn_window_new_document:
+ * @self: the window
+ *
+ * Discards the current document — clears the flow and forgets the
+ * current file path — without the usual unsaved-changes prompt or any
+ * dialog.  The dialog-free counterpart to the File → New action, used
+ * by the D-Bus Editor.New automation method (TODO #40.10).
+ */
+void         pn_window_new_document  (PnWindow *self);
+
+/**
+ * pn_window_save_to:
+ * @self: the window
+ * @path: filesystem path to write to
+ * @error: (out) (optional): location for a #GError
+ *
+ * Saves the document to @path and adopts it as the current path (so a
+ * subsequent pn_window_save() writes back to it), without any file
+ * chooser or error dialog.  The dialog-free counterpart to File →
+ * Save As, backing the D-Bus Editor.SaveAs method.  Returns %TRUE on
+ * success.
+ */
+gboolean     pn_window_save_to       (PnWindow      *self,
+                                      const gchar   *path,
+                                      GError       **error);
+
+/**
+ * pn_window_save_current:
+ * @self: the window
+ * @error: (out) (optional): location for a #GError
+ *
+ * Saves the document to its current path.  Fails (without prompting for
+ * a path) when the document has never been saved — the caller is
+ * expected to use pn_window_save_to() with an explicit path in that
+ * case.  Backs the D-Bus Editor.Save method.  Returns %TRUE on success.
+ */
+gboolean     pn_window_save_current  (PnWindow      *self,
+                                      GError       **error);
+
+/**
+ * pn_window_get_current_path:
+ * @self: the window
+ *
+ * Returns: (transfer none) (nullable): the path the document was last
+ *   loaded from or saved to, or %NULL when it has never been written.
+ */
+const gchar *pn_window_get_current_path (PnWindow *self);
+
+/**
  * pn_window_autosave:
  * @self: the window
  *

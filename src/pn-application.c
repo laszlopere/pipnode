@@ -113,7 +113,8 @@ typedef enum
     PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
     PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
     PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
-    PN_WORKSHEET_ERROR_FAILED               /* generic fallback (I/O etc.) */
+    PN_WORKSHEET_ERROR_FAILED,              /* generic fallback (I/O etc.) */
+    PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND     /* document global by name (40.11) */
 } PnWorksheetError;
 
 #define PN_WORKSHEET_ERROR (pn_worksheet_error_quark ())
@@ -141,6 +142,8 @@ static const GDBusErrorEntry pn_worksheet_error_entries[] = {
       "org.pipas.pipnode.Worksheet.Error.SheetNotFound" },
     { PN_WORKSHEET_ERROR_FAILED,
       "org.pipas.pipnode.Worksheet.Error.Failed" },
+    { PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND,
+      "org.pipas.pipnode.Worksheet.Error.GlobalNotFound" },
 };
 
 /** The Worksheet automation error domain, lazily registered with GDBus
@@ -394,6 +397,40 @@ get_worksheet (GApplication *app)
     if (!win || !PN_IS_WINDOW (win))
         return NULL;
     return pn_window_get_worksheet (PN_WINDOW (win));
+}
+
+/** The active #PnWindow, or %NULL when no Pipnode window is current.
+ *  The document-level automation surface (org.pipas.pipnode.Editor)
+ *  works on the window's shared flow — always present, unlike the
+ *  active *tab* get_worksheet() returns (which is %NULL while the
+ *  panel-editor tab is selected). */
+static PnWindow *
+get_window (GApplication *app)
+{
+    GtkWindow *win = gtk_application_get_active_window (GTK_APPLICATION (app));
+    if (!win || !PN_IS_WINDOW (win))
+        return NULL;
+    return PN_WINDOW (win);
+}
+
+/** Index of the sheet named @name in @flow's tab order, or -1 when no
+ *  such sheet exists.  The flow has no public name->index lookup, so the
+ *  Editor surface walks pn_flow_get_sheets() to validate a sheet handle
+ *  before acting on it. */
+static gint
+sheet_index_in_flow (PnFlow *flow, const gchar *name)
+{
+    guint               n = 0, i;
+    const gchar *const *sheets;
+
+    if (name == NULL || *name == '\0')
+        return -1;
+
+    sheets = pn_flow_get_sheets (flow, &n);
+    for (i = 0; i < n; i++)
+        if (g_strcmp0 (sheets[i], name) == 0)
+            return (gint) i;
+    return -1;
 }
 
 static gint
@@ -2199,7 +2236,7 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /* ================================================================== */
 
 #define PN_AUTOMATION_API_VERSION_MAJOR 1u
-#define PN_AUTOMATION_API_VERSION_MINOR 0u
+#define PN_AUTOMATION_API_VERSION_MINOR 1u
 
 static const gchar editor_introspection_xml[] =
     "<node>"
@@ -2208,9 +2245,304 @@ static const gchar editor_introspection_xml[] =
     "      <arg type='u' name='major' direction='out'/>"
     "      <arg type='u' name='minor' direction='out'/>"
     "    </method>"
+    /* --- 40.9  whole-document / active-sheet JSON round-trip --------- */
+    "    <method name='GetDocumentJson'>"
+    "      <arg type='s' name='json' direction='out'/>"
+    "    </method>"
+    "    <method name='SetDocumentJson'>"
+    "      <arg type='s' name='json' direction='in'/>"
+    "    </method>"
+    "    <method name='GetWorksheetJson'>"
+    "      <arg type='s' name='json' direction='out'/>"
+    "    </method>"
+    "    <method name='SetWorksheetJson'>"
+    "      <arg type='s' name='json' direction='in'/>"
+    "    </method>"
+    "    <method name='ValidateJson'>"
+    "      <arg type='s' name='json'  direction='in'/>"
+    "      <arg type='b' name='ok'    direction='out'/>"
+    "      <arg type='s' name='error' direction='out'/>"
+    "    </method>"
+    /* --- 40.10 sheets + document lifecycle --------------------------- */
+    "    <method name='ListSheets'>"
+    "      <arg type='as' name='sheets' direction='out'/>"
+    "    </method>"
+    "    <method name='GetActiveSheet'>"
+    "      <arg type='s' name='name' direction='out'/>"
+    "    </method>"
+    "    <method name='SelectSheet'>"
+    "      <arg type='s' name='name' direction='in'/>"
+    "    </method>"
+    "    <method name='AddSheet'>"
+    "      <arg type='s' name='name'   direction='in'/>"
+    "      <arg type='s' name='actual' direction='out'/>"
+    "    </method>"
+    "    <method name='RemoveSheet'>"
+    "      <arg type='s' name='name' direction='in'/>"
+    "    </method>"
+    "    <method name='RenameSheet'>"
+    "      <arg type='s' name='from' direction='in'/>"
+    "      <arg type='s' name='to'   direction='in'/>"
+    "    </method>"
+    "    <method name='New'>"
+    "    </method>"
+    "    <method name='Open'>"
+    "      <arg type='s' name='path' direction='in'/>"
+    "    </method>"
+    "    <method name='Save'>"
+    "    </method>"
+    "    <method name='SaveAs'>"
+    "      <arg type='s' name='path' direction='in'/>"
+    "    </method>"
+    "    <method name='GetCurrentPath'>"
+    "      <arg type='s' name='path' direction='out'/>"
+    "    </method>"
+    "    <method name='IsModified'>"
+    "      <arg type='b' name='modified' direction='out'/>"
+    "    </method>"
+    /* --- 40.11 document globals -------------------------------------- */
+    "    <method name='ListGlobals'>"
+    "      <arg type='a(sss)' name='globals' direction='out'/>"
+    "    </method>"
+    "    <method name='GetGlobal'>"
+    "      <arg type='s' name='name'  direction='in'/>"
+    "      <arg type='s' name='type'  direction='out'/>"
+    "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
+    "    <method name='SetGlobal'>"
+    "      <arg type='s' name='name'  direction='in'/>"
+    "      <arg type='s' name='type'  direction='in'/>"
+    "      <arg type='s' name='value' direction='in'/>"
+    "    </method>"
+    "    <method name='RemoveGlobal'>"
+    "      <arg type='s' name='name' direction='in'/>"
+    "    </method>"
     "    <property name='Version' type='u' access='read'/>"
     "  </interface>"
     "</node>";
+
+/* --- Document globals: D-Bus <-> GValue marshalling (40.11) ---------
+ *
+ * The wire form is a (type-nick, value-string) pair, using the same four
+ * scalar type nicks the on-disk format records ("boolean", "integer",
+ * "double", "string") so an agent can copy a value straight from a saved
+ * worksheet.  pn_flow_*_global work in #GValue, so these helpers bridge
+ * the two. */
+
+static GType
+editor_gtype_from_global_nick (const gchar *nick)
+{
+    if (g_strcmp0 (nick, "boolean") == 0) return G_TYPE_BOOLEAN;
+    if (g_strcmp0 (nick, "integer") == 0) return G_TYPE_INT64;
+    if (g_strcmp0 (nick, "double")  == 0) return G_TYPE_DOUBLE;
+    if (g_strcmp0 (nick, "string")  == 0) return G_TYPE_STRING;
+    return G_TYPE_INVALID;
+}
+
+static const gchar *
+editor_global_type_nick (GType type)
+{
+    if (type == G_TYPE_BOOLEAN) return "boolean";
+    if (type == G_TYPE_INT64)   return "integer";
+    if (type == G_TYPE_DOUBLE)  return "double";
+    if (type == G_TYPE_STRING)  return "string";
+    return "";
+}
+
+/** Render a document-global #GValue to the string form ListGlobals /
+ *  GetGlobal report.  Booleans render "true"/"false"; the locale-stable
+ *  C representation is used for the numeric types so values round-trip
+ *  through SetGlobal regardless of the user's locale. */
+static gchar *
+editor_global_value_to_string (const GValue *value)
+{
+    GType t = G_VALUE_TYPE (value);
+
+    if (t == G_TYPE_BOOLEAN)
+        return g_strdup (g_value_get_boolean (value) ? "true" : "false");
+    if (t == G_TYPE_INT64)
+        return g_strdup_printf ("%" G_GINT64_FORMAT, g_value_get_int64 (value));
+    if (t == G_TYPE_DOUBLE)
+    {
+        gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (buf, sizeof buf, g_value_get_double (value));
+        return g_strdup (buf);
+    }
+    if (t == G_TYPE_STRING)
+    {
+        const gchar *s = g_value_get_string (value);
+        return g_strdup (s != NULL ? s : "");
+    }
+    return g_strdup ("");
+}
+
+/** Parse @text into @out (uninitialised; the caller g_value_unset()s it
+ *  on success) according to @type.  Returns %FALSE with @error set on an
+ *  unparseable numeric or an unsupported type. */
+static gboolean
+editor_global_string_to_value (GType         type,
+                               const gchar  *text,
+                               GValue       *out,
+                               GError      **error)
+{
+    if (type == G_TYPE_BOOLEAN)
+    {
+        gboolean v = (g_ascii_strcasecmp (text, "true") == 0
+                      || g_ascii_strcasecmp (text, "1") == 0
+                      || g_ascii_strcasecmp (text, "on") == 0
+                      || g_ascii_strcasecmp (text, "yes") == 0);
+        g_value_init (out, G_TYPE_BOOLEAN);
+        g_value_set_boolean (out, v);
+        return TRUE;
+    }
+    if (type == G_TYPE_INT64)
+    {
+        gchar  *end = NULL;
+        gint64  v   = g_ascii_strtoll (text, &end, 10);
+        if (end == text || (end != NULL && *end != '\0'))
+        {
+            g_set_error (error, PN_WORKSHEET_ERROR,
+                         PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                         "'%s' is not a valid integer", text);
+            return FALSE;
+        }
+        g_value_init (out, G_TYPE_INT64);
+        g_value_set_int64 (out, v);
+        return TRUE;
+    }
+    if (type == G_TYPE_DOUBLE)
+    {
+        gchar   *end = NULL;
+        gdouble  v   = g_ascii_strtod (text, &end);
+        if (end == text || (end != NULL && *end != '\0'))
+        {
+            g_set_error (error, PN_WORKSHEET_ERROR,
+                         PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                         "'%s' is not a valid number", text);
+            return FALSE;
+        }
+        g_value_init (out, G_TYPE_DOUBLE);
+        g_value_set_double (out, v);
+        return TRUE;
+    }
+    if (type == G_TYPE_STRING)
+    {
+        g_value_init (out, G_TYPE_STRING);
+        g_value_set_string (out, text);
+        return TRUE;
+    }
+
+    g_set_error (error, PN_WORKSHEET_ERROR,
+                 PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                 "unsupported global type");
+    return FALSE;
+}
+
+/** Serialise just the active sheet's nodes (and the wires among them) to
+ *  the clipboard-shaped JSON pn_flow_serialize_nodes() produces — the
+ *  cheap "read one sheet" half of the 40.9 round-trip. */
+static gchar *
+editor_serialize_active_sheet (PnFlow *flow)
+{
+    const gchar *active = pn_flow_get_active_sheet (flow);
+    PnNodeStore *nodes  = pn_flow_get_nodes (flow);
+    GList       *subset = NULL;
+    guint        i, n   = pn_node_store_get_length (nodes);
+    gchar       *json;
+
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (g_strcmp0 (pn_node_get_worksheet (node), active) == 0)
+            subset = g_list_prepend (subset, node);
+    }
+    subset = g_list_reverse (subset);
+
+    json = pn_flow_serialize_nodes (flow, subset);
+    g_list_free (subset);
+    return json;
+}
+
+/** Replace the active sheet's contents with the nodes described in @json
+ *  (the write half of the 40.9 round-trip).  The payload is parse-checked
+ *  up front so a malformed string is rejected before anything is removed;
+ *  then the sheet's current nodes are dropped, the payload pasted in, and
+ *  every pasted node retagged onto the active sheet (so a payload captured
+ *  from a differently-named sheet still lands here). */
+static gboolean
+editor_replace_active_sheet (PnFlow      *flow,
+                             const gchar *json,
+                             GError     **error)
+{
+    const gchar *active = pn_flow_get_active_sheet (flow);
+    PnNodeStore *nodes  = pn_flow_get_nodes (flow);
+    GPtrArray   *doomed;
+    GList       *pasted;
+    GList       *l;
+    guint        i, n;
+
+    /* Parse-check without applying: catches a malformed payload while the
+     * sheet is still intact.  Any parser failure is re-reported in the
+     * worksheet error domain so it maps to a stable .Error.Failed name
+     * rather than leaking json-glib's private quark onto the bus. */
+    {
+        JsonParser *parser = json_parser_new ();
+        JsonNode   *root;
+        GError     *perr   = NULL;
+        if (!json_parser_load_from_data (parser, json, -1, &perr))
+        {
+            g_set_error (error, PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                         "Could not parse worksheet JSON: %s",
+                         perr ? perr->message : "(no error message)");
+            g_clear_error (&perr);
+            g_object_unref (parser);
+            return FALSE;
+        }
+        root = json_parser_get_root (parser);
+        if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+        {
+            g_set_error_literal (error, PN_WORKSHEET_ERROR,
+                                 PN_WORKSHEET_ERROR_FAILED,
+                                 "worksheet JSON root is not an object");
+            g_object_unref (parser);
+            return FALSE;
+        }
+        g_object_unref (parser);
+    }
+
+    /* Drop the current sheet's nodes (incident wires cascade away via the
+     * node-store's "node-removed" signal). */
+    doomed = g_ptr_array_new ();
+    n = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (g_strcmp0 (pn_node_get_worksheet (node), active) == 0)
+            g_ptr_array_add (doomed, node);
+    }
+    for (i = 0; i < doomed->len; i++)
+        pn_node_store_remove (nodes, doomed->pdata[i]);
+    g_ptr_array_unref (doomed);
+
+    {
+        GError *perr = NULL;
+        pasted = pn_flow_paste_from_string (flow, json, 0.0, 0.0, &perr);
+        if (pasted == NULL && perr != NULL)
+        {
+            g_set_error (error, PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                         "Could not apply worksheet JSON: %s", perr->message);
+            g_clear_error (&perr);
+            return FALSE;
+        }
+    }
+
+    for (l = pasted; l != NULL; l = l->next)
+        pn_node_set_worksheet (PN_NODE (l->data), active);
+    g_list_free (pasted);
+
+    pn_flow_set_modified (flow, TRUE);
+    return TRUE;
+}
 
 static void
 handle_editor_method_call (
@@ -2223,13 +2555,17 @@ handle_editor_method_call (
         GDBusMethodInvocation *invocation,
         gpointer               user_data)
 {
+    GApplication *app = G_APPLICATION (user_data);
+    PnWindow     *win;
+    PnFlow       *flow;
+
     (void) connection;
     (void) sender;
     (void) object_path;
     (void) interface_name;
-    (void) parameters;
-    (void) user_data;
 
+    /* The version handshake is the one method that does not need a live
+     * document — answer it before the window guard. */
     if (g_strcmp0 (method_name, "GetApiVersion") == 0)
     {
         g_dbus_method_invocation_return_value (
@@ -2237,6 +2573,395 @@ handle_editor_method_call (
                 g_variant_new ("(uu)",
                                PN_AUTOMATION_API_VERSION_MAJOR,
                                PN_AUTOMATION_API_VERSION_MINOR));
+        return;
+    }
+
+    win = get_window (app);
+    if (win == NULL)
+    {
+        g_dbus_method_invocation_return_error (
+                invocation,
+                PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
+                "No active window");
+        return;
+    }
+    flow = pn_window_get_flow (win);
+
+    /* ---- 40.9  whole-document / active-sheet JSON round-trip -------- */
+    if (g_strcmp0 (method_name, "GetDocumentJson") == 0)
+    {
+        gchar *json = pn_flow_to_string (flow);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", json != NULL ? json : ""));
+        g_free (json);
+    }
+    else if (g_strcmp0 (method_name, "SetDocumentJson") == 0)
+    {
+        const gchar *json  = NULL;
+        GError      *lerror = NULL;
+
+        g_variant_get (parameters, "(&s)", &json);
+
+        if (!pn_flow_load_from_data (flow, json, &lerror))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                    "Could not load document: %s",
+                    lerror ? lerror->message : "(no error message)");
+            g_clear_error (&lerror);
+            return;
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "GetWorksheetJson") == 0)
+    {
+        gchar *json = editor_serialize_active_sheet (flow);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", json != NULL ? json : ""));
+        g_free (json);
+    }
+    else if (g_strcmp0 (method_name, "SetWorksheetJson") == 0)
+    {
+        const gchar *json  = NULL;
+        GError      *lerror = NULL;
+
+        g_variant_get (parameters, "(&s)", &json);
+
+        if (!editor_replace_active_sheet (flow, json, &lerror))
+        {
+            g_dbus_method_invocation_return_gerror (invocation, lerror);
+            g_clear_error (&lerror);
+            return;
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "ValidateJson") == 0)
+    {
+        const gchar *json   = NULL;
+        GError      *lerror  = NULL;
+        PnFlow      *scratch;
+        gboolean     ok;
+
+        g_variant_get (parameters, "(&s)", &json);
+
+        /* Validate by loading into a throwaway flow: the live document is
+         * never touched, but the answer reflects the real loader. */
+        scratch = pn_flow_new ();
+        ok = pn_flow_load_from_data (scratch, json, &lerror);
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(bs)", ok,
+                               ok ? "" : (lerror ? lerror->message : "invalid")));
+        g_clear_error (&lerror);
+        g_object_unref (scratch);
+    }
+    /* ---- 40.10 sheets + document lifecycle -------------------------- */
+    else if (g_strcmp0 (method_name, "ListSheets") == 0)
+    {
+        GVariantBuilder builder;
+        guint           n = 0, i;
+        const gchar *const *sheets = pn_flow_get_sheets (flow, &n);
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
+        for (i = 0; i < n; i++)
+            g_variant_builder_add (&builder, "s", sheets[i]);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(as)", &builder));
+    }
+    else if (g_strcmp0 (method_name, "GetActiveSheet") == 0)
+    {
+        const gchar *active = pn_flow_get_active_sheet (flow);
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(s)", active != NULL ? active : ""));
+    }
+    else if (g_strcmp0 (method_name, "SelectSheet") == 0)
+    {
+        const gchar *name = NULL;
+        g_variant_get (parameters, "(&s)", &name);
+
+        if (sheet_index_in_flow (flow, name) < 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
+                    "No sheet named '%s'", name ? name : "");
+            return;
+        }
+        pn_flow_set_active_sheet (flow, name);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "AddSheet") == 0)
+    {
+        const gchar        *name = NULL;
+        guint               n    = 0;
+        const gchar *const *sheets;
+
+        g_variant_get (parameters, "(&s)", &name);
+
+        if (!pn_flow_add_sheet (flow, (name && *name) ? name : NULL))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "A sheet named '%s' already exists", name ? name : "");
+            return;
+        }
+        /* add_sheet appends; the freshly-created sheet (with its possibly
+         * auto-generated "Sheet N" name) is the last one. */
+        sheets = pn_flow_get_sheets (flow, &n);
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(s)", n > 0 ? sheets[n - 1] : ""));
+    }
+    else if (g_strcmp0 (method_name, "RemoveSheet") == 0)
+    {
+        const gchar *name = NULL;
+        guint        n    = 0;
+
+        g_variant_get (parameters, "(&s)", &name);
+
+        if (sheet_index_in_flow (flow, name) < 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
+                    "No sheet named '%s'", name ? name : "");
+            return;
+        }
+        (void) pn_flow_get_sheets (flow, &n);
+        if (n <= 1)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Cannot remove the only sheet");
+            return;
+        }
+        pn_flow_remove_sheet (flow, name);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "RenameSheet") == 0)
+    {
+        const gchar *from = NULL;
+        const gchar *to   = NULL;
+
+        g_variant_get (parameters, "(&s&s)", &from, &to);
+
+        if (sheet_index_in_flow (flow, from) < 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
+                    "No sheet named '%s'", from ? from : "");
+            return;
+        }
+        if (to == NULL || *to == '\0')
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "New sheet name must not be empty");
+            return;
+        }
+        /* A collision with a *different* existing sheet is the only way
+         * rename can still fail now that from/to are validated. */
+        if (g_strcmp0 (from, to) != 0 && sheet_index_in_flow (flow, to) >= 0)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "A sheet named '%s' already exists", to);
+            return;
+        }
+        pn_flow_rename_sheet (flow, from, to);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "New") == 0)
+    {
+        pn_window_new_document (win);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "Open") == 0)
+    {
+        const gchar *path  = NULL;
+        GError      *lerror = NULL;
+
+        g_variant_get (parameters, "(&s)", &path);
+
+        if (!pn_window_load_file (win, path, &lerror))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                    "Could not open '%s': %s", path ? path : "",
+                    lerror ? lerror->message : "(no error message)");
+            g_clear_error (&lerror);
+            return;
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "Save") == 0)
+    {
+        GError *lerror = NULL;
+
+        if (!pn_window_save_current (win, &lerror))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                    "Could not save: %s",
+                    lerror ? lerror->message : "(no error message)");
+            g_clear_error (&lerror);
+            return;
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "SaveAs") == 0)
+    {
+        const gchar *path  = NULL;
+        GError      *lerror = NULL;
+
+        g_variant_get (parameters, "(&s)", &path);
+
+        if (!pn_window_save_to (win, path, &lerror))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                    "Could not save to '%s': %s", path ? path : "",
+                    lerror ? lerror->message : "(no error message)");
+            g_clear_error (&lerror);
+            return;
+        }
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "GetCurrentPath") == 0)
+    {
+        const gchar *path = pn_window_get_current_path (win);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", path != NULL ? path : ""));
+    }
+    else if (g_strcmp0 (method_name, "IsModified") == 0)
+    {
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(b)", pn_flow_is_modified (flow)));
+    }
+    /* ---- 40.11 document globals ------------------------------------- */
+    else if (g_strcmp0 (method_name, "ListGlobals") == 0)
+    {
+        GVariantBuilder builder;
+        GList          *names = pn_flow_list_globals (flow);
+        GList          *l;
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sss)"));
+        for (l = names; l != NULL; l = l->next)
+        {
+            const gchar *name = l->data;
+            GValue       v    = G_VALUE_INIT;
+
+            if (!pn_flow_get_global (flow, name, &v))
+                continue;
+            {
+                gchar *str = editor_global_value_to_string (&v);
+                g_variant_builder_add (
+                        &builder, "(sss)", name,
+                        editor_global_type_nick (G_VALUE_TYPE (&v)), str);
+                g_free (str);
+            }
+            g_value_unset (&v);
+        }
+        g_list_free_full (names, g_free);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(sss))", &builder));
+    }
+    else if (g_strcmp0 (method_name, "GetGlobal") == 0)
+    {
+        const gchar *name = NULL;
+        GValue       v    = G_VALUE_INIT;
+
+        g_variant_get (parameters, "(&s)", &name);
+
+        if (!pn_flow_get_global (flow, name, &v))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND,
+                    "No document global named '%s'", name ? name : "");
+            return;
+        }
+        {
+            gchar *str = editor_global_value_to_string (&v);
+            g_dbus_method_invocation_return_value (
+                    invocation,
+                    g_variant_new ("(ss)",
+                                   editor_global_type_nick (G_VALUE_TYPE (&v)),
+                                   str));
+            g_free (str);
+        }
+        g_value_unset (&v);
+    }
+    else if (g_strcmp0 (method_name, "SetGlobal") == 0)
+    {
+        const gchar *name   = NULL;
+        const gchar *type   = NULL;
+        const gchar *value  = NULL;
+        GType        gtype;
+        GValue       v      = G_VALUE_INIT;
+        GError      *lerror = NULL;
+
+        g_variant_get (parameters, "(&s&s&s)", &name, &type, &value);
+
+        if (name == NULL || *name == '\0')
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Global name must not be empty");
+            return;
+        }
+        gtype = editor_gtype_from_global_nick (type);
+        if (gtype == G_TYPE_INVALID)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Unknown global type '%s' (want boolean|integer|double|"
+                    "string)", type ? type : "");
+            return;
+        }
+        if (!editor_global_string_to_value (gtype, value, &v, &lerror))
+        {
+            g_dbus_method_invocation_return_gerror (invocation, lerror);
+            g_clear_error (&lerror);
+            return;
+        }
+        pn_flow_set_global (flow, name, &v);
+        g_value_unset (&v);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "RemoveGlobal") == 0)
+    {
+        const gchar *name = NULL;
+        GValue       v    = G_VALUE_INIT;
+
+        g_variant_get (parameters, "(&s)", &name);
+
+        if (!pn_flow_get_global (flow, name, &v))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND,
+                    "No document global named '%s'", name ? name : "");
+            return;
+        }
+        g_value_unset (&v);
+        pn_flow_remove_global (flow, name);
+        g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else
     {

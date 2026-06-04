@@ -5032,3 +5032,68 @@ pn_window_load_file (
     status_set (self, "Opened worksheet");
     return TRUE;
 }
+
+void
+pn_window_new_document (PnWindow *self)
+{
+    g_return_if_fail (PN_IS_WINDOW (self));
+
+    /* Same cascade as the File → New action, minus the unsaved-changes
+     * prompt: clearing the flow resets the sheet list to a single
+     * "Worksheet" tab, empties the node/wire stores, and closes the
+     * panel-editor tab; forgetting the path means a later Save needs an
+     * explicit SaveAs. */
+    pn_flow_clear (self->flow);
+    g_clear_pointer (&self->current_path, g_free);
+
+    update_window_title (self);
+    status_set (self, "New worksheet");
+}
+
+gboolean
+pn_window_save_to (
+        PnWindow     *self,
+        const gchar  *path,
+        GError      **error)
+{
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+    g_return_val_if_fail (path != NULL, FALSE);
+
+    if (!pn_flow_save_to_file (self->flow, path, error))
+        return FALSE;
+
+    if (g_strcmp0 (self->current_path, path) != 0)
+    {
+        g_free (self->current_path);
+        self->current_path = g_strdup (path);
+    }
+
+    update_window_title (self);
+    status_set (self, "Saved worksheet");
+    return TRUE;
+}
+
+gboolean
+pn_window_save_current (
+        PnWindow  *self,
+        GError   **error)
+{
+    g_return_val_if_fail (PN_IS_WINDOW (self), FALSE);
+
+    if (self->current_path == NULL || *self->current_path == '\0')
+    {
+        g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                             "document has no path yet; use SaveAs");
+        return FALSE;
+    }
+
+    return pn_window_save_to (self, self->current_path, error);
+}
+
+const gchar *
+pn_window_get_current_path (PnWindow *self)
+{
+    g_return_val_if_fail (PN_IS_WINDOW (self), NULL);
+
+    return self->current_path;
+}

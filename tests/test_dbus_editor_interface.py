@@ -58,7 +58,7 @@ ED_IFACE    = "org.pipas.pipnode.Editor"
 # The version this build of the interface is expected to advertise; keep
 # in step with PN_AUTOMATION_API_VERSION_* in src/pn-application.c.
 EXPECT_MAJOR = 1
-EXPECT_MINOR = 0
+EXPECT_MINOR = 1
 
 
 def fail(msg: str) -> None:

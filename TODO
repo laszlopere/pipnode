@@ -1511,22 +1511,69 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         (discovery) COMPLETE.
 
   PHASE D -- whole-document operations (cheap bulk read/write)
-  [ ] 40.9  Worksheet/document JSON round-trip.  GetWorksheetJson()->s and
+  [x] 40.9  Worksheet/document JSON round-trip.  GetWorksheetJson()->s and
         SetWorksheetJson(s) (active sheet), GetDocumentJson/SetDocumentJson
         (whole file) reusing the existing save/load serializer that backs
         SaveToFile/LoadFromFile.  Reading or rewriting a whole sheet in one
         call is dramatically cheaper than dozens of per-node round-trips, and
         round-trips the canonical on-disk format the agent already understands.
         Add ValidateJson(s)->(ok,error) that parses-without-applying.
-  [ ] 40.10 Sheets + document lifecycle.  The interface only sees the active
+        DONE: all five methods on org.pipas.pipnode.Editor.  Two new lib
+        entry points back the whole-document half: pn_flow_to_string()
+        renders the on-disk format (pn_flow_save_to_file's serializer, to a
+        string, non-destructive so the modified flag is untouched) and
+        pn_flow_load_from_data() is the in-memory twin of load_from_file --
+        both share a new flow_load_from_object() back end extracted from
+        load_from_file (atomic commit, parser owned by the caller).
+        GetDocumentJson/SetDocumentJson -> those two; SetDocumentJson maps a
+        load failure to .Error.Failed.  The active-sheet pair lives in
+        pn-application.c: GetWorksheetJson serialises the subset of nodes
+        tagged with pn_flow_get_active_sheet via pn_flow_serialize_nodes;
+        SetWorksheetJson parse-checks first (so a malformed payload changes
+        nothing), drops the sheet's nodes (incident wires cascade), pastes
+        the payload via pn_flow_paste_from_string and retags every pasted
+        node onto the active sheet.  ValidateJson loads into a throwaway
+        PnFlow -> (ok, message) without touching the live document.
+  [x] 40.10 Sheets + document lifecycle.  The interface only sees the active
         worksheet today.  Add ListSheets/AddSheet/RemoveSheet/RenameSheet/
         SelectSheet/GetActiveSheet (pn_flow_add_sheet/remove_sheet/rename +
         active-sheet pointer) and New/Open(=LoadFromFile)/Save/SaveAs
         (=SaveToFile)/GetCurrentPath/IsModified (the flow "modified" flag).
-  [ ] 40.11 Document globals.  ListGlobals/GetGlobal/SetGlobal(name,type,value)/
+        DONE: twelve methods on org.pipas.pipnode.Editor.  The sheet six are
+        thin flow wrappers (the GUI notebook follows the flow's sheet-*/
+        active-sheet-changed signals already), validated via a new
+        sheet_index_in_flow() helper: SelectSheet/RemoveSheet/RenameSheet
+        reject an unknown sheet with .Error.SheetNotFound, AddSheet a
+        duplicate and RemoveSheet the last-sheet case with BadPropertyValue;
+        AddSheet returns the (possibly auto-generated "Sheet N") name.  The
+        lifecycle six route through new dialog-free PnWindow test-surface
+        calls -- pn_window_new_document/save_to/save_current/get_current_path
+        -- so New/Open/Save/SaveAs touch self->current_path and the title the
+        same way the menu actions do, minus the chooser/confirm dialogs;
+        Save with no path yet -> .Error.Failed.  IsModified reads the flow
+        flag.
+  [x] 40.11 Document globals.  ListGlobals/GetGlobal/SetGlobal(name,type,value)/
         RemoveGlobal (pn_flow_list/get/set/remove_global) so the agent can wire
         ${...} document variables the same way the Document Settings dialog
         does.
+        DONE: four methods on org.pipas.pipnode.Editor.  The wire form is a
+        (type-nick, value-string) pair using the same four scalar nicks the
+        on-disk format records (boolean|integer|double|string), bridged to
+        the flow's GValue API by editor_global_*_to/from helpers (locale-
+        stable g_ascii_* numeric parsing).  ListGlobals->a(sss)
+        {name,type,value}; GetGlobal->(type,value); SetGlobal creates or
+        overwrites; RemoveGlobal drops.  A new .Error.GlobalNotFound code
+        (appended to the enum + entry table) covers an unknown name on
+        Get/Remove; a bad type nick or unparseable number -> BadPropertyValue.
+        Globals round-trip through GetDocumentJson/SetDocumentJson.
+
+        PHASE D COMPLETE.  API minor bumped to 1.1 (back-compatible adds);
+        the .Editor surface is now version 1.1.  Covered by
+        tests/test_dbus_document.py (JSON round-trip incl. atomic
+        SetWorksheetJson rejection + ValidateJson non-mutation, the full
+        sheet/lifecycle cycle through a temp file, globals CRUD + error
+        contract); test_dbus_editor_interface.py updated to expect 1.1.
+        Phases E (40.12-40.14) and F (40.15-40.16) remain.
 
   PHASE E -- interactivity (observe + drive a running flow)
   [ ] 40.12 Selection & view.  SelectNodes(uuids)/GetSelection/ClearSelection,

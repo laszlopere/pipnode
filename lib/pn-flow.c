@@ -1574,15 +1574,17 @@ pn_flow_reorder_sheet (
     pn_flow_set_modified (self, TRUE);
 }
 
-gboolean
-pn_flow_load_from_file (
-        PnFlow      *self,
-        const gchar *path,
-        GError     **error)
+/* Shared back end for pn_flow_load_from_file and pn_flow_load_from_data:
+ * rebuilds the entire model (nodes, wires, sheets, globals, panel layout)
+ * from the already-parsed document root @obj, committing atomically — a
+ * structural failure along the way leaves @self untouched.  The caller
+ * owns the #JsonParser / #JsonNode that produced @obj. */
+static gboolean
+flow_load_from_object (
+        PnFlow     *self,
+        JsonObject *obj,
+        GError    **error)
 {
-    JsonParser *parser;
-    JsonNode   *root;
-    JsonObject *obj;
     JsonArray  *nodes_arr;
     JsonArray  *conns_arr;
     GPtrArray  *new_nodes;
@@ -1591,35 +1593,6 @@ pn_flow_load_from_file (
     GHashTable *by_uuid;
     guint       n;
     guint       i;
-    gboolean    ok;
-
-    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
-    g_return_val_if_fail (path != NULL, FALSE);
-
-    /* Touch the factory once up front so every built-in (and any
-     * already-loaded plugin) class is registered before node_from_json
-     * starts looking type names up.  The factory is a singleton — this
-     * is a no-op after the first call. */
-    (void) pn_node_factory_get_default ();
-
-    parser = json_parser_new ();
-    ok     = json_parser_load_from_file (parser, path, error);
-    if (!ok)
-    {
-        g_object_unref (parser);
-        return FALSE;
-    }
-
-    root = json_parser_get_root (parser);
-    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
-    {
-        g_set_error_literal (error, PN_FLOW_ERROR, 0,
-                             "worksheet file root is not a JSON object");
-        g_object_unref (parser);
-        return FALSE;
-    }
-
-    obj = json_node_get_object (root);
 
     /* Build the new model on the side and only commit once parsing has
      * fully succeeded — a malformed file leaves the existing contents
@@ -1976,7 +1949,6 @@ pn_flow_load_from_file (
     g_ptr_array_unref  (new_nodes);
     g_hash_table_destroy (by_name);
     g_hash_table_destroy (by_uuid);
-    g_object_unref     (parser);
     return TRUE;
 
 fail:
@@ -1984,8 +1956,76 @@ fail:
     g_ptr_array_unref  (new_nodes);
     g_hash_table_destroy (by_name);
     g_hash_table_destroy (by_uuid);
-    g_object_unref     (parser);
     return FALSE;
+}
+
+/* Parse @doc — a file path when @is_path, otherwise an in-memory JSON
+ * string — into a document root object and hand it to
+ * flow_load_from_object().  The two public entry points below differ
+ * only in how the bytes reach the parser. */
+static gboolean
+flow_load_from_parsed (
+        PnFlow      *self,
+        const gchar *doc,
+        gboolean     is_path,
+        GError     **error)
+{
+    JsonParser *parser;
+    JsonNode   *root;
+    gboolean    ok;
+
+    /* Touch the factory once up front so every built-in (and any
+     * already-loaded plugin) class is registered before node_from_json
+     * starts looking type names up.  The factory is a singleton — this
+     * is a no-op after the first call. */
+    (void) pn_node_factory_get_default ();
+
+    parser = json_parser_new ();
+    ok     = is_path
+        ? json_parser_load_from_file (parser, doc, error)
+        : json_parser_load_from_data (parser, doc, -1, error);
+    if (!ok)
+    {
+        g_object_unref (parser);
+        return FALSE;
+    }
+
+    root = json_parser_get_root (parser);
+    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    {
+        g_set_error_literal (error, PN_FLOW_ERROR, 0,
+                             "worksheet document root is not a JSON object");
+        g_object_unref (parser);
+        return FALSE;
+    }
+
+    ok = flow_load_from_object (self, json_node_get_object (root), error);
+    g_object_unref (parser);
+    return ok;
+}
+
+gboolean
+pn_flow_load_from_file (
+        PnFlow      *self,
+        const gchar *path,
+        GError     **error)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (path != NULL, FALSE);
+
+    return flow_load_from_parsed (self, path, TRUE, error);
+}
+
+gboolean
+pn_flow_load_from_data (
+        PnFlow      *self,
+        const gchar *json,
+        GError     **error)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (json != NULL, FALSE);
+
+    return flow_load_from_parsed (self, json, FALSE, error);
 }
 
 /** Build the root JSON object for a serialisation pass.  When @subset
@@ -2218,6 +2258,35 @@ pn_flow_save_to_file (
         pn_flow_set_modified (self, FALSE);
 
     return ok;
+}
+
+gchar *
+pn_flow_to_string (PnFlow *self)
+{
+    JsonGenerator *gen;
+    JsonNode      *root;
+    gchar         *out;
+
+    g_return_val_if_fail (PN_IS_FLOW (self), NULL);
+
+    /* Same whole-document serialiser that backs pn_flow_save_to_file(),
+     * but rendered to a string instead of a file — the on-disk format,
+     * tagged %PN_FLOW_FILE_FORMAT, carrying every node, wire, sheet,
+     * global and the panel layout.  Reading the flow is non-destructive,
+     * so the modified flag is left untouched (unlike a real save). */
+    root = flow_build_root (self, NULL, PN_FLOW_FILE_FORMAT);
+
+    gen = json_generator_new ();
+    json_generator_set_root   (gen, root);
+    json_generator_set_pretty (gen, TRUE);
+    json_generator_set_indent (gen, 2);
+
+    out = json_generator_to_data (gen, NULL);
+
+    g_object_unref (gen);
+    json_node_free (root);
+
+    return out;
 }
 
 gchar *

@@ -102,6 +102,36 @@ gboolean     pn_flow_save_to_file   (PnFlow      *self,
                                      const gchar *path,
                                      GError     **error);
 
+/**
+ * pn_flow_to_string:
+ * @self: the flow
+ *
+ * Serialises the whole document — every node, wire, sheet, document
+ * global and the panel layout — to a JSON string in the same on-disk
+ * format pn_flow_save_to_file() writes.  Reading is non-destructive:
+ * the modified flag is left untouched (a real save would clear it).
+ *
+ * Returns: (transfer full): a freshly-allocated JSON string; free with
+ *   g_free().
+ */
+gchar       *pn_flow_to_string      (PnFlow *self);
+
+/**
+ * pn_flow_load_from_data:
+ * @self: the flow
+ * @json: an in-memory JSON worksheet document (the same shape
+ *   pn_flow_save_to_file() / pn_flow_to_string() produce)
+ * @error: (out) (optional): location for a #GError
+ *
+ * The in-memory twin of pn_flow_load_from_file(): replaces the current
+ * contents with the document carried in @json, committing atomically so
+ * a malformed payload leaves the flow untouched.  Returns %TRUE on
+ * success.
+ */
+gboolean     pn_flow_load_from_data (PnFlow      *self,
+                                     const gchar *json,
+                                     GError     **error);
+
 /* --- Document globals ----------------------------------------------
  *
  * User-maintained typed name -> value pairs that belong to the document
