@@ -14,6 +14,7 @@
       "properties" : {
         "engine" : "piper",
         "model" : "/home/pipas/.local/share/piper/voices/en_US-amy-medium.onnx",
+        "language" : "en_US",
         "speed" : 1.3,
         "sink" : "",
         "per-source-voice" : true,
@@ -32,20 +33,8 @@
       "properties" : {
         "text" : "This is a test for the text to speech node added for ${nonexist}.",
         "value" : 0.0,
-        "success" : true
-      }
-    },
-    {
-      "type" : "PnRewrite",
-      "uuid" : "9d29e6e4-52bd-41ae-933f-de3ef728863a",
-      "name" : "Rewrite 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 260.0,
-        "y" : 60.0
-      },
-      "properties" : {
-        "template" : "{\n  \"topic\": \"${topic}\",\n  \"data\": {\n    \"value\":  ${data/value},\n    \"source\": \"${topic}\",\n    \"id\":     \"${id}\",\n    \"output\": \"This is the new output.\"\n  }\n}\n"
+        "success" : true,
+        "button-icon" : ""
       }
     },
     {
@@ -106,13 +95,44 @@
       "properties" : {
         "period" : 600
       }
+    },
+    {
+      "type" : "PnTts",
+      "uuid" : "78c2977b-1b00-43fc-af35-3dca253a3885",
+      "name" : "Text to Speech 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "engine" : "piper",
+        "model" : "/home/pipas/.local/share/piper/voices/hu_HU-anna-medium.onnx",
+        "language" : "hu_HU",
+        "speed" : 1.0,
+        "sink" : "",
+        "per-source-voice" : true,
+        "max-queue" : 16
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "2933b59e-74e2-4d00-9afc-c44b71f7715e",
+      "name" : "Injector 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "text" : "Ez a szöveg hangzik el amikor megnyomjuk a gombot.",
+        "value" : 0.0,
+        "success" : true,
+        "button-icon" : ""
+      }
     }
   ],
   "connections" : [
-    {
-      "source_id" : "f7f9b233-ae48-4c5c-8528-530eeb20c054",
-      "target_id" : "9d29e6e4-52bd-41ae-933f-de3ef728863a"
-    },
     {
       "source_id" : "d045bb94-31e8-4f6c-ba96-f3989ae760b1",
       "target_id" : "5947d827-cf2f-461b-9c6e-ad9732e17286"
@@ -132,6 +152,10 @@
     {
       "source_id" : "f41ef0cf-606d-4561-80cf-c19fc5174074",
       "target_id" : "30122097-458d-4a22-9e7b-305128438348"
+    },
+    {
+      "source_id" : "2933b59e-74e2-4d00-9afc-c44b71f7715e",
+      "target_id" : "78c2977b-1b00-43fc-af35-3dca253a3885"
     }
   ],
   "sheets" : [
