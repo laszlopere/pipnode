@@ -1334,12 +1334,19 @@ pn_node_set_n_inputs/get_input_name (multi-input nodes);
 pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
 
   PHASE A -- foundation (addressing + error contract + shape)
-  [ ] 40.1  UUID addressing throughout.  Add a uuid-addressed variant of every
+  [x] 40.1  UUID addressing throughout.  Add a uuid-addressed variant of every
         node/wire method (the index forms stay so test_*.py keep working, but
         are documented as legacy/test-only).  Indices shift the moment a node
         is deleted, which makes them unusable for a multi-step agent edit;
         pn_node_get_uuid is stable and already serialized.  A small
         node_by_uuid() helper mirrors the existing node_index_of().
+        DONE: node_by_uuid() helper + GetNodeByUuid / GetNodesWithUuids /
+        GetNodePropertyByUuid / SetNodePropertyByUuid / ConnectNodesByUuid /
+        OpenNodeDialogByUuid on org.pipas.pipnode.Worksheet, sharing extracted
+        method bodies with the legacy index forms (which stay).  Wires have no
+        UUID yet, so wire-addressed forms wait for 40.5.  Covered by
+        tests/test_dbus_uuid_addressing.py (enumeration, by-uuid read/write,
+        wiring, dialog, bad-uuid rejection, Save/Load stability).
   [ ] 40.2  Real error contract.  Replace the silent bool/empty-string returns
         with g_dbus_method_invocation_return_error using a stable error domain
         + enum (NoActiveSheet, NodeNotFound, WireNotFound, UnknownNodeType,

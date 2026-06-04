@@ -103,8 +103,21 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='b' name='has_input' direction='out'/>"
     "      <arg type='b' name='has_output' direction='out'/>"
     "    </method>"
+    "    <method name='GetNodeByUuid'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='s' name='class_name' direction='out'/>"
+    "      <arg type='s' name='name' direction='out'/>"
+    "      <arg type='s' name='icon' direction='out'/>"
+    "      <arg type='d' name='x' direction='out'/>"
+    "      <arg type='d' name='y' direction='out'/>"
+    "      <arg type='b' name='has_input' direction='out'/>"
+    "      <arg type='b' name='has_output' direction='out'/>"
+    "    </method>"
     "    <method name='GetNodes'>"
     "      <arg type='a(sssddbb)' name='nodes' direction='out'/>"
+    "    </method>"
+    "    <method name='GetNodesWithUuids'>"
+    "      <arg type='a(sssddbbs)' name='nodes' direction='out'/>"
     "    </method>"
     "    <method name='GetWire'>"
     "      <arg type='u' name='index' direction='in'/>"
@@ -166,8 +179,19 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='prop'  direction='in'/>"
     "      <arg type='s' name='value' direction='out'/>"
     "    </method>"
+    "    <method name='GetNodePropertyByUuid'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
+    "      <arg type='s' name='prop'  direction='in'/>"
+    "      <arg type='s' name='value' direction='out'/>"
+    "    </method>"
     "    <method name='SetNodeProperty'>"
     "      <arg type='u' name='index' direction='in'/>"
+    "      <arg type='s' name='prop'  direction='in'/>"
+    "      <arg type='s' name='value' direction='in'/>"
+    "      <arg type='b' name='ok'    direction='out'/>"
+    "    </method>"
+    "    <method name='SetNodePropertyByUuid'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
     "      <arg type='s' name='prop'  direction='in'/>"
     "      <arg type='s' name='value' direction='in'/>"
     "      <arg type='b' name='ok'    direction='out'/>"
@@ -183,8 +207,17 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='u' name='target'    direction='in'/>"
     "      <arg type='b' name='connected' direction='out'/>"
     "    </method>"
+    "    <method name='ConnectNodesByUuid'>"
+    "      <arg type='s' name='source'    direction='in'/>"
+    "      <arg type='s' name='target'    direction='in'/>"
+    "      <arg type='b' name='connected' direction='out'/>"
+    "    </method>"
     "    <method name='OpenNodeDialog'>"
     "      <arg type='u' name='index'  direction='in'/>"
+    "      <arg type='b' name='opened' direction='out'/>"
+    "    </method>"
+    "    <method name='OpenNodeDialogByUuid'>"
+    "      <arg type='s' name='uuid'   direction='in'/>"
     "      <arg type='b' name='opened' direction='out'/>"
     "    </method>"
     "    <method name='CloseNodeDialog'>"
@@ -237,6 +270,32 @@ node_index_of (PnNodeStore *nodes, PnNode *node)
             return (gint) i;
     }
     return -1;
+}
+
+/** The node in @nodes whose stable UUID equals @uuid, or %NULL.
+ *
+ *  This is the by-UUID companion to node_index_of() and the basis of
+ *  the UUID-addressed D-Bus surface (TODO #40.1): a node's index shifts
+ *  the moment any earlier node is deleted, which makes indices unusable
+ *  across a multi-step automated edit, whereas pn_node_get_uuid() is
+ *  stable for the life of the node and is what gets serialized.  An
+ *  empty or %NULL @uuid never matches. */
+static PnNode *
+node_by_uuid (PnNodeStore *nodes, const gchar *uuid)
+{
+    guint i, n;
+
+    if (uuid == NULL || *uuid == '\0')
+        return NULL;
+
+    n = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode *node = pn_node_store_get_node (nodes, i);
+        if (node != NULL && g_strcmp0 (pn_node_get_uuid (node), uuid) == 0)
+            return node;
+    }
+    return NULL;
 }
 
 /** Render a node property's #GValue as a stable, locale-independent
@@ -320,6 +379,129 @@ node_value_from_string (GValue *value, const gchar *text)
     return TRUE;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Shared method bodies                                              */
+/*                                                                    */
+/*  Each of these takes an already-resolved node (or endpoints) and  */
+/*  completes the invocation, so the index-addressed (legacy/test)   */
+/*  and UUID-addressed (TODO #40.1) handlers differ only in how they */
+/*  look the node up, never in what they then do with it.            */
+/* ------------------------------------------------------------------ */
+
+/** Complete GetNode / GetNodeByUuid: report @node's identity tuple. */
+static void
+worksheet_return_node_info (GDBusMethodInvocation *invocation, PnNode *node)
+{
+    const gchar   *class_name = pn_node_get_class_name (node);
+    const gchar   *name       = pn_node_get_name       (node);
+    const gchar   *icon       = pn_node_get_icon       (node);
+    const PnPoint *pos        = pn_node_get_position   (node);
+
+    g_dbus_method_invocation_return_value (
+            invocation,
+            g_variant_new ("(sssddbb)",
+                           class_name ? class_name : "",
+                           name       ? name       : "",
+                           icon       ? icon       : "",
+                           pos ? pos->x : 0.0,
+                           pos ? pos->y : 0.0,
+                           pn_node_get_has_input  (node),
+                           pn_node_get_has_output (node)));
+}
+
+/** Complete GetNodeProperty / GetNodePropertyByUuid: render @node's
+ *  @prop as a string, or fail if it has no such property. */
+static void
+worksheet_return_node_property (GDBusMethodInvocation *invocation,
+                                PnNode *node, const gchar *prop)
+{
+    GParamSpec *pspec;
+    GValue      value = G_VALUE_INIT;
+    gchar      *str;
+
+    pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (node), prop);
+    if (!pspec)
+    {
+        g_dbus_method_invocation_return_error (
+                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                "Node has no property '%s'", prop);
+        return;
+    }
+
+    g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
+    g_object_get_property (G_OBJECT (node), prop, &value);
+    str = node_value_to_string (&value);
+    g_value_unset (&value);
+
+    g_dbus_method_invocation_return_value (
+            invocation, g_variant_new ("(s)", str));
+    g_free (str);
+}
+
+/** Complete SetNodeProperty / SetNodePropertyByUuid: parse @text into
+ *  @node's writable @prop, or fail with a clear reason. */
+static void
+worksheet_set_node_property (GDBusMethodInvocation *invocation,
+                             PnNode *node, const gchar *prop,
+                             const gchar *text)
+{
+    GParamSpec *pspec;
+    GValue      value = G_VALUE_INIT;
+
+    pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (node), prop);
+    if (!pspec || (pspec->flags & G_PARAM_WRITABLE) == 0)
+    {
+        g_dbus_method_invocation_return_error (
+                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                "Node has no writable property '%s'", prop);
+        return;
+    }
+
+    g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
+    if (!node_value_from_string (&value, text))
+    {
+        g_value_unset (&value);
+        g_dbus_method_invocation_return_error (
+                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                "Cannot parse '%s' for property '%s'", text, prop);
+        return;
+    }
+
+    g_object_set_property (G_OBJECT (node), prop, &value);
+    g_value_unset (&value);
+
+    g_dbus_method_invocation_return_value (
+            invocation, g_variant_new ("(b)", TRUE));
+}
+
+/** Complete ConnectNodes / ConnectNodesByUuid: wire @source's output to
+ *  @target's input and persist the wire on the canvas.  Rejects missing
+ *  endpoints and self-loops; port-aware wiring is TODO #40.5. */
+static void
+worksheet_connect_nodes (GDBusMethodInvocation *invocation,
+                         PnWireStore *wires, PnNode *source, PnNode *target)
+{
+    PnWire *wire;
+
+    if (!source || !target || source == target)
+    {
+        g_dbus_method_invocation_return_error (
+                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                "Bad wire endpoints");
+        return;
+    }
+
+    /* Constructing the wire wires up routing (it connects the source's
+     * "message" signal); adding it to the store makes it persist and
+     * show on the canvas. */
+    wire = pn_wire_new (source, target);
+    pn_wire_store_add (wires, wire);
+    g_object_unref (wire);
+
+    g_dbus_method_invocation_return_value (
+            invocation, g_variant_new ("(b)", TRUE));
+}
+
 static void
 handle_worksheet_method_call (
         GDBusConnection       *connection,
@@ -367,13 +549,8 @@ handle_worksheet_method_call (
     }
     else if (g_strcmp0 (method_name, "GetNode") == 0)
     {
-        guint  index;
+        guint   index;
         PnNode *node;
-        const gchar   *class_name;
-        const gchar   *name;
-        const gchar   *icon;
-        const PnPoint *pos;
-        gboolean has_input, has_output;
 
         g_variant_get (parameters, "(u)", &index);
 
@@ -387,23 +564,26 @@ handle_worksheet_method_call (
             return;
         }
 
-        class_name = pn_node_get_class_name (node);
-        name       = pn_node_get_name       (node);
-        icon       = pn_node_get_icon       (node);
-        pos        = pn_node_get_position   (node);
-        has_input  = pn_node_get_has_input  (node);
-        has_output = pn_node_get_has_output (node);
+        worksheet_return_node_info (invocation, node);
+    }
+    else if (g_strcmp0 (method_name, "GetNodeByUuid") == 0)
+    {
+        const gchar *uuid = NULL;
+        PnNode      *node;
 
-        g_dbus_method_invocation_return_value (
-                invocation,
-                g_variant_new ("(sssddbb)",
-                               class_name ? class_name : "",
-                               name       ? name       : "",
-                               icon       ? icon       : "",
-                               pos ? pos->x : 0.0,
-                               pos ? pos->y : 0.0,
-                               has_input,
-                               has_output));
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        worksheet_return_node_info (invocation, node);
     }
     else if (g_strcmp0 (method_name, "GetNodes") == 0)
     {
@@ -434,6 +614,42 @@ handle_worksheet_method_call (
 
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(a(sssddbb))", &builder));
+    }
+    else if (g_strcmp0 (method_name, "GetNodesWithUuids") == 0)
+    {
+        /* The UUID-aware companion to GetNodes (TODO #40.1): one call an
+         * automation client can make to enumerate every node together
+         * with the stable handle it then addresses them by, instead of
+         * a GetNodeUuid round-trip per node. */
+        GVariantBuilder builder;
+        guint i;
+        guint n = pn_node_store_get_length (nodes);
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sssddbbs)"));
+
+        for (i = 0; i < n; i++)
+        {
+            PnNode        *node       = pn_node_store_get_node (nodes, i);
+            const gchar   *class_name = pn_node_get_class_name (node);
+            const gchar   *name       = pn_node_get_name       (node);
+            const gchar   *icon       = pn_node_get_icon       (node);
+            const PnPoint *pos        = pn_node_get_position   (node);
+            const gchar   *uuid       = pn_node_get_uuid       (node);
+
+            g_variant_builder_add (
+                    &builder, "(sssddbbs)",
+                    class_name ? class_name : "",
+                    name       ? name       : "",
+                    icon       ? icon       : "",
+                    pos ? pos->x : 0.0,
+                    pos ? pos->y : 0.0,
+                    pn_node_get_has_input  (node),
+                    pn_node_get_has_output (node),
+                    uuid       ? uuid       : "");
+        }
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(sssddbbs))", &builder));
     }
     else if (g_strcmp0 (method_name, "GetWire") == 0)
     {
@@ -737,9 +953,6 @@ handle_worksheet_method_call (
         guint        index;
         const gchar *prop = NULL;
         PnNode      *node;
-        GParamSpec  *pspec;
-        GValue       value = G_VALUE_INIT;
-        gchar       *str;
 
         g_variant_get (parameters, "(u&s)", &index, &prop);
 
@@ -753,25 +966,27 @@ handle_worksheet_method_call (
             return;
         }
 
-        pspec = g_object_class_find_property (
-                G_OBJECT_GET_CLASS (node), prop);
-        if (!pspec)
+        worksheet_return_node_property (invocation, node, prop);
+    }
+    else if (g_strcmp0 (method_name, "GetNodePropertyByUuid") == 0)
+    {
+        const gchar *uuid = NULL;
+        const gchar *prop = NULL;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&s&s)", &uuid, &prop);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
         {
             g_dbus_method_invocation_return_error (
                     invocation,
                     G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
-                    "Node %u has no property '%s'", index, prop);
+                    "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
 
-        g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
-        g_object_get_property (G_OBJECT (node), prop, &value);
-        str = node_value_to_string (&value);
-        g_value_unset (&value);
-
-        g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(s)", str));
-        g_free (str);
+        worksheet_return_node_property (invocation, node, prop);
     }
     else if (g_strcmp0 (method_name, "SetNodeProperty") == 0)
     {
@@ -779,8 +994,6 @@ handle_worksheet_method_call (
         const gchar *prop = NULL;
         const gchar *text = NULL;
         PnNode      *node;
-        GParamSpec  *pspec;
-        GValue       value = G_VALUE_INIT;
 
         g_variant_get (parameters, "(u&s&s)", &index, &prop, &text);
 
@@ -794,33 +1007,28 @@ handle_worksheet_method_call (
             return;
         }
 
-        pspec = g_object_class_find_property (
-                G_OBJECT_GET_CLASS (node), prop);
-        if (!pspec || (pspec->flags & G_PARAM_WRITABLE) == 0)
+        worksheet_set_node_property (invocation, node, prop, text);
+    }
+    else if (g_strcmp0 (method_name, "SetNodePropertyByUuid") == 0)
+    {
+        const gchar *uuid = NULL;
+        const gchar *prop = NULL;
+        const gchar *text = NULL;
+        PnNode      *node;
+
+        g_variant_get (parameters, "(&s&s&s)", &uuid, &prop, &text);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
         {
             g_dbus_method_invocation_return_error (
                     invocation,
                     G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
-                    "Node %u has no writable property '%s'", index, prop);
+                    "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
 
-        g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
-        if (!node_value_from_string (&value, text))
-        {
-            g_value_unset (&value);
-            g_dbus_method_invocation_return_error (
-                    invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
-                    "Cannot parse '%s' for property '%s'", text, prop);
-            return;
-        }
-
-        g_object_set_property (G_OBJECT (node), prop, &value);
-        g_value_unset (&value);
-
-        g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(b)", TRUE));
+        worksheet_set_node_property (invocation, node, prop, text);
     }
     else if (g_strcmp0 (method_name, "AddNode") == 0)
     {
@@ -878,31 +1086,35 @@ handle_worksheet_method_call (
     else if (g_strcmp0 (method_name, "ConnectNodes") == 0)
     {
         guint   src, dst;
-        PnNode *source, *target;
-        PnWire *wire;
 
         g_variant_get (parameters, "(uu)", &src, &dst);
 
-        source = pn_node_store_get_node (nodes, src);
-        target = pn_node_store_get_node (nodes, dst);
-        if (!source || !target || source == target)
+        worksheet_connect_nodes (invocation, wires,
+                                 pn_node_store_get_node (nodes, src),
+                                 pn_node_store_get_node (nodes, dst));
+    }
+    else if (g_strcmp0 (method_name, "ConnectNodesByUuid") == 0)
+    {
+        const gchar *src_uuid = NULL;
+        const gchar *dst_uuid = NULL;
+        PnNode      *source, *target;
+
+        g_variant_get (parameters, "(&s&s)", &src_uuid, &dst_uuid);
+
+        source = node_by_uuid (nodes, src_uuid);
+        target = node_by_uuid (nodes, dst_uuid);
+        if (!source || !target)
         {
             g_dbus_method_invocation_return_error (
                     invocation,
                     G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
-                    "Bad wire endpoints (source=%u, target=%u)", src, dst);
+                    "No node with uuid '%s'",
+                    !source ? (src_uuid ? src_uuid : "")
+                            : (dst_uuid ? dst_uuid : ""));
             return;
         }
 
-        /* Constructing the wire wires up routing (it connects the
-         * source's "message" signal); adding it to the store makes it
-         * persist and show on the canvas. */
-        wire = pn_wire_new (source, target);
-        pn_wire_store_add (wires, wire);
-        g_object_unref (wire);
-
-        g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(b)", TRUE));
+        worksheet_connect_nodes (invocation, wires, source, target);
     }
     else if (g_strcmp0 (method_name, "OpenNodeDialog") == 0)
     {
@@ -923,6 +1135,42 @@ handle_worksheet_method_call (
         }
 
         ok = pn_window_open_node_dialog (PN_WINDOW (win), index);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
+    }
+    else if (g_strcmp0 (method_name, "OpenNodeDialogByUuid") == 0)
+    {
+        GtkWindow *win = gtk_application_get_active_window (
+                GTK_APPLICATION (app));
+        const gchar *uuid = NULL;
+        PnNode      *node;
+        gboolean     ok;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        if (win == NULL || !PN_IS_WINDOW (win))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No active window");
+            return;
+        }
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        /* The window dialog path is index-addressed; resolve the stable
+         * uuid to the node's current index for the call. */
+        ok = pn_window_open_node_dialog (PN_WINDOW (win),
+                                         node_index_of (nodes, node));
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(b)", ok));
     }
