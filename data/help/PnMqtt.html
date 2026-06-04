@@ -38,7 +38,9 @@ shapes are accepted:
       plain TCP.</li>
 </ul>
 <p>
-The default URL is <code>tcp://mqtt.homelab.local:1883</code>. The
+The <code>url</code> is empty by default &mdash; there is no built-in
+broker address, so you either fill in the inline fields or point the node
+at a <strong>Broker profile</strong> (see below). Once a URL is set, the
 node connects asynchronously, retries on failure with a 1&nbsp;s to
 30&nbsp;s exponential back-off, and re-subscribes on every reconnect
 &mdash; so a transient broker outage recovers without operator
@@ -143,8 +145,8 @@ having to dig into the data bag. The <code>data</code> bag carries:
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>url</code></td>
-      <td>Broker URL. Defaults to
-          <code>tcp://mqtt.homelab.local:1883</code>.</td></tr>
+      <td>Broker URL. Empty by default &mdash; supply it inline or via a
+          <strong>Broker profile</strong>.</td></tr>
   <tr><td><code>subscribe-topic</code></td>
       <td>MQTT topic filter to subscribe to. Defaults to
           <code>#</code>.</td></tr>
@@ -163,8 +165,8 @@ having to dig into the data bag. The <code>data</code> bag carries:
 
 <h5>Quick test</h5>
 <pre>
-mosquitto_pub -h mqtt.homelab.local -t test/hello -m '23.5'
-mosquitto_pub -h mqtt.homelab.local -t test/sensor -m '{"t":22.6,"h":41.2}'
+mosquitto_pub -h localhost -t test/hello -m '23.5'
+mosquitto_pub -h localhost -t test/sensor -m '{"t":22.6,"h":41.2}'
 </pre>
 <p>
 With the default subscription <code>subscribe-topic = "#"</code> the first

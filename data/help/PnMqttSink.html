@@ -26,10 +26,11 @@ a helper process or shell out through a command node.
 The <code>url</code> property is the broker address; same syntax as
 <em>MQTT Source</em> &mdash; <code>tcp://host[:port]</code>,
 <code>ssl://host[:port]</code> / <code>mqtts://host[:port]</code>, or
-a bare <code>host[:port]</code> treated as plain TCP. Defaults to
-<code>tcp://mqtt.homelab.local:1883</code> so a paired
-<em>Source + Sink</em> dropped onto a fresh worksheet talk to the
-same broker without configuration.
+a bare <code>host[:port]</code> treated as plain TCP. The inline
+<code>url</code> is empty by default; with the <strong>Broker profile</strong>
+picker on its default the node follows the primary <code>mqtt-broker</code>
+profile, so a paired <em>Source + Sink</em> dropped onto a fresh worksheet
+reach the same broker without per-node configuration.
 </p>
 <p>
 Connect is asynchronous; the body flips from red &ldquo;configuration
@@ -145,7 +146,7 @@ The <code>payload</code> property is an optional template:
             topic   = cmnd/sonoff19/POWER
             data    = { "payload": "${data/value &gt; 0 ? 'ON' : 'OFF'}" }
     &rarr; MQTT Sink
-            url     = tcp://mqtt.homelab.local:1883
+            url     = tcp://localhost:1883
             retain  = false</pre>
 <p>
 The <em>Rewrite</em> step both stamps the destination topic on the
