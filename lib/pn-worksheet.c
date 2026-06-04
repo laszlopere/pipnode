@@ -3973,6 +3973,207 @@ selection_contains (PnWorksheet *self, PnNode *node)
     return g_hash_table_contains (self->selection, node);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Selection & view automation surface (TODO #40.12)                  */
+/*                                                                     */
+/*  Public entry points the org.pipas.pipnode.Worksheet D-Bus interface */
+/*  drives so an agent can SHOW the user what it just built — select   */
+/*  nodes, read the selection back, recentre/fit the viewport — going  */
+/*  through the very same selection set and scroll machinery the mouse */
+/*  and keyboard use, so there is no parallel state to drift.          */
+/* ------------------------------------------------------------------ */
+
+guint
+pn_worksheet_select_nodes_by_uuid (PnWorksheet        *self,
+                                   const gchar *const *uuids,
+                                   guint               n_uuids)
+{
+    guint matched = 0;
+    guint i;
+
+    g_return_val_if_fail (PN_IS_WORKSHEET (self), 0);
+
+    /* Manipulate the set directly and emit "selection-changed" once at
+     * the end, rather than going through selection_clear/_add (which
+     * each emit) so a multi-node selection is a single observable event. */
+    g_hash_table_remove_all (self->selection);
+
+    for (i = 0; i < n_uuids; i++)
+    {
+        PnNode *node = find_node_by_uuid (self, uuids[i]);
+
+        if (node != NULL && !g_hash_table_contains (self->selection, node))
+        {
+            g_hash_table_add (self->selection, g_object_ref (node));
+            matched++;
+        }
+    }
+
+    g_signal_emit (self, signals[SIG_SELECTION_CHANGED], 0);
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+    return matched;
+}
+
+gchar **
+pn_worksheet_get_selection_uuids (PnWorksheet *self)
+{
+    GPtrArray      *out;
+    GHashTableIter  iter;
+    gpointer        key;
+
+    g_return_val_if_fail (PN_IS_WORKSHEET (self), NULL);
+
+    out = g_ptr_array_new ();
+    g_hash_table_iter_init (&iter, self->selection);
+    while (g_hash_table_iter_next (&iter, &key, NULL))
+    {
+        const gchar *uuid = pn_node_get_uuid (PN_NODE (key));
+        g_ptr_array_add (out, g_strdup (uuid != NULL ? uuid : ""));
+    }
+    g_ptr_array_add (out, NULL);
+
+    return (gchar **) g_ptr_array_free (out, FALSE);
+}
+
+void
+pn_worksheet_clear_selection (PnWorksheet *self)
+{
+    g_return_if_fail (PN_IS_WORKSHEET (self));
+    selection_clear (self);                 /* emits only if non-empty */
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+pn_worksheet_center_on_uuid (PnWorksheet *self,
+                             const gchar *uuid)
+{
+    PnNode *node;
+
+    g_return_val_if_fail (PN_IS_WORKSHEET (self), FALSE);
+
+    node = find_node_by_uuid (self, uuid);
+    if (node == NULL)
+        return FALSE;
+
+    scroll_to_center_node (self, node);
+    return TRUE;
+}
+
+/** Worksheet-space bounding box of every node on the active sheet.
+ *  Returns %FALSE (box untouched) when the sheet has no nodes. */
+static gboolean
+active_sheet_content_bounds (PnWorksheet *self,
+                             double *out_x, double *out_y,
+                             double *out_w, double *out_h)
+{
+    const guint count = pn_node_store_get_length (self->nodes);
+    gboolean    any   = FALSE;
+    double      minx = 0, miny = 0, maxx = 0, maxy = 0;
+    guint       i;
+
+    for (i = 0; i < count; i++)
+    {
+        PnNode        *node = pn_node_store_get_node (self->nodes, i);
+        const PnPoint *p;
+        double         w, h;
+
+        if (!node_on_sheet (self, node))
+            continue;
+
+        p = pn_node_get_position (node);
+        pn_node_get_size (node, &w, &h);
+
+        if (!any)
+        {
+            minx = p->x;          miny = p->y;
+            maxx = p->x + w;      maxy = p->y + h;
+            any  = TRUE;
+        }
+        else
+        {
+            if (p->x     < minx) minx = p->x;
+            if (p->y     < miny) miny = p->y;
+            if (p->x + w > maxx) maxx = p->x + w;
+            if (p->y + h > maxy) maxy = p->y + h;
+        }
+    }
+
+    if (!any)
+        return FALSE;
+
+    *out_x = minx;
+    *out_y = miny;
+    *out_w = maxx - minx;
+    *out_h = maxy - miny;
+    return TRUE;
+}
+
+void
+pn_worksheet_fit_to_content (PnWorksheet *self)
+{
+    GtkScrolledWindow *sw;
+    GtkAllocation      alloc;
+    double             bx, by, bw, bh;
+    double             zoom_x, zoom_y, zoom;
+    const double       margin = 0.92;   /* leave a little breathing room */
+
+    g_return_if_fail (PN_IS_WORKSHEET (self));
+
+    sw = find_scrolled_window (self);
+    if (sw == NULL)
+        return;
+    if (!active_sheet_content_bounds (self, &bx, &by, &bw, &bh))
+        return;
+    if (bw <= 0.0 || bh <= 0.0)
+        return;
+
+    gtk_widget_get_allocation (GTK_WIDGET (sw), &alloc);
+    if (alloc.width <= 0 || alloc.height <= 0)
+        return;
+
+    /* Largest zoom (clamped to the wheel-zoom range) at which the whole
+     * content box still fits inside the viewport, with a small margin. */
+    zoom_x = (alloc.width  * margin) / bw;
+    zoom_y = (alloc.height * margin) / bh;
+    zoom   = MIN (zoom_x, zoom_y);
+    if (zoom < PN_ZOOM_MIN) zoom = PN_ZOOM_MIN;
+    if (zoom > PN_ZOOM_MAX) zoom = PN_ZOOM_MAX;
+
+    self->zoom = zoom;
+
+    /* Place the content centre at the viewport centre once the canvas
+     * has resized for the new zoom (adjustment uppers grow then), reusing
+     * the zoom-anchor idle the wheel zoom rides. */
+    self->zoom_anchor_hadj    = (bx + bw / 2.0) * zoom - alloc.width  / 2.0;
+    self->zoom_anchor_vadj    = (by + bh / 2.0) * zoom - alloc.height / 2.0;
+    self->zoom_anchor_pending = TRUE;
+    if (self->zoom_anchor_idle_id == 0)
+        self->zoom_anchor_idle_id = g_idle_add (apply_zoom_anchor, self);
+
+    gtk_widget_queue_resize (GTK_WIDGET (self));
+    gtk_widget_queue_draw   (GTK_WIDGET (self));
+}
+
+void
+pn_worksheet_set_scroll (PnWorksheet *self,
+                         double       h,
+                         double       v)
+{
+    GtkScrolledWindow *sw;
+    GtkAdjustment     *hadj, *vadj;
+
+    g_return_if_fail (PN_IS_WORKSHEET (self));
+
+    sw = find_scrolled_window (self);
+    if (sw == NULL)
+        return;
+
+    hadj = gtk_scrolled_window_get_hadjustment (sw);
+    vadj = gtk_scrolled_window_get_vadjustment (sw);
+    if (hadj != NULL) gtk_adjustment_set_value (hadj, h);
+    if (vadj != NULL) gtk_adjustment_set_value (vadj, v);
+}
+
 /** Begin a group drag with all currently-selected nodes.  @pivot is
  *  the node under the cursor at button-press; the drag offset is
  *  recorded relative to its anchor so motion can recover the

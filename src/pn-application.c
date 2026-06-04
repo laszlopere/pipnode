@@ -25,6 +25,8 @@
 #include "pn-node-store.h"
 #include "pn-flow.h"
 #include "pn-wire.h"
+#include "pn-wire-store.h"
+#include "pn-message.h"
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
 #include "pn-countdown.h"
@@ -387,6 +389,87 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s'          name='uuid'  direction='in'/>"
     "      <arg type='a(sssssb)'  name='props' direction='out'/>"
     "    </method>"
+    /* --- 40.12 selection & view ------------------------------------- */
+    "    <method name='SelectNodes'>"
+    "      <arg type='as' name='uuids'   direction='in'/>"
+    "      <arg type='u'  name='matched' direction='out'/>"
+    "    </method>"
+    "    <method name='GetSelection'>"
+    "      <arg type='as' name='uuids' direction='out'/>"
+    "    </method>"
+    "    <method name='ClearSelection'>"
+    "    </method>"
+    "    <method name='FocusNode'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "    </method>"
+    "    <method name='CenterOn'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "    </method>"
+    "    <method name='FitToContent'>"
+    "    </method>"
+    "    <method name='GetNodeGeometry'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='d' name='x' direction='out'/>"
+    "      <arg type='d' name='y' direction='out'/>"
+    "      <arg type='d' name='w' direction='out'/>"
+    "      <arg type='d' name='h' direction='out'/>"
+    "    </method>"
+    "    <method name='SetWorksheetScroll'>"
+    "      <arg type='d' name='h' direction='in'/>"
+    "      <arg type='d' name='v' direction='in'/>"
+    "    </method>"
+    /* --- 40.13 message injection + readback -------------------------- */
+    "    <method name='InjectMessage'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='s' name='json' direction='in'/>"
+    "    </method>"
+    "    <method name='InjectMessageOnInput'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
+    "      <arg type='i' name='input' direction='in'/>"
+    "      <arg type='s' name='json'  direction='in'/>"
+    "    </method>"
+    "    <method name='GetLastOutputMessage'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='s' name='json' direction='out'/>"
+    "    </method>"
+    /* --- 40.14 live-observation signals (Worksheet) ------------------ */
+    "    <signal name='NodeAdded'>"
+    "      <arg type='s' name='uuid'/>"
+    "      <arg type='s' name='type_name'/>"
+    "    </signal>"
+    "    <signal name='NodeRemoved'>"
+    "      <arg type='s' name='uuid'/>"
+    "    </signal>"
+    "    <signal name='NodeMoved'>"
+    "      <arg type='s' name='uuid'/>"
+    "      <arg type='d' name='x'/>"
+    "      <arg type='d' name='y'/>"
+    "    </signal>"
+    "    <signal name='NodeRenamed'>"
+    "      <arg type='s' name='uuid'/>"
+    "      <arg type='s' name='name'/>"
+    "    </signal>"
+    "    <signal name='NodePropertyChanged'>"
+    "      <arg type='s' name='uuid'/>"
+    "      <arg type='s' name='property'/>"
+    "    </signal>"
+    "    <signal name='WireAdded'>"
+    "      <arg type='s' name='wire_uuid'/>"
+    "      <arg type='s' name='source_uuid'/>"
+    "      <arg type='s' name='target_uuid'/>"
+    "      <arg type='i' name='target_input'/>"
+    "    </signal>"
+    "    <signal name='WireRemoved'>"
+    "      <arg type='s' name='wire_uuid'/>"
+    "    </signal>"
+    "    <signal name='SelectionChanged'>"
+    "      <arg type='as' name='uuids'/>"
+    "    </signal>"
+    "    <signal name='MessageEmitted'>"
+    "      <arg type='s' name='node_uuid'/>"
+    "      <arg type='s' name='topic'/>"
+    "      <arg type='s' name='json'/>"
+    "    </signal>"
     "  </interface>"
     "</node>";
 
@@ -658,6 +741,132 @@ node_value_from_string (GValue *value, const gchar *text)
         return FALSE;
 
     return TRUE;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Message <-> JSON for the interactivity surface (TODO #40.13)      */
+/*                                                                    */
+/*  The wire form is the documented message envelope the Debug pane   */
+/*  renders — {type, from, from_id, topic, id, created, data} — so an */
+/*  agent reads back exactly the shape it already knows, and can post */
+/*  the same shape (or just a bare data bag) to inject one.           */
+/* ------------------------------------------------------------------ */
+
+/** Render @message as the compact envelope JSON string returned by
+ *  GetLastOutputMessage.  Owned by the caller. */
+static gchar *
+automation_message_to_json (PnMessage *message)
+{
+    PnNode      *source    = pn_message_get_source  (message);
+    const gchar *src_name  = NULL;
+    const gchar *src_uuid  = source != NULL ? pn_node_get_uuid (source) : NULL;
+    const gchar *id        = pn_message_get_id      (message);
+    const gchar *topic     = pn_message_get_topic   (message);
+    const gchar *created   = pn_message_get_created (message);
+    JsonObject  *data      = pn_message_get_data    (message);
+    JsonObject  *obj       = json_object_new ();
+    JsonNode    *data_node = json_node_new (JSON_NODE_OBJECT);
+    JsonNode    *root;
+    JsonGenerator *gen;
+    gchar       *out;
+
+    if (source != NULL)
+    {
+        src_name = pn_node_get_name (source);
+        if (src_name == NULL || *src_name == '\0')
+            src_name = pn_node_get_class_name (source);
+    }
+
+    json_object_set_string_member (obj, "type", G_OBJECT_TYPE_NAME (message));
+    json_object_set_string_member (obj, "from",    src_name ? src_name : "");
+    json_object_set_string_member (obj, "from_id", src_uuid ? src_uuid : "");
+    json_object_set_string_member (obj, "topic",   topic    ? topic    : "");
+    json_object_set_string_member (obj, "id",      id       ? id       : "");
+    json_object_set_string_member (obj, "created", created  ? created  : "");
+
+    /* Reference (not copy) the live data bag — the generator only reads. */
+    json_node_set_object   (data_node, data);
+    json_object_set_member (obj, "data", data_node);
+
+    root = json_node_new (JSON_NODE_OBJECT);
+    json_node_take_object (root, obj);
+    gen  = json_generator_new ();
+    json_generator_set_root (gen, root);
+    out = json_generator_to_data (gen, NULL);
+
+    g_object_unref (gen);
+    json_node_free (root);
+    return out;
+}
+
+/** Parse @json into a fresh #PnMessage to inject into a node's input.
+ *  Accepts either a full envelope (an object whose "data" member is an
+ *  object — optional "topic" string is honoured) or a bare data bag (any
+ *  other object, folded wholesale into the message data).  The injected
+ *  message has no source (it stands in for a wire delivery, not a node
+ *  emission).  Returns %NULL with @error set (BadPropertyValue) on a
+ *  parse failure or non-object payload. */
+static PnMessage *
+automation_message_from_json (const gchar *json, GError **error)
+{
+    JsonParser  *parser = json_parser_new ();
+    JsonNode    *root;
+    JsonObject  *obj;
+    JsonObject  *data  = NULL;
+    const gchar *topic = NULL;
+    PnMessage   *msg;
+    GError      *perr  = NULL;
+    GList       *members, *l;
+
+    if (!json_parser_load_from_data (parser, json != NULL ? json : "",
+                                     -1, &perr))
+    {
+        g_set_error (error, PN_WORKSHEET_ERROR,
+                     PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                     "Cannot parse message JSON: %s",
+                     perr != NULL ? perr->message : "(parse error)");
+        g_clear_error (&perr);
+        g_object_unref (parser);
+        return NULL;
+    }
+
+    root = json_parser_get_root (parser);
+    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    {
+        g_set_error (error, PN_WORKSHEET_ERROR,
+                     PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                     "Message JSON must be a JSON object");
+        g_object_unref (parser);
+        return NULL;
+    }
+    obj = json_node_get_object (root);
+
+    if (json_object_has_member (obj, "data") &&
+        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, "data")))
+    {
+        data = json_object_get_object_member (obj, "data");
+        if (json_object_has_member (obj, "topic"))
+            topic = json_object_get_string_member (obj, "topic");
+    }
+    else
+    {
+        data = obj;     /* the whole object is the data bag */
+    }
+
+    msg = pn_message_new (NULL, (topic != NULL && *topic != '\0')
+                          ? topic : NULL);
+
+    members = json_object_get_members (data);
+    for (l = members; l != NULL; l = l->next)
+    {
+        const gchar *name   = l->data;
+        JsonNode    *member = json_object_get_member (data, name);
+        pn_message_set_member (msg, name, json_node_copy (member));
+    }
+    g_list_free (members);
+
+    g_object_unref (parser);
+    return msg;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2178,6 +2387,203 @@ handle_worksheet_method_call (
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(a(sssssb))", &builder));
     }
+    else if (g_strcmp0 (method_name, "SelectNodes") == 0)
+    {
+        /* Replace the selection with the named nodes so the agent can
+         * highlight what it just built (TODO #40.12). */
+        GVariantIter *iter = NULL;
+        GPtrArray    *list = g_ptr_array_new ();
+        const gchar  *u;
+        guint         matched;
+
+        g_variant_get (parameters, "(as)", &iter);
+        while (iter != NULL && g_variant_iter_next (iter, "&s", &u))
+            g_ptr_array_add (list, (gpointer) u);
+        if (iter != NULL)
+            g_variant_iter_free (iter);
+
+        matched = pn_worksheet_select_nodes_by_uuid (
+                worksheet, (const gchar *const *) list->pdata, list->len);
+        g_ptr_array_free (list, TRUE);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(u)", matched));
+    }
+    else if (g_strcmp0 (method_name, "GetSelection") == 0)
+    {
+        gchar          **uuids = pn_worksheet_get_selection_uuids (worksheet);
+        GVariantBuilder  builder;
+        gchar          **p;
+
+        g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
+        for (p = uuids; p != NULL && *p != NULL; p++)
+            g_variant_builder_add (&builder, "s", *p);
+        g_strfreev (uuids);
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(as)", &builder));
+    }
+    else if (g_strcmp0 (method_name, "ClearSelection") == 0)
+    {
+        pn_worksheet_clear_selection (worksheet);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "FocusNode") == 0)
+    {
+        const gchar *uuid = NULL;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        if (node_by_uuid (nodes, uuid) == NULL)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        pn_worksheet_focus_node_by_uuid (worksheet, uuid);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "CenterOn") == 0)
+    {
+        const gchar *uuid = NULL;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        if (!pn_worksheet_center_on_uuid (worksheet, uuid))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "FitToContent") == 0)
+    {
+        pn_worksheet_fit_to_content (worksheet);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "GetNodeGeometry") == 0)
+    {
+        /* The node's full worksheet-space bounding box (position + size),
+         * so an agent can lay out, align, or frame what it built
+         * (TODO #40.12). */
+        const gchar   *uuid = NULL;
+        PnNode        *node;
+        const PnPoint *pos;
+        double         w = 0.0, h = 0.0;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        pos = pn_node_get_position (node);
+        pn_node_get_size (node, &w, &h);
+
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(dddd)",
+                               pos ? pos->x : 0.0, pos ? pos->y : 0.0,
+                               w, h));
+    }
+    else if (g_strcmp0 (method_name, "SetWorksheetScroll") == 0)
+    {
+        gdouble h, v;
+
+        g_variant_get (parameters, "(dd)", &h, &v);
+        pn_worksheet_set_scroll (worksheet, h, v);
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "InjectMessage") == 0 ||
+             g_strcmp0 (method_name, "InjectMessageOnInput") == 0)
+    {
+        /* Deliver a message to a node's input as if a wire carried it
+         * (TODO #40.13), so an agent can drive a flow it just built and
+         * read the result back via GetLastOutputMessage. */
+        const gchar *uuid  = NULL;
+        const gchar *json  = NULL;
+        gint         input = 0;
+        PnNode      *node;
+        PnMessage   *msg;
+        GError      *err   = NULL;
+
+        if (g_strcmp0 (method_name, "InjectMessageOnInput") == 0)
+            g_variant_get (parameters, "(&si&s)", &uuid, &input, &json);
+        else
+            g_variant_get (parameters, "(&s&s)", &uuid, &json);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+        if (input < 0 || input >= pn_node_get_n_inputs (node))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "Input index %d out of range [0,%d)",
+                    input, pn_node_get_n_inputs (node));
+            return;
+        }
+
+        msg = automation_message_from_json (json, &err);
+        if (msg == NULL)
+        {
+            g_dbus_method_invocation_return_gerror (invocation, err);
+            g_clear_error (&err);
+            return;
+        }
+
+        pn_node_receive_message_on_input (node, msg, input);
+        g_object_unref (msg);
+
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+    else if (g_strcmp0 (method_name, "GetLastOutputMessage") == 0)
+    {
+        const gchar *uuid = NULL;
+        PnNode      *node;
+        PnMessage   *last;
+        gchar       *json;
+
+        g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        last = pn_node_get_last_output_message (node);
+        json = last != NULL ? automation_message_to_json (last)
+                            : g_strdup ("");
+
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", json));
+        g_free (json);
+    }
     else if (g_strcmp0 (method_name, "GetDeviceProviders") == 0)
     {
         /* Snapshot the Devices-menu provider registry (TODO #34 Phase D).
@@ -2236,7 +2642,7 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /* ================================================================== */
 
 #define PN_AUTOMATION_API_VERSION_MAJOR 1u
-#define PN_AUTOMATION_API_VERSION_MINOR 1u
+#define PN_AUTOMATION_API_VERSION_MINOR 2u
 
 static const gchar editor_introspection_xml[] =
     "<node>"
@@ -4039,6 +4445,392 @@ static const GDBusInterfaceVTable engine_vtable = {
 
 static GDBusNodeInfo *engine_introspection_data = NULL;
 
+/* ================================================================== */
+/*  Live-observation signal bridge (TODO #40.14)                       */
+/*                                                                     */
+/*  What makes the automation interface INTERACTIVE: instead of        */
+/*  polling, a client subscribes to D-Bus signals and reacts to edits  */
+/*  — its own or the user's.  This bridge translates the model's       */
+/*  GObject notifications into the .Worksheet / .Editor signals         */
+/*  declared in the introspection XML.                                 */
+/*                                                                     */
+/*  The flow owns one shared node/wire store across every sheet, so a  */
+/*  single set of store + flow connections per window covers the whole */
+/*  document; per-node "notify"/"message" handlers are attached as      */
+/*  nodes are added and dropped as they are removed.  One bridge lives */
+/*  per #PnWindow for its lifetime (attached on window-added, torn down */
+/*  on window-removed).                                                */
+/* ================================================================== */
+
+#define PN_WS_IFACE "org.pipas.pipnode.Worksheet"
+#define PN_ED_IFACE "org.pipas.pipnode.Editor"
+
+typedef struct
+{
+    PnApplication *app;     /* borrowed */
+    PnWindow      *window;  /* borrowed */
+    PnFlow        *flow;    /* borrowed */
+    PnNodeStore   *nodes;   /* borrowed */
+    PnWireStore   *wires;   /* borrowed */
+    gulong         node_added_id;
+    gulong         node_removed_id;
+    gulong         wire_added_id;
+    gulong         wire_removed_id;
+    gulong         active_sheet_id;
+    gulong         modified_id;
+    PnWorksheet   *sel_ws;  /* weak pointer; the selection-bridged sheet */
+    gulong         sel_id;
+} PnSignalBridge;
+
+/** Emit @signal_name on @iface at the application object path, consuming
+ *  the floating @params.  A no-op (but still consuming @params) when the
+ *  app is not on a bus — keeps every caller a single unconditional line. */
+static void
+automation_emit_signal (PnApplication *self,
+                        const gchar   *iface,
+                        const gchar   *signal_name,
+                        GVariant      *params)
+{
+    GApplication    *app  = G_APPLICATION (self);
+    GDBusConnection *conn = g_application_get_dbus_connection (app);
+    const gchar     *obj  = g_application_get_dbus_object_path (app);
+
+    if (conn == NULL || obj == NULL)
+    {
+        if (params != NULL)
+            g_variant_unref (g_variant_ref_sink (params));
+        return;
+    }
+
+    g_dbus_connection_emit_signal (conn, NULL, obj, iface, signal_name,
+                                   params, NULL);
+}
+
+/* --- per-node notifications ------------------------------------------ */
+
+static void
+on_bridge_node_notify (GObject    *object,
+                       GParamSpec *pspec,
+                       gpointer    user_data)
+{
+    PnSignalBridge *b     = user_data;
+    PnNode         *node  = PN_NODE (object);
+    const gchar    *uuid  = pn_node_get_uuid (node);
+    const gchar    *pname = pspec != NULL ? g_param_spec_get_name (pspec) : "";
+
+    if (uuid == NULL)
+        uuid = "";
+
+    /* "position" and "name" get their own, richer signals; everything
+     * else collapses onto the generic NodePropertyChanged so each model
+     * change maps to exactly one D-Bus signal. */
+    if (g_strcmp0 (pname, "position") == 0)
+    {
+        const PnPoint *p = pn_node_get_position (node);
+        automation_emit_signal (
+                b->app, PN_WS_IFACE, "NodeMoved",
+                g_variant_new ("(sdd)", uuid,
+                               p ? p->x : 0.0, p ? p->y : 0.0));
+    }
+    else if (g_strcmp0 (pname, "name") == 0)
+    {
+        const gchar *nm = pn_node_get_name (node);
+        automation_emit_signal (
+                b->app, PN_WS_IFACE, "NodeRenamed",
+                g_variant_new ("(ss)", uuid, nm ? nm : ""));
+    }
+    else
+    {
+        automation_emit_signal (
+                b->app, PN_WS_IFACE, "NodePropertyChanged",
+                g_variant_new ("(ss)", uuid, pname ? pname : ""));
+    }
+}
+
+static void
+on_bridge_node_message (PnNode    *node,
+                        PnMessage *message,
+                        gpointer   user_data)
+{
+    PnSignalBridge *b     = user_data;
+    const gchar    *uuid  = pn_node_get_uuid (node);
+    const gchar    *topic = pn_message_get_topic (message);
+    gchar          *json  = automation_message_to_json (message);
+
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "MessageEmitted",
+            g_variant_new ("(sss)", uuid ? uuid : "",
+                           topic ? topic : "", json));
+    g_free (json);
+}
+
+static void
+bridge_connect_node (PnSignalBridge *b, PnNode *node)
+{
+    g_signal_connect (node, "notify",
+                      G_CALLBACK (on_bridge_node_notify), b);
+    g_signal_connect (node, "message",
+                      G_CALLBACK (on_bridge_node_message), b);
+}
+
+/* --- store + flow notifications -------------------------------------- */
+
+static void
+on_bridge_node_added (PnNodeStore *store, PnNode *node,
+                      guint index, gpointer user_data)
+{
+    PnSignalBridge *b    = user_data;
+    const gchar    *uuid = pn_node_get_uuid (node);
+    const gchar    *type = G_OBJECT_TYPE_NAME (node);
+
+    (void) store; (void) index;
+
+    bridge_connect_node (b, node);
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "NodeAdded",
+            g_variant_new ("(ss)", uuid ? uuid : "", type ? type : ""));
+}
+
+static void
+on_bridge_node_removed (PnNodeStore *store, PnNode *node,
+                        guint index, gpointer user_data)
+{
+    PnSignalBridge *b    = user_data;
+    const gchar    *uuid = pn_node_get_uuid (node);
+
+    (void) store; (void) index;
+
+    g_signal_handlers_disconnect_by_data (node, b);
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "NodeRemoved",
+            g_variant_new ("(s)", uuid ? uuid : ""));
+}
+
+static void
+on_bridge_wire_added (PnWireStore *store, PnWire *wire,
+                      guint index, gpointer user_data)
+{
+    PnSignalBridge *b   = user_data;
+    PnNode         *src = pn_wire_get_source (wire);
+    PnNode         *tgt = pn_wire_get_target (wire);
+    const gchar    *wu  = pn_wire_get_uuid (wire);
+    const gchar    *su  = src != NULL ? pn_node_get_uuid (src) : NULL;
+    const gchar    *tu  = tgt != NULL ? pn_node_get_uuid (tgt) : NULL;
+
+    (void) store; (void) index;
+
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "WireAdded",
+            g_variant_new ("(sssi)", wu ? wu : "", su ? su : "",
+                           tu ? tu : "", pn_wire_get_target_input (wire)));
+}
+
+static void
+on_bridge_wire_removed (PnWireStore *store, PnWire *wire,
+                        guint index, gpointer user_data)
+{
+    PnSignalBridge *b  = user_data;
+    const gchar    *wu = pn_wire_get_uuid (wire);
+
+    (void) store; (void) index;
+
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "WireRemoved",
+            g_variant_new ("(s)", wu ? wu : ""));
+}
+
+static void
+on_bridge_selection_changed (PnWorksheet *ws, gpointer user_data)
+{
+    PnSignalBridge  *b     = user_data;
+    gchar          **uuids = pn_worksheet_get_selection_uuids (ws);
+    GVariantBuilder  builder;
+    gchar          **p;
+
+    g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
+    for (p = uuids; p != NULL && *p != NULL; p++)
+        g_variant_builder_add (&builder, "s", *p);
+    g_strfreev (uuids);
+
+    automation_emit_signal (
+            b->app, PN_WS_IFACE, "SelectionChanged",
+            g_variant_new ("(as)", &builder));
+}
+
+/** Move the selection-changed connection onto the window's current active
+ *  worksheet (each sheet tab is its own #PnWorksheet widget).  A weak
+ *  pointer guards the bridged widget so a sheet closing under us nulls it
+ *  rather than leaving a dangling handle to disconnect. */
+static void
+bridge_rebind_selection (PnSignalBridge *b)
+{
+    PnWorksheet *ws = pn_window_get_worksheet (b->window);
+
+    if (ws == b->sel_ws)
+        return;
+
+    if (b->sel_ws != NULL)
+    {
+        if (b->sel_id != 0)
+            g_signal_handler_disconnect (b->sel_ws, b->sel_id);
+        g_object_remove_weak_pointer (G_OBJECT (b->sel_ws),
+                                      (gpointer *) &b->sel_ws);
+        b->sel_ws = NULL;
+        b->sel_id = 0;
+    }
+
+    if (ws != NULL)
+    {
+        b->sel_ws = ws;
+        g_object_add_weak_pointer (G_OBJECT (ws), (gpointer *) &b->sel_ws);
+        b->sel_id = g_signal_connect (
+                ws, "selection-changed",
+                G_CALLBACK (on_bridge_selection_changed), b);
+    }
+}
+
+static void
+on_bridge_active_sheet_changed (PnFlow *flow, const gchar *name,
+                                gpointer user_data)
+{
+    PnSignalBridge *b = user_data;
+
+    (void) flow;
+
+    automation_emit_signal (
+            b->app, PN_ED_IFACE, "SheetChanged",
+            g_variant_new ("(s)", name ? name : ""));
+    bridge_rebind_selection (b);
+}
+
+static void
+on_bridge_modified_changed (PnFlow *flow, gboolean modified,
+                            gpointer user_data)
+{
+    PnSignalBridge *b = user_data;
+
+    (void) flow;
+
+    automation_emit_signal (
+            b->app, PN_ED_IFACE, "DocumentModified",
+            g_variant_new ("(b)", modified));
+}
+
+/* --- attach / detach ------------------------------------------------- */
+
+static void
+on_signal_bridge_window_removed (GtkApplication *gtkapp,
+                                 GtkWindow      *window,
+                                 gpointer        user_data);
+
+/** Attach a fresh bridge to @window's flow and remember it on the window. */
+static void
+signal_bridge_attach (PnApplication *self, PnWindow *window)
+{
+    PnSignalBridge *b;
+    PnFlow         *flow;
+    guint           i, n;
+
+    if (g_object_get_data (G_OBJECT (window), "pn-signal-bridge") != NULL)
+        return;     /* already attached */
+
+    flow = pn_window_get_flow (window);
+    if (flow == NULL)
+        return;
+
+    b         = g_new0 (PnSignalBridge, 1);
+    b->app    = self;
+    b->window = window;
+    b->flow   = flow;
+    b->nodes  = pn_flow_get_nodes (flow);
+    b->wires  = pn_flow_get_wires (flow);
+
+    b->node_added_id = g_signal_connect (
+            b->nodes, "node-added",
+            G_CALLBACK (on_bridge_node_added), b);
+    b->node_removed_id = g_signal_connect (
+            b->nodes, "node-removed",
+            G_CALLBACK (on_bridge_node_removed), b);
+    b->wire_added_id = g_signal_connect (
+            b->wires, "wire-added",
+            G_CALLBACK (on_bridge_wire_added), b);
+    b->wire_removed_id = g_signal_connect (
+            b->wires, "wire-removed",
+            G_CALLBACK (on_bridge_wire_removed), b);
+    b->active_sheet_id = g_signal_connect (
+            b->flow, "active-sheet-changed",
+            G_CALLBACK (on_bridge_active_sheet_changed), b);
+    b->modified_id = g_signal_connect (
+            b->flow, "modified-changed",
+            G_CALLBACK (on_bridge_modified_changed), b);
+
+    /* Connect any nodes already present (e.g. a document opened at
+     * launch); these pre-exist, so no NodeAdded is emitted for them. */
+    n = pn_node_store_get_length (b->nodes);
+    for (i = 0; i < n; i++)
+        bridge_connect_node (b, pn_node_store_get_node (b->nodes, i));
+
+    bridge_rebind_selection (b);
+
+    g_object_set_data (G_OBJECT (window), "pn-signal-bridge", b);
+}
+
+/** Disconnect everything the bridge wired up and free it.  Called from
+ *  window-removed while the flow is still alive. */
+static void
+signal_bridge_detach (PnWindow *window)
+{
+    PnSignalBridge *b = g_object_get_data (G_OBJECT (window),
+                                           "pn-signal-bridge");
+    guint i, n;
+
+    if (b == NULL)
+        return;
+
+    g_signal_handler_disconnect (b->nodes, b->node_added_id);
+    g_signal_handler_disconnect (b->nodes, b->node_removed_id);
+    g_signal_handler_disconnect (b->wires, b->wire_added_id);
+    g_signal_handler_disconnect (b->wires, b->wire_removed_id);
+    g_signal_handler_disconnect (b->flow,  b->active_sheet_id);
+    g_signal_handler_disconnect (b->flow,  b->modified_id);
+
+    n = pn_node_store_get_length (b->nodes);
+    for (i = 0; i < n; i++)
+        g_signal_handlers_disconnect_by_data (
+                pn_node_store_get_node (b->nodes, i), b);
+
+    if (b->sel_ws != NULL)
+    {
+        if (b->sel_id != 0)
+            g_signal_handler_disconnect (b->sel_ws, b->sel_id);
+        g_object_remove_weak_pointer (G_OBJECT (b->sel_ws),
+                                      (gpointer *) &b->sel_ws);
+    }
+
+    g_object_set_data (G_OBJECT (window), "pn-signal-bridge", NULL);
+    g_free (b);
+}
+
+static void
+on_signal_bridge_window_removed (GtkApplication *gtkapp,
+                                 GtkWindow      *window,
+                                 gpointer        user_data)
+{
+    (void) gtkapp; (void) user_data;
+    if (PN_IS_WINDOW (window))
+        signal_bridge_detach (PN_WINDOW (window));
+}
+
+static void
+on_signal_bridge_window_added (GtkApplication *gtkapp,
+                               GtkWindow      *window,
+                               gpointer        user_data)
+{
+    (void) user_data;
+    if (PN_IS_WINDOW (window))
+        signal_bridge_attach (PN_APPLICATION (gtkapp), PN_WINDOW (window));
+}
+
 static gboolean
 pn_application_dbus_register (
         GApplication    *app,
@@ -4153,6 +4945,14 @@ pn_application_startup (GApplication *app)
 
     if (g_application_get_flags (app) & G_APPLICATION_IS_SERVICE)
         g_application_hold (app);
+
+    /* Attach the live-observation signal bridge (TODO #40.14) to every
+     * editor window for its lifetime, so model edits reach D-Bus
+     * subscribers without polling. */
+    g_signal_connect (app, "window-added",
+                      G_CALLBACK (on_signal_bridge_window_added), NULL);
+    g_signal_connect (app, "window-removed",
+                      G_CALLBACK (on_signal_bridge_window_removed), NULL);
 }
 
 /* --- Application lifecycle --- */

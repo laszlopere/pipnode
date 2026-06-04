@@ -221,6 +221,86 @@ void       pn_worksheet_focus_node_by_uuid   (PnWorksheet *self,
 const gchar *pn_worksheet_get_focus_pulse_uuid (PnWorksheet *self);
 
 /**
+ * pn_worksheet_select_nodes_by_uuid:
+ * @self:    a #PnWorksheet
+ * @uuids:   (array length=n_uuids) (element-type utf8): node UUIDs to select
+ * @n_uuids: number of entries in @uuids
+ *
+ * Replaces the current selection with exactly the on-sheet nodes whose
+ * UUID appears in @uuids.  Unknown or off-sheet UUIDs are skipped.
+ * Emits "selection-changed" once and queues a redraw.  Backs the D-Bus
+ * SelectNodes automation method (TODO #40.12).
+ *
+ * Returns: the number of UUIDs that matched a selectable node.
+ */
+guint        pn_worksheet_select_nodes_by_uuid (PnWorksheet        *self,
+                                                const gchar *const *uuids,
+                                                guint               n_uuids);
+
+/**
+ * pn_worksheet_get_selection_uuids:
+ * @self: a #PnWorksheet
+ *
+ * Returns: (transfer full) (array zero-terminated=1): a newly-allocated,
+ *   %NULL-terminated array of the UUIDs of the currently-selected nodes,
+ *   in unspecified order.  Free with g_strfreev().  Backs the D-Bus
+ *   GetSelection automation method (TODO #40.12).
+ */
+gchar      **pn_worksheet_get_selection_uuids  (PnWorksheet *self);
+
+/**
+ * pn_worksheet_clear_selection:
+ * @self: a #PnWorksheet
+ *
+ * Empties the selection (emitting "selection-changed" if it was not
+ * already empty) and queues a redraw.  Backs the D-Bus ClearSelection
+ * automation method (TODO #40.12).
+ */
+void         pn_worksheet_clear_selection      (PnWorksheet *self);
+
+/**
+ * pn_worksheet_center_on_uuid:
+ * @self: a #PnWorksheet
+ * @uuid: UUID of an on-sheet node
+ *
+ * Scrolls the enclosing #GtkScrolledWindow so the node carrying @uuid
+ * lands roughly centred in the viewport, without the focus pulse or any
+ * change to the selection.  Backs the D-Bus CenterOn automation method
+ * (TODO #40.12).
+ *
+ * Returns: %TRUE if a node carrying @uuid was found (and centring was
+ *   attempted), %FALSE otherwise.
+ */
+gboolean     pn_worksheet_center_on_uuid       (PnWorksheet *self,
+                                                const gchar *uuid);
+
+/**
+ * pn_worksheet_fit_to_content:
+ * @self: a #PnWorksheet
+ *
+ * Adjusts the zoom and scroll so every node on the active sheet fits
+ * within the viewport, centred.  Best-effort: a no-op when the
+ * worksheet is not packed inside a #GtkScrolledWindow or the sheet is
+ * empty.  Backs the D-Bus FitToContent automation method (TODO #40.12).
+ */
+void         pn_worksheet_fit_to_content       (PnWorksheet *self);
+
+/**
+ * pn_worksheet_set_scroll:
+ * @self: a #PnWorksheet
+ * @h:    desired horizontal adjustment value, in widget pixels
+ * @v:    desired vertical adjustment value, in widget pixels
+ *
+ * Sets the enclosing #GtkScrolledWindow's adjustments (clamped to their
+ * valid range by GTK).  The counterpart to the read performed by the
+ * D-Bus GetWorksheetScroll method; backs SetWorksheetScroll (TODO
+ * #40.12).  No-op when there is no scrolled-window ancestor.
+ */
+void         pn_worksheet_set_scroll           (PnWorksheet *self,
+                                                double       h,
+                                                double       v);
+
+/**
  * pn_worksheet_is_modified:
  * @self: a #PnWorksheet
  *

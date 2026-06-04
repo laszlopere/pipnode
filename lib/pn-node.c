@@ -214,6 +214,12 @@ typedef struct
      * PN_NODE_LOG_MAX.  Filled by pn_node_log(); read by the per-node
      * Log dialog.  Purely runtime state — never serialized. */
     GPtrArray *log;
+    /* The most recent message this node emitted via
+     * pn_node_emit_message(), cloned and held so the automation surface
+     * can read it back after the fact (GetLastOutputMessage, TODO
+     * #40.13).  Purely runtime state — never serialized; %NULL until the
+     * node first emits. */
+    PnMessage *last_output;
 } PnNodePrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnNode, pn_node, G_TYPE_OBJECT)
@@ -477,6 +483,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->input_latch, g_ptr_array_unref);
     g_clear_pointer (&priv->input_count_prop, g_free);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
+    g_clear_object  (&priv->last_output);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
 }
@@ -719,7 +726,34 @@ pn_node_emit_message (
     if (priv->disabled)
         return;
 
+    /* Keep a private clone of the last message we put on the wire so the
+     * automation surface can read it back without a Debug node (TODO
+     * #40.13).  Cloned rather than reffed because downstream handlers may
+     * mutate the message they receive, and a clone gives every receiver
+     * its own copy already (the wire layer clones too) — holding our own
+     * keeps the readback faithful to what we emitted.
+     *
+     * Drop the clone's source: a #PnMessage holds a STRONG reference on
+     * its source node, so storing a message this node sourced (the usual
+     * case) would form a reference cycle node -> last_output -> source ->
+     * node that keeps the node alive forever — and an undisposed node
+     * never cancels its idles/timers.  The readback carries the
+     * payload/topic; the live MessageEmitted signal renders the intact
+     * message, so the source stays observable there. */
+    g_clear_object (&priv->last_output);
+    priv->last_output = pn_message_clone (message);
+    pn_message_set_source (priv->last_output, NULL);
+
     g_signal_emit (self, signals[SIG_MESSAGE], 0, message);
+}
+
+PnMessage *
+pn_node_get_last_output_message (PnNode *self)
+{
+    PnNodePrivate *priv;
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+    priv = pn_node_get_instance_private (self);
+    return priv->last_output;
 }
 
 /* Maximum nesting of synchronous receive→emit→receive→… dispatch.

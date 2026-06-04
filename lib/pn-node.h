@@ -1092,6 +1092,18 @@ void            pn_node_request_repaint (PnNode *self);
 void            pn_node_emit_message   (PnNode *self, PnMessage *message);
 
 /**
+ * pn_node_get_last_output_message:
+ * @self: the node
+ *
+ * Returns: (transfer none) (nullable): the most recent message @self
+ * emitted via pn_node_emit_message(), or %NULL if it has not emitted
+ * yet.  A private clone owned by the node (replaced on each emission);
+ * the automation surface reads it back through GetLastOutputMessage
+ * (TODO #40.13).  Never serialized.
+ */
+PnMessage      *pn_node_get_last_output_message (PnNode *self);
+
+/**
  * pn_node_receive_message:
  * @self:    receiving node
  * @message: (transfer none): message to deliver

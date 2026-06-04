@@ -1574,20 +1574,58 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         sheet/lifecycle cycle through a temp file, globals CRUD + error
         contract); test_dbus_editor_interface.py updated to expect 1.1.
         Phases E (40.12-40.14) and F (40.15-40.16) remain.
+        [E is now DONE -- see below; F (40.15-40.16) still remains.]
 
   PHASE E -- interactivity (observe + drive a running flow)
-  [ ] 40.12 Selection & view.  SelectNodes(uuids)/GetSelection/ClearSelection,
+  [x] 40.12 Selection & view.  SelectNodes(uuids)/GetSelection/ClearSelection,
         FocusNode(uuid) (pn_worksheet_focus_node_by_uuid), CenterOn(uuid) /
         FitToContent, GetNodeGeometry(uuid)->(x,y,w,h) (pn_node_get_client_area)
         and the existing Get/Set worksheet scroll -- so the agent can SHOW the
         user what it just built/changed.
-  [ ] 40.13 Message injection + readback.  InjectMessage(uuid, json) delivers a
+        DONE: eight methods on org.pipas.pipnode.Worksheet backed by six new
+        public PnWorksheet entry points (pn_worksheet_select_nodes_by_uuid /
+        _get_selection_uuids / _clear_selection / _center_on_uuid /
+        _fit_to_content / _set_scroll) that drive the SAME selection set and
+        scroll machinery the mouse/keyboard use -- no parallel state.
+        SelectNodes(as)->u replaces the selection with the on-sheet nodes
+        matching the given uuids (skips unknown/off-sheet, returns the match
+        count) and emits "selection-changed" ONCE; GetSelection->as reads it
+        back; ClearSelection empties it.  FocusNode/CenterOn resolve by uuid
+        (NodeNotFound on miss) -- FocusNode keeps the focus pulse, CenterOn is
+        the quiet recenter.  FitToContent computes the on-sheet bounding box,
+        picks the largest wheel-zoom-clamped zoom that fits with a margin, and
+        recenters via the existing zoom-anchor idle (best-effort: no-op with no
+        scrolled-window ancestor or an empty sheet).  GetNodeGeometry->(dddd)
+        returns the node's full worksheet-space box (pn_node_get_position +
+        pn_node_get_size); SetWorksheetScroll(dd) is the writer paired with the
+        existing GetWorksheetScroll reader.
+  [x] 40.13 Message injection + readback.  InjectMessage(uuid, json) delivers a
         message to a node's input as if a wire carried it (generalises the
         existing InjectDebugMessage; pn_node_receive_message_on_input), and
         GetLastOutputMessage(uuid)->json returns the last message a node
         emitted -- lets the agent test a flow it just built and read the result
         without a Debug node.
-  [ ] 40.14 Signals for live observation.  Emit D-Bus signals
+        DONE: three methods on .Worksheet.  InjectMessage(uuid,json) and
+        InjectMessageOnInput(uuid,input,json) both build a fresh PnMessage from
+        the JSON and route it through pn_node_receive_message_on_input (input 0
+        for the short form; the long form validates input in [0,n_inputs) ->
+        BadPropertyValue).  The JSON accepts either the full documented envelope
+        (an object whose "data" member is an object, with optional "topic") or a
+        bare data bag (any other object, folded wholesale); an injected message
+        has no source (it stands in for a wire delivery).  Parse failures and
+        non-object payloads -> BadPropertyValue, unknown uuid -> NodeNotFound.
+        Readback rides a new core hook: PnNode keeps a private clone of the last
+        message pn_node_emit_message() put on the wire (pn_node_get_last_output_
+        message); GetLastOutputMessage renders it as the compact envelope JSON
+        ("" before any emission).  GOTCHA fixed: a PnMessage holds a STRONG ref
+        on its source, so storing a node's own emitted message back on the node
+        formed a cycle (node->last_output->source->node) that prevented finalize
+        -- an undisposed node never cancels its startup-announce idle, so a later
+        main-loop pump fired a stale idle against a freed stack and segfaulted
+        test-pn-knob (only under fast I/O; gdb/valgrind/pipes masked it).  Fixed
+        by clearing the stored clone's source; the live MessageEmitted signal
+        still renders the intact message, so from_id stays observable there.
+  [x] 40.14 Signals for live observation.  Emit D-Bus signals
         (g_dbus_connection_emit_signal) for NodeAdded/NodeRemoved/NodeMoved/
         NodeRenamed/NodePropertyChanged, WireAdded/WireRemoved,
         SelectionChanged, SheetChanged, DocumentModified, and a
@@ -1596,6 +1634,34 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         (or its own) instead of polling.  Bridge from the existing GObject
         notifications (node-store changes, the flow's sheet-*/modified signals,
         worksheet selection).
+        DONE: all eleven signals declared in the introspection XML (graph +
+        SelectionChanged + MessageEmitted on .Worksheet; SheetChanged +
+        DocumentModified on .Editor) and emitted by a per-window PnSignalBridge
+        wired up on the GtkApplication "window-added"/"window-removed" signals.
+        Because the flow owns one shared node/wire store across every sheet, one
+        set of store + flow connections per window covers the whole document;
+        per-node "notify"/"message" handlers attach on node-added (and any nodes
+        already present) and drop on node-removed (disconnect_by_data).  The
+        single "notify" handler routes "position"->NodeMoved, "name"->
+        NodeRenamed, else NodePropertyChanged so each model change maps to
+        exactly one signal.  SelectionChanged follows the active sheet's
+        PnWorksheet (each tab is its own widget) via a weak-pointer-guarded
+        rebind on active-sheet-changed.  active-sheet-changed->SheetChanged(name)
+        and modified-changed->DocumentModified(b) (the latter only on a real
+        flag transition).  automation_emit_signal() consumes the floating
+        params even when off-bus so every call site stays one line.
+
+        PHASE E COMPLETE.  API minor bumped to 1.2 (back-compatible adds);
+        the surface is now version 1.2.  Covered by
+        tests/test_dbus_interactivity.py (selection match-count + GetSelection
+        read-back + ClearSelection; geometry agreeing with GetNodeByUuid + the
+        NodeNotFound rejections on Focus/Center/Geometry; InjectMessage
+        round-trip through Topic incl. envelope + bare-bag forms, the bad-JSON /
+        NodeNotFound / out-of-range-input rejections, and "" before first emit;
+        and the live NodeAdded/WireAdded/SelectionChanged/MessageEmitted/
+        NodeMoved/NodeRenamed/WireRemoved/NodeRemoved/SheetChanged/
+        DocumentModified signals end to end).  test_dbus_editor_interface.py
+        updated to expect 1.2.  Phase F (40.15-40.16) remains.
   PHASE F -- hardening, docs, client, tests
   [ ] 40.15 Reference docs + Python client + tests.  A DBUS-API.md (sibling to
         PLUGINS) describing the contract, bus-name discovery, and worked
