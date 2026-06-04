@@ -12,7 +12,8 @@
         "y" : 140.0
       },
       "properties" : {
-        "expression" : "value1 + value2"
+        "inputs" : 2,
+        "expression" : "a + b"
       }
     },
     {
@@ -21,13 +22,13 @@
       "name" : "Fine",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 60.0,
-        "y" : 100.0
+        "x" : 80.0,
+        "y" : 140.0
       },
       "properties" : {
         "min" : -5.0,
         "max" : 5.0,
-        "value" : -4.1666666666666661
+        "value" : 2.0833333333333335
       }
     },
     {
@@ -36,13 +37,13 @@
       "name" : "Coarse",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 60.0,
-        "y" : 180.0
+        "x" : 80.0,
+        "y" : 220.0
       },
       "properties" : {
         "min" : 0.0,
-        "max" : 100.0,
-        "value" : 100.0
+        "max" : 95.0,
+        "value" : 87.083333333333329
       }
     },
     {
@@ -51,8 +52,8 @@
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 520.0,
-        "y" : 140.0
+        "x" : 480.0,
+        "y" : 60.0
       },
       "properties" : {
         "target" : "Standard Error",
@@ -65,13 +66,121 @@
       "name" : "Dial 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 540.0,
-        "y" : 200.0
+        "x" : 520.0,
+        "y" : 140.0
       },
       "properties" : {
         "key" : "data/value",
         "min-value" : 0.0,
-        "max-value" : 120.0,
+        "max-value" : 100.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3",
+      "name" : "ax² + bx + c",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 520.0
+      },
+      "properties" : {
+        "inputs" : 4,
+        "expression" : "value1 + value2"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "60e4336a-4e04-4ad3-ac0c-aea398366f78",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 480.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 9.1666666666666679
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "b4a65ad7-a4dd-417f-bac5-4f8cb2a98ef0",
+      "name" : "Knob 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 540.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 5.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "c28d61bb-8b75-4e9e-85af-1a6ab2349192",
+      "name" : "Knob 3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 600.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 0.58333333333333326
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "cfb074f2-ca51-4eb5-870e-78cfae863fe3",
+      "name" : "Knob 4",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 660.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 0.66666666666666652
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "263a51f8-c0bd-4f29-bf77-607d97144698",
+      "name" : "Dial 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 520.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 100.0,
         "start-angle" : -120.0,
         "end-angle" : 120.0,
         "major-ticks" : 13,
@@ -111,6 +220,29 @@
     {
       "source_id" : "c4d8f740-d67d-4478-8abd-02f286b864d9",
       "target_id" : "3af32bb6-d4d5-42b6-a61f-090678e7081a"
+    },
+    {
+      "source_id" : "60e4336a-4e04-4ad3-ac0c-aea398366f78",
+      "target_id" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3"
+    },
+    {
+      "source_id" : "b4a65ad7-a4dd-417f-bac5-4f8cb2a98ef0",
+      "target_id" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "c28d61bb-8b75-4e9e-85af-1a6ab2349192",
+      "target_id" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "cfb074f2-ca51-4eb5-870e-78cfae863fe3",
+      "target_id" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3",
+      "target_input" : 3
+    },
+    {
+      "source_id" : "706b58d8-4be2-482c-abe7-f2b7cf3e37d3",
+      "target_id" : "263a51f8-c0bd-4f29-bf77-607d97144698"
     }
   ],
   "sheets" : [
