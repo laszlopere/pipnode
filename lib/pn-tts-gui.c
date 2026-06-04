@@ -225,13 +225,13 @@ build_tts_model_editor (GObject    *target,
 }
 
 /** Rebuild the language combo from the locales the currently-selected
- *  engine's installed voices cover.  An "All languages" sentinel (id
- *  "") leads the list and selects the unfiltered view.  Called at
- *  build time and on every notify::engine, since only piper exposes
- *  locales and a given voice directory may cover a different set.  When
- *  the persisted language is no longer offered — switching away from
- *  piper, say — it is reset to "" so the voice combo doesn't stay
- *  filtered against a locale the engine can't satisfy. */
+ *  engine's installed voices cover.  Every entry is a concrete locale —
+ *  there is no "all languages" option.  Called at build time and on
+ *  every notify::engine, since only piper exposes locales and a given
+ *  voice directory may cover a different set.  When the persisted
+ *  language is no longer offered — switching away from piper, say — it
+ *  is reset to the first locale the engine does offer (or "" when the
+ *  engine exposes none) so the combo never points at a missing row. */
 static void
 language_repopulate (GObject *target, GtkComboBoxText *combo)
 {
@@ -243,7 +243,6 @@ language_repopulate (GObject *target, GtkComboBoxText *combo)
     g_object_get (target, "engine", &engine_id, "language", &current, NULL);
 
     gtk_combo_box_text_remove_all (combo);
-    gtk_combo_box_text_append (combo, "", "All languages");
 
     langs = pn_tts_engine_list_languages (engine_id);
     for (gchar **p = langs; p != NULL && *p != NULL; p++)
@@ -255,14 +254,17 @@ language_repopulate (GObject *target, GtkComboBoxText *combo)
     }
 
     /* A configured locale the current engine can't offer (e.g. after
-     * switching off piper) drops back to "All languages" so the voice
-     * list isn't filtered against an impossible locale. */
-    if (!listed && current != NULL && *current != '\0')
-        g_object_set (target, "language", "", NULL);
+     * switching off piper) drops to the first locale the engine does
+     * offer, or "" when it exposes none — the filter is inert for
+     * non-piper engines and the combo is disabled below. */
+    if (!listed)
+        g_object_set (target, "language",
+                      langs != NULL && langs[0] != NULL ? langs[0] : "",
+                      NULL);
 
-    /* Only piper yields locales; with none to choose from the combo is
-     * just the lone "All languages" sentinel, so disable it to signal
-     * that language filtering doesn't apply to this engine. */
+    /* Only piper yields locales; with none to choose from there is
+     * nothing to pick, so disable the combo to signal that language
+     * filtering doesn't apply to this engine. */
     gtk_widget_set_sensitive (GTK_WIDGET (combo),
                               langs != NULL && langs[0] != NULL);
 

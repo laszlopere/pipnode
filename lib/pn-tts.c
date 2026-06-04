@@ -1053,7 +1053,7 @@ pn_tts_class_init (PnTtsClass *klass)
             "Locale the voice list is restricted to (e.g. \"hu_HU\"); "
             "empty offers all installed voices.  Only piper voices are "
             "locale-tagged, so this has no effect on the other engines",
-            "",
+            "en_US",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /* 0.5×–2× span covers the useful range of all four supported-
@@ -1136,7 +1136,7 @@ pn_tts_init (PnTts *self)
 
     self->speaking         = FALSE;
     self->speed            = 1.0;
-    self->language         = g_strdup ("");
+    self->language         = g_strdup ("en_US");
     self->sink             = g_strdup ("");
     self->last_error       = NULL;
     self->per_source_voice = TRUE;
