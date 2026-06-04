@@ -50,6 +50,18 @@ feed_tz (PnNode *node, gdouble value, const gchar *tz_abbr)
     g_object_unref (m);
 }
 
+/* Feed a value with a numeric "timezone" member — a raw UTC offset in
+ * minutes east of Greenwich, the second wire form the node accepts. */
+static void
+feed_tz_min (PnNode *node, gdouble value, gint off_min)
+{
+    PnMessage *m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", value);
+    pn_message_set_int (m, "timezone", off_min);
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+}
+
 /* Build a total seconds count for a d/h/m/s breakdown. */
 static gint64
 secs (gint64 d, gint h, gint m, gint s)
@@ -347,11 +359,11 @@ test_not_set_unknown_abbreviation_is_gmt (void)
     g_object_unref (dc);
 }
 
-/* An ambiguous abbreviation (the two "CST" rows in the table) can't be
- * resolved unambiguously, so the node falls back to GMT rather than
- * guess. */
+/* "CST" names two rows (US Central and China); the table flags China as the
+ * preferred resolution, so the wire abbreviation now lands on China Standard
+ * Time (UTC+8) instead of falling back to GMT.  12:34:56 UTC reads 20:34:56. */
 static void
-test_not_set_ambiguous_abbreviation_is_gmt (void)
+test_not_set_cst_resolves_to_china (void)
 {
     PnDigitalClock          *dc = pn_digital_clock_new ();
     PnDigitalClockPaintState st;
@@ -359,7 +371,53 @@ test_not_set_ambiguous_abbreviation_is_gmt (void)
     feed_tz (PN_NODE (dc), 1767270896.0, "CST");
     pn_digital_clock_get_paint_state (dc, &st);
 
-    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.hours,   ==, 20);
+    PN_CHECK_CMPINT (st.minutes, ==, 34);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    g_object_unref (dc);
+}
+
+/* A numeric "timezone" member is taken as a raw UTC offset in minutes.  With
+ * "Not Set", +330 (India, +5h30) turns 12:34:56 UTC into 18:04:56. */
+static void
+test_not_set_numeric_offset (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    feed_tz_min (PN_NODE (dc), 1767270896.0, 330);
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 18);
+    PN_CHECK_CMPINT (st.minutes, ==,  4);
+    PN_CHECK_CMPINT (st.seconds, ==, 56);
+
+    /* A negative numeric offset wraps back over midnight just like a named
+     * negative zone: -480 (UTC-8) turns 03:00 UTC into 19:00 the day before. */
+    feed_tz_min (PN_NODE (dc), 1767322800.0, -480);
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 19);
+    PN_CHECK_CMPINT (st.minutes, ==,  0);
+    PN_CHECK_CMPINT (st.seconds, ==,  0);
+
+    g_object_unref (dc);
+}
+
+/* A configured zone still wins outright over a numeric wire offset, exactly
+ * as it does over a wire abbreviation. */
+static void
+test_configured_overrides_numeric_offset (void)
+{
+    PnDigitalClock          *dc = pn_digital_clock_new ();
+    PnDigitalClockPaintState st;
+
+    g_object_set (dc, "timezone", "GMT — Greenwich Mean Time", NULL);
+    feed_tz_min (PN_NODE (dc), 1767270896.0, 330);   /* wire says +5h30 */
+    pn_digital_clock_get_paint_state (dc, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 12);   /* GMT wins, not +330 */
     PN_CHECK_CMPINT (st.minutes, ==, 34);
     PN_CHECK_CMPINT (st.seconds, ==, 56);
 
@@ -408,8 +466,12 @@ main (int argc, char **argv)
                  test_not_set_uses_message_abbreviation);
     pn_test_add ("not_set_unknown_abbreviation_is_gmt",
                  test_not_set_unknown_abbreviation_is_gmt);
-    pn_test_add ("not_set_ambiguous_abbreviation_is_gmt",
-                 test_not_set_ambiguous_abbreviation_is_gmt);
+    pn_test_add ("not_set_cst_resolves_to_china",
+                 test_not_set_cst_resolves_to_china);
+    pn_test_add ("not_set_numeric_offset",
+                 test_not_set_numeric_offset);
+    pn_test_add ("configured_overrides_numeric_offset",
+                 test_configured_overrides_numeric_offset);
     pn_test_add ("configured_overrides_message",
                  test_configured_overrides_message);
     return pn_test_run ();

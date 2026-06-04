@@ -181,22 +181,37 @@ pn_digital_clock_receive (PnNode *node, PnMessage *message)
     if (!read_value (message, &value))
         return;   /* nothing numeric to show — leave the display as-is */
 
-    /* "Not Set" defers to the message's "timezone" abbreviation (the Clock
-     * node emits e.g. "CEST"); an unknown or missing abbreviation falls
-     * back to GMT (UTC+0).  A configured zone wins outright and never
-     * looks at the wire — but we still snapshot the wire's hint so a
-     * later switch back to "Not Set" picks up the same instant. */
+    /* "Not Set" defers to the message's "timezone" member, in either of two
+     * wire forms: a string abbreviation (the Clock node emits e.g. "CEST",
+     * resolved through the shared tz-table) or a bare number, taken as a raw
+     * UTC offset in minutes east of Greenwich (so 120 is the same +2h as
+     * "CEST", and 330 reaches India's half-hour zone).  An unknown
+     * abbreviation, or a member that is missing or neither string nor number,
+     * falls back to GMT (UTC+0).  A configured zone wins outright and never
+     * looks at the wire — but we still snapshot the wire's hint so a later
+     * switch back to "Not Set" picks up the same instant. */
     {
         JsonNode *tz_node = pn_message_get_member (message, "timezone");
 
-        if (tz_node != NULL && JSON_NODE_HOLDS_VALUE (tz_node)
-            && json_node_get_value_type (tz_node) == G_TYPE_STRING)
+        if (tz_node != NULL && JSON_NODE_HOLDS_VALUE (tz_node))
         {
-            const gchar *abbr  = json_node_get_string (tz_node);
-            const gchar *label = pn_tz_table_lookup_by_abbreviation (abbr);
+            GType vt = json_node_get_value_type (tz_node);
 
-            if (label != NULL)
-                new_offset = pn_tz_table_offset_minutes (label);
+            if (vt == G_TYPE_STRING)
+            {
+                const gchar *abbr  = json_node_get_string (tz_node);
+                const gchar *label = pn_tz_table_lookup_by_abbreviation (abbr);
+
+                if (label != NULL)
+                    new_offset = pn_tz_table_offset_minutes (label);
+            }
+            else if (vt == G_TYPE_INT64 || vt == G_TYPE_DOUBLE)
+            {
+                gdouble off = json_node_get_double (tz_node);
+
+                if (isfinite (off))
+                    new_offset = (gint) off;   /* minutes east of UTC */
+            }
         }
     }
     self->offset_min = new_offset;
@@ -406,9 +421,10 @@ pn_digital_clock_class_init (PnDigitalClockClass *klass)
     props[PROP_TIMEZONE] = g_param_spec_string (
             "timezone", "Timezone",
             "Timezone the display is shown in.  \"Not Set\" defers to the "
-            "abbreviation on the incoming message's \"timezone\" member "
-            "(set by the Clock node); an unknown or missing abbreviation "
-            "falls back to GMT.",
+            "incoming message's \"timezone\" member — either an abbreviation "
+            "(e.g. \"CEST\", set by the Clock node) or a number taken as the "
+            "raw UTC offset in minutes; an unknown abbreviation or a "
+            "missing/non-numeric value falls back to GMT.",
             PN_TZ_NOT_SET,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

@@ -43,10 +43,17 @@ Daylight-saving variants are listed as their own offsets
 (<code>CET</code> vs <code>CEST</code>), so no daylight-saving
 guessing takes place. The default is <code>Not Set</code>: with no
 fixed zone selected the node reads the incoming message's
-<code>timezone</code> member as a bare abbreviation (which the Clock
-node emits as the local zone, e.g. <code>CEST</code>) and applies the
-matching offset. An unknown, missing or ambiguous abbreviation falls
-back to <strong>GMT (UTC+0)</strong>.
+<code>timezone</code> member in either of two forms: a bare
+abbreviation (which the Clock node emits as the local zone, e.g.
+<code>CEST</code>) whose matching offset is applied, or a plain
+number, taken as the raw UTC offset in <strong>minutes</strong> east of
+Greenwich (so <code>120</code> is the same +2h as <code>CEST</code>,
+and <code>330</code> reaches India's half-hour zone). An unknown
+abbreviation, or a member that is missing or neither string nor number,
+falls back to <strong>GMT (UTC+0)</strong>. The abbreviation
+<code>CST</code> is shared by two zones and resolves to
+<strong>China Standard Time (UTC+8)</strong>; reach US Central Standard
+Time through the combo or a numeric <code>-360</code> offset instead.
 </p>
 <table>
   <tr><th>Setting</th><th>Description</th></tr>
@@ -61,8 +68,9 @@ back to <strong>GMT (UTC+0)</strong>.
       <td>Timezone the face is shown in, chosen from a list of
           abbreviations and names. <code>Not Set</code> (the default)
           defers to the incoming message's <code>timezone</code>
-          member; an unknown or missing abbreviation falls back to
-          GMT.</td></tr>
+          member &mdash; a bare abbreviation or a numeric UTC offset in
+          minutes; an unknown abbreviation or a missing/non-numeric
+          value falls back to GMT.</td></tr>
   <tr><td><code>face-color</code></td>
       <td>Fill colour of the dial face &mdash; the white face of a
           wall clock by default.</td></tr>

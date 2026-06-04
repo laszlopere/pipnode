@@ -51,6 +51,18 @@ feed_tz (PnNode *node, gdouble value, const gchar *tz_abbr)
     g_object_unref (m);
 }
 
+/* Feed a value with a numeric "timezone" member — a raw UTC offset in
+ * minutes east of Greenwich, the second wire form the node accepts. */
+static void
+feed_tz_min (PnNode *node, gdouble value, gint off_min)
+{
+    PnMessage *m = pn_message_new (NULL, NULL);
+    pn_message_set_double (m, "value", value);
+    pn_message_set_int (m, "timezone", off_min);
+    pn_node_receive_message (node, m);
+    g_object_unref (m);
+}
+
 /* Build a total seconds count for a d/h/m/s breakdown. */
 static gint64
 secs (gint64 d, gint h, gint m, gint s)
@@ -330,6 +342,44 @@ test_not_set_uses_message_abbreviation (void)
     g_object_unref (ac);
 }
 
+/* "CST" names two rows (US Central and China); the table flags China as the
+ * preferred resolution, so the wire abbreviation now lands on China Standard
+ * Time (UTC+8) rather than falling back to GMT.  04:00 UTC reads 12:00. */
+static void
+test_not_set_cst_resolves_to_china (void)
+{
+    PnAnalogClock          *ac = pn_analog_clock_new ();
+    PnAnalogClockPaintState st;
+
+    /* 2026-06-01 04:00:00 UTC = 1780286400 */
+    feed_tz (PN_NODE (ac), 1780286400.0, "CST");
+    pn_analog_clock_get_paint_state (ac, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 12);
+    PN_CHECK_CMPINT (st.minutes, ==, 0);
+    PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    g_object_unref (ac);
+}
+
+/* A numeric "timezone" member is taken as a raw UTC offset in minutes.  With
+ * "Not Set", +330 (India, +5h30) turns 10:00:00 UTC into 15:30:00. */
+static void
+test_not_set_numeric_offset (void)
+{
+    PnAnalogClock          *ac = pn_analog_clock_new ();
+    PnAnalogClockPaintState st;
+
+    feed_tz_min (PN_NODE (ac), 1780308000.0, 330);
+    pn_analog_clock_get_paint_state (ac, &st);
+
+    PN_CHECK_CMPINT (st.hours,   ==, 15);
+    PN_CHECK_CMPINT (st.minutes, ==, 30);
+    PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    g_object_unref (ac);
+}
+
 /* A configured timezone wins outright: even if the message says CEST,
  * the dialog's choice rules the display. */
 static void
@@ -345,6 +395,12 @@ test_configured_overrides_message (void)
     PN_CHECK_CMPINT (st.hours,   ==, 10);   /* GMT wins, not CEST */
     PN_CHECK_CMPINT (st.minutes, ==, 0);
     PN_CHECK_CMPINT (st.seconds, ==, 0);
+
+    /* A numeric wire offset is overridden the same way. */
+    feed_tz_min (PN_NODE (ac), 1780308000.0, 330);
+    pn_analog_clock_get_paint_state (ac, &st);
+    PN_CHECK_CMPINT (st.hours,   ==, 10);   /* still GMT, not +330 */
+    PN_CHECK_CMPINT (st.minutes, ==, 0);
 
     g_object_unref (ac);
 }
@@ -370,6 +426,10 @@ main (int argc, char **argv)
                  test_negative_offset_wraps);
     pn_test_add ("not_set_uses_message_abbreviation",
                  test_not_set_uses_message_abbreviation);
+    pn_test_add ("not_set_cst_resolves_to_china",
+                 test_not_set_cst_resolves_to_china);
+    pn_test_add ("not_set_numeric_offset",
+                 test_not_set_numeric_offset);
     pn_test_add ("configured_overrides_message",
                  test_configured_overrides_message);
     return pn_test_run ();

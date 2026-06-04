@@ -269,10 +269,13 @@ test_not_set_unknown_abbreviation_is_gmt (void)
     g_object_unref (node);
 }
 
-/* An ambiguous abbreviation (the two "CST" rows) can't be resolved
- * unambiguously, so the node falls back to GMT rather than guess. */
+/* "CST" names two rows (US Central and China); the table flags China as the
+ * preferred resolution, so the wire abbreviation now reads the target as
+ * China Standard Time (UTC+8).  The target wall clock is then 8h = 28800s
+ * earlier in absolute time than at GMT, so the same "now" instant sits
+ * 28800s past the GMT reading: 17 - 28800 = -28783 seconds remaining. */
 static void
-test_not_set_ambiguous_abbreviation_is_gmt (void)
+test_not_set_cst_resolves_to_china (void)
 {
     Recorder   rec;
     PnNode    *node;
@@ -288,7 +291,7 @@ test_not_set_ambiguous_abbreviation_is_gmt (void)
     g_object_unref (m);
 
     PN_CHECK_CMPINT (rec.count, ==, 1);
-    PN_CHECK_NEAR   (rec.seen[0], 17.0, 1e-6);
+    PN_CHECK_NEAR   (rec.seen[0], 17.0 - 28800.0, 1e-6);
 
     g_object_unref (node);
 }
@@ -360,8 +363,8 @@ main (int argc, char **argv)
                  test_not_set_uses_message_abbreviation);
     pn_test_add ("not_set_unknown_abbreviation_is_gmt",
                  test_not_set_unknown_abbreviation_is_gmt);
-    pn_test_add ("not_set_ambiguous_abbreviation_is_gmt",
-                 test_not_set_ambiguous_abbreviation_is_gmt);
+    pn_test_add ("not_set_cst_resolves_to_china",
+                 test_not_set_cst_resolves_to_china);
     pn_test_add ("configured_overrides_message",
                  test_configured_overrides_message);
     pn_test_add ("preserves_members",   test_preserves_other_members);

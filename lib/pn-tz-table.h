@@ -80,9 +80,11 @@ gint                 pn_tz_table_offset_minutes (const gchar *label);
  *
  * Resolve a bare abbreviation to the full label as it appears in
  * pn_tz_table_choices() (e.g. "CEST — Central European Summer Time").
- * Returns %NULL when the abbreviation is unknown or ambiguous (matches
- * more than one entry, like the two "CST" rows).  The returned pointer
- * is static; do not free.
+ * When an abbreviation names more than one row a single preferred row
+ * wins — "CST" resolves to "CST — China Standard Time", not the equally
+ * named US Central zone.  Returns %NULL when the abbreviation is unknown
+ * or still ambiguous (several equal candidates, none preferred).  The
+ * returned pointer is static; do not free.
  */
 const gchar         *pn_tz_table_lookup_by_abbreviation (const gchar *abbr);
 

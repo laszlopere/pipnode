@@ -24,7 +24,8 @@
 typedef struct
 {
     const gchar *label;
-    gint         off_min;   /* minutes east of UTC */
+    gint         off_min;        /* minutes east of UTC */
+    gboolean     abbr_preferred; /* win the abbreviation lookup on a tie */
 } TzEntry;
 
 static const TzEntry tz_table[] =
@@ -52,7 +53,11 @@ static const TzEntry tz_table[] =
     { "MSK — Moscow Standard Time",                 180 },
     { "GST — Gulf Standard Time",                   240 },
     { "IST — India Standard Time",                  330 },
-    { "CST — China Standard Time",                  480 },
+    /* "CST" also names US Central Standard Time (-360) above; flag China as
+     * the preferred resolution so the otherwise-ambiguous abbreviation lands
+     * on a real zone instead of falling back to GMT.  US Central stays
+     * reachable through the dialog combo and a numeric wire offset. */
+    { "CST — China Standard Time",                  480, TRUE },
     { "JST — Japan Standard Time",                  540 },
     { "AEST — Australian Eastern Standard Time",    600 },
     { "AEDT — Australian Eastern Daylight Time",    660 },
@@ -140,18 +145,22 @@ pn_tz_table_offset_minutes (const gchar *label)
 const gchar *
 pn_tz_table_lookup_by_abbreviation (const gchar *abbr)
 {
-    const gchar *match = NULL;
+    const gchar *plain_match = NULL;
+    const gchar *pref_match  = NULL;
+    guint        n_plain     = 0;
+    guint        n_pref      = 0;
     gsize        n;
     guint        i;
-    gboolean     ambiguous = FALSE;
 
     if (abbr == NULL || *abbr == '\0')
         return NULL;
 
     /* Each label starts "<ABBR> — <full name>"; match the prefix up to the
-     * space.  Reject ambiguous abbreviations (the two "CST" rows) — the
-     * caller cannot know which the Clock meant, so we fall back to GMT
-     * rather than guess wrong by half a planet. */
+     * space.  When an abbreviation names more than one row (the two "CST"
+     * rows), a single row flagged abbr_preferred wins outright — that is how
+     * "CST" resolves to China Standard Time.  With no preferred row and more
+     * than one plain match the abbreviation stays unresolved (NULL), so the
+     * caller falls back to GMT rather than guess wrong by half a planet. */
     n = strlen (abbr);
     for (i = 0; i < G_N_ELEMENTS (tz_table); i++)
     {
@@ -162,13 +171,23 @@ pn_tz_table_lookup_by_abbreviation (const gchar *abbr)
         if (lab[n] != ' ')
             continue;   /* prefix-only hit ("CS" against "CST — …") */
 
-        if (match != NULL)
+        if (tz_table[i].abbr_preferred)
         {
-            ambiguous = TRUE;
-            break;
+            pref_match = lab;
+            n_pref++;
         }
-        match = lab;
+        else
+        {
+            plain_match = lab;
+            n_plain++;
+        }
     }
 
-    return ambiguous ? NULL : match;
+    if (n_pref == 1)
+        return pref_match;      /* preferred row wins any tie */
+    if (n_pref > 1)
+        return NULL;            /* two preferred rows = table bug; don't guess */
+    if (n_plain == 1)
+        return plain_match;     /* a single unambiguous match */
+    return NULL;                /* unknown, or still-ambiguous plain rows */
 }
