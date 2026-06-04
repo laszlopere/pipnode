@@ -1412,6 +1412,81 @@ build_class_metadata_tab (PnNode *node)
  *  enabled / disabled flag); the type-level identity (class name,
  *  icon, colour, ports) lives in the dedicated Class tab built by
  *  build_class_metadata_tab(). */
+
+/* ------------------------------------------------------------------ */
+/*  Per-input name editor (multi-input nodes)                          */
+/* ------------------------------------------------------------------ */
+
+/* Borrowed node + which input an entry edits.  Freed with the entry (the
+ * entry lives on the dialog, which is torn down before the node). */
+typedef struct
+{
+    PnNode *node;
+    gint    index;
+} InputNameBinding;
+
+static void
+on_input_name_changed (GtkEditable *editable, gpointer user_data)
+{
+    InputNameBinding *b    = user_data;
+    const gchar      *text = gtk_entry_get_text (GTK_ENTRY (editable));
+
+    /* An empty field reverts the input to its "valueN" default (see
+     * pn_node_set_input_name); request_repaint refreshes the name the
+     * worksheet paints beside that input's port. */
+    pn_node_set_input_name  (b->node, b->index, text);
+    pn_node_request_repaint (b->node);
+}
+
+/** Append an "Input names" section to @grid for a node with more than
+ *  one input: a heading followed by one entry per input, each pre-filled
+ *  with the input's current name and reverting to "valueN" when cleared.
+ *  Iterates the actual input count, so it handles three-or-more-input
+ *  nodes, not just two.  A no-op (returns @row unchanged) for
+ *  single-input and input-less nodes. */
+static guint
+build_input_names_section (GtkGrid *grid, PnNode *node, guint row)
+{
+    const gint n = pn_node_get_n_inputs (node);
+    GtkWidget *heading;
+    gint       i;
+
+    if (n < 2)
+        return row;
+
+    heading = gtk_label_new (NULL);
+    gtk_label_set_markup  (GTK_LABEL (heading), "<b>Input names</b>");
+    gtk_widget_set_halign (heading, GTK_ALIGN_START);
+    gtk_widget_set_margin_top (heading, 6);
+    gtk_grid_attach (grid, heading, 0, row++, 2, 1);
+
+    for (i = 0; i < n; i++)
+    {
+        GtkWidget        *entry  = gtk_entry_new ();
+        InputNameBinding *bind   = g_new0 (InputNameBinding, 1);
+        gchar            *deflt  = g_strdup_printf ("value%d", i + 1);
+        gchar            *rowlbl = g_strdup_printf ("Input %d", i + 1);
+
+        bind->node  = node;
+        bind->index = i;
+
+        gtk_entry_set_text             (GTK_ENTRY (entry),
+                                        pn_node_get_input_name (node, i));
+        gtk_entry_set_placeholder_text (GTK_ENTRY (entry), deflt);
+
+        g_signal_connect_data (entry, "changed",
+                               G_CALLBACK (on_input_name_changed),
+                               bind, (GClosureNotify) g_free, 0);
+
+        pn_node_dialog_attach_row (grid, row++, rowlbl, entry);
+
+        g_free (deflt);
+        g_free (rowlbl);
+    }
+
+    return row;
+}
+
 static GtkWidget *
 build_pn_node_tab (GObject   *target,
                    GtkWindow *parent)
@@ -1440,6 +1515,12 @@ build_pn_node_tab (GObject   *target,
 
         attach_property_row (GTK_GRID (grid), target, pspec, row++, parent);
     }
+
+    /* Multi-input nodes get an editable name per input below the base
+     * rows; ordinary single-input nodes add nothing. */
+    if (PN_IS_NODE (target))
+        row = build_input_names_section (GTK_GRID (grid),
+                                         PN_NODE (target), row);
 
     g_type_class_unref (klass);
     return grid;
