@@ -230,6 +230,56 @@ test_preserves_other_members (void)
     g_object_unref (node);
 }
 
+/* A multi-input node reserves a stacked lower section: its footprint
+ * grows by one PN_NODE_INPUT_ROW_HEIGHT row per input below the header,
+ * while the header height itself is unchanged.  The comparator (2
+ * inputs) is the worked example. */
+static void
+test_multi_input_footprint (void)
+{
+    Recorder rec;
+    PnNode  *node = make_node (0.0, &rec);
+    double   w, h, hh, section;
+
+    PN_CHECK_CMPINT (pn_node_get_n_inputs (node), ==, 2);
+
+    section = pn_node_get_input_section_height (node);
+    PN_CHECK_NEAR (section, 2.0 * PN_NODE_INPUT_ROW_HEIGHT, 1e-9);
+
+    hh = pn_node_get_header_height (node);
+    pn_node_get_size (node, &w, &h);
+    /* Header stays put; total height = header + the two input rows. */
+    PN_CHECK_NEAR (h, hh + section, 1e-9);
+
+    /* Header-only client-area logic must still report nothing: the
+     * input section is solid body, not a paint_plot client area. */
+    PN_CHECK_CMPINT (pn_node_get_client_area (node, NULL, NULL, NULL, NULL),
+                     ==, FALSE);
+
+    g_object_unref (node);
+}
+
+/* Inputs are named "value1", "value2", … by default, and a node may
+ * override (and revert) any input's name. */
+static void
+test_input_names (void)
+{
+    Recorder rec;
+    PnNode  *node = make_node (0.0, &rec);
+
+    PN_CHECK_CMPSTR (pn_node_get_input_name (node, 0), ==, "value1");
+    PN_CHECK_CMPSTR (pn_node_get_input_name (node, 1), ==, "value2");
+
+    pn_node_set_input_name (node, 0, "A");
+    PN_CHECK_CMPSTR (pn_node_get_input_name (node, 0), ==, "A");
+    PN_CHECK_CMPSTR (pn_node_get_input_name (node, 1), ==, "value2");
+
+    pn_node_set_input_name (node, 0, NULL);   /* revert to default */
+    PN_CHECK_CMPSTR (pn_node_get_input_name (node, 0), ==, "value1");
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -241,5 +291,7 @@ main (int argc, char **argv)
     pn_test_add ("moving_reference",    test_moving_reference_flips);
     pn_test_add ("non_numeric_ignored", test_non_numeric_value_ignored);
     pn_test_add ("preserves_members",   test_preserves_other_members);
+    pn_test_add ("multi_input_footprint", test_multi_input_footprint);
+    pn_test_add ("input_names",         test_input_names);
     return pn_test_run ();
 }

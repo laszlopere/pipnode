@@ -496,13 +496,16 @@ apply_zoom_anchor (gpointer data)
 #define PN_PORT_RADIUS       2.0
 
 /* World-space y of the centre of input port @index (0-based) of @node.
- * Inputs are spread evenly down the node's *header* edge: with N inputs
- * port i sits at header_h·(i+1)/(N+1).  For the single-input case
- * (N == 1) this collapses to header_h/2 — the historical position, kept
- * bit-for-bit so existing nodes (including tall ones like graphs that
- * anchor on the header centreline) do not shift.  Used by the body
- * painter, the port hit-test, and the wire renderer so all three agree
- * on where a tab is. */
+ *
+ * Single-input nodes (N == 1) keep the historical position — the centre
+ * of the header edge (header_h/2) — bit-for-bit, so existing nodes
+ * (including tall ones like graphs that anchor on the header centreline)
+ * do not shift.
+ *
+ * Multi-input nodes (N >= 2) move their ports off the header into the
+ * stacked lower section: port i sits at the centre of row i, header_h +
+ * (i + 0.5)·row.  Used by the body painter, the port hit-test, and the
+ * wire renderer so all three agree on where a tab is. */
 static inline double
 input_port_y (PnNode *node, gint index)
 {
@@ -510,7 +513,24 @@ input_port_y (PnNode *node, gint index)
     const double  hh = pn_node_get_header_height   (node);
     const PnPoint *p = pn_node_get_position        (node);
 
-    return p->y + hh * (double) (index + 1) / (double) (n + 1);
+    if (n <= 1)
+        return p->y + hh * (double) (index + 1) / (double) (n + 1);
+
+    return p->y + hh
+         + ((double) index + 0.5) * PN_NODE_INPUT_ROW_HEIGHT;
+}
+
+/* Height of a node's solid body — its header plus, for a multi-input
+ * node, the stacked input-row section fenced off below it.  This is the
+ * filled/outlined rectangle and the node's selection target; it
+ * deliberately excludes any paint_plot extension (a passive readout that
+ * is not a hit target).  Single-input and input-less nodes report just
+ * the header, so their footprint is unchanged. */
+static inline double
+node_body_height (PnNode *node)
+{
+    return pn_node_get_header_height (node)
+         + pn_node_get_input_section_height (node);
 }
 
 /* The "fire" button drawn on the left edge of #PnInject nodes.  Sits
@@ -619,6 +639,14 @@ draw_node (
     double         full_h;
     const double   header_h = pn_node_get_header_height (node);
     pn_node_get_size (node, &full_w, &full_h);
+    /* Solid body = header + (for multi-input nodes) the stacked input
+     * section below it.  The body fill, outline and drop shadow span this
+     * height; the icon panel, label and output port stay in the header
+     * portion.  Single-input nodes have body_h == header_h, so their
+     * painting is unchanged. */
+    const gint     n_inputs  = has_input ? pn_node_get_n_inputs (node) : 0;
+    const gboolean multi_in  = n_inputs >= 2;
+    const double   body_h    = node_body_height (node);
     /* Override the node's body colour: neutral grey while disabled (so
      * the inert state reads at a glance), red while in an error state
      * (so a broken node stands out).  Disabled wins — a node the user
@@ -644,11 +672,11 @@ draw_node (
         icon = PN_NODE_ERROR_ICON;
 
     /* Drop shadow — drawn first so it sits underneath the node body. */
-    paint_drop_shadow (cr, x, y, full_w, header_h, PN_NODE_RADIUS);
+    paint_drop_shadow (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
 
     /* Body fill. */
     rounded_rect_path (cr, x, y,
-                       full_w, header_h, PN_NODE_RADIUS);
+                       full_w, body_h, PN_NODE_RADIUS);
     cairo_set_source_rgb (cr, r, g, b);
     cairo_fill_preserve (cr);
 
@@ -664,11 +692,11 @@ draw_node (
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
     cairo_save (cr);
-    rounded_rect_path (cr, x, y, full_w, header_h, PN_NODE_RADIUS);
+    rounded_rect_path (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
     cairo_clip (cr);
     rounded_rect_path (cr,
                        x + 1.0, y + 1.0,
-                       full_w - 2.0, header_h - 2.0,
+                       full_w - 2.0, body_h - 2.0,
                        PN_NODE_RADIUS - 1.0);
     cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.22);
     cairo_set_line_width (cr, 1.0);
@@ -921,19 +949,43 @@ draw_node (
         g_object_unref (layout);
     }
 
-    /* Ports.  Drawn as small rounded tabs straddling the node edge.
-     * Their y-anchor is the *header* centerline so nodes whose full
-     * footprint extends past the header (e.g. graphs) still expose
-     * ports at the visually-expected height. */
+    /* Framing line fencing the header off from the stacked input section
+     * of a multi-input node.  Drawn as an engraved groove matching the
+     * icon-panel separator — a dark trace on the header side stacked
+     * against a light trace on the input-section side — and clipped to
+     * the body so it respects the rounded corners. */
+    if (multi_in)
+    {
+        cairo_save (cr);
+        rounded_rect_path (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
+        cairo_clip (cr);
+        cairo_set_line_width (cr, 1.0);
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.32);
+        cairo_move_to (cr, x,          y + header_h - 0.5);
+        cairo_line_to (cr, x + full_w, y + header_h - 0.5);
+        cairo_stroke (cr);
+        cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.22);
+        cairo_move_to (cr, x,          y + header_h + 0.5);
+        cairo_line_to (cr, x + full_w, y + header_h + 0.5);
+        cairo_stroke (cr);
+        cairo_restore (cr);
+    }
+
+    /* Ports.  Drawn as small rounded tabs straddling the node edge.  A
+     * single-input node anchors its tab on the header centerline (so
+     * nodes whose footprint extends past the header, e.g. graphs, still
+     * expose a port at the expected height); a multi-input node lays its
+     * tabs down the lower section, one per row, each labelled with its
+     * input name ("value1", "value2", …) to its right. */
     if (has_input)
     {
-        const gint n_inputs = pn_node_get_n_inputs (node);
-        gint       i;
+        gint i;
 
         for (i = 0; i < n_inputs; i++)
         {
+            const double cy = input_port_y (node, i);
             const double px = x - PN_PORT_WIDTH / 2.0;
-            const double py = input_port_y (node, i) - PN_PORT_HEIGHT / 2.0;
+            const double py = cy - PN_PORT_HEIGHT / 2.0;
             rounded_rect_path (cr, px, py,
                                PN_PORT_WIDTH, PN_PORT_HEIGHT, PN_PORT_RADIUS);
             cairo_set_source_rgb (cr, 0.78, 0.78, 0.80);
@@ -941,6 +993,39 @@ draw_node (
             cairo_set_source_rgb (cr, 0.40, 0.40, 0.42);
             cairo_set_line_width (cr, 1.0);
             cairo_stroke (cr);
+
+            /* Per-input name, painted inside the row beside its tab.
+             * Engraved (light-below / dark face) like the node label so
+             * it reads on any body colour. */
+            if (multi_in)
+            {
+                PangoLayout          *ilayout;
+                PangoFontDescription *idesc;
+                const gchar          *iname = pn_node_get_input_name (node, i);
+                int                   iw, ih;
+                double                tx, ty;
+
+                ilayout = pango_cairo_create_layout (cr);
+                idesc   = pango_font_description_from_string ("Sans");
+                pango_font_description_set_absolute_size (idesc,
+                                                          11.0 * PANGO_SCALE);
+                pango_layout_set_font_description (ilayout, idesc);
+                pango_font_description_free (idesc);
+                pango_layout_set_text (ilayout, iname, -1);
+                pango_layout_get_pixel_size (ilayout, &iw, &ih);
+
+                tx = x + PN_PORT_WIDTH / 2.0 + 5.0;
+                ty = cy - ih / 2.0;
+
+                cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.55);
+                cairo_move_to (cr, tx, ty + 1.0);
+                pango_cairo_show_layout (cr, ilayout);
+                cairo_set_source_rgb (cr, 0.22, 0.22, 0.22);
+                cairo_move_to (cr, tx, ty);
+                pango_cairo_show_layout (cr, ilayout);
+
+                g_object_unref (ilayout);
+            }
         }
     }
 
@@ -1045,15 +1130,25 @@ draw_node_wireframe (
     cairo_set_source_rgb (cr, rr, rg, rb);
     cairo_set_line_width (cr, 1.0);
 
-    /* Header outline (the standard Node-RED-style top of every node;
-     * any client-area body is traced separately below). */
-    rounded_rect_path (cr, x, y, dw, header_h, PN_NODE_RADIUS);
+    /* Body outline — header for ordinary nodes, header + stacked input
+     * section for multi-input ones (any paint_plot client-area body is
+     * traced separately below). */
+    rounded_rect_path (cr, x, y, dw, node_body_height (node), PN_NODE_RADIUS);
     cairo_stroke (cr);
 
     /* Icon-panel separator, so the sketch reads as a node at a glance. */
     cairo_move_to (cr, x + PN_NODE_ICON_WIDTH + 0.5, y);
     cairo_line_to (cr, x + PN_NODE_ICON_WIDTH + 0.5, y + header_h);
     cairo_stroke (cr);
+
+    /* Framing line below the header for multi-input ghosts, mirroring
+     * the painted node. */
+    if (pn_node_get_n_inputs (node) >= 2)
+    {
+        cairo_move_to (cr, x,      y + header_h);
+        cairo_line_to (cr, x + dw, y + header_h);
+        cairo_stroke (cr);
+    }
 
     /* Icon glyph, centred in the icon panel. */
     {
@@ -2712,9 +2807,10 @@ pn_worksheet_draw (
                 {
                     double nw, nh;
                     pn_node_get_size (node, &nw, &nh);
-                    /* Halo only the header so a graph node's plot
-                     * extension is not framed by the selection. */
-                    nh = pn_node_get_header_height (node);
+                    /* Halo the solid body — header plus any multi-input
+                     * lower section — but not a graph node's passive plot
+                     * extension, which is not framed by the selection. */
+                    nh = node_body_height (node);
                     p = pn_node_get_position (node);
                     rounded_rect_path (cr,
                                        p->x - 2.0, p->y - 2.0,
@@ -2761,10 +2857,11 @@ pn_worksheet_draw (
             double         alpha = sin (frac * G_PI);
 
             pn_node_get_size (self->pulse_node, &nw, &nh);
-            /* Frame the header only, matching the selection halo's
-             * convention so a graph node's plot extension does not
-             * inflate the pulse rectangle. */
-            nh = pn_node_get_header_height (self->pulse_node);
+            /* Frame the solid body — header plus any multi-input lower
+             * section — matching the selection halo's convention, so a
+             * graph node's plot extension does not inflate the pulse
+             * rectangle. */
+            nh = node_body_height (self->pulse_node);
 
             /* A bright cyan that contrasts with the red selection
              * halo (so a pulsing node stays distinguishable from a
@@ -3208,7 +3305,9 @@ hit_test_node (
             continue;
 
         pn_node_get_size (node, &w, &h);
-        h = pn_node_get_header_height (node);
+        /* Select on the solid body — the header plus any multi-input
+         * lower section — but not the passive paint_plot extension. */
+        h = node_body_height (node);
 
         if (x >= p->x && x < p->x + w &&
             y >= p->y && y < p->y + h)
@@ -3417,7 +3516,9 @@ hit_test_wire (
             x1 = ps->x + sw;
             y1 = ps->y + pn_node_get_header_height (src) / 2.0;
             x2 = pt->x;
-            y2 = pt->y + pn_node_get_header_height (dst) / 2.0;
+            /* Match the painted wire: land on the addressed input row
+             * (lower section for multi-input targets), not the header. */
+            y2 = input_port_y (dst, pn_wire_get_target_input (wire));
         }
 
         dx = fabs (x2 - x1) * 0.5;

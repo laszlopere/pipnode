@@ -153,6 +153,11 @@ typedef struct
      * explicitly via pn_node_set_n_inputs(); every existing node keeps
      * the single-input behaviour with this left at 0. */
     gint     n_inputs;
+    /* Per-input display names for multi-input nodes ("value1", … by
+     * default; see pn_node_get_input_name).  Lazily allocated GPtrArray
+     * of g_strdup'd strings (NULL slot ⇒ use the "valueN" default).
+     * NULL until the first get/set. */
+    GPtrArray *input_names;
     gboolean disabled;
     /* Transient runtime "this node is in an error state" flag.  Set by a
      * node when its work fails (e.g. an MQTT broker connection drops or a
@@ -245,9 +250,14 @@ pn_node_default_get_size (
         double *out_width,
         double *out_height)
 {
-    (void) self;
     if (out_width  != NULL) *out_width  = PN_NODE_DEFAULT_WIDTH;
-    if (out_height != NULL) *out_height = PN_NODE_DEFAULT_HEIGHT;
+    /* Multi-input nodes grow downward by one row per input below the
+     * header; single-input and input-less nodes keep the bare header
+     * footprint.  Centralised here so every multi-input node gets the
+     * taller body without overriding geometry. */
+    if (out_height != NULL)
+        *out_height = PN_NODE_DEFAULT_HEIGHT
+                    + pn_node_get_input_section_height (self);
 }
 
 static double
@@ -269,7 +279,12 @@ pn_node_default_get_client_area (
 
     pn_node_get_size          (self, &w, &h);
     hh     = pn_node_get_header_height (self);
-    body_h = h - hh - PN_NODE_PLOT_GAP;
+    /* The stacked input-section of a multi-input node is part of the
+     * node's solid body, not a paint_plot "client area" — subtract it so
+     * a header-only multi-input node (comparator, image blends) keeps
+     * reporting no client area, exactly as it did when single-height. */
+    body_h = h - hh - PN_NODE_PLOT_GAP
+           - pn_node_get_input_section_height (self);
 
     /* A node has a client area when its footprint extends below the
      * header — the body it fills with its own content (a table's grid,
@@ -425,6 +440,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->uuid,       g_free);
     g_clear_pointer (&priv->worksheet,  g_free);
     g_clear_pointer (&priv->topic,      g_free);
+    g_clear_pointer (&priv->input_names, g_ptr_array_unref);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
@@ -1092,6 +1108,74 @@ pn_node_set_n_inputs (
     /* Keep the boolean consistent so has-input consumers (and the
      * save format, which still goes through it) agree with the count. */
     pn_node_set_has_input (self, n >= 1);
+}
+
+double
+pn_node_get_input_section_height (PnNode *self)
+{
+    gint n;
+
+    g_return_val_if_fail (PN_IS_NODE (self), 0.0);
+
+    n = pn_node_get_n_inputs (self);
+    /* Single-input (and input-less) nodes keep the bare-header footprint
+     * — the historical layout — bit-for-bit; only 2+ inputs reserve the
+     * stacked lower section. */
+    if (n <= 1)
+        return 0.0;
+    return (double) n * PN_NODE_INPUT_ROW_HEIGHT;
+}
+
+/* Grow priv->input_names so index @n-1 is addressable, padding new slots
+ * with NULL (meaning "use the valueN default").  Allocates the array on
+ * first use. */
+static void
+pn_node_ensure_input_names (PnNodePrivate *priv, gint n)
+{
+    if (priv->input_names == NULL)
+        priv->input_names = g_ptr_array_new_with_free_func (g_free);
+    while ((gint) priv->input_names->len < n)
+        g_ptr_array_add (priv->input_names, NULL);
+}
+
+const gchar *
+pn_node_get_input_name (PnNode *self, gint index)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+    g_return_val_if_fail (index >= 0, NULL);
+
+    priv = pn_node_get_instance_private (self);
+    pn_node_ensure_input_names (priv, index + 1);
+
+    /* Materialise the default on first read so we can return a stable,
+     * node-owned pointer the painter can hold without copying. */
+    if (priv->input_names->pdata[index] == NULL)
+        priv->input_names->pdata[index] =
+                g_strdup_printf ("value%d", index + 1);
+
+    return priv->input_names->pdata[index];
+}
+
+void
+pn_node_set_input_name (
+        PnNode      *self,
+        gint         index,
+        const gchar *name)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    g_return_if_fail (index >= 0);
+
+    priv = pn_node_get_instance_private (self);
+    pn_node_ensure_input_names (priv, index + 1);
+
+    g_free (priv->input_names->pdata[index]);
+    /* NULL / "" reverts to the lazily-generated "valueN" default. */
+    priv->input_names->pdata[index] =
+            (name != NULL && *name != '\0') ? g_strdup (name) : NULL;
 }
 
 gboolean

@@ -679,6 +679,56 @@ gint            pn_node_get_n_inputs   (PnNode *self);
  */
 void            pn_node_set_n_inputs   (PnNode *self, gint n);
 
+/* Height of one stacked input row in the lower section of a multi-input
+ * node.  When a node has more than one input the ports no longer sit on
+ * the header edge; instead the footprint grows downward by one row per
+ * input below the header (a section visually fenced off by a framing
+ * line) and each port is drawn on its own row beside its name.  Shared
+ * by the core footprint maths (pn_node_get_size) and the GTK painter so
+ * both agree on where the rows sit. */
+#define PN_NODE_INPUT_ROW_HEIGHT 20.0
+
+/**
+ * pn_node_get_input_section_height:
+ * @self: the node
+ *
+ * Extra height, in pixels, that a multi-input node reserves below its
+ * header for the stacked per-input rows.  Returns 0 for input-less and
+ * single-input nodes (their footprint is the header alone).  Folded into
+ * the default #PnNodeClass.get_size so every multi-input node grows
+ * automatically without overriding geometry.
+ *
+ * Returns: the lower-section height (0 when @self has <= 1 input).
+ */
+double          pn_node_get_input_section_height (PnNode *self);
+
+/**
+ * pn_node_get_input_name:
+ * @self: the node
+ * @index: 0-based input index
+ *
+ * Human-readable name painted beside input @index on a multi-input node.
+ * Defaults to "value1", "value2", … when the node has not set one with
+ * pn_node_set_input_name().  The returned string is owned by @self.
+ *
+ * Returns: (transfer none): the input's display name.
+ */
+const gchar *   pn_node_get_input_name (PnNode *self, gint index);
+
+/**
+ * pn_node_set_input_name:
+ * @self: the node
+ * @index: 0-based input index
+ * @name: (nullable): display name, or %NULL/empty to restore the default
+ *
+ * Overrides the name painted beside input @index (see
+ * pn_node_get_input_name()).  Passing %NULL or "" reverts that input to
+ * its "valueN" default.
+ */
+void            pn_node_set_input_name (PnNode *self,
+                                        gint    index,
+                                        const gchar *name);
+
 gboolean        pn_node_get_has_output (PnNode *self);
 void            pn_node_set_has_output (PnNode *self, gboolean has_output);
 
