@@ -84,6 +84,73 @@ G_DEFINE_TYPE (PnApplication, pn_application, GTK_TYPE_APPLICATION)
 /*  is hosted by the application's currently active window.           */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  Error contract (TODO #40.2)                                       */
+/*                                                                    */
+/*  Mutating calls used to fail by returning a bare FALSE / "" or a  */
+/*  generic G_DBUS_ERROR_FAILED, which tells an automation client    */
+/*  THAT a call failed but never WHY.  These codes are registered    */
+/*  with GDBus so each maps to a stable, machine-readable D-Bus error */
+/*  name (org.pipas.pipnode.Worksheet.Error.*) the client can branch */
+/*  on with g_dbus_error_get_remote_error() — the human-readable     */
+/*  message stays, but the name is the contract.                     */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_WORKSHEET_ERROR_NO_ACTIVE_SHEET,
+    PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
+    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+    PN_WORKSHEET_ERROR_WIRE_NOT_FOUND,
+    PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
+    PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
+    PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+    PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+    PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
+    PN_WORKSHEET_ERROR_FAILED               /* generic fallback (I/O etc.) */
+} PnWorksheetError;
+
+#define PN_WORKSHEET_ERROR (pn_worksheet_error_quark ())
+
+/* enum code -> stable D-Bus error name.  The .Error. infix matches the
+ * convention GDBus itself uses (e.g. org.freedesktop.DBus.Error.*). */
+static const GDBusErrorEntry pn_worksheet_error_entries[] = {
+    { PN_WORKSHEET_ERROR_NO_ACTIVE_SHEET,
+      "org.pipas.pipnode.Worksheet.Error.NoActiveSheet" },
+    { PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
+      "org.pipas.pipnode.Worksheet.Error.NoActiveWindow" },
+    { PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+      "org.pipas.pipnode.Worksheet.Error.NodeNotFound" },
+    { PN_WORKSHEET_ERROR_WIRE_NOT_FOUND,
+      "org.pipas.pipnode.Worksheet.Error.WireNotFound" },
+    { PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
+      "org.pipas.pipnode.Worksheet.Error.UnknownNodeType" },
+    { PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
+      "org.pipas.pipnode.Worksheet.Error.UnknownProperty" },
+    { PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+      "org.pipas.pipnode.Worksheet.Error.BadPropertyValue" },
+    { PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+      "org.pipas.pipnode.Worksheet.Error.IllegalConnection" },
+    { PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
+      "org.pipas.pipnode.Worksheet.Error.SheetNotFound" },
+    { PN_WORKSHEET_ERROR_FAILED,
+      "org.pipas.pipnode.Worksheet.Error.Failed" },
+};
+
+/** The Worksheet automation error domain, lazily registered with GDBus
+ *  the first time it is needed so the codes above translate to their
+ *  wire names on both ends of the bus. */
+static GQuark
+pn_worksheet_error_quark (void)
+{
+    static gsize quark = 0;
+    g_dbus_error_register_error_domain ("pn-worksheet-error-quark",
+                                        &quark,
+                                        pn_worksheet_error_entries,
+                                        G_N_ELEMENTS (pn_worksheet_error_entries));
+    return (GQuark) quark;
+}
+
 static const gchar worksheet_introspection_xml[] =
     "<node>"
     "  <interface name='org.pipas.pipnode.Worksheet'>"
@@ -423,7 +490,8 @@ worksheet_return_node_property (GDBusMethodInvocation *invocation,
     if (!pspec)
     {
         g_dbus_method_invocation_return_error (
-                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                invocation, PN_WORKSHEET_ERROR,
+                PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
                 "Node has no property '%s'", prop);
         return;
     }
@@ -452,7 +520,8 @@ worksheet_set_node_property (GDBusMethodInvocation *invocation,
     if (!pspec || (pspec->flags & G_PARAM_WRITABLE) == 0)
     {
         g_dbus_method_invocation_return_error (
-                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                invocation, PN_WORKSHEET_ERROR,
+                PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
                 "Node has no writable property '%s'", prop);
         return;
     }
@@ -462,7 +531,8 @@ worksheet_set_node_property (GDBusMethodInvocation *invocation,
     {
         g_value_unset (&value);
         g_dbus_method_invocation_return_error (
-                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                invocation, PN_WORKSHEET_ERROR,
+                PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
                 "Cannot parse '%s' for property '%s'", text, prop);
         return;
     }
@@ -475,19 +545,22 @@ worksheet_set_node_property (GDBusMethodInvocation *invocation,
 }
 
 /** Complete ConnectNodes / ConnectNodesByUuid: wire @source's output to
- *  @target's input and persist the wire on the canvas.  Rejects missing
- *  endpoints and self-loops; port-aware wiring is TODO #40.5. */
+ *  @target's input and persist the wire on the canvas.  Both endpoints
+ *  must already be resolved (callers report NodeNotFound for a missing
+ *  one); this rejects only the self-loop.  Port-aware wiring is TODO
+ *  #40.5. */
 static void
 worksheet_connect_nodes (GDBusMethodInvocation *invocation,
                          PnWireStore *wires, PnNode *source, PnNode *target)
 {
     PnWire *wire;
 
-    if (!source || !target || source == target)
+    if (source == target)
     {
         g_dbus_method_invocation_return_error (
-                invocation, G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
-                "Bad wire endpoints");
+                invocation, PN_WORKSHEET_ERROR,
+                PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                "Cannot connect a node to itself");
         return;
     }
 
@@ -527,7 +600,7 @@ handle_worksheet_method_call (
     {
         g_dbus_method_invocation_return_error (
                 invocation,
-                G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_SHEET,
                 "No active worksheet");
         return;
     }
@@ -559,7 +632,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "Node index %u out of range", index);
             return;
         }
@@ -578,7 +651,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
@@ -663,7 +736,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_WIRE_NOT_FOUND,
                     "Wire index %u out of range", index);
             return;
         }
@@ -710,7 +783,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
                     "Load failed: %s",
                     error ? error->message : "(no error message)");
             g_clear_error (&error);
@@ -730,7 +803,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
                     "Save failed: %s",
                     error ? error->message : "(no error message)");
             g_clear_error (&error);
@@ -752,7 +825,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "Node index %u out of range", index);
             return;
         }
@@ -774,7 +847,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -792,7 +865,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -814,7 +887,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -838,7 +911,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -921,7 +994,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -939,7 +1012,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -961,7 +1034,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "Node index %u out of range", index);
             return;
         }
@@ -981,7 +1054,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
@@ -1002,7 +1075,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "Node index %u out of range", index);
             return;
         }
@@ -1023,7 +1096,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
@@ -1048,7 +1121,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_UNKNOWN_NODE_TYPE,
                     "Unknown node type '%s'", type_name);
             return;
         }
@@ -1061,7 +1134,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
                     "Could not create node of type '%s'", type_name);
             return;
         }
@@ -1086,12 +1159,22 @@ handle_worksheet_method_call (
     else if (g_strcmp0 (method_name, "ConnectNodes") == 0)
     {
         guint   src, dst;
+        PnNode *source, *target;
 
         g_variant_get (parameters, "(uu)", &src, &dst);
 
-        worksheet_connect_nodes (invocation, wires,
-                                 pn_node_store_get_node (nodes, src),
-                                 pn_node_store_get_node (nodes, dst));
+        source = pn_node_store_get_node (nodes, src);
+        target = pn_node_store_get_node (nodes, dst);
+        if (!source || !target)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "Node index %u out of range", !source ? src : dst);
+            return;
+        }
+
+        worksheet_connect_nodes (invocation, wires, source, target);
     }
     else if (g_strcmp0 (method_name, "ConnectNodesByUuid") == 0)
     {
@@ -1107,7 +1190,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "No node with uuid '%s'",
                     !source ? (src_uuid ? src_uuid : "")
                             : (dst_uuid ? dst_uuid : ""));
@@ -1129,7 +1212,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1152,7 +1235,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1162,7 +1245,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
                     "No node with uuid '%s'", uuid ? uuid : "");
             return;
         }
@@ -1184,7 +1267,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1205,7 +1288,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1233,7 +1316,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1255,7 +1338,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1280,7 +1363,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }
@@ -1291,7 +1374,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_UNKNOWN_PROPERTY,
                     "No editor for property '%s'", prop);
             return;
         }
@@ -1313,7 +1396,7 @@ handle_worksheet_method_call (
         {
             g_dbus_method_invocation_return_error (
                     invocation,
-                    G_DBUS_ERROR, G_DBUS_ERROR_FAILED,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_NO_ACTIVE_WINDOW,
                     "No active window");
             return;
         }

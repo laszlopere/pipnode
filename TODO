@@ -1347,12 +1347,25 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         UUID yet, so wire-addressed forms wait for 40.5.  Covered by
         tests/test_dbus_uuid_addressing.py (enumeration, by-uuid read/write,
         wiring, dialog, bad-uuid rejection, Save/Load stability).
-  [ ] 40.2  Real error contract.  Replace the silent bool/empty-string returns
+  [x] 40.2  Real error contract.  Replace the silent bool/empty-string returns
         with g_dbus_method_invocation_return_error using a stable error domain
         + enum (NoActiveSheet, NodeNotFound, WireNotFound, UnknownNodeType,
         UnknownProperty, BadPropertyValue, IllegalConnection, SheetNotFound).
         An agent needs to know WHY a call failed, not just that it returned
         false.
+        DONE: PnWorksheetError enum + GDBusErrorEntry table registered with
+        g_dbus_error_register_error_domain, so codes map to stable wire names
+        org.pipas.pipnode.Worksheet.Error.* (client reads via
+        g_dbus_error_get_remote_error).  All eight listed codes plus
+        NoActiveWindow (window-hosted dialog/debug ops) and a generic Failed
+        (I/O on Load/Save).  Every G_DBUS_ERROR_FAILED in the Worksheet
+        handler replaced; ConnectNodes now splits missing-endpoint
+        (NodeNotFound) from self-loop (IllegalConnection).  Engine interface
+        left as-is.  SheetNotFound defined but unused until sheets land
+        (40.10).  Covered by tests/test_dbus_error_contract.py (asserts the
+        remote error name for each of NodeNotFound / WireNotFound /
+        UnknownNodeType / UnknownProperty / BadPropertyValue /
+        IllegalConnection).
   [ ] 40.3  Decide the object/interface split and version it.  Keep
         org.pipas.pipnode.Worksheet for active-sheet graph ops; add a sibling
         org.pipas.pipnode.Editor (same object path) for document/window/sheet/
