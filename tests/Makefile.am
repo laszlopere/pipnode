@@ -4,6 +4,7 @@ TESTS = \
 	test_auto_injector_filter_debug.py \
 	test_clipboard_ops.py \
 	test_clock_debug_format.py \
+	test_dbus_editor_interface.py \
 	test_dbus_error_contract.py \
 	test_dbus_uuid_addressing.py \
 	test_debug_view_toggle.py \

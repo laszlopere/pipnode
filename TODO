@@ -1366,12 +1366,22 @@ pn_node_receive_message/_on_input + pn_node_emit_message (message injection).
         remote error name for each of NodeNotFound / WireNotFound /
         UnknownNodeType / UnknownProperty / BadPropertyValue /
         IllegalConnection).
-  [ ] 40.3  Decide the object/interface split and version it.  Keep
+  [x] 40.3  Decide the object/interface split and version it.  Keep
         org.pipas.pipnode.Worksheet for active-sheet graph ops; add a sibling
         org.pipas.pipnode.Editor (same object path) for document/window/sheet/
         lifecycle ops (40.9-40.11).  Add a Version property (or
         GetApiVersion) so a client can feature-detect.  Keep the introspection
         XML the single source of truth.
+        DONE: org.pipas.pipnode.Editor registered on the same object path as
+        .Worksheet (new dbus_editor_reg_id, register/unregister alongside
+        worksheet+engine).  Carries the version handshake now -- GetApiVersion
+        -> (major,minor) and a read-only Version property (major) via a
+        get_property vtable slot -- both backed by PN_AUTOMATION_API_VERSION_*
+        (1.0).  Document/sheet/globals methods stay deferred to 40.9-40.11;
+        this is just the split + feature-detect.  Introspection XML remains
+        the single source of truth.  Covered by
+        tests/test_dbus_editor_interface.py (co-existence via Introspect +
+        a live call on each interface, GetApiVersion, Version property).
 
   PHASE B -- graph mutation (the core of "edit a workflow")
   [ ] 40.4  Node lifecycle by uuid.  AddNode already returns an index -> add

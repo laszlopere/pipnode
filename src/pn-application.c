@@ -61,6 +61,12 @@ struct _PnApplication
      *  while no interface is registered. */
     guint dbus_worksheet_reg_id;
 
+    /** Registration id for the org.pipas.pipnode.Editor D-Bus interface
+     *  (document / window / sheet lifecycle + API versioning), the
+     *  sibling of .Worksheet on the same object path.  Zero while no
+     *  interface is registered. */
+    guint dbus_editor_reg_id;
+
     /** Registration id for the org.pipas.pipnode.Engine D-Bus interface
      *  (the panel-applet control surface), installed at the same object
      *  path.  Zero while no interface is registered. */
@@ -1444,6 +1450,106 @@ static const GDBusInterfaceVTable worksheet_vtable = {
 static GDBusNodeInfo *worksheet_introspection_data = NULL;
 
 /* ================================================================== */
+/*  org.pipas.pipnode.Editor — document / lifecycle automation         */
+/*                                                                     */
+/*  The sibling of .Worksheet on the SAME object path (TODO #40.3).    */
+/*  .Worksheet owns active-sheet graph operations; .Editor owns the    */
+/*  things that sit *around* a single sheet — the document, the        */
+/*  window, the set of sheets, and (the part that lands now) the API   */
+/*  version a client uses to feature-detect.  The document/sheet/      */
+/*  globals methods themselves arrive in 40.9-40.11; this commit       */
+/*  establishes the interface and its version handshake so a client    */
+/*  can tell a UUID-aware, error-contract-bearing build apart from the */
+/*  older index-only one before it makes a call.                       */
+/*                                                                     */
+/*  Versioning: MAJOR bumps on a breaking change to either automation  */
+/*  interface (a method/signature removed or repurposed); MINOR bumps  */
+/*  when methods are added back-compatibly.  Read it cheaply via the   */
+/*  Version property (major only) or precisely via GetApiVersion.      */
+/* ================================================================== */
+
+#define PN_AUTOMATION_API_VERSION_MAJOR 1u
+#define PN_AUTOMATION_API_VERSION_MINOR 0u
+
+static const gchar editor_introspection_xml[] =
+    "<node>"
+    "  <interface name='org.pipas.pipnode.Editor'>"
+    "    <method name='GetApiVersion'>"
+    "      <arg type='u' name='major' direction='out'/>"
+    "      <arg type='u' name='minor' direction='out'/>"
+    "    </method>"
+    "    <property name='Version' type='u' access='read'/>"
+    "  </interface>"
+    "</node>";
+
+static void
+handle_editor_method_call (
+        GDBusConnection       *connection,
+        const gchar           *sender,
+        const gchar           *object_path,
+        const gchar           *interface_name,
+        const gchar           *method_name,
+        GVariant              *parameters,
+        GDBusMethodInvocation *invocation,
+        gpointer               user_data)
+{
+    (void) connection;
+    (void) sender;
+    (void) object_path;
+    (void) interface_name;
+    (void) parameters;
+    (void) user_data;
+
+    if (g_strcmp0 (method_name, "GetApiVersion") == 0)
+    {
+        g_dbus_method_invocation_return_value (
+                invocation,
+                g_variant_new ("(uu)",
+                               PN_AUTOMATION_API_VERSION_MAJOR,
+                               PN_AUTOMATION_API_VERSION_MINOR));
+    }
+    else
+    {
+        g_dbus_method_invocation_return_error (
+                invocation,
+                G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_METHOD,
+                "Unknown method '%s'", method_name);
+    }
+}
+
+static GVariant *
+handle_editor_get_property (
+        GDBusConnection  *connection,
+        const gchar      *sender,
+        const gchar      *object_path,
+        const gchar      *interface_name,
+        const gchar      *property_name,
+        GError          **error,
+        gpointer          user_data)
+{
+    (void) connection;
+    (void) sender;
+    (void) object_path;
+    (void) interface_name;
+    (void) user_data;
+
+    if (g_strcmp0 (property_name, "Version") == 0)
+        return g_variant_new_uint32 (PN_AUTOMATION_API_VERSION_MAJOR);
+
+    g_set_error (error, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_PROPERTY,
+                 "Unknown property '%s'", property_name);
+    return NULL;
+}
+
+static const GDBusInterfaceVTable editor_vtable = {
+    handle_editor_method_call,
+    handle_editor_get_property,
+    NULL
+};
+
+static GDBusNodeInfo *editor_introspection_data = NULL;
+
+/* ================================================================== */
 /*  org.pipas.pipnode.Engine — XFCE panel applet control surface       */
 /*                                                                     */
 /*  A panel applet runs its worksheet in this process (the background  */
@@ -2509,6 +2615,26 @@ pn_application_dbus_register (
     if (self->dbus_worksheet_reg_id == 0)
         return FALSE;
 
+    /* Sibling automation interface on the same object: document /
+     * lifecycle ops + the API version handshake (TODO #40.3). */
+    if (!editor_introspection_data)
+        editor_introspection_data =
+                g_dbus_node_info_new_for_xml (
+                        editor_introspection_xml, NULL);
+
+    self->dbus_editor_reg_id =
+        g_dbus_connection_register_object (
+                connection,
+                object_path,
+                editor_introspection_data->interfaces[0],
+                &editor_vtable,
+                app,
+                NULL,
+                error);
+
+    if (self->dbus_editor_reg_id == 0)
+        return FALSE;
+
     /* Second interface on the same object: the panel-applet engine. */
     if (!engine_introspection_data)
         engine_introspection_data =
@@ -2541,6 +2667,13 @@ pn_application_dbus_unregister (
         g_dbus_connection_unregister_object (
                 connection, self->dbus_worksheet_reg_id);
         self->dbus_worksheet_reg_id = 0;
+    }
+
+    if (self->dbus_editor_reg_id)
+    {
+        g_dbus_connection_unregister_object (
+                connection, self->dbus_editor_reg_id);
+        self->dbus_editor_reg_id = 0;
     }
 
     if (self->dbus_engine_reg_id)
