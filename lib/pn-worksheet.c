@@ -1137,13 +1137,11 @@ draw_node (
             const double plot_y = y + header_h + 4.0;
             const double plot_h = full_h - header_h - 4.0;
 
-            /* The halo wraps the client-area extension too (TODO #42), so
-             * the whole footprint glows; otherwise the standard drop
-             * shadow, unless the class opts out of it. */
-            if (processing)
-                paint_processing_halo (cr, x, plot_y, full_w, plot_h,
-                                       klass->paint_plot_corner_radius);
-            else if (!klass->paint_plot_skip_shadow)
+            /* The processing halo (TODO #42) glows only behind the node
+             * rectangle (the header body, painted above); the client-area
+             * extension keeps its standard drop shadow regardless, unless
+             * the class opts out of it. */
+            if (!klass->paint_plot_skip_shadow)
                 paint_drop_shadow (cr, x, plot_y, full_w, plot_h,
                                    klass->paint_plot_corner_radius);
             klass->paint_plot (node, cr, x, plot_y, full_w, plot_h);
