@@ -101,6 +101,8 @@ libpipnode_core_la_SOURCES = \
 	pn-label.h \
 	pn-led.c \
 	pn-led.h \
+	pn-logger.c \
+	pn-logger.h \
 	pn-matrix57.c \
 	pn-matrix57.h \
 	pn-mesh-connection.c \
@@ -454,6 +456,7 @@ pipnode_core_headers = \
 	pn-knob.h \
 	pn-label.h \
 	pn-led.h \
+	pn-logger.h \
 	pn-matrix57.h \
 	pn-mesh-connection.h \
 	pn-mesh-discover.h \

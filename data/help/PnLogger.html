@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Logger (PnLogger) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnLogger">Logger</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnLogger</code>.
+</p>
+<p>
+Sink that appends every received message to a log file on disk. It can
+rotate the file internally once it grows too large &mdash; no external
+<code>logrotate</code> tool is involved &mdash; and can write either
+buffered (fast) or flushed (durable).
+</p>
+<p>
+Until a <code>file-path</code> is set the node shows the error state
+(painted red on the worksheet), since it has nowhere to write.
+</p>
+
+<p>
+Every line has the same shape: an ISO-8601 local timestamp, then
+<code>SUCCESS</code> or <code>FAILURE</code> (taken from the message's
+<code>data.success</code>; falling back to <code>data.value&nbsp;&gt;&nbsp;0.5</code>),
+then the payload. In <em>Lines</em> mode the payload is the message's
+<code>data.output</code> text; in <em>JSON</em> mode it is the whole
+message envelope rendered as one-line compact JSON.
+</p>
+
+<pre>2026-06-05T14:23:01 SUCCESS pump started
+2026-06-05T14:23:05 FAILURE sensor timeout</pre>
+<pre>2026-06-05T14:23:01 SUCCESS {"type":"PnMessage","from":"Sensor","topic":"t","id":"…","created":"…","data":{"value":1,"output":"ok","success":true}}</pre>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>file-path</code></td>
+      <td>Path of the file lines are appended to. Empty disables
+        logging. Parent directories must already exist.</td></tr>
+  <tr><td><code>format</code></td>
+      <td><em>Lines</em> logs <code>data.output</code>; <em>JSON</em>
+        logs the whole envelope as one compact JSON line. Both carry
+        the timestamp + SUCCESS/FAILURE prefix.</td></tr>
+  <tr><td><code>logrotate</code></td>
+      <td>When on (the default), the file is rotated once it reaches the
+        maximum size, keeping a bounded number of numbered
+        archives.</td></tr>
+  <tr><td><code>max-size-mb</code></td>
+      <td>Rotate once the live log reaches this many megabytes. Only
+        used when rotation is enabled.</td></tr>
+  <tr><td><code>max-files</code></td>
+      <td>How many rotated archives (<code>file.1</code> &hellip;
+        <code>file.N</code>) to keep. On rotation the live file becomes
+        <code>file.1</code>, older archives shift up, and anything past
+        <code>N</code> is dropped. <code>0</code> keeps no history &mdash;
+        the log is simply truncated. Only used when rotation is
+        enabled.</td></tr>
+  <tr><td><code>flush</code></td>
+      <td>Flush every line straight to disk. Off (the default) leaves
+        writes buffered &mdash; faster, but the last lines may be lost
+        on a crash.</td></tr>
+</table>
+
+</body>
+</html>

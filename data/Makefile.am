@@ -38,6 +38,7 @@ pnhelp_DATA = \
 	help/PnKnob.html \
 	help/PnLabel.html \
 	help/PnLed.html \
+	help/PnLogger.html \
 	help/PnMatrix57.html \
 	help/PnMeshtastic.html \
 	help/PnMqtt.html \

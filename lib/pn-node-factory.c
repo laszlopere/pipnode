@@ -34,6 +34,7 @@
 #include "pn-digital-clock.h"
 #include "pn-deadline.h"
 #include "pn-debug.h"
+#include "pn-logger.h"
 #include "pn-dedup.h"
 #include "pn-delay.h"
 #include "pn-dial.h"
@@ -290,6 +291,7 @@ register_builtins (PnNodeFactory *self)
 
     /* Sinks. */
     pn_node_factory_register (self, PN_TYPE_DEBUG);
+    pn_node_factory_register (self, PN_TYPE_LOGGER);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
     pn_node_factory_register (self, PN_TYPE_XY_GRAPH);
     pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
