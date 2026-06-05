@@ -89,6 +89,52 @@
         "background-color2" : "rgb(204,227,247)",
         "background-gradient" : "Horizontal"
       }
+    },
+    {
+      "type" : "PnSunPath",
+      "uuid" : "b0b46454-fd36-4126-a1ee-52292c78f036",
+      "name" : "Sun Path 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 600.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "view-yaw" : 2.69146728515625,
+        "view-pitch" : 32.3394775390625,
+        "house-heading" : 90.0,
+        "show-house" : true,
+        "background-color" : "rgb(92,133,189)",
+        "background-color2" : "rgb(219,212,184)",
+        "background-gradient" : "Vertical",
+        "ground-color" : "rgba(107,140,128,0.55)",
+        "path-color" : "rgb(33,115,102)",
+        "sun-color" : "rgb(250,204,46)",
+        "text-color" : "rgb(33,41,51)"
+      }
+    },
+    {
+      "type" : "PnSunPath",
+      "uuid" : "3ac301bc-c869-42d1-a402-5ba0b6b0faec",
+      "name" : "Sun Path 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 600.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "view-yaw" : 2.06182861328125,
+        "view-pitch" : 57.767608642578125,
+        "house-heading" : 90.0,
+        "show-house" : true,
+        "background-color" : "rgb(92,133,189)",
+        "background-color2" : "rgb(219,212,184)",
+        "background-gradient" : "Vertical",
+        "ground-color" : "rgba(107,140,128,0.55)",
+        "path-color" : "rgb(33,115,102)",
+        "sun-color" : "rgb(250,204,46)",
+        "text-color" : "rgb(33,41,51)"
+      }
     }
   ],
   "connections" : [
@@ -107,6 +153,14 @@
     {
       "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
       "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
+    },
+    {
+      "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "target_id" : "b0b46454-fd36-4126-a1ee-52292c78f036"
+    },
+    {
+      "source_id" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
+      "target_id" : "3ac301bc-c869-42d1-a402-5ba0b6b0faec"
     }
   ],
   "sheets" : [
