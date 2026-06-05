@@ -106,6 +106,15 @@ gboolean     pn_weather_parse_bright_sky_current (JsonObject       *root,
 gboolean     pn_weather_parse_met_no_current (JsonObject       *root,
                                               PnWeatherCurrent *out);
 
+/* Trim a MET Norway /compact response @root (a JSON node) down to the slice
+ * the node consumes: a deep copy with properties.timeseries truncated to its
+ * first entry (the current-hour nowcast), with meta/geometry kept intact.
+ * met.no always returns a full ~10-day forecast that nothing downstream
+ * reads, so the message's "raw" member carries this trimmed copy rather than
+ * the whole ~37 KB response.  Returns a newly allocated node the caller
+ * owns; never %NULL for a valid @root. */
+JsonNode    *pn_weather_met_no_trim_raw (JsonNode *root);
+
 /* Map a WMO weather code (as Open-Meteo reports it) to a short English
  * label; unknown codes yield a generic string. */
 const gchar *pn_weather_code_description (gint code);

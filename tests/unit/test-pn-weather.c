@@ -407,6 +407,91 @@ test_met_no_description (void)
                      ==, "Unknown conditions");
 }
 
+static void
+test_met_no_trim_raw (void)
+{
+    /* met.no always ships a full multi-day forecast, but the node only
+     * consumes timeseries[0].  The trim keeps that first entry plus the
+     * small meta/geometry blocks and drops the rest, so the message's
+     * "raw" member is the current-hour slice rather than the whole body. */
+    JsonParser *parser = json_parser_new ();
+    JsonNode   *root, *trimmed;
+    JsonObject *o, *props, *first;
+    JsonArray  *series;
+
+    g_assert (json_parser_load_from_data (parser,
+        "{\"type\":\"Feature\","
+        "\"geometry\":{\"type\":\"Point\",\"coordinates\":[10.75,59.91,0]},"
+        "\"properties\":{"
+            "\"meta\":{\"updated_at\":\"2026-06-05T05:27:57Z\"},"
+            "\"timeseries\":["
+              "{\"time\":\"2026-06-05T06:00:00Z\","
+                "\"data\":{\"instant\":{\"details\":{\"air_temperature\":12.3}}}},"
+              "{\"time\":\"2026-06-05T07:00:00Z\","
+                "\"data\":{\"instant\":{\"details\":{\"air_temperature\":13.0}}}},"
+              "{\"time\":\"2026-06-05T08:00:00Z\","
+                "\"data\":{\"instant\":{\"details\":{\"air_temperature\":14.0}}}}"
+            "]}}", -1, NULL));
+    root    = json_parser_get_root (parser);
+    trimmed = pn_weather_met_no_trim_raw (root);
+
+    PN_CHECK (trimmed != NULL);
+    PN_CHECK (JSON_NODE_HOLDS_OBJECT (trimmed));
+    o = json_node_get_object (trimmed);
+
+    /* geometry and properties.meta survive the trim. */
+    PN_CHECK (json_object_has_member (o, "geometry"));
+    props = json_object_get_object_member (o, "properties");
+    PN_CHECK (json_object_has_member (props, "meta"));
+
+    /* timeseries is truncated to just the current-hour entry... */
+    series = json_object_get_array_member (props, "timeseries");
+    PN_CHECK_CMPINT (json_array_get_length (series), ==, 1);
+
+    /* ...and the surviving entry is the original first one. */
+    first = json_array_get_object_element (series, 0);
+    PN_CHECK_CMPSTR (json_object_get_string_member (first, "time"),
+                     ==, "2026-06-05T06:00:00Z");
+
+    /* The trim is a deep copy: the original node still has all 3 entries. */
+    PN_CHECK_CMPINT (
+        json_array_get_length (
+            json_object_get_array_member (
+                json_object_get_object_member (
+                    json_node_get_object (root), "properties"),
+                "timeseries")),
+        ==, 3);
+
+    json_node_unref (trimmed);
+    g_object_unref (parser);
+}
+
+static void
+test_met_no_trim_raw_short (void)
+{
+    /* A response already at or below one entry is returned intact (the
+     * trim is a no-op rather than an error), and a non-object node is
+     * passed through unchanged. */
+    JsonParser *parser = json_parser_new ();
+    JsonNode   *root, *trimmed;
+    JsonArray  *series;
+
+    g_assert (json_parser_load_from_data (parser,
+        "{\"properties\":{\"timeseries\":["
+          "{\"time\":\"2026-06-05T06:00:00Z\"}]}}", -1, NULL));
+    root    = json_parser_get_root (parser);
+    trimmed = pn_weather_met_no_trim_raw (root);
+
+    series = json_object_get_array_member (
+        json_object_get_object_member (
+            json_node_get_object (trimmed), "properties"),
+        "timeseries");
+    PN_CHECK_CMPINT (json_array_get_length (series), ==, 1);
+
+    json_node_unref (trimmed);
+    g_object_unref (parser);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -427,5 +512,7 @@ main (int argc, char **argv)
     pn_test_add ("met_no_six_hour_fallback", test_met_no_six_hour_fallback);
     pn_test_add ("met_no_no_timeseries",     test_met_no_no_timeseries_and_null);
     pn_test_add ("met_no_description",       test_met_no_description);
+    pn_test_add ("met_no_trim_raw",          test_met_no_trim_raw);
+    pn_test_add ("met_no_trim_raw_short",    test_met_no_trim_raw_short);
     return pn_test_run ();
 }

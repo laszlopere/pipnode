@@ -187,6 +187,20 @@
         "sun-color" : "rgb(250,204,46)",
         "text-color" : "rgb(33,41,51)"
       }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "8be253c1-206f-4fb5-90cc-e14d7cd0fdb1",
+      "name" : "Debug Print 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 100.0,
+        "y" : 720.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
     }
   ],
   "connections" : [
@@ -221,6 +235,10 @@
     {
       "source_id" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
       "target_id" : "1227c5fc-639c-4d12-a255-d9abb88b4b86"
+    },
+    {
+      "source_id" : "6c7c043f-dac2-418f-92e8-5b2aa127f6d3",
+      "target_id" : "8be253c1-206f-4fb5-90cc-e14d7cd0fdb1"
     }
   ],
   "sheets" : [

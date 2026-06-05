@@ -558,6 +558,98 @@ pn_weather_parse_met_no_current (JsonObject *root, PnWeatherCurrent *out)
     return out->ok;
 }
 
+/* Trim a MET Norway /compact response down to the slice the Weather node
+ * actually consumes.  The provider always returns a full ~10-day forecast
+ * (~85 timeseries entries, ~37 KB) — there is no query parameter to ask for
+ * less — but pn_weather_parse_met_no_current() only ever reads
+ * timeseries[0], the nowcast for the current hour.  The other ~84 entries
+ * are a genuine future forecast that nothing downstream reads today, so
+ * copying them verbatim into the message's "raw" member bloats every
+ * message.  Return a deep copy of @root with properties.timeseries
+ * truncated to its first entry; meta and geometry are small and kept whole.
+ *
+ * TODO(forecast): when the Weather node grows real forecast support across
+ * ALL providers (Open-Meteo / Bright Sky / met.no), gate this trim behind a
+ * boolean "forecast" property.  When that property is set, skip the trim and
+ * pass the full timeseries through so a downstream Query/forecast node can
+ * mine the 10-day outlook met.no already delivers free in every response. */
+JsonNode *
+pn_weather_met_no_trim_raw (JsonNode *root)
+{
+    JsonObject *src, *src_props, *out, *out_props;
+    JsonArray  *series, *trimmed;
+    JsonNode   *node, *out_node;
+    GList      *keys, *l;
+
+    if (!JSON_NODE_HOLDS_OBJECT (root))
+        return json_node_copy (root);
+    src = json_node_get_object (root);
+
+    /* Anything without a properties.timeseries to trim is already small;
+     * hand back a plain copy unchanged. */
+    if (!json_object_has_member (src, "properties"))
+        return json_node_copy (root);
+    node = json_object_get_member (src, "properties");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return json_node_copy (root);
+    src_props = json_node_get_object (node);
+
+    if (!json_object_has_member (src_props, "timeseries"))
+        return json_node_copy (root);
+    node = json_object_get_member (src_props, "timeseries");
+    if (!JSON_NODE_HOLDS_ARRAY (node))
+        return json_node_copy (root);
+    series = json_node_get_array (node);
+    if (json_array_get_length (series) <= 1)
+        return json_node_copy (root);
+
+    /* json_node_copy() is shallow for object/array nodes — it shares the
+     * held JsonObject/JsonArray rather than duplicating it — so we must not
+     * copy @root and then edit its timeseries: that would mutate the
+     * caller's parsed tree.  Instead rebuild only the two containers we
+     * change (the root object and its "properties"), carrying every other
+     * member across by value-copy.  Those copies stay shared by reference,
+     * which is safe because we never mutate them and the new tree holds its
+     * own references. */
+    out       = json_object_new ();
+    out_props = json_object_new ();
+
+    keys = json_object_get_members (src_props);
+    for (l = keys; l != NULL; l = l->next)
+    {
+        const gchar *k = l->data;
+        if (g_strcmp0 (k, "timeseries") == 0)
+            continue;
+        json_object_set_member (
+                out_props, k,
+                json_node_copy (json_object_get_member (src_props, k)));
+    }
+    g_list_free (keys);
+
+    /* timeseries keeps only the first entry — the current-hour nowcast. */
+    trimmed = json_array_new ();
+    json_array_add_element (
+            trimmed, json_node_copy (json_array_get_element (series, 0)));
+    json_object_set_array_member (out_props, "timeseries", trimmed);
+
+    keys = json_object_get_members (src);
+    for (l = keys; l != NULL; l = l->next)
+    {
+        const gchar *k = l->data;
+        if (g_strcmp0 (k, "properties") == 0)
+            continue;
+        json_object_set_member (
+                out, k, json_node_copy (json_object_get_member (src, k)));
+    }
+    g_list_free (keys);
+
+    json_object_set_object_member (out, "properties", out_props);
+
+    out_node = json_node_new (JSON_NODE_OBJECT);
+    json_node_take_object (out_node, out);
+    return out_node;
+}
+
 /* Build a curl command that GETs @url and prints the body followed by
  * the HTTP status sentinel that pn_http_split_body_and_status() looks
  * for.  Shared shape for both the geocoding and (via build_command)
@@ -1019,9 +1111,18 @@ pn_weather_emit_message (
              * downstream nodes verbatim (a deep copy, since the parser
              * owns @root) so a Query / JMESPath / JSON Path node can read
              * any field — including an error body — that we do not
-             * promote to a named member. */
+             * promote to a named member.  met.no is the exception: its
+             * response carries a full ~10-day forecast we never consume, so
+             * "raw" is trimmed to the current-hour entry we parse.  See
+             * pn_weather_met_no_trim_raw() for the forecast TODO. */
             if (o != NULL)
-                pn_message_set_member (msg, "raw", json_node_copy (root));
+            {
+                JsonNode *raw =
+                        (provider == PN_WEATHER_PROVIDER_MET_NO)
+                                ? pn_weather_met_no_trim_raw (root)
+                                : json_node_copy (root);
+                pn_message_set_member (msg, "raw", raw);
+            }
 
             /* Pull the reading + any provider error out of the parsed
              * body with the matching provider parser; the message/summary
