@@ -825,6 +825,32 @@ pn_message_clone (PnMessage *self)
     json_object_unref (dst->data);
     dst->data = deep_copy_object (src->data);
 
+    /* Share the out-of-band vector payloads (TODO #43): the deep-copied
+     * data bag already carries the "$pnvector" markers verbatim, so we
+     * only need to make their handles resolve on the clone.  REF-share
+     * the buffers rather than copying megabytes -- every fan-out branch
+     * holds the same immutable #PnVector, exactly the trick
+     * PnImageMessage uses for its pixbuf.  Handles are copied unchanged
+     * so the markers keep resolving; next_vector carries over so a fresh
+     * set_vector() on the clone never collides with a shared handle. */
+    if (src->vectors != NULL)
+    {
+        GHashTableIter iter;
+        gpointer       key, value;
+
+        dst->vectors = g_hash_table_new_full (g_int64_hash, g_int64_equal,
+                                               g_free, g_object_unref);
+        g_hash_table_iter_init (&iter, src->vectors);
+        while (g_hash_table_iter_next (&iter, &key, &value))
+        {
+            gint64 *k = g_new (gint64, 1);
+            *k = *(const gint64 *) key;
+            g_hash_table_insert (dst->vectors, k,
+                                 g_object_ref (PN_VECTOR (value)));
+        }
+    }
+    dst->next_vector = src->next_vector;
+
     /* Give a subclass the chance to carry its out-of-band payload (the
      * image pointer in PnImageMessage, …) across the clone.  The base
      * class leaves the hook %NULL. */

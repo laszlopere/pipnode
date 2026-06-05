@@ -2046,7 +2046,7 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         set/marker-shape/resolve-identity/non-marker/distinct-handles/finalize.
         NOTE: clone does NOT yet ref-share the registry -> a fanned-out CLONE
         loses its vectors until 43.3 wires the share into pn_message_clone.
-  [ ] 43.3  Zero-copy fan-out + copy-on-write.  pn_message_clone already deep-
+  [x] 43.3  Zero-copy fan-out + copy-on-write.  pn_message_clone already deep-
         copies the JSON, so the MARKERS clone for free (deep_copy_object/array);
         add registry ref-sharing in clone (iterate the table, g_object_ref each
         PnVector into the dst) -- the image copy_private pattern, but in base
@@ -2057,6 +2057,14 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         the pn-wire.c:71 clone comment warns about).  Orphan registry entries
         (member deleted, marker gone) are a bounded per-message cost; optional
         sweep against live markers at clone time.
+        DONE: pn_message_clone now rebuilds the registry by g_object_ref'ing
+        each PnVector into the clone (keys copied verbatim, next_vector carried
+        over).  Closes the 43.2 gap -- a fanned-out clone now resolves the same
+        live buffer.  Runtime check verified: clone resolves the SAME PnVector
+        (zero-copy identity), the buffer outlives the original, a fresh
+        set_vector on the clone does not collide with a shared handle.  COW
+        contract documented (header + this entry); orphan sweep NOT done
+        (bounded per-message cost, deferred).
   [ ] 43.4  Serialize / deserialize -- we OWN the boundary; json-glib offers no
         per-node generator hook (JsonGenerator dumping is private; JsonSerial-
         izable / json_boxed_register_serialize_func fire only on the GObject
