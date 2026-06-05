@@ -102,7 +102,7 @@
       "properties" : {
         "view-yaw" : 2.69146728515625,
         "view-pitch" : 32.3394775390625,
-        "house-heading" : 90.0,
+        "house-heading" : 270.0,
         "show-house" : true,
         "background-color" : "rgb(92,133,189)",
         "background-color2" : "rgb(219,212,184)",
