@@ -1244,7 +1244,7 @@ PnHttp/curl specifically.)
         render in a stale/wrong colour.  Fix: plscmap0n(8 + nseries) before
         the per-series loop in the 3D paths.  (3D-histogram path is
         unaffected -- it reuses low slots.)  Triggers only at 9+ topics.
-  [ ] 39.4  Table cell/title truncation can emit invalid UTF-8
+  [x] 39.4  Table cell/title truncation can emit invalid UTF-8
         (lib/pn-table-gui.c:80, fit_text_with_ellipsis).  The first
         truncation pass cuts at a fixed 252-byte offset that is not
         codepoint-aligned, so the inserted ellipsis can follow a partial

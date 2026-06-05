@@ -79,6 +79,13 @@ fit_text_with_ellipsis (
     {
         gchar buf[256];
         gsize copy = (len < sizeof buf - 4) ? len : (sizeof buf - 4);
+
+        /* Align the cut down to a UTF-8 character boundary so the
+         * ellipsis never follows a partial code point (the initial
+         * 252-byte cut above is not codepoint-aligned). */
+        while (copy > 0 && (((unsigned char) str[copy]) & 0xC0) == 0x80)
+            copy--;
+
         memcpy (buf, str, copy);
         buf[copy]     = '\xe2';  /* '…' = 0xE2 0x80 0xA6 */
         buf[copy + 1] = '\x80';
