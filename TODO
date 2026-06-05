@@ -2065,7 +2065,7 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         set_vector on the clone does not collide with a shared handle.  COW
         contract documented (header + this entry); orphan sweep NOT done
         (bounded per-message cost, deferred).
-  [ ] 43.4  Serialize / deserialize -- we OWN the boundary; json-glib offers no
+  [x] 43.4  Serialize / deserialize -- we OWN the boundary; json-glib offers no
         per-node generator hook (JsonGenerator dumping is private; JsonSerial-
         izable / json_boxed_register_serialize_func fire only on the GObject
         path, not a raw JsonNode tree).  A naive json_to_string emits the marker
@@ -2080,6 +2080,25 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         register it, leave the in-data markers pointing at their handles; bump
         next_vector past the max handle seen (fresh-message namespace, no marker
         rewrite).  Tag blobs little-endian f64 for cross-host safety.
+        DONE: pn_message_serialize/deserialize in pn-message.{c,h}.  Serialize
+        renders the documented envelope {type,from,from_id,topic,id,created,
+        data} (references the live data bag, no copy) and, when include_blobs,
+        deep-walks data (object members + array elements) for "$pnvector"
+        markers, resolving each handle to its PnVector and externalising it into
+        a sibling "blobs":{ "<handle>":{dtype,len,b64} } -- base64 of GUINT64_TO_
+        LE bit patterns so the bytes mean the same on a big-endian host; a stray
+        descriptor (unresolvable handle) is left alone, not emitted.  Deserialize
+        accepts a full envelope (restores topic/id/created, honours blobs) OR a
+        bare data bag; folds the bag in via deep_copy_node off the parser tree;
+        ingest_blob validates dtype=="f64" + len>=0 + nbytes==len*8 (GUINT64_
+        FROM_LE) and registers each vector under its ORIGINAL handle (no marker
+        rewrite); next_vector resumes past max marker handle so a later set_
+        vector cannot collide.  Malformed/short blob -> NULL + PN_MESSAGE_ERROR.
+        Builds clean; throwaway check (20/20) covers descriptor-only drops bytes
+        + leaves dangling marker (resolve NULL, next handle skips it), full mode
+        rehydrates byte-identical incl. 1e300 + restores envelope + advances
+        handle, truncated-blob fails loudly, bare-bag path.  Formal unit test
+        deferred to 43.6.
   [ ] 43.5  Route the ONE existing serialize site through the new pair: the
         D-Bus automation path (automation_message_to_json pn-application.c:770 +
         the InjectMessage deserializer :833).  Default include_blobs=FALSE there

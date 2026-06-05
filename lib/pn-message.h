@@ -235,6 +235,68 @@ PnVector     *pn_message_resolve_vector (PnMessage   *self,
 gboolean      pn_message_has_member     (PnMessage   *self,
                                          const gchar *name);
 
+/* ------------------------------------------------------------------ */
+/*  Serialization (TODO #43.4)                                         */
+/*                                                                     */
+/*  json-glib offers no per-node generator hook, so a plain            */
+/*  json_to_string would emit a "$pnvector" marker literally and       */
+/*  SILENTLY drop the out-of-band buffer behind it — a dangling handle */
+/*  on the way back.  These two functions WRAP json-glib with a        */
+/*  marker-walk so the payload travels with the message.               */
+/*                                                                     */
+/*  The wire form is the documented message envelope                   */
+/*                                                                     */
+/*      { "type", "from", "from_id", "topic", "id", "created",         */
+/*        "data": { … }, "blobs": { … } }                              */
+/*                                                                     */
+/*  where the optional "blobs" section is a sibling of "data" keyed by */
+/*  the decimal handle, each value being a self-describing little-      */
+/*  endian f64 payload  { "dtype": "f64", "len": N, "b64": "…" }.      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_message_serialize:
+ * @self:          the message to serialize
+ * @include_blobs: whether to externalize the out-of-band vector buffers
+ *
+ * Renders @self as the wire-form envelope JSON string.  The data bag is
+ * emitted verbatim, so any "$pnvector" markers it carries survive as
+ * ordinary JSON descriptors — a generic consumer sees a sane
+ * {len,dtype} object even with @include_blobs %FALSE.
+ *
+ * When @include_blobs is %TRUE, the data bag is deep-walked for vector
+ * markers and every referenced #PnVector is externalized into a sibling
+ * "blobs" object (keyed by its decimal handle) as a base64-encoded,
+ * little-endian f64 payload, so pn_message_deserialize() can rehydrate
+ * the buffers.  Pass %FALSE for inspection paths to ship a compact
+ * descriptor-only envelope and never base64 megabytes by accident.
+ *
+ * Returns: (transfer full): a newly-allocated JSON string; free with
+ *          g_free().
+ */
+gchar        *pn_message_serialize      (PnMessage   *self,
+                                         gboolean     include_blobs);
+
+/**
+ * pn_message_deserialize:
+ * @json:  the wire-form JSON produced by pn_message_serialize() (a full
+ *         envelope), or a bare data-bag object
+ * @error: (out) (nullable): receives a #PN_MESSAGE_ERROR on failure
+ *
+ * Parses @json back into a fresh #PnMessage.  A full envelope restores
+ * the topic / id / created fields and decodes any "blobs" section into
+ * #PnVector buffers registered under their original handles, so the
+ * in-data markers resolve again via pn_message_resolve_vector().  A bare
+ * object (no "data" member) is folded wholesale into the message data.
+ * The result has no source (it stands in for a wire delivery, not a node
+ * emission).
+ *
+ * Returns: (transfer full) (nullable): a new #PnMessage, or %NULL with
+ *          @error set on a parse failure or a malformed blob.
+ */
+PnMessage    *pn_message_deserialize    (const gchar *json,
+                                         GError     **error);
+
 /**
  * pn_message_validate:
  * @self:  the message to check
