@@ -57,6 +57,7 @@ check_PROGRAMS = \
 	test-pn-auto-injector \
 	test-pn-auto-random \
 	test-pn-astronomical \
+	test-pn-sun-path \
 	test-pn-geocode \
 	test-pn-rtc \
 	test-pn-deadline \
@@ -161,6 +162,7 @@ test_pn_table_model_SOURCES  = test-pn-table-model.c  pntest.c pntest.h
 test_pn_auto_injector_SOURCES = test-pn-auto-injector.c pntest.c pntest.h pntimer.h
 test_pn_auto_random_SOURCES   = test-pn-auto-random.c   pntest.c pntest.h pntimer.h
 test_pn_astronomical_SOURCES  = test-pn-astronomical.c  pntest.c pntest.h
+test_pn_sun_path_SOURCES      = test-pn-sun-path.c      pntest.c pntest.h
 test_pn_geocode_SOURCES       = test-pn-geocode.c       pntest.c pntest.h
 test_pn_rtc_SOURCES           = test-pn-rtc.c           pntest.c pntest.h pntimer.h
 test_pn_deadline_SOURCES      = test-pn-deadline.c      pntest.c pntest.h pntimer.h

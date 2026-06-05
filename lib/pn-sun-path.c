@@ -257,12 +257,26 @@ pn_sun_path_receive (PnNode    *node,
     PnSunPath  *self = PN_SUN_PATH (node);
     JsonObject *data = pn_message_get_data (message);
     gdouble     az, alt, lat, lon;
+    gboolean    success, have_az, have_alt;
 
     if (data == NULL)
         return;
 
+    success  = obj_bool (data, "success", TRUE);
+    have_az  = obj_num  (data, "sun_azimuth",  &az);
+    have_alt = obj_num  (data, "sun_altitude", &alt);
+
+    /* A Sun Path card consumes astronomical readings only.  A *successful*
+     * message that carries no Sun position is not one — most often a
+     * Weather report wired in by mistake — so ignore it and keep showing
+     * "Waiting for sun position" rather than parking the Sun at (0, 0).
+     * Explicit failures (success = FALSE, e.g. an unknown city) still pass
+     * through to drive the "No position" notice. */
+    if (success && !(have_az && have_alt))
+        return;
+
     self->have_data = TRUE;
-    self->success   = obj_bool (data, "success", TRUE);
+    self->success   = success;
 
     g_clear_pointer (&self->city,    g_free);
     g_clear_pointer (&self->country, g_free);
@@ -272,8 +286,8 @@ pn_sun_path_receive (PnNode    *node,
     self->output  = obj_str_dup (data, "output");
 
     self->sun_up = obj_bool (data, "sun_up", FALSE);
-    if (obj_num (data, "sun_azimuth",  &az))  self->sun_azimuth  = az;
-    if (obj_num (data, "sun_altitude", &alt)) self->sun_altitude = alt;
+    if (have_az)  self->sun_azimuth  = az;
+    if (have_alt) self->sun_altitude = alt;
 
     /* Recompute the day's arc from the resolved coordinates.  Only a
      * successful reading carries usable coordinates; a failed lookup
