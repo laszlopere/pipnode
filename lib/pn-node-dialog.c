@@ -19,6 +19,7 @@
 
 #include "pn-node-dialog.h"
 #include "pn-node-dialog-helpers.h"
+#include "pn-inline-edit-label.h"
 #include "pn-node.h"
 #include "pn-settings-renderer.h"
 #include "pn-credentials-dialog.h"
@@ -1585,21 +1586,44 @@ build_inputs_tab (PnNode *node)
     return box;
 }
 
+/** Build the inline-edit label editor (a label with a small pencil that
+ *  expands into a #GtkEntry on click) bound to a string property.  Used
+ *  for the base node's "topic" and "name" rows so the dialog offers the
+ *  same click-to-edit affordance as the canvas. */
+static GtkWidget *
+build_inline_name_editor (GObject    *target,
+                          GParamSpec *pspec)
+{
+    GtkWidget    *editor   = pn_inline_edit_label_new ();
+    gboolean      writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
+    GBindingFlags flags    = G_BINDING_SYNC_CREATE
+                             | (writable ? G_BINDING_BIDIRECTIONAL : 0);
+
+    gtk_widget_set_hexpand (editor, TRUE);
+    gtk_widget_set_sensitive (editor, writable);
+    g_object_bind_property (target, pspec->name, editor, "text", flags);
+    return editor;
+}
+
 static GtkWidget *
 build_pn_node_tab (GObject   *target,
-                   GtkWindow *parent)
+                   GtkWindow *parent G_GNUC_UNUSED)
 {
     GObjectClass *klass = g_type_class_ref (PN_TYPE_NODE);
     GtkWidget    *grid  = pn_node_dialog_new_property_grid ();
     guint         row   = 0;
     guint         i;
 
-    static const gchar * const order[] = {
-            "topic", "name", "position", "disabled" };
+    /* "position" and "disabled" are deliberately omitted: position is set
+     * by dragging the node on the canvas and disabling is toggled from the
+     * node's context menu, so neither belongs in the properties form. */
+    static const gchar * const order[] = { "topic", "name" };
 
     for (i = 0; i < G_N_ELEMENTS (order); i++)
     {
-        GParamSpec *pspec = g_object_class_find_property (klass, order[i]);
+        GParamSpec  *pspec = g_object_class_find_property (klass, order[i]);
+        const gchar *nick;
+
         if (pspec == NULL)
             continue;
 
@@ -1611,7 +1635,12 @@ build_pn_node_tab (GObject   *target,
                                                order[i]))
             continue;
 
-        attach_property_row (GTK_GRID (grid), target, pspec, row++, parent);
+        nick = g_param_spec_get_nick (pspec);
+        if (nick == NULL || *nick == '\0')
+            nick = pspec->name;
+
+        pn_node_dialog_attach_row (GTK_GRID (grid), row++, nick,
+                                   build_inline_name_editor (target, pspec));
     }
 
     /* The per-input names (and an optional input-count spin) live on
