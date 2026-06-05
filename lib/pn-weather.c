@@ -16,10 +16,11 @@
 /* ------------------------------------------------------------------ */
 /*  PnWeather                                                          */
 /*                                                                     */
-/*  Polls current weather for a named place from one of two free,      */
+/*  Polls current weather for a named place from one of three free,    */
 /*  key-less providers, chosen with the "provider" property:           */
 /*    - Open-Meteo (default) — global coverage.                        */
 /*    - Bright Sky           — DWD open data; Germany / central Europe. */
+/*    - MET Norway           — global coverage; Norwegian Met Institute. */
 /*  Both forecast endpoints are keyed on latitude/longitude, so a city  */
 /*  name first has to be resolved to coordinates through Open-Meteo's   */
 /*  (global) geocoding endpoint.  That is two HTTP requests, which does  */
@@ -62,6 +63,17 @@
 
 #define PN_WEATHER_FORECAST_URL    "https://api.open-meteo.com/v1/forecast"
 #define PN_WEATHER_BRIGHTSKY_URL   "https://api.brightsky.dev/current_weather"
+#define PN_WEATHER_MET_NO_URL \
+    "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+
+/* MET Norway rejects requests with a default or empty User-Agent and asks
+ * callers to identify the application with contact info, so every met.no
+ * fetch carries this descriptive UA.  (Open-Meteo and Bright Sky ignore
+ * it, so it is sent only for met.no.)  Built from the package identity so
+ * it tracks the version automatically. */
+#define PN_WEATHER_MET_NO_USER_AGENT \
+    PACKAGE_NAME "/" PACKAGE_VERSION \
+    " (https://github.com/laszlopere/pipnode; " PACKAGE_BUGREPORT ")"
 
 /* The "provider" property, registered as an enum so the settings dialog
  * renders it as a combobox and it serialises by nick. */
@@ -78,6 +90,8 @@ pn_weather_provider_get_type (void)
               "Open-Meteo (global)"                                            },
             { PN_WEATHER_PROVIDER_BRIGHT_SKY, "PN_WEATHER_PROVIDER_BRIGHT_SKY",
               "Bright Sky (Germany / central Europe)"                          },
+            { PN_WEATHER_PROVIDER_MET_NO, "PN_WEATHER_PROVIDER_MET_NO",
+              "MET Norway (global)"                                            },
             { 0, NULL, NULL }
         };
         GType t = g_enum_register_static ("PnWeatherProvider", values);
@@ -390,6 +404,160 @@ pn_weather_parse_bright_sky_current (JsonObject *root, PnWeatherCurrent *out)
     return out->ok;
 }
 
+/* Borrow the symbol_code from one MET Norway forecast window (e.g.
+ * "next_1_hours") of a timeseries @data block: data.<window>.summary
+ * .symbol_code.  Returns %NULL when the window or the chain is absent.
+ * The result points into the parser and is valid only while it lives. */
+static const gchar *
+met_no_symbol_code (JsonObject *data, const gchar *window)
+{
+    JsonNode   *node;
+    JsonObject *win, *summary;
+
+    if (data == NULL || !json_object_has_member (data, window))
+        return NULL;
+    node = json_object_get_member (data, window);
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return NULL;
+    win = json_node_get_object (node);
+
+    if (!json_object_has_member (win, "summary"))
+        return NULL;
+    node = json_object_get_member (win, "summary");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return NULL;
+    summary = json_node_get_object (node);
+
+    return obj_string (summary, "symbol_code");
+}
+
+/* Map a MET Norway symbol_code to a short English label.  met.no encodes
+ * the sky/precipitation state and an optional day/night/polartwilight
+ * variant in one token (e.g. "partlycloudy_day", "heavyrainshowers_night",
+ * "lightsleetandthunder").  The variant suffix is irrelevant to the text
+ * label, and the precipitation tokens share stable substrings, so this
+ * matches on those substrings (most specific first) rather than
+ * enumerating the ~100 combinations.  @symbol_code may be %NULL. */
+const gchar *
+pn_weather_met_no_description (const gchar *symbol_code)
+{
+    if (symbol_code == NULL || *symbol_code == '\0')
+        return "Unknown conditions";
+
+    /* Thunder is reported as an "...andthunder" suffix on a precipitation
+     * token, so it has to be checked before the precipitation substrings. */
+    if (strstr (symbol_code, "thunder") != NULL)  return "Thunderstorm";
+
+    /* "sleet" must precede "rain"/"snow": it never co-occurs with them in a
+     * single code, but keep the most-specific precipitation types first. */
+    if (strstr (symbol_code, "sleet") != NULL)
+        return strstr (symbol_code, "showers") ? "Sleet showers" : "Sleet";
+    if (strstr (symbol_code, "snow") != NULL)
+        return strstr (symbol_code, "showers") ? "Snow showers"  : "Snow";
+    if (strstr (symbol_code, "rain") != NULL)
+        return strstr (symbol_code, "showers") ? "Rain showers"  : "Rain";
+
+    if (strstr (symbol_code, "fog") != NULL)          return "Fog";
+    if (g_str_has_prefix (symbol_code, "partlycloudy")) return "Partly cloudy";
+    if (g_str_has_prefix (symbol_code, "cloudy"))     return "Cloudy";
+    if (g_str_has_prefix (symbol_code, "fair"))       return "Fair";
+    if (g_str_has_prefix (symbol_code, "clearsky"))   return "Clear sky";
+
+    return "Unknown conditions";
+}
+
+/* The MET Norway counterpart of pn_weather_parse_current().  The
+ * Locationforecast /compact body nests the readings under
+ * properties.timeseries[0].data: the "instant" block has the temperature,
+ * humidity, wind and pressure, while the conditions label rides on the
+ * "next_1_hours" (or, near the forecast tail, "next_6_hours") summary's
+ * symbol_code.  met.no reports wind in m/s, so it is converted to km/h to
+ * match the metric contract the other providers already satisfy.  Pure:
+ * no I/O, no node state. */
+gboolean
+pn_weather_parse_met_no_current (JsonObject *root, PnWeatherCurrent *out)
+{
+    JsonObject *props, *first, *data, *instant, *details;
+    JsonArray  *series;
+    JsonNode   *node;
+    gdouble     temp, hum, wind;
+
+    g_return_val_if_fail (out != NULL, FALSE);
+
+    if (root == NULL || !json_object_has_member (root, "properties"))
+        return out->ok;
+
+    node = json_object_get_member (root, "properties");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return out->ok;
+    props = json_node_get_object (node);
+
+    if (!json_object_has_member (props, "timeseries"))
+        return out->ok;
+    node = json_object_get_member (props, "timeseries");
+    if (!JSON_NODE_HOLDS_ARRAY (node))
+        return out->ok;
+    series = json_node_get_array (node);
+    if (json_array_get_length (series) == 0)
+        return out->ok;
+
+    node = json_array_get_element (series, 0);
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return out->ok;
+    first = json_node_get_object (node);
+
+    if (!json_object_has_member (first, "data"))
+        return out->ok;
+    node = json_object_get_member (first, "data");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return out->ok;
+    data = json_node_get_object (node);
+
+    if (!json_object_has_member (data, "instant"))
+        return out->ok;
+    node = json_object_get_member (data, "instant");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return out->ok;
+    instant = json_node_get_object (node);
+
+    if (!json_object_has_member (instant, "details"))
+        return out->ok;
+    node = json_object_get_member (instant, "details");
+    if (!JSON_NODE_HOLDS_OBJECT (node))
+        return out->ok;
+    details = json_node_get_object (node);
+
+    temp = obj_number (details, "air_temperature",           (gdouble) NAN);
+    hum  = obj_number (details, "relative_humidity",         (gdouble) NAN);
+    wind = obj_number (details, "wind_speed",                (gdouble) NAN);
+
+    /* A finite temperature is the marker of a usable reading. */
+    if (isfinite (temp))
+    {
+        const gchar *symbol;
+
+        out->ok          = TRUE;
+        out->temperature = temp;
+        if (isfinite (hum))  { out->has_humidity = TRUE; out->humidity = hum; }
+        /* m/s -> km/h, the unit every other provider already reports. */
+        if (isfinite (wind))
+        {
+            out->has_wind   = TRUE;
+            out->wind_speed = wind * 3.6;
+        }
+
+        /* The conditions symbol lives on a forecast window, not the
+         * instant: prefer next_1_hours and fall back to next_6_hours,
+         * which is all that is present near the end of the timeseries. */
+        symbol = met_no_symbol_code (data, "next_1_hours");
+        if (symbol == NULL)
+            symbol = met_no_symbol_code (data, "next_6_hours");
+        out->description = g_strdup (pn_weather_met_no_description (symbol));
+    }
+
+    return out->ok;
+}
+
 /* Build a curl command that GETs @url and prints the body followed by
  * the HTTP status sentinel that pn_http_split_body_and_status() looks
  * for.  Shared shape for both the geocoding and (via build_command)
@@ -397,17 +565,32 @@ pn_weather_parse_bright_sky_current (JsonObject *root, PnWeatherCurrent *out)
  * status are all needed to produce a specific error message when a
  * request fails. */
 static gchar *
-weather_curl_command (const gchar *url, guint timeout)
+weather_curl_command (const gchar *url, guint timeout, const gchar *user_agent)
 {
-    gchar *quoted = g_shell_quote (url);
-    gchar *cmd    = g_strdup_printf (
+    gchar *quoted   = g_shell_quote (url);
+    gchar *ua_opt   = NULL;
+    gchar *cmd;
+
+    /* MET Norway rejects requests without a descriptive User-Agent; the
+     * other providers ignore it, so the header is only added when a
+     * provider asks for one. */
+    if (user_agent != NULL)
+    {
+        gchar *quoted_ua = g_shell_quote (user_agent);
+        ua_opt = g_strdup_printf ("--user-agent %s ", quoted_ua);
+        g_free (quoted_ua);
+    }
+
+    cmd = g_strdup_printf (
             "curl --silent --show-error --location "
             "--max-time %u "
             "--write-out '%s%%{http_code}' "
             "-H 'Accept: application/json' "
-            "%s",
-            timeout, PN_HTTP_STATUS_SENTINEL, quoted);
+            "%s%s",
+            timeout, PN_HTTP_STATUS_SENTINEL,
+            ua_opt ? ua_opt : "", quoted);
 
+    g_free (ua_opt);
     g_free (quoted);
     return cmd;
 }
@@ -722,6 +905,7 @@ pn_weather_build_command (PnHttp *http, guint timeout)
     gchar             latbuf[G_ASCII_DTOSTR_BUF_SIZE];
     gchar             lonbuf[G_ASCII_DTOSTR_BUF_SIZE];
     gdouble           lat, lon;
+    const gchar      *user_agent = NULL;
     gchar            *full;
     gchar            *cmd;
 
@@ -743,6 +927,16 @@ pn_weather_build_command (PnHttp *http, guint timeout)
                 "%s?lat=%s&lon=%s",
                 base ? base : PN_WEATHER_BRIGHTSKY_URL, latbuf, lonbuf);
     }
+    else if (provider == PN_WEATHER_PROVIDER_MET_NO)
+    {
+        /* MET Norway's Locationforecast /compact takes lat/lon and returns
+         * a timeseries whose first entry is the current reading.  It
+         * requires the descriptive User-Agent below. */
+        full = g_strdup_printf (
+                "%s?lat=%s&lon=%s",
+                base ? base : PN_WEATHER_MET_NO_URL, latbuf, lonbuf);
+        user_agent = PN_WEATHER_MET_NO_USER_AGENT;
+    }
     else
     {
         /* timezone=auto makes Open-Meteo resolve the location's own
@@ -753,7 +947,7 @@ pn_weather_build_command (PnHttp *http, guint timeout)
                 base ? base : PN_WEATHER_FORECAST_URL,
                 latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
     }
-    cmd = weather_curl_command (full, timeout);
+    cmd = weather_curl_command (full, timeout, user_agent);
 
     g_free (full);
     g_free (base);
@@ -837,6 +1031,8 @@ pn_weather_emit_message (
 
             if (provider == PN_WEATHER_PROVIDER_BRIGHT_SKY)
                 pn_weather_parse_bright_sky_current (o, &cur);
+            else if (provider == PN_WEATHER_PROVIDER_MET_NO)
+                pn_weather_parse_met_no_current (o, &cur);
             else
                 pn_weather_parse_current (o, &cur);
 
@@ -1019,11 +1215,12 @@ pn_weather_set_property (
              * the url field shows the active provider's default; the
              * geocoder is shared, so the cached coordinates stay valid
              * and only the forecast fetch changes. */
-            g_object_set (self, "url",
-                          new_p == PN_WEATHER_PROVIDER_BRIGHT_SKY
-                              ? PN_WEATHER_BRIGHTSKY_URL
-                              : PN_WEATHER_FORECAST_URL,
-                          NULL);
+            const gchar *url = PN_WEATHER_FORECAST_URL;
+            if (new_p == PN_WEATHER_PROVIDER_BRIGHT_SKY)
+                url = PN_WEATHER_BRIGHTSKY_URL;
+            else if (new_p == PN_WEATHER_PROVIDER_MET_NO)
+                url = PN_WEATHER_MET_NO_URL;
+            g_object_set (self, "url", url, NULL);
             g_object_notify_by_pspec (object, props[PROP_PROVIDER]);
 
             /* Refresh the reading from the new provider within seconds. */
@@ -1096,9 +1293,10 @@ pn_weather_class_init (PnWeatherClass *klass)
     props[PROP_PROVIDER] = g_param_spec_enum (
             "provider", "Provider",
             "Which free, key-less forecast source to fetch from.  "
-            "Open-Meteo (the default) has global coverage; Bright Sky "
-            "serves DWD open data for Germany and parts of central "
-            "Europe.  The city is geocoded through Open-Meteo for both.",
+            "Open-Meteo (the default) and MET Norway both have global "
+            "coverage; Bright Sky serves DWD open data for Germany and "
+            "parts of central Europe.  The city is geocoded through "
+            "Open-Meteo for all three.",
             PN_TYPE_WEATHER_PROVIDER, PN_WEATHER_PROVIDER_OPEN_METEO,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

@@ -26,13 +26,15 @@ G_BEGIN_DECLS
  * auto-trigger period, but it resolves the city name to coordinates with
  * one extra (cached) geocoding request before each forecast fetch.
  *
- * Two free, key-less forecast providers are selectable via the
+ * Three free, key-less forecast providers are selectable via the
  * "provider" property:
  *   - Open-Meteo (https://open-meteo.com) — global coverage; the default.
  *   - Bright Sky (https://brightsky.dev)  — Germany and parts of central
  *     Europe only, served from DWD open data.
- * The city is geocoded through Open-Meteo's geocoding endpoint for both
- * (it is global); only the forecast fetch differs by provider.  The
+ *   - MET Norway (https://api.met.no)     — global coverage, served by the
+ *     Norwegian Meteorological Institute's Locationforecast API.
+ * The city is geocoded through Open-Meteo's geocoding endpoint for all
+ * three (it is global); only the forecast fetch differs by provider.  The
  * network transport is curl-via-PnHttp for now and will be ported to
  * in-process HTTP later (see the "pure C" project note). */
 
@@ -45,6 +47,7 @@ typedef enum
 {
     PN_WEATHER_PROVIDER_OPEN_METEO,   /* global; default                   */
     PN_WEATHER_PROVIDER_BRIGHT_SKY,   /* DWD; Germany / central Europe     */
+    PN_WEATHER_PROVIDER_MET_NO,       /* MET Norway; global                */
 } PnWeatherProvider;
 
 PnWeather *pn_weather_new (void);
@@ -92,6 +95,17 @@ gboolean     pn_weather_parse_current   (JsonObject       *root,
 gboolean     pn_weather_parse_bright_sky_current (JsonObject       *root,
                                                   PnWeatherCurrent *out);
 
+/* The MET Norway counterpart: extract the current reading from a parsed
+ * Locationforecast /compact response object @root (may be %NULL).  The
+ * "current" reading is the first entry of properties.timeseries; its
+ * instant block carries the temperature, humidity and wind, and the
+ * conditions @description is derived from the next_1_hours symbol_code.
+ * met.no reports wind in m/s, which this normalises to km/h to match the
+ * other providers.  Fills @out (zero it first) and returns @out->ok.  The
+ * caller frees @out->reason and @out->description. */
+gboolean     pn_weather_parse_met_no_current (JsonObject       *root,
+                                              PnWeatherCurrent *out);
+
 /* Map a WMO weather code (as Open-Meteo reports it) to a short English
  * label; unknown codes yield a generic string. */
 const gchar *pn_weather_code_description (gint code);
@@ -101,6 +115,13 @@ const gchar *pn_weather_code_description (gint code);
  * string; both arguments may be %NULL.  Returns a static string. */
 const gchar *pn_weather_bright_sky_description (const gchar *icon,
                                                 const gchar *condition);
+
+/* Map a MET Norway @symbol_code (e.g. "partlycloudy_day", "lightrain",
+ * "heavysnowshowers_night") to a short English label.  The day/night/
+ * polartwilight variant suffix is ignored and the base condition is
+ * matched; unknown codes yield a generic string.  @symbol_code may be
+ * %NULL.  Returns a static string. */
+const gchar *pn_weather_met_no_description (const gchar *symbol_code);
 
 G_END_DECLS
 

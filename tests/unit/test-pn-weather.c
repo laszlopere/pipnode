@@ -261,6 +261,152 @@ test_bright_sky_description (void)
                      ==, "Unknown conditions");
 }
 
+/* ---- MET Norway parse seam ------------------------------------------ */
+
+static void
+test_met_no_full_reading (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    /* The /compact body nests the reading under
+     * properties.timeseries[0].data; the conditions symbol rides on the
+     * next_1_hours summary.  met.no reports wind in m/s. */
+    JsonObject       *o = root_object (
+        "{\"properties\":{\"timeseries\":[{"
+        "\"time\":\"2026-06-05T12:00:00Z\","
+        "\"data\":{"
+        "\"instant\":{\"details\":{"
+        "\"air_temperature\":18.4,"
+        "\"relative_humidity\":71.2,"
+        "\"wind_speed\":3.0,"
+        "\"air_pressure_at_sea_level\":1012.3}},"
+        "\"next_1_hours\":{\"summary\":{\"symbol_code\":\"partlycloudy_day\"}}"
+        "}}]}}", &keep);
+
+    PN_CHECK (pn_weather_parse_met_no_current (o, &c));
+    PN_CHECK_NEAR  (c.temperature, 18.4, 1e-9);
+    PN_CHECK (c.has_humidity);
+    PN_CHECK_NEAR  (c.humidity, 71.2, 1e-9);
+    /* 3.0 m/s -> 10.8 km/h, normalised to match the other providers. */
+    PN_CHECK (c.has_wind);
+    PN_CHECK_NEAR  (c.wind_speed, 10.8, 1e-9);
+    /* met.no carries no WMO code; the label rides on description. */
+    PN_CHECK_FALSE (c.has_code);
+    PN_CHECK_CMPSTR (c.description, ==, "Partly cloudy");
+    PN_CHECK (c.reason == NULL);
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_met_no_temperature_only (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    /* Temperature alone is usable; no forecast window means no symbol, so
+     * the description falls through to the generic label and the optional
+     * fields stay un-flagged. */
+    JsonObject       *o = root_object (
+        "{\"properties\":{\"timeseries\":[{"
+        "\"data\":{\"instant\":{\"details\":{"
+        "\"air_temperature\":-2.5}}}}]}}", &keep);
+
+    PN_CHECK (pn_weather_parse_met_no_current (o, &c));
+    PN_CHECK_NEAR (c.temperature, -2.5, 1e-9);
+    PN_CHECK_FALSE (c.has_humidity);
+    PN_CHECK_FALSE (c.has_wind);
+    PN_CHECK_CMPSTR (c.description, ==, "Unknown conditions");
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_met_no_six_hour_fallback (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    /* Near the tail of the timeseries only next_6_hours is present; the
+     * symbol is read from there when next_1_hours is absent. */
+    JsonObject       *o = root_object (
+        "{\"properties\":{\"timeseries\":[{"
+        "\"data\":{"
+        "\"instant\":{\"details\":{\"air_temperature\":9.0}},"
+        "\"next_6_hours\":{\"summary\":{\"symbol_code\":\"heavyrain\"}}"
+        "}}]}}", &keep);
+
+    PN_CHECK (pn_weather_parse_met_no_current (o, &c));
+    PN_CHECK_CMPSTR (c.description, ==, "Rain");
+
+    g_free (c.reason);
+    g_free (c.description);
+    g_object_unref (keep);
+}
+
+static void
+test_met_no_no_timeseries_and_null (void)
+{
+    JsonParser       *keep;
+    PnWeatherCurrent  c = { 0 };
+    JsonObject       *o = root_object (
+        "{\"properties\":{\"timeseries\":[]}}", &keep);
+
+    /* An empty timeseries yields no reading. */
+    PN_CHECK_FALSE (pn_weather_parse_met_no_current (o, &c));
+    PN_CHECK (c.reason == NULL);
+    PN_CHECK (c.description == NULL);
+    g_object_unref (keep);
+
+    /* A NULL root (un-parseable body) is a safe no-op. */
+    PN_CHECK_FALSE (pn_weather_parse_met_no_current (NULL, &c));
+
+    g_free (c.reason);
+    g_free (c.description);
+}
+
+static void
+test_met_no_description (void)
+{
+    /* Day/night/polartwilight variant suffixes are ignored. */
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("clearsky_day"),
+                     ==, "Clear sky");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("clearsky_polartwilight"),
+                     ==, "Clear sky");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("fair_night"),
+                     ==, "Fair");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("partlycloudy_day"),
+                     ==, "Partly cloudy");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("cloudy"),
+                     ==, "Cloudy");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("fog"),
+                     ==, "Fog");
+    /* Precipitation intensity prefixes collapse to the base type... */
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("lightrain"),
+                     ==, "Rain");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("heavysnow"),
+                     ==, "Snow");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("sleet"),
+                     ==, "Sleet");
+    /* ...while a "showers" variant keeps the showers wording. */
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("rainshowers_day"),
+                     ==, "Rain showers");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("heavysnowshowers_night"),
+                     ==, "Snow showers");
+    /* "...andthunder" wins over the precipitation token it rides on. */
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("lightrainandthunder"),
+                     ==, "Thunderstorm");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("heavysleetshowersandthunder_day"),
+                     ==, "Thunderstorm");
+    /* Unknown / NULL -> generic label. */
+    PN_CHECK_CMPSTR (pn_weather_met_no_description ("moonbeam"),
+                     ==, "Unknown conditions");
+    PN_CHECK_CMPSTR (pn_weather_met_no_description (NULL),
+                     ==, "Unknown conditions");
+}
+
 int
 main (int argc, char **argv)
 {
@@ -276,5 +422,10 @@ main (int argc, char **argv)
     pn_test_add ("bright_sky_detail_error",  test_bright_sky_detail_error);
     pn_test_add ("bright_sky_no_weather",    test_bright_sky_no_weather_and_null);
     pn_test_add ("bright_sky_description",   test_bright_sky_description);
+    pn_test_add ("met_no_full_reading",      test_met_no_full_reading);
+    pn_test_add ("met_no_temp_only",         test_met_no_temperature_only);
+    pn_test_add ("met_no_six_hour_fallback", test_met_no_six_hour_fallback);
+    pn_test_add ("met_no_no_timeseries",     test_met_no_no_timeseries_and_null);
+    pn_test_add ("met_no_description",       test_met_no_description);
     return pn_test_run ();
 }

@@ -1,0 +1,161 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnWeather",
+      "uuid" : "eaf402b8-f3df-493a-8d70-dbb5f82c1953",
+      "name" : "Open-Meteo",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.open-meteo.com/v1/forecast",
+        "city" : "Pécs",
+        "provider" : "Open-Meteo (global)"
+      }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "51376853-162e-4fd2-87e0-dc1714505f52",
+      "name" : "Open-Meteo Report",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa",
+        "font-color" : "rgb(33,33,33)",
+        "secondary-font-color" : "rgb(117,117,117)",
+        "background-color" : "rgb(255,255,255)",
+        "background-color2" : "rgb(204,227,247)",
+        "background-gradient" : "Diagonal"
+      }
+    },
+    {
+      "type" : "PnWeather",
+      "uuid" : "98a6102c-bd0d-4e60-aa65-2eee63864fb9",
+      "name" : "Bright Sky",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.brightsky.dev/current_weather",
+        "city" : "Berlin",
+        "provider" : "Bright Sky (Germany / central Europe)"
+      }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "a5769b98-1906-40f1-8d77-0d1eb2b82ae6",
+      "name" : "Bright Sky Report",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa",
+        "font-color" : "rgb(33,33,33)",
+        "secondary-font-color" : "rgb(117,117,117)",
+        "background-color" : "rgb(255,255,255)",
+        "background-color2" : "rgb(204,227,247)",
+        "background-gradient" : "Horizontal"
+      }
+    },
+    {
+      "type" : "PnWeather",
+      "uuid" : "064d7078-b77d-4096-b03e-9fdbab5a47dd",
+      "name" : "MET Norway",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 580.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.met.no/weatherapi/locationforecast/2.0/compact",
+        "city" : "Oslo",
+        "provider" : "MET Norway (global)"
+      }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "4a15d032-98ad-4dc1-918e-0fff9a0e5e8f",
+      "name" : "MET Norway Report",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 580.0
+      },
+      "properties" : {
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa",
+        "font-color" : "rgb(33,33,33)",
+        "secondary-font-color" : "rgb(117,117,117)",
+        "background-color" : "rgb(255,255,255)",
+        "background-color2" : "rgb(204,227,247)",
+        "background-gradient" : "Vertical"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "fdb938cb-8264-4fd0-a323-b9c5a5f41671",
+      "name" : "Debug Print",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "eaf402b8-f3df-493a-8d70-dbb5f82c1953",
+      "target_id" : "51376853-162e-4fd2-87e0-dc1714505f52"
+    },
+    {
+      "source_id" : "98a6102c-bd0d-4e60-aa65-2eee63864fb9",
+      "target_id" : "a5769b98-1906-40f1-8d77-0d1eb2b82ae6"
+    },
+    {
+      "source_id" : "064d7078-b77d-4096-b03e-9fdbab5a47dd",
+      "target_id" : "4a15d032-98ad-4dc1-918e-0fff9a0e5e8f"
+    },
+    {
+      "source_id" : "eaf402b8-f3df-493a-8d70-dbb5f82c1953",
+      "target_id" : "fdb938cb-8264-4fd0-a323-b9c5a5f41671"
+    },
+    {
+      "source_id" : "98a6102c-bd0d-4e60-aa65-2eee63864fb9",
+      "target_id" : "fdb938cb-8264-4fd0-a323-b9c5a5f41671"
+    },
+    {
+      "source_id" : "064d7078-b77d-4096-b03e-9fdbab5a47dd",
+      "target_id" : "fdb938cb-8264-4fd0-a323-b9c5a5f41671"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

@@ -1162,7 +1162,7 @@ a prerequisite for the other.
   string) or is replaced by a request-building vfunc; either way keep
   PnWeather's two-request geocode-then-forecast override working.
 
-  [ ] 38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
+  [x] 38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
   weather provider.  api.met.no's Locationforecast is free and key-less
   (global coverage), so it slots in beside Open-Meteo and Bright Sky as a new
   PnWeatherProvider enum value.  It is keyed on lat/lon (reuse the existing
@@ -1172,6 +1172,16 @@ a prerequisite for the other.
   identifying the application (it rejects default/empty UAs) and expects
   callers to honour caching via If-Modified-Since / Expires; plan the
   request headers accordingly.
+      DONE: PN_WEATHER_PROVIDER_MET_NO enum + "MET Norway (global)" nick,
+      /compact URL builder, pn_weather_parse_met_no_current() (instant block
+      + next_1_hours/next_6_hours symbol_code -> label; m/s wind normalised to
+      km/h), and pn_weather_met_no_description().  weather_curl_command() grew
+      an optional --user-agent arg; met.no sends the package-derived
+      descriptive UA (others omit it).  Caching (If-Modified-Since/Expires)
+      left for the curl->in-process port (#38.1) since the 600 s cadence is
+      already gentle.  Live-verified against api.met.no (HTTP 200).  Tests:
+      5 new cases in tests/unit/test-pn-weather.c; example worksheet
+      examples/networking/weather-providers.json exercises all three providers.
 
 (39) Node source code-review findings (from the 2026-06-01 fan-out review
 of every node-implementing source file -- ~70 core lib/pn-*.c nodes + 30
