@@ -29,6 +29,14 @@ typedef struct
     gchar      *created;
     JsonObject *data;       /* owned, never NULL */
     PnNode     *source;     /* strong ref, may be NULL */
+
+    /* Out-of-band large-vector payloads (TODO #43).  Lazily allocated --
+     * NULL until the first pn_message_set_vector() -- so the common
+     * vector-free message pays nothing.  Maps gint64 handle -> PnVector*
+     * (owns a ref).  Handles are referenced from the data bag by
+     * "$pnvector" markers. */
+    GHashTable *vectors;
+    guint64     next_vector;
 } PnMessagePrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnMessage, pn_message, G_TYPE_OBJECT)
@@ -126,6 +134,7 @@ pn_message_finalize (GObject *object)
     g_clear_pointer (&priv->topic,   g_free);
     g_clear_pointer (&priv->created, g_free);
     g_clear_pointer (&priv->data,    json_object_unref);
+    g_clear_pointer (&priv->vectors, g_hash_table_unref);
 
     G_OBJECT_CLASS (pn_message_parent_class)->finalize (object);
 }
@@ -283,6 +292,10 @@ pn_message_init (PnMessage *self)
     priv->created = g_date_time_format_iso8601 (now);
     priv->source  = NULL;
     priv->data    = json_object_new ();
+
+    /* The vector registry is allocated on demand (see set_vector). */
+    priv->vectors     = NULL;
+    priv->next_vector = 1;   /* 0 is reserved as the "no handle" sentinel */
 
     g_date_time_unref (now);
 }
@@ -552,6 +565,103 @@ pn_message_get_member (
         return NULL;
 
     return json_object_get_member (priv->data, name);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Large numeric vectors (TODO #43)                                   */
+/* ------------------------------------------------------------------ */
+
+/* Pull the handle out of a "$pnvector" marker node.  Returns 0 (the
+ * no-handle sentinel) for anything that is not a well-formed marker. */
+static guint64
+vector_marker_handle (JsonNode *marker)
+{
+    JsonObject *obj;
+    JsonNode   *h;
+
+    if (marker == NULL || !JSON_NODE_HOLDS_OBJECT (marker))
+        return 0;
+
+    obj = json_node_get_object (marker);
+    if (!json_object_has_member (obj, PN_MESSAGE_VECTOR_MARKER))
+        return 0;
+
+    h = json_object_get_member (obj, PN_MESSAGE_VECTOR_MARKER);
+    if (h == NULL || !JSON_NODE_HOLDS_VALUE (h) ||
+        json_node_get_value_type (h) != G_TYPE_INT64)
+        return 0;
+
+    return (guint64) json_node_get_int (h);
+}
+
+guint64
+pn_message_set_vector (
+        PnMessage   *self,
+        const gchar *name,
+        PnVector    *vec)
+{
+    PnMessagePrivate *priv;
+    guint64           handle;
+    JsonObject       *marker;
+
+    g_return_val_if_fail (PN_IS_MESSAGE (self), 0);
+    g_return_val_if_fail (name != NULL, 0);
+    g_return_val_if_fail (PN_IS_VECTOR (vec), 0);
+
+    priv = pn_message_get_instance_private (self);
+
+    if (priv->vectors == NULL)
+        priv->vectors = g_hash_table_new_full (g_int64_hash, g_int64_equal,
+                                               g_free, g_object_unref);
+
+    handle = priv->next_vector++;
+
+    {
+        gint64 *key = g_new (gint64, 1);
+        *key = (gint64) handle;
+        g_hash_table_insert (priv->vectors, key, g_object_ref (vec));
+    }
+
+    /* The reference in the data bag is a self-describing marker object so
+     * it serialises as ordinary JSON and JSON-only consumers see a sane
+     * {len,dtype} descriptor. */
+    marker = json_object_new ();
+    json_object_set_int_member    (marker, PN_MESSAGE_VECTOR_MARKER,
+                                   (gint64) handle);
+    json_object_set_int_member    (marker, "len",
+                                   (gint64) pn_vector_get_len (vec));
+    json_object_set_string_member (marker, "dtype", "f64");
+
+    {
+        JsonNode *node = json_node_new (JSON_NODE_OBJECT);
+        json_node_take_object (node, marker);
+        json_object_set_member (priv->data, name, node);   /* takes @node */
+    }
+
+    return handle;
+}
+
+PnVector *
+pn_message_resolve_vector (
+        PnMessage *self,
+        JsonNode  *marker)
+{
+    PnMessagePrivate *priv;
+    guint64           handle;
+    gint64            key;
+
+    g_return_val_if_fail (PN_IS_MESSAGE (self), NULL);
+
+    handle = vector_marker_handle (marker);
+    if (handle == 0)
+        return NULL;
+
+    priv = pn_message_get_instance_private (self);
+    if (priv->vectors == NULL)
+        return NULL;
+
+    key = (gint64) handle;
+    return g_hash_table_lookup (priv->vectors, &key);
 }
 
 gboolean

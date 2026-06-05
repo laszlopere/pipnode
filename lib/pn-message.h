@@ -20,6 +20,7 @@
 #include <json-glib/json-glib.h>
 
 #include "pn-node.h"
+#include "pn-vector.h"
 
 G_BEGIN_DECLS
 
@@ -176,6 +177,53 @@ void          pn_message_set_member     (PnMessage   *self,
 /* Borrowed pointer; %NULL when @name is not present. */
 JsonNode     *pn_message_get_member     (PnMessage   *self,
                                          const gchar *name);
+
+/* ------------------------------------------------------------------ */
+/*  Large numeric vectors (out-of-band payloads, TODO #43)             */
+/*                                                                     */
+/*  A JsonNode cannot hold a GObject, so a big array of doubles is     */
+/*  stored as a #PnVector in a per-message side registry and merely    */
+/*  REFERENCED from the data bag by an integer handle.  The reference  */
+/*  is a self-describing marker object so it serialises as ordinary    */
+/*  JSON and can sit at any path:                                      */
+/*                                                                     */
+/*      { "$pnvector": <handle>, "len": <N>, "dtype": "f64" }          */
+/*                                                                     */
+/*  PN_MESSAGE_VECTOR_MARKER is RESERVED: do not use it as an ordinary */
+/*  data-bag member name.                                              */
+/* ------------------------------------------------------------------ */
+
+#define PN_MESSAGE_VECTOR_MARKER "$pnvector"
+
+/**
+ * pn_message_set_vector:
+ * @self: the message
+ * @name: data-bag member name to hold the marker
+ * @vec:  the vector to attach; the message takes its own reference
+ *
+ * Registers @vec in the message's vector registry and writes a marker
+ * object referencing it at data.@name (replacing any existing member).
+ *
+ * Returns: the handle assigned to @vec (>= 1; 0 on error).
+ */
+guint64       pn_message_set_vector     (PnMessage   *self,
+                                         const gchar *name,
+                                         PnVector    *vec);
+
+/**
+ * pn_message_resolve_vector:
+ * @self:   the message
+ * @marker: a node from this message's data bag (e.g. the result of
+ *          pn_message_get_member()); may be %NULL
+ *
+ * If @marker is a "$pnvector" marker referencing a vector registered on
+ * @self, returns that vector.
+ *
+ * Returns: (transfer none) (nullable): the borrowed #PnVector, or %NULL
+ *          when @marker is not a marker or the handle is unknown.
+ */
+PnVector     *pn_message_resolve_vector (PnMessage   *self,
+                                         JsonNode    *marker);
 
 /**
  * pn_message_has_member:

@@ -2029,13 +2029,23 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         normalises to a NULL buffer (get_data NULL-iff-empty).  Wired into
         libpipnode_core_la_SOURCES + installed headers; builds clean and a
         throwaway check verified adopt/copy/accessors/ref-share/empty.
-  [ ] 43.2  Blob registry on BASE PnMessage (not a subclass -- goal is ANY
+  [x] 43.2  Blob registry on BASE PnMessage (not a subclass -- goal is ANY
         message, ANY path): GHashTable<guint64 handle, PnVector*> (owns a ref)
         + guint64 next_vector counter in PnMessagePrivate.  API:
         pn_message_set_vector(self, member, vec) -> writes the marker at
         data.<member> AND registers the buffer, returns the handle;
         pn_message_resolve_vector(self, marker_node) -> borrowed PnVector*.
         Reserve "$pnvector" as a documented member name (collision guard).
+        DONE: registry lazily allocated (NULL until first set_vector; common
+        vector-free message pays nothing), keyed by gint64 handles starting at
+        1 (0 = no-handle sentinel), freed in finalize.  set_vector writes the
+        { "$pnvector":h, "len":N, "dtype":"f64" } marker; resolve_vector
+        validates the marker (object + int64 handle) then looks it up -- NULL on
+        non-marker / NULL / unknown handle.  PN_MESSAGE_VECTOR_MARKER #define +
+        doc block in the header.  Builds clean; runtime check covers
+        set/marker-shape/resolve-identity/non-marker/distinct-handles/finalize.
+        NOTE: clone does NOT yet ref-share the registry -> a fanned-out CLONE
+        loses its vectors until 43.3 wires the share into pn_message_clone.
   [ ] 43.3  Zero-copy fan-out + copy-on-write.  pn_message_clone already deep-
         copies the JSON, so the MARKERS clone for free (deep_copy_object/array);
         add registry ref-sharing in clone (iterate the table, g_object_ref each
