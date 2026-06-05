@@ -116,10 +116,12 @@ check_PROGRAMS = \
 	test-pn-mqtt-util \
 	test-pn-mqtt-resolve \
 	test-pn-node-log \
-	test-pn-node-collate
+	test-pn-node-collate \
+	test-pn-node-processing
 
 test_pn_node_log_SOURCES     = test-pn-node-log.c     pntest.c pntest.h
 test_pn_node_collate_SOURCES = test-pn-node-collate.c pntest.c pntest.h
+test_pn_node_processing_SOURCES = test-pn-node-processing.c pntest.c pntest.h
 test_pn_color_SOURCES        = test-pn-color.c        pntest.c pntest.h
 test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
 test_pn_settings_schema_SOURCES = test-pn-settings-schema.c pntest.c pntest.h

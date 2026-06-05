@@ -188,6 +188,19 @@ typedef struct
      * format (see should_serialize_property: PnNode-owned props are
      * skipped). */
     gboolean has_error;
+    /* Transient "this node is doing work" indicator (TODO #42).  A
+     * refcount, not a bool, so concurrent / overlapping work items — a
+     * node may run several worker threads — compose: busy_count > 0 means
+     * processing.  Guarded by processing_lock because
+     * pn_node_processing_begin/end may be called from secondary threads.
+     * busy_since_us (set on the idle→busy edge) and visible_until_us (set
+     * on the busy→idle edge) drive the minimum-visible linger so a
+     * sub-millisecond blip still animates.  Purely visual, recomputed at
+     * runtime, never serialized — exactly like has_error above. */
+    GMutex   processing_lock;
+    gint     busy_count;
+    gint64   busy_since_us;
+    gint64   visible_until_us;
     /* Spreadsheet-style sheet tag.  No UI yet — the property is in
      * place so a future commit can grow per-sheet tabs without
      * requiring a save-format migration.  Defaults to "Worksheet"
@@ -248,6 +261,7 @@ enum {
     SIG_REPAINT_NEEDED,
     SIG_LOG_CHANGED,
     SIG_INPUT_NAMES_CHANGED,
+    SIG_PROCESSING_CHANGED,
     N_SIGNALS,
 };
 
@@ -484,6 +498,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->input_count_prop, g_free);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
     g_clear_object  (&priv->last_output);
+    g_mutex_clear   (&priv->processing_lock);
 
     G_OBJECT_CLASS (pn_node_parent_class)->finalize (object);
 }
@@ -650,6 +665,24 @@ pn_node_class_init (PnNodeClass *klass)
             G_TYPE_NONE,
             0);
 
+    /* Emitted on the idle→busy and busy→idle edges of a node's processing
+     * state (pn_node_processing_begin/end).  The boolean argument is the
+     * new state (TRUE = now busy).  Always delivered on the thread running
+     * the default main context — the emit is marshalled there even when
+     * begin/end run on a node's worker thread — so a handler may safely
+     * touch GTK.  The worksheet listens and animates a "busy" halo (TODO
+     * #42); adding this signal changes no struct layout, so no ABI bump. */
+    signals[SIG_PROCESSING_CHANGED] = g_signal_new (
+            "processing-changed",
+            PN_TYPE_NODE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            1,
+            G_TYPE_BOOLEAN);
+
     /* Default size vfuncs return the canonical 140×40 footprint;
      * subclasses override for nodes that paint outside that box. */
     klass->get_size          = pn_node_default_get_size;
@@ -688,6 +721,10 @@ pn_node_init (PnNode *self)
     priv->collate_inputs = FALSE;
     priv->disabled   = FALSE;
     priv->has_error  = FALSE;
+    g_mutex_init (&priv->processing_lock);
+    priv->busy_count       = 0;
+    priv->busy_since_us    = 0;
+    priv->visible_until_us = 0;
     /* "Worksheet" is the canonical default sheet tag — see the
      * field comment for the rationale. */
     priv->worksheet  = g_strdup ("Worksheet");
@@ -1511,6 +1548,152 @@ pn_node_set_has_error (
 
     priv->has_error = has_error;
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HAS_ERROR]);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Processing-activity indicator (TODO #42)                           */
+/* ------------------------------------------------------------------ */
+
+/* Minimum time a node stays "visibly busy" after work begins, so even a
+ * sub-millisecond unit of work produces a perceptible glow. */
+#define PN_NODE_PROCESSING_MIN_VISIBLE_US (100 * 1000)  /* 100 ms */
+
+typedef struct {
+    PnNode  *node;   /* owns a ref for the lifetime of the deferred emit */
+    gboolean busy;
+} PnProcessingEdge;
+
+static gboolean
+pn_node_dispatch_processing_changed (gpointer data)
+{
+    PnProcessingEdge *edge = data;
+    g_signal_emit (edge->node, signals[SIG_PROCESSING_CHANGED], 0, edge->busy);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+pn_node_free_processing_edge (gpointer data)
+{
+    PnProcessingEdge *edge = data;
+    g_object_unref (edge->node);
+    g_free (edge);
+}
+
+/* Notify listeners that the node crossed a processing edge.  begin/end may
+ * run on a node's worker thread while the handler (the worksheet) must run
+ * on the UI thread and may touch GTK, so the emission is marshalled onto
+ * the default main context rather than fired inline.  When nobody is
+ * listening — a headless run, or the editor with the viz preference off and
+ * the worksheet unsubscribed — there is nothing to wake, so begin/end
+ * collapse to the bare atomic counter with no main-loop hop. */
+static void
+pn_node_emit_processing_changed (
+        PnNode  *self,
+        gboolean busy)
+{
+    PnProcessingEdge *edge;
+
+    if (!g_signal_has_handler_pending (self, signals[SIG_PROCESSING_CHANGED],
+                                       0, FALSE))
+        return;
+
+    edge = g_new0 (PnProcessingEdge, 1);
+    edge->node = g_object_ref (self);
+    edge->busy = busy;
+    g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT,
+                                pn_node_dispatch_processing_changed,
+                                edge, pn_node_free_processing_edge);
+}
+
+void
+pn_node_processing_begin (PnNode *self)
+{
+    PnNodePrivate *priv;
+    gboolean       became_busy;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    priv = pn_node_get_instance_private (self);
+
+    g_mutex_lock (&priv->processing_lock);
+    became_busy = (priv->busy_count == 0);
+    priv->busy_count++;
+    if (became_busy)
+        priv->busy_since_us = g_get_monotonic_time ();
+    g_mutex_unlock (&priv->processing_lock);
+
+    /* Only the idle→busy edge wakes the UI; overlapping work items past the
+     * first just bump the count. */
+    if (became_busy)
+        pn_node_emit_processing_changed (self, TRUE);
+}
+
+void
+pn_node_processing_end (PnNode *self)
+{
+    PnNodePrivate *priv;
+    gboolean       became_idle = FALSE;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    priv = pn_node_get_instance_private (self);
+
+    g_mutex_lock (&priv->processing_lock);
+    if (priv->busy_count == 0)
+    {
+        g_mutex_unlock (&priv->processing_lock);
+        g_warning ("pn_node_processing_end: unbalanced call on \"%s\" "
+                   "(processing count already 0)", pn_node_get_name (self));
+        return;
+    }
+    if (--priv->busy_count == 0)
+    {
+        /* Minimum-visible linger: hold "visibly busy" until at least
+         * MIN_VISIBLE_US after work began, so a blip shorter than that
+         * still produces a perceptible glow.  max() against now keeps the
+         * window honest for work that already ran longer than the floor. */
+        const gint64 now = g_get_monotonic_time ();
+        priv->visible_until_us =
+            MAX (now, priv->busy_since_us + PN_NODE_PROCESSING_MIN_VISIBLE_US);
+        became_idle = TRUE;
+    }
+    g_mutex_unlock (&priv->processing_lock);
+
+    /* The poll started at the begin edge animates the linger out on its
+     * own; we still emit the busy→idle edge so a listener that prefers to
+     * react rather than poll can repaint promptly. */
+    if (became_idle)
+        pn_node_emit_processing_changed (self, FALSE);
+}
+
+gboolean
+pn_node_is_processing (PnNode *self)
+{
+    PnNodePrivate *priv;
+    gboolean       busy;
+
+    g_return_val_if_fail (PN_IS_NODE (self), FALSE);
+    priv = pn_node_get_instance_private (self);
+
+    g_mutex_lock (&priv->processing_lock);
+    busy = (priv->busy_count > 0);
+    g_mutex_unlock (&priv->processing_lock);
+    return busy;
+}
+
+gboolean
+pn_node_is_processing_visible (
+        PnNode *self,
+        gint64  now_us)
+{
+    PnNodePrivate *priv;
+    gboolean       visible;
+
+    g_return_val_if_fail (PN_IS_NODE (self), FALSE);
+    priv = pn_node_get_instance_private (self);
+
+    g_mutex_lock (&priv->processing_lock);
+    visible = (priv->busy_count > 0) || (now_us < priv->visible_until_us);
+    g_mutex_unlock (&priv->processing_lock);
+    return visible;
 }
 
 /* ------------------------------------------------------------------ */

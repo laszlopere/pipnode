@@ -812,6 +812,56 @@ gboolean        pn_node_get_has_error  (PnNode *self);
 void            pn_node_set_has_error  (PnNode *self, gboolean has_error);
 
 /**
+ * pn_node_processing_begin:
+ * @self: the node
+ *
+ * Marks the start of a unit of work on @self, lighting its transient
+ * "processing" indicator.  Calls nest: this is a refcount, so a node may
+ * bracket several overlapping or concurrent work items (e.g. one per worker
+ * thread) and the node reads as busy until every one has ended.  Pair each
+ * call with exactly one pn_node_processing_end().
+ *
+ * Thread-safe: may be called from any thread.  The "processing-changed"
+ * signal it raises on the idle→busy edge is marshalled onto the default
+ * main context, so handlers always run on the UI thread.  The state is
+ * purely visual and is never serialized.
+ */
+void            pn_node_processing_begin (PnNode *self);
+
+/**
+ * pn_node_processing_end:
+ * @self: the node
+ *
+ * Marks the end of a unit of work started with pn_node_processing_begin().
+ * When the outstanding count returns to zero the node keeps reading as
+ * "visibly busy" for a short minimum linger (~100 ms) so even a
+ * sub-millisecond unit of work still produces a perceptible glow.
+ * Thread-safe; an unbalanced call (count already zero) is a no-op warning.
+ */
+void            pn_node_processing_end   (PnNode *self);
+
+/**
+ * pn_node_is_processing:
+ * @self: the node
+ *
+ * Returns: %TRUE while one or more units of work are outstanding (the
+ * refcount is above zero), ignoring the minimum-visible linger.
+ */
+gboolean        pn_node_is_processing    (PnNode *self);
+
+/**
+ * pn_node_is_processing_visible:
+ * @self:   the node
+ * @now_us: the current monotonic time (g_get_monotonic_time()), passed in
+ *          so a caller polling many nodes samples the clock once
+ *
+ * Returns: %TRUE if the node should be drawn as busy at @now_us — either
+ * work is outstanding, or it ended so recently that the minimum-visible
+ * linger has not yet elapsed.  This is what the worksheet's poll consults.
+ */
+gboolean        pn_node_is_processing_visible (PnNode *self, gint64 now_us);
+
+/**
  * pn_node_log:
  * @self:   the node
  * @level:  severity of the entry

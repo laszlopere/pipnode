@@ -1817,13 +1817,18 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
       Coalesce so rapid begin/end don't flood the main loop.
     * The signal is only a KICK to start the UI poll; the poll detects the end.
 
-  [ ] 42.1  PnNode core: private g_atomic busy_count + busy_since_us +
-        visible_until_us; public pn_node_processing_begin/end(),
-        pn_node_is_processing(node) (count>0) and pn_node_is_processing_visible
-        (node, now_us) (count>0 || now<visible_until_us); new
-        SIG_PROCESSING_CHANGED ("processing-changed", carries gboolean busy),
-        emitted on the main thread only, gated/marshaled as above.  Unit-test
-        the refcount composition + minimum-linger math headlessly.
+  [x] 42.1  PnNode core: private busy_count + busy_since_us + visible_until_us
+        guarded by a GMutex (begin/end may run on a worker thread); public
+        pn_node_processing_begin/end(), pn_node_is_processing(node) (count>0)
+        and pn_node_is_processing_visible(node, now_us) (count>0 ||
+        now<visible_until_us); new SIG_PROCESSING_CHANGED ("processing-changed",
+        carries gboolean busy), emitted on idle⇄busy edges only, marshalled
+        onto the default main context via g_main_context_invoke and gated by
+        g_signal_has_handler_pending so headless runs pay only the counter.
+        MIN_VISIBLE_US = 100 ms.  No ABI bump (new signal + private fields +
+        public funcs only).  DONE: tests/unit/test-pn-node-processing.c (21
+        checks: idle/lit/refcount/linger/long-work/signal-edges/unbalanced-end)
+        registered in Makefile.am; full suite 89/0, whole tree builds clean.
   [ ] 42.2  Coverage with minimal per-node churn: wrap the receive() dispatch
         in pn_node_receive_message_on_input (lib/pn-node.c ~810-824) with
         begin()/end() so every synchronous node lights up for free and honestly
