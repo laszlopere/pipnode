@@ -392,6 +392,101 @@ on_speak_done (
     g_object_unref (self);
 }
 
+/* Leading silence prepended to piper's audio.  When an idle audio
+ * sink — most visibly an HDMI output that nothing else is using —
+ * resumes, the kernel/PulseAudio fade its volume up over a few
+ * hundred milliseconds, swallowing the first syllables of speech.
+ * Half a second of silence in front of the words gives that ramp
+ * something inaudible to land on, so the speech itself starts at full
+ * level from the very first phoneme. */
+#define PN_TTS_PRIME_SILENCE_MS 500
+
+/** Read the synthesis sample rate out of a piper voice's sidecar
+ *  config (`<model>.onnx.json`, the `"audio":{"sample_rate":N}`
+ *  field).  Needed because the priming pipeline plays piper's raw
+ *  output, which carries no header for paplay to read the rate from.
+ *  Falls back to 22050 Hz — the rate of every bundled "-medium"
+ *  voice — when the config is missing or unparseable, so a stale or
+ *  absent sidecar degrades to a slightly-wrong pitch rather than
+ *  wedging playback. */
+static guint
+piper_sample_rate (const gchar *model_path)
+{
+    guint rate = 22050;
+
+    if (model_path == NULL || *model_path == '\0')
+        return rate;
+
+    gchar      *cfg    = g_strconcat (model_path, ".json", NULL);
+    JsonParser *parser = json_parser_new ();
+
+    if (json_parser_load_from_file (parser, cfg, NULL))
+    {
+        JsonNode *root = json_parser_get_root (parser);
+        if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
+        {
+            JsonObject *obj = json_node_get_object (root);
+            if (json_object_has_member (obj, "audio"))
+            {
+                JsonObject *audio =
+                    json_object_get_object_member (obj, "audio");
+                if (audio != NULL
+                    && json_object_has_member (audio, "sample_rate"))
+                {
+                    gint64 v =
+                        json_object_get_int_member (audio, "sample_rate");
+                    if (v > 0)
+                        rate = (guint) v;
+                }
+            }
+        }
+    }
+
+    g_object_unref (parser);
+    g_free (cfg);
+    return rate;
+}
+
+/** Build piper's playback pipeline with a block of silence in front of
+ *  the speech.  piper emits raw mono signed-16-bit audio at the voice's
+ *  sample rate (`--output_raw`); we precede it with
+ *  PN_TTS_PRIME_SILENCE_MS of zero samples from /dev/zero so a single
+ *  continuous paplay stream opens, finishes its wake-from-suspend
+ *  volume ramp during the silence, and then plays the words clean —
+ *  the original `piper … -f - | paplay` opened the stream on the first
+ *  word and lost it to the ramp.  @model is the .onnx path; @sink is
+ *  the optional PulseAudio sink (empty/NULL → system default).  Both
+ *  are shell-quoted here. */
+static gchar *
+build_piper_command (const gchar *speed_arg,
+                     const gchar *model,
+                     const gchar *sink)
+{
+    guint   rate   = piper_sample_rate (model);
+    guint64 nbytes = (guint64) rate * 2          /* s16le, mono */
+                     * PN_TTS_PRIME_SILENCE_MS / 1000;
+
+    gchar *qmodel   = g_shell_quote (model);
+    gchar *sink_arg = g_strdup ("");
+    if (sink != NULL && *sink != '\0')
+    {
+        gchar *qsink = g_shell_quote (sink);
+        g_free (sink_arg);
+        sink_arg = g_strdup_printf (" -d %s", qsink);
+        g_free (qsink);
+    }
+
+    gchar *cmd = g_strdup_printf (
+        "{ head -c %" G_GUINT64_FORMAT " /dev/zero; "
+        "piper %s -m %s -q --output_raw; } | "
+        "paplay --raw --format=s16le --rate=%u --channels=1%s",
+        nbytes, speed_arg, qmodel, rate, sink_arg);
+
+    g_free (qmodel);
+    g_free (sink_arg);
+    return cmd;
+}
+
 /** Spawn the engine's shell pipeline in the background and feed @text
  *  to its stdin.  Returns immediately so receive() does not block the
  *  main loop.  Refuses to spawn when no engine is selected, when the
@@ -442,36 +537,48 @@ pn_tts_speak (
     if (self->speaking)
         return;
 
-    gchar *speed_arg = eng->speed_flag (self->speed);
-    gchar *cmd;
-    if (have_voice)
+    gchar   *speed_arg = eng->speed_flag (self->speed);
+    gboolean is_piper  = g_strcmp0 (eng->id, "piper") == 0;
+    gboolean have_sink = self->sink != NULL && *self->sink != '\0';
+    gchar   *cmd;
+
+    if (is_piper)
     {
-        gchar *quoted = g_shell_quote (voice);
-        cmd = g_strdup_printf (eng->cmd_with_voice, speed_arg, quoted);
-        g_free (quoted);
+        /* Piper gets a bespoke pipeline that primes the sink with a
+         * lead-in of silence and routes its own `-d SINK` — see
+         * build_piper_command().  `have_voice` is guaranteed here
+         * because piper has no cmd_no_voice and the no-voice guard
+         * above already bailed. */
+        cmd = build_piper_command (speed_arg, voice, self->sink);
     }
     else
     {
-        cmd = g_strdup_printf (eng->cmd_no_voice, speed_arg);
+        if (have_voice)
+        {
+            gchar *quoted = g_shell_quote (voice);
+            cmd = g_strdup_printf (eng->cmd_with_voice, speed_arg, quoted);
+            g_free (quoted);
+        }
+        else
+        {
+            cmd = g_strdup_printf (eng->cmd_no_voice, speed_arg);
+        }
+
+        /* Audio sink routing for the PulseAudio-direct engines: when
+         * the engine exposes a `-d SINK` template, append it; otherwise
+         * the sink is delivered via PULSE_SINK on the launcher below. */
+        if (have_sink && eng->sink_append_template != NULL)
+        {
+            gchar *qsink   = g_shell_quote (self->sink);
+            gchar *suffix  = g_strdup_printf (eng->sink_append_template, qsink);
+            gchar *new_cmd = g_strdup_printf ("%s %s", cmd, suffix);
+            g_free (qsink);
+            g_free (suffix);
+            g_free (cmd);
+            cmd = new_cmd;
+        }
     }
     g_free (speed_arg);
-
-    /* Audio sink routing.  Two shapes: piper's pipeline ends with
-     * paplay, so the sink becomes a `-d SINK` argument tacked onto
-     * the command line; every other engine speaks straight to
-     * PulseAudio, so we set PULSE_SINK on the subprocess
-     * environment and leave the command line alone. */
-    gboolean have_sink = self->sink != NULL && *self->sink != '\0';
-    if (have_sink && eng->sink_append_template != NULL)
-    {
-        gchar *qsink   = g_shell_quote (self->sink);
-        gchar *suffix  = g_strdup_printf (eng->sink_append_template, qsink);
-        gchar *new_cmd = g_strdup_printf ("%s %s", cmd, suffix);
-        g_free (qsink);
-        g_free (suffix);
-        g_free (cmd);
-        cmd = new_cmd;
-    }
 
     GSubprocessLauncher *launcher = g_subprocess_launcher_new (
             G_SUBPROCESS_FLAGS_STDIN_PIPE

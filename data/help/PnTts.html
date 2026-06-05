@@ -79,7 +79,11 @@ warning icon and surfaces the missing-binary message in the
           engine it is delivered through the <code>PULSE_SINK</code>
           environment variable. Hosts without <code>pactl</code> /
           <code>paplay</code> behave as if &ldquo;Default&rdquo; was
-          selected.</td></tr>
+          selected. Piper speech is prefixed with about half a second
+          of silence so that an idle output &mdash; typically an HDMI
+          sink nothing else is using &mdash; finishes its
+          wake-from-suspend volume ramp before the first words, which
+          would otherwise be faded out and clipped.</td></tr>
   <tr><td><code>max-queue</code></td>
       <td>Maximum number of utterances allowed to wait while one is
           already being spoken. <code>0</code> drops new messages
