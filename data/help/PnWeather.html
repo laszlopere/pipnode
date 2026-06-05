@@ -33,7 +33,7 @@ endpoint (which is global and shared by both providers; the result is
 cached until the city changes), then fetches the forecast for those
 coordinates. Because that is two requests rather than one, the node
 overrides the plain HTTP trigger while still reusing the same
-<code>curl</code> worker for the forecast fetch.
+in-process worker for the forecast fetch.
 </p>
 <p>
 The default cadence is <strong>10&nbsp;minutes</strong> &mdash; weather

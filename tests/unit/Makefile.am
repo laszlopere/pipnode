@@ -83,7 +83,6 @@ check_PROGRAMS = \
 	test-pn-memory \
 	test-pn-cpu \
 	test-pn-temp \
-	test-pn-http \
 	test-pn-weather \
 	test-pn-tts \
 	test-pn-net-io \
@@ -196,7 +195,6 @@ test_pn_cpu_SOURCES           = test-pn-cpu.c           pntest.c pntest.h \
 	$(top_srcdir)/plugins/host-monitoring/pn-cpu.c
 test_pn_temp_SOURCES          = test-pn-temp.c          pntest.c pntest.h \
 	$(top_srcdir)/plugins/host-monitoring/pn-temp.c
-test_pn_http_SOURCES          = test-pn-http.c          pntest.c pntest.h
 test_pn_weather_SOURCES       = test-pn-weather.c       pntest.c pntest.h
 test_pn_tts_SOURCES           = test-pn-tts.c           pntest.c pntest.h
 test_pn_net_io_SOURCES        = test-pn-net-io.c        pntest.c pntest.h \

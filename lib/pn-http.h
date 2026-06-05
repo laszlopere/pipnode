@@ -18,6 +18,8 @@
 
 #include "pn-auto-trigger.h"
 
+#include <libsoup/soup.h>
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -25,15 +27,15 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Derivable auto-trigger node that performs an HTTP GET against the  */
 /*  configured URL once per #PnAutoTrigger:period seconds and emits   */
-/*  the response on its output port.  The actual fetch is done by    */
-/*  spawning curl from the inherited worker thread, so the GUI never */
-/*  blocks on slow or unreachable servers.                            */
+/*  the response on its output port.  The fetch runs in-process via a */
+/*  blocking libsoup request on the inherited worker thread, so the   */
+/*  GUI never blocks on slow or unreachable servers.                  */
 /*                                                                     */
 /*  Subclasses customise the request, response handling, and visual  */
 /*  identity by overriding the #PnHttpClass virtuals and class fields*/
 /*  in their `class_init`.  They typically do *not* override         */
 /*  #PnAutoTriggerClass.trigger directly; the base class drives the  */
-/*  curl spawn loop and calls the virtuals at the right points.      */
+/*  request loop and calls the virtuals at the right points.         */
 /*                                                                     */
 /*  The node has a "configuration required" state: while             */
 /*  #PnHttpClass.is_configured returns %FALSE the node switches to a */
@@ -76,7 +78,7 @@ struct _PnHttpClass
      * Return %TRUE when @self has enough configuration to perform a
      * meaningful request.  Called on the worker thread before each
      * tick; while it returns %FALSE the node is rendered in its
-     * warning state and no curl process is spawned.
+     * warning state and no request is made.
      *
      * The default implementation reports configured iff the inherited
      * #PnHttp:url is non-empty.
@@ -84,44 +86,46 @@ struct _PnHttpClass
     gboolean (*is_configured) (PnHttp *self);
 
     /**
-     * PnHttpClass::build_command:
-     * @self:    the node instance
-     * @timeout: per-request curl --max-time, derived from the period
+     * PnHttpClass::build_request:
+     * @self: the node instance
      *
-     * Build the shell command to spawn for one tick.  Returns a
-     * newly-allocated string the caller must free.  Called on the
-     * worker thread.
+     * Build the #SoupMessage to send for one tick.  Returns a new
+     * GET message (transfer full) the base class sends and then
+     * unrefs, or %NULL when the URL is missing/malformed.  Called on
+     * the worker thread.
      *
      * The default implementation issues an HTTP GET to #PnHttp:url
-     * with a write-out template that lets the base class recover the
-     * HTTP status code.  Subclasses overriding this must leave the
-     * status sentinel intact if they want
-     * pn_http_split_body_and_status() to recover a status code.
+     * (after ${...} variable expansion).  Subclasses build a
+     * provider-specific URL and set any request headers they need
+     * (Accept, User-Agent, ...) via soup_message_get_request_headers().
+     * The per-tick timeout and redirect-following are applied by the
+     * base class, so overrides need not touch them.
      */
-    gchar *(*build_command) (PnHttp *self, guint timeout);
+    SoupMessage *(*build_request) (PnHttp *self);
 
     /**
      * PnHttpClass::emit_message:
      * @self:        the node instance
-     * @spawned:     %TRUE when curl was launched (its exit status may
-     *               still indicate a request failure)
-     * @exit_status: raw status from g_spawn_command_line_sync()
-     * @stdout_text: (nullable): captured stdout
-     * @stderr_text: (nullable): captured stderr
+     * @ok:          %TRUE when an HTTP response was received (a non-2xx
+     *               status still counts as @ok; @http_status carries it)
+     * @http_status: the HTTP status code, or 0 when no response arrived
+     * @body:        (nullable): the response body (never %NULL when @ok,
+     *               but may be the empty string)
+     * @error:       (nullable): a one-line transport-error description
+     *               when !@ok (DNS / connect / timeout), else %NULL
      *
-     * Build the outgoing #PnMessage from the curl results and pass it
-     * to pn_auto_trigger_emit_on_main().  Called on the worker
-     * thread.
+     * Build the outgoing #PnMessage from the response and pass it to
+     * pn_auto_trigger_emit_on_main().  Called on the worker thread.
      *
      * The default implementation emits the standard HTTP fields:
      * "url", "success", "status" (when known), and "output" (the
      * response body).
      */
     void (*emit_message) (PnHttp      *self,
-                          gboolean     spawned,
-                          gint         exit_status,
-                          const gchar *stdout_text,
-                          const gchar *stderr_text);
+                          gboolean     ok,
+                          gint         http_status,
+                          const gchar *body,
+                          const gchar *error);
 };
 
 PnHttp *pn_http_new (void);
@@ -152,36 +156,6 @@ gchar *pn_http_dup_url (PnHttp *self);
  * of their inputs change.  Safe to call from the main thread only.
  */
 void pn_http_apply_visual_state (PnHttp *self, gboolean configured);
-
-/**
- * PN_HTTP_STATUS_SENTINEL:
- *
- * The literal string appended to curl's stdout (just before the HTTP
- * status code) by the base class's --write-out template, so the body
- * and the status can be split back apart by
- * pn_http_split_body_and_status().  Subclasses that build their own
- * curl command and still want the helper to work can paste this
- * sentinel into their own --write-out argument.
- */
-#define PN_HTTP_STATUS_SENTINEL "\n--PN-HTTP-STATUS--"
-
-/**
- * pn_http_split_body_and_status:
- * @stdout_text: (nullable): raw stdout from a curl process spawned
- *               with the base class's write-out template
- * @out_body:   (out) (transfer full): receives the response body as
- *              a newly-allocated string (always set, possibly to "")
- * @out_status: (out): receives the HTTP status code, or 0 when the
- *              sentinel is missing
- *
- * Split curl's combined output back into the response body and the
- * trailing HTTP status code.  Useful for subclasses that retain the
- * default #PnHttpClass.build_command but want to emit a different
- * message shape.
- */
-void pn_http_split_body_and_status (const gchar  *stdout_text,
-                                    gchar       **out_body,
-                                    gint         *out_status);
 
 G_END_DECLS
 

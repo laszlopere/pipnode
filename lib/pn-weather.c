@@ -24,11 +24,11 @@
 /*  Both forecast endpoints are keyed on latitude/longitude, so a city  */
 /*  name first has to be resolved to coordinates through Open-Meteo's   */
 /*  (global) geocoding endpoint.  That is two HTTP requests, which does  */
-/*  not fit #PnHttp's one-curl-per-tick build_command/emit_message      */
+/*  not fit #PnHttp's one-request-per-tick build_request/emit_message    */
 /*  contract, so the trigger is overridden: it geocodes (caching the    */
 /*  result until the city changes) and then delegates to #PnHttp's own  */
-/*  trigger for the forecast fetch, reusing the curl spawn loop via     */
-/*  build_command()/emit_message().                                     */
+/*  trigger for the forecast fetch, reusing the libsoup request loop    */
+/*  via build_request()/emit_message().                                 */
 /*                                                                     */
 /*  Emitted message (data bag):                                        */
 /*    success      - whether a current reading was obtained            */
@@ -650,77 +650,28 @@ pn_weather_met_no_trim_raw (JsonNode *root)
     return out_node;
 }
 
-/* Build a curl command that GETs @url and prints the body followed by
- * the HTTP status sentinel that pn_http_split_body_and_status() looks
- * for.  Shared shape for both the geocoding and (via build_command)
- * forecast calls — curl's exit code, the response body, and the HTTP
- * status are all needed to produce a specific error message when a
- * request fails. */
-static gchar *
-weather_curl_command (const gchar *url, guint timeout, const gchar *user_agent)
+/* Build the GET #SoupMessage for @url with the Accept header every
+ * provider gets and, when @user_agent is non-NULL, the descriptive
+ * User-Agent MET Norway requires (the other providers ignore it, so it
+ * is only added when a provider asks for one).  Returns %NULL when @url
+ * is malformed.  Shared by the forecast fetch (via build_request); the
+ * response body and HTTP status are both needed to produce a specific
+ * error message when a request fails. */
+static SoupMessage *
+weather_build_message (const gchar *url, const gchar *user_agent)
 {
-    gchar *quoted   = g_shell_quote (url);
-    gchar *ua_opt   = NULL;
-    gchar *cmd;
+    SoupMessage        *msg = soup_message_new (SOUP_METHOD_GET, url);
+    SoupMessageHeaders *headers;
 
-    /* MET Norway rejects requests without a descriptive User-Agent; the
-     * other providers ignore it, so the header is only added when a
-     * provider asks for one. */
-    if (user_agent != NULL)
-    {
-        gchar *quoted_ua = g_shell_quote (user_agent);
-        ua_opt = g_strdup_printf ("--user-agent %s ", quoted_ua);
-        g_free (quoted_ua);
-    }
-
-    cmd = g_strdup_printf (
-            "curl --silent --show-error --location "
-            "--max-time %u "
-            "--write-out '%s%%{http_code}' "
-            "-H 'Accept: application/json' "
-            "%s%s",
-            timeout, PN_HTTP_STATUS_SENTINEL,
-            ua_opt ? ua_opt : "", quoted);
-
-    g_free (ua_opt);
-    g_free (quoted);
-    return cmd;
-}
-
-/* First non-empty line of @text, trimmed; %NULL when @text is %NULL or
- * has nothing printable.  curl's --show-error writes a one-line message
- * to stderr on transport failure ("curl: (6) Could not resolve host"
- * etc.); that line is what makes a network error legible to the user.
- * Caller frees the result. */
-static gchar *
-weather_first_meaningful_line (const gchar *text)
-{
-    const gchar *p;
-
-    if (text == NULL)
+    if (msg == NULL)
         return NULL;
 
-    for (p = text; *p != '\0'; )
-    {
-        const gchar *eol = strchr (p, '\n');
-        gsize        len = eol ? (gsize) (eol - p) : strlen (p);
-        gchar       *line;
-        gchar       *trimmed;
+    headers = soup_message_get_request_headers (msg);
+    soup_message_headers_replace (headers, "Accept", "application/json");
+    if (user_agent != NULL)
+        soup_message_headers_replace (headers, "User-Agent", user_agent);
 
-        line = g_strndup (p, len);
-        trimmed = g_strstrip (line);
-        if (*trimmed != '\0')
-        {
-            gchar *copy = g_strdup (trimmed);
-            g_free (line);
-            return copy;
-        }
-        g_free (line);
-        if (!eol)
-            break;
-        p = eol + 1;
-    }
-    return NULL;
+    return msg;
 }
 
 /* Parse @body as a provider JSON error envelope and steal its
@@ -761,36 +712,27 @@ weather_extract_reason (const gchar *body)
 }
 
 /* Build a one-line human description of why an HTTP request failed,
- * given everything we know about the curl run.  @what is "Weather
+ * given everything we know about the response.  @what is "Weather
  * fetch" or "Location lookup" so the same shape covers both endpoints.
  * Returns a newly-allocated string the caller frees.  Falls through to
  * a generic "request failed" when no field has anything useful. */
 static gchar *
 weather_format_http_error (const gchar      *what,
                            PnWeatherProvider provider,
-                           gboolean          spawned,
-                           gint              exit_status,
-                           const gchar      *stderr_text,
+                           gboolean          ok,
+                           const gchar      *error,
                            gint              http_status,
                            const gchar      *body)
 {
     gchar *reason;
-    gchar *err_line;
 
-    if (!spawned)
-        return g_strdup_printf ("%s could not start (curl not run).", what);
-
-    if (!g_spawn_check_wait_status (exit_status, NULL))
+    /* Transport failure (DNS / connect / timeout): libsoup's GError
+     * message is a one-line cause, e.g. "Could not resolve hostname". */
+    if (!ok)
     {
-        err_line = weather_first_meaningful_line (stderr_text);
-        if (err_line != NULL)
-        {
-            gchar *out = g_strdup_printf ("%s failed: %s", what, err_line);
-            g_free (err_line);
-            return out;
-        }
-        return g_strdup_printf ("%s failed (curl exit status %d).",
-                                what, exit_status);
+        if (error != NULL && *error != '\0')
+            return g_strdup_printf ("%s failed: %s", what, error);
+        return g_strdup_printf ("%s failed (no response).", what);
     }
 
     /* Bright Sky answers HTTP 404 with "No sources match your criteria"
@@ -856,7 +798,7 @@ static void
 weather_geocode (PnWeather *self, const gchar *city)
 {
     /* Geocoding is always Open-Meteo's (global) endpoint, regardless of
-     * the selected forecast provider; pn_geocode does the curl + parse. */
+     * the selected forecast provider; pn_geocode does the request + parse. */
     PnGeocodeResult res = { 0 };
 
     pn_geocode_resolve_sync (city, 10u, &res);
@@ -965,7 +907,7 @@ pn_weather_trigger (PnAutoTrigger *trigger)
     g_free (city);
 
     /* Coordinates are ready — let #PnHttp run the forecast fetch through
-     * our build_command()/emit_message() overrides. */
+     * our build_request()/emit_message() overrides. */
     if (parent->trigger != NULL)
         parent->trigger (trigger);
 }
@@ -988,8 +930,8 @@ pn_weather_is_configured (PnHttp *http)
     return ok;
 }
 
-static gchar *
-pn_weather_build_command (PnHttp *http, guint timeout)
+static SoupMessage *
+pn_weather_build_request (PnHttp *http)
 {
     PnWeather        *self     = PN_WEATHER (http);
     gchar            *base     = pn_http_dup_url (http);
@@ -999,7 +941,7 @@ pn_weather_build_command (PnHttp *http, guint timeout)
     gdouble           lat, lon;
     const gchar      *user_agent = NULL;
     gchar            *full;
-    gchar            *cmd;
+    SoupMessage      *msg;
 
     g_mutex_lock (&self->mutex);
     lat = self->latitude;
@@ -1039,25 +981,23 @@ pn_weather_build_command (PnHttp *http, guint timeout)
                 base ? base : PN_WEATHER_FORECAST_URL,
                 latbuf, lonbuf, PN_WEATHER_CURRENT_VARS);
     }
-    cmd = weather_curl_command (full, timeout, user_agent);
+    msg = weather_build_message (full, user_agent);
 
     g_free (full);
     g_free (base);
-    return cmd;
+    return msg;
 }
 
 static void
 pn_weather_emit_message (
         PnHttp      *http,
-        gboolean     spawned,
-        gint         exit_status,
-        const gchar *stdout_text,
-        const gchar *stderr_text)
+        gboolean     ok_transport,
+        gint         http_status,
+        const gchar *body,
+        const gchar *error)
 {
     PnWeather   *self    = PN_WEATHER (http);
     PnNode      *node    = PN_NODE (self);
-    gchar       *body    = NULL;
-    gint         http_status = 0;
     gboolean     transport_ok;
     gboolean     ok      = FALSE;
     gchar       *failure = NULL;
@@ -1075,15 +1015,12 @@ pn_weather_emit_message (
     provider = self->provider;
     g_mutex_unlock (&self->mutex);
 
-    /* weather_curl_command() includes the same HTTP-status sentinel as
-     * the base class's default build_command, so the body and status
-     * can be split back apart here.  Open-Meteo answers HTTP 200 with
-     * the reading on success and HTTP 4xx (typically 429 for rate
-     * limits) with a {"error":true,"reason":...} body on failure, so
-     * both the status and the parsed body need to feed the decision. */
-    pn_http_split_body_and_status (stdout_text, &body, &http_status);
-    transport_ok = spawned &&
-                   g_spawn_check_wait_status (exit_status, NULL) &&
+    /* libsoup hands us the body and HTTP status already split apart.
+     * Open-Meteo answers HTTP 200 with the reading on success and HTTP
+     * 4xx (typically 429 for rate limits) with a
+     * {"error":true,"reason":...} body on failure, so both the status
+     * and the parsed body feed the decision. */
+    transport_ok = ok_transport &&
                    (http_status == 0 || (http_status >= 200 &&
                                          http_status < 300));
 
@@ -1207,7 +1144,7 @@ pn_weather_emit_message (
     {
         failure = weather_format_http_error (
                 "Weather fetch", provider,
-                spawned, exit_status, stderr_text, http_status, body);
+                ok_transport, error, http_status, body);
     }
 
     pn_message_set_boolean (msg, "success", ok);
@@ -1222,7 +1159,6 @@ pn_weather_emit_message (
     pn_auto_trigger_emit_on_main (PN_AUTO_TRIGGER (self), msg);
 
     g_free (failure);
-    g_free (body);
     g_free (name);
     g_free (country);
 }
@@ -1369,7 +1305,7 @@ pn_weather_class_init (PnWeatherClass *klass)
     trigger_class->trigger     = pn_weather_trigger;
 
     http_class->is_configured  = pn_weather_is_configured;
-    http_class->build_command  = pn_weather_build_command;
+    http_class->build_request  = pn_weather_build_request;
     http_class->emit_message   = pn_weather_emit_message;
 
     /* Visual identity. */

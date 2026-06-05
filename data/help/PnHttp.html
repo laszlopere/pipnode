@@ -16,9 +16,9 @@
 <p>
 Auto-triggered HTTP GET. Performs a request against the configured
 URL once per <code>period</code> seconds and emits the response on
-its output port. The request spawns <code>curl</code> on a worker
-thread; <code>--max-time</code> is derived from the period so a
-slow server cannot stall ticks.
+its output port. The request runs in-process on a worker thread; its
+socket-I/O timeout is derived from the period so a slow or unreachable
+server cannot stall ticks.
 </p>
 <p>
 The message carries <code>data.success</code> (true on a 2xx

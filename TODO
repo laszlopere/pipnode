@@ -1145,7 +1145,7 @@ the minimal-invasive-packaging line.
 grouped here only because both touch the PnHttp/PnWeather stack; neither is
 a prerequisite for the other.
 
-  [ ] 38.1 Drop curl from PnHttp; implement HTTP natively in C.  Today the whole
+  [x] 38.1 Drop curl from PnHttp; implement HTTP natively in C.  Today the whole
   PnHttp family (and PnWeather on top of it) shells out to curl via
   g_spawn_command_line_sync -- build_command() assembles a curl command line
   with --max-time / --write-out '<sentinel>%{http_code}' and the worker
@@ -1161,6 +1161,25 @@ a prerequisite for the other.
   build_command() stays (returning a request descriptor instead of a shell
   string) or is replaced by a request-building vfunc; either way keep
   PnWeather's two-request geocode-then-forecast override working.
+      DONE: replaced the curl spawn with a blocking soup_session_send_and_read()
+      on the inherited worker thread.  The PnHttpClass vfuncs changed (no plugin
+      subclasses PnHttp, so no ABI impact): build_command()->build_request()
+      returns a configured GET SoupMessage (transfer full); emit_message() now
+      receives the already-split (ok, http_status, body, error) instead of
+      (spawned, exit_status, stdout, stderr).  PnHttp caches one SoupSession per
+      instance (created on the worker thread, unref'd in finalize after
+      PnAutoTrigger joins the worker in dispose).  Timeout via
+      soup_session_set_timeout() = period-1 (per-I/O-op cap, not curl's
+      wall-clock --max-time -- still meets "dead host never delays the next
+      tick"); redirects are libsoup's default; Accept/User-Agent set via
+      soup_message_get_request_headers().  Ported PnWeather (3 providers + met.no
+      UA), PnRate (CoinGecko), and the standalone pn-geocode helper.  Sentinel +
+      pn_http_split_body_and_status() deleted; obsolete test-pn-http.c removed.
+      Verified: clean build (no warnings), 88 unit groups pass, 3 python
+      regressions pass, and examples/networking/weather-providers.json fetched
+      all three providers live over libsoup (HTTP 200, met.no UA accepted) with
+      pgrep showing NO curl process; dead-host yields success=false without
+      stalling ticks.
 
   [x] 38.2 Add the Norwegian Meteorological Institute (api.met.no) as a third
   weather provider.  api.met.no's Locationforecast is free and key-less

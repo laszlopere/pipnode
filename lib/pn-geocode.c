@@ -18,8 +18,8 @@
 #endif
 
 #include "pn-geocode.h"
-#include "pn-http.h"
 
+#include <libsoup/soup.h>
 #include <math.h>
 
 #define PN_GEOCODE_URL  "https://geocoding-api.open-meteo.com/v1/search"
@@ -136,62 +136,16 @@ pn_geocode_parse (JsonObject      *root,
     return TRUE;
 }
 
-/* Build a curl command that GETs @url and appends the HTTP-status
- * sentinel #PnHttp splits back off, so a request failure produces a
- * specific message.  Same shape as the #PnHttp family's own commands. */
-static gchar *
-geocode_curl_command (const gchar *url, guint timeout)
-{
-    gchar *quoted = g_shell_quote (url);
-    gchar *cmd    = g_strdup_printf (
-            "curl --silent --show-error --location "
-            "--max-time %u "
-            "--write-out '%s%%{http_code}' "
-            "-H 'Accept: application/json' "
-            "%s",
-            timeout, PN_HTTP_STATUS_SENTINEL, quoted);
-
-    g_free (quoted);
-    return cmd;
-}
-
-/* First non-empty trimmed line of @text, or %NULL.  curl --show-error
- * writes a one-line cause to stderr on transport failure. */
-static gchar *
-first_line (const gchar *text)
-{
-    gchar **lines;
-    gchar  *out = NULL;
-    guint   i;
-
-    if (text == NULL)
-        return NULL;
-
-    lines = g_strsplit (text, "\n", -1);
-    for (i = 0; lines[i] != NULL; i++)
-    {
-        gchar *trimmed = g_strstrip (lines[i]);
-        if (*trimmed != '\0')
-        {
-            out = g_strdup (trimmed);
-            break;
-        }
-    }
-    g_strfreev (lines);
-    return out;
-}
-
 gboolean
 pn_geocode_resolve_sync (const gchar     *city,
                          guint            timeout_seconds,
                          PnGeocodeResult *out)
 {
-    gchar    *escaped, *url, *cmd;
-    gchar    *stdout_text = NULL, *stderr_text = NULL;
-    gchar    *body = NULL;
-    gint      exit_status = 0, http_status = 0;
-    GError   *error = NULL;
-    gboolean  spawned;
+    gchar       *escaped, *url;
+    SoupSession *session;
+    SoupMessage *msg;
+    GBytes      *bytes;
+    GError      *error = NULL;
 
     g_return_val_if_fail (out != NULL, FALSE);
     g_return_val_if_fail (city != NULL && *city != '\0', FALSE);
@@ -201,30 +155,45 @@ pn_geocode_resolve_sync (const gchar     *city,
     escaped = g_uri_escape_string (city, NULL, FALSE);
     url     = g_strdup_printf ("%s?name=%s&count=1&language=en&format=json",
                                PN_GEOCODE_URL, escaped);
-    cmd     = geocode_curl_command (url, timeout_seconds);
 
-    spawned = g_spawn_command_line_sync (cmd, &stdout_text, &stderr_text,
-                                         &exit_status, &error);
-
-    if (!spawned)
+    msg = soup_message_new (SOUP_METHOD_GET, url);
+    if (msg == NULL)
     {
-        out->error = error != NULL
-                ? g_strdup_printf (
-                        "Location lookup could not start curl: %s",
-                        error->message)
-                : g_strdup ("Location lookup could not start curl.");
+        out->error = g_strdup ("Location lookup built an invalid URL.");
+        g_free (url);
+        g_free (escaped);
+        return FALSE;
+    }
+    soup_message_headers_replace (soup_message_get_request_headers (msg),
+                                  "Accept", "application/json");
+
+    /* Bound socket I/O so an unreachable geocoder cannot hang the
+     * caller's worker thread; libsoup follows redirects by default. */
+    session = soup_session_new ();
+    soup_session_set_timeout (session, timeout_seconds);
+
+    bytes = soup_session_send_and_read (session, msg, NULL, &error);
+
+    if (bytes == NULL)
+    {
+        out->error = (error != NULL && error->message != NULL)
+                ? g_strdup_printf ("Location lookup failed: %s",
+                                   error->message)
+                : g_strdup ("Location lookup could not reach the "
+                            "geocoding service.");
     }
     else
     {
-        pn_http_split_body_and_status (stdout_text, &body, &http_status);
+        gsize        len    = 0;
+        const gchar *data   = g_bytes_get_data (bytes, &len);
+        gint         status = (gint) soup_message_get_status (msg);
 
-        if (g_spawn_check_wait_status (exit_status, NULL) &&
-            (http_status == 0 || (http_status >= 200 && http_status < 300)) &&
-            body != NULL && *body != '\0')
+        if ((status == 0 || (status >= 200 && status < 300)) &&
+            data != NULL && len > 0)
         {
             JsonParser *parser = json_parser_new ();
 
-            if (json_parser_load_from_data (parser, body, -1, NULL))
+            if (json_parser_load_from_data (parser, data, (gssize) len, NULL))
             {
                 JsonNode   *root = json_parser_get_root (parser);
                 JsonObject *o    = (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
@@ -238,33 +207,28 @@ pn_geocode_resolve_sync (const gchar     *city,
             }
             g_object_unref (parser);
         }
-        else if (http_status == 429)
+        else if (status == 429)
         {
             out->error = g_strdup (
                     "Location lookup was rate-limited by the geocoding "
                     "service (HTTP 429).  Try a longer poll period.");
         }
-        else if (http_status > 0)
+        else if (status > 0)
         {
             out->error = g_strdup_printf (
-                    "Location lookup failed (HTTP %d).", http_status);
+                    "Location lookup failed (HTTP %d).", status);
         }
         else
         {
-            gchar *cause = first_line (stderr_text);
-            out->error = cause != NULL
-                    ? g_strdup_printf ("Location lookup failed: %s", cause)
-                    : g_strdup ("Location lookup could not reach the "
-                                "geocoding service.");
-            g_free (cause);
+            out->error = g_strdup ("Location lookup could not reach the "
+                                   "geocoding service.");
         }
+        g_bytes_unref (bytes);
     }
 
     g_clear_error (&error);
-    g_free (body);
-    g_free (stdout_text);
-    g_free (stderr_text);
-    g_free (cmd);
+    g_object_unref (msg);
+    g_object_unref (session);
     g_free (url);
     g_free (escaped);
 

@@ -19,17 +19,11 @@
 
 #include "pn-http.h"
 
-#include <string.h>
-
 /* Visual states.  The icon panel renders in white, so the body colour
  * carries the alert for the warning state. */
 #define PN_HTTP_NORMAL_ICON  "\xef\x82\xac"      /* fa-globe U+F0AC */
 
 #define PN_HTTP_DEFAULT_PERIOD 5u
-
-/* Sentinel curl writes between the response body and the HTTP status
- * code via -w.  Picked to be unlikely to appear in real payloads; we
- * still split on the *last* occurrence to be safe. */
 
 /* Default body colour applied when a subclass leaves
  * PnHttpClass.normal_color zero-initialised. */
@@ -43,6 +37,13 @@ typedef struct
      * node and freed in finalize. */
     GMutex  mutex;
     gchar  *url;
+
+    /* Lazily created on the worker thread and reused across ticks for
+     * connection keep-alive.  Only ever touched on the worker thread,
+     * which #PnAutoTrigger joins in dispose before this node's
+     * finalize runs, so no locking is needed and finalize can unref
+     * it safely. */
+    SoupSession *session;
 } PnHttpPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (PnHttp, pn_http, PN_TYPE_AUTO_TRIGGER)
@@ -57,13 +58,13 @@ static GParamSpec *props[N_PROPS];
 
 /* Forward declarations of the default vfunc implementations so the
  * trigger and class_init can both reach them. */
-static gboolean default_is_configured (PnHttp *self);
-static gchar   *default_build_command (PnHttp *self, guint timeout);
-static void     default_emit_message  (PnHttp      *self,
-                                       gboolean     spawned,
-                                       gint         exit_status,
-                                       const gchar *stdout_text,
-                                       const gchar *stderr_text);
+static gboolean     default_is_configured (PnHttp *self);
+static SoupMessage *default_build_request (PnHttp *self);
+static void         default_emit_message  (PnHttp      *self,
+                                           gboolean     ok,
+                                           gint         http_status,
+                                           const gchar *body,
+                                           const gchar *error);
 
 /* ------------------------------------------------------------------ */
 /*  URL accessor (thread-safe)                                         */
@@ -155,43 +156,6 @@ pn_http_apply_visual_state (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Output parsing                                                     */
-/* ------------------------------------------------------------------ */
-
-void
-pn_http_split_body_and_status (
-        const gchar  *stdout_text,
-        gchar       **out_body,
-        gint         *out_status)
-{
-    const gchar *sep;
-    const gchar *status_text;
-
-    g_return_if_fail (out_body   != NULL);
-    g_return_if_fail (out_status != NULL);
-
-    *out_body   = NULL;
-    *out_status = 0;
-
-    if (stdout_text == NULL)
-    {
-        *out_body = g_strdup ("");
-        return;
-    }
-
-    sep = g_strrstr (stdout_text, PN_HTTP_STATUS_SENTINEL);
-    if (sep == NULL)
-    {
-        *out_body = g_strdup (stdout_text);
-        return;
-    }
-
-    *out_body   = g_strndup (stdout_text, (gsize) (sep - stdout_text));
-    status_text = sep + strlen (PN_HTTP_STATUS_SENTINEL);
-    *out_status = (gint) g_ascii_strtoll (status_text, NULL, 10);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Default vfunc implementations                                      */
 /* ------------------------------------------------------------------ */
 
@@ -205,63 +169,35 @@ default_is_configured (PnHttp *self)
     return ok;
 }
 
-static gchar *
-default_build_command (
-        PnHttp *self,
-        guint   timeout)
+static SoupMessage *
+default_build_request (PnHttp *self)
 {
-    gchar *url        = pn_http_dup_url (self);
+    gchar       *url      = pn_http_dup_url (self);
     /* Interpolate ${nodeclass} / ${nodename} / ${hostname} into the URL;
      * any other ${...} is left verbatim. */
-    gchar *expanded   = pn_node_expand_vars (PN_NODE (self), url);
-    gchar *quoted_url = g_shell_quote (expanded);
-    gchar *cmd;
+    gchar       *expanded = pn_node_expand_vars (PN_NODE (self), url);
+    SoupMessage *msg      = soup_message_new (SOUP_METHOD_GET, expanded);
 
-    cmd = g_strdup_printf (
-            "curl --silent --show-error --location "
-            "--max-time %u "
-            "--write-out '%s%%{http_code}' "
-            "%s",
-            timeout, PN_HTTP_STATUS_SENTINEL, quoted_url);
-
-    g_free (quoted_url);
     g_free (expanded);
     g_free (url);
-    return cmd;
+    return msg;   /* NULL when @expanded is not a valid URL */
 }
 
 static void
 default_emit_message (
         PnHttp      *self,
-        gboolean     spawned,
-        gint         exit_status,
-        const gchar *stdout_text,
-        const gchar *stderr_text)
+        gboolean     ok,
+        gint         http_status,
+        const gchar *body,
+        const gchar *error)
 {
-    PnAutoTrigger *trigger     = PN_AUTO_TRIGGER (self);
-    PnNode        *node        = PN_NODE (self);
-    gchar         *url         = pn_http_dup_url (self);
-    gchar         *body        = NULL;
-    gint           http_status = 0;
-    gboolean       success     = FALSE;
+    PnAutoTrigger *trigger = PN_AUTO_TRIGGER (self);
+    PnNode        *node    = PN_NODE (self);
+    gchar         *url     = pn_http_dup_url (self);
+    gboolean       success = ok && http_status >= 200 && http_status < 300;
     PnMessage     *msg;
 
-    (void) stderr_text;
-
-    if (spawned)
-    {
-        gboolean exited_ok = g_spawn_check_wait_status (exit_status, NULL);
-
-        pn_http_split_body_and_status (stdout_text, &body, &http_status);
-
-        success = exited_ok
-                  && http_status >= 200
-                  && http_status < 300;
-    }
-    else
-    {
-        body = g_strdup ("");
-    }
+    (void) error;
 
     msg = pn_message_new (node, NULL);
     pn_message_set_string  (msg, "url",     url ? url : "");
@@ -272,7 +208,6 @@ default_emit_message (
 
     pn_auto_trigger_emit_on_main (trigger, msg);
 
-    g_free (body);
     g_free (url);
 }
 
@@ -280,24 +215,22 @@ default_emit_message (
 /*  Trigger                                                            */
 /*                                                                     */
 /*  Runs on the worker thread inherited from #PnAutoTrigger.  The     */
-/*  base class drives the curl spawn loop and dispatches to the      */
-/*  vfuncs so subclasses customise per-request behaviour without     */
-/*  re-implementing the spawn boilerplate.                            */
+/*  base class drives the blocking libsoup request and dispatches to  */
+/*  the vfuncs so subclasses customise per-request behaviour without  */
+/*  re-implementing the transport boilerplate.                        */
 /* ------------------------------------------------------------------ */
 
 static void
 pn_http_trigger (PnAutoTrigger *trigger)
 {
-    PnHttp      *self  = PN_HTTP (trigger);
-    PnHttpClass *klass = PN_HTTP_GET_CLASS (self);
-    gchar       *cmd;
-    gchar       *stdout_text = NULL;
-    gchar       *stderr_text = NULL;
-    gint         exit_status = 0;
-    GError      *error       = NULL;
-    gboolean     spawned;
-    guint        period;
-    guint        timeout;
+    PnHttp        *self  = PN_HTTP (trigger);
+    PnHttpClass   *klass = PN_HTTP_GET_CLASS (self);
+    PnHttpPrivate *priv  = pn_http_get_instance_private (self);
+    SoupMessage   *msg;
+    GBytes        *bytes;
+    GError        *error = NULL;
+    guint          period;
+    guint          timeout;
 
     /* Skip work entirely while the node is in its "configuration
      * required" state.  The visual marker on the canvas already tells
@@ -305,33 +238,57 @@ pn_http_trigger (PnAutoTrigger *trigger)
     if (!klass->is_configured (self))
         return;
 
-    /* Cap curl --max-time one below the period so a dead host never
-     * delays the next tick. */
-    period  = pn_auto_trigger_get_period (trigger);
-    timeout = (period > 1u) ? period - 1u : 1u;
-
-    cmd = klass->build_command (self, timeout);
-
-    spawned = g_spawn_command_line_sync (cmd,
-                                         &stdout_text,
-                                         &stderr_text,
-                                         &exit_status,
-                                         &error);
-
-    if (!spawned)
+    msg = klass->build_request (self);
+    if (msg == NULL)
     {
-        pn_auto_trigger_log_on_main (
-                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
-                "Request could not start curl: %s",
-                error ? error->message : "(unknown)");
-        g_clear_error (&error);
+        /* soup_message_new() rejected the URL as malformed. */
+        klass->emit_message (self, FALSE, 0, "", "invalid URL");
+        return;
     }
 
-    klass->emit_message (self, spawned, exit_status, stdout_text, stderr_text);
+    if (priv->session == NULL)
+        priv->session = soup_session_new ();
 
-    g_free (cmd);
-    g_free (stdout_text);
-    g_free (stderr_text);
+    /* Bound the request so a dead or slow host never delays the next
+     * tick: cap socket I/O one second below the period.  Unlike curl's
+     * --max-time this is a per-operation (connect / stalled-read)
+     * timeout rather than a wall-clock cap on the whole transfer, which
+     * still meets the goal and will not abort a large but steady
+     * download. */
+    period  = pn_auto_trigger_get_period (trigger);
+    timeout = (period > 1u) ? period - 1u : 1u;
+    soup_session_set_timeout (priv->session, timeout);
+
+    /* Synchronous send on the worker thread; libsoup follows redirects
+     * by default.  A NULL return is a transport failure (DNS, connect,
+     * timeout); an HTTP 4xx/5xx still returns the body with the status
+     * recorded on @msg. */
+    bytes = soup_session_send_and_read (priv->session, msg, NULL, &error);
+
+    if (bytes == NULL)
+    {
+        const gchar *reason = error ? error->message : "(unknown)";
+
+        pn_auto_trigger_log_on_main (
+                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_ERROR,
+                "Request failed: %s", reason);
+        klass->emit_message (self, FALSE, 0, "", reason);
+    }
+    else
+    {
+        gsize        len  = 0;
+        const gchar *data = g_bytes_get_data (bytes, &len);
+        gchar       *body = g_strndup (data ? data : "", len);
+        gint         http_status = (gint) soup_message_get_status (msg);
+
+        klass->emit_message (self, TRUE, http_status, body, NULL);
+
+        g_free (body);
+        g_bytes_unref (bytes);
+    }
+
+    g_clear_error (&error);
+    g_object_unref (msg);
 }
 
 /* ------------------------------------------------------------------ */
@@ -386,6 +343,9 @@ pn_http_finalize (GObject *object)
     PnHttp        *self = PN_HTTP (object);
     PnHttpPrivate *priv = pn_http_get_instance_private (self);
 
+    /* The worker thread (the only user of @session) was joined by
+     * #PnAutoTrigger's dispose, so unreffing here is race-free. */
+    g_clear_object (&priv->session);
     g_clear_pointer (&priv->url, g_free);
     g_mutex_clear (&priv->mutex);
 
@@ -413,7 +373,7 @@ pn_http_class_init (PnHttpClass *klass)
     /* Default vfuncs.  Subclasses override these to customise the
      * request / response handling. */
     klass->is_configured = default_is_configured;
-    klass->build_command = default_build_command;
+    klass->build_request = default_build_request;
     klass->emit_message  = default_emit_message;
 
     /* The instance icon flips between the normal glyph and ❗

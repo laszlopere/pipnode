@@ -18,7 +18,7 @@
 /*                                                                     */
 /*  This file holds the GTK-free half of the Rate node: the GType, the */
 /*  currency table, all properties, the cache-aware periodic fetch     */
-/*  (trigger gate + curl command + JSON parse) and the receive()-time  */
+/*  (trigger gate + request build + JSON parse) and the receive()-time */
 /*  conversion.  The settings-dialog customisation (read-only cache    */
 /*  rows + the icon+ticker currency combos) lives in the companion     */
 /*  gui-tier file pn-rate-gui.c, which installs that vfunc slot onto    */
@@ -101,7 +101,7 @@ static const CurrencyInfo currency_table[] = {
 /** Look up the table entry for @cur.  Falls back to the USD row when
  *  asked about an out-of-range value so callers can dereference the
  *  return value unconditionally — USD's NULL `coingecko` field is the
- *  one row that build_command and friends already special-case (it is
+ *  one row that build_request and friends already special-case (it is
  *  the pivot, not a fetched coin), which makes it the safest miss
  *  value across every consumer. */
 static const CurrencyInfo *
@@ -170,7 +170,7 @@ struct _PnRate
 {
     PnHttp parent_instance;
 
-    /* @from / @to are read on the worker thread (build_command,
+    /* @from / @to are read on the worker thread (build_request,
      * emit_message) and written by the main-thread property setter,
      * so accesses are guarded by @mutex.  @rate / @last_update are
      * read by the main thread on receive and written by the worker
@@ -250,7 +250,7 @@ rate_get_rate_locked (PnRate *self)
 /*  This override inspects the cached `last-update` against @period   */
 /*  and short-circuits the tick when the cache is still fresh; only   */
 /*  a missing, unparseable or genuinely stale timestamp chains to      */
-/*  PnHttp::trigger to actually run curl.  Pair changes (FROM / TO)   */
+/*  PnHttp::trigger to actually fetch.  Pair changes (FROM / TO)      */
 /*  clear `last-update` in the property setter so the kick that       */
 /*  follows correctly falls through to a fetch.                       */
 /* ------------------------------------------------------------------ */
@@ -357,15 +357,13 @@ pn_rate_is_configured (PnHttp *http)
     return ok;
 }
 
-/** Build the curl command.  CoinGecko's `simple/price` returns one
- *  USD price per requested coin id; we always pivot through USD so a
+/** Build the request.  CoinGecko's `simple/price` returns one USD
+ *  price per requested coin id; we always pivot through USD so a
  *  single request is enough no matter which two of our currencies
  *  the user picked.  The helper appends each non-USD currency in
  *  {from, to} to the comma-separated `ids=` list. */
-static gchar *
-pn_rate_build_command (
-        PnHttp *http,
-        guint   timeout)
+static SoupMessage *
+pn_rate_build_request (PnHttp *http)
 {
     PnRate              *self  = PN_RATE (http);
     gchar               *url   = pn_http_dup_url (http);
@@ -375,8 +373,7 @@ pn_rate_build_command (
     const CurrencyInfo  *tinfo = currency_info (to);
     GString             *ids   = g_string_new (NULL);
     gchar               *full_url;
-    gchar               *quoted_url;
-    gchar               *cmd;
+    SoupMessage         *msg;
 
     if (finfo->coingecko != NULL)
         g_string_append (ids, finfo->coingecko);
@@ -394,19 +391,15 @@ pn_rate_build_command (
                                 url ? url : "",
                                 ids->str);
 
-    quoted_url = g_shell_quote (full_url);
-    cmd = g_strdup_printf (
-            "curl --silent --show-error --location "
-            "--max-time %u "
-            "-H 'Accept: application/json' "
-            "%s",
-            timeout, quoted_url);
+    msg = soup_message_new (SOUP_METHOD_GET, full_url);
+    if (msg != NULL)
+        soup_message_headers_replace (soup_message_get_request_headers (msg),
+                                      "Accept", "application/json");
 
-    g_free (quoted_url);
     g_free (full_url);
     g_string_free (ids, TRUE);
     g_free (url);
-    return cmd;
+    return msg;
 }
 
 /** Pull the USD price for @cur out of CoinGecko's `simple/price`
@@ -449,10 +442,10 @@ extract_usd_price (
 static void
 pn_rate_emit_message (
         PnHttp      *http,
-        gboolean     spawned,
-        gint         exit_status,
-        const gchar *stdout_text,
-        const gchar *stderr_text)
+        gboolean     ok,
+        gint         http_status,
+        const gchar *body,
+        const gchar *error_text)
 {
     PnRate     *self = PN_RATE (http);
     JsonParser *parser;
@@ -465,15 +458,16 @@ pn_rate_emit_message (
     gdouble     price_to;
     gdouble     new_rate;
 
-    (void) stderr_text;
+    (void) http_status;
+    (void) error_text;
 
-    if (!spawned || !g_spawn_check_wait_status (exit_status, NULL))
+    if (!ok)
         return;
-    if (stdout_text == NULL || *stdout_text == '\0')
+    if (body == NULL || *body == '\0')
         return;
 
     parser = json_parser_new ();
-    if (!json_parser_load_from_data (parser, stdout_text, -1, &error))
+    if (!json_parser_load_from_data (parser, body, -1, &error))
     {
         pn_auto_trigger_log_on_main (
                 PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_WARNING,
@@ -723,7 +717,7 @@ pn_rate_class_init (PnRateClass *klass)
     http_class->normal_color = (PnColor){ 0.85, 0.65, 0.20, 1.0 };
 
     http_class->is_configured = pn_rate_is_configured;
-    http_class->build_command = pn_rate_build_command;
+    http_class->build_request = pn_rate_build_request;
     http_class->emit_message  = pn_rate_emit_message;
 
     props[PROP_FROM] = g_param_spec_enum (

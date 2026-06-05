@@ -28,9 +28,8 @@ G_BEGIN_DECLS
 /*  key-less (global) geocoding endpoint.  Pulled out of #PnWeather so  */
 /*  any node that needs to turn a place name into a latitude/longitude */
 /*  (Weather, Astronomical, ...) resolves it the same way.  The HTTP    */
-/*  transport is curl spawned synchronously, matching the rest of the  */
-/*  #PnHttp family; TODO #38.1 will swap curl for an in-process client  */
-/*  here in one place.                                                  */
+/*  transport is an in-process, blocking libsoup request, matching the  */
+/*  rest of the #PnHttp family.                                         */
 /* ------------------------------------------------------------------ */
 
 /* Outcome of a geocoding lookup.  On success @latitude/@longitude are
@@ -66,12 +65,13 @@ gboolean pn_geocode_parse (JsonObject      *root,
 /**
  * pn_geocode_resolve_sync:
  * @city:            place name to resolve (non-empty)
- * @timeout_seconds: curl --max-time for the request
+ * @timeout_seconds: socket I/O timeout for the request
  * @out:             (out caller-allocates): filled with the result
  *
- * Blocking lookup: spawns curl against the Open-Meteo geocoding endpoint
- * for @city, then defers to pn_geocode_parse().  Safe to call from a
- * worker thread (does no GTK / main-loop work).  Returns @out->resolved.
+ * Blocking lookup: sends an in-process libsoup request to the Open-Meteo
+ * geocoding endpoint for @city, then defers to pn_geocode_parse().  Safe
+ * to call from a worker thread (does no GTK / main-loop work).  Returns
+ * @out->resolved.
  */
 gboolean pn_geocode_resolve_sync (const gchar     *city,
                                   guint            timeout_seconds,
