@@ -1973,3 +1973,123 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
   [x] 42.6  Preferences dialog: one checkbox on the same "Message Flow" page
         (clone the animate-messages-on-wires checkbox).  DONE ("Node activity"
         row + extended blurb).  Help docs still TODO.
+
+(43) Large numeric vectors in messages.  Let a message member carry a big 1-D
+array of doubles -- potentially MEGABYTES (e.g. sampled signals, FFT bins,
+waveforms) -- efficiently, addressable from any path in the JSON data bag.
+
+  GOAL / VISION: this vector primitive is the groundwork for an ANALOG-COMPUTER
+  TOY -- a playful family of nodes that treat the graph as a patch panel for
+  continuous signals (function generators, summers, integrators, multipliers,
+  comparators) feeding a simulated OLD-STYLE GREEN-PHOSPHOR CRT OSCILLOSCOPE
+  (graticule, afterglow/persistence, X-Y / Lissajous mode).  Signals-as-vectors
+  is the right model and the scope is a pure vector CONSUMER -- a high-payoff,
+  low-risk first piece to build once the primitive lands.  EXECUTION-MODEL
+  BOUNDARY (decided in discussion): the message bus is event-driven and a wire
+  is a discrete (>= one-block) delay, so we mimic continuous time as a STREAM of
+  vector chunks through a FEED-FORWARD DAG -- which works well.  What it can NOT
+  do faithfully is sub-block continuous FEEDBACK (an integrator loop solving an
+  ODE) closed THROUGH the graph: that would be a block-delayed approximation, or
+  one message per sample (untenable).  RESOLUTION: feedback lives INSIDE a node
+  (a node runs its own per-sample solver over the block and emits the result),
+  never across wires -- the graph is the patch panel, not the feedback path.
+  Part of the fun is discovering which classic analog-computer setups survive
+  that translation faithfully vs. become charming approximations.
+
+  WHY NOT a JsonArray of doubles: the data bag is a JsonObject and every element
+  would become a heap-allocated JsonNode boxing a GValue -- ~24-40+ bytes per
+  double instead of 8, fragmented, no contiguity for memcpy/SIMD.  Worse, every
+  wire DEEP-COPIES the whole message before delivery (pn-wire.c:96
+  pn_message_clone -> deep_copy_array), so a fan-out rebuilds millions of nodes
+  per branch per emission.  Disqualified.
+
+  WHY NOT "a GObject inside the JsonNode": json-glib cannot hold one.  JsonNode
+  has four types (OBJECT/ARRAY/VALUE/NULL); a VALUE only accepts the four JSON
+  scalars (int64/double/boolean/string) -- no slot for a boxed/GObject value,
+  and JsonNode is not derivable.  So the buffer must live OUT-OF-BAND and be
+  REFERENCED from the tree (the proven pattern: PnImageMessage carries a
+  GdkPixbuf outside the bag and ref-shares it on clone via
+  PnMessageClass::copy_private, pn-image-message.c:46).
+
+  APPROACH: a refcounted buffer object kept in a per-message side registry, and
+  a self-describing JSON marker wherever the vector logically sits.  Marker =
+  ordinary JSON object so it nests ANYWHERE (top-level member, nested object,
+  array element):  { "$pnvector": <handle>, "len": N, "dtype": "f64" }.
+  Generic JSON consumers (Debug Print, inspector, D-Bus envelope) see a sane
+  {len,dtype} descriptor; vector-aware nodes resolve the handle to the buffer.
+
+  [ ] 43.1  PnVector (core GObject, libpipnode-core): one contiguous owned
+        gdouble* + gsize len; pn_vector_new_take() ADOPTS a malloc'd buffer (no
+        copy), pn_vector_get_data() -> const gdouble*, pn_vector_get_len().
+        GObject (not GBoxed) so fan-out sharing is a single g_object_ref.  Room
+        for metadata later (dtype, units, cached min/max/mean).  8 bytes/elem,
+        contiguous, SIMD-friendly.  Treated IMMUTABLE (see 43.3).
+  [ ] 43.2  Blob registry on BASE PnMessage (not a subclass -- goal is ANY
+        message, ANY path): GHashTable<guint64 handle, PnVector*> (owns a ref)
+        + guint64 next_vector counter in PnMessagePrivate.  API:
+        pn_message_set_vector(self, member, vec) -> writes the marker at
+        data.<member> AND registers the buffer, returns the handle;
+        pn_message_resolve_vector(self, marker_node) -> borrowed PnVector*.
+        Reserve "$pnvector" as a documented member name (collision guard).
+  [ ] 43.3  Zero-copy fan-out + copy-on-write.  pn_message_clone already deep-
+        copies the JSON, so the MARKERS clone for free (deep_copy_object/array);
+        add registry ref-sharing in clone (iterate the table, g_object_ref each
+        PnVector into the dst) -- the image copy_private pattern, but in base
+        clone since this is a base-class feature.  Handles copy verbatim so they
+        still resolve on the clone; both messages share ONE buffer.  RULE: a
+        node that TRANSFORMS a vector allocates a NEW PnVector + new handle +
+        new marker -- never mutate a shared buffer in place (the exact hazard
+        the pn-wire.c:71 clone comment warns about).  Orphan registry entries
+        (member deleted, marker gone) are a bounded per-message cost; optional
+        sweep against live markers at clone time.
+  [ ] 43.4  Serialize / deserialize -- we OWN the boundary; json-glib offers no
+        per-node generator hook (JsonGenerator dumping is private; JsonSerial-
+        izable / json_boxed_register_serialize_func fire only on the GObject
+        path, not a raw JsonNode tree).  A naive json_to_string emits the marker
+        literally and SILENTLY drops the payload (dangling handle on the way
+        back) -- the dangerous no-error failure.  So WRAP json-glib with a
+        marker-walk:  pn_message_serialize(self, gboolean include_blobs) /
+        pn_message_deserialize(json, &err).  Serialize: deep-walk data for
+        "$pnvector" objects, collect handles, and (if include_blobs) externalize
+        each buffer into a sibling "blobs" section keyed by handle
+        ({dtype,len,b64}) before JsonGenerator runs.  Deserialize: parse, decode
+        each blob (g_base64_decode, validate len*8 == nbytes) into a PnVector,
+        register it, leave the in-data markers pointing at their handles; bump
+        next_vector past the max handle seen (fresh-message namespace, no marker
+        rewrite).  Tag blobs little-endian f64 for cross-host safety.
+  [ ] 43.5  Route the ONE existing serialize site through the new pair: the
+        D-Bus automation path (automation_message_to_json pn-application.c:770 +
+        the InjectMessage deserializer :833).  Default include_blobs=FALSE there
+        -- GetLastOutputMessage is for inspection, so ship descriptor-only and
+        never base64 megabytes by accident; full payload only on explicit
+        request.  base64 (~33% inflation) is the cost of the string-typed `s`
+        D-Bus arg; if bulk transport ever matters, add a SEPARATE binary method
+        carrying `ay` and skip base64 (new method, not an envelope change).
+        Messages are never persisted to disk, so document save is unaffected.
+  [ ] 43.6  Tests + docs.  C unit test for PnVector (new/take/len/data) and for
+        message set/resolve/clone-shares-buffer + serialize/deserialize round-
+        trip (incl. descriptor-only mode drops bytes, full mode rehydrates).
+        Document the $pnvector marker, the reserved key, the blobs envelope
+        section, and the immutability/copy-on-write contract in the message
+        contract (data/help-index.html, per the "message contract lives in the
+        HTML manual" convention).  First producer/consumer node pair as the
+        worked example (TBD -- e.g. a signal source + a stats/plot sink).
+  [ ] 43.7  Vector semantics in the calculator / expression nodes
+        (pn-expression.c, pn-expression2.c; also pn-comparator.c, pn-numeric.c).
+        CAREFULLY define what each operator does when an operand is a vector
+        rather than a scalar -- and document it before coding.  At minimum:
+        vector OP scalar = broadcast (apply to every element -> vector); vector
+        OP vector = elementwise, requiring EQUAL length (length mismatch -> set
+        the node error state, do not silently truncate/recycle); reductions
+        (sum/mean/min/max/dot/norm) collapse a vector to a scalar; decide
+        comparison/boolean semantics (e.g. `>` -> elementwise vector of 0/1, or
+        any/all reduction) and what a scalar-only sink does when handed a vector
+        (resolve-or-error, never crash).  Keep the value-type checks in the
+        existing read_value() seam (extend it to recognize the $pnvector marker
+        via pn_message_resolve_vector).
+  [ ] 43.8  Debug viewer (PnDebug + the Debug View pane).  Do NOT dump millions
+        of numbers -- render the $pnvector marker as a short leading sample
+        [a, b, c, ...] (first few elements then an ellipsis), which is long
+        enough.  Resolve via pn_message_resolve_vector for the real values
+        rather than printing the bare {handle,len} JSON.  Keep it bounded so a
+        megabyte vector never freezes the pane.
