@@ -2018,12 +2018,17 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
   Generic JSON consumers (Debug Print, inspector, D-Bus envelope) see a sane
   {len,dtype} descriptor; vector-aware nodes resolve the handle to the buffer.
 
-  [ ] 43.1  PnVector (core GObject, libpipnode-core): one contiguous owned
+  [x] 43.1  PnVector (core GObject, libpipnode-core): one contiguous owned
         gdouble* + gsize len; pn_vector_new_take() ADOPTS a malloc'd buffer (no
         copy), pn_vector_get_data() -> const gdouble*, pn_vector_get_len().
         GObject (not GBoxed) so fan-out sharing is a single g_object_ref.  Room
         for metadata later (dtype, units, cached min/max/mean).  8 bytes/elem,
         contiguous, SIMD-friendly.  Treated IMMUTABLE (see 43.3).
+        DONE: lib/pn-vector.{c,h} (G_DECLARE_FINAL_TYPE, finalize g_free's the
+        buffer); added new_take + new_copy (copies via g_memdup2), empty vector
+        normalises to a NULL buffer (get_data NULL-iff-empty).  Wired into
+        libpipnode_core_la_SOURCES + installed headers; builds clean and a
+        throwaway check verified adopt/copy/accessors/ref-share/empty.
   [ ] 43.2  Blob registry on BASE PnMessage (not a subclass -- goal is ANY
         message, ANY path): GHashTable<guint64 handle, PnVector*> (owns a ref)
         + guint64 next_vector counter in PnMessagePrivate.  API:

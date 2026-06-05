@@ -199,6 +199,8 @@ libpipnode_core_la_SOURCES = \
 	pn-var-store.h \
 	pn-vault.c \
 	pn-vault.h \
+	pn-vector.c \
+	pn-vector.h \
 	pn-watchdog.c \
 	pn-watchdog.h \
 	pn-weather.c \
@@ -504,6 +506,7 @@ pipnode_core_headers = \
 	pn-value.h \
 	pn-var-store.h \
 	pn-vault.h \
+	pn-vector.h \
 	pn-watchdog.h \
 	pn-weather.h \
 	pn-weather-report.h \
