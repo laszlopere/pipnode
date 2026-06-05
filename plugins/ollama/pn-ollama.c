@@ -29,7 +29,6 @@
  * "tofu" missing-character box; fa-microchip is the closest "AI /
  * compute" symbol present in FA 4. */
 #define PN_OLLAMA_ICON         "\xef\x8b\x9b"
-#define PN_OLLAMA_WARNING_ICON "\xe2\x9d\x97"   /* ❗  U+2757 */
 
 /* Stored default is the empty string so the settings dialog can show
  * the local computer's name as a gray placeholder hint (consistent
@@ -94,20 +93,15 @@ apply_visual_state (
         PnOllama *self,
         gboolean  configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node   = PN_NODE (self);
+    PnColor  indigo = { 0.42, 0.36, 0.72, 1.0 };
 
-    if (configured)
-    {
-        PnColor indigo = { 0.42, 0.36, 0.72, 1.0 };
-        pn_node_set_color (node, &indigo);
-        pn_node_set_icon  (node, PN_OLLAMA_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_OLLAMA_WARNING_ICON);
-    }
+    /* Keep the healthy indigo identity at all times; the red body + ❗
+     * overlay for the unconfigured state is painted centrally by the
+     * worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &indigo);
+    pn_node_set_icon      (node, PN_OLLAMA_ICON);
+    pn_node_set_has_error (node, !configured);
 }
 
 static void

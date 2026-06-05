@@ -78,7 +78,6 @@
 /* Visual states.  The icon panel renders in white, so the body colour
  * carries the alert for the warning state. */
 #define PN_MESHTASTIC_NORMAL_ICON  "\xef\x89\xba"  /* fa-commenting U+F27A */
-#define PN_MESHTASTIC_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
 /* ------------------------------------------------------------------ */
 /*  Forward declarations                                               */
@@ -1335,7 +1334,7 @@ emit_error_message (PnMeshtastic *self, const gchar *reason)
      * the warning visual + dialog status row catch up.  EBUSY is
      * cosmetically routed through last_busy_path (which takes display
      * priority in update_status_label) and through a device-clear
-     * that re-uses apply_visual_state's `configured == FALSE` branch,
+     * that re-uses apply_visual_state's unconfigured (has-error) path,
      * so a duplicate "Device or resource busy" line in the status row
      * is suppressed there; the visual state side is harmless either
      * way. */
@@ -1808,20 +1807,16 @@ apply_visual_state (
         PnMeshtastic *self,
         gboolean      configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node = PN_NODE (self);
+    PnColor  teal = { 0.30, 0.66, 0.55, 1.0 };
+    gboolean ok   = configured && self->last_error == NULL;
 
-    if (configured && self->last_error == NULL)
-    {
-        PnColor teal = { 0.30, 0.66, 0.55, 1.0 };
-        pn_node_set_color (node, &teal);
-        pn_node_set_icon  (node, PN_MESHTASTIC_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_MESHTASTIC_WARNING_ICON);
-    }
+    /* Keep the healthy teal 💬 identity at all times; the red body + ❗
+     * overlay for the unconfigured / errored state is painted centrally
+     * by the worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &teal);
+    pn_node_set_icon      (node, PN_MESHTASTIC_NORMAL_ICON);
+    pn_node_set_has_error (node, !ok);
 }
 
 static void

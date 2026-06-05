@@ -1070,23 +1070,27 @@ core (added 2026-05-29).
     pn-mqtt.c and pn-mqtt-sink.c apply_visual_state now keep their healthy
     green identity and only toggle has-error.
 
-  [ ] 31.3 Migrate the remaining hand-rolled nodes.  TODO -- the open work.
-    17 other nodes still hand-roll their own error/unconfigured look with a
+  [x] 31.3 Migrate the remaining hand-rolled nodes.  DONE 2026-06-05.
+    All 17 nodes that hand-rolled their own error/unconfigured look with a
     private `#define PN_*_WARNING_ICON "❗"` + a pn_node_set_icon /
-    pn_node_set_color red swap.  Migrate each to pn_node_set_has_error so the
-    indication is uniform and the bespoke code goes away.  Remaining offenders
-    (grep WARNING_ICON, verified 2026-06-01):
+    pn_node_set_color red swap now route through pn_node_set_has_error, so the
+    indication is uniform with the worked examples (#31.2) and the bespoke
+    code is gone.  Migrated (grep WARNING_ICON is now empty):
       lib/        pn-http, pn-ws, pn-tts, pn-sound, pn-inject, pn-meshtastic
       plugins/    tasmota/{switch,relay-command,relay-status},
                   shell/{shell-command,tmux-monitor}, ollama,
                   sound-effects/sci-fi-sound,
                   network/{dns,ping,https-tunnel-sender,https-tunnel-receiver}
-    Per node: replace the WARNING_ICON swap with set_has_error, keep the
-    node's normal (healthy) colour/icon set unconditionally, drop the now-dead
-    define, and confirm the "unconfigured" vs "runtime error" states both map
-    onto has-error sensibly.  Caution: some of these use the ❗ for a
-    "needs configuration" state, not a runtime failure -- decide per node
-    whether that should read as an error (red) or stay a softer hint.
+    Per node: the apply_visual_state if/else collapsed to setting the node's
+    normal (healthy) colour/icon unconditionally + a single
+    pn_node_set_has_error(node, !ok), the WARNING_ICON define was deleted, and
+    the existing "unconfigured" condition (was the red branch) maps onto
+    has-error -- consistent with the mqtt examples that already paint
+    unconfigured/disconnected as has-error.  Base-class painters (pn-http,
+    pn-ws) keep their subclass normal_icon/normal_color resolution; the
+    runtime-error nodes (pn-tts last_error, pn-meshtastic last_error,
+    https-tunnel-receiver server-listening) map their own condition the same
+    way.  Clean rebuild of all 17 + 88 unit tests green.
 
   [x] 31.4 The human-readable REASON: the per-node "log" dialog that surfaces the
   last error text.  DONE 2026-05-29 (see #32).

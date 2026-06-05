@@ -26,7 +26,6 @@
 /* fa-television U+F26C — close enough to a terminal-y "session" glyph
  * within the FA-4 set the canvas font ships. */
 #define PN_TMUX_MONITOR_NORMAL_ICON  "\xef\x89\xac"
-#define PN_TMUX_MONITOR_WARNING_ICON "\xe2\x9d\x97"   /* ❗ U+2757 */
 
 #define PN_TMUX_MONITOR_DEFAULT_PERIOD     5u
 #define PN_TMUX_MONITOR_DEFAULT_LINE_LIMIT 50u
@@ -111,20 +110,15 @@ static void
 apply_visual_state (PnTmuxMonitor *self,
                     gboolean       configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node = PN_NODE (self);
+    PnColor  blue = { 0.42, 0.62, 0.86, 1.0 };
 
-    if (configured)
-    {
-        PnColor blue = { 0.42, 0.62, 0.86, 1.0 };
-        pn_node_set_color (node, &blue);
-        pn_node_set_icon  (node, PN_TMUX_MONITOR_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_TMUX_MONITOR_WARNING_ICON);
-    }
+    /* Keep the healthy blue identity at all times; the red body + ❗
+     * overlay for the unconfigured state is painted centrally by the
+     * worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &blue);
+    pn_node_set_icon      (node, PN_TMUX_MONITOR_NORMAL_ICON);
+    pn_node_set_has_error (node, !configured);
 }
 
 /* Forward declaration — the delta-baseline reset is needed from the

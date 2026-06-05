@@ -25,7 +25,6 @@
 /* Visual states.  The icon panel renders in white, so the body colour
  * carries the alert for the warning state. */
 #define PN_PING_NORMAL_ICON  "\xef\x87\xab"      /* fa-wifi U+F1EB */
-#define PN_PING_WARNING_ICON "\xe2\x9d\x97"      /* ❗ U+2757 */
 
 #define PN_PING_DEFAULT_PERIOD 5u
 
@@ -55,27 +54,20 @@ static GParamSpec *props[N_PROPS];
 /*  Visual state                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Flip the node body between the configured (blue 📡) and
- *  unconfigured (red ❗) appearance based on whether @configured. */
+/** Keep the node's healthy blue 📡 identity at all times and toggle the
+ *  has-error flag for the unconfigured state; the red body + ❗ overlay
+ *  is painted centrally by the worksheet whenever has-error is set. */
 static void
 apply_visual_state (
         PnPing  *self,
         gboolean configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node = PN_NODE (self);
+    PnColor  blue = { 0.42, 0.62, 0.86, 1.0 };
 
-    if (configured)
-    {
-        PnColor blue = { 0.42, 0.62, 0.86, 1.0 };
-        pn_node_set_color (node, &blue);
-        pn_node_set_icon  (node, PN_PING_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_PING_WARNING_ICON);
-    }
+    pn_node_set_color     (node, &blue);
+    pn_node_set_icon      (node, PN_PING_NORMAL_ICON);
+    pn_node_set_has_error (node, !configured);
 }
 
 /* ------------------------------------------------------------------ */

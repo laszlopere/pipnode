@@ -37,7 +37,6 @@
 /* Visual states.  Body colour carries the alert; the icon panel is
  * rendered in white on top. */
 #define PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON  "\xef\x88\xb3"  /* fa-server U+F233 */
-#define PN_HTTPS_TUNNEL_RECEIVER_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
 /* Default listening port.  8443 is the conventional non-privileged
  * HTTPS port; pipnode runs as a regular user so binding 443 is not an
@@ -110,26 +109,20 @@ static void restart_server (PnHttpsTunnelReceiver *self);
 /*  Visual state                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Flip the node body between the running (green 🖥) and stopped
- *  (red ❗) appearance based on whether a server is listening. */
+/** Keep the node's healthy green 🖥 identity at all times and toggle the
+ *  has-error flag for the stopped (not-listening) state; the red body + ❗
+ *  overlay is painted centrally by the worksheet whenever has-error is
+ *  set. */
 static void
 apply_visual_state (PnHttpsTunnelReceiver *self)
 {
     PnNode  *node    = PN_NODE (self);
+    PnColor  green   = { 0.36, 0.66, 0.36, 1.0 };
     gboolean running = (self->server != NULL);
 
-    if (running)
-    {
-        PnColor green = { 0.36, 0.66, 0.36, 1.0 };
-        pn_node_set_color (node, &green);
-        pn_node_set_icon  (node, PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_HTTPS_TUNNEL_RECEIVER_WARNING_ICON);
-    }
+    pn_node_set_color     (node, &green);
+    pn_node_set_icon      (node, PN_HTTPS_TUNNEL_RECEIVER_NORMAL_ICON);
+    pn_node_set_has_error (node, !running);
 }
 
 /* ------------------------------------------------------------------ */

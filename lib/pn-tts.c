@@ -126,7 +126,6 @@ static const TtsEngine engines[] = {
 #define N_ENGINES G_N_ELEMENTS (engines)
 
 #define PN_TTS_NORMAL_ICON  "\xef\x82\xa1"  /* fa-bullhorn U+F0A1 */
-#define PN_TTS_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757 */
 
 static const TtsEngine *
 find_engine (const gchar *id)
@@ -789,20 +788,15 @@ set_last_error (PnTts *self, const gchar *reason)
 static void
 apply_visual_state (PnTts *self)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node   = PN_NODE (self);
+    PnColor  violet = { 0.55, 0.42, 0.78, 1.0 };
 
-    if (self->last_error == NULL)
-    {
-        PnColor violet = { 0.55, 0.42, 0.78, 1.0 };
-        pn_node_set_color (node, &violet);
-        pn_node_set_icon  (node, PN_TTS_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_TTS_WARNING_ICON);
-    }
+    /* Keep the healthy violet 📢 identity at all times; the red body + ❗
+     * overlay for the errored state is painted centrally by the worksheet
+     * whenever has-error is set. */
+    pn_node_set_color     (node, &violet);
+    pn_node_set_icon      (node, PN_TTS_NORMAL_ICON);
+    pn_node_set_has_error (node, self->last_error != NULL);
 }
 
 /** Recompute the error string from the current engine selection: an

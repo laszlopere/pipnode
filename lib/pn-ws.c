@@ -24,7 +24,6 @@
 /* Visual states.  Body colour carries the alert; the icon panel is
  * rendered in white on top. */
 #define PN_WS_NORMAL_ICON  "\xef\x87\xa6"  /* fa-plug U+F1E6 */
-#define PN_WS_WARNING_ICON "\xe2\x9d\x97"  /* ❗ U+2757         */
 
 /* Re-connect backoff bounds.  Starting small lets a transient blip
  * recover quickly; the cap prevents runaway hammering of an endpoint
@@ -175,7 +174,6 @@ pn_ws_apply_visual_state (
     klass = PN_WEBSOCKET_GET_CLASS (self);
     node  = PN_NODE (self);
 
-    if (configured)
     {
         const gchar *icon = klass->normal_icon
                 ? klass->normal_icon
@@ -185,14 +183,12 @@ pn_ws_apply_visual_state (
                 ? &klass->normal_color
                 : &PN_WS_DEFAULT_COLOR;
 
-        pn_node_set_color (node, color);
-        pn_node_set_icon  (node, icon);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_WS_WARNING_ICON);
+        /* Keep the healthy identity at all times; the red body + ❗
+         * overlay for the unconfigured state is painted centrally by
+         * the worksheet whenever has-error is set. */
+        pn_node_set_color     (node, color);
+        pn_node_set_icon      (node, icon);
+        pn_node_set_has_error (node, !configured);
     }
 }
 

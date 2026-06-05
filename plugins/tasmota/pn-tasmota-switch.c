@@ -34,7 +34,6 @@
  * #PnInject use to flag a node that needs configuration before it
  * can do anything useful. */
 #define PN_TASMOTA_SWITCH_ICON         "\xef\x88\x85"
-#define PN_TASMOTA_SWITCH_WARNING_ICON "\xe2\x9d\x97"
 
 struct _PnTasmotaSwitch
 {
@@ -77,20 +76,16 @@ pn_tasmota_switch_apply_visual_state (PnSwitch *base)
     PnNode          *node = PN_NODE (self);
     gboolean         configured;
 
+    PnColor steel = { 0.42, 0.55, 0.72, 1.0 };
+
     configured = (self->switch_name != NULL && *self->switch_name != '\0');
 
-    if (configured)
-    {
-        PnColor steel = { 0.42, 0.55, 0.72, 1.0 };
-        pn_node_set_color (node, &steel);
-        pn_node_set_icon  (node, PN_TASMOTA_SWITCH_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_TASMOTA_SWITCH_WARNING_ICON);
-    }
+    /* Keep the healthy steel identity at all times; the red body + ❗
+     * overlay for the unconfigured state is painted centrally by the
+     * worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &steel);
+    pn_node_set_icon      (node, PN_TASMOTA_SWITCH_ICON);
+    pn_node_set_has_error (node, !configured);
 
     pn_node_request_repaint (node);
 }

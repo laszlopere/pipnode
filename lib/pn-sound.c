@@ -23,7 +23,6 @@
 #include <gio/gio.h>
 
 #define PN_SOUND_NORMAL_ICON  "\xef\x80\xa8"        /* fa-volume-up U+F028 */
-#define PN_SOUND_WARNING_ICON "\xe2\x9d\x97"        /* ❗ U+2757 */
 
 #define PN_SOUND_DEAD_PERIOD_MIN 0u
 #define PN_SOUND_DEAD_PERIOD_MAX 3600u
@@ -77,20 +76,15 @@ apply_visual_state (
         PnSound *self,
         gboolean configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node   = PN_NODE (self);
+    PnColor  violet = { 0.55, 0.42, 0.78, 1.0 };
 
-    if (configured)
-    {
-        PnColor violet = { 0.55, 0.42, 0.78, 1.0 };
-        pn_node_set_color (node, &violet);
-        pn_node_set_icon  (node, PN_SOUND_NORMAL_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_SOUND_WARNING_ICON);
-    }
+    /* Keep the healthy violet 🔊 identity at all times; the red body + ❗
+     * overlay for the unconfigured state is painted centrally by the
+     * worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &violet);
+    pn_node_set_icon      (node, PN_SOUND_NORMAL_ICON);
+    pn_node_set_has_error (node, !configured);
 }
 
 /* ------------------------------------------------------------------ */

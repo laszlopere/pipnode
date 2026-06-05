@@ -24,7 +24,6 @@
 /* Visual states.  The icon panel renders in white, so the body colour
  * carries the alert for the warning state. */
 #define PN_HTTP_NORMAL_ICON  "\xef\x82\xac"      /* fa-globe U+F0AC */
-#define PN_HTTP_WARNING_ICON "\xe2\x9d\x97"      /* ❗ U+2757  */
 
 #define PN_HTTP_DEFAULT_PERIOD 5u
 
@@ -133,7 +132,6 @@ pn_http_apply_visual_state (
     klass = PN_HTTP_GET_CLASS (self);
     node  = PN_NODE (self);
 
-    if (configured)
     {
         const gchar *icon = klass->normal_icon
                 ? klass->normal_icon
@@ -147,14 +145,12 @@ pn_http_apply_visual_state (
                 ? &klass->normal_color
                 : &PN_HTTP_DEFAULT_COLOR;
 
-        pn_node_set_color (node, color);
-        pn_node_set_icon  (node, icon);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_HTTP_WARNING_ICON);
+        /* Keep the healthy identity at all times; the red body + ❗
+         * overlay for the unconfigured state is painted centrally by
+         * the worksheet whenever has-error is set. */
+        pn_node_set_color     (node, color);
+        pn_node_set_icon      (node, icon);
+        pn_node_set_has_error (node, !configured);
     }
 }
 

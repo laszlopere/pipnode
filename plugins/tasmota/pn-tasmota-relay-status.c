@@ -32,7 +32,6 @@
  * an unconfigured node reads as "needs setup" at a glance, mirroring
  * the convention PnInject established. */
 #define PN_TASMOTA_RELAY_STATUS_ICON         "\xef\x88\x85"
-#define PN_TASMOTA_RELAY_STATUS_WARNING_ICON "\xe2\x9d\x97"
 
 struct _PnTasmotaRelayStatus
 {
@@ -72,20 +71,15 @@ apply_visual_state (
         PnTasmotaRelayStatus *self,
         gboolean              configured)
 {
-    PnNode *node = PN_NODE (self);
+    PnNode  *node  = PN_NODE (self);
+    PnColor  steel = { 0.42, 0.55, 0.72, 1.0 };
 
-    if (configured)
-    {
-        PnColor steel = { 0.42, 0.55, 0.72, 1.0 };
-        pn_node_set_color (node, &steel);
-        pn_node_set_icon  (node, PN_TASMOTA_RELAY_STATUS_ICON);
-    }
-    else
-    {
-        PnColor red = { 0.86, 0.30, 0.28, 1.0 };
-        pn_node_set_color (node, &red);
-        pn_node_set_icon  (node, PN_TASMOTA_RELAY_STATUS_WARNING_ICON);
-    }
+    /* Keep the healthy steel identity at all times; the red body + ❗
+     * overlay for the unconfigured state is painted centrally by the
+     * worksheet whenever has-error is set. */
+    pn_node_set_color     (node, &steel);
+    pn_node_set_icon      (node, PN_TASMOTA_RELAY_STATUS_ICON);
+    pn_node_set_has_error (node, !configured);
 }
 
 /* ------------------------------------------------------------------ */
