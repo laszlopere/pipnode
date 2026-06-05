@@ -35,6 +35,54 @@
 /* The minimum-visible linger baked into pn-node.c, in microseconds. */
 #define MIN_VISIBLE_US (100 * 1000)
 
+/* ---- a minimal concrete PnNode whose receive() we can observe ----
+ *
+ * The base PnNode has no receive vfunc, so to test that the dispatch
+ * wrapper brackets the handler with begin/end (TODO #42.2) we need a
+ * subclass that actually has one.  Its receive asserts the node already
+ * reads as busy while it runs — i.e. begin() fired before the call. */
+
+#define TEST_TYPE_PROC (test_proc_get_type ())
+G_DECLARE_FINAL_TYPE (TestProc, test_proc, TEST, PROC, PnNode)
+
+struct _TestProc {
+    PnNode   parent_instance;
+    gboolean saw_busy;   /* set from receive: was the node busy mid-handler? */
+    guint    n_received;
+};
+
+G_DEFINE_TYPE (TestProc, test_proc, PN_TYPE_NODE)
+
+static void
+test_proc_receive (PnNode *node, PnMessage *message)
+{
+    TestProc *self = (TestProc *) node;
+    (void) message;
+    self->n_received++;
+    self->saw_busy = pn_node_is_processing (node);
+}
+
+static void
+test_proc_class_init (TestProcClass *klass)
+{
+    PN_NODE_CLASS (klass)->receive = test_proc_receive;
+}
+
+static void
+test_proc_init (TestProc *self)
+{
+    self->saw_busy   = FALSE;
+    self->n_received = 0;
+}
+
+static void
+send_empty (PnNode *node)
+{
+    PnMessage *msg = pn_message_new (NULL, NULL);
+    pn_node_receive_message (node, msg);
+    g_object_unref (msg);
+}
+
 static PnNode *
 make_node (void)
 {
@@ -223,6 +271,45 @@ test_unbalanced_end_is_safe (void)
     g_object_unref (node);
 }
 
+/* ---- the receive() dispatch wrap (TODO #42.2) ---- */
+
+static void
+test_receive_wrap_brackets_handler (void)
+{
+    TestProc *node = g_object_new (TEST_TYPE_PROC, NULL);
+    gint64    t0   = g_get_monotonic_time ();
+
+    send_empty (PN_NODE (node));
+
+    /* The handler ran ... */
+    PN_CHECK_CMPINT (node->n_received, ==, 1);
+    /* ... and saw itself as busy: begin() fired before receive. */
+    PN_CHECK (node->saw_busy);
+    /* The bracket balanced, so the count is back to zero, but the linger
+     * keeps the node visibly busy after the synchronous return. */
+    PN_CHECK_FALSE (pn_node_is_processing (PN_NODE (node)));
+    PN_CHECK (pn_node_is_processing_visible (PN_NODE (node), t0));
+
+    g_object_unref (node);
+}
+
+static void
+test_disabled_node_does_not_light (void)
+{
+    TestProc *node = g_object_new (TEST_TYPE_PROC, NULL);
+
+    /* A disabled node never enters receive (the dispatch returns early),
+     * so the wrap never fires and the node stays dark. */
+    pn_node_set_disabled (PN_NODE (node), TRUE);
+    send_empty (PN_NODE (node));
+
+    PN_CHECK_CMPINT (node->n_received, ==, 0);
+    PN_CHECK_FALSE (pn_node_is_processing_visible (PN_NODE (node),
+                                                   g_get_monotonic_time ()));
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -234,5 +321,7 @@ main (int argc, char **argv)
     pn_test_add ("long_work_outlasts",    test_long_work_outlasts_linger);
     pn_test_add ("signal_edges",          test_signal_fires_once_per_edge);
     pn_test_add ("unbalanced_end_safe",   test_unbalanced_end_is_safe);
+    pn_test_add ("receive_wrap",          test_receive_wrap_brackets_handler);
+    pn_test_add ("disabled_dark",         test_disabled_node_does_not_light);
     return pn_test_run ();
 }

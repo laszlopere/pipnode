@@ -1829,13 +1829,31 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         public funcs only).  DONE: tests/unit/test-pn-node-processing.c (21
         checks: idle/lit/refcount/linger/long-work/signal-edges/unbalanced-end)
         registered in Makefile.am; full suite 89/0, whole tree builds clean.
-  [ ] 42.2  Coverage with minimal per-node churn: wrap the receive() dispatch
-        in pn_node_receive_message_on_input (lib/pn-node.c ~810-824) with
-        begin()/end() so every synchronous node lights up for free and honestly
-        (it really is executing its handler).  Async/threaded nodes ADDITIONALLY
-        call begin/end around their background work to extend busy past the
-        synchronous return (audit which nodes spawn threads / do network I/O;
-        e.g. Weather, Http, TTS, sound-effects download, shell).
+  [x] 42.2  Coverage with minimal per-node churn via TWO structural wraps, no
+        per-node edits:
+        (a) lib/pn-node.c pn_node_receive_message_on_input brackets
+            klass->receive with begin()/end() — every synchronous node lights
+            up for free and honestly (it really is executing its handler);
+            nested sync dispatch A→emit→B brackets each node independently.
+        (b) lib/pn-auto-trigger.c brackets BOTH klass->trigger dispatches (the
+            worker loop + run_once_sync) — so every PnAutoTrigger subclass
+            (Http, Weather, the host monitors, watchdog, …) glows for the
+            whole periodic action.  This runs on the worker thread and may
+            block for seconds, so it exercises the cross-thread marshalling
+            the indicator was built for.
+        Both gated by disabled (a disabled node stays dark) and cost nothing
+        when no one listens.  Tests: test-pn-node-processing.c grew a tiny
+        concrete PnNode subclass with a receive() that asserts it is busy
+        mid-handler (receive_wrap) + a disabled-stays-dark case; 27 checks,
+        full suite 89/0, tree builds clean.
+  [ ] 42.7  Bespoke per-node async audit (deferred to do WITH 42.4, when the
+        glow is visible to verify against): nodes that manage their OWN worker
+        threads / async callbacks outside the receive+auto-trigger seams and do
+        long work worth showing — TTS synthesis+playback, sound-effects
+        playback/download, chat (LLM request), MQTT connect/publish, meshtastic
+        serial.  Each needs begin/end placed around its background work by
+        hand.  The receive wrap already covers their synchronous kickoff, so
+        this only extends the glow across the async tail.
   [ ] 42.3  PnWorksheet: connect "processing-changed" -> on_node_processing in
         on_node_added_to_store (disconnect symmetrically in
         on_node_removed_from_store, alongside the existing handlers).

@@ -152,7 +152,19 @@ pn_auto_trigger_worker (gpointer data)
              * gating here avoids the side-effects of the work itself
              * (HTTP requests, ICMP probes, watchdog evaluation, …). */
             if (klass->trigger != NULL && !pn_node_get_disabled (PN_NODE (self)))
+            {
+                /* Light the processing indicator for the whole periodic
+                 * action (TODO #42).  This runs on the worker thread and
+                 * the trigger may block for seconds (a network fetch), so
+                 * this is the cross-thread case the indicator was built
+                 * for: begin/end marshal the "busy" edges to the main
+                 * thread, giving every PnAutoTrigger subclass — HTTP,
+                 * Weather, the host monitors, the watchdog — an honest
+                 * "working" glow for the duration of each request. */
+                pn_node_processing_begin (PN_NODE (self));
                 klass->trigger (self);
+                pn_node_processing_end (PN_NODE (self));
+            }
         }
     }
 
@@ -561,7 +573,14 @@ pn_auto_trigger_run_once_sync (PnAutoTrigger *self)
     g_mutex_unlock (&priv->mutex);
 
     if (klass->trigger != NULL)
+    {
+        /* Bracket the one-shot trigger too (TODO #42), so a node driven
+         * by pn_auto_trigger_run_once_sync() lights up the same way the
+         * worker-loop path does. */
+        pn_node_processing_begin (PN_NODE (self));
         klass->trigger (self);
+        pn_node_processing_end (PN_NODE (self));
+    }
 
     g_mutex_lock (&priv->mutex);
     priv->deliver_sync = FALSE;

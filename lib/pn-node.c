@@ -855,7 +855,16 @@ pn_node_receive_message_on_input (
          * single-input or non-collating nodes). */
         pn_node_collate_inputs (self, message, input);
         pn_node_dispatch_depth++;
+        /* Bracket the handler with the processing indicator (TODO #42) so
+         * every synchronous node lights up for free while its receive runs
+         * — honest, since the work really is executing here.  Nested
+         * synchronous dispatch (A→emit→B) brackets each node independently,
+         * and the minimum-visible linger keeps a microsecond handler
+         * perceptible.  Costs nothing when no one listens (see
+         * pn_node_emit_processing_changed). */
+        pn_node_processing_begin (self);
         klass->receive (self, message);
+        pn_node_processing_end (self);
         pn_node_dispatch_depth--;
         pn_node_current_input_idx = prev_input;
     }
