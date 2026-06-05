@@ -372,6 +372,13 @@ static void sci_fi_download_start_index  (PnSciFiDownload *dl);
 static void
 sci_fi_download_free (PnSciFiDownload *dl)
 {
+    /* The whole pack-download run is over (success, failure, or empty
+     * match): close the processing glow opened in on_download_clicked.
+     * dl->state and its node outlive the run by the same contract the
+     * refresh/progress callbacks already rely on. */
+    if (dl->state != NULL && dl->state->node != NULL)
+        pn_node_processing_end (PN_NODE (dl->state->node));
+
     if (dl->entries != NULL)
         g_ptr_array_unref (dl->entries);
     g_clear_object (&dl->cancellable);
@@ -775,6 +782,12 @@ on_download_clicked (GtkButton *button G_GNUC_UNUSED, gpointer user_data)
     dl->cancellable = g_cancellable_new ();
     dl->state       = st;
     memcpy (dl->selected, sel, sizeof sel);
+
+    /* Light the node's processing glow for the whole pack-download run
+     * (index fetch + per-clip GETs).  This is the node's own async work
+     * driven from its settings dialog; balanced by the
+     * pn_node_processing_end() in sci_fi_download_free(). */
+    pn_node_processing_begin (PN_NODE (st->node));
 
     sci_fi_set_buttons_sensitive (st, FALSE);
     sci_fi_download_start_index (dl);

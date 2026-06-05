@@ -573,6 +573,10 @@ on_connect_done (
     conn = soup_session_websocket_connect_finish (session, result, &error);
 
     priv->connecting = FALSE;
+    /* This handshake attempt has resolved (success, failure, or
+     * cancellation): close the processing glow opened in start_connect.
+     * Each reconnect attempt lights its own. */
+    pn_node_processing_end (PN_NODE (self));
 
     if (priv->disposing)
     {
@@ -685,6 +689,12 @@ start_connect (PnWebsocket *self)
         klass->prepare_message (self, msg);
 
     priv->connecting = TRUE;
+
+    /* Light the processing glow for the whole WebSocket handshake — real
+     * async work the receive wrap never sees.  Balanced by the
+     * pn_node_processing_end() in on_connect_done(), which always fires
+     * exactly once per attempt (even on dispose-time cancellation). */
+    pn_node_processing_begin (PN_NODE (self));
 
     /* Hand a strong ref to the async callback so the object cannot
      * be finalised between the call and the result. */

@@ -111,6 +111,16 @@ typedef struct
     gboolean          loop_running;
     gboolean          connected;
 
+    /* Processing-glow guard for an in-flight connect attempt.  Set when
+     * restart_client kicks off the async connect (the loop thread is
+     * doing the TCP/TLS/CONNACK handshake — real background work the
+     * receive wrap never sees) and cleared the moment that attempt
+     * resolves in the conn-state trampoline, or when the client is torn
+     * down first.  Touched only on the main thread (restart_client and
+     * the trampoline both run there), so it pairs the begin/end without
+     * extra locking. */
+    gboolean          connecting;
+
     /* Per-client network context + generation counter; the conn-state
      * trampoline drops updates whose generation no longer matches so a
      * stale session cannot flip a freshly restarted node (review H2).
@@ -409,6 +419,17 @@ conn_state_trampoline (gpointer data)
      * a replaced client (review H2). */
     if (priv->client != NULL && c->generation == priv->generation)
     {
+        /* This connect attempt has resolved (broker connected, refused,
+         * or the link dropped): close the processing glow opened in
+         * restart_client.  Only the first resolution after a restart
+         * carries the glow; libmosquitto's later auto-reconnects do not
+         * relight it. */
+        if (priv->connecting)
+        {
+            pn_node_processing_end (PN_NODE (self));
+            priv->connecting = FALSE;
+        }
+
         priv->connected = c->connected;
         /* Session just came up: a fresh link clears any stale publish
          * error, then we drain whatever was held while offline so a
@@ -668,6 +689,15 @@ stop_client (PnMqttSink *self)
 {
     PnMqttSinkPrivate *priv = PRIV (self);
 
+    /* Tearing the client down before its connect attempt resolved:
+     * balance the processing glow opened in restart_client so the
+     * begin/end refcount stays even (no perpetual glow). */
+    if (priv->connecting)
+    {
+        pn_node_processing_end (PN_NODE (self));
+        priv->connecting = FALSE;
+    }
+
     if (priv->client == NULL)
     {
         /* A half-built client (connect/loop-start failed) may have left a
@@ -779,6 +809,13 @@ restart_client (PnMqttSink *self)
         goto fail_destroy;
     }
     priv->loop_running = TRUE;
+
+    /* The async connect is now in flight on the network thread: light
+     * the processing glow for the whole handshake.  Closed by the
+     * conn-state trampoline when the attempt resolves, or by stop_client
+     * if the node is restarted/disposed first. */
+    pn_node_processing_begin (PN_NODE (self));
+    priv->connecting = TRUE;
     goto out;
 
 fail_destroy:
@@ -1229,6 +1266,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     priv->client           = NULL;
     priv->loop_running     = FALSE;
     priv->connected        = FALSE;
+    priv->connecting       = FALSE;
     priv->publish_error    = FALSE;
     priv->net_ctx          = NULL;
     priv->generation       = 0;

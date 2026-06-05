@@ -237,6 +237,11 @@ on_generate_done (
     gchar       *parse_err = NULL;
     guint        status;
 
+    /* The LLM request has returned (success, HTTP error, parse failure
+     * or cancellation all land here exactly once): close the processing
+     * glow opened in pn_ollama_receive() before any early return. */
+    pn_node_processing_end (PN_NODE (ctx->self));
+
     bytes = soup_session_send_and_read_finish (session, result, &error);
     if (bytes == NULL)
     {
@@ -400,6 +405,11 @@ pn_ollama_receive (
     ctx = g_new0 (GenerateCtx, 1);
     ctx->self    = g_object_ref (self);
     ctx->msg     = g_object_ref (msg);
+
+    /* Light the processing glow across the whole LLM round-trip; the
+     * synchronous receive() wrap only covers building the request.
+     * Balanced by the pn_node_processing_end() in on_generate_done(). */
+    pn_node_processing_begin (PN_NODE (self));
 
     soup_session_send_and_read_async (self->session,
                                       msg,

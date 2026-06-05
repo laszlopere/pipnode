@@ -1422,6 +1422,14 @@ worker_main (gpointer data)
 {
     PnMeshtastic *self = data;
 
+    /* Light the processing glow for the device-open + config handshake —
+     * genuine multi-second background work the synchronous receive wrap
+     * never sees.  Closed on every path that leaves the init phase: the
+     * open-failure early return below, or once the handshake completes
+     * and the worker drops into its idle read/heartbeat loop.  begin/end
+     * are thread-safe, so calling them from this worker thread is fine. */
+    pn_node_processing_begin (PN_NODE (self));
+
     GError       *open_error = NULL;
     PnMeshSerial *serial     = pn_mesh_serial_open (self->device, &open_error);
     if (serial == NULL)
@@ -1450,6 +1458,7 @@ worker_main (gpointer data)
         }
         g_clear_error (&open_error);
         set_busy_on_main (self, FALSE);
+        pn_node_processing_end (PN_NODE (self));   /* close the handshake glow */
         return NULL;
     }
     int fd = pn_mesh_serial_get_fd (serial);
@@ -1484,6 +1493,10 @@ worker_main (gpointer data)
      * the worker just shuttles frames between the kernel buffer and
      * the GAsyncQueue, which is not user-visible work. */
     set_busy_on_main (self, FALSE);
+    /* Handshake done, dropping into the idle read/heartbeat loop: close
+     * the processing glow opened at worker entry (balances the begin on
+     * the non-error path). */
+    pn_node_processing_end (PN_NODE (self));
 
     PnMeshFrameReader *reader = pn_mesh_frame_reader_new ();
     PnReadCtx          ctx    = { self, &session };
@@ -1581,6 +1594,12 @@ worker_main (gpointer data)
             if (g_atomic_int_get (&self->stop))
                 break;
 
+            /* Sending queued outbound text frames: light the glow across
+             * the serial writes.  receive() only enqueues + wakes us, so
+             * the actual transmit work happens here on the worker thread.
+             * Balanced by the pn_node_processing_end() after the drain. */
+            pn_node_processing_begin (PN_NODE (self));
+
             PnMeshOutbox *out;
             while ((out = g_async_queue_try_pop (self->outbox)) != NULL)
             {
@@ -1623,6 +1642,8 @@ worker_main (gpointer data)
                 next_heartbeat_us = g_get_monotonic_time ()
                                   + (gint64) PN_MESH_HEARTBEAT_INTERVAL_MS * 1000;
             }
+
+            pn_node_processing_end (PN_NODE (self));   /* drain complete */
         }
     }
 

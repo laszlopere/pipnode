@@ -16,7 +16,7 @@
         "model" : "/home/pipas/.local/share/piper/voices/en_US-amy-medium.onnx",
         "language" : "en_US",
         "speed" : 1.3,
-        "sink" : "alsa_output.pci-0000_00_1f.3.hdmi-stereo",
+        "sink" : "",
         "per-source-voice" : true,
         "max-queue" : 16
       }
@@ -110,7 +110,7 @@
         "model" : "/home/pipas/.local/share/piper/voices/hu_HU-anna-medium.onnx",
         "language" : "hu_HU",
         "speed" : 1.0,
-        "sink" : "alsa_output.pci-0000_00_1f.3.hdmi-stereo",
+        "sink" : "",
         "per-source-voice" : true,
         "max-queue" : 16
       }

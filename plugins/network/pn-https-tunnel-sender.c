@@ -286,6 +286,11 @@ on_send_finished (
     GInputStream *stream;
     GError       *error   = NULL;
 
+    /* The POST has returned (success, HTTP error, transport failure or
+     * cancellation all land here exactly once): close the processing
+     * glow opened in pn_https_tunnel_sender_receive(). */
+    pn_node_processing_end (ctx->node);
+
     /* Sink semantics: we don't propagate the response anywhere, but
      * we still drain the body and check the status so transport
      * failures are logged and a slow server's TCP buffer eventually
@@ -368,6 +373,12 @@ pn_https_tunnel_sender_receive (PnNode *node, PnMessage *message)
     SendCtx *ctx = g_new0 (SendCtx, 1);
     ctx->node = g_object_ref (node);
     ctx->msg  = msg;
+
+    /* Light the processing glow across the whole POST round-trip; the
+     * synchronous receive() wrap only covers building the request.
+     * Balanced by the pn_node_processing_end() in on_send_finished(). */
+    pn_node_processing_begin (node);
+
     soup_session_send_async (self->session,
                              msg,
                              G_PRIORITY_DEFAULT,

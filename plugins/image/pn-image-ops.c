@@ -736,6 +736,8 @@ image_job_done (GObject *source, GAsyncResult *result, gpointer user_data)
     else
     {
         st->busy = FALSE;
+        /* Queue drained: close the glow opened in pn_image_node_process. */
+        pn_node_processing_end (node);
     }
 }
 
@@ -789,6 +791,13 @@ pn_image_node_process (PnNode             *node,
     }
 
     st->busy = TRUE;
+
+    /* Light the processing glow for the off-thread pixel work; the
+     * receive wrap only covers this synchronous dispatch.  Held across a
+     * coalesced burst (image_job_done re-arms while busy stays TRUE) and
+     * closed when the queue drains in image_job_done. */
+    pn_node_processing_begin (node);
+
     start_image_job (node, message, label, fn);
 }
 
@@ -912,6 +921,8 @@ image_job2_done (GObject *source, GAsyncResult *result, gpointer user_data)
     else
     {
         st->busy = FALSE;
+        /* Work settled: close the glow opened in pn_image_node_process2. */
+        pn_node_processing_end (node);
     }
 }
 
@@ -983,5 +994,12 @@ pn_image_node_process2 (PnNode         *node,
     }
 
     st->busy = TRUE;
+
+    /* Light the processing glow for the off-thread blend; the receive
+     * wrap only covers this synchronous dispatch.  Held across a
+     * coalesced burst (image_job2_done re-arms while busy stays TRUE) and
+     * closed when the work settles in image_job2_done. */
+    pn_node_processing_begin (node);
+
     start_image_job2 (node, st, label, fn);
 }

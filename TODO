@@ -1846,14 +1846,73 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         concrete PnNode subclass with a receive() that asserts it is busy
         mid-handler (receive_wrap) + a disabled-stays-dark case; 27 checks,
         full suite 89/0, tree builds clean.
-  [ ] 42.7  Bespoke per-node async audit (deferred to do WITH 42.4, when the
-        glow is visible to verify against): nodes that manage their OWN worker
-        threads / async callbacks outside the receive+auto-trigger seams and do
-        long work worth showing — TTS synthesis+playback, sound-effects
-        playback/download, chat (LLM request), MQTT connect/publish, meshtastic
-        serial.  Each needs begin/end placed around its background work by
-        hand.  The receive wrap already covers their synchronous kickoff, so
-        this only extends the glow across the async tail.
+  [x] 42.7  Bespoke per-node async audit (done WITH 42.4, glow visible to
+        verify against): nodes that manage their OWN worker threads / async
+        callbacks outside the receive+auto-trigger seams and do long work worth
+        showing.  Each got begin/end placed around its background work by hand;
+        the receive wrap already covers the synchronous kickoff, so this only
+        extends the glow across the async tail.  A full sweep of every
+        thread/async-spawning .c (grep g_thread_new / *_async / g_subprocess /
+        g_task_run_in_thread) widened the original list to ALL such nodes:
+
+        Async subprocess playback (begin after spawn, end in the wait/communicate
+        callback): PnTts (lib/pn-tts.c, chains across the queued-utterance
+        backlog so the glow stays lit while it drains), PnSciFiSound
+        (plugins/sound-effects/pn-sci-fi-sound.c), PnSound (lib/pn-sound.c).
+
+        Async libsoup request (begin before *_async, end once at the top of the
+        completion callback — covers success / HTTP-error / parse-fail /
+        cancellation): PnOllama LLM request (plugins/ollama/pn-ollama.c — this
+        IS the "chat (LLM request)" item; PnChat itself is a display aggregator
+        with no async), PnHttpsTunnelSender (plugins/network).
+
+        Connect-handshake glow guarded by a "connecting" flag (begin when the
+        async connect is dispatched, end on the FIRST resolution; later
+        auto-reconnects do NOT relight; teardown before resolution balances it):
+        PnMqtt + PnMqttSink (lib/pn-mqtt*.c — new priv->connecting field,
+        ended in the conn-state trampoline + stop_client; publish itself needs
+        nothing, the receive wrap + 250ms linger already covers the synchronous
+        mosquitto_publish enqueue, and no per-publish completion is tracked).
+        PnWebsocket (lib/pn-ws.c) reused its EXISTING priv->connecting window
+        (begin at start_connect, end in on_connect_done, which always fires once
+        even on dispose-cancel) so every reconnect attempt glows.
+
+        Meshtastic serial (lib/pn-meshtastic.c, worker thread): two brackets —
+        (a) the device-open + config handshake (begin at worker_main entry, end
+        on BOTH pre-loop exits: open-fail return + handshake-done), so the init
+        glows but the steady idle read/heartbeat loop stays dark; (b) the
+        outbox-drain batch (begin/end around the serial writes the worker does
+        after receive() merely enqueued + woke it).  The existing `busy` flag is
+        device-ownership for the dialog, NOT reused.
+
+        Image transforms (plugins/image/pn-image-ops.c, GTask worker, used by
+        every image node): glow bracketed on the `busy` FALSE->TRUE / TRUE->FALSE
+        edges in BOTH the single-input (pn_image_node_process / image_job_done)
+        and two-input blend (pn_image_node_process2 / image_job2_done) drivers,
+        so a coalesced burst of chained jobs reads as one continuous glow.
+
+        Sound-pack DOWNLOAD (plugins/sound-effects/pn-sci-fi-sound-gui.c,
+        companion): begin in on_download_clicked, end in the single
+        sci_fi_download_free choke point (via the borrowed node), so the node
+        glows for the whole index-fetch + per-clip-GET run while its settings
+        dialog is open.
+
+        Manual SOURCE nodes (a 42.2 gap surfaced during testing, not an async
+        tail): a source emits on user action but goes through NEITHER the
+        receive nor the auto-trigger seam, so it stayed dark while every
+        downstream node it fed lit up.  Bracket the synchronous emit (the
+        250ms linger keeps the blip visible): PnInject in pn_inject_fire (after
+        the empty-text early return so an unconfigured node stays dark), PnKnob
+        + PnSwitch at their single emit_value_message / emit_state_message choke
+        points (covers both the user interaction AND the one-shot startup
+        announce; the Switch's receive-driven passthrough emits directly, not
+        via the helper, so it is NOT double-bracketed).  The timed PnAutoInjector
+        is a PnAutoTrigger subclass already covered by 42.2b.
+
+        ALREADY COVERED, left alone: PnTmuxMonitor (PnAutoTrigger subclass —
+        42.2b seam).  NOT nodes (skipped): the lib/pn-mesh-*.c config-dialog
+        pages + device discovery are editor-only UI, not node runtime.
+        Build clean, 89/0 unit tests still green.
   [x] 42.3  PnWorksheet: connect "processing-changed" -> on_node_processing in
         on_node_added_to_store (disconnect symmetrically in
         on_node_removed_from_store, alongside the existing handlers).

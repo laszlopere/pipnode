@@ -146,7 +146,16 @@ emit_value_message (PnKnob *self)
 
     pn_message_set_double (msg, "value", self->value);
 
+    /* Light the processing glow for the emission.  As a manual source the
+     * knob emits when the user turns it (and once on the startup announce)
+     * but never goes through the receive or auto-trigger seams that
+     * bracket every other node, so without this it would stay dark while
+     * its downstream nodes light up.  The emit is synchronous and brief;
+     * the minimum-visible linger keeps the blip perceptible. */
+    pn_node_processing_begin (node);
     pn_node_emit_message (node, msg);
+    pn_node_processing_end (node);
+
     g_object_unref (msg);
 }
 

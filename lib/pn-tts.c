@@ -374,6 +374,12 @@ on_speak_done (
 
     self->speaking = FALSE;
 
+    /* The synthesis+playback subprocess has finished: close the
+     * processing glow opened in pn_tts_speak().  A chained follow-up
+     * utterance below re-opens its own, so the indicator stays lit
+     * continuously while a backlog drains. */
+    pn_node_processing_end (PN_NODE (self));
+
     g_object_unref (sub);
 
     /* Pull the next queued utterance, if any, and speak it now that
@@ -603,6 +609,12 @@ pn_tts_speak (
     }
 
     self->speaking = TRUE;
+
+    /* Light the processing glow for the whole synthesis+playback run.
+     * The synchronous receive() wrap only covers the kickoff; this
+     * extends the indicator across the async subprocess tail, balanced
+     * by the pn_node_processing_end() in on_speak_done(). */
+    pn_node_processing_begin (PN_NODE (self));
 
     /* Flatten line-breaks before handing the text to the engine.
      * Piper in particular synthesises one WAV per input line and

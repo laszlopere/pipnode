@@ -1,0 +1,72 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRtc",
+      "uuid" : "d004bac3-d67b-4a33-918a-f18bbc5c2178",
+      "name" : "Clock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 1
+      }
+    },
+    {
+      "type" : "PnAnalogClock",
+      "uuid" : "feaf2cd8-4995-464b-bec4-7e5135115a68",
+      "name" : "AnalogClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "text" : "",
+        "show-seconds" : true,
+        "timezone" : "Not Set",
+        "face-color" : "rgb(247,247,245)",
+        "marker-color" : "rgb(20,20,23)",
+        "hour-hand-color" : "rgb(20,20,23)",
+        "minute-hand-color" : "rgb(20,20,23)",
+        "second-hand-color" : "rgb(217,31,26)",
+        "text-color" : "rgb(51,51,56)"
+      }
+    },
+    {
+      "type" : "PnDigitalClock",
+      "uuid" : "98ca53fc-85f3-40ec-85e2-9bee4e9cb198",
+      "name" : "DigitalClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "show-labels" : true,
+        "timezone" : "Not Set",
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)",
+        "label-color" : "rgba(209,214,219,0.92)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "d004bac3-d67b-4a33-918a-f18bbc5c2178",
+      "target_id" : "feaf2cd8-4995-464b-bec4-7e5135115a68"
+    },
+    {
+      "source_id" : "d004bac3-d67b-4a33-918a-f18bbc5c2178",
+      "target_id" : "98ca53fc-85f3-40ec-85e2-9bee4e9cb198"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

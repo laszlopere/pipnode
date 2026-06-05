@@ -304,7 +304,15 @@ pn_inject_fire (PnInject *self)
     pn_message_set_double  (msg, "value",   self->value);
     pn_message_set_boolean (msg, "success", self->success);
 
+    /* Light the processing glow for the manual injection.  As a source
+     * node the button-fire emits a message but never goes through the
+     * receive or auto-trigger seams that bracket every other node, so
+     * without this it would stay dark while every downstream node it
+     * feeds lights up.  The emit is synchronous and brief; the
+     * minimum-visible linger keeps the blip perceptible. */
+    pn_node_processing_begin (node);
     pn_node_emit_message (node, msg);
+    pn_node_processing_end (node);
 
     g_object_unref (msg);
 }

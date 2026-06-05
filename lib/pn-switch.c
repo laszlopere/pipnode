@@ -142,7 +142,17 @@ emit_state_message (PnSwitch *self)
     PnNode    *node = PN_NODE (self);
     PnMessage *msg  = PN_SWITCH_GET_CLASS (self)->build_outbound_message (self);
 
+    /* Light the processing glow for the emission.  As a manual source the
+     * switch emits when the user flips it (and once on the startup
+     * announce) but never goes through the receive or auto-trigger seams
+     * that bracket every other node, so without this it would stay dark
+     * while its downstream nodes light up.  The receive-driven passthrough
+     * emits directly (not via this helper) and is already covered by the
+     * receive wrap.  Synchronous and brief; the linger keeps it visible. */
+    pn_node_processing_begin (node);
     pn_node_emit_message (node, msg);
+    pn_node_processing_end (node);
+
     g_object_unref (msg);
 }
 

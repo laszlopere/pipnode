@@ -116,6 +116,10 @@ on_play_done (
     self->ready_at_us = g_get_monotonic_time ()
                       + (gint64) self->dead_period * G_TIME_SPAN_SECOND;
 
+    /* Playback finished: close the processing glow opened in
+     * pn_sound_play(). */
+    pn_node_processing_end (PN_NODE (self));
+
     g_object_unref (sub);
     g_object_unref (self);
 }
@@ -176,6 +180,12 @@ pn_sound_play (
     }
 
     self->playing = TRUE;
+
+    /* Light the processing glow for the whole playback run; the
+     * synchronous receive() wrap only covers the kickoff.  Balanced by
+     * the pn_node_processing_end() in on_play_done(). */
+    pn_node_processing_begin (PN_NODE (self));
+
     g_subprocess_wait_async (sub, NULL,
                              on_play_done, g_object_ref (self));
     return TRUE;
