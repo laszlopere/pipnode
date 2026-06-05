@@ -1777,3 +1777,107 @@ Voice list to the chosen one.
   [x] 41.5  Unit tests (language_piper / language_no_locale / language_label)
         + help page (data/help/PnTts.html: new "language" row, cross-refs from
         "model" and "per-source-voice").  DONE.
+
+(42) Node "processing" / activity visualization.  Show on the canvas when a
+node is actively doing work, and make it configurable so the user can turn it
+OFF in the editor to save CPU.  DESIGN PRINCIPLE: be HONEST -- animate when
+processing is ACTUALLY happening, do NOT infer it from message emission.  A
+node may run one or more secondary threads and may do work without ever
+producing a message, so piggybacking on the "message" signal (SIG_MESSAGE)
+would both miss real work and falsely light up pass-throughs.  Instead the node
+itself declares its work via an explicit, thread-safe processing state, the UI
+wakes on a status signal and then POLLS that state on a timer, and a minimum
+linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
+
+  MODEL -- explicit processing state on PnNode (core, libpipnode-core):
+    * A node brackets its work with pn_node_processing_begin() /
+      pn_node_processing_end().  Synchronous nodes wrap their compute; async /
+      threaded nodes call begin() when they kick off work and end() when the
+      worker finishes (possibly from a secondary thread).
+    * State is a REFCOUNT, not a bool, so overlapping/concurrent work items
+      (multiple threads) compose: count>0 == busy.  Use g_atomic_int so
+      begin/end are safe to call from any thread.
+    * Timestamps (monotonic): busy_since_us set on the 0->1 transition;
+      on the 1->0 transition set visible_until_us = max(now, busy_since_us +
+      MIN_VISIBLE_US).  "Visibly busy" = count>0 || now < visible_until_us.
+      This is the minimum-linger: 1ms of real work still animates for ~100ms.
+    * NO ABI bump: new GObject signal(s) are registered at runtime in
+      class_init (do not touch the public class struct); new public functions
+      and private instance members (via get_instance_private) are additive.
+      Room to add MORE status signals later the same way (user-confirmed).
+    * Transient & NOT serialized (follow has-error; no JSON, survives nothing).
+
+  THREADING / WAKE-UP -- the crux that replaces the message piggyback:
+    * begin/end only touch atomics + timestamps directly; they must NOT emit a
+      GObject signal or touch GTK from a worker thread.
+    * On the 0->1 transition, marshal a wake-up to the main loop via
+      g_main_context_invoke (thread-safe) which emits SIG_PROCESSING_CHANGED
+      there.  Gate that marshal behind g_signal_has_handler_pending so headless
+      (pipnode-run, no UI) pays nothing -- begin/end are then just atomic ops.
+      Coalesce so rapid begin/end don't flood the main loop.
+    * The signal is only a KICK to start the UI poll; the poll detects the end.
+
+  [ ] 42.1  PnNode core: private g_atomic busy_count + busy_since_us +
+        visible_until_us; public pn_node_processing_begin/end(),
+        pn_node_is_processing(node) (count>0) and pn_node_is_processing_visible
+        (node, now_us) (count>0 || now<visible_until_us); new
+        SIG_PROCESSING_CHANGED ("processing-changed", carries gboolean busy),
+        emitted on the main thread only, gated/marshaled as above.  Unit-test
+        the refcount composition + minimum-linger math headlessly.
+  [ ] 42.2  Coverage with minimal per-node churn: wrap the receive() dispatch
+        in pn_node_receive_message_on_input (lib/pn-node.c ~810-824) with
+        begin()/end() so every synchronous node lights up for free and honestly
+        (it really is executing its handler).  Async/threaded nodes ADDITIONALLY
+        call begin/end around their background work to extend busy past the
+        synchronous return (audit which nodes spawn threads / do network I/O;
+        e.g. Weather, Http, TTS, sound-effects download, shell).
+  [ ] 42.3  PnWorksheet: connect "processing-changed" -> on_node_processing in
+        on_node_added_to_store (disconnect symmetrically in
+        on_node_removed_from_store, alongside the existing handlers).
+        on_node_processing bails immediately if the pref is off (cheap read,
+        like on_message_passed), else arms ONE self-terminating tick modeled on
+        wire_pulse_timer_id / on_wire_pulse_timeout: each frame re-checks
+        pn_node_is_processing_visible for the tracked nodes (the cheap atomic
+        read IS the poll), invalidates only the busy nodes' rects, and removes
+        itself (G_SOURCE_REMOVE) once no node is visibly busy -> zero idle CPU.
+        This single tick serves as BOTH the state poll and (later) the halo
+        animator; per the 42.4 V1 decision the glow is STEADY, so v1 runs the
+        tick at ~250ms purely as the state poll (a breathing pulse would later
+        drop it to ~40-60ms while busy).  Track nodes by reading
+        their state, not by holding refs, to avoid the dangling-pointer dance
+        (or guard in on_node_removed_from_store).
+  [ ] 42.4  draw_node: the busy visual is a NEON HALO bleeding out from BEHIND
+        the node -- as if some busy work were glowing behind the card -- drawn
+        INSTEAD OF the drop shadow while the node is visibly busy.  New
+        paint_processing_halo() sibling to paint_drop_shadow (pn-worksheet.c
+        :586): same stacked-translucent-copies blur trick, but (a) a neon
+        colour instead of black, and (b) copies grow concentrically OUTWARD
+        (larger w/h, offset up-left by half the growth) so the glow is
+        symmetric around the rounded rect rather than cast down-right.  The
+        body then paints on top as usual, occluding the inner glow and leaving
+        the neon bloom feathering out around the edges.  Wire it at BOTH
+        drop-shadow call sites so the halo wraps the whole footprint: the body
+        (:675) and the client-area / plot extension (:1079, using
+        paint_plot_corner_radius) -- swap `processing ? halo : drop_shadow` at
+        each.  Drawn iff pn_node_is_processing_visible (honest by
+        construction).  Precedence: disabled still wins (an inert node neither
+        glows nor errors); a node can plausibly be both busy and have-error --
+        decide whether the halo coexists with the red body (likely yes: red
+        card + neon halo reads fine) or is suppressed.
+        V1 DECISION (user): ONE single fixed neon accent (e.g. electric cyan)
+        shared by EVERY node -- an unambiguous, uniform "activity" status read.
+        DEFERRED polish: per-node hue (node's own body colour pushed to max
+        saturation/value).
+        V1 DECISION (user): STEADY glow, no pulse -- so the tick repaints only
+        on state change and the 250ms poll suffices (cheapest variant).
+        DEFERRED polish: a gentle BREATHING pulse (phase = monotonic clock,
+        ~40-60ms frames while busy via the same self-terminating tick, still
+        ZERO idle CPU).
+  [ ] 42.5  PnPreferences: new "visualize-node-processing" boolean property
+        (clone the animate_wire_messages getter/setter/JSON block).  Worksheet
+        listens for notify:: next to the existing animate-messages-on-wires
+        handler and clears the poll tick when it goes off (clone
+        on_prefs_anim_changed).  Optionally expose the poll interval / min-
+        linger as constants for now.
+  [ ] 42.6  Preferences dialog: one checkbox on the same "Message Flow" page
+        (clone the animate-messages-on-wires checkbox).  Update help docs.
