@@ -275,6 +275,7 @@ struct _PnWorksheet
     gulong   prefs_bg_handler;
     gulong   prefs_anim_handler;
     gulong   prefs_anim_interval_handler;
+    gulong   prefs_visualize_handler;
 
     /** Wire message-flow animation.  When the
      *  "animate-messages-on-wires" preference is on, each message that
@@ -286,6 +287,15 @@ struct _PnWorksheet
      *  are in flight. */
     GArray  *wire_pulses;
     guint    wire_pulse_timer_id;
+
+    /** Node processing-activity glow (TODO #42).  When the
+     *  "visualize-node-processing" preference is on, a node doing work
+     *  glows a neon halo behind its card.  @processing_timer_id is the
+     *  self-terminating poll that maintains the glow and tears itself
+     *  down once no node is busy (0 when idle).  The per-node "is it lit"
+     *  state rides on the node as object-data (PN_WORKSHEET_GLOW_KEY), so
+     *  there are no node pointers here to dangle on removal. */
+    guint    processing_timer_id;
 
     /** Widget-space bounding box invalidated for the lights on the last
      *  repaint; unioned with the current box each frame so the previous
@@ -583,6 +593,44 @@ rounded_rect_path (
     cairo_close_path (cr);
 }
 
+/* Node processing-activity glow (TODO #42).  The neon halo's outward
+ * bleed (model units) and the number of stacked layers that feather it,
+ * the poll cadence that maintains it, and the object-data key under which
+ * each node remembers whether it is currently lit. */
+#define PN_WORKSHEET_HALO_SPREAD        7.0
+#define PN_WORKSHEET_HALO_LAYERS        6
+#define PN_WORKSHEET_PROCESSING_POLL_MS 250
+#define PN_WORKSHEET_GLOW_KEY           "pn-ws-processing-glow"
+
+/** Paint a neon "busy" halo bleeding out from behind a rounded rectangle
+ *  (TODO #42).  Same stacked-translucent-copies trick as
+ *  paint_drop_shadow, but the copies grow concentrically OUTWARD in a
+ *  neon colour instead of being offset down-right in black, so the node
+ *  reads as glowing from behind rather than casting a shadow.  Layers
+ *  closer to the edge overlap more, so the alpha builds up bright against
+ *  the body and feathers out into the canvas.  Drawn before the body
+ *  fill, so the body occludes the inner glow and only the outer ring
+ *  shows.  V1: one fixed neon (vivid red) for every node, steady. */
+static void
+paint_processing_halo (
+        cairo_t *cr,
+        double   x,
+        double   y,
+        double   w,
+        double   h,
+        double   radius)
+{
+    int i;
+    for (i = 0; i < PN_WORKSHEET_HALO_LAYERS; i++)
+    {
+        const double s = PN_WORKSHEET_HALO_SPREAD * (i + 1)
+                       / (double) PN_WORKSHEET_HALO_LAYERS;
+        rounded_rect_path (cr, x - s, y - s, w + 2 * s, h + 2 * s, radius + s);
+        cairo_set_source_rgba (cr, 1.00, 0.18, 0.20, 0.13);
+        cairo_fill (cr);
+    }
+}
+
 /** Paint a soft drop shadow under a rounded rectangle.  Cairo has no
  *  blur primitive, so we fake one by stacking several semi-transparent
  *  copies of the silhouette at incrementally larger down-right offsets.
@@ -630,6 +678,14 @@ draw_node (
     const gboolean has_output = pn_node_get_has_output (node);
     const gboolean disabled   = pn_node_get_disabled   (node);
     const gboolean has_error  = pn_node_get_has_error  (node);
+    /* Busy glow (TODO #42): only when the worksheet owns a real widget
+     * (self != NULL), the preference is on, and the node is actually
+     * working (disabled wins — an inert node never glows).  Short-circuits
+     * before the per-node mutex read when the preference is off. */
+    const gboolean processing = self != NULL && !disabled
+        && pn_preferences_get_visualize_node_processing (
+                   pn_preferences_get_default ())
+        && pn_node_is_processing_visible (node, g_get_monotonic_time ());
     const double   x = pos->x;
     const double   y = pos->y;
     /* Standard styling fills the *header* portion of the footprint —
@@ -671,8 +727,14 @@ draw_node (
     if (has_error && !disabled)
         icon = PN_NODE_ERROR_ICON;
 
-    /* Drop shadow — drawn first so it sits underneath the node body. */
-    paint_drop_shadow (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
+    /* Drop shadow — drawn first so it sits underneath the node body.  A
+     * busy node swaps the shadow for a neon processing halo (TODO #42),
+     * so it reads as glowing from behind rather than resting on the
+     * canvas. */
+    if (processing)
+        paint_processing_halo (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
+    else
+        paint_drop_shadow (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
 
     /* Body fill. */
     rounded_rect_path (cr, x, y,
@@ -1075,7 +1137,13 @@ draw_node (
             const double plot_y = y + header_h + 4.0;
             const double plot_h = full_h - header_h - 4.0;
 
-            if (!klass->paint_plot_skip_shadow)
+            /* The halo wraps the client-area extension too (TODO #42), so
+             * the whole footprint glows; otherwise the standard drop
+             * shadow, unless the class opts out of it. */
+            if (processing)
+                paint_processing_halo (cr, x, plot_y, full_w, plot_h,
+                                       klass->paint_plot_corner_radius);
+            else if (!klass->paint_plot_skip_shadow)
                 paint_drop_shadow (cr, x, plot_y, full_w, plot_h,
                                    klass->paint_plot_corner_radius);
             klass->paint_plot (node, cr, x, plot_y, full_w, plot_h);
@@ -2141,6 +2209,130 @@ on_prefs_anim_interval_changed (
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Node processing-activity glow (TODO #42)                           */
+/* ------------------------------------------------------------------ */
+
+/* Invalidate a node's footprint padded for the halo bleed, in widget
+ * coordinates (model * zoom).  Used both to paint a fresh glow in and to
+ * erase it once the node goes idle. */
+static void
+processing_invalidate_node (
+        PnWorksheet *self,
+        PnNode      *node)
+{
+    const PnPoint *p   = pn_node_get_position (node);
+    const double   pad = PN_WORKSHEET_HALO_SPREAD + 2.0;
+    double         w, h, x0, y0, x1, y1;
+
+    pn_node_get_size (node, &w, &h);
+    x0 = (p->x - pad)     * self->zoom;
+    y0 = (p->y - pad)     * self->zoom;
+    x1 = (p->x + w + pad) * self->zoom;
+    y1 = (p->y + h + pad) * self->zoom;
+    gtk_widget_queue_draw_area (GTK_WIDGET (self),
+                                (int) floor (x0), (int) floor (y0),
+                                (int) ceil (x1 - x0) + 1,
+                                (int) ceil (y1 - y0) + 1);
+}
+
+/* Poll tick: repaint just the nodes whose visible-busy state changed since
+ * the last tick — so a glow appears and, after the minimum-visible linger,
+ * erases — and tear the timer down once nothing is busy (zero idle CPU).
+ * The per-node "currently lit" bit rides on the node as object-data, so
+ * the worksheet holds no node pointers that could dangle if a node is
+ * deleted mid-glow. */
+static gboolean
+on_processing_timeout (
+        gpointer user_data)
+{
+    PnWorksheet *self  = PN_WORKSHEET (user_data);
+    const gint64 now   = g_get_monotonic_time ();
+    const guint  count = pn_node_store_get_length (self->nodes);
+    guint        busy  = 0;
+    guint        i;
+
+    for (i = 0; i < count; i++)
+    {
+        PnNode  *node = pn_node_store_get_node (self->nodes, i);
+        gboolean vis, was;
+
+        if (!node_on_sheet (self, node))
+            continue;
+
+        vis = pn_node_is_processing_visible (node, now);
+        was = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (node),
+                                                  PN_WORKSHEET_GLOW_KEY));
+        if (vis != was)
+        {
+            processing_invalidate_node (self, node);
+            g_object_set_data (G_OBJECT (node), PN_WORKSHEET_GLOW_KEY,
+                               GINT_TO_POINTER (vis));
+        }
+        if (vis)
+            busy++;
+    }
+
+    if (busy == 0)
+    {
+        self->processing_timer_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/* A node crossed a processing edge ("processing-changed").  Wake the poll
+ * and, on the rising edge, light the glow at once rather than waiting up to
+ * one poll step.  Costs nothing while the preference is off: the node still
+ * emits the signal, but we neither arm the timer nor repaint. */
+static void
+on_node_processing (
+        PnNode  *node,
+        gboolean busy,
+        gpointer user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+
+    if (!pn_preferences_get_visualize_node_processing (
+                pn_preferences_get_default ()))
+        return;
+    if (!node_on_sheet (self, node))
+        return;
+
+    if (self->processing_timer_id == 0)
+        self->processing_timer_id = g_timeout_add (
+                PN_WORKSHEET_PROCESSING_POLL_MS, on_processing_timeout, self);
+
+    if (busy)
+    {
+        processing_invalidate_node (self, node);
+        g_object_set_data (G_OBJECT (node), PN_WORKSHEET_GLOW_KEY,
+                           GINT_TO_POINTER (TRUE));
+    }
+}
+
+/* React to the "visualize-node-processing" preference flipping off: stop
+ * the poll and repaint so any lit halos vanish at once. */
+static void
+on_prefs_visualize_changed (
+        GObject    *prefs,
+        GParamSpec *pspec,
+        gpointer    user_data)
+{
+    PnWorksheet *self = PN_WORKSHEET (user_data);
+    (void) pspec;
+
+    if (!pn_preferences_get_visualize_node_processing (PN_PREFERENCES (prefs)))
+    {
+        if (self->processing_timer_id != 0)
+        {
+            g_source_remove (self->processing_timer_id);
+            self->processing_timer_id = 0;
+        }
+        gtk_widget_queue_draw (GTK_WIDGET (self));
+    }
+}
+
 /* Paint every live light, inside the worksheet (zoom/pan) transform. */
 static void
 draw_wire_pulses (
@@ -3080,6 +3272,9 @@ on_node_added_to_store (
     g_signal_connect (node, "repaint-needed",
                       G_CALLBACK (on_node_repaint_needed),
                       user_data);
+    g_signal_connect (node, "processing-changed",
+                      G_CALLBACK (on_node_processing),
+                      user_data);
     /* Generic "modified flag" notify hookup lives on the flow side
      * (see pn-flow.c on_node_added) so multi-widget hosts do not have
      * to deduplicate it across N worksheets sharing one model. */
@@ -3136,6 +3331,8 @@ on_node_removed_from_store (
             node, G_CALLBACK (on_node_notify_appearance), self);
     g_signal_handlers_disconnect_by_func (
             node, G_CALLBACK (on_node_notify_position), self);
+    g_signal_handlers_disconnect_by_func (
+            node, G_CALLBACK (on_node_processing), self);
 
     if (g_hash_table_remove (self->selection, node))
         g_signal_emit (self, signals[SIG_SELECTION_CHANGED], 0);
@@ -5732,6 +5929,12 @@ pn_worksheet_dispose (GObject *object)
                                          self->prefs_anim_interval_handler);
             self->prefs_anim_interval_handler = 0;
         }
+        if (self->prefs_visualize_handler != 0)
+        {
+            g_signal_handler_disconnect (prefs,
+                                         self->prefs_visualize_handler);
+            self->prefs_visualize_handler = 0;
+        }
     }
 
     G_OBJECT_CLASS (pn_worksheet_parent_class)->dispose (object);
@@ -5772,6 +5975,11 @@ pn_worksheet_finalize (GObject *object)
     {
         g_source_remove (self->wire_pulse_timer_id);
         self->wire_pulse_timer_id = 0;
+    }
+    if (self->processing_timer_id != 0)
+    {
+        g_source_remove (self->processing_timer_id);
+        self->processing_timer_id = 0;
     }
     /* Clear func unrefs each pulse's wire. */
     g_clear_pointer (&self->wire_pulses, g_array_unref);
@@ -6174,6 +6382,11 @@ pn_worksheet_init (PnWorksheet *self)
         self->prefs_anim_interval_handler = g_signal_connect (
                 prefs, "notify::wire-pulse-interval",
                 G_CALLBACK (on_prefs_anim_interval_changed), self);
+        /* Not _swapped: turning the feature off has to stop the poll and
+         * drop any lit halos, so it needs the real handler. */
+        self->prefs_visualize_handler = g_signal_connect (
+                prefs, "notify::visualize-node-processing",
+                G_CALLBACK (on_prefs_visualize_changed), self);
     }
 }
 

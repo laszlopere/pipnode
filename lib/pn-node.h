@@ -834,7 +834,7 @@ void            pn_node_processing_begin (PnNode *self);
  *
  * Marks the end of a unit of work started with pn_node_processing_begin().
  * When the outstanding count returns to zero the node keeps reading as
- * "visibly busy" for a short minimum linger (~100 ms) so even a
+ * "visibly busy" for a short minimum linger (~250 ms) so even a
  * sub-millisecond unit of work still produces a perceptible glow.
  * Thread-safe; an unbalanced call (count already zero) is a no-op warning.
  */

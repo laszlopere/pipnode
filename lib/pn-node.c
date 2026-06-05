@@ -1565,7 +1565,7 @@ pn_node_set_has_error (
 
 /* Minimum time a node stays "visibly busy" after work begins, so even a
  * sub-millisecond unit of work produces a perceptible glow. */
-#define PN_NODE_PROCESSING_MIN_VISIBLE_US (100 * 1000)  /* 100 ms */
+#define PN_NODE_PROCESSING_MIN_VISIBLE_US (250 * 1000)  /* 250 ms */
 
 typedef struct {
     PnNode  *node;   /* owns a ref for the lifetime of the deferred emit */

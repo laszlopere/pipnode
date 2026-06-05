@@ -89,6 +89,10 @@ gboolean    pn_preferences_get_animate_wire_messages (PnPreferences *self);
 void        pn_preferences_set_animate_wire_messages (PnPreferences *self,
                                                      gboolean       animate);
 
+gboolean    pn_preferences_get_visualize_node_processing (PnPreferences *self);
+void        pn_preferences_set_visualize_node_processing (PnPreferences *self,
+                                                     gboolean       visualize);
+
 /* Travel speed of the message-flow lights, in worksheet units per
  * second (higher is faster).  Read at spawn time, so a change takes
  * effect on the next message. */

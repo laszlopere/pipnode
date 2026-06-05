@@ -33,7 +33,7 @@
 #include "pn-node.h"
 
 /* The minimum-visible linger baked into pn-node.c, in microseconds. */
-#define MIN_VISIBLE_US (100 * 1000)
+#define MIN_VISIBLE_US (250 * 1000)
 
 /* ---- a minimal concrete PnNode whose receive() we can observe ----
  *

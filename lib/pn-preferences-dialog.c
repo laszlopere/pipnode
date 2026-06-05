@@ -54,6 +54,7 @@ struct _PnPreferencesDialog
     GtkWidget    *anim_wire_check;
     GtkWidget    *speed_spin;
     GtkWidget    *interval_spin;
+    GtkWidget    *visualize_check;
 
     /* Re-entrancy guard: TRUE while a notify:: handler is pushing a
      * fresh value into a widget.  Without this the widget's own
@@ -131,6 +132,10 @@ sync_widgets_from_prefs (PnPreferencesDialog *self)
             GTK_SPIN_BUTTON (self->interval_spin),
             (gdouble) pn_preferences_get_wire_pulse_interval (prefs));
 
+    gtk_toggle_button_set_active (
+            GTK_TOGGLE_BUTTON (self->visualize_check),
+            pn_preferences_get_visualize_node_processing (prefs));
+
     self->updating = FALSE;
 }
 
@@ -167,6 +172,17 @@ on_anim_wire_toggled (GtkToggleButton *button, gpointer user_data)
     if (self->updating)
         return;
     pn_preferences_set_animate_wire_messages (
+            pn_preferences_get_default (),
+            gtk_toggle_button_get_active (button));
+}
+
+static void
+on_visualize_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    PnPreferencesDialog *self = PN_PREFERENCES_DIALOG (user_data);
+    if (self->updating)
+        return;
+    pn_preferences_set_visualize_node_processing (
             pn_preferences_get_default (),
             gtk_toggle_button_get_active (button));
 }
@@ -604,10 +620,19 @@ build_msgflow_page (PnPreferencesDialog *self)
     attach_labelled_row (GTK_GRID (grid), 2,
                          "Animation interval (ms):", self->interval_spin);
 
+    /* Node processing-activity glow (TODO #42). */
+    self->visualize_check = gtk_check_button_new_with_label (
+            "Glow a halo behind a node while it is working");
+    g_signal_connect (self->visualize_check, "toggled",
+                      G_CALLBACK (on_visualize_toggled), self);
+    attach_labelled_row (GTK_GRID (grid), 3,
+                         "Node activity:", self->visualize_check);
+
     blurb = gtk_label_new (
             "Shows each message as a fast-moving light running along the "
-            "wire it crosses.  A diagnostic aid — leave it off for serious "
-            "work.");
+            "wire it crosses, and glows a neon halo behind any node while "
+            "it is doing work.  Diagnostic aids — leave them off for "
+            "serious work.");
     gtk_label_set_line_wrap (GTK_LABEL (blurb), TRUE);
     gtk_label_set_xalign    (GTK_LABEL (blurb), 0.0);
     gtk_label_set_max_width_chars (GTK_LABEL (blurb), 50);

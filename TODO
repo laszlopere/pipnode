@@ -1825,7 +1825,7 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         carries gboolean busy), emitted on idle⇄busy edges only, marshalled
         onto the default main context via g_main_context_invoke and gated by
         g_signal_has_handler_pending so headless runs pay only the counter.
-        MIN_VISIBLE_US = 100 ms.  No ABI bump (new signal + private fields +
+        MIN_VISIBLE_US = 250 ms.  No ABI bump (new signal + private fields +
         public funcs only).  DONE: tests/unit/test-pn-node-processing.c (21
         checks: idle/lit/refcount/linger/long-work/signal-edges/unbalanced-end)
         registered in Makefile.am; full suite 89/0, whole tree builds clean.
@@ -1854,7 +1854,7 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         serial.  Each needs begin/end placed around its background work by
         hand.  The receive wrap already covers their synchronous kickoff, so
         this only extends the glow across the async tail.
-  [ ] 42.3  PnWorksheet: connect "processing-changed" -> on_node_processing in
+  [x] 42.3  PnWorksheet: connect "processing-changed" -> on_node_processing in
         on_node_added_to_store (disconnect symmetrically in
         on_node_removed_from_store, alongside the existing handlers).
         on_node_processing bails immediately if the pref is off (cheap read,
@@ -1869,7 +1869,11 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         drop it to ~40-60ms while busy).  Track nodes by reading
         their state, not by holding refs, to avoid the dangling-pointer dance
         (or guard in on_node_removed_from_store).
-  [ ] 42.4  draw_node: the busy visual is a NEON HALO bleeding out from BEHIND
+        DONE: per-node "lit" bit rides on the node as object-data
+        (PN_WORKSHEET_GLOW_KEY) so no node pointers are held; poll at 250ms
+        repaints only nodes whose visible-busy state changed and self-
+        terminates when none are busy; rising edge lights at once.
+  [x] 42.4  draw_node: the busy visual is a NEON HALO bleeding out from BEHIND
         the node -- as if some busy work were glowing behind the card -- drawn
         INSTEAD OF the drop shadow while the node is visibly busy.  New
         paint_processing_halo() sibling to paint_drop_shadow (pn-worksheet.c
@@ -1896,11 +1900,17 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         DEFERRED polish: a gentle BREATHING pulse (phase = monotonic clock,
         ~40-60ms frames while busy via the same self-terminating tick, still
         ZERO idle CPU).
-  [ ] 42.5  PnPreferences: new "visualize-node-processing" boolean property
+        DONE: paint_processing_halo() = 6 stacked translucent rounded-rects
+        growing outward (spread 7px), swapped for the drop shadow at BOTH the
+        body and plot/client-area sites.  V1 colour after user review = vivid
+        red rgba(1.00,0.18,0.20,0.13) (NOT cyan); min-visible linger 250ms.
+  [x] 42.5  PnPreferences: new "visualize-node-processing" boolean property
         (clone the animate_wire_messages getter/setter/JSON block).  Worksheet
         listens for notify:: next to the existing animate-messages-on-wires
         handler and clears the poll tick when it goes off (clone
         on_prefs_anim_changed).  Optionally expose the poll interval / min-
-        linger as constants for now.
-  [ ] 42.6  Preferences dialog: one checkbox on the same "Message Flow" page
-        (clone the animate-messages-on-wires checkbox).  Update help docs.
+        linger as constants for now.  DONE (default off; full JSON/property/
+        getter-setter plumbing).
+  [x] 42.6  Preferences dialog: one checkbox on the same "Message Flow" page
+        (clone the animate-messages-on-wires checkbox).  DONE ("Node activity"
+        row + extended blurb).  Help docs still TODO.

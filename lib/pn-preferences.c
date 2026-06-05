@@ -40,6 +40,11 @@ struct _PnPreferences
      * not something you want active during serious work. */
     gboolean   animate_wire_messages;
 
+    /* When set, the worksheet glows a neon halo behind a node while it is
+     * doing work (TODO #42).  Off by default — like the wire animation it
+     * is a diagnostic aid that costs a little CPU while nodes are busy. */
+    gboolean   visualize_node_processing;
+
     /* Travel speed of those lights, in worksheet units per second. */
     guint      wire_pulse_speed;
 
@@ -91,6 +96,7 @@ enum {
     PROP_GRID_COLOR,
     PROP_BACKGROUND_COLOR,
     PROP_ANIMATE_WIRE_MESSAGES,
+    PROP_VISUALIZE_NODE_PROCESSING,
     PROP_WIRE_PULSE_SPEED,
     PROP_WIRE_PULSE_INTERVAL,
     PROP_DEBUG_VIEW_OPEN,
@@ -198,6 +204,9 @@ pn_preferences_save_now (PnPreferences *self)
 
     json_builder_set_member_name (b, "animate_wire_messages");
     json_builder_add_boolean_value (b, self->animate_wire_messages);
+
+    json_builder_set_member_name (b, "visualize_node_processing");
+    json_builder_add_boolean_value (b, self->visualize_node_processing);
 
     json_builder_set_member_name (b, "wire_pulse_speed");
     json_builder_add_int_value (b, self->wire_pulse_speed);
@@ -368,6 +377,12 @@ pn_preferences_load (PnPreferences *self)
                 json_object_get_boolean_member (obj,
                                                 "animate_wire_messages"));
 
+    if (json_object_has_member (obj, "visualize_node_processing"))
+        pn_preferences_set_visualize_node_processing (
+                self,
+                json_object_get_boolean_member (obj,
+                                                "visualize_node_processing"));
+
     if (json_object_has_member (obj, "wire_pulse_speed"))
         pn_preferences_set_wire_pulse_speed (
                 self,
@@ -473,6 +488,9 @@ pn_preferences_get_property (
     case PROP_ANIMATE_WIRE_MESSAGES:
         g_value_set_boolean (value, self->animate_wire_messages);
         break;
+    case PROP_VISUALIZE_NODE_PROCESSING:
+        g_value_set_boolean (value, self->visualize_node_processing);
+        break;
     case PROP_WIRE_PULSE_SPEED:
         g_value_set_uint (value, self->wire_pulse_speed);
         break;
@@ -521,6 +539,10 @@ pn_preferences_set_property (
         break;
     case PROP_ANIMATE_WIRE_MESSAGES:
         pn_preferences_set_animate_wire_messages (
+                self, g_value_get_boolean (value));
+        break;
+    case PROP_VISUALIZE_NODE_PROCESSING:
+        pn_preferences_set_visualize_node_processing (
                 self, g_value_get_boolean (value));
         break;
     case PROP_WIRE_PULSE_SPEED:
@@ -609,6 +631,13 @@ pn_preferences_class_init (PnPreferencesClass *klass)
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    properties[PROP_VISUALIZE_NODE_PROCESSING] = g_param_spec_boolean (
+            "visualize-node-processing", "Visualize Node Processing",
+            "Whether the worksheet glows a halo behind a node while it is "
+            "actively doing work.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     properties[PROP_WIRE_PULSE_SPEED] = g_param_spec_uint (
             "wire-pulse-speed", "Wire Pulse Speed",
             "Travel speed of the message-flow lights, in worksheet "
@@ -668,6 +697,7 @@ pn_preferences_init (PnPreferences *self)
     self->background_color.blue  = 0.97;
     self->background_color.alpha = 1.0;
     self->animate_wire_messages = FALSE;
+    self->visualize_node_processing = FALSE;
     self->wire_pulse_speed = 600;
     self->wire_pulse_interval = 100;
     self->debug_view_open  = FALSE;
@@ -803,6 +833,28 @@ pn_preferences_set_animate_wire_messages (PnPreferences *self,
     self->animate_wire_messages = animate;
     g_object_notify_by_pspec (G_OBJECT (self),
                               properties[PROP_ANIMATE_WIRE_MESSAGES]);
+    pn_preferences_schedule_save (self);
+}
+
+gboolean
+pn_preferences_get_visualize_node_processing (PnPreferences *self)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), FALSE);
+    return self->visualize_node_processing;
+}
+
+void
+pn_preferences_set_visualize_node_processing (PnPreferences *self,
+                                              gboolean       visualize)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+
+    visualize = visualize ? TRUE : FALSE;
+    if (self->visualize_node_processing == visualize)
+        return;
+    self->visualize_node_processing = visualize;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_VISUALIZE_NODE_PROCESSING]);
     pn_preferences_schedule_save (self);
 }
 
