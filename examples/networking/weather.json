@@ -28,7 +28,7 @@
         "y" : 60.0
       },
       "properties" : {
-        "target" : "Debug View",
+        "target" : "Standard Error",
         "format" : "JSON"
       }
     },
@@ -96,7 +96,7 @@
       "name" : "Sun Path 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 600.0,
+        "x" : 800.0,
         "y" : 140.0
       },
       "properties" : {
@@ -114,17 +114,69 @@
       }
     },
     {
+      "type" : "PnWeather",
+      "uuid" : "6c7c043f-dac2-418f-92e8-5b2aa127f6d3",
+      "name" : "Weather 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.met.no/weatherapi/locationforecast/2.0/compact",
+        "city" : "Oslo",
+        "provider" : "MET Norway (global)"
+      }
+    },
+    {
+      "type" : "PnWeatherReport",
+      "uuid" : "b8458ce1-22a7-4930-9fd6-f808e9630c5a",
+      "name" : "Weather Report 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 620.0
+      },
+      "properties" : {
+        "show-details" : true,
+        "temperature-unit" : "Celsius (°C)",
+        "wind-unit" : "km/h",
+        "pressure-unit" : "hPa",
+        "font-color" : "rgb(33,33,33)",
+        "secondary-font-color" : "rgb(117,117,117)",
+        "background-color" : "rgb(255,255,255)",
+        "background-color2" : "rgb(204,227,247)",
+        "background-gradient" : "Horizontal"
+      }
+    },
+    {
+      "type" : "PnAstronomical",
+      "uuid" : "16fda09c-51b5-413e-b12d-ccf1bc86a519",
+      "name" : "Astronomical 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "period" : 60,
+        "city" : "Pécs",
+        "datum" : "The Sun is up"
+      }
+    },
+    {
       "type" : "PnSunPath",
-      "uuid" : "3ac301bc-c869-42d1-a402-5ba0b6b0faec",
+      "uuid" : "1227c5fc-639c-4d12-a255-d9abb88b4b86",
       "name" : "Sun Path 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 600.0,
-        "y" : 380.0
+        "x" : 800.0,
+        "y" : 400.0
       },
       "properties" : {
-        "view-yaw" : 2.06182861328125,
-        "view-pitch" : 57.767608642578125,
+        "view-yaw" : 2.69146728515625,
+        "view-pitch" : 32.3394775390625,
         "house-heading" : 90.0,
         "show-house" : true,
         "background-color" : "rgb(92,133,189)",
@@ -155,12 +207,20 @@
       "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
     },
     {
-      "source_id" : "34af8d44-9962-4bab-9a61-815907193c47",
+      "source_id" : "6c7c043f-dac2-418f-92e8-5b2aa127f6d3",
+      "target_id" : "b8458ce1-22a7-4930-9fd6-f808e9630c5a"
+    },
+    {
+      "source_id" : "6c7c043f-dac2-418f-92e8-5b2aa127f6d3",
+      "target_id" : "9ffe827e-d049-4989-afd5-c5c2f1fc98d5"
+    },
+    {
+      "source_id" : "16fda09c-51b5-413e-b12d-ccf1bc86a519",
       "target_id" : "b0b46454-fd36-4126-a1ee-52292c78f036"
     },
     {
       "source_id" : "4ce8ffd1-c554-48db-8a03-95f2449d0d49",
-      "target_id" : "3ac301bc-c869-42d1-a402-5ba0b6b0faec"
+      "target_id" : "1227c5fc-639c-4d12-a255-d9abb88b4b86"
     }
   ],
   "sheets" : [
