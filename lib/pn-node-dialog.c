@@ -928,6 +928,10 @@ default_editor_impl (
         GtkWidget *btn = gtk_color_button_new ();
         gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER (btn), TRUE);
         gtk_widget_set_sensitive (btn, writable);
+        /* A GtkColorButton keeps a compact natural width and will not
+         * stretch under the row's hexpand on its own; FILL makes it span
+         * the editor column like the entries above it. */
+        gtk_widget_set_halign (btn, GTK_ALIGN_FILL);
         g_object_bind_property_full (target, name, btn, "rgba", flags,
                                      pn_color_to_rgba_value,
                                      pn_rgba_to_color_value,
@@ -943,6 +947,7 @@ default_editor_impl (
         GtkWidget *btn = gtk_color_button_new ();
         gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER (btn), TRUE);
         gtk_widget_set_sensitive (btn, writable);
+        gtk_widget_set_halign (btn, GTK_ALIGN_FILL);
         g_object_bind_property (target, name, btn, "rgba", flags);
         return btn;
     }
@@ -1362,7 +1367,11 @@ build_class_metadata_tab (PnNode *node)
 
         gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER (btn), TRUE);
         gtk_widget_set_halign    (label, GTK_ALIGN_START);
-        gtk_widget_set_halign    (btn,   GTK_ALIGN_START);
+        /* Fill the editor column so the swatch lines up with the entries
+         * in the rows above (GtkColorButton would otherwise sit at its
+         * compact natural width). */
+        gtk_widget_set_halign    (btn,   GTK_ALIGN_FILL);
+        gtk_widget_set_hexpand   (btn,   TRUE);
         gtk_widget_set_sensitive (label, FALSE);
         gtk_widget_set_sensitive (btn,   FALSE);
 
