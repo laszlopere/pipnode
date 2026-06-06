@@ -88,7 +88,7 @@
       "properties" : {
         "value-key" : "value",
         "x-key" : "x",
-        "screen-color" : "rgb(5,13,8)",
+        "screen-color" : "rgb(0,63,2)",
         "trace-color" : "rgb(87,255,115)",
         "grid-color" : "rgb(56,128,77)",
         "show-graticule" : true,
