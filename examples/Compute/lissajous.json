@@ -8,8 +8,8 @@
       "name" : "from",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 60.0,
-        "y" : 260.0
+        "x" : 40.0,
+        "y" : 40.0
       },
       "properties" : {
         "min" : 0.0,
@@ -23,8 +23,8 @@
       "name" : "to",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 60.0,
-        "y" : 340.0
+        "x" : 40.0,
+        "y" : 120.0
       },
       "properties" : {
         "min" : 0.0,
@@ -38,13 +38,13 @@
       "name" : "N",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 60.0,
-        "y" : 420.0
+        "x" : 40.0,
+        "y" : 200.0
       },
       "properties" : {
         "min" : 1.0,
         "max" : 1024.0,
-        "value" : 512.0
+        "value" : 683.0
       }
     },
     {
@@ -53,8 +53,8 @@
       "name" : "Ramp 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 280.0,
-        "y" : 320.0
+        "x" : 260.0,
+        "y" : 100.0
       },
       "properties" : {      },
       "input-names" : {
@@ -69,8 +69,8 @@
       "name" : "Calculator 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 470.0,
-        "y" : 320.0
+        "x" : 450.0,
+        "y" : 100.0
       },
       "properties" : {
         "expression" : "x = sin(3 * value + 1.5707963)\nsin(2 * value)"
@@ -82,8 +82,8 @@
       "name" : "Oscilloscope 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 690.0,
-        "y" : 280.0
+        "x" : 670.0,
+        "y" : 60.0
       },
       "properties" : {
         "value-key" : "value",
