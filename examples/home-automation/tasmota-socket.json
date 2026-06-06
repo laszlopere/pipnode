@@ -9,8 +9,8 @@
       "worksheet" : "Worksheet",
       "topic" : "#",
       "position" : {
-        "x" : 20.0,
-        "y" : 20.0
+        "x" : 40.0,
+        "y" : 160.0
       },
       "properties" : {
         "broker-profile" : "",
@@ -40,8 +40,9 @@
       "uuid" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad",
       "name" : "Filter 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
-        "x" : 200.0,
+        "x" : 220.0,
         "y" : 20.0
       },
       "properties" : {
@@ -53,12 +54,63 @@
       "uuid" : "52eba80c-a97a-4921-b82f-6f6318e0afdb",
       "name" : "Filter 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
-        "x" : 220.0,
-        "y" : 160.0
+        "x" : 460.0,
+        "y" : 20.0
       },
       "properties" : {
         "rules" : "[{\"path\":\"/topic\",\"op\":\"contains\",\"literal\":\"tele/sonoff_rf_bridge_01/\"}]"
+      }
+    },
+    {
+      "type" : "PnTasmotaStatusRequest",
+      "uuid" : "2e788fd5-c072-48e3-a951-79df238e609f",
+      "name" : "Tasmota Status Request 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "device" : "sonoff_rf_bridge_01",
+        "request" : "Everything (Status 0)"
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "38ad5c21-b4f3-4ff1-a3fd-315651125e93",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "1387ac09-dde3-419e-a259-c05efdde43b8",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true,
+        "button-icon" : ""
       }
     }
   ],
@@ -68,12 +120,24 @@
       "target_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad"
     },
     {
-      "source_id" : "52eba80c-a97a-4921-b82f-6f6318e0afdb",
+      "source_id" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
+      "target_id" : "52eba80c-a97a-4921-b82f-6f6318e0afdb"
+    },
+    {
+      "source_id" : "2e788fd5-c072-48e3-a951-79df238e609f",
+      "target_id" : "38ad5c21-b4f3-4ff1-a3fd-315651125e93"
+    },
+    {
+      "source_id" : "1387ac09-dde3-419e-a259-c05efdde43b8",
+      "target_id" : "2e788fd5-c072-48e3-a951-79df238e609f"
+    },
+    {
+      "source_id" : "2e788fd5-c072-48e3-a951-79df238e609f",
       "target_id" : "8d4ddc42-06ce-4d7a-a7cf-7aa83cb214ca"
     },
     {
       "source_id" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
-      "target_id" : "52eba80c-a97a-4921-b82f-6f6318e0afdb"
+      "target_id" : "8d4ddc42-06ce-4d7a-a7cf-7aa83cb214ca"
     }
   ],
   "sheets" : [
