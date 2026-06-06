@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Status Request (PnTasmotaStatusRequest) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaStatusRequest">Tasmota Status Request</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaStatusRequest</code>.
+</p>
+<p>
+Read-side companion to <em>Tasmota Relay Command</em>. Treats every
+inbound message as a bare <strong>trigger</strong> &mdash; the value it
+carries is ignored &mdash; and emits the Tasmota <code>Status</code>
+query a downstream <em>MQTT Sink</em> can publish to make a device report
+its configuration and runtime info. Drop it into a flow like
+<em>Inject &rarr; Tasmota Status Request &rarr; MQTT Sink</em> without
+intervening <em>Format</em> or <em>Rewrite</em> nodes &mdash; the
+Tasmota-specific topic + payload shape is baked in.
+</p>
+<p>
+The device's reply does <strong>not</strong> come back through this node;
+it is published by the device on <code>stat/&lt;device&gt;/STATUS</code>
+(and <code>STATUS1</code> &hellip; <code>STATUS11</code>). Subscribe an
+<em>MQTT Source</em> to <code>stat/&lt;device&gt;/#</code> to receive it.
+</p>
+
+<h5>What gets sent</h5>
+<p>
+The envelope topic is rewritten to
+<code>cmnd/&lt;device&gt;/Status</code> and <code>data.payload</code>
+is set to the numeric section selected by the <code>request</code>
+property, so the device sees exactly <code>Status&nbsp;&lt;n&gt;</code>.
+</p>
+<table>
+  <tr><th><code>request</code></th><th>Sends</th><th>Asks for</th></tr>
+  <tr><td>Everything (Status 0)</td><td><code>0</code></td>
+      <td>The full report (all sections below at once).</td></tr>
+  <tr><td>Device parameters (Status 1)</td><td><code>1</code></td>
+      <td>Power-on state, save flags, boot count.</td></tr>
+  <tr><td>Firmware version (Status 2)</td><td><code>2</code></td>
+      <td>Version, build, core / SDK.</td></tr>
+  <tr><td>Logging &amp; telemetry (Status 3)</td><td><code>3</code></td>
+      <td>Log levels, telemetry period.</td></tr>
+  <tr><td>Memory &amp; flash (Status 4)</td><td><code>4</code></td>
+      <td>Heap, flash layout.</td></tr>
+  <tr><td>Network (Status 5)</td><td><code>5</code></td>
+      <td>IP, gateway, mask, MAC, hostname.</td></tr>
+  <tr><td>MQTT (Status 6)</td><td><code>6</code></td>
+      <td>Broker host, port, client, topic, full-topic.</td></tr>
+  <tr><td>Time &amp; location (Status 7)</td><td><code>7</code></td>
+      <td>Time, timezone, sunrise / sunset.</td></tr>
+  <tr><td>Connected sensors (Status 8)</td><td><code>8</code></td>
+      <td>Sensor readings.</td></tr>
+  <tr><td>Power thresholds (Status 9)</td><td><code>9</code></td>
+      <td>Power-monitoring limits.</td></tr>
+  <tr><td>Sensor data (Status 10)</td><td><code>10</code></td>
+      <td>Sensor data (same shape as <code>tele/&hellip;/SENSOR</code>).</td></tr>
+  <tr><td>Device state (Status 11)</td><td><code>11</code></td>
+      <td>Device state (same shape as <code>tele/&hellip;/STATE</code>).</td></tr>
+</table>
+<p>
+A <code>Status</code> query is strictly <strong>read-only</strong>: it
+never changes the device's configuration, it only asks the device to
+report it.
+</p>
+<p>
+<strong>Group topic returns no reply.</strong> Sending to the
+<code>tasmotas</code> group topic makes every device <em>act</em> on the
+request, but Tasmota deliberately <strong>suppresses the MQTT response
+for group (and fallback) topic commands</strong> &mdash; so a group
+query yields <em>zero</em> <code>stat/&hellip;/STATUS</code> replies.
+(MQTT wildcards <code>#</code> / <code>+</code> don't help either: they
+are illegal in a publish topic; <code>*</code> is just a literal.) To
+actually read information <em>back</em> from a device you must address it
+individually; to collect from every device, query each one in turn. The
+auto-discovering, collect-and-present version of that loop is the planned
+Tasmota concentrator (project TODO item&nbsp;22).
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>device</code></td>
+      <td>Tasmota device to query. Stamped into the outgoing envelope
+          topic as <code>cmnd/&lt;device&gt;/Status</code> and copied to
+          <code>data.device</code>. Set it to a specific device name
+          (e.g. <code>sonoff_rf_bridge_01</code>) to query just that one
+          &mdash; <strong>this is the form that returns a reply</strong>.
+          Defaults to <code>tasmotas</code> &mdash; Tasmota's built-in
+          group topic &mdash; which reaches every device at once (an
+          empty field is treated the same way), but see the warning
+          below: a group request is acted on without any reply. Because
+          the query is read-only there is no unsafe default to guard
+          against, so unlike <em>Tasmota Relay Command</em> there is no
+          &ldquo;configuration required&rdquo; state.</td></tr>
+  <tr><td><code>request</code></td>
+      <td>Which <code>Status</code> section to ask for &mdash;
+          <em>Everything (Status 0)</em> for the full report, or one
+          specific section (see the table above). Default:
+          <em>Everything (Status 0)</em>.</td></tr>
+</table>
+
+<h5>Output shape</h5>
+<p>
+The inbound message is reshaped and re-topiced in place; downstream
+sees:
+</p>
+<table>
+  <tr><th>Member</th><th>Value</th></tr>
+  <tr><td>envelope <code>topic</code></td>
+      <td><code>cmnd/&lt;device&gt;/Status</code></td></tr>
+  <tr><td><code>data.payload</code></td>
+      <td>String <code>"0"</code> &hellip; <code>"11"</code> &mdash; the
+          selected section, the shape <em>MQTT Sink</em>'s default
+          payload path publishes as raw bytes without quoting.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>true</code> on every forwarded message.</td></tr>
+  <tr><td><code>data.device</code></td>
+      <td>The resolved target (the configured name, or
+          <code>tasmotas</code>).</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g.
+          <code>sonoff_rf_bridge_01: request Status 0</code>.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>Inject (button)
+    &rarr; Tasmota Status Request (device  = sonoff_rf_bridge_01,
+                                   request = Everything (Status 0))
+        &rarr; MQTT Sink (url = tcp://mqtt.homelab.local:1883)
+
+MQTT Source (topic = stat/sonoff_rf_bridge_01/#)
+    &rarr; Debug</pre>
+<p>
+Fire the <em>Inject</em> button; <em>Tasmota Status Request</em> turns
+the trigger into <code>cmnd/sonoff_rf_bridge_01/Status</code> +
+<code>"0"</code>; <em>MQTT Sink</em> publishes it; the device answers on
+<code>stat/sonoff_rf_bridge_01/STATUS&hellip;</code>, which the parallel
+<em>MQTT Source &rarr; Debug</em> branch shows. Setting <code>device</code>
+to <code>tasmotas</code> publishes the request to every device at once,
+but (per the warning above) none of them reply &mdash; for a reply you
+must name a specific device.
+</p>
+
+</body>
+</html>
