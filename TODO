@@ -2234,3 +2234,22 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         $pnvector block + a stats/plot sink that consumes it.  Pure vector
         CONSUMER first (low-risk): a stats sink (len/min/max/mean) before the
         green-phosphor oscilloscope.  Larger design effort, own session.
+        First PRODUCER: a node with three inputs -- "from", "to" and N -- that
+        emits a linear, ascending ramp (N evenly-spaced values from "from" to
+        "to") as a $pnvector.  It must REMEMBER the last value seen on each
+        input, and re-emit (1) once all three inputs have received a value and
+        (2) on every subsequent new value on ANY input (recomputing from the
+        remembered trio).
+        First CONSUMER as a TRANSFORM (not just the display sink above): a
+        Reduce / Aggregate node that FOLDS a $pnvector down to a single scalar
+        and writes it back onto data.value -- the dual of the producer (ramp
+        makes a vector from scalars; Reduce makes a scalar from a vector).  A
+        "mode" combobox picks the fold: sum / mean / min / max / range /
+        count / product / stddev / first / last.  Reads the member via
+        pn_message_resolve_vector; a scalar input passes through (a 1-element
+        fold).  This re-enters the scalar flow so the result drives the
+        existing scalar world (Knob/LED/Switch/gauge) -- e.g.
+        ramp(0,2pi,256) -> calc sin(x) -> reduce max.  Distinct from 43.8's
+        stats sink (that DISPLAYS len/min/max/mean and dead-ends; Reduce EMITS
+        one chosen scalar downstream).  Low-risk, headless, pure-C, unit-
+        testable.
