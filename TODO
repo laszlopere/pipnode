@@ -1423,7 +1423,10 @@ linger guarantees even a sub-millisecond blip is visible (>= ~100ms).
         getter-setter plumbing).
   [x] 42.6  Preferences dialog: one checkbox on the same "Message Flow" page
         (clone the animate-messages-on-wires checkbox).  DONE ("Node activity"
-        row + extended blurb).  Help docs still TODO.
+        row + extended blurb).  Help docs DONE: new "Visualising message flow
+        and node activity" section in data/help/help-index.html (+ TOC entry)
+        documenting the Message Flow prefs page — both the wire animation and
+        the honest activity halo, with the disabled/error/headless caveats.
 
 (45) Oscilloscope polish (carved out of the now-completed TODO #44, the
 green-phosphor CRT scope sink).  The base node shipped and is the working

@@ -45,6 +45,7 @@ node's output to another node's input.
       <li><a href="#panel-applets-adding">Adding an applet to the panel</a></li>
     </ul>
   </li>
+  <li><a href="#visual-aids">Visualising message flow and node activity</a></li>
   <li><a href="#tips">Tips and troubleshooting</a></li>
 </ul>
 </div>
@@ -1086,6 +1087,63 @@ that instance; right-click the new applet and choose
 applet more than once and each copy gets its own independent
 worksheet, so the same panel can host several unrelated flows side by
 side.
+</p>
+
+<h2 id="visual-aids">Visualising message flow and node activity</h2>
+
+<p>
+Two optional diagnostic overlays make a running flow legible at a
+glance: a light travelling along each wire as a message crosses it,
+and a glow behind a node while it is actually doing work. Both live
+on the <em>Message Flow</em> page of the Preferences dialog
+(<em>Edit&nbsp;&rarr;&nbsp;Preferences&hellip;</em>, then select
+<em>Message Flow</em> under <em>Worksheet Editor</em> in the category
+tree). Both are <strong>off by default</strong>: they are aids for
+watching a flow, not something you want burning CPU during a long
+unattended run. The settings are application-wide &mdash; they are
+saved to <code>preferences.json</code> and apply to every open
+window at once.
+</p>
+
+<ul>
+  <li><strong>Wire animation</strong> &mdash;
+      <em>Animate messages travelling along wires</em>. Every message
+      is drawn as a fast-moving light running along the wire it
+      crosses, so you can see <em>where</em> traffic is flowing and
+      how often. Two dials tune it: <em>Light speed</em> (in worksheet
+      pixels per second) sets how fast each light travels, and
+      <em>Animation interval</em> (in milliseconds) is the redraw
+      period &mdash; smaller is smoother but costs more CPU.</li>
+  <li><strong>Node activity</strong> &mdash;
+      <em>Glow a halo behind a node while it is working</em>. A neon
+      halo bleeds out from behind a node's card for as long as the
+      node is busy, then fades.</li>
+</ul>
+
+<p>
+The activity halo is deliberately <strong>honest</strong>: it is
+driven by each node's real processing state, not by message traffic.
+A node that merely passes a message through does not light up, and a
+node that does work without ever emitting a message (a periodic probe
+that finds nothing changed, a background download, audio playback)
+<em>does</em>. The halo covers the obvious synchronous case &mdash; a
+node lit while its handler runs &mdash; as well as periodic
+auto-triggered actions (HTTP, weather, host monitors, watchdogs) and
+nodes that spawn their own worker threads or async callbacks (Text to
+Speech and Sound while a clip plays, an LLM request in flight, an MQTT
+or WebSocket connection handshake, image transforms, a sound-pack
+download). A minimum on-screen linger of about a quarter second keeps
+even a sub-millisecond blip visible, so a fast node still registers as
+a brief flash rather than being missed entirely.
+</p>
+
+<p>
+A <em>Disabled</em> node never glows (it is doing nothing by
+definition); a mis-configured node shows its red error body
+independently of the halo. When neither overlay is enabled the
+machinery costs nothing &mdash; the node-activity wake-up is skipped
+entirely when no window is listening, which is why a headless
+<code>pipnode-run</code> never pays for it.
 </p>
 
 <h2 id="tips">Tips and troubleshooting</h2>
