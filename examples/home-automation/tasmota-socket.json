@@ -7,16 +7,17 @@
       "uuid" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
       "name" : "MQTT Source 1",
       "worksheet" : "Worksheet",
+      "topic" : "#",
       "position" : {
         "x" : 20.0,
         "y" : 20.0
       },
       "properties" : {
-        "url" : "tcp://mqtt.homelab.local:1883",
-        "topic" : "#",
+        "broker-profile" : "",
+        "url" : "",
         "username" : "",
-        "password" : "",
         "client-id" : "",
+        "subscribe-topic" : "#",
         "qos" : 0
       }
     },
@@ -26,8 +27,8 @@
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 460.0,
-        "y" : 20.0
+        "x" : 400.0,
+        "y" : 160.0
       },
       "properties" : {
         "target" : "Standard Error",
@@ -46,16 +47,33 @@
       "properties" : {
         "rules" : "[{\"path\":\"/topic\",\"op\":\"==\",\"literal\":\"stat/sonoff19/POWER\"}]"
       }
+    },
+    {
+      "type" : "PnFilter",
+      "uuid" : "52eba80c-a97a-4921-b82f-6f6318e0afdb",
+      "name" : "Filter 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "rules" : "[{\"path\":\"/topic\",\"op\":\"contains\",\"literal\":\"tele/sonoff_rf_bridge_01/\"}]"
+      }
     }
   ],
   "connections" : [
     {
-      "source_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad",
+      "source_id" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
+      "target_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad"
+    },
+    {
+      "source_id" : "52eba80c-a97a-4921-b82f-6f6318e0afdb",
       "target_id" : "8d4ddc42-06ce-4d7a-a7cf-7aa83cb214ca"
     },
     {
       "source_id" : "8d88a729-f4b0-490f-9003-4de1aa25be49",
-      "target_id" : "64cb4ae1-e281-4fd1-b89e-04d609b84dad"
+      "target_id" : "52eba80c-a97a-4921-b82f-6f6318e0afdb"
     }
   ],
   "sheets" : [
