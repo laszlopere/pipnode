@@ -2295,3 +2295,53 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         NOTE: this is the LAST open item in TODO #43 -- the vector feature is
         complete end-to-end (primitive -> registry -> clone/COW -> serialize ->
         D-Bus -> calculator -> debug viewer -> producer/consumer example).
+
+(44) Oscilloscope node.  The display end of the analog-computer toy from
+TODO #43's GOAL / VISION: a sink styled as an old square-screen, green-
+phosphor CRT scope (1980-1990 bench look -- moulded bezel, etched 10x8
+graticule, glowing beam) that traces a Y value against an X value.  The
+pure vector CONSUMER the vision called the "low-risk first piece".
+
+  [x] 44.1  Core node PnOscilloscope (lib/pn-oscilloscope.[ch], core /
+        libpipnode-core, category "Sinks", icon fa-desktop F108, dark-green
+        body).  Reads two data-bag members -- value-key (default "value")
+        and x-key (default "x") -- and EACH may be a plain number OR a
+        $pnvector (TODO #43).  Two trace modes that never blend: a VECTOR
+        value is a snapshot (the whole waveform replaces the screen; X from
+        an x-vector of equal length, else the sample index); a SCALAR value
+        sweeps into a rolling ring (PN_OSC_RING=2048), X from a scalar x or
+        a running sample counter.  Vector refs are g_object_ref'd (immutable,
+        shared) so the trace outlives the message.  GTK-free read seam
+        pn_oscilloscope_read_trace() returns the trace in display order with
+        EXACT bounds over the full data plus an extrema-preserving (per-
+        bucket min/max real samples) decimation so a megabyte waveform draws
+        cheaply and faithfully.  Auto-fits both axes (x/y-from-zero opt-in).
+        100ms repaint throttle like PnXYGraph.  Props: value-key, x-key,
+        trace/screen/grid-color, trace-width, show-graticule, x/y-from-zero;
+        two-tab settings schema (Appearance | Data).  DONE.
+  [x] 44.2  GUI tier PnOscilloscope-gui (lib/pn-oscilloscope-gui.[ch],
+        libpipnode-gui).  PURE CAIRO (no PLplot) paint_plot: moulded bezel
+        (gradient + rounded-shadow via paint_plot_corner_radius), dark
+        phosphor screen with corner vignette + top gloss, etched graticule
+        (brighter centre axes + fine ticks), and the trace as a blooming
+        beam (wide soft + medium + near-white core passes).  Line widths
+        scale with the short side so the beam keeps weight when lifted into
+        the zoom overlay (paint_plot_zoom_keep_aspect=TRUE -- the CRT keeps
+        its shape).  No-signal = dim centre baseline.  Installed via
+        pn_oscilloscope_gui_install() from pn_gui_install_builtin_nodes().
+        DONE.
+  [x] 44.3  Wiring + tests + docs.  Registered PN_TYPE_OSCILLOSCOPE in
+        pn-node-factory.c (Sinks, after XY Graph); lib/Makefile.am core+gui
+        sources and both header lists.  tests/unit/test-pn-oscilloscope.c
+        (9: sink, key defaults, scalar ring, scalar trace + exact bounds,
+        scalar X = counter, vector snapshot clears ring + back, vector XY
+        pairs, oversized-vector decimation bounded with exact bounds,
+        missing/non-numeric/empty-key no-op); `make check` = 93/93.  Docs:
+        data/help/PnOscilloscope.html (+ data/Makefile.am) + help-index.html
+        "Producing and consuming vectors" para now points at it.  Display
+        only -- NO on-screen knobs/buttons (deferred).
+        DEFERRED (own session): afterglow / persistence (phosphor decay),
+        an explicit X-Y vs sweep mode selector, time/div + volts/div style
+        controls, and a roll/trigger model.  The vision's "afterglow/
+        persistence, X-Y / Lissajous mode" beyond the implicit parametric
+        plot lives here.

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Oscilloscope (PnOscilloscope) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnOscilloscope">Oscilloscope</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnOscilloscope</code>.
+</p>
+<p>
+A display sink styled as an old square-screen, green-phosphor CRT
+oscilloscope &mdash; the kind found on a bench around 1980&ndash;1990,
+moulded bezel, etched graticule and a glowing beam. It traces a
+<strong>Y value against an X value</strong>, both read from each incoming
+message. There are no on-screen knobs: the node simply shows the trace
+and fits it to the screen automatically.
+</p>
+<p>
+What makes it the display end of the
+<a href="help-index.html#messages-vectors">analog-computer / vector</a>
+family is
+that <em>each coordinate may be either a plain number or a
+<code>$pnvector</code></em> (a large numeric array carried efficiently in
+the message):
+</p>
+<ul>
+  <li><strong>Vector value</strong> &mdash; the whole vector is the trace
+      for that frame, a <em>captured waveform</em> that replaces whatever
+      was on screen. If the X member is <em>also</em> a vector it supplies
+      the X coordinate per sample (a parametric or Lissajous curve);
+      otherwise each sample is plotted against its <em>index</em>. So
+      feeding just a value vector (no X) draws the waveform left-to-right.</li>
+  <li><strong>Scalar value</strong> &mdash; the <code>(x, value)</code>
+      point is appended to a rolling ring and the recent window is drawn
+      as a sweeping trace. The X member is the matching number, or, when
+      no X is supplied, a running sample counter (the trace sweeps in
+      arrival order).</li>
+</ul>
+<p>
+The two modes never blend: a vector frame clears the scalar sweep
+history, and the next scalar sample clears the captured waveform.
+</p>
+<p>
+Both axes <strong>auto-range over the visible data</strong>, with a small
+margin, so the curve always fills the screen no matter its amplitude or
+offset. A dense waveform (potentially millions of samples) is decimated
+to the screen width for drawing while its true extent still sets the
+bounds, so the envelope is faithful and the repaint stays cheap. With no
+signal yet, a dim flat baseline sits across the centre.
+</p>
+<p>
+The header is the standard card; the CRT screen is painted below it.
+Clicking the screen lifts it into the centred zoom overlay for a closer
+look, keeping the screen's aspect ratio.
+</p>
+
+<h5>A worked example</h5>
+<p>
+Wire <a href="PnRamp.html">Ramp</a> to produce
+<code>ramp(0,&nbsp;2&pi;,&nbsp;256)</code> on <code>data/value</code>, run
+it through the <a href="PnExpression.html">Calculator</a> to compute
+<code>sin(value)</code>, and feed that into the oscilloscope. With no X
+member present, the 256-point sine is drawn against its sample index
+&mdash; one clean cycle, fitted to the screen. To get a true parametric
+plot instead (Y against a separate X axis), arrange for both a
+<code>value</code> and an <code>x</code> vector to ride on the same
+message. Or feed any node that emits a scalar <code>data/value</code> over
+time and watch it sweep.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>value-key</code></td>
+      <td>Data-bag member holding the Y value (default
+          <code>value</code>). May be a number &mdash; parsed from a
+          numeric string too &mdash; or a <code>$pnvector</code>. Clearing
+          it disables the node.</td></tr>
+  <tr><td><code>x-key</code></td>
+      <td>Data-bag member holding the X value (default <code>x</code>).
+          May be a number or a <code>$pnvector</code>. <em>Optional</em>:
+          when absent, a vector value is plotted against its sample index
+          and a scalar value against a running sample counter.</td></tr>
+  <tr><td><code>trace-color</code></td>
+      <td>Colour of the electron beam / waveform. Defaults to a bright
+          phosphor green; the beam is drawn with a soft glow and a near-
+          white core for the blooming-CRT look.</td></tr>
+  <tr><td><code>trace-width</code></td>
+      <td>Stroke width of the beam, in pixels (1&ndash;8, default 2). It
+          scales up with the node when lifted into the zoom
+          overlay.</td></tr>
+  <tr><td><code>screen-color</code></td>
+      <td>Backdrop of the CRT screen behind the trace. Defaults to a
+          near-black green; a corner vignette adds a hint of CRT
+          curvature.</td></tr>
+  <tr><td><code>grid-color</code></td>
+      <td>Colour of the graticule divisions etched on the screen.</td></tr>
+  <tr><td><code>show-graticule</code></td>
+      <td>Whether to draw the 10&times;8 division grid, with brighter
+          centre axes and fine tick marks (default on).</td></tr>
+  <tr><td><code>x-from-zero</code></td>
+      <td>Anchors the X axis at zero instead of auto-fitting it tightly
+          around the data.</td></tr>
+  <tr><td><code>y-from-zero</code></td>
+      <td>Anchors the Y axis at zero instead of auto-fitting it tightly
+          around the data &mdash; useful when the absolute magnitude of Y
+          matters and tight auto-fit would exaggerate small
+          wobbles.</td></tr>
+</table>
+
+<p>
+In the node's settings dialog these properties are split across two tabs:
+<strong>Appearance</strong> collects how the trace is drawn
+(<code>trace-color</code>, <code>trace-width</code>,
+<code>screen-color</code>, <code>grid-color</code>,
+<code>show-graticule</code>), while <strong>Data</strong> collects what is
+plotted and how the axes are framed (<code>x-key</code>,
+<code>value-key</code>, <code>x-from-zero</code>,
+<code>y-from-zero</code>).
+</p>
+
+</body>
+</html>

@@ -33,6 +33,7 @@ pnhelp_DATA = \
 	help/PnFormat.html \
 	help/PnGraph.html \
 	help/PnXYGraph.html \
+	help/PnOscilloscope.html \
 	help/PnHttp.html \
 	help/PnInject.html \
 	help/PnKnob.html \
