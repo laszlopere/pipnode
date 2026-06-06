@@ -53,6 +53,34 @@ convert a Celsius reading to Fahrenheit.
       <code>floor</code>, <code>ceil</code>.</li>
 </ul>
 
+<h5>Vectors</h5>
+<p>
+If a bound variable is a <code>$pnvector</code> (a large numeric array
+carried out-of-band; see the message manual), the Calculator treats it as
+a plain <strong>bag of numbers</strong> &mdash; not a mathematical vector.
+Every operator just does the scalar thing element by element:
+</p>
+<ul>
+  <li>A <strong>scalar and a vector</strong> broadcast:
+      <code>2 * arr</code> doubles every element and yields a vector.</li>
+  <li>Two <strong>vectors</strong> combine elementwise:
+      <code>a * b</code> multiplies matching positions. If they differ in
+      length the result is as long as the longer one and each surplus
+      tail element passes through <em>unchanged</em> &mdash;
+      <code>[2,&nbsp;3] * [3,&nbsp;4,&nbsp;5]</code> is
+      <code>[6,&nbsp;12,&nbsp;5]</code>.</li>
+  <li><strong>Functions</strong> map over every element:
+      <code>sin(arr)</code> takes the sine of each.</li>
+  <li>A <strong>comparison</strong> always collapses to a single
+      <code>1.0</code>/<code>0.0</code>: true only when <em>every</em>
+      element passes (e.g. <code>arr &gt; 0</code> is <code>1.0</code>
+      iff all elements are positive), so it still works as a gate.</li>
+</ul>
+<p>
+A vector result is written to <code>data.value</code> as a new
+<code>$pnvector</code>; the input vector is never modified in place.
+</p>
+
 <h5>Statements and assignment</h5>
 <p>
 The expression may hold <strong>several statements, one per line</strong>
@@ -84,9 +112,10 @@ multi-line, binding intermediate names and emitting several fields:
 <h5>Output</h5>
 <p>
 On success the node sets <code>data.value</code> to the computed
-number, <code>data.success</code> to true, and <code>data.output</code>
+number (or a <code>$pnvector</code> when the result is a vector),
+<code>data.success</code> to true, and <code>data.output</code>
 to the formatted result; any names assigned by the expression are added
-as numeric members too. If the expression cannot be parsed (a syntax
+as members too. If the expression cannot be parsed (a syntax
 error in the property) or evaluated (an unknown variable or function),
 the message is still forwarded but flagged: <code>data.success</code>
 is set to false and the reason is placed in <code>data.error</code> and

@@ -2148,19 +2148,80 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         NOTE: the "first producer/consumer node pair" worked example was
         carved out to 43.9 (it is the seed of the analog-computer toy, a
         separate design effort) -- deferred by decision 2026-06-06.
-  [ ] 43.7  Vector semantics in the calculator / expression nodes
-        (pn-expression.c, pn-expression2.c; also pn-comparator.c, pn-numeric.c).
-        CAREFULLY define what each operator does when an operand is a vector
-        rather than a scalar -- and document it before coding.  At minimum:
-        vector OP scalar = broadcast (apply to every element -> vector); vector
-        OP vector = elementwise, requiring EQUAL length (length mismatch -> set
-        the node error state, do not silently truncate/recycle); reductions
-        (sum/mean/min/max/dot/norm) collapse a vector to a scalar; decide
-        comparison/boolean semantics (e.g. `>` -> elementwise vector of 0/1, or
-        any/all reduction) and what a scalar-only sink does when handed a vector
-        (resolve-or-error, never crash).  Keep the value-type checks in the
-        existing read_value() seam (extend it to recognize the $pnvector marker
-        via pn_message_resolve_vector).
+  [x] 43.7  Vector semantics in the calculator / expression nodes
+        (pn-expression.c, pn-expression2.c, the eval in pn-expr-parser.c; also
+        pn-comparator.c, pn-numeric.c).  DESIGN DECISION (user, 2026-06-06): a
+        $pnvector is treated as a plain SET / BAG OF NUMBERS, NOT a mathematical
+        vector -- there is NO linear-algebra semantics (no dot product, no norm,
+        no matrix anything).  Every operator is just "do the scalar thing to the
+        numbers".  CAREFULLY write the rules into the help manual BEFORE coding.
+        Rules:
+          * scalar OP vector / vector OP scalar = BROADCAST: apply the op to
+            every element -> a new vector.  e.g.  2 * [a,b,c] = [2a,2b,2c].
+          * vector OP vector = ELEMENTWISE on matching indices.  e.g.
+            [2.0,x,x] * [3.0,y,y] -> first element 6.0.
+          * LENGTH MISMATCH IS NOT AN ERROR (this REVERSES the old equal-length-
+            or-error rule).  The result is as long as the LONGER operand; for
+            every index past the end of the SHORTER operand, the longer
+            operand's element is copied through VERBATIM ("taken as they were").
+            This is deliberately operator-agnostic -- the surviving element
+            passes through unchanged regardless of +,-,*,/ (it is NOT a per-op
+            identity like 0 for + / 1 for *).  e.g. [2,3] * [3,4,5] = [6,12,5].
+          * FUNCTIONS map over elements: sin/cos/tan/log/log10/exp/sqrt/abs/
+            floor/ceil applied to a vector loop element-by-element and return a
+            same-length vector (sin([a,b]) = [sin a, sin b]).
+          * A computation that produces a vector emits it as a NEW PnVector +
+            new handle + new marker (never mutate a shared buffer -- 43.3 COW
+            contract); a pure-scalar result stays scalar.
+          * comparison ops (>,<,>=,<=,==,!=) DO NOT follow the elementwise rule
+            -- they ALWAYS AUTO-REDUCE to a single scalar 0.0/1.0 (user decision
+            2026-06-06).  A comparison is true (1.0) iff EVERY element passes,
+            i.e. all()-semantics: [1,5,3] > 2 -> 0.0, [3,5,4] > 2 -> 1.0.  This
+            keeps a comparison usable as a gate driving a scalar Switch/sink with
+            NO wrapping; there is intentionally no per-element mask form.  For
+            vector-vs-vector of UNEQUAL length the tail (indices with no
+            counterpart) compares as vacuously TRUE (1.0) so missing elements
+            never fail the all() -- this replaces the verbatim-pass-through tail
+            rule, which applies to +,-,*,/ only, NOT to comparisons.
+          * a scalar-only sink handed a vector must resolve-or-error, never
+            crash.
+        Keep the value-type checks in the existing read_value()/eval seam,
+        extended to recognize the $pnvector marker via
+        pn_message_resolve_vector.
+        DONE: the eval seam is pn_var_store_evaluate in pn-var-store.c (the
+        AST evaluator the two Calculator nodes share), NOT a read_value().
+        Introduced PnExprValue (a scalar OR an owned PnVector ref) as the
+        value type threaded through a new recursive eval_value(); the
+        symbol table now boxes PnExprValue (g_object_ref-shares vectors,
+        never copies).  New public API in pn-var-store.h: pn_expr_value_-
+        clear, pn_var_store_set_vector, pn_var_store_evaluate_value (vector-
+        aware), pn_var_store_foreach_assignment_value, pn_var_store_value_-
+        to_string (BOUNDED "[a,b,…] (N values)" renderer, shared with 43.8).
+        The old scalar pn_var_store_evaluate is now a wrapper that fails
+        with the new PN_VAR_STORE_ERROR_TYPE_MISMATCH if the result is a
+        vector (the resolve-or-error scalar-sink guarantee), so its callers
+        + the old unit test are untouched.  Semantics implemented exactly
+        as specified above: arith_value (broadcast; elementwise; longer-
+        operand verbatim tail), map_value (functions map per element),
+        negate_value (unary minus per element), compare_value (ALWAYS
+        all()-reduce to scalar 0/1, vacuously-true unequal tail).  Each
+        transform allocates a FRESH PnVector (43.3 COW, never mutates a
+        shared buffer).  Both Calculator nodes (pn-expression.c, pn-expr-
+        ession2.c) now bind $pnvector members via pn_message_resolve_vector
+        and write a vector result back via pn_message_set_vector (scalar
+        results unchanged); assignment surfacing went value-aware so vector
+        intermediates round-trip.  NOTE: pn-comparator.c / pn-numeric.c do
+        NOT use this seam (they act on data.value directly) -- left as-is;
+        if they ever need vector handling it is a separate, smaller change.
+        Tests: test-pn-var-store.c +6 vector cases (broadcast, elementwise
+        pass-through tail [2,3]*[3,4,5]=[6,12,5], fn map + unary, all()-
+        reduce incl. vacuous tail, scalar-sink TYPE_MISMATCH, value_to_-
+        string incl. >8-elem ellipsis cap); test-pn-expression.c +2 node
+        round-trips (read $pnvector -> broadcast -> write $pnvector; vector
+        comparison collapses to scalar 1.0).  `make check` = 90/90 PASS.
+        Docs: help-index.html "Vectors in the Calculator" subsection +
+        per-node PnExpression.html "Vectors" section / PnExpression2.html
+        bullet + both nodes' expression-property blurbs.
   [ ] 43.8  Debug viewer (PnDebug + the Debug View pane).  Do NOT dump millions
         of numbers -- render the $pnvector marker as a short leading sample
         [a, b, c, ...] (first few elements then an ellipsis), which is long

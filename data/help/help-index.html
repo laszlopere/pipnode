@@ -586,6 +586,51 @@ A blob whose decoded byte count does not match
 buffer, so a truncated or tampered payload fails loudly.
 </p>
 
+<p>
+<strong>Vectors in the Calculator.</strong> The <em>Calculator</em>
+expression nodes treat a <code>$pnvector</code> input as a plain
+<em>bag of numbers</em> &mdash; not a mathematical vector, so there is no
+dot product, norm or other linear-algebra behaviour. Every operator just
+does the scalar thing to the numbers:
+</p>
+
+<ul>
+<li><strong>Scalar&nbsp;OP&nbsp;vector</strong> (and vice-versa)
+    <em>broadcasts</em>: the scalar is applied to every element, giving a
+    new vector. <code>2 * [1, 2, 3]</code> &rarr; <code>[2, 4, 6]</code>.</li>
+<li><strong>Vector&nbsp;OP&nbsp;vector</strong> is <em>elementwise</em>:
+    <code>[2, 3, 4] * [3, 4, 5]</code> &rarr; <code>[6, 12, 20]</code>.</li>
+<li>On a <strong>length mismatch</strong> the result is as long as the
+    longer operand, and each surplus tail element (where the shorter
+    operand has run out) passes through <em>verbatim</em>:
+    <code>[2, 3] * [3, 4, 5]</code> &rarr; <code>[6, 12, 5]</code> &mdash;
+    the <code>5</code> is taken as it was. This is a deliberate choice
+    rather than an error; it is operator-agnostic (the element passes
+    through unchanged regardless of <code>+&nbsp;-&nbsp;*&nbsp;/</code>).</li>
+<li><strong>Functions</strong> (<code>sin</code>, <code>cos</code>,
+    <code>sqrt</code>, &hellip;) <em>map</em> over a vector element by
+    element: <code>sin([a, b])</code> &rarr;
+    <code>[sin&nbsp;a, sin&nbsp;b]</code>.</li>
+<li><strong>Comparisons</strong> (<code>&lt; &gt; &lt;= &gt;= == !=</code>)
+    behave differently: a vector comparison always <em>reduces to a single
+    scalar</em> <code>1.0</code>/<code>0.0</code>, true only when
+    <em>every</em> compared element passes (all()-semantics). So
+    <code>[3, 5, 4] &gt; 2</code> is <code>1.0</code> but
+    <code>[1, 5, 3] &gt; 2</code> is <code>0.0</code>, and the result
+    stays usable as a gate driving an ordinary scalar sink. When two
+    vectors of unequal length are compared, the surplus tail has no
+    counterpart and counts as vacuously true.</li>
+</ul>
+
+<p>
+A computation that yields a vector is written back to
+<code>data.value</code> as a fresh <code>$pnvector</code> marker (a new
+buffer, never a mutation of a shared input); a scalar result &mdash;
+including every comparison &mdash; is written as a plain number. A
+multi-line program can bind and emit vector intermediates the same way it
+does scalars.
+</p>
+
 <h2 id="globals">Document globals</h2>
 
 <p>

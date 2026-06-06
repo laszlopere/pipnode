@@ -81,15 +81,21 @@ expr_recompile (PnExpression *self)
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Write one program-assigned name onto the outgoing message as a
- *  numeric data-bag member, so a multi-statement expression can emit
- *  several computed fields, not just data.value. */
+/** Write one program-assigned name onto the outgoing message, so a
+ *  multi-statement expression can emit several computed fields, not just
+ *  data.value.  A vector assignment is written as a `$pnvector` marker;
+ *  a scalar as a plain numeric member. */
 static void
-surface_assignment (const gchar *name,
-                    gdouble      value,
-                    gpointer     user_data)
+surface_assignment (const gchar       *name,
+                    const PnExprValue *value,
+                    gpointer           user_data)
 {
-    pn_message_set_double (PN_MESSAGE (user_data), name, value);
+    PnMessage *message = PN_MESSAGE (user_data);
+
+    if (value->vec != NULL)
+        pn_message_set_vector (message, name, value->vec);
+    else
+        pn_message_set_double (message, name, value->scalar);
 }
 
 static void
@@ -99,7 +105,7 @@ pn_expression_receive (
 {
     PnExpression *self = PN_EXPRESSION (node);
     JsonObject   *data;
-    gdouble       result;
+    PnExprValue   result = { NULL, 0.0 };
     GError       *error = NULL;
 
     /* No usable expression: forward the message flagged as failed so a
@@ -129,30 +135,45 @@ pn_expression_receive (
         json_object_iter_init (&iter, data);
         while (json_object_iter_next (&iter, &member, &val))
         {
-            if (val != NULL && JSON_NODE_HOLDS_VALUE (val))
+            if (val == NULL)
+                continue;
+
+            if (JSON_NODE_HOLDS_VALUE (val))
             {
                 GType vt = json_node_get_value_type (val);
                 if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
                     pn_var_store_set (self->vars, member,
                                       json_node_get_double (val));
             }
+            else
+            {
+                /* A `$pnvector` marker binds as a vector variable so the
+                 * expression can broadcast/elementwise over it. */
+                PnVector *vec = pn_message_resolve_vector (message, val);
+                if (vec != NULL)
+                    pn_var_store_set_vector (self->vars, member, vec);
+            }
         }
     }
 
-    if (pn_var_store_evaluate (self->vars, self->ast, &result, &error))
+    if (pn_var_store_evaluate_value (self->vars, self->ast, &result, &error))
     {
-        gchar *out = g_strdup_printf ("%g", result);
+        gchar *out = pn_var_store_value_to_string (&result);
 
         /* Surface any names the program assigned first, then let the
          * final expression's result own the reserved data.value. */
-        pn_var_store_foreach_assignment (self->vars, surface_assignment,
-                                         message);
+        pn_var_store_foreach_assignment_value (self->vars, surface_assignment,
+                                               message);
 
-        pn_message_set_double  (message, "value",   result);
+        if (result.vec != NULL)
+            pn_message_set_vector (message, "value", result.vec);
+        else
+            pn_message_set_double (message, "value", result.scalar);
         pn_message_set_boolean (message, "success", TRUE);
         pn_message_set_string  (message, "output",  out);
 
         g_free (out);
+        pn_expr_value_clear (&result);
     }
     else
     {
@@ -266,7 +287,10 @@ pn_expression_class_init (PnExpressionClass *klass)
             "newline-separated statements to compute step by step; "
             "`name = expr` binds a variable for later lines and is also "
             "written to the outgoing message, and data.value is the last "
-            "statement's value.",
+            "statement's value. A $pnvector member binds as a vector: "
+            "scalars broadcast over it, two vectors combine elementwise, "
+            "functions map over each element, and a comparison reduces to "
+            "a single 1.0/0.0 (true iff every element passes).",
             "value",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_multiline (props[PROP_EXPRESSION]);

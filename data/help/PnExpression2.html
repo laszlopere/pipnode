@@ -79,6 +79,13 @@ being processed contributes them. The result is written to
       for later lines; <code>data.value</code> takes the
       <strong>last</strong> statement's value, and every assigned name
       is also written to the outgoing message as a numeric member.</li>
+  <li><strong>Vectors:</strong> an input or sibling that is a
+      <code>$pnvector</code> is handled as a bag of numbers &mdash;
+      scalars broadcast over it, two vectors combine elementwise (the
+      longer operand's surplus tail passes through unchanged), functions
+      map over every element, and a comparison reduces to a single
+      <code>1.0</code>/<code>0.0</code> (true iff every element passes).
+      See the <em>Calculator</em> node help for worked examples.</li>
 </ul>
 
 <pre>expression: value1 + value2

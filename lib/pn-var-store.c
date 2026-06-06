@@ -79,6 +79,246 @@ lookup_fn (const gchar *name)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Values (scalar or vector) — TODO #43.7                             */
+/*                                                                     */
+/*  The evaluator and the symbol table both deal in #PnExprValue: a    */
+/*  plain double, or a reference to an immutable #PnVector treated as a */
+/*  bag of numbers.  A vector is never mutated in place (it may be      */
+/*  shared across a message fan-out); every transform allocates a fresh */
+/*  buffer.                                                             */
+/* ------------------------------------------------------------------ */
+
+void
+pn_expr_value_clear (PnExprValue *value)
+{
+    if (value == NULL)
+        return;
+    g_clear_object (&value->vec);
+    value->scalar = 0.0;
+}
+
+/* Adopt a freshly-malloc'd buffer of @len doubles as @out's vector.  An
+ * empty result (@len == 0, @buf == %NULL) normalises to an empty vector. */
+static void
+value_take_buffer (PnExprValue *out, gdouble *buf, gsize len)
+{
+    out->vec    = pn_vector_new_take (buf, len);
+    out->scalar = 0.0;
+}
+
+/* Box helpers for the symbol table: each binding is a heap #PnExprValue. */
+
+static PnExprValue *
+value_box_copy (const PnExprValue *v)
+{
+    PnExprValue *b = g_new0 (PnExprValue, 1);
+    if (v->vec != NULL)
+        b->vec = g_object_ref (v->vec);
+    else
+        b->scalar = v->scalar;
+    return b;
+}
+
+static void
+value_box_free (gpointer p)
+{
+    PnExprValue *b = p;
+    if (b == NULL)
+        return;
+    g_clear_object (&b->vec);
+    g_free (b);
+}
+
+/* Per-element scalar kernels. */
+
+static gdouble
+apply_arith (gchar op, gdouble x, gdouble y)
+{
+    switch (op)
+    {
+    case '+': return x + y;
+    case '-': return x - y;
+    case '*': return x * y;
+    default:  return x / y;   /* '/' — IEEE inf/nan on divide-by-zero */
+    }
+}
+
+static gboolean
+apply_cmp (gchar op, gdouble x, gdouble y)
+{
+    switch (op)
+    {
+    case '<': return x <  y;
+    case '>': return x >  y;
+    case 'L': return x <= y;
+    case 'G': return x >= y;
+    case '=': return x == y;
+    default:  return x != y;  /* '!' */
+    }
+}
+
+static gboolean
+is_cmp_op (gchar op)
+{
+    return op == '<' || op == '>' || op == 'L'
+        || op == 'G' || op == '=' || op == '!';
+}
+
+/* out = -a  (negate a scalar, or every element of a vector). */
+static void
+negate_value (const PnExprValue *a, PnExprValue *out)
+{
+    if (a->vec != NULL)
+    {
+        gsize          n = pn_vector_get_len  (a->vec);
+        const gdouble *d = pn_vector_get_data (a->vec);
+        gdouble       *r = g_new (gdouble, n);
+        gsize          i;
+        for (i = 0; i < n; i++)
+            r[i] = -d[i];
+        value_take_buffer (out, r, n);
+    }
+    else
+    {
+        out->scalar = -a->scalar;
+    }
+}
+
+/* out = fn(a)  (apply a unary math function to a scalar, or map it over
+ * every element of a vector). */
+static void
+map_value (UnaryFn fn, const PnExprValue *a, PnExprValue *out)
+{
+    if (a->vec != NULL)
+    {
+        gsize          n = pn_vector_get_len  (a->vec);
+        const gdouble *d = pn_vector_get_data (a->vec);
+        gdouble       *r = g_new (gdouble, n);
+        gsize          i;
+        for (i = 0; i < n; i++)
+            r[i] = fn (d[i]);
+        value_take_buffer (out, r, n);
+    }
+    else
+    {
+        out->scalar = fn (a->scalar);
+    }
+}
+
+/* out = a OP b for an arithmetic operator (+,-,*,/).  Broadcasts a scalar
+ * over a vector; elementwise for two vectors; on a length mismatch the
+ * result takes the longer length and the surviving tail element passes
+ * through verbatim. */
+static void
+arith_value (gchar op, const PnExprValue *a, const PnExprValue *b,
+             PnExprValue *out)
+{
+    const gdouble *ad = a->vec ? pn_vector_get_data (a->vec) : NULL;
+    const gdouble *bd = b->vec ? pn_vector_get_data (b->vec) : NULL;
+    gsize          la = a->vec ? pn_vector_get_len  (a->vec) : 0;
+    gsize          lb = b->vec ? pn_vector_get_len  (b->vec) : 0;
+    gsize          i;
+
+    if (a->vec == NULL && b->vec == NULL)
+    {
+        out->scalar = apply_arith (op, a->scalar, b->scalar);
+        return;
+    }
+
+    if (a->vec != NULL && b->vec != NULL)
+    {
+        gsize    n  = MAX (la, lb);
+        gsize    mn = MIN (la, lb);
+        gdouble *r  = g_new (gdouble, n);
+        for (i = 0; i < mn; i++)
+            r[i] = apply_arith (op, ad[i], bd[i]);
+        for (; i < n; i++)                  /* tail: longer operand verbatim */
+            r[i] = (la > lb) ? ad[i] : bd[i];
+        value_take_buffer (out, r, n);
+    }
+    else if (a->vec != NULL)               /* vector OP scalar */
+    {
+        gdouble *r = g_new (gdouble, la);
+        for (i = 0; i < la; i++)
+            r[i] = apply_arith (op, ad[i], b->scalar);
+        value_take_buffer (out, r, la);
+    }
+    else                                   /* scalar OP vector */
+    {
+        gdouble *r = g_new (gdouble, lb);
+        for (i = 0; i < lb; i++)
+            r[i] = apply_arith (op, a->scalar, bd[i]);
+        value_take_buffer (out, r, lb);
+    }
+}
+
+/* out = a CMP b for a comparison operator.  ALWAYS reduces to a scalar
+ * 0.0/1.0: true iff every compared element passes (all()-semantics).  A
+ * scalar broadcasts over a vector; for two vectors of unequal length the
+ * surplus tail has no counterpart and is vacuously true. */
+static void
+compare_value (gchar op, const PnExprValue *a, const PnExprValue *b,
+               PnExprValue *out)
+{
+    const gdouble *ad = a->vec ? pn_vector_get_data (a->vec) : NULL;
+    const gdouble *bd = b->vec ? pn_vector_get_data (b->vec) : NULL;
+    gsize          la = a->vec ? pn_vector_get_len  (a->vec) : 0;
+    gsize          lb = b->vec ? pn_vector_get_len  (b->vec) : 0;
+    gboolean       all_true = TRUE;
+    gsize          i;
+
+    if (a->vec == NULL && b->vec == NULL)
+    {
+        out->scalar = apply_cmp (op, a->scalar, b->scalar) ? 1.0 : 0.0;
+        return;
+    }
+
+    if (a->vec != NULL && b->vec != NULL)
+    {
+        gsize n = MIN (la, lb);             /* tail beyond n is vacuously true */
+        for (i = 0; i < n && all_true; i++)
+            all_true = apply_cmp (op, ad[i], bd[i]);
+    }
+    else if (a->vec != NULL)               /* vector CMP scalar */
+    {
+        for (i = 0; i < la && all_true; i++)
+            all_true = apply_cmp (op, ad[i], b->scalar);
+    }
+    else                                   /* scalar CMP vector */
+    {
+        for (i = 0; i < lb && all_true; i++)
+            all_true = apply_cmp (op, a->scalar, bd[i]);
+    }
+
+    out->scalar = all_true ? 1.0 : 0.0;
+}
+
+gchar *
+pn_var_store_value_to_string (const PnExprValue *value)
+{
+    const gsize    MAX_SHOW = 8;
+    const gdouble *d;
+    gsize          n, show, i;
+    GString       *s;
+
+    if (value == NULL)
+        return g_strdup ("");
+    if (value->vec == NULL)
+        return g_strdup_printf ("%g", value->scalar);
+
+    n    = pn_vector_get_len  (value->vec);
+    d    = pn_vector_get_data (value->vec);
+    show = MIN (n, MAX_SHOW);
+    s    = g_string_new ("[");
+    for (i = 0; i < show; i++)
+        g_string_append_printf (s, "%s%g", i ? ", " : "", d[i]);
+    if (n > show)
+        g_string_append (s, ", \xE2\x80\xA6");   /* … */
+    g_string_append_printf (s, "] (%" G_GSIZE_FORMAT " values)", n);
+    return g_string_free (s, FALSE);
+}
+
+/* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -103,9 +343,9 @@ static void
 pn_var_store_init (PnVarStore *self)
 {
     self->vars = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                        g_free, g_free);
+                                        g_free, value_box_free);
     self->assigned = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                            g_free, g_free);
+                                            g_free, value_box_free);
 }
 
 /* ------------------------------------------------------------------ */
@@ -118,19 +358,49 @@ pn_var_store_new (void)
     return g_object_new (PN_TYPE_VAR_STORE, NULL);
 }
 
+/* Insert a copy of @v (refs a vector) under @name into @table. */
+static void
+store_put (GHashTable *table, const gchar *name, const PnExprValue *v)
+{
+    g_hash_table_insert (table, g_strdup (name), value_box_copy (v));
+}
+
 void
 pn_var_store_set (PnVarStore  *self,
                   const gchar *name,
                   gdouble      value)
 {
-    gdouble *boxed;
+    PnExprValue v = { NULL, value };
 
     g_return_if_fail (PN_IS_VAR_STORE (self));
     g_return_if_fail (name != NULL);
 
-    boxed  = g_new (gdouble, 1);
-    *boxed = value;
-    g_hash_table_insert (self->vars, g_strdup (name), boxed);
+    store_put (self->vars, name, &v);
+}
+
+void
+pn_var_store_set_vector (PnVarStore  *self,
+                         const gchar *name,
+                         PnVector    *vec)
+{
+    PnExprValue v = { vec, 0.0 };
+
+    g_return_if_fail (PN_IS_VAR_STORE (self));
+    g_return_if_fail (name != NULL);
+    g_return_if_fail (PN_IS_VECTOR (vec));
+
+    store_put (self->vars, name, &v);
+}
+
+/* Internal: bind @value (scalar or vector) and record it as an
+ * assignment so a caller can surface program outputs. */
+static void
+var_store_assign_value (PnVarStore        *self,
+                        const gchar       *name,
+                        const PnExprValue *value)
+{
+    store_put (self->vars,     name, value);
+    store_put (self->assigned, name, value);
 }
 
 void
@@ -138,18 +408,12 @@ pn_var_store_assign (PnVarStore  *self,
                      const gchar *name,
                      gdouble      value)
 {
-    gdouble *boxed;
+    PnExprValue v = { NULL, value };
 
     g_return_if_fail (PN_IS_VAR_STORE (self));
     g_return_if_fail (name != NULL);
 
-    /* Bind it like any variable so later statements can read it, and
-     * also note it as an assignment so callers can surface it. */
-    pn_var_store_set (self, name, value);
-
-    boxed  = g_new (gdouble, 1);
-    *boxed = value;
-    g_hash_table_insert (self->assigned, g_strdup (name), boxed);
+    var_store_assign_value (self, name, &v);
 }
 
 void
@@ -165,7 +429,27 @@ pn_var_store_foreach_assignment (PnVarStore            *self,
 
     g_hash_table_iter_init (&iter, self->assigned);
     while (g_hash_table_iter_next (&iter, &k, &v))
-        func ((const gchar *) k, *(const gdouble *) v, user_data);
+    {
+        const PnExprValue *box = v;
+        /* The scalar API cannot carry a vector; report it as 0.0. */
+        func ((const gchar *) k, box->vec ? 0.0 : box->scalar, user_data);
+    }
+}
+
+void
+pn_var_store_foreach_assignment_value (PnVarStore                 *self,
+                                       PnVarStoreForeachValueFunc  func,
+                                       gpointer                    user_data)
+{
+    GHashTableIter  iter;
+    gpointer        k, v;
+
+    g_return_if_fail (PN_IS_VAR_STORE (self));
+    g_return_if_fail (func != NULL);
+
+    g_hash_table_iter_init (&iter, self->assigned);
+    while (g_hash_table_iter_next (&iter, &k, &v))
+        func ((const gchar *) k, (const PnExprValue *) v, user_data);
 }
 
 gboolean
@@ -173,17 +457,17 @@ pn_var_store_get (PnVarStore  *self,
                   const gchar *name,
                   gdouble     *out_value)
 {
-    gdouble *boxed;
+    PnExprValue *box;
 
     g_return_val_if_fail (PN_IS_VAR_STORE (self), FALSE);
     g_return_val_if_fail (name != NULL, FALSE);
 
-    boxed = g_hash_table_lookup (self->vars, name);
-    if (boxed == NULL)
+    box = g_hash_table_lookup (self->vars, name);
+    if (box == NULL || box->vec != NULL)   /* unset, or a vector (not scalar) */
         return FALSE;
 
     if (out_value != NULL)
-        *out_value = *boxed;
+        *out_value = box->scalar;
     return TRUE;
 }
 
@@ -195,14 +479,18 @@ pn_var_store_clear (PnVarStore *self)
     g_hash_table_remove_all (self->assigned);
 }
 
-gboolean
-pn_var_store_evaluate (PnVarStore       *self,
-                       const PnExprNode *node,
-                       gdouble          *out_value,
-                       GError          **error)
+/* Recursive value-aware evaluator.  @out is caller-allocated; on success
+ * it owns the result (a vector reference if @out->vec is set) and the
+ * caller releases it with pn_expr_value_clear().  On failure @out is left
+ * cleared and nothing leaks. */
+static gboolean
+eval_value (PnVarStore       *self,
+            const PnExprNode *node,
+            PnExprValue      *out,
+            GError          **error)
 {
-    g_return_val_if_fail (PN_IS_VAR_STORE (self), FALSE);
-    g_return_val_if_fail (out_value != NULL, FALSE);
+    out->vec    = NULL;
+    out->scalar = 0.0;
 
     if (node == NULL)
     {
@@ -215,68 +503,78 @@ pn_var_store_evaluate (PnVarStore       *self,
     switch (node->type)
     {
     case PN_EXPR_NODE_NUMBER:
-        *out_value = node->number;
+        out->scalar = node->number;
         return TRUE;
 
     case PN_EXPR_NODE_VARIABLE:
         {
-            gdouble v;
-            if (!pn_var_store_get (self, node->name, &v))
+            PnExprValue *box = g_hash_table_lookup (self->vars, node->name);
+            if (box == NULL)
             {
                 g_set_error (error, PN_VAR_STORE_ERROR,
                              PN_VAR_STORE_ERROR_UNKNOWN_VARIABLE,
                              "unknown variable '%s'", node->name);
                 return FALSE;
             }
-            *out_value = v;
+            if (box->vec != NULL)
+                out->vec = g_object_ref (box->vec);
+            else
+                out->scalar = box->scalar;
             return TRUE;
         }
 
     case PN_EXPR_NODE_UNARY:
         {
-            gdouble operand;
-            if (!pn_var_store_evaluate (self, node->left, &operand, error))
+            PnExprValue a = { NULL, 0.0 };
+            if (!eval_value (self, node->left, &a, error))
                 return FALSE;
-            *out_value = (node->op == '-') ? -operand : operand;
+            if (node->op == '-')
+                negate_value (&a, out);
+            else                            /* unary '+': pass the value */
+                { out->vec = a.vec; out->scalar = a.scalar; a.vec = NULL; }
+            pn_expr_value_clear (&a);
             return TRUE;
         }
 
     case PN_EXPR_NODE_BINARY:
         {
-            gdouble a, b;
-            if (!pn_var_store_evaluate (self, node->left, &a, error))
+            PnExprValue a = { NULL, 0.0 }, b = { NULL, 0.0 };
+            gboolean    ok = TRUE;
+
+            if (!eval_value (self, node->left, &a, error))
                 return FALSE;
-            if (!pn_var_store_evaluate (self, node->right, &b, error))
+            if (!eval_value (self, node->right, &b, error))
+            {
+                pn_expr_value_clear (&a);
                 return FALSE;
+            }
 
             switch (node->op)
             {
-            case '+': *out_value = a + b; return TRUE;
-            case '-': *out_value = a - b; return TRUE;
-            case '*': *out_value = a * b; return TRUE;
-            case '/': *out_value = a / b; return TRUE;  /* IEEE inf/nan on /0 */
-
-            /* Comparisons yield a boolean encoded as 1.0 (true) / 0.0
-             * (false); op codes are assigned in pn-expr-parser.h. */
-            case '<': *out_value = (a <  b) ? 1.0 : 0.0; return TRUE;
-            case '>': *out_value = (a >  b) ? 1.0 : 0.0; return TRUE;
-            case 'L': *out_value = (a <= b) ? 1.0 : 0.0; return TRUE;
-            case 'G': *out_value = (a >= b) ? 1.0 : 0.0; return TRUE;
-            case '=': *out_value = (a == b) ? 1.0 : 0.0; return TRUE;
-            case '!': *out_value = (a != b) ? 1.0 : 0.0; return TRUE;
-
+            case '+': case '-': case '*': case '/':
+                arith_value (node->op, &a, &b, out);
+                break;
+            case '<': case '>': case 'L':
+            case 'G': case '=': case '!':
+                compare_value (node->op, &a, &b, out);
+                break;
             default:
                 g_set_error (error, PN_VAR_STORE_ERROR,
                              PN_VAR_STORE_ERROR_BAD_AST,
                              "unknown operator '%c'", node->op);
-                return FALSE;
+                ok = FALSE;
+                break;
             }
+
+            pn_expr_value_clear (&a);
+            pn_expr_value_clear (&b);
+            return ok;
         }
 
     case PN_EXPR_NODE_CALL:
         {
-            gdouble  arg;
-            UnaryFn  fn = lookup_fn (node->name);
+            PnExprValue a  = { NULL, 0.0 };
+            UnaryFn     fn = lookup_fn (node->name);
 
             if (fn == NULL)
             {
@@ -285,33 +583,37 @@ pn_var_store_evaluate (PnVarStore       *self,
                              "unknown function '%s'", node->name);
                 return FALSE;
             }
-            if (!pn_var_store_evaluate (self, node->left, &arg, error))
+            if (!eval_value (self, node->left, &a, error))
                 return FALSE;
 
-            *out_value = fn (arg);
+            map_value (fn, &a, out);
+            pn_expr_value_clear (&a);
             return TRUE;
         }
 
     case PN_EXPR_NODE_ASSIGN:
         {
-            gdouble v;
-            if (!pn_var_store_evaluate (self, node->left, &v, error))
+            PnExprValue v = { NULL, 0.0 };
+            if (!eval_value (self, node->left, &v, error))
                 return FALSE;
-            /* Binds the name (for later statements) and records it as an
-             * assignment; an assignment's own value is the value bound. */
-            pn_var_store_assign (self, node->name, v);
-            *out_value = v;
+            /* Bind the name (for later statements) and record it as an
+             * assignment; an assignment's own value is the value bound.
+             * var_store_assign_value() takes its own reference, so the
+             * value computed here transfers straight into @out. */
+            var_store_assign_value (self, node->name, &v);
+            out->vec = v.vec; out->scalar = v.scalar;
             return TRUE;
         }
 
     case PN_EXPR_NODE_SEQ:
         {
-            gdouble discard;
+            PnExprValue discard = { NULL, 0.0 };
             /* Evaluate the statement for its effect (typically a binding)
              * and discard its value; the sequence's value is the rest. */
-            if (!pn_var_store_evaluate (self, node->left, &discard, error))
+            if (!eval_value (self, node->left, &discard, error))
                 return FALSE;
-            return pn_var_store_evaluate (self, node->right, out_value, error);
+            pn_expr_value_clear (&discard);
+            return eval_value (self, node->right, out, error);
         }
 
     default:
@@ -320,4 +622,47 @@ pn_var_store_evaluate (PnVarStore       *self,
                      "unknown AST node type %d", (gint) node->type);
         return FALSE;
     }
+}
+
+gboolean
+pn_var_store_evaluate_value (PnVarStore       *self,
+                             const PnExprNode *node,
+                             PnExprValue      *out_value,
+                             GError          **error)
+{
+    g_return_val_if_fail (PN_IS_VAR_STORE (self), FALSE);
+    g_return_val_if_fail (out_value != NULL, FALSE);
+
+    out_value->vec    = NULL;
+    out_value->scalar = 0.0;
+    return eval_value (self, node, out_value, error);
+}
+
+gboolean
+pn_var_store_evaluate (PnVarStore       *self,
+                       const PnExprNode *node,
+                       gdouble          *out_value,
+                       GError          **error)
+{
+    PnExprValue v = { NULL, 0.0 };
+
+    g_return_val_if_fail (out_value != NULL, FALSE);
+
+    if (!pn_var_store_evaluate_value (self, node, &v, error))
+        return FALSE;
+
+    if (v.vec != NULL)
+    {
+        /* A scalar-only caller cannot represent a vector result; fail
+         * loudly rather than silently collapsing it. */
+        g_set_error_literal (error, PN_VAR_STORE_ERROR,
+                             PN_VAR_STORE_ERROR_TYPE_MISMATCH,
+                             "expression produced a vector where a "
+                             "scalar was required");
+        pn_expr_value_clear (&v);
+        return FALSE;
+    }
+
+    *out_value = v.scalar;
+    return TRUE;
 }

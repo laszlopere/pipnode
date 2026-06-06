@@ -355,6 +355,271 @@ test_eval_functions (void)
     g_object_unref (s);
 }
 
+/* ---- Vector semantics (TODO #43.7) ---- */
+
+static PnExprNode
+unary (gchar op, PnExprNode *operand)
+{
+    PnExprNode n = { 0 };
+    n.type = PN_EXPR_NODE_UNARY;
+    n.op   = op;
+    n.left = operand;
+    return n;
+}
+
+static PnExprNode
+call (const gchar *name, PnExprNode *arg)
+{
+    PnExprNode n = { 0 };
+    n.type = PN_EXPR_NODE_CALL;
+    n.name = (gchar *) name;   /* borrowed; evaluator only reads it */
+    n.left = arg;
+    return n;
+}
+
+/* Bind @name to a fresh vector copied from @vals; the store keeps its
+ * own reference, so the local one is dropped on return. */
+static void
+bind_vec (PnVarStore *s, const gchar *name, const gdouble *vals, gsize n)
+{
+    PnVector *v = pn_vector_new_copy (vals, n);
+    pn_var_store_set_vector (s, name, v);
+    g_object_unref (v);
+}
+
+/* Assert @out is a vector matching @want[0..n). */
+static void
+check_vec (const PnExprValue *out, const gdouble *want, gsize n)
+{
+    PN_CHECK (out->vec != NULL);
+    if (out->vec == NULL)
+        return;
+    PN_CHECK_CMPINT ((gint) pn_vector_get_len (out->vec), ==, (gint) n);
+    if (pn_vector_get_len (out->vec) == n)
+    {
+        const gdouble *d = pn_vector_get_data (out->vec);
+        for (gsize i = 0; i < n; i++)
+            PN_CHECK_NEAR (d[i], want[i], 1e-9);
+    }
+}
+
+/* scalar OP vector and vector OP scalar both broadcast the scalar over
+ * every element, producing a vector. */
+static void
+test_vector_broadcast (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     arr[] = { 1.0, 2.0, 3.0 };
+
+    bind_vec (s, "arr", arr, 3);
+
+    /* 2 * arr -> [2, 4, 6] */
+    {
+        PnExprNode two = num (2.0), a = var ("arr");
+        PnExprNode mul = binary ('*', &two, &a);
+        gdouble    want[] = { 2.0, 4.0, 6.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &mul, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* arr - 1 -> [0, 1, 2]  (vector OP scalar keeps operand order) */
+    {
+        PnExprNode a = var ("arr"), one = num (1.0);
+        PnExprNode sub = binary ('-', &a, &one);
+        gdouble    want[] = { 0.0, 1.0, 2.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &sub, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* vector OP vector is elementwise; on a length mismatch the result takes
+ * the longer length and the surviving tail passes through verbatim. */
+static void
+test_vector_elementwise (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     a[]  = { 2.0, 3.0 };
+    gdouble     b[]  = { 3.0, 4.0, 5.0 };
+
+    bind_vec (s, "a", a, 2);
+    bind_vec (s, "b", b, 3);
+
+    /* a * b -> [6, 12, 5]: index 2 has no counterpart in `a`, so b[2]=5
+     * passes through unchanged (the 43.7 pass-through tail rule). */
+    {
+        PnExprNode av = var ("a"), bv = var ("b");
+        PnExprNode mul = binary ('*', &av, &bv);
+        gdouble    want[] = { 6.0, 12.0, 5.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &mul, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* b + a -> [5, 7, 5]: longer operand on the left, same tail rule. */
+    {
+        PnExprNode bv = var ("b"), av = var ("a");
+        PnExprNode add = binary ('+', &bv, &av);
+        gdouble    want[] = { 5.0, 7.0, 5.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &add, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* A unary math function maps element-by-element to a same-length vector;
+ * unary minus negates every element. */
+static void
+test_vector_functions_and_unary (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     arr[] = { -1.0, -2.0, 3.0 };
+
+    bind_vec (s, "arr", arr, 3);
+
+    /* abs(arr) -> [1, 2, 3] */
+    {
+        PnExprNode a = var ("arr");
+        PnExprNode c = call ("abs", &a);
+        gdouble    want[] = { 1.0, 2.0, 3.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* -arr -> [1, 2, -3] */
+    {
+        PnExprNode a = var ("arr");
+        PnExprNode neg = unary ('-', &a);
+        gdouble    want[] = { 1.0, 2.0, -3.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &neg, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* Comparisons always reduce a vector operand to a single scalar 0/1:
+ * true iff EVERY compared element passes (all()-semantics), with an
+ * unequal-length tail counting as vacuously true. */
+static void
+test_vector_comparison_reduces (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     hi[]  = { 3.0, 5.0, 4.0 };
+    gdouble     mix[] = { 1.0, 5.0, 3.0 };
+    gdouble     two[] = { 2.0, 2.0 };       /* shorter than hi */
+
+    bind_vec (s, "hi",  hi,  3);
+    bind_vec (s, "mix", mix, 3);
+    bind_vec (s, "two", two, 2);
+
+    /* hi > 2 -> 1.0 (all pass) */
+    {
+        PnExprNode v = var ("hi"), t = num (2.0);
+        PnExprNode cmp = binary ('>', &v, &t);
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        PN_CHECK (out.vec == NULL);
+        PN_CHECK_NEAR (out.scalar, 1.0, 1e-9);
+        pn_expr_value_clear (&out);
+    }
+
+    /* mix > 2 -> 0.0 (1.0 fails) */
+    {
+        PnExprNode v = var ("mix"), t = num (2.0);
+        PnExprNode cmp = binary ('>', &v, &t);
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        PN_CHECK_NEAR (out.scalar, 0.0, 1e-9);
+        pn_expr_value_clear (&out);
+    }
+
+    /* hi > two -> 1.0: only the overlap (3>2, 5>2) is compared; hi[2]
+     * has no counterpart and is vacuously true. */
+    {
+        PnExprNode v = var ("hi"), w = var ("two");
+        PnExprNode cmp = binary ('>', &v, &w);
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        PN_CHECK (out.vec == NULL);
+        PN_CHECK_NEAR (out.scalar, 1.0, 1e-9);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* The scalar-only pn_var_store_evaluate() refuses a vector result with
+ * PN_VAR_STORE_ERROR_TYPE_MISMATCH rather than crashing or truncating. */
+static void
+test_scalar_sink_rejects_vector (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+    GError     *err = NULL;
+    gdouble     arr[] = { 1.0, 2.0 };
+
+    bind_vec (s, "arr", arr, 2);
+
+    {
+        PnExprNode a = var ("arr");
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, &a, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_TYPE_MISMATCH));
+        g_clear_error (&err);
+    }
+
+    g_object_unref (s);
+}
+
+/* pn_var_store_value_to_string renders a scalar as %g and a vector as a
+ * BOUNDED leading sample plus its element count. */
+static void
+test_value_to_string (void)
+{
+    PnExprValue v = { NULL, 0.0 };
+    gchar      *s;
+
+    /* scalar */
+    v.scalar = 42.0;
+    s = pn_var_store_value_to_string (&v);
+    PN_CHECK_CMPSTR (s, ==, "42");
+    g_free (s);
+
+    /* short vector: every element shown */
+    {
+        gdouble d[] = { 1.0, 2.0, 3.0 };
+        v.vec = pn_vector_new_copy (d, 3);
+        v.scalar = 0.0;
+        s = pn_var_store_value_to_string (&v);
+        PN_CHECK_CMPSTR (s, ==, "[1, 2, 3] (3 values)");
+        g_free (s);
+        g_clear_object (&v.vec);
+    }
+
+    /* long vector: capped at 8 shown elements then an ellipsis, with the
+     * true count in the trailer (bounded so a huge vector is safe). */
+    {
+        gdouble d[12];
+        for (gsize i = 0; i < 12; i++)
+            d[i] = (gdouble) i;
+        v.vec = pn_vector_new_copy (d, 12);
+        s = pn_var_store_value_to_string (&v);
+        PN_CHECK_CMPSTR (s, ==,
+                         "[0, 1, 2, 3, 4, 5, 6, 7, \xE2\x80\xA6] (12 values)");
+        g_free (s);
+        g_clear_object (&v.vec);
+    }
+}
+
 static void
 test_eval_bad_ast (void)
 {
@@ -392,6 +657,12 @@ main (int argc, char **argv)
     pn_test_add ("eval_comparison_ops", test_eval_comparison_ops);
     pn_test_add ("eval_assign_and_seq", test_eval_assign_and_seq);
     pn_test_add ("eval_functions",     test_eval_functions);
+    pn_test_add ("vector_broadcast",   test_vector_broadcast);
+    pn_test_add ("vector_elementwise", test_vector_elementwise);
+    pn_test_add ("vector_fns_unary",   test_vector_functions_and_unary);
+    pn_test_add ("vector_comparison",  test_vector_comparison_reduces);
+    pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
+    pn_test_add ("value_to_string",    test_value_to_string);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();
 }

@@ -23,6 +23,7 @@
 
 #include "pntest.h"
 #include "pn-expression.h"
+#include "pn-vector.h"
 
 /* Build a PnExpression with @expr installed (NULL keeps the empty
  * default).  @out_emits is wired to the node's output and counts the
@@ -177,6 +178,72 @@ test_eval_failure_preserves_value (void)
     g_object_unref (node);
 }
 
+/* A `$pnvector` input is read back as a vector variable, the expression
+ * broadcasts a scalar over it, and the result is written to data.value as
+ * a new `$pnvector` marker — the full read/evaluate/write wiring (TODO
+ * #43.7). */
+static void
+test_eval_vector_broadcast (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("value * 2", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    gdouble    in[] = { 1.0, 2.0, 3.0 };
+    PnVector  *vec  = pn_vector_new_copy (in, 3);
+    PnVector  *out;
+
+    pn_message_set_vector (msg, "value", vec);
+    g_object_unref (vec);
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK        (pn_test_bool (msg, "success"));
+
+    /* data.value is a vector marker resolving to [2, 4, 6]. */
+    out = pn_message_resolve_vector (msg, pn_message_get_member (msg, "value"));
+    PN_CHECK (out != NULL);
+    if (out != NULL)
+    {
+        const gdouble *d = pn_vector_get_data (out);
+        PN_CHECK_CMPINT ((gint) pn_vector_get_len (out), ==, 3);
+        PN_CHECK_NEAR (d[0], 2.0, 1e-9);
+        PN_CHECK_NEAR (d[1], 4.0, 1e-9);
+        PN_CHECK_NEAR (d[2], 6.0, 1e-9);
+    }
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* A comparison over a vector collapses to a scalar 0/1 (all()-semantics),
+ * so a vector-fed comparison still drives data.value as a plain boolean. */
+static void
+test_eval_vector_comparison_scalar (void)
+{
+    guint      emits;
+    PnNode    *node = make_node ("value > 2", &emits);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    gdouble    in[] = { 3.0, 5.0, 4.0 };       /* all > 2 */
+    PnVector  *vec  = pn_vector_new_copy (in, 3);
+
+    pn_message_set_vector (msg, "value", vec);
+    g_object_unref (vec);
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (emits, ==, 1);
+    PN_CHECK        (pn_test_bool (msg, "success"));
+    /* Reduced to a scalar 1.0, not a vector marker. */
+    PN_CHECK (pn_message_resolve_vector (msg,
+                  pn_message_get_member (msg, "value")) == NULL);
+    PN_CHECK_NEAR   (pn_test_num (msg, "value"), 1.0, 1e-9);
+    PN_CHECK_CMPSTR (pn_test_str (msg, "output"), ==, "1");
+
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
 static void
 test_no_expression_forwards_failure (void)
 {
@@ -209,6 +276,8 @@ main (int argc, char **argv)
     pn_test_add ("eval_comparison_boolean",    test_eval_comparison_boolean);
     pn_test_add ("multi_statement_surfaces",   test_multi_statement_surfaces_assignments);
     pn_test_add ("eval_failure_keeps_value",   test_eval_failure_preserves_value);
+    pn_test_add ("eval_vector_broadcast",      test_eval_vector_broadcast);
+    pn_test_add ("eval_vector_comparison",     test_eval_vector_comparison_scalar);
     pn_test_add ("no_expression_forwards",     test_no_expression_forwards_failure);
     return pn_test_run ();
 }
