@@ -36,15 +36,25 @@ the message):
       the X coordinate per sample (a parametric or Lissajous curve);
       otherwise each sample is plotted against its <em>index</em>. So
       feeding just a value vector (no X) draws the waveform left-to-right.</li>
-  <li><strong>Scalar value</strong> &mdash; the <code>(x, value)</code>
-      point is appended to a rolling ring and the recent window is drawn
-      as a sweeping trace. The X member is the matching number, or, when
-      no X is supplied, a running sample counter (the trace sweeps in
-      arrival order).</li>
+  <li><strong>Scalar value</strong> &mdash; only the
+      <em>single current</em> <code>(x, value)</code> point is shown, drawn
+      as a dot. No history is kept: each scalar message replaces the last,
+      so the dot simply moves to the new position. The X member is the
+      matching number, or <code>0</code> when no X is supplied (the dot
+      then rides the centre line and moves only vertically with the
+      value). Feed a scalar <code>x</code> and a scalar <code>value</code>
+      together to watch the dot trace out an X-Y position live. The axes
+      auto-fit to the range the dot has explored so far (the frame only
+      widens, never shrinks), giving the dot a stable area to move within
+      rather than pinning it to the centre. The dot itself carries the same
+      blooming phosphor halo as the beam, and as it moves it streaks a
+      fading <em>afterglow</em>: a glowing line is drawn back to the
+      position it just left, then decays over about a second like real CRT
+      persistence.</li>
 </ul>
 <p>
-The two modes never blend: a vector frame clears the scalar sweep
-history, and the next scalar sample clears the captured waveform.
+The two modes never blend: a vector frame clears the scalar point, and
+the next scalar sample clears the captured waveform.
 </p>
 <p>
 Both axes <strong>auto-range over the visible data</strong>, with a small
@@ -70,8 +80,10 @@ member present, the 256-point sine is drawn against its sample index
 &mdash; one clean cycle, fitted to the screen. To get a true parametric
 plot instead (Y against a separate X axis), arrange for both a
 <code>value</code> and an <code>x</code> vector to ride on the same
-message. Or feed any node that emits a scalar <code>data/value</code> over
-time and watch it sweep.
+message. Or feed a scalar <code>x</code> and a scalar <code>value</code>
+(for example a <a href="PnKnob.html">Knob</a> through a
+<a href="PnExpression.html">Calculator</a>) and watch a single dot move
+across the screen as the inputs change.
 </p>
 
 <table>
@@ -85,7 +97,7 @@ time and watch it sweep.
       <td>Data-bag member holding the X value (default <code>x</code>).
           May be a number or a <code>$pnvector</code>. <em>Optional</em>:
           when absent, a vector value is plotted against its sample index
-          and a scalar value against a running sample counter.</td></tr>
+          and a scalar value's dot sits at X&nbsp;=&nbsp;0 (centred).</td></tr>
   <tr><td><code>trace-color</code></td>
       <td>Colour of the electron beam / waveform. Defaults to a bright
           phosphor green; the beam is drawn with a soft glow and a near-

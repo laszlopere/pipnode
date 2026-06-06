@@ -295,12 +295,65 @@ pn_oscilloscope_paint_plot (
         cairo_set_line_join (cr, CAIRO_LINE_JOIN_ROUND);
         cairo_set_line_cap  (cr, CAIRO_LINE_CAP_ROUND);
 
-        for (i = 0; i < n; i++)
+        /* --- Afterglow: the fading streak a moving dot leaves behind.
+         *     Drawn first so the live dot/beam blooms over the top.  Only
+         *     scalar (dot) mode keeps a trail; a vector snapshot returns
+         *     none, so this is a no-op there. --- */
         {
-            double dx = px + (tx[i] - x0) / xspan * pw;
-            double dy = py + ph - (ty[i] - y0) / yspan * ph;
-            if (i == 0) cairo_move_to (cr, dx, dy);
-            else        cairo_line_to (cr, dx, dy);
+            gdouble ax[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+            gdouble ay[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+            gdouble al[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+            guint   m = pn_oscilloscope_read_afterglow (
+                            self, PN_OSCILLOSCOPE_AFTERGLOW_MAX, ax, ay, al);
+
+            if (m > 0)
+            {
+                /* The live dot is the head the newest trail point trails a
+                 * connector back to. */
+                double curx = px + (tx[0] - x0) / xspan * pw;
+                double cury = py + ph - (ty[0] - y0) / yspan * ph;
+                guint  j;
+
+                for (j = 0; j < m; j++)
+                {
+                    double bx = px + (ax[j] - x0) / xspan * pw;
+                    double by = py + ph - (ay[j] - y0) / yspan * ph;
+                    double ex, ey;
+                    /* Square the linear life for a phosphor-like fast-then-
+                     * slow falloff. */
+                    double a  = al[j] * al[j];
+
+                    if (j + 1 < m)
+                    {
+                        ex = px + (ax[j + 1] - x0) / xspan * pw;
+                        ey = py + ph - (ay[j + 1] - y0) / yspan * ph;
+                    }
+                    else
+                    {
+                        ex = curx;
+                        ey = cury;
+                    }
+
+                    /* Connector A→B: a soft wide glow under a thin core,
+                     * both scaled by the point's remaining life. */
+                    set_rgba (cr, &ps.trace_color, 0.16 * a);
+                    cairo_set_line_width (cr, lw * 3.0);
+                    cairo_move_to (cr, bx, by);
+                    cairo_line_to (cr, ex, ey);
+                    cairo_stroke (cr);
+
+                    set_rgba (cr, &ps.trace_color, 0.65 * a);
+                    cairo_set_line_width (cr, lw);
+                    cairo_move_to (cr, bx, by);
+                    cairo_line_to (cr, ex, ey);
+                    cairo_stroke (cr);
+
+                    /* A fading dot sitting at the vacated position. */
+                    set_rgba (cr, &ps.trace_color, 0.55 * a);
+                    cairo_arc (cr, bx, by, lw * 1.3, 0.0, 2.0 * G_PI);
+                    cairo_fill (cr);
+                }
+            }
         }
 
         /* A single sample has no segment to stroke — mark it as a dot. */
@@ -308,12 +361,36 @@ pn_oscilloscope_paint_plot (
         {
             double dx = px + (tx[0] - x0) / xspan * pw;
             double dy = py + ph - (ty[0] - y0) / yspan * ph;
-            set_rgba (cr, &ps.trace_color, 1.0);
+
+            /* Phosphor halo around the dot: a wide soft bloom, a medium
+             * ring, then a bright near-white core — the dot-mode analogue
+             * of the beam glow below. */
+            set_rgba (cr, &ps.trace_color, 0.16);
+            cairo_arc (cr, dx, dy, lw * 4.5, 0.0, 2.0 * G_PI);
+            cairo_fill (cr);
+
+            set_rgba (cr, &ps.trace_color, 0.30);
+            cairo_arc (cr, dx, dy, lw * 2.2, 0.0, 2.0 * G_PI);
+            cairo_fill (cr);
+
+            cairo_set_source_rgba (cr,
+                    MIN (1.0, ps.trace_color.red   + 0.45),
+                    MIN (1.0, ps.trace_color.green + 0.10),
+                    MIN (1.0, ps.trace_color.blue  + 0.45),
+                    1.0);
             cairo_arc (cr, dx, dy, lw, 0.0, 2.0 * G_PI);
             cairo_fill (cr);
         }
         else
         {
+            for (i = 0; i < n; i++)
+            {
+                double dx = px + (tx[i] - x0) / xspan * pw;
+                double dy = py + ph - (ty[i] - y0) / yspan * ph;
+                if (i == 0) cairo_move_to (cr, dx, dy);
+                else        cairo_line_to (cr, dx, dy);
+            }
+
             /* Phosphor glow: a wide soft pass, a medium pass, then a
              * bright near-white core — the classic blooming beam. */
             cairo_path_t *path = cairo_copy_path (cr);

@@ -34,10 +34,10 @@ G_BEGIN_DECLS
 /*      x is also a vector it supplies the X coordinate per sample      */
 /*      (parametric / Lissajous); otherwise the sample index is used.   */
 /*                                                                     */
-/*    • value is a NUMBER  → the (x, value) point is appended to a      */
-/*      rolling ring and the recent window is drawn as a sweeping       */
-/*      trace.  x is the matching number, or a running sample counter   */
-/*      when no x is supplied.                                          */
+/*    • value is a NUMBER  → only the single current (x, value) point   */
+/*      is shown, drawn as a dot; no history is kept (each scalar        */
+/*      replaces the last).  x is the matching number, or 0 when no x    */
+/*      is supplied (the dot then rides the auto-centred middle line).   */
 /*                                                                     */
 /*  Both axes auto-range over the visible data so the curve always      */
 /*  fits the screen.  The header is the standard Node-RED card; the     */
@@ -50,10 +50,11 @@ G_DECLARE_FINAL_TYPE (PnOscilloscope, pn_oscilloscope, PN, OSCILLOSCOPE, PnNode)
 
 PnOscilloscope *pn_oscilloscope_new (void);
 
-/* Number of points currently held in the rolling scalar ring.  A
+/* Number of scalar points currently on screen: 1 when a scalar point is
+ * live, else 0 (no data yet, or a vector snapshot is showing).  A
  * read-only inspection seam for the headless tests, since the trace
- * store is private.  Returns 0 while a vector snapshot is on screen. */
-guint pn_oscilloscope_get_ring_count (PnOscilloscope *self);
+ * store is private. */
+guint pn_oscilloscope_get_point_count (PnOscilloscope *self);
 
 /* ------------------------------------------------------------------ */
 /*  GUI read seam (GTK-free)                                           */
@@ -101,11 +102,13 @@ void pn_oscilloscope_get_paint_state (PnOscilloscope            *self,
  * @ymax:  (out) (nullable): largest  Y over the FULL trace
  *
  * Copies the current trace — whichever of the vector snapshot or the
- * rolling scalar ring is live — into the caller arrays in left-to-right
+ * single scalar point is live — into the caller arrays in left-to-right
  * display order, decimating to at most @cap points.  @out_x and @out_y
- * must each have room for @cap entries.  The bounds, when requested, are
- * always computed over every retained sample (not just the decimated
- * subset) so the auto-fit is exact.
+ * must each have room for @cap entries.  The bounds, when requested, frame
+ * the auto-fit: for a vector snapshot they are the exact extent of every
+ * sample (not just the decimated subset); for the scalar dot they are the
+ * accumulated extent of every point seen since the last snapshot, so the
+ * lone dot moves within a stable frame instead of being pinned centre.
  *
  * Returns: the number of points written (0 when there is no trace yet).
  */
@@ -117,6 +120,37 @@ guint pn_oscilloscope_read_trace (PnOscilloscope *self,
                                   gdouble        *xmax,
                                   gdouble        *ymin,
                                   gdouble        *ymax);
+
+/* Maximum number of afterglow trail points the core retains — the cap the
+ * painter sizes its scratch arrays to when reading the trail back. */
+#define PN_OSCILLOSCOPE_AFTERGLOW_MAX 64
+
+/**
+ * pn_oscilloscope_read_afterglow:
+ * @self:     oscilloscope instance
+ * @cap:      capacity of each output array (use #PN_OSCILLOSCOPE_AFTERGLOW_MAX)
+ * @out_x:    (out caller-allocates): X of each trail point, oldest→newest
+ * @out_y:    (out caller-allocates): Y of each trail point, oldest→newest
+ * @out_life: (out caller-allocates): remaining glow of each point in (0, 1],
+ *            1 just-vacated, fading to 0 as it ages out of the persistence
+ *            window.  The caller shapes brightness from this however it likes.
+ *
+ * Reports the phosphor afterglow trail: the recent positions the scalar dot
+ * has moved AWAY from, in data coordinates (same frame as the live trace, so
+ * the caller maps them with the bounds from pn_oscilloscope_read_trace()).
+ * Each older position lingers and dims so a moving dot streaks like a real
+ * CRT; drawing a segment from each point to the next-newer one (and from the
+ * newest to the live dot) renders the fading connector between successive
+ * positions.  Only meaningful in scalar (dot) mode — a vector snapshot keeps
+ * no trail, so this returns 0.
+ *
+ * Returns: the number of live trail points written (0 when none).
+ */
+guint pn_oscilloscope_read_afterglow (PnOscilloscope *self,
+                                      guint           cap,
+                                      gdouble        *out_x,
+                                      gdouble        *out_y,
+                                      gdouble        *out_life);
 
 G_END_DECLS
 

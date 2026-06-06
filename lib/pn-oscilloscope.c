@@ -20,8 +20,9 @@
 /*  phosphor CRT that traces a Y value against an X value.  Both       */
 /*  values are read from each message and each may be a plain number   */
 /*  or a $pnvector (TODO #43).  A vector value is the whole captured    */
-/*  waveform (snapshot, replacing the screen); a scalar value sweeps    */
-/*  into a rolling ring.  Both axes auto-fit the data.  This file owns  */
+/*  waveform (snapshot, replacing the screen); a scalar value is the    */
+/*  single current point — the latest (x, value) only, drawn as a dot   */
+/*  (no history is kept).  Both axes auto-fit the data.  This file owns  */
 /*  the type, properties, the receive() contract and the trace store;  */
 /*  the cairo CRT painter lives in pn-oscilloscope-gui.c and reads the  */
 /*  trace back through the GTK-free seam declared in the header.        */
@@ -55,16 +56,22 @@
                                PN_OSC_GAP +           \
                                PN_OSC_SCREEN_HEIGHT)
 
-/* Rolling-ring capacity for the scalar-sweep mode: the largest "last N
- * samples" window kept on screen.  A vector snapshot is bounded by the
- * vector's own length and is not copied into the ring. */
-#define PN_OSC_RING  2048
-
 /* Maximum repaint rate — the minimum gap between two worksheet redraw
  * requests from this node.  100 ms (10 Hz) is below the perception
  * threshold for a streaming trace yet stops a high-rate feed from
  * forcing a full re-render every display frame.  Mirrors #PnXYGraph. */
 #define PN_OSC_MIN_REPAINT_INTERVAL_US  (G_TIME_SPAN_MILLISECOND * 100)
+
+/* Afterglow persistence — how long a vacated dot position lingers on the
+ * phosphor before it has fully decayed.  800 ms reads as a clear streak
+ * trailing a moving dot without smearing the whole screen. */
+#define PN_OSC_AFTERGLOW_US  (G_TIME_SPAN_MILLISECOND * 800)
+
+/* Fade animation cadence — while the trail is alive the core re-requests a
+ * repaint at this interval so the glow decays smoothly after the dot stops
+ * moving (message-driven repaints alone would freeze a static dot's trail).
+ * ~25 fps is smooth yet only runs for the ~0.8 s a trail takes to die. */
+#define PN_OSC_FADE_INTERVAL_MS  40
 
 struct _PnOscilloscope
 {
@@ -86,15 +93,37 @@ struct _PnOscilloscope
     /* Trace store.  Exactly one of the two is live at a time:
      *   • snapshot  — vy != NULL: the vector is the trace, vx (optional)
      *     supplies per-sample X (else the sample index is used).
-     *   • rolling   — vy == NULL: the recent (x, y) scalars in the ring. */
+     *   • point     — vy == NULL: the single latest (x, y) scalar, drawn
+     *     as a dot.  No history is kept — each scalar replaces the last. */
     PnVector *vy;        /* snapshot Y vector (ref), or NULL */
     PnVector *vx;        /* snapshot X vector (ref), or NULL */
 
-    gdouble  *rx;        /* rolling-ring X, capacity PN_OSC_RING */
-    gdouble  *ry;        /* rolling-ring Y, capacity PN_OSC_RING */
-    guint     rhead;     /* index of the next write (one past newest) */
-    guint     rcount;    /* number of valid samples in the ring */
-    gdouble   sample_counter;  /* fallback X when a scalar carries none */
+    gboolean  have_point;  /* a scalar point is live (vy == NULL)        */
+    gdouble   last_x;      /* the current point's X                      */
+    gdouble   last_y;      /* the current point's Y                      */
+
+    /* Accumulated bounds of every scalar point seen since the last reset.
+     * Only the latest point is ever drawn, but auto-fitting a lone point
+     * would pin it dead-centre; tracking the explored min/max gives the
+     * dot a stable frame so it visibly MOVES as the inputs change.  Reset
+     * when a vector snapshot takes over.  (No sample history is kept —
+     * just the four extents.) */
+    gboolean  have_bounds;
+    gdouble   bx_lo, bx_hi;
+    gdouble   by_lo, by_hi;
+
+    /* Afterglow trail — a ring of recent positions the dot has moved AWAY
+     * from, each stamped with the monotonic time it was vacated, ordered
+     * oldest→newest.  The painter draws a fading segment from each to the
+     * next-newer position (and from the newest to the live dot) plus a
+     * fading dot, so a moving dot leaves a phosphor streak.  Reset when a
+     * vector snapshot takes over (vectors keep no trail). */
+    gdouble   trail_x[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+    gdouble   trail_y[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+    gint64    trail_t[PN_OSCILLOSCOPE_AFTERGLOW_MAX];
+    guint     trail_head;   /* index of the oldest live entry              */
+    guint     trail_count;  /* number of live entries                      */
+    guint     fade_anim_id; /* repaint timer while the trail is decaying   */
 
     /* Repaint throttle — see schedule_repaint(). */
     gint64  last_repaint_us;
@@ -259,13 +288,94 @@ schedule_repaint (PnOscilloscope *self)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Afterglow trail                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Drop trail entries that have aged past the persistence window.  The
+ *  ring is ordered oldest→newest with non-decreasing timestamps, so the
+ *  expired ones are always a prefix at the head. */
+static void
+prune_trail (
+        PnOscilloscope *self,
+        gint64          now)
+{
+    while (self->trail_count > 0 &&
+           now - self->trail_t[self->trail_head] >= PN_OSC_AFTERGLOW_US)
+    {
+        self->trail_head = (self->trail_head + 1)
+                         % PN_OSCILLOSCOPE_AFTERGLOW_MAX;
+        self->trail_count -= 1;
+    }
+}
+
+/** Append a just-vacated position to the trail ring (overwriting the
+ *  oldest entry when full — it is the most faded, so the loss is
+ *  invisible). */
+static void
+trail_push (
+        PnOscilloscope *self,
+        gdouble         x,
+        gdouble         y,
+        gint64          now)
+{
+    guint slot = (self->trail_head + self->trail_count)
+               % PN_OSCILLOSCOPE_AFTERGLOW_MAX;
+
+    self->trail_x[slot] = x;
+    self->trail_y[slot] = y;
+    self->trail_t[slot] = now;
+
+    if (self->trail_count < PN_OSCILLOSCOPE_AFTERGLOW_MAX)
+        self->trail_count += 1;
+    else
+        self->trail_head = (self->trail_head + 1)
+                         % PN_OSCILLOSCOPE_AFTERGLOW_MAX;
+}
+
+static void
+trail_clear (PnOscilloscope *self)
+{
+    self->trail_head  = 0;
+    self->trail_count = 0;
+}
+
+/** Repaint tick that animates the glow decay: prune the dead tail, ask
+ *  for a redraw, and keep ticking until the trail is empty (then the dot
+ *  is static again and message-driven repaints suffice). */
+static gboolean
+on_fade_tick (gpointer user_data)
+{
+    PnOscilloscope *self = user_data;
+
+    prune_trail (self, g_get_monotonic_time ());
+    pn_node_request_repaint (PN_NODE (self));
+
+    if (self->trail_count == 0)
+    {
+        self->fade_anim_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/** Start the fade animation if the trail has anything to decay and no
+ *  timer is already running. */
+static void
+ensure_fade_anim (PnOscilloscope *self)
+{
+    if (self->fade_anim_id == 0 && self->trail_count > 0)
+        self->fade_anim_id =
+                g_timeout_add (PN_OSC_FADE_INTERVAL_MS, on_fade_tick, self);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Trace store                                                        */
 /* ------------------------------------------------------------------ */
 
 /** Adopt @vy (and optional @vx) as the on-screen waveform snapshot,
- *  discarding any rolling-ring history.  References are taken on the
- *  vectors (they are immutable and shared), so the trace survives the
- *  message that delivered it being unref'd after receive(). */
+ *  discarding any scalar point.  References are taken on the vectors
+ *  (they are immutable and shared), so the trace survives the message
+ *  that delivered it being unref'd after receive(). */
 static void
 set_snapshot (
         PnOscilloscope *self,
@@ -279,44 +389,69 @@ set_snapshot (
     else
         g_clear_object (&self->vx);
 
-    /* A waveform snapshot supersedes the sweep history. */
-    self->rhead  = 0;
-    self->rcount = 0;
+    /* A waveform snapshot supersedes any scalar point, and the explored
+     * scalar frame no longer applies — a later scalar stream reframes.
+     * The afterglow trail belongs to the dot, so it goes too. */
+    self->have_point  = FALSE;
+    self->have_bounds = FALSE;
+    trail_clear (self);
 }
 
-/** Append one (x, y) scalar sample to the rolling ring, dropping any
- *  vector snapshot that was on screen so the modes never blend. */
+/** Make @x, @y the single current scalar point, replacing whatever was
+ *  on screen — the previous point or a vector snapshot.  No history is
+ *  kept, so the scalar trace is always exactly this one dot. */
 static void
 push_scalar (
         PnOscilloscope *self,
         gdouble         x,
         gdouble         y)
 {
-    if (self->vy != NULL || self->vx != NULL)
+    g_clear_object (&self->vy);
+    g_clear_object (&self->vx);
+
+    /* If the dot is actually moving, the position it is leaving becomes an
+     * afterglow point — a glowing breadcrumb the painter trails a fading
+     * connector back to.  A repeated value (no motion) leaves no streak. */
+    if (self->have_point &&
+        (x != self->last_x || y != self->last_y))
     {
-        g_clear_object (&self->vy);
-        g_clear_object (&self->vx);
-        self->rhead  = 0;
-        self->rcount = 0;
+        trail_push (self, self->last_x, self->last_y,
+                    g_get_monotonic_time ());
+        ensure_fade_anim (self);
     }
 
-    self->rx[self->rhead] = x;
-    self->ry[self->rhead] = y;
-    self->rhead = (self->rhead + 1) % PN_OSC_RING;
-    if (self->rcount < PN_OSC_RING)
-        self->rcount += 1;
+    self->last_x     = x;
+    self->last_y     = y;
+    self->have_point = TRUE;
+
+    /* Grow the explored frame to include this point (it only ever widens
+     * until a snapshot resets it). */
+    if (!self->have_bounds)
+    {
+        self->bx_lo = self->bx_hi = x;
+        self->by_lo = self->by_hi = y;
+        self->have_bounds = TRUE;
+    }
+    else
+    {
+        if (x < self->bx_lo) self->bx_lo = x;
+        if (x > self->bx_hi) self->bx_hi = x;
+        if (y < self->by_lo) self->by_lo = y;
+        if (y > self->by_hi) self->by_hi = y;
+    }
 }
 
 /* The current trace addressed by a single logical index k in display
- * order (0 = leftmost / oldest).  Resolves through whichever store is
- * live so the bounds scan and the decimator share one code path. */
+ * order (0 = leftmost).  Resolves through whichever store is live so the
+ * bounds scan and the decimator share one code path; the scalar store is
+ * a single point (k is always 0). */
 
 static guint
 trace_len (PnOscilloscope *self)
 {
     if (self->vy != NULL)
         return (guint) MIN (pn_vector_get_len (self->vy), (gsize) G_MAXUINT);
-    return self->rcount;
+    return self->have_point ? 1u : 0u;
 }
 
 static gdouble
@@ -324,11 +459,7 @@ trace_y (PnOscilloscope *self, guint k)
 {
     if (self->vy != NULL)
         return pn_vector_get_data (self->vy)[k];
-
-    {
-        guint idx = (self->rhead + PN_OSC_RING - self->rcount + k) % PN_OSC_RING;
-        return self->ry[idx];
-    }
+    return self->last_y;
 }
 
 static gdouble
@@ -341,10 +472,7 @@ trace_x (PnOscilloscope *self, guint k)
         return (gdouble) k;   /* no X vector: plot against the sample index */
     }
 
-    {
-        guint idx = (self->rhead + PN_OSC_RING - self->rcount + k) % PN_OSC_RING;
-        return self->rx[idx];
-    }
+    return self->last_x;
 }
 
 /* ------------------------------------------------------------------ */
@@ -385,16 +513,17 @@ pn_oscilloscope_receive (
         return;
     }
 
-    /* Scalar value → sweep one point into the rolling ring. */
+    /* Scalar value → show the single current point (a dot), replacing the
+     * previous one.  X is the matching number, or 0 when none is supplied
+     * (a lone scalar then rides the centre line, auto-fit centring it). */
     if (node_to_finite_double (vnode, &y))
     {
-        gdouble x;
+        gdouble x = 0.0;
 
-        if (!(xnode != NULL && node_to_finite_double (xnode, &x)))
-            x = self->sample_counter;
+        if (xnode != NULL)
+            (void) node_to_finite_double (xnode, &x);
 
         push_scalar (self, x, y);
-        self->sample_counter += 1.0;
         schedule_repaint (self);
         return;
     }
@@ -454,7 +583,8 @@ pn_oscilloscope_read_trace (
     }
 
     /* Bounds over every retained sample, so the auto-fit is exact even
-     * when the trace is decimated below for drawing. */
+     * when the trace is decimated below for drawing.  (For the scalar dot
+     * this is overridden by the accumulated envelope after the loop.) */
     for (k = 0; k < n; k++)
     {
         gdouble x = trace_x (self, k);
@@ -530,6 +660,15 @@ pn_oscilloscope_read_trace (
         }
     }
 
+    /* Scalar mode draws only the latest dot, but auto-fitting that single
+     * point would centre it forever; frame it by the accumulated extent of
+     * every scalar point seen so the dot moves within the explored range. */
+    if (self->vy == NULL && self->have_bounds)
+    {
+        lo_x = self->bx_lo; hi_x = self->bx_hi;
+        lo_y = self->by_lo; hi_y = self->by_hi;
+    }
+
     if (xmin) *xmin = lo_x;
     if (xmax) *xmax = hi_x;
     if (ymin) *ymin = lo_y;
@@ -539,10 +678,46 @@ pn_oscilloscope_read_trace (
 }
 
 guint
-pn_oscilloscope_get_ring_count (PnOscilloscope *self)
+pn_oscilloscope_read_afterglow (
+        PnOscilloscope *self,
+        guint           cap,
+        gdouble        *out_x,
+        gdouble        *out_y,
+        gdouble        *out_life)
+{
+    gint64 now;
+    guint  i;
+    guint  wn = 0;
+
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0);
+    g_return_val_if_fail (out_x != NULL && out_y != NULL && out_life != NULL,
+                          0);
+
+    now = g_get_monotonic_time ();
+
+    for (i = 0; i < self->trail_count && wn < cap; i++)
+    {
+        guint   idx  = (self->trail_head + i) % PN_OSCILLOSCOPE_AFTERGLOW_MAX;
+        gdouble life = 1.0 - (gdouble) (now - self->trail_t[idx])
+                             / (gdouble) PN_OSC_AFTERGLOW_US;
+
+        if (life <= 0.0)
+            continue;   /* aged out since the last prune — skip it */
+
+        out_x[wn]    = self->trail_x[idx];
+        out_y[wn]    = self->trail_y[idx];
+        out_life[wn] = life;
+        wn += 1;
+    }
+
+    return wn;
+}
+
+guint
+pn_oscilloscope_get_point_count (PnOscilloscope *self)
 {
     g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0);
-    return self->rcount;
+    return self->have_point ? 1u : 0u;
 }
 
 /* ------------------------------------------------------------------ */
@@ -743,10 +918,14 @@ pn_oscilloscope_finalize (GObject *object)
         self->pending_repaint_id = 0;
     }
 
+    if (self->fade_anim_id != 0)
+    {
+        g_source_remove (self->fade_anim_id);
+        self->fade_anim_id = 0;
+    }
+
     g_clear_object  (&self->vy);
     g_clear_object  (&self->vx);
-    g_clear_pointer (&self->rx, g_free);
-    g_clear_pointer (&self->ry, g_free);
     g_clear_pointer (&self->value_key, g_free);
     g_clear_pointer (&self->x_key, g_free);
 
@@ -788,8 +967,8 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
             "x-key", "X key",
             "Data-bag member holding the X value.  May be a number or a "
             "$pnvector.  Optional: when absent, a vector value is plotted "
-            "against its sample index and a scalar value against a running "
-            "sample counter.",
+            "against its sample index and a scalar value's dot sits at "
+            "X = 0 (centred).",
             "x",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -885,11 +1064,16 @@ pn_oscilloscope_init (PnOscilloscope *self)
 
     self->vy = NULL;
     self->vx = NULL;
-    self->rx = g_new0 (gdouble, PN_OSC_RING);
-    self->ry = g_new0 (gdouble, PN_OSC_RING);
-    self->rhead          = 0;
-    self->rcount         = 0;
-    self->sample_counter = 0.0;
+    self->have_point  = FALSE;
+    self->last_x      = 0.0;
+    self->last_y      = 0.0;
+    self->have_bounds = FALSE;
+    self->bx_lo = self->bx_hi = 0.0;
+    self->by_lo = self->by_hi = 0.0;
+
+    self->trail_head   = 0;
+    self->trail_count  = 0;
+    self->fade_anim_id = 0;
 
     self->last_repaint_us    = 0;
     self->pending_repaint_id = 0;
