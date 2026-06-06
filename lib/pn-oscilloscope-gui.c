@@ -58,6 +58,89 @@ set_rgba (
     cairo_set_source_rgba (cr, c->red, c->green, c->blue, alpha);
 }
 
+/* The blooming phosphor beam — one recipe shared by the line-mode trace,
+ * the scalar dot and the afterglow streak so they always match in stroke
+ * weight and halo size: a wide soft pass and a medium ring (the bloom) at
+ * the trace colour, then a bright near-white core.  Widths are multiples
+ * of the base line width @lw; @a scales every pass for the afterglow fade
+ * (a == 1.0 at full brightness). */
+#define PN_OSC_GLOW_SOFT_MUL  4.5
+#define PN_OSC_GLOW_SOFT_A    0.16
+#define PN_OSC_GLOW_MED_MUL   2.2
+#define PN_OSC_GLOW_MED_A     0.30
+
+/** Source = the bright near-white beam core for trace colour @c. */
+static void
+set_beam_core (
+        cairo_t       *cr,
+        const PnColor *c,
+        double         alpha)
+{
+    cairo_set_source_rgba (cr,
+            MIN (1.0, c->red   + 0.45),
+            MIN (1.0, c->green + 0.10),
+            MIN (1.0, c->blue  + 0.45),
+            alpha);
+}
+
+/** A dot with the full phosphor halo, centred at (@cx, @cy), radius @lw
+ *  for the core; @a fades the whole stack (1.0 = the live dot). */
+static void
+draw_glow_dot (
+        cairo_t       *cr,
+        const PnColor *c,
+        double         cx,
+        double         cy,
+        double         lw,
+        double         a)
+{
+    set_rgba (cr, c, PN_OSC_GLOW_SOFT_A * a);
+    cairo_arc (cr, cx, cy, lw * PN_OSC_GLOW_SOFT_MUL, 0.0, 2.0 * G_PI);
+    cairo_fill (cr);
+
+    set_rgba (cr, c, PN_OSC_GLOW_MED_A * a);
+    cairo_arc (cr, cx, cy, lw * PN_OSC_GLOW_MED_MUL, 0.0, 2.0 * G_PI);
+    cairo_fill (cr);
+
+    set_beam_core (cr, c, a);
+    cairo_arc (cr, cx, cy, lw, 0.0, 2.0 * G_PI);
+    cairo_fill (cr);
+}
+
+/** One beam segment from (@x0,@y0) to (@x1,@y1) with the same halo a dot
+ *  carries, so the afterglow connector matches both the dot and the line-
+ *  mode beam in width and bloom; @a fades the whole stack.  The caller
+ *  sets round caps/joins so segment ends round off like the beam. */
+static void
+draw_glow_segment (
+        cairo_t       *cr,
+        const PnColor *c,
+        double         x0,
+        double         y0,
+        double         x1,
+        double         y1,
+        double         lw,
+        double         a)
+{
+    set_rgba (cr, c, PN_OSC_GLOW_SOFT_A * a);
+    cairo_set_line_width (cr, lw * PN_OSC_GLOW_SOFT_MUL);
+    cairo_move_to (cr, x0, y0);
+    cairo_line_to (cr, x1, y1);
+    cairo_stroke (cr);
+
+    set_rgba (cr, c, PN_OSC_GLOW_MED_A * a);
+    cairo_set_line_width (cr, lw * PN_OSC_GLOW_MED_MUL);
+    cairo_move_to (cr, x0, y0);
+    cairo_line_to (cr, x1, y1);
+    cairo_stroke (cr);
+
+    set_beam_core (cr, c, a);
+    cairo_set_line_width (cr, lw);
+    cairo_move_to (cr, x0, y0);
+    cairo_line_to (cr, x1, y1);
+    cairo_stroke (cr);
+}
+
 static void
 rounded_rect (
         cairo_t *cr,
@@ -334,24 +417,12 @@ pn_oscilloscope_paint_plot (
                         ey = cury;
                     }
 
-                    /* Connector A→B: a soft wide glow under a thin core,
-                     * both scaled by the point's remaining life. */
-                    set_rgba (cr, &ps.trace_color, 0.16 * a);
-                    cairo_set_line_width (cr, lw * 3.0);
-                    cairo_move_to (cr, bx, by);
-                    cairo_line_to (cr, ex, ey);
-                    cairo_stroke (cr);
-
-                    set_rgba (cr, &ps.trace_color, 0.65 * a);
-                    cairo_set_line_width (cr, lw);
-                    cairo_move_to (cr, bx, by);
-                    cairo_line_to (cr, ex, ey);
-                    cairo_stroke (cr);
-
-                    /* A fading dot sitting at the vacated position. */
-                    set_rgba (cr, &ps.trace_color, 0.55 * a);
-                    cairo_arc (cr, bx, by, lw * 1.3, 0.0, 2.0 * G_PI);
-                    cairo_fill (cr);
+                    /* Connector B→next, drawn with the very same beam
+                     * recipe the dot and the line-mode trace use, so the
+                     * streak matches them in width and halo — only dimmed
+                     * by the point's remaining life. */
+                    draw_glow_segment (cr, &ps.trace_color,
+                                       bx, by, ex, ey, lw, a);
                 }
             }
         }
@@ -362,24 +433,10 @@ pn_oscilloscope_paint_plot (
             double dx = px + (tx[0] - x0) / xspan * pw;
             double dy = py + ph - (ty[0] - y0) / yspan * ph;
 
-            /* Phosphor halo around the dot: a wide soft bloom, a medium
-             * ring, then a bright near-white core — the dot-mode analogue
-             * of the beam glow below. */
-            set_rgba (cr, &ps.trace_color, 0.16);
-            cairo_arc (cr, dx, dy, lw * 4.5, 0.0, 2.0 * G_PI);
-            cairo_fill (cr);
-
-            set_rgba (cr, &ps.trace_color, 0.30);
-            cairo_arc (cr, dx, dy, lw * 2.2, 0.0, 2.0 * G_PI);
-            cairo_fill (cr);
-
-            cairo_set_source_rgba (cr,
-                    MIN (1.0, ps.trace_color.red   + 0.45),
-                    MIN (1.0, ps.trace_color.green + 0.10),
-                    MIN (1.0, ps.trace_color.blue  + 0.45),
-                    1.0);
-            cairo_arc (cr, dx, dy, lw, 0.0, 2.0 * G_PI);
-            cairo_fill (cr);
+            /* The live dot: the full phosphor halo at full brightness —
+             * the same recipe the afterglow streak and the line-mode beam
+             * use, so dot and streak match. */
+            draw_glow_dot (cr, &ps.trace_color, dx, dy, lw, 1.0);
         }
         else
         {
@@ -392,23 +449,22 @@ pn_oscilloscope_paint_plot (
             }
 
             /* Phosphor glow: a wide soft pass, a medium pass, then a
-             * bright near-white core — the classic blooming beam. */
+             * bright near-white core — the classic blooming beam.  Strokes
+             * the whole polyline in one pass each (cleaner overlaps than
+             * per-segment), but with the same widths/alphas the dot and the
+             * afterglow streak use. */
             cairo_path_t *path = cairo_copy_path (cr);
 
-            set_rgba (cr, &ps.trace_color, 0.16);
-            cairo_set_line_width (cr, lw * 4.5);
+            set_rgba (cr, &ps.trace_color, PN_OSC_GLOW_SOFT_A);
+            cairo_set_line_width (cr, lw * PN_OSC_GLOW_SOFT_MUL);
             cairo_stroke_preserve (cr);
 
-            set_rgba (cr, &ps.trace_color, 0.30);
-            cairo_set_line_width (cr, lw * 2.2);
+            set_rgba (cr, &ps.trace_color, PN_OSC_GLOW_MED_A);
+            cairo_set_line_width (cr, lw * PN_OSC_GLOW_MED_MUL);
             cairo_stroke (cr);
 
             cairo_append_path (cr, path);
-            cairo_set_source_rgba (cr,
-                    MIN (1.0, ps.trace_color.red   + 0.45),
-                    MIN (1.0, ps.trace_color.green + 0.10),
-                    MIN (1.0, ps.trace_color.blue  + 0.45),
-                    1.0);
+            set_beam_core (cr, &ps.trace_color, 1.0);
             cairo_set_line_width (cr, lw);
             cairo_stroke (cr);
 
