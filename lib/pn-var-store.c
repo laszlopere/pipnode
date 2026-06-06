@@ -296,26 +296,14 @@ compare_value (gchar op, const PnExprValue *a, const PnExprValue *b,
 gchar *
 pn_var_store_value_to_string (const PnExprValue *value)
 {
-    const gsize    MAX_SHOW = 8;
-    const gdouble *d;
-    gsize          n, show, i;
-    GString       *s;
-
     if (value == NULL)
         return g_strdup ("");
     if (value->vec == NULL)
         return g_strdup_printf ("%g", value->scalar);
 
-    n    = pn_vector_get_len  (value->vec);
-    d    = pn_vector_get_data (value->vec);
-    show = MIN (n, MAX_SHOW);
-    s    = g_string_new ("[");
-    for (i = 0; i < show; i++)
-        g_string_append_printf (s, "%s%g", i ? ", " : "", d[i]);
-    if (n > show)
-        g_string_append (s, ", \xE2\x80\xA6");   /* … */
-    g_string_append_printf (s, "] (%" G_GSIZE_FORMAT " values)", n);
-    return g_string_free (s, FALSE);
+    /* Shared bounded renderer so the Calculator's "output" and the Debug
+     * pane preview a vector identically ("[a, b, …] (N values)"). */
+    return pn_vector_to_sample_string (value->vec, 8);
 }
 
 /* ------------------------------------------------------------------ */

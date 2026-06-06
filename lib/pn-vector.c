@@ -101,3 +101,24 @@ pn_vector_get_len (PnVector *self)
 
     return self->len;
 }
+
+gchar *
+pn_vector_to_sample_string (PnVector *self, gsize max_show)
+{
+    gsize    show, i;
+    GString *s;
+
+    g_return_val_if_fail (PN_IS_VECTOR (self), NULL);
+
+    if (max_show == 0)
+        max_show = 8;
+
+    show = MIN (self->len, max_show);
+    s    = g_string_new ("[");
+    for (i = 0; i < show; i++)
+        g_string_append_printf (s, "%s%g", i ? ", " : "", self->data[i]);
+    if (self->len > show)
+        g_string_append (s, ", \xE2\x80\xA6");   /* … */
+    g_string_append_printf (s, "] (%" G_GSIZE_FORMAT " values)", self->len);
+    return g_string_free (s, FALSE);
+}

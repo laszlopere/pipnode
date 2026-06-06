@@ -85,6 +85,22 @@ const gdouble *pn_vector_get_data (PnVector *self);
  */
 gsize pn_vector_get_len (PnVector *self);
 
+/**
+ * pn_vector_to_sample_string:
+ * @self:     a #PnVector.
+ * @max_show: how many leading elements to print before eliding; 0 picks a
+ *            sensible default.
+ *
+ * Renders a BOUNDED, human-readable preview of @self: a short leading
+ * sample followed by the full count, e.g. "[0, 1, 2, …] (256 values)".
+ * At most @max_show elements are ever formatted, so a megabyte vector
+ * still yields a tiny string — suitable for log lines and inspection
+ * panes that must never dump the whole buffer.
+ *
+ * Returns: (transfer full): a newly-allocated string; free with g_free().
+ */
+gchar *pn_vector_to_sample_string (PnVector *self, gsize max_show);
+
 G_END_DECLS
 
 #endif /* PN_VECTOR_H */

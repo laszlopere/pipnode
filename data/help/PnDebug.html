@@ -34,5 +34,18 @@ a chosen format. Indispensable for inspecting a flow.
         piping through <code>jq</code>).</td></tr>
 </table>
 
+<h5>Large numeric vectors</h5>
+<p>
+When a message carries a big out-of-band numeric vector (a
+<code>$pnvector</code> member, as emitted by the signal-generator and
+Calculator nodes), the <em>oneliner</em> and <em>JSON</em> formats do
+<strong>not</strong> dump every value. The vector is previewed as a
+short, bounded leading sample with its total count &mdash; for example
+<code>[0, 1, 2, 3, 4, 5, 6, 7, &hellip;] (256 values)</code> &mdash; so
+even a megabyte vector renders as one tiny string and never freezes the
+Debug View. This is the same preview the Calculator writes to its
+<code>output</code> field.
+</p>
+
 </body>
 </html>

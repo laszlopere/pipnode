@@ -127,6 +127,116 @@ display_name (PnNode *node)
     return pn_node_get_class_name (node);
 }
 
+/** Render a "$pnvector" @marker as a short, bounded human-readable
+ *  sample resolved against @message (e.g. "[0, 1, 2, …] (256 values)").
+ *  When the handle does not resolve — a descriptor-only marker, as in an
+ *  inspection envelope deserialized without its blobs — fall back to the
+ *  advertised length so the pane still shows a bounded summary instead of
+ *  the bare {handle,len} JSON. */
+static gchar *
+marker_sample_string (
+        PnMessage *message,
+        JsonNode  *marker)
+{
+    PnVector   *vec = pn_message_resolve_vector (message, marker);
+    JsonObject *obj;
+    gint64      len;
+
+    if (vec != NULL)
+        return pn_vector_to_sample_string (vec, 8);
+
+    obj = json_node_get_object (marker);
+    len = json_object_has_member (obj, "len")
+          ? json_object_get_int_member (obj, "len") : 0;
+    return g_strdup_printf ("[\xE2\x80\xA6] (%" G_GINT64_FORMAT " values)", len);
+}
+
+/** Deep-copy @node, replacing every "$pnvector" marker object with the
+ *  bounded sample string from marker_sample_string().  The copy keeps the
+ *  message's data bag tiny to serialize: a megabyte vector collapses to a
+ *  few characters rather than a dumped {handle,len} object (or, far worse,
+ *  the whole buffer).  Plain objects and arrays are rebuilt member by
+ *  member so the original tree is never mutated. */
+static JsonNode *
+humanize_vectors (
+        PnMessage *message,
+        JsonNode  *node)
+{
+    if (node == NULL)
+        return json_node_new (JSON_NODE_NULL);
+
+    switch (json_node_get_node_type (node))
+    {
+    case JSON_NODE_OBJECT:
+    {
+        JsonObject *obj = json_node_get_object (node);
+
+        if (json_object_has_member (obj, PN_MESSAGE_VECTOR_MARKER))
+        {
+            gchar    *sample = marker_sample_string (message, node);
+            JsonNode *out    = json_node_new (JSON_NODE_VALUE);
+
+            json_node_set_string (out, sample);
+            g_free (sample);
+            return out;
+        }
+        else
+        {
+            JsonObject *copy    = json_object_new ();
+            GList      *members = json_object_get_members (obj);
+            GList      *l;
+            JsonNode   *out     = json_node_new (JSON_NODE_OBJECT);
+
+            for (l = members; l != NULL; l = l->next)
+                json_object_set_member (copy, l->data,
+                        humanize_vectors (message,
+                                json_object_get_member (obj, l->data)));
+            g_list_free (members);
+
+            json_node_take_object (out, copy);
+            return out;
+        }
+    }
+
+    case JSON_NODE_ARRAY:
+    {
+        JsonArray *arr  = json_node_get_array (node);
+        JsonArray *copy = json_array_new ();
+        guint      n    = json_array_get_length (arr);
+        guint      i;
+        JsonNode  *out  = json_node_new (JSON_NODE_ARRAY);
+
+        for (i = 0; i < n; i++)
+            json_array_add_element (copy,
+                    humanize_vectors (message,
+                            json_array_get_element (arr, i)));
+
+        json_node_take_array (out, copy);
+        return out;
+    }
+
+    default:
+        return json_node_copy (node);
+    }
+}
+
+/** A humanized deep-copy of @message's data bag as a fresh object node:
+ *  every "$pnvector" marker rendered as a bounded sample string.  Owned by
+ *  the caller. */
+static JsonNode *
+humanize_data (PnMessage *message)
+{
+    JsonObject *data = pn_message_get_data (message);
+    JsonNode   *tmp  = json_node_new (JSON_NODE_OBJECT);
+    JsonNode   *out;
+
+    /* References @data (no copy); humanize_vectors only reads it. */
+    json_node_set_object (tmp, data);
+    out = humanize_vectors (message, tmp);
+    json_node_free (tmp);
+    return out;
+}
+
 /** Build a #JsonObject describing @message: source/topic/id metadata
  *  alongside the message's data bag (recursively, via JSON-GLib's
  *  reference semantics).  Returned object is owned by the caller. */
@@ -142,9 +252,7 @@ message_to_json_object (
     const gchar *id        = pn_message_get_id      (message);
     const gchar *topic     = pn_message_get_topic   (message);
     const gchar *created   = pn_message_get_created (message);
-    JsonObject  *data      = pn_message_get_data    (message);
     JsonObject  *obj       = json_object_new ();
-    JsonNode    *data_node = json_node_new (JSON_NODE_OBJECT);
 
     (void) self;
 
@@ -169,10 +277,10 @@ message_to_json_object (
     json_object_set_string_member (obj, "created",
                                    created   ? created   : "");
 
-    /* Reference, do not copy: callers consuming the returned object
-     * via JsonGenerator only read it. */
-    json_node_set_object   (data_node, data);
-    json_object_set_member (obj, "data", data_node);
+    /* A humanized deep-copy: any out-of-band "$pnvector" payload is
+     * rendered as a bounded sample string rather than dumped as a bare
+     * {handle,len} marker (or expanded to the full buffer). */
+    json_object_set_member (obj, "data", humanize_data (message));
 
     return obj;
 }
@@ -228,8 +336,9 @@ format_oneliner (
     const gchar *id           = pn_message_get_id      (message);
     const gchar *topic        = pn_message_get_topic   (message);
     const gchar *created      = pn_message_get_created (message);
-    JsonObject  *data         = pn_message_get_data    (message);
-    gchar       *data_text    = json_object_to_compact_string (data);
+    JsonNode    *data_node    = humanize_data (message);
+    gchar       *data_text    = json_object_to_compact_string (
+                                    json_node_get_object (data_node));
     gchar       *result;
 
     result = g_strdup_printf (
@@ -242,6 +351,7 @@ format_oneliner (
             data_text    ? data_text    : "{}");
 
     g_free (data_text);
+    json_node_free (data_node);
     return result;
 }
 

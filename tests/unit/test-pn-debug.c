@@ -27,6 +27,7 @@
 
 #include "pntest.h"
 #include "pn-debug.h"
+#include "pn-vector.h"
 
 #include <string.h>
 
@@ -150,6 +151,72 @@ test_json_is_pretty_envelope (void)
     g_object_unref (node);
 }
 
+/* A message whose data bag carries a large out-of-band vector under
+ * @name, so the formatters have a "$pnvector" marker to render. */
+static PnMessage *
+make_vector_message (const gchar *name, gsize len)
+{
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    gdouble   *data = g_new (gdouble, len);
+    PnVector  *vec;
+    gsize      i;
+
+    for (i = 0; i < len; i++)
+        data[i] = (gdouble) i;
+    vec = pn_vector_new_take (data, len);
+
+    pn_message_set_topic  (msg, "sensors/x");
+    pn_message_set_vector (msg, name, vec);
+    g_object_unref (vec);
+    return msg;
+}
+
+/* The one-liner renders a vector member as a bounded leading sample with
+ * the total count, never the bare {"$pnvector":…} marker and never the
+ * whole buffer. */
+static void
+test_oneliner_vector_is_bounded (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (PN_DEBUG_FORMAT_ONELINER, &cap);
+    PnMessage *msg  = make_vector_message ("ramp", 256);
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    /* Bounded sample: first elements, an ellipsis, then the full count. */
+    PN_CHECK (cap.last != NULL && strstr (cap.last, "[0, 1, 2") != NULL);
+    PN_CHECK (cap.last != NULL && strstr (cap.last, "(256 values)") != NULL);
+    /* The raw out-of-band marker never leaks into the rendered line. */
+    PN_CHECK (cap.last != NULL && strstr (cap.last, "$pnvector") == NULL);
+    /* Bounded means short: a 256-element vector cannot blow up the line. */
+    PN_CHECK (cap.last != NULL && strlen (cap.last) < 200);
+
+    g_object_unref (msg);
+    g_free (cap.last);
+    g_object_unref (node);
+}
+
+/* The JSON envelope renders the same bounded sample (as a JSON string
+ * value) instead of the marker object. */
+static void
+test_json_vector_is_bounded (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (PN_DEBUG_FORMAT_JSON, &cap);
+    PnMessage *msg  = make_vector_message ("ramp", 256);
+
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK (cap.last != NULL && strstr (cap.last, "(256 values)") != NULL);
+    PN_CHECK (cap.last != NULL && strstr (cap.last, "$pnvector") == NULL);
+
+    g_object_unref (msg);
+    g_free (cap.last);
+    g_object_unref (node);
+}
+
 /* Debug is a header-only node — its output goes to the debug view, not
  * to a body drawn on the worksheet — so it reports no client area, and
  * the palette drag-preview outlines its header alone. */
@@ -177,6 +244,8 @@ main (int argc, char **argv)
     pn_test_add ("text_blank_no_output",   test_text_blank_without_output);
     pn_test_add ("oneliner_has_fields",    test_oneliner_has_fields);
     pn_test_add ("json_pretty_envelope",   test_json_is_pretty_envelope);
+    pn_test_add ("oneliner_vector_bounded", test_oneliner_vector_is_bounded);
+    pn_test_add ("json_vector_bounded",     test_json_vector_is_bounded);
     pn_test_add ("has_no_client_area",     test_has_no_client_area);
     return pn_test_run ();
 }
