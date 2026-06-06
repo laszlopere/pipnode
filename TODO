@@ -2099,7 +2099,7 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         rehydrates byte-identical incl. 1e300 + restores envelope + advances
         handle, truncated-blob fails loudly, bare-bag path.  Formal unit test
         deferred to 43.6.
-  [ ] 43.5  Route the ONE existing serialize site through the new pair: the
+  [x] 43.5  Route the ONE existing serialize site through the new pair: the
         D-Bus automation path (automation_message_to_json pn-application.c:770 +
         the InjectMessage deserializer :833).  Default include_blobs=FALSE there
         -- GetLastOutputMessage is for inspection, so ship descriptor-only and
@@ -2108,6 +2108,18 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         D-Bus arg; if bulk transport ever matters, add a SEPARATE binary method
         carrying `ay` and skip base64 (new method, not an envelope change).
         Messages are never persisted to disk, so document save is unaffected.
+        DONE: deleted the two now-redundant statics (automation_message_to_json
+        was a byte-for-byte copy of pn_message_serialize(.,FALSE); _from_json a
+        subset of pn_message_deserialize) and routed all THREE call sites
+        through the PnMessage pair -- GetLastOutputMessage + the MessageEmitted
+        signal bridge serialize with include_blobs=FALSE (descriptor-only);
+        InjectMessage deserializes.  Behaviour gains for free: a round-tripped
+        envelope now restores id/created and rehydrates any "blobs" the caller
+        chose to send.  The deserializer raises in its own PN_MESSAGE_ERROR
+        domain, so the InjectMessage handler RE-MAPS the failure back to the
+        documented PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE (preserving the D-Bus
+        error name the python tests assert).  Builds clean; test_dbus_inter-
+        activity.py + test_dbus_client.py both PASS.
   [ ] 43.6  Tests + docs.  C unit test for PnVector (new/take/len/data) and for
         message set/resolve/clone-shares-buffer + serialize/deserialize round-
         trip (incl. descriptor-only mode drops bytes, full mode rehydrates).

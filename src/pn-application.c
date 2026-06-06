@@ -772,125 +772,12 @@ node_value_from_string (GValue *value, const gchar *text)
 /*  The wire form is the documented message envelope the Debug pane   */
 /*  renders — {type, from, from_id, topic, id, created, data} — so an */
 /*  agent reads back exactly the shape it already knows, and can post */
-/*  the same shape (or just a bare data bag) to inject one.           */
+/*  the same shape (or just a bare data bag) to inject one.  The      */
+/*  serialize/deserialize pair lives on PnMessage (TODO #43.5) so the */
+/*  $pnvector markers survive the round-trip; inspection paths here   */
+/*  ship descriptor-only (include_blobs = FALSE) and never base64     */
+/*  megabytes by accident — a dedicated binary method would do that.  */
 /* ------------------------------------------------------------------ */
-
-/** Render @message as the compact envelope JSON string returned by
- *  GetLastOutputMessage.  Owned by the caller. */
-static gchar *
-automation_message_to_json (PnMessage *message)
-{
-    PnNode      *source    = pn_message_get_source  (message);
-    const gchar *src_name  = NULL;
-    const gchar *src_uuid  = source != NULL ? pn_node_get_uuid (source) : NULL;
-    const gchar *id        = pn_message_get_id      (message);
-    const gchar *topic     = pn_message_get_topic   (message);
-    const gchar *created   = pn_message_get_created (message);
-    JsonObject  *data      = pn_message_get_data    (message);
-    JsonObject  *obj       = json_object_new ();
-    JsonNode    *data_node = json_node_new (JSON_NODE_OBJECT);
-    JsonNode    *root;
-    JsonGenerator *gen;
-    gchar       *out;
-
-    if (source != NULL)
-    {
-        src_name = pn_node_get_name (source);
-        if (src_name == NULL || *src_name == '\0')
-            src_name = pn_node_get_class_name (source);
-    }
-
-    json_object_set_string_member (obj, "type", G_OBJECT_TYPE_NAME (message));
-    json_object_set_string_member (obj, "from",    src_name ? src_name : "");
-    json_object_set_string_member (obj, "from_id", src_uuid ? src_uuid : "");
-    json_object_set_string_member (obj, "topic",   topic    ? topic    : "");
-    json_object_set_string_member (obj, "id",      id       ? id       : "");
-    json_object_set_string_member (obj, "created", created  ? created  : "");
-
-    /* Reference (not copy) the live data bag — the generator only reads. */
-    json_node_set_object   (data_node, data);
-    json_object_set_member (obj, "data", data_node);
-
-    root = json_node_new (JSON_NODE_OBJECT);
-    json_node_take_object (root, obj);
-    gen  = json_generator_new ();
-    json_generator_set_root (gen, root);
-    out = json_generator_to_data (gen, NULL);
-
-    g_object_unref (gen);
-    json_node_free (root);
-    return out;
-}
-
-/** Parse @json into a fresh #PnMessage to inject into a node's input.
- *  Accepts either a full envelope (an object whose "data" member is an
- *  object — optional "topic" string is honoured) or a bare data bag (any
- *  other object, folded wholesale into the message data).  The injected
- *  message has no source (it stands in for a wire delivery, not a node
- *  emission).  Returns %NULL with @error set (BadPropertyValue) on a
- *  parse failure or non-object payload. */
-static PnMessage *
-automation_message_from_json (const gchar *json, GError **error)
-{
-    JsonParser  *parser = json_parser_new ();
-    JsonNode    *root;
-    JsonObject  *obj;
-    JsonObject  *data  = NULL;
-    const gchar *topic = NULL;
-    PnMessage   *msg;
-    GError      *perr  = NULL;
-    GList       *members, *l;
-
-    if (!json_parser_load_from_data (parser, json != NULL ? json : "",
-                                     -1, &perr))
-    {
-        g_set_error (error, PN_WORKSHEET_ERROR,
-                     PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
-                     "Cannot parse message JSON: %s",
-                     perr != NULL ? perr->message : "(parse error)");
-        g_clear_error (&perr);
-        g_object_unref (parser);
-        return NULL;
-    }
-
-    root = json_parser_get_root (parser);
-    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
-    {
-        g_set_error (error, PN_WORKSHEET_ERROR,
-                     PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
-                     "Message JSON must be a JSON object");
-        g_object_unref (parser);
-        return NULL;
-    }
-    obj = json_node_get_object (root);
-
-    if (json_object_has_member (obj, "data") &&
-        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, "data")))
-    {
-        data = json_object_get_object_member (obj, "data");
-        if (json_object_has_member (obj, "topic"))
-            topic = json_object_get_string_member (obj, "topic");
-    }
-    else
-    {
-        data = obj;     /* the whole object is the data bag */
-    }
-
-    msg = pn_message_new (NULL, (topic != NULL && *topic != '\0')
-                          ? topic : NULL);
-
-    members = json_object_get_members (data);
-    for (l = members; l != NULL; l = l->next)
-    {
-        const gchar *name   = l->data;
-        JsonNode    *member = json_object_get_member (data, name);
-        pn_message_set_member (msg, name, json_node_copy (member));
-    }
-    g_list_free (members);
-
-    g_object_unref (parser);
-    return msg;
-}
 
 /* ------------------------------------------------------------------ */
 /*  Shared method bodies                                              */
@@ -2569,10 +2456,15 @@ handle_worksheet_method_call (
             return;
         }
 
-        msg = automation_message_from_json (json, &err);
+        msg = pn_message_deserialize (json, &err);
         if (msg == NULL)
         {
-            g_dbus_method_invocation_return_gerror (invocation, err);
+            /* Keep the documented Worksheet error on the D-Bus surface —
+             * the deserializer raises in its own PN_MESSAGE_ERROR domain. */
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                    "%s", err != NULL ? err->message : "bad message JSON");
             g_clear_error (&err);
             return;
         }
@@ -2602,7 +2494,7 @@ handle_worksheet_method_call (
         }
 
         last = pn_node_get_last_output_message (node);
-        json = last != NULL ? automation_message_to_json (last)
+        json = last != NULL ? pn_message_serialize (last, FALSE)
                             : g_strdup ("");
 
         g_dbus_method_invocation_return_value (
@@ -4582,7 +4474,7 @@ on_bridge_node_message (PnNode    *node,
     PnSignalBridge *b     = user_data;
     const gchar    *uuid  = pn_node_get_uuid (node);
     const gchar    *topic = pn_message_get_topic (message);
-    gchar          *json  = automation_message_to_json (message);
+    gchar          *json  = pn_message_serialize (message, FALSE);
 
     automation_emit_signal (
             b->app, PN_WS_IFACE, "MessageEmitted",
