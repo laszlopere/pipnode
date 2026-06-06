@@ -187,7 +187,7 @@ pn_oscilloscope_paint_plot (
     PnOscilloscopePaintState  ps;
     double  smin   = MIN (w, h);
     double  bezelr = smin * 0.075;            /* bezel corner radius      */
-    double  border = smin * 0.060;            /* bezel thickness          */
+    double  border = smin * 0.030;            /* bezel thickness          */
     double  scale  = smin / PN_OSC_REF_SHORT_SIDE;
     double  sx, sy, sw, sh;                   /* phosphor screen rect     */
     double  px, py, pw, ph;                   /* graticule / plot rect    */
