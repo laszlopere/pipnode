@@ -1,8 +1,3 @@
-(3) Let us design a way to pass a two dimensional array of numbers in the
-message instead of one single numerical value. Maybe creating a new message
-class would be best, then the nodes could decide if they support one, the other
-or both message types?
-
 (12) Let us implement node measuring certain processes something like this
 ssh eth4 "pidstat -p 5365,6902 30 1 2>/dev/null | awk '/Average/ {print}'"
      Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
@@ -25,21 +20,6 @@ that publishes "cmnd/tasmotas/Status 5" to the broker and listens on
 IPAddress / Hostname / Mac from the StatusNET reply. The result is a
 discovery feed that can be wired into the HTTPS Client (or a future plain
 HTTP client) to drive per-device REST calls without any external scan.
-
-(21) Fix the homelab WiFi/router configuration so the IoT VLAN is reachable
-from the main LAN. Current state: this workstation is on 192.168.0.0/16 via
-br0 (gateway 192.168.0.1) and the Tasmota fleet is on 10.1.1.0/24 — the
-broker at 192.168.0.5 sees both, which is why MQTT works, but there is no
-inter-VLAN route from 192.168.0.0/16 to 10.1.1.0/24 so direct IP access
-(HTTP to a device's web UI, ping, the IPs returned by STATUS5) fails. A
-phone connected to the IoT WiFi can reach the devices but has no internet
-either, which matches the captive-isolated-guest profile the WiFi router
-was deliberately configured for. Decide between (a) leaving it isolated
-and routing all device access through MQTT (the TODO #20 path — cleaner,
-no router changes), or (b) adding inter-VLAN routing + a NAT/firewall rule
-on the WiFi router so 192.168.0.0/16 can reach 10.1.1.0/24 for HTTP. If
-(b), document the router-side config (static route, ACL exception) here
-so the change is reproducible the next time the firmware is reset.
 
 (22) Implement a tasmota concentrator. Here is how a discovery message can be
 sent to a tasmota device:
