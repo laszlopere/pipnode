@@ -29,6 +29,8 @@
 
 #include "pntest.h"
 #include "pn-node.h"
+#include "pn-message.h"
+#include "pn-vector.h"
 
 /* --- a throwaway multi-input node whose receive() does nothing; the
  *     collation happens in the core before receive(), so each test just
@@ -240,6 +242,87 @@ test_name_collision_last_wins (void)
     g_object_unref (node);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Per-input value readout (pn_node_get_input_value_display)           */
+/* ------------------------------------------------------------------ */
+
+/* The readout is maintained for every multi-input node, independent of the
+ * collation flag, so the worksheet can paint each input's last value. */
+static void
+test_readout_without_collation (void)
+{
+    PnNode    *node = make_probe (2, FALSE);   /* collation OFF */
+    PnMessage *m1   = send_double (node, 0, 42.0);
+    PnMessage *m2;
+
+    PN_CHECK_CMPSTR (pn_node_get_input_value_display (node, 0), ==, "42");
+    PN_CHECK (pn_node_get_input_value_display (node, 1) == NULL);  /* unseen */
+
+    m2 = send_double (node, 1, 3.5);
+    PN_CHECK_CMPSTR (pn_node_get_input_value_display (node, 0), ==, "42");   /* held */
+    PN_CHECK_CMPSTR (pn_node_get_input_value_display (node, 1), ==, "3.5");
+
+    /* A new value on input 0 refreshes its readout. */
+    g_object_unref (m1);
+    m1 = send_double (node, 0, -7.25);
+    PN_CHECK_CMPSTR (pn_node_get_input_value_display (node, 0), ==, "-7.25");
+
+    g_object_unref (m1);
+    g_object_unref (m2);
+    g_object_unref (node);
+}
+
+/* Single-input nodes keep no readout (NULL on every index). */
+static void
+test_readout_single_input_none (void)
+{
+    PnNode    *node = make_probe (1, FALSE);
+    PnMessage *m    = send_double (node, 0, 9.0);
+
+    PN_CHECK (pn_node_get_input_value_display (node, 0) == NULL);
+
+    g_object_unref (m);
+    g_object_unref (node);
+}
+
+/* A vector value is elided to a bounded sample, like the debug pane. */
+static void
+test_readout_vector_sample (void)
+{
+    PnNode      *node = make_probe (2, FALSE);
+    PnMessage   *m    = pn_message_new (NULL, NULL);
+    gdouble      data[6] = { 0.0, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    PnVector    *vec  = pn_vector_new_copy (data, 6);
+    const gchar *got;
+
+    pn_message_set_vector (m, "value", vec);
+    pn_node_receive_message_on_input (node, m, 0);
+
+    got = pn_node_get_input_value_display (node, 0);
+    PN_CHECK (got != NULL);
+    /* First few values shown, the rest elided, with the full count. */
+    PN_CHECK_CMPSTR (got, ==, "[0, 1, 2, 3, \xE2\x80\xA6] (6 values)");
+
+    g_object_unref (vec);
+    g_object_unref (m);
+    g_object_unref (node);
+}
+
+/* Shrinking the input count drops the readout for inputs that vanish. */
+static void
+test_readout_shrink_drops_slot (void)
+{
+    PnNode    *node = make_probe (3, FALSE);
+    PnMessage *m    = send_double (node, 2, 1.0);
+
+    PN_CHECK_CMPSTR (pn_node_get_input_value_display (node, 2), ==, "1");
+    pn_node_set_n_inputs (node, 2);
+    PN_CHECK (pn_node_get_input_value_display (node, 2) == NULL);
+
+    g_object_unref (m);
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -251,5 +334,9 @@ main (int argc, char **argv)
     pn_test_add ("typed_node_independence",   test_typed_node_and_independence);
     pn_test_add ("missing_value_keeps_latch", test_missing_value_keeps_latch);
     pn_test_add ("name_collision_last_wins",  test_name_collision_last_wins);
+    pn_test_add ("readout_without_collation", test_readout_without_collation);
+    pn_test_add ("readout_single_input_none", test_readout_single_input_none);
+    pn_test_add ("readout_vector_sample",     test_readout_vector_sample);
+    pn_test_add ("readout_shrink_drops_slot", test_readout_shrink_drops_slot);
     return pn_test_run ();
 }

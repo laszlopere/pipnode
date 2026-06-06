@@ -19,6 +19,7 @@
 
 #include "pn-node.h"
 #include "pn-message.h"
+#include "pn-vector.h"
 #include "pn-subst.h"
 #include "pn-flow.h"
 
@@ -169,6 +170,16 @@ typedef struct
      * allocated; NULL until first use.  Purely runtime — never serialized. */
     GPtrArray *input_latch;
     gboolean collate_inputs;
+    /* Per-input short human-readable display of each input's last
+     * /data/value, painted by the worksheet beside the input's name on a
+     * multi-input node (see pn_node_get_input_value_display).  Parallel to
+     * input_names: slot i holds an owned g_strdup'd string (vectors elided
+     * to a bounded sample, "[0, 1, 2, …] (256 values)", just like the debug
+     * pane), or NULL until input i has carried a value.  Unlike input_latch
+     * this is maintained for EVERY multi-input node, not just collating ones
+     * — it is purely a worksheet readout.  Lazily allocated; NULL until
+     * first use.  Purely runtime — never serialized. */
+    GPtrArray *input_value_str;
     /* Name of the GObject property a node exposes to let the user change
      * its input count (Calculator 2's "inputs"), or NULL when the count
      * is fixed.  Purely a UI hint: the node dialog renders a spin for this
@@ -269,9 +280,9 @@ static guint signals[N_SIGNALS];
 
 /* Defined further down (next to the input-name helpers) but called from
  * the dispatch path above it. */
-static void pn_node_collate_inputs (PnNode    *self,
-                                    PnMessage *message,
-                                    gint       input);
+static void pn_node_latch_inputs (PnNode    *self,
+                                  PnMessage *message,
+                                  gint       input);
 
 /* ------------------------------------------------------------------ */
 /*  Default geometry                                                   */
@@ -495,6 +506,7 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->topic,      g_free);
     g_clear_pointer (&priv->input_names, g_ptr_array_unref);
     g_clear_pointer (&priv->input_latch, g_ptr_array_unref);
+    g_clear_pointer (&priv->input_value_str, g_ptr_array_unref);
     g_clear_pointer (&priv->input_count_prop, g_free);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
     g_clear_object  (&priv->last_output);
@@ -850,10 +862,11 @@ pn_node_receive_message_on_input (
         const gint prev_input = pn_node_current_input_idx;
 
         pn_node_current_input_idx = input;
-        /* Latch this input's value and surface every input under its
-         * name before the node processes the message (opt-in; no-op for
-         * single-input or non-collating nodes). */
-        pn_node_collate_inputs (self, message, input);
+        /* Latch this input's value for the worksheet readout and — when the
+         * node opted into collation — surface every input under its name
+         * before the node processes the message (no-op for single-input
+         * nodes). */
+        pn_node_latch_inputs (self, message, input);
         pn_node_dispatch_depth++;
         /* Bracket the handler with the processing indicator (TODO #42) so
          * every synchronous node lights up for free while its receive runs
@@ -1257,6 +1270,9 @@ pn_node_set_n_inputs (
      * handled lazily by pn_node_ensure_input_latch.) */
     if (priv->input_latch != NULL && (gint) priv->input_latch->len > n)
         g_ptr_array_set_size (priv->input_latch, n);
+    /* Likewise drop readout strings for inputs that no longer exist. */
+    if (priv->input_value_str != NULL && (gint) priv->input_value_str->len > n)
+        g_ptr_array_set_size (priv->input_value_str, n);
     /* Keep the boolean consistent so has-input consumers (and the
      * save format, which still goes through it) agree with the count. */
     pn_node_set_has_input (self, n >= 1);
@@ -1308,6 +1324,24 @@ pn_node_get_input_name (PnNode *self, gint index)
                 g_strdup_printf ("value%d", index + 1);
 
     return priv->input_names->pdata[index];
+}
+
+const gchar *
+pn_node_get_input_value_display (PnNode *self, gint index)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+
+    if (index < 0)
+        return NULL;
+
+    priv = pn_node_get_instance_private (self);
+    if (priv->input_value_str == NULL ||
+        index >= (gint) priv->input_value_str->len)
+        return NULL;
+
+    return priv->input_value_str->pdata[index];   /* borrowed; may be NULL */
 }
 
 void
@@ -1420,14 +1454,109 @@ pn_node_ensure_input_latch (PnNodePrivate *priv, gint n)
         g_ptr_array_add (priv->input_latch, NULL);
 }
 
-/* Latch @message's /data/value at input @input, then re-inject every
- * latched input value into @message's data bag under its input's display
- * name, so a multi-input node sees all of its inputs at once.  No-op
- * unless the node opted in (pn_node_set_collate_inputs) and has >= 2
- * inputs.  Invoked from pn_node_receive_message_on_input just before the
- * node's receive(); see the input_latch field comment. */
+/* Grow priv->input_value_str so index @n-1 is addressable, padding new
+ * slots with NULL ("no value seen yet").  Allocates on first use; the
+ * free-func g_free's the owned display strings on teardown/shrink. */
 static void
-pn_node_collate_inputs (
+pn_node_ensure_input_value_str (PnNodePrivate *priv, gint n)
+{
+    if (priv->input_value_str == NULL)
+        priv->input_value_str = g_ptr_array_new_with_free_func (g_free);
+    while ((gint) priv->input_value_str->len < n)
+        g_ptr_array_add (priv->input_value_str, NULL);
+}
+
+/* Render @value (a borrowed /data/value node, resolved against @message for
+ * any "$pnvector" markers) as a short human-readable string for the
+ * worksheet to paint beside an input — or NULL when there is nothing worth
+ * showing.  Vectors collapse to a bounded sample exactly like the debug
+ * pane ("[0, 1, 2, …] (256 values)"); scalars print plainly; long strings
+ * are clipped.  The caller owns the returned string. */
+static gchar *
+pn_node_format_value_display (
+        PnMessage *message,
+        JsonNode  *value)
+{
+    if (value == NULL)
+        return NULL;
+
+    if (JSON_NODE_HOLDS_OBJECT (value))
+    {
+        JsonObject *obj = json_node_get_object (value);
+
+        /* A vector rides as a "$pnvector" marker; resolve it against the
+         * live message and sample a few values, falling back to the
+         * advertised length when only the descriptor survives. */
+        if (json_object_has_member (obj, PN_MESSAGE_VECTOR_MARKER))
+        {
+            PnVector *vec = pn_message_resolve_vector (message, value);
+            gint64    len;
+
+            if (vec != NULL)
+                return pn_vector_to_sample_string (vec, 4);
+
+            len = json_object_has_member (obj, "len")
+                  ? json_object_get_int_member (obj, "len") : 0;
+            return g_strdup_printf (
+                    "[\xE2\x80\xA6] (%" G_GINT64_FORMAT " values)", len);
+        }
+
+        /* Any other structured value: a compact placeholder rather than a
+         * dumped object that would overrun the row. */
+        return g_strdup ("{\xE2\x80\xA6}");
+    }
+
+    if (JSON_NODE_HOLDS_VALUE (value))
+    {
+        GType vt = json_node_get_value_type (value);
+
+        if (vt == G_TYPE_BOOLEAN)
+            return g_strdup (json_node_get_boolean (value) ? "true" : "false");
+
+        if (vt == G_TYPE_STRING)
+        {
+            const gchar *s = json_node_get_string (value);
+
+            if (s == NULL)
+                return NULL;
+            /* Clip overlong strings; the painter ellipsizes to the row
+             * width too, but a hard cap keeps the copy cheap. */
+            if (g_utf8_strlen (s, -1) > 24)
+            {
+                gchar *cut = g_utf8_substring (s, 0, 24);
+                gchar *out = g_strconcat (cut, "\xE2\x80\xA6", NULL);
+                g_free (cut);
+                return out;
+            }
+            return g_strdup (s);
+        }
+
+        /* Numbers (and anything else json-glib hands back as a value)
+         * print with %g, which drops trailing zeros and handles ints. */
+        return g_strdup_printf ("%g", json_node_get_double (value));
+    }
+
+    /* Arrays, null, … — nothing useful to show in one row. */
+    return NULL;
+}
+
+/* Latch @message's /data/value at input @input on a multi-input node.
+ *
+ * Two things happen, with different scope:
+ *  - Always: record a short human-readable rendering of the value in
+ *    input_value_str[input] for the worksheet to paint beside the input's
+ *    name, requesting a repaint when it changed.  This is the per-input
+ *    readout and applies to every multi-input node.
+ *  - Opt-in (pn_node_set_collate_inputs): keep a typed copy in
+ *    input_latch[input] and re-inject every latched value into @message's
+ *    data bag under its input's display name, so a collating node (e.g. the
+ *    Calculator) sees all of its inputs at once.
+ *
+ * No-op for single-input nodes.  Invoked from
+ * pn_node_receive_message_on_input just before the node's receive(); see
+ * the input_latch / input_value_str field comments. */
+static void
+pn_node_latch_inputs (
         PnNode    *self,
         PnMessage *message,
         gint       input)
@@ -1437,7 +1566,7 @@ pn_node_collate_inputs (
     JsonNode      *cur;
     gint           i;
 
-    if (!priv->collate_inputs || n < 2)
+    if (n < 2)
         return;
 
     /* Guard against a stray dispatch index landing outside [0, n). */
@@ -1446,12 +1575,36 @@ pn_node_collate_inputs (
     else if (input >= n)
         input = n - 1;
 
+    cur = pn_message_get_member (message, "value");   /* borrowed */
+
+    /* --- Worksheet readout (every multi-input node) -------------------- */
+    if (cur != NULL)
+    {
+        gchar   *disp = pn_node_format_value_display (message, cur);
+        gchar   *old;
+        gboolean changed;
+
+        pn_node_ensure_input_value_str (priv, n);
+        old     = priv->input_value_str->pdata[input];
+        changed = g_strcmp0 (old, disp) != 0;
+        g_free (old);
+        priv->input_value_str->pdata[input] = disp;   /* may be NULL */
+
+        /* Repaint independent of the processing-glow preference so the new
+         * value shows up even when that visualisation is off. */
+        if (changed)
+            pn_node_request_repaint (self);
+    }
+
+    /* --- Collation (opt-in) ------------------------------------------- */
+    if (!priv->collate_inputs)
+        return;
+
     pn_node_ensure_input_latch (priv, n);
 
     /* Latch this message's /data/value (the typed node, copied) at the
      * arriving input.  A message with no value member keeps the prior
      * latch — the other inputs are still injected below. */
-    cur = pn_message_get_member (message, "value");   /* borrowed */
     if (cur != NULL)
     {
         JsonNode *old = priv->input_latch->pdata[input];

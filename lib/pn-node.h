@@ -716,6 +716,23 @@ double          pn_node_get_input_section_height (PnNode *self);
 const gchar *   pn_node_get_input_name (PnNode *self, gint index);
 
 /**
+ * pn_node_get_input_value_display:
+ * @self: the node
+ * @index: 0-based input index
+ *
+ * Short human-readable rendering of input @index's most recent /data/value,
+ * maintained for every multi-input node so the worksheet can paint it beside
+ * the input's name.  Vectors are elided to a bounded sample exactly like the
+ * debug pane ("[0, 1, 2, …] (256 values)").  Returns %NULL until that input
+ * has carried a value (and for single-input nodes, which keep no readout).
+ * The returned string is owned by @self and only valid until the next
+ * message arrives on that input.
+ *
+ * Returns: (transfer none) (nullable): the input's last-value display string.
+ */
+const gchar *   pn_node_get_input_value_display (PnNode *self, gint index);
+
+/**
  * pn_node_set_input_name:
  * @self: the node
  * @index: 0-based input index

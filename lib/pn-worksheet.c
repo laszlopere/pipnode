@@ -1087,6 +1087,55 @@ draw_node (
                 pango_cairo_show_layout (cr, ilayout);
 
                 g_object_unref (ilayout);
+
+                /* Last value seen on this input, right-aligned in the
+                 * remaining row width.  Maintained by the core for every
+                 * multi-input node (vectors already elided to a short
+                 * sample, "[0, 1, 2, …] (256 values)", like the debug
+                 * pane).  Painted only when there is room past the name so
+                 * the two never collide; Pango ellipsizes to the budget. */
+                {
+                    const gchar *ival =
+                            pn_node_get_input_value_display (node, i);
+                    const double left  = tx + iw + 8.0;
+                    const double right = x + full_w - PN_NODE_LABEL_PADDING;
+                    const double avail = right - left;
+
+                    if (ival != NULL && *ival != '\0' && avail > 12.0)
+                    {
+                        PangoLayout          *vlayout;
+                        PangoFontDescription *vdesc;
+                        int                   vw, vh;
+                        double                vty;
+
+                        vlayout = pango_cairo_create_layout (cr);
+                        vdesc   = pango_font_description_from_string ("Sans");
+                        pango_font_description_set_absolute_size (
+                                vdesc, 10.0 * PANGO_SCALE);
+                        pango_layout_set_font_description (vlayout, vdesc);
+                        pango_font_description_free (vdesc);
+                        pango_layout_set_text (vlayout, ival, -1);
+                        pango_layout_set_width (vlayout,
+                                                (int) (avail * PANGO_SCALE));
+                        pango_layout_set_ellipsize (vlayout,
+                                                    PANGO_ELLIPSIZE_END);
+                        pango_layout_set_alignment (vlayout,
+                                                    PANGO_ALIGN_RIGHT);
+                        pango_layout_get_pixel_size (vlayout, &vw, &vh);
+                        vty = cy - vh / 2.0;
+
+                        /* Engraved like the name, but a touch darker so the
+                         * value reads as data against the input label. */
+                        cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.45);
+                        cairo_move_to (cr, left, vty + 1.0);
+                        pango_cairo_show_layout (cr, vlayout);
+                        cairo_set_source_rgb (cr, 0.12, 0.12, 0.14);
+                        cairo_move_to (cr, left, vty);
+                        pango_cairo_show_layout (cr, vlayout);
+
+                        g_object_unref (vlayout);
+                    }
+                }
             }
         }
     }
