@@ -62,7 +62,9 @@
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
 #include "pn-query.h"
+#include "pn-ramp.h"
 #include "pn-rate.h"
+#include "pn-reduce.h"
 #include "pn-rewrite.h"
 #include "pn-rtc.h"
 #include "pn-matrix57.h"
@@ -269,7 +271,9 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_FILTER);
     pn_node_factory_register (self, PN_TYPE_FORMAT);
     pn_node_factory_register (self, PN_TYPE_QUERY);
+    pn_node_factory_register (self, PN_TYPE_RAMP);
     pn_node_factory_register (self, PN_TYPE_RATE);
+    pn_node_factory_register (self, PN_TYPE_REDUCE);
     pn_node_factory_register (self, PN_TYPE_REWRITE);
     pn_node_factory_register (self, PN_TYPE_SET);
     pn_node_factory_register (self, PN_TYPE_TEXT);

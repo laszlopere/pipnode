@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reduce (PnReduce) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnReduce">Reduce</h4>
+<p>
+<em>Group:</em> Filters/Vectors. <em>Type:</em> <code>PnReduce</code>.
+</p>
+<p>
+Folds a <strong>vector down to a single scalar</strong> &mdash; the dual
+of <a href="PnRamp.html">Ramp</a> and the worked-example consumer of
+Pipnode's <a href="help-index.html#messages-vectors">vector machinery</a>.
+It reads <code>value</code>: when that is a <code>$pnvector</code> the
+node resolves the whole buffer and collapses it to one number per its
+<code>mode</code>, then overwrites <code>value</code> with that scalar
+and forwards the message. This re-enters the scalar world the rest of a
+flow lives in, so the result can drive a Knob readout, an
+<a href="PnLed.html">LED</a>, a <a href="PnSwitch.html">Switch</a> gate or
+any gauge.
+</p>
+<p>
+A plain scalar <code>value</code> passes through as a
+<strong>one-element fold</strong> (<code>sum</code> = <code>mean</code> =
+<code>min</code> = <code>max</code> = <code>first</code> =
+<code>last</code> = the value; <code>count</code> = 1), so the node never
+errors on ordinary scalar traffic. A message carrying neither a number
+nor a vector under <code>value</code> is dropped.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>mode</code></td>
+      <td>Which fold collapses the vector:
+        <em>sum</em>, <em>mean</em>, <em>min</em>, <em>max</em>,
+        <em>range</em> (max&nbsp;&minus;&nbsp;min), <em>count</em> (the
+        number of elements), <em>product</em>, <em>stddev</em> (population
+        standard deviation), <em>first</em> or <em>last</em>.</td></tr>
+</table>
+
+</body>
+</html>

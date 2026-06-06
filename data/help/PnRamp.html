@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ramp (PnRamp) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRamp">Ramp</h4>
+<p>
+<em>Group:</em> Filters/Vectors. <em>Type:</em> <code>PnRamp</code>.
+</p>
+<p>
+Three-input generator for a <strong>large numeric vector</strong> &mdash;
+the worked example of Pipnode's
+<a href="help-index.html#messages-vectors">vector machinery</a> and the
+seed of the analog-computer toy. Its inputs <strong>from</strong>,
+<strong>to</strong> and <strong>N</strong> each carry a numeric
+<code>value</code>; once all three have arrived the node emits a fresh
+message whose <code>value</code> is a <code>$pnvector</code> holding the
+linear ramp: <em>N</em> evenly-spaced samples running from <em>from</em>
+to <em>to</em>. With <em>N</em>&nbsp;&ge;&nbsp;2 both endpoints are hit
+exactly; <em>N</em>&nbsp;==&nbsp;1 yields the single value <em>from</em>.
+</p>
+<p>
+The node <strong>remembers</strong> the last value seen on each input, so
+a new value on <em>any</em> single input recomputes the ramp from the
+remembered trio and emits again &mdash; drive <strong>N</strong> alone to
+change the resolution, drive <strong>to</strong> alone to stretch the
+span. Nothing is emitted until all three inputs have carried a number.
+<em>N</em> is rounded to the nearest whole number of samples and clamped
+to a sane maximum so a stray huge value cannot exhaust memory; an
+<em>N</em> below&nbsp;1 produces nothing. A message without a numeric
+<code>value</code> is ignored and leaves the remembered inputs untouched.
+</p>
+<p>
+Feed the result to a <a href="PnReduce.html">Reduce</a> node to fold it
+back to a scalar, to the <a href="PnExpression.html">Calculator</a> to
+transform it element-wise (e.g. <code>sin(value)</code>), or to the
+<a href="PnDebug.html">Debug Print</a> sink to preview it &mdash; for
+example <code>ramp(0, 2&pi;, 256) &rarr; sin &rarr; reduce&nbsp;max</code>.
+</p>
+<table>
+  <tr><th>Input</th><th>Description</th></tr>
+  <tr><td><code>from</code></td>
+      <td>First sample &mdash; the value of element&nbsp;0.</td></tr>
+  <tr><td><code>to</code></td>
+      <td>Last sample &mdash; the value of the final element (when
+          <code>N</code>&nbsp;&ge;&nbsp;2).</td></tr>
+  <tr><td><code>N</code></td>
+      <td>Number of evenly-spaced samples; rounded to the nearest integer
+          and clamped. Below&nbsp;1 emits nothing.</td></tr>
+</table>
+
+</body>
+</html>

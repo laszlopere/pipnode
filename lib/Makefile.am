@@ -147,8 +147,12 @@ libpipnode_core_la_SOURCES = \
 	pn-profile-schema.h \
 	pn-query.c \
 	pn-query.h \
+	pn-ramp.c \
+	pn-ramp.h \
 	pn-rate.c \
 	pn-rate.h \
+	pn-reduce.c \
+	pn-reduce.h \
 	pn-rewrite.c \
 	pn-rewrite.h \
 	pn-rtc.c \
@@ -480,7 +484,9 @@ pipnode_core_headers = \
 	pn-panel-input.h \
 	pn-profile-schema.h \
 	pn-query.h \
+	pn-ramp.h \
 	pn-rate.h \
+	pn-reduce.h \
 	pn-rewrite.h \
 	pn-rtc.h \
 	pn-segment16.h \

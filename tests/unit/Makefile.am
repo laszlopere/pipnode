@@ -49,6 +49,8 @@ check_PROGRAMS = \
 	test-pn-value \
 	test-pn-filter \
 	test-pn-rewrite \
+	test-pn-ramp \
+	test-pn-reduce \
 	test-pn-expression2 \
 	test-pn-stats \
 	test-pn-inject \
@@ -140,6 +142,8 @@ test_pn_mesh_node_SOURCES    = test-pn-mesh-node.c    pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h
+test_pn_ramp_SOURCES         = test-pn-ramp.c         pntest.c pntest.h
+test_pn_reduce_SOURCES       = test-pn-reduce.c       pntest.c pntest.h
 test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
 test_pn_delay_SOURCES        = test-pn-delay.c        pntest.c pntest.h
 test_pn_threshold_SOURCES    = test-pn-threshold.c    pntest.c pntest.h

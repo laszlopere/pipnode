@@ -49,7 +49,9 @@ pnhelp_DATA = \
 	help/PnPanelDisplay.html \
 	help/PnPanelInput.html \
 	help/PnQuery.html \
+	help/PnRamp.html \
 	help/PnRate.html \
+	help/PnReduce.html \
 	help/PnRewrite.html \
 	help/PnRtc.html \
 	help/PnSegment16.html \

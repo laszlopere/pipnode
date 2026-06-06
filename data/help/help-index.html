@@ -631,6 +631,22 @@ multi-line program can bind and emit vector intermediates the same way it
 does scalars.
 </p>
 
+<p>
+<strong>Producing and consuming vectors.</strong> Two nodes bracket this
+machinery as a worked example. <a href="PnRamp.html">Ramp</a> is a
+generator: its <code>from</code>, <code>to</code> and <code>N</code>
+inputs produce a <code>$pnvector</code> of <em>N</em> evenly-spaced values
+&mdash; the raw signal to experiment on. <a href="PnReduce.html">Reduce</a>
+is its dual: it folds a vector back down to one scalar
+(<em>sum&nbsp;/&nbsp;mean&nbsp;/&nbsp;min&nbsp;/&nbsp;max&nbsp;/&nbsp;range&nbsp;/&nbsp;count&nbsp;/&nbsp;product&nbsp;/&nbsp;stddev&nbsp;/&nbsp;first&nbsp;/&nbsp;last</em>),
+re-entering the scalar world the rest of a flow lives in. With the
+Calculator in between for element-wise maths, a whole pipeline fits on one
+worksheet: <code>ramp(0,&nbsp;2&pi;,&nbsp;256) &rarr; sin(value) &rarr;
+reduce&nbsp;max</code>. To <em>look</em> at a vector at any point, wire it
+into a <a href="PnDebug.html">Debug Print</a> sink, which previews it as a
+short bounded sample rather than dumping every number.
+</p>
+
 <h2 id="globals">Document globals</h2>
 
 <p>

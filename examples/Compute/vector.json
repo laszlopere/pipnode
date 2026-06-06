@@ -1,0 +1,122 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRamp",
+      "uuid" : "9b9cd8d2-1743-4b65-923f-75136fc51f91",
+      "name" : "Ramp 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 120.0
+      },
+      "properties" : {      },
+      "input-names" : {
+        "0" : "from",
+        "1" : "to",
+        "2" : "N"
+      }
+    },
+    {
+      "type" : "PnReduce",
+      "uuid" : "c9d052bb-cf7c-42e9-b36b-25e7826d8b46",
+      "name" : "Reduce 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "mode" : "stddev"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "67427fb0-3597-4f24-9fec-d2771bbffc54",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 740.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "4f1651fc-c32b-436a-9b6d-415efca9c31e",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.0,
+        "value" : 0.083333333333333329
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "0b611e4e-2d18-4448-9432-1bd96b5db9d4",
+      "name" : "Knob 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.0,
+        "value" : 0.95833333333333337
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "07b3cdd3-c75b-4a73-937b-c386a008d71a",
+      "name" : "Knob 3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 5.0,
+        "value" : 3.3333333333333339
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "9b9cd8d2-1743-4b65-923f-75136fc51f91",
+      "target_id" : "c9d052bb-cf7c-42e9-b36b-25e7826d8b46"
+    },
+    {
+      "source_id" : "07b3cdd3-c75b-4a73-937b-c386a008d71a",
+      "target_id" : "9b9cd8d2-1743-4b65-923f-75136fc51f91",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "0b611e4e-2d18-4448-9432-1bd96b5db9d4",
+      "target_id" : "9b9cd8d2-1743-4b65-923f-75136fc51f91",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "4f1651fc-c32b-436a-9b6d-415efca9c31e",
+      "target_id" : "9b9cd8d2-1743-4b65-923f-75136fc51f91"
+    },
+    {
+      "source_id" : "c9d052bb-cf7c-42e9-b36b-25e7826d8b46",
+      "target_id" : "67427fb0-3597-4f24-9fec-d2771bbffc54"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

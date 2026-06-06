@@ -2245,7 +2245,7 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         line stays short); var-store value_to_string test still green after
         the delegation.  `make check` = 90/90.  Docs: PnDebug.html "Large
         numeric vectors" note.
-  [ ] 43.9  First producer/consumer node pair as the worked example (carved out
+  [x] 43.9  First producer/consumer node pair as the worked example (carved out
         of 43.6).  This is the seed of the analog-computer toy from the GOAL /
         VISION above -- e.g. a signal/function-generator Source that emits a
         $pnvector block + a stats/plot sink that consumes it.  Pure vector
@@ -2270,3 +2270,28 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         stats sink (that DISPLAYS len/min/max/mean and dead-ends; Reduce EMITS
         one chosen scalar downstream).  Low-risk, headless, pure-C, unit-
         testable.
+        DONE: both nodes are core (libpipnode-core), category "Filters/Vectors".
+        PnRamp (lib/pn-ramp.[ch]) -- 3 named input ports from/to/N via
+        pn_node_set_n_inputs + pn_node_set_input_name; manual per-input latch
+        (has_from/to/n) like PnComparator; on every message, if all three
+        latched it builds linspace(from,to,N) and emits a FRESH message with
+        data.value = $pnvector (pn_message_set_vector).  N rounded+clamped to
+        [1, 10M]; N<1 emits nothing; N==1 -> [from]; last element pinned to
+        `to`.  icon fa-sort-amount-asc F160, teal.  PnReduce (lib/pn-reduce.[ch])
+        -- single input; reads data.value, pn_message_resolve_vector -> fold()
+        -> overwrite data.value scalar + forward.  "mode" enum prop (auto
+        combobox) sum/mean/min/max/range/count/product/stddev(pop)/first/last;
+        scalar value folds as a 1-element vector (pass-through); empty vector
+        -> identity (0, or 1 for product); non-numeric/non-vector dropped.
+        icon fa-compress F066, blue.  Registered in pn-node-factory.c
+        (PN_TYPE_RAMP/REDUCE) + lib/Makefile.am.  Used the core's first-class
+        multi-input ports + pn_node_current_input() dispatch -- no new core
+        API.  Tests: tests/unit/test-pn-ramp.c (6: waits-for-trio, linspace
+        values, recompute-on-any-input, N edge cases, non-numeric, 3 named
+        inputs) + test-pn-reduce.c (4: all 10 modes on [1,2,3,4], scalar
+        pass-through, topic preserved, non-numeric dropped); `make check` =
+        92/92.  Docs: data/help/PnRamp.html + PnReduce.html (+ data/Makefile.am),
+        help-index.html "Producing and consuming vectors" worked-example para.
+        NOTE: this is the LAST open item in TODO #43 -- the vector feature is
+        complete end-to-end (primitive -> registry -> clone/COW -> serialize ->
+        D-Bus -> calculator -> debug viewer -> producer/consumer example).
