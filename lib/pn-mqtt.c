@@ -621,14 +621,22 @@ stop_client (PnMqtt *self)
 
     /* Order matters: ask for a clean MQTT-level disconnect first so
      * the broker sees a DISCONNECT rather than a TCP RST, then stop
-     * the loop thread (force=TRUE because the loop may be in a
-     * read() that won't return on its own), then destroy the client.
-     * mosquitto_loop_stop blocks until the network thread has joined
-     * so the callbacks cannot fire after this returns. */
+     * the loop thread, then destroy the client.  mosquitto_loop_stop
+     * blocks until the network thread has joined so the callbacks
+     * cannot fire after this returns.
+     *
+     * force=FALSE (graceful): the disconnect above shuts the socket
+     * down, which wakes the loop out of any blocking read(), so the
+     * thread exits at a safe point on its own.  We must NOT force
+     * (pthread_cancel) here: the network thread can be inside
+     * post_conn_state_on_main_full() -> g_main_context_invoke_full(),
+     * holding the process-wide GMainContext lock.  Cancelling it there
+     * orphans that mutex and deadlocks every later main-loop invoke
+     * (the whole editor freezes on the next reconnect). */
     mosquitto_disconnect (priv->client);
     if (priv->loop_running)
     {
-        mosquitto_loop_stop (priv->client, TRUE);
+        mosquitto_loop_stop (priv->client, FALSE);
         priv->loop_running = FALSE;
     }
     mosquitto_destroy (priv->client);
