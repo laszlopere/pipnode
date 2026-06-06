@@ -2120,14 +2120,34 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         documented PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE (preserving the D-Bus
         error name the python tests assert).  Builds clean; test_dbus_inter-
         activity.py + test_dbus_client.py both PASS.
-  [ ] 43.6  Tests + docs.  C unit test for PnVector (new/take/len/data) and for
+  [x] 43.6  Tests + docs.  C unit test for PnVector (new/take/len/data) and for
         message set/resolve/clone-shares-buffer + serialize/deserialize round-
         trip (incl. descriptor-only mode drops bytes, full mode rehydrates).
         Document the $pnvector marker, the reserved key, the blobs envelope
         section, and the immutability/copy-on-write contract in the message
         contract (data/help-index.html, per the "message contract lives in the
-        HTML manual" convention).  First producer/consumer node pair as the
-        worked example (TBD -- e.g. a signal source + a stats/plot sink).
+        HTML manual" convention).
+        DONE: new tests/unit/test-pn-vector.c (5 cases / 19 checks:
+        new_take adopts same pointer, new_copy is independent of a mutated
+        source, empty take+copy normalise to NULL data, ref shares the buffer
+        and outlives the original).  Extended test-pn-message.c with 6 vector
+        cases (62 checks): set writes the {$pnvector,len,dtype} marker;
+        resolve returns buffer identity + NULL on non-marker/NULL; clone
+        shares the SAME PnVector (zero-copy); serialize(FALSE) keeps the
+        marker but emits no "blobs" and rehydrates to a dangling marker
+        (resolve NULL); serialize(TRUE) round-trips 32 doubles bit-exact +
+        restores topic/id; a truncated blob (nbytes != len*8) fails with
+        PN_MESSAGE_ERROR.  Wired both into tests/unit/Makefile.am
+        (test_pn_vector_SOURCES); `make check` = 90/90 PASS.  Docs: new
+        data/help/help-index.html section "Large numeric vectors"
+        (id=messages-vectors, + TOC entry) covering the out-of-band rationale,
+        the marker shape + reserved $pnvector key, set/resolve usage, the
+        immutability/COW contract, and the descriptor-only vs full
+        (include_blobs) serialization with the blobs envelope + loud
+        len*8-mismatch rejection.
+        NOTE: the "first producer/consumer node pair" worked example was
+        carved out to 43.9 (it is the seed of the analog-computer toy, a
+        separate design effort) -- deferred by decision 2026-06-06.
   [ ] 43.7  Vector semantics in the calculator / expression nodes
         (pn-expression.c, pn-expression2.c; also pn-comparator.c, pn-numeric.c).
         CAREFULLY define what each operator does when an operand is a vector
@@ -2147,3 +2167,9 @@ waveforms) -- efficiently, addressable from any path in the JSON data bag.
         enough.  Resolve via pn_message_resolve_vector for the real values
         rather than printing the bare {handle,len} JSON.  Keep it bounded so a
         megabyte vector never freezes the pane.
+  [ ] 43.9  First producer/consumer node pair as the worked example (carved out
+        of 43.6).  This is the seed of the analog-computer toy from the GOAL /
+        VISION above -- e.g. a signal/function-generator Source that emits a
+        $pnvector block + a stats/plot sink that consumes it.  Pure vector
+        CONSUMER first (low-risk): a stats sink (len/min/max/mean) before the
+        green-phosphor oscilloscope.  Larger design effort, own session.

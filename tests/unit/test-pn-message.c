@@ -30,6 +30,7 @@
 
 #include "pntest.h"
 #include "pn-message.h"
+#include "pn-vector.h"
 
 static PnMessage *
 make_well_formed (void)
@@ -147,6 +148,172 @@ test_has_member (void)
     PN_CHECK_FALSE (pn_message_has_member (m, "nope"));
 }
 
+/* ---- large numeric vectors (TODO #43) --------------------------------
+ *
+ * A vector lives out-of-band as a #PnVector, registered on the message and
+ * referenced from the data bag by a self-describing "$pnvector" marker.
+ * These cases pin the registry (set/resolve), the zero-copy fan-out on
+ * clone, and the serialize/deserialize boundary in both modes. */
+
+static PnVector *
+make_ramp (gsize len)
+{
+    gdouble *buf = g_new (gdouble, len);
+    gsize    i;
+    for (i = 0; i < len; i++)
+        buf[i] = (gdouble) i * 0.5 - 1.0;       /* -1.0, -0.5, 0.0, ... */
+    return pn_vector_new_take (buf, len);
+}
+
+static void
+test_set_writes_marker (void)
+{
+    g_autoptr (PnMessage)  m   = pn_message_new (NULL, "test");
+    g_autoptr (PnVector)   vec = make_ramp (8);
+    guint64                handle;
+    JsonNode              *marker;
+    JsonObject            *obj;
+
+    handle = pn_message_set_vector (m, "samples", vec);
+    PN_CHECK_CMPINT (handle, >=, 1);             /* 0 is the no-handle sentinel */
+
+    /* The data bag now carries a { "$pnvector":h, "len":N, "dtype":"f64" }
+     * marker object — a sane descriptor even to a vector-blind consumer. */
+    marker = pn_message_get_member (m, "samples");
+    PN_CHECK (marker != NULL && JSON_NODE_HOLDS_OBJECT (marker));
+    obj = json_node_get_object (marker);
+    PN_CHECK (json_object_has_member (obj, PN_MESSAGE_VECTOR_MARKER));
+    PN_CHECK_CMPINT (json_object_get_int_member (obj, PN_MESSAGE_VECTOR_MARKER),
+                     ==, (gint64) handle);
+    PN_CHECK_CMPINT (json_object_get_int_member (obj, "len"), ==, 8);
+    PN_CHECK_CMPSTR (json_object_get_string_member (obj, "dtype"), ==, "f64");
+}
+
+static void
+test_resolve_identity (void)
+{
+    g_autoptr (PnMessage)  m   = pn_message_new (NULL, "test");
+    g_autoptr (PnVector)   vec = make_ramp (4);
+    PnVector              *got;
+
+    pn_message_set_vector (m, "samples", vec);
+
+    /* resolve_vector returns the very same buffer object we registered. */
+    got = pn_message_resolve_vector (m, pn_message_get_member (m, "samples"));
+    PN_CHECK (got == vec);
+    PN_CHECK_CMPINT (pn_vector_get_len (got), ==, 4);
+
+    /* A non-marker member resolves to NULL, never crashes. */
+    pn_message_set_double (m, "scalar", 3.0);
+    PN_CHECK (pn_message_resolve_vector (
+                  m, pn_message_get_member (m, "scalar")) == NULL);
+    PN_CHECK (pn_message_resolve_vector (m, NULL) == NULL);
+}
+
+static void
+test_clone_shares_buffer (void)
+{
+    g_autoptr (PnMessage)  m     = pn_message_new (NULL, "test");
+    g_autoptr (PnVector)   vec   = make_ramp (6);
+    g_autoptr (PnMessage)  clone = NULL;
+    PnVector              *a, *b;
+
+    pn_message_set_vector (m, "samples", vec);
+    clone = pn_message_clone (m);
+
+    /* The clone resolves the SAME PnVector — fan-out is a g_object_ref,
+     * not a megabyte memcpy (the whole point of the out-of-band buffer). */
+    a = pn_message_resolve_vector (m,     pn_message_get_member (m,     "samples"));
+    b = pn_message_resolve_vector (clone, pn_message_get_member (clone, "samples"));
+    PN_CHECK (a == vec);
+    PN_CHECK (b == a);
+    PN_CHECK (pn_vector_get_data (b) == pn_vector_get_data (a));
+}
+
+static void
+test_serialize_descriptor_only (void)
+{
+    g_autoptr (PnMessage)  m   = pn_message_new (NULL, "test");
+    g_autoptr (PnVector)   vec = make_ramp (16);
+    g_autofree gchar      *json = NULL;
+    g_autoptr (PnMessage)  back = NULL;
+    g_autoptr (GError)     err  = NULL;
+
+    pn_message_set_vector (m, "samples", vec);
+
+    /* include_blobs = FALSE: the marker survives as a descriptor but the
+     * payload bytes are NOT externalised (no "blobs" section). */
+    json = pn_message_serialize (m, FALSE);
+    PN_CHECK (json != NULL);
+    PN_CHECK (strstr (json, PN_MESSAGE_VECTOR_MARKER) != NULL);
+    PN_CHECK (strstr (json, "\"blobs\"") == NULL);
+
+    /* Rehydrating a descriptor-only envelope leaves a dangling marker:
+     * the member is there, but resolve finds no registered buffer. */
+    back = pn_message_deserialize (json, &err);
+    PN_CHECK (back != NULL);
+    PN_CHECK (err == NULL);
+    PN_CHECK (pn_message_get_member (back, "samples") != NULL);
+    PN_CHECK (pn_message_resolve_vector (
+                  back, pn_message_get_member (back, "samples")) == NULL);
+}
+
+static void
+test_serialize_full_roundtrip (void)
+{
+    g_autoptr (PnMessage)  m    = pn_message_new (NULL, "waves");
+    g_autoptr (PnVector)   vec  = make_ramp (32);
+    g_autofree gchar      *json = NULL;
+    g_autoptr (PnMessage)  back = NULL;
+    g_autoptr (GError)     err  = NULL;
+    PnVector              *got;
+    const gdouble         *src, *dst;
+    gsize                  i;
+
+    pn_message_set_id (m, "abc-123");
+    pn_message_set_vector (m, "samples", vec);
+
+    /* include_blobs = TRUE: the buffer is base64'd into a "blobs" sibling
+     * so deserialize can rebuild it byte-identically. */
+    json = pn_message_serialize (m, TRUE);
+    PN_CHECK (strstr (json, "\"blobs\"") != NULL);
+
+    back = pn_message_deserialize (json, &err);
+    PN_CHECK (back != NULL);
+    PN_CHECK (err == NULL);
+    PN_CHECK_CMPSTR (pn_message_get_topic (back), ==, "waves");
+    PN_CHECK_CMPSTR (pn_message_get_id (back),    ==, "abc-123");
+
+    got = pn_message_resolve_vector (
+              back, pn_message_get_member (back, "samples"));
+    PN_CHECK (got != NULL);
+    PN_CHECK_CMPINT (pn_vector_get_len (got), ==, 32);
+
+    src = pn_vector_get_data (vec);
+    dst = pn_vector_get_data (got);
+    for (i = 0; i < 32; i++)
+        PN_CHECK_NEAR (dst[i], src[i], 0.0);     /* bit-exact, not approx */
+}
+
+static void
+test_deserialize_truncated_blob_fails (void)
+{
+    /* A blob whose decoded byte count does not match len*8 must fail
+     * loudly (PN_MESSAGE_ERROR), never silently hand back a short buffer. */
+    const gchar *bad =
+        "{ \"data\": { \"samples\": "
+        "{ \"$pnvector\": 1, \"len\": 4, \"dtype\": \"f64\" } }, "
+        "\"blobs\": { \"1\": "
+        "{ \"dtype\": \"f64\", \"len\": 4, \"b64\": \"AAAA\" } } }";
+    g_autoptr (PnMessage) back = NULL;
+    g_autoptr (GError)    err  = NULL;
+
+    back = pn_message_deserialize (bad, &err);
+    PN_CHECK (back == NULL);
+    PN_CHECK (err != NULL);
+    PN_CHECK_CMPINT (err->domain, ==, PN_MESSAGE_ERROR);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -161,6 +328,13 @@ main (int argc, char **argv)
     pn_test_add ("wrong_type_output",         test_wrong_type_output);
     pn_test_add ("wrong_type_success",        test_wrong_type_success);
     pn_test_add ("has_member",                test_has_member);
+
+    pn_test_add ("vec_set_writes_marker",     test_set_writes_marker);
+    pn_test_add ("vec_resolve_identity",      test_resolve_identity);
+    pn_test_add ("vec_clone_shares_buffer",   test_clone_shares_buffer);
+    pn_test_add ("vec_serialize_descriptor",  test_serialize_descriptor_only);
+    pn_test_add ("vec_serialize_roundtrip",   test_serialize_full_roundtrip);
+    pn_test_add ("vec_truncated_blob_fails",  test_deserialize_truncated_blob_fails);
 
     return pn_test_run ();
 }

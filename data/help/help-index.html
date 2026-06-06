@@ -31,6 +31,7 @@ node's output to another node's input.
           <li><a href="#messages-validate">Checking the contract from a plugin</a></li>
         </ul>
       </li>
+      <li><a href="#messages-vectors">Large numeric vectors</a></li>
     </ul>
   </li>
   <li><a href="#globals">Document globals</a></li>
@@ -461,6 +462,128 @@ family of nodes rather than universal across all of them:
 <p>
 Producers are free to add any other members they need; consumers
 should ignore members they don't understand.
+</p>
+
+<h3 id="messages-vectors">Large numeric vectors</h3>
+
+<p>
+Some producers have a whole <em>array</em> of doubles to share rather
+than a single reading &mdash; a sampled waveform, an FFT magnitude
+spectrum, an audio block, potentially <strong>megabytes</strong> of
+samples. Storing that as a JSON array would box every element in its
+own heap node (tens of bytes each instead of eight, no contiguity) and,
+worse, pay a full deep-copy on <em>every</em> wire fan-out. Pipnode
+keeps such payloads <strong>out-of-band</strong> instead: the buffer
+lives in a reference-counted <code>PnVector</code> attached to the
+message, and the data bag merely <em>references</em> it through a small,
+self-describing marker object:
+</p>
+
+<pre>"samples" : { "$pnvector": 1, "len": 4096, "dtype": "f64" }</pre>
+
+<p>
+The marker is ordinary JSON, so it nests anywhere a value can &mdash; a
+top-level member, a nested object, an array element &mdash; and a
+vector-blind consumer (a <em>Debug Print</em>, the D-Bus inspection API,
+a generic logger) sees a sane <code>{len, dtype}</code> descriptor
+rather than a wall of numbers. A vector-aware node resolves the marker
+to the underlying buffer:
+</p>
+
+<pre>PnVector *vec = pn_message_resolve_vector (msg,
+                    pn_message_get_member (msg, "samples"));
+if (vec != NULL) {
+    const gdouble *x = pn_vector_get_data (vec);   /* contiguous f64 */
+    gsize          n = pn_vector_get_len  (vec);
+    ...
+}</pre>
+
+<p>
+A producer attaches one with <code>pn_message_set_vector()</code>, which
+registers the buffer and writes the marker in a single call:
+</p>
+
+<pre>g_autoptr(PnVector) vec = pn_vector_new_take (samples, n);  /* adopts buf */
+pn_message_set_vector (msg, "samples", vec);</pre>
+
+<table>
+<tr><th>Marker field</th><th>Type</th><th>Meaning</th></tr>
+
+<tr><td><code>$pnvector</code></td><td>int</td><td>
+  The integer <em>handle</em> that ties the marker to its buffer in the
+  message's vector registry. <code>$pnvector</code> is a
+  <strong>reserved</strong> data-bag member name and a reserved object
+  key &mdash; do not use it for anything else.
+</td></tr>
+
+<tr><td><code>len</code></td><td>int</td><td>
+  Number of elements in the buffer.
+</td></tr>
+
+<tr><td><code>dtype</code></td><td>string</td><td>
+  Element type. Currently always <code>"f64"</code> (IEEE-754
+  double); the field exists so other element types can be added later
+  without changing the marker shape.
+</td></tr>
+</table>
+
+<p>
+<strong>Vectors are immutable and shared.</strong> Because a single
+buffer is referenced by every fan-out branch, fan-out is a cheap
+reference bump rather than a copy &mdash; but that also means a node
+must <em>never</em> mutate a vector it received in place, or it would
+corrupt the copies its siblings hold. A node that transforms a vector
+allocates a <em>new</em> <code>PnVector</code> (with a new handle and
+marker) for its output and leaves the input untouched. This is the same
+copy-on-write discipline the rest of the message contract relies on:
+each wire delivers an independent clone of the envelope and the markers,
+and the clone shares the very same backing buffers until someone
+replaces a marker outright.
+</p>
+
+<p>
+<strong>Serialization.</strong> When a message crosses a serialization
+boundary (the D-Bus automation API today; never the document save, since
+messages are not persisted), the out-of-band buffers have to travel with
+it or the handles would dangle. <code>pn_message_serialize()</code>
+takes an <code>include_blobs</code> flag for exactly that choice:
+</p>
+
+<ul>
+<li><strong>Descriptor-only</strong> (<code>include_blobs = FALSE</code>)
+    emits just the envelope and its markers &mdash; a compact, inspectable
+    shape that never base64-encodes megabytes by accident. This is the
+    default for inspection paths such as the D-Bus
+    <em>GetLastOutputMessage</em>; the rehydrated message keeps the
+    marker but <code>pn_message_resolve_vector()</code> returns
+    <code>NULL</code> for it (the payload was deliberately left behind).</li>
+<li><strong>Full</strong> (<code>include_blobs = TRUE</code>) additionally
+    externalises every referenced buffer into a sibling <code>blobs</code>
+    section keyed by handle, each entry a base64-encoded, little-endian
+    <code>f64</code> payload <code>{ "dtype", "len", "b64" }</code> so
+    <code>pn_message_deserialize()</code> can rebuild the buffers
+    byte-for-byte on any host.</li>
+</ul>
+
+<pre>{
+  "type"   : "PnMessage",
+  "topic"  : "/pnode/Signal/Generator",
+  "data"   : {
+      "samples"  : { "$pnvector": 1, "len": 4, "dtype": "f64" },
+      "success"  : true,
+      "value"    : 0,
+      "output"   : "4096-sample block"
+  },
+  "blobs"  : {
+      "1" : { "dtype": "f64", "len": 4, "b64": "AAAA…" }
+  }
+}</pre>
+
+<p>
+A blob whose decoded byte count does not match
+<code>len&nbsp;&times;&nbsp;8</code> is rejected with a
+<code>PN_MESSAGE_ERROR</code> rather than silently yielding a short
+buffer, so a truncated or tampered payload fails loudly.
 </p>
 
 <h2 id="globals">Document globals</h2>
