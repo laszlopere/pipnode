@@ -1,0 +1,129 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "3dcf7d57-9de3-470b-aee0-5c1127bc006c",
+      "name" : "from",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 6.2831853000000004,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "1eae6553-9265-4c66-a03c-a54181693264",
+      "name" : "to",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 340.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 6.2831853000000004,
+        "value" : 6.2831853000000004
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "2352cd2b-09c6-474b-a37e-2a5915af2330",
+      "name" : "N",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "min" : 1.0,
+        "max" : 1024.0,
+        "value" : 512.0
+      }
+    },
+    {
+      "type" : "PnRamp",
+      "uuid" : "d1a5383b-9338-4027-a175-0c9d3f3a4a96",
+      "name" : "Ramp 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 320.0
+      },
+      "properties" : {      },
+      "input-names" : {
+        "0" : "from",
+        "1" : "to",
+        "2" : "N"
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "534cfd74-8ad0-4a14-8e74-b766ea84e7e0",
+      "name" : "Calculator 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 470.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "expression" : "x = sin(3 * value + 1.5707963)\nsin(2 * value)"
+      }
+    },
+    {
+      "type" : "PnOscilloscope",
+      "uuid" : "6cdc10e6-9ee3-4aa6-9dc5-4dd82f2d0e57",
+      "name" : "Oscilloscope 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 690.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "value-key" : "value",
+        "x-key" : "x",
+        "screen-color" : "rgb(0,63,2)",
+        "trace-color" : "rgb(87,255,115)",
+        "grid-color" : "rgb(56,128,77)",
+        "show-graticule" : true,
+        "trace-width" : 2,
+        "x-from-zero" : false,
+        "y-from-zero" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "3dcf7d57-9de3-470b-aee0-5c1127bc006c",
+      "target_id" : "d1a5383b-9338-4027-a175-0c9d3f3a4a96"
+    },
+    {
+      "source_id" : "1eae6553-9265-4c66-a03c-a54181693264",
+      "target_id" : "d1a5383b-9338-4027-a175-0c9d3f3a4a96",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "2352cd2b-09c6-474b-a37e-2a5915af2330",
+      "target_id" : "d1a5383b-9338-4027-a175-0c9d3f3a4a96",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "d1a5383b-9338-4027-a175-0c9d3f3a4a96",
+      "target_id" : "534cfd74-8ad0-4a14-8e74-b766ea84e7e0"
+    },
+    {
+      "source_id" : "534cfd74-8ad0-4a14-8e74-b766ea84e7e0",
+      "target_id" : "6cdc10e6-9ee3-4aa6-9dc5-4dd82f2d0e57"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
