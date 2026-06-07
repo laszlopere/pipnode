@@ -1145,7 +1145,7 @@
                Fix: add a depth counter to Ctx and error out past a sane limit.
                (pn-var-store.c's evaluator recurses to the same depth; the
                parser is the gate that builds the tree.)
-         [ ] 39.3 Graph 3D line mode overflows the PLplot cmap0 with >=9 series
+         [x] 39.3 Graph 3D line mode overflows the PLplot cmap0 with >=9 series
                (lib/pn-graph-gui.c:922). paint_line_3d writes each series colour
                to cmap0 slot 8+i (up to 19 for the 12-series cap) but
                paint_setup_page never grows the colormap (no plscmap0n) and the

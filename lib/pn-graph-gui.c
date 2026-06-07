@@ -939,6 +939,14 @@ paint_line_3d (
     plslabelfunc (NULL, NULL);
 
     plwidth ((PLINT) ps->line_width);
+
+    /* Per-series colours land in cmap0 slots 8..8+nseries-1, but the
+     * default cmap0 holds only 16 entries (0-15); with 9+ series the high
+     * slots fall off the end and render in a stale colour.  Grow the map to
+     * fit before writing them.  Slots 0-2 (used by the box above) are
+     * preserved across the resize. */
+    plscmap0n (8 + (PLINT) nseries);
+
     for (i = 0; i < nseries; i++)
     {
         PnColor c;
