@@ -37,6 +37,7 @@
 #endif
 
 #include "pn-graph-gui.h"
+#include "pn-graph-draw.h"
 #include "pn-graph.h"
 
 #include <gtk/gtk.h>
@@ -234,8 +235,8 @@ graph_label_format (
 
 /** Walk @s's bin ring and emit (seconds_ago, mean_value) pairs in
  *  left-to-right time order. */
-static guint
-collect_line_points (
+guint
+pn_graph_collect_line_points (
         const PnGraphSeries *s,
         guint                n_bins,
         gint64               width,
@@ -288,9 +289,9 @@ collect_line_points (
     return n;
 }
 
-/** Like collect_line_points, but for the Error-bars draw-style. */
-static guint
-collect_error_bars (
+/** Like pn_graph_collect_line_points, but for the Error-bars draw-style. */
+guint
+pn_graph_collect_error_bars (
         const PnGraphSeries *s,
         guint                n_bins,
         gint64               width,
@@ -430,8 +431,8 @@ collect_window_values (
 /* ------------------------------------------------------------------ */
 
 /** Common PLplot setup shared by every painter. */
-static void
-paint_setup_page (
+void
+pn_graph_paint_setup_page (
         PLINT                    plstream,
         const PnGraphPaintState *ps,
         cairo_t                 *cr,
@@ -645,8 +646,8 @@ bar_depth_cmp (
 #define PN_GRAPH_POINT_SYMBOL  17
 
 /** Draw @n (@xs, @ys) points using the active draw-style. */
-static void
-draw_series_2d (
+void
+pn_graph_draw_series_2d (
         const PnGraphPaintState *ps,
         guint    n,
         PLFLT   *xs,
@@ -700,8 +701,8 @@ static const PnColor pn_graph_trend_flat = { 0.55, 0.55, 0.55, 1.0 };
 
 /** Draw @n buckets as box-and-whisker glyphs for the Error-bars
  *  draw-style. */
-static void
-draw_error_bars_2d (
+void
+pn_graph_draw_error_bars_2d (
         const PnGraphPaintState *ps,
         guint        n,
         const PLFLT *xs,
@@ -794,11 +795,11 @@ paint_timeseries_2d (
     gboolean  have_range = FALSE;
 
     if (error_bars)
-        n = collect_error_bars (s, n_bins, width, cur_epoch, oldest_valid,
+        n = pn_graph_collect_error_bars (s, n_bins, width, cur_epoch, oldest_valid,
                                 xs, ys, e_sdlo, e_sdhi, e_wlo, e_whi,
                                 &ymin, &ymax, &have_range);
     else
-        n = collect_line_points (s, n_bins, width, cur_epoch, oldest_valid,
+        n = pn_graph_collect_line_points (s, n_bins, width, cur_epoch, oldest_valid,
                                  xs, ys, &ymin, &ymax, &have_range);
 
     if (n < 1 || !have_range)
@@ -823,7 +824,7 @@ paint_timeseries_2d (
         if (ymax < 0.0) ymax = 0.0;
     }
 
-    paint_setup_page (plstream, ps, cr, w, h);
+    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
 
     plvpor (0.10, 0.97, 0.18, 0.93);
     plwind ((PLFLT) -(gdouble) pn_graph_resolution_seconds (ps->resolution),
@@ -848,10 +849,10 @@ paint_timeseries_2d (
                                         / (gdouble) G_TIME_SPAN_SECOND
                                         * 0.40);
         if (error_bars)
-            draw_error_bars_2d (ps, n, xs, ys, e_sdlo, e_sdhi,
+            pn_graph_draw_error_bars_2d (ps, n, xs, ys, e_sdlo, e_sdhi,
                                 e_wlo, e_whi, bar_hw);
         else
-            draw_series_2d (ps, n, xs, ys, baseline, bar_hw);
+            pn_graph_draw_series_2d (ps, n, xs, ys, baseline, bar_hw);
     }
 
     pleop  ();
@@ -890,7 +891,7 @@ paint_line_3d (
         guint  n;
         guint  j;
 
-        n = collect_line_points (views[i].series, n_bins, width, cur_epoch,
+        n = pn_graph_collect_line_points (views[i].series, n_bins, width, cur_epoch,
                                  oldest_valid, xs, zs,
                                  &zmin, &zmax, &have_range);
         counts[i] = n;
@@ -917,7 +918,7 @@ paint_line_3d (
         zmax += pad;
     }
 
-    paint_setup_page (plstream, ps, cr, w, h);
+    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
 
     plvpor (0.05, 0.97, 0.10, 0.95);
 
@@ -971,8 +972,8 @@ paint_line_3d (
 /* ------------------------------------------------------------------ */
 
 /** 2D distribution painter — single-series fast path. */
-static void
-paint_distribution_2d (
+void
+pn_graph_paint_distribution_2d (
         PLINT                    plstream,
         const PnGraphPaintState *ps,
         cairo_t             *cr,
@@ -1019,7 +1020,7 @@ paint_distribution_2d (
             max_count = counts[b];
     }
 
-    paint_setup_page (plstream, ps, cr, w, h);
+    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
 
     {
         const PLFLT ybot = ps->log_y
@@ -1190,7 +1191,7 @@ paint_histogram_3d (
         return;
     }
 
-    paint_setup_page (plstream, ps, cr, w, h);
+    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
 
     {
         const PLFLT  zbot = ps->log_y
@@ -1382,7 +1383,7 @@ pn_graph_paint_plot (
     {
     case PN_GRAPH_VIEW_DISTRIBUTION:
         if (nseries == 1)
-            paint_distribution_2d (plstream, &ps, cr, w, h, views[0].series);
+            pn_graph_paint_distribution_2d (plstream, &ps, cr, w, h, views[0].series);
         else
             paint_histogram_3d (plstream, &ps, cr, w, h, views, nseries);
         break;
