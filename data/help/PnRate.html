@@ -19,10 +19,22 @@ Crypto/fiat exchange-rate converter. For every received message
 the node multiplies <code>data.value</code> by its cached
 conversion factor (from &rarr; to) and forwards the message with
 the converted amount, the factor itself in
-<code>data.rate</code> and the destination currency code in
-<code>data.currency</code>. Non-numeric or missing
+<code>data.rate</code>, the destination currency code in
+<code>data.currency</code> and a <code>data.deprecated</code>
+boolean. Non-numeric or missing
 <code>data.value</code> fields are left untouched so the message
 still passes through.
+</p>
+<p>
+<code>data.deprecated</code> is <code>true</code> whenever the
+cached rate cannot yet be trusted for the current pair &mdash;
+before the first successful fetch, immediately after the
+<code>from</code>/<code>to</code> pair is changed (which drops the
+cached timestamp at once), or after a failed fetch. While
+deprecated the node still converts using the last known rate so
+chains do not stall, but it paints the standard error marker on
+the canvas and surfaces the reason through <code>status</code> and
+the per-node log.
 </p>
 <p>
 The rate is fetched periodically by the inherited auto-trigger,
@@ -67,9 +79,17 @@ rate-limit log.
           Defaults to 1 and is overwritten on every successful
           fetch; persisted with the worksheet.</td></tr>
   <tr><td><code>last-update</code></td>
-      <td>ISO-8601 timestamp of the last successful fetch.
+      <td>ISO-8601 timestamp of the last successful fetch, shown
+          read-only in the dialog (&ldquo;Never&rdquo; until the
+          first fetch lands). Cleared the instant the pair changes.
           Persisted with the worksheet alongside
           <code>rate</code>.</td></tr>
+  <tr><td><code>status</code></td>
+      <td>Read-only outcome of the most recent fetch:
+          <code>OK</code>, <code>Never updated</code>, or
+          <code>Update failed: &hellip;</code> with the reason
+          (e.g. an HTTP error from the provider). The matching
+          detail is also written to the per-node log.</td></tr>
   <tr><td><code>period</code></td>
       <td>Seconds between rate refreshes. Floor is 600 (10
           minutes); attempts to set a smaller value &mdash; from

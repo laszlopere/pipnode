@@ -35,6 +35,7 @@
 #include "pn-message.h"
 
 #include <math.h>
+#include <stdarg.h>
 
 #include <json-glib/json-glib.h>
 
@@ -180,6 +181,10 @@ struct _PnRate
     PnCurrency  to;
     gdouble     rate;          /* multiplier from FROM units to TO units */
     gchar      *last_update;   /* ISO-8601 string; NULL until first save */
+    gchar      *status;        /* human-readable outcome of the last fetch
+                                * ("OK", "Update failed: …", "Never
+                                * updated", …); read on the main thread,
+                                * written by the worker after each fetch */
 
     /* Re-entrancy guard for the period clamp.  When a notify::period
      * fires below the floor, we re-set the property; that re-set
@@ -196,8 +201,16 @@ enum {
     PROP_TO,
     PROP_RATE,
     PROP_LAST_UPDATE,
+    PROP_STATUS,
     N_PROPS,
 };
+
+/* Status strings.  Kept as named constants so the "no successful fetch
+ * for the current pair yet" and "last fetch succeeded" states read the
+ * same wherever they are set.  A failed fetch builds its own string via
+ * rate_record_failure(). */
+#define PN_RATE_STATUS_NEVER "Never updated"
+#define PN_RATE_STATUS_OK    "OK"
 
 static GParamSpec *props[N_PROPS];
 
@@ -233,6 +246,111 @@ rate_get_rate_locked (PnRate *self)
     v = self->rate;
     g_mutex_unlock (&self->mutex);
     return v;
+}
+
+/** The cached rate is "deprecated" whenever there is no recorded
+ *  successful fetch for the current (from, to) pair — i.e. @last_update
+ *  is empty.  That is true on a fresh load before the first fetch, the
+ *  instant the user picks a different pair (the setter clears the
+ *  timestamp), and after a fetch that failed.  Downstream consumers see
+ *  this on the emitted message as `deprecated`, and the canvas paints
+ *  the node with the standard error marker. */
+static gboolean
+rate_is_deprecated_locked (PnRate *self)
+{
+    gboolean dep;
+    g_mutex_lock (&self->mutex);
+    dep = (self->last_update == NULL || *self->last_update == '\0');
+    g_mutex_unlock (&self->mutex);
+    return dep;
+}
+
+/** Recompute the canvas appearance.  MAIN THREAD ONLY — it ends up in
+ *  g_object_notify, which the worksheet turns into a redraw.  The node
+ *  shows the error marker when it is unconfigured (handled by the base)
+ *  or when the cached rate is deprecated. */
+static void
+rate_refresh_visual (PnRate *self)
+{
+    PnHttp   *http       = PN_HTTP (self);
+    gboolean  configured = PN_HTTP_GET_CLASS (self)->is_configured (http);
+
+    pn_http_apply_visual_state (http, configured);
+    if (configured && rate_is_deprecated_locked (self))
+        pn_node_set_has_error (PN_NODE (self), TRUE);
+}
+
+static gboolean
+rate_refresh_visual_main (gpointer data)
+{
+    rate_refresh_visual (PN_RATE (data));
+    return G_SOURCE_REMOVE;
+}
+
+/** Bounce rate_refresh_visual() onto the main thread, for callers on
+ *  the fetch worker.  A no-op in practice when no main loop is running
+ *  (the headless one-shot test path), which is fine: those callers
+ *  assert on state, not on the canvas. */
+static void
+rate_refresh_visual_async (PnRate *self)
+{
+    g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT,
+                                rate_refresh_visual_main,
+                                g_object_ref (self), g_object_unref);
+}
+
+/** Worker-thread success path: store the new rate, timestamp and an
+ *  "OK" status under the mutex (no g_object_notify here — see the note
+ *  in pn_rate_emit_message), then refresh the canvas on the main
+ *  thread. */
+static void
+rate_record_success (
+        PnRate *self,
+        gdouble new_rate)
+{
+    GDateTime *now = g_date_time_new_now_local ();
+    gchar     *iso = g_date_time_format_iso8601 (now);
+
+    g_mutex_lock (&self->mutex);
+    self->rate = new_rate;
+    g_free (self->last_update);
+    self->last_update = iso;                 /* takes ownership */
+    g_free (self->status);
+    self->status = g_strdup (PN_RATE_STATUS_OK);
+    g_mutex_unlock (&self->mutex);
+
+    g_date_time_unref (now);
+    rate_refresh_visual_async (self);
+}
+
+/** Worker-thread failure path: record a human-readable status, surface
+ *  the reason in the node log dialog (the node runs from a desktop
+ *  launcher with no terminal, so a g_warning would be invisible), and
+ *  leave @rate / @last_update untouched so the node stays visibly
+ *  deprecated.  @reason is the bare cause; the stored status prefixes
+ *  it with "Update failed: ". */
+static void G_GNUC_PRINTF (2, 3)
+rate_record_failure (
+        PnRate      *self,
+        const gchar *fmt,
+        ...)
+{
+    va_list  ap;
+    gchar   *reason;
+
+    va_start (ap, fmt);
+    reason = g_strdup_vprintf (fmt, ap);
+    va_end (ap);
+
+    g_mutex_lock (&self->mutex);
+    g_free (self->status);
+    self->status = g_strdup_printf ("Update failed: %s", reason);
+    g_mutex_unlock (&self->mutex);
+
+    pn_auto_trigger_log_on_main (PN_AUTO_TRIGGER (self),
+                                 PN_LOG_LEVEL_ERROR, "%s", reason);
+    rate_refresh_visual_async (self);
+    g_free (reason);
 }
 
 /* ------------------------------------------------------------------ */
@@ -433,12 +551,21 @@ extract_usd_price (
     return json_object_get_double_member (coin, "usd");
 }
 
-/** Parse the JSON-RPC reply, recompute the rate, and stash it under
- *  the mutex.  We deliberately do not emit a downstream message: the
- *  rate update is internal state, the conversion happens on the
- *  receive path, and emitting a "rate ticked" event each period
- *  would surprise downstream sinks that expect a 1:1 relationship
- *  between input and output messages on this node. */
+/** Parse the reply, recompute the rate, and stash it under the mutex.
+ *  We deliberately do not emit a downstream message: the rate update is
+ *  internal state, the conversion happens on the receive path, and
+ *  emitting a "rate ticked" event each period would surprise downstream
+ *  sinks that expect a 1:1 relationship between input and output
+ *  messages on this node.
+ *
+ *  Every exit that is not a successful update routes through
+ *  rate_record_failure(), which both records a human-readable status
+ *  (shown in the settings dialog) and logs the reason to the per-node
+ *  log dialog.  The earlier version returned silently on a transport
+ *  error, an HTTP error status, or a reply that did not contain the
+ *  requested coins — which is exactly how a CoinGecko 403 (missing
+ *  User-Agent) used to leave the node frozen on a stale rate with no
+ *  visible explanation. */
 static void
 pn_rate_emit_message (
         PnHttp      *http,
@@ -458,21 +585,38 @@ pn_rate_emit_message (
     gdouble     price_to;
     gdouble     new_rate;
 
-    (void) http_status;
-    (void) error_text;
-
+    /* Transport-level failure: no HTTP response at all (DNS, connect,
+     * timeout).  pn_http_trigger has already logged the raw error, but
+     * record it as the node's status too. */
     if (!ok)
+    {
+        rate_record_failure (self, "Request failed: %s",
+                             error_text ? error_text : "unknown error");
         return;
+    }
+
+    /* HTTP-level failure: a non-2xx status.  The body on these is an
+     * API error object, not a price table, so do not fall through to
+     * the parse below — it would extract NaN and look like "no data". */
+    if (http_status < 200 || http_status >= 300)
+    {
+        rate_record_failure (self, "exchange-rate API returned HTTP %d",
+                             http_status);
+        return;
+    }
+
     if (body == NULL || *body == '\0')
+    {
+        rate_record_failure (self, "empty reply from the exchange-rate API");
         return;
+    }
 
     parser = json_parser_new ();
     if (!json_parser_load_from_data (parser, body, -1, &error))
     {
-        pn_auto_trigger_log_on_main (
-                PN_AUTO_TRIGGER (self), PN_LOG_LEVEL_WARNING,
-                "Could not parse the exchange-rate reply: %s",
-                error ? error->message : "(unknown)");
+        rate_record_failure (self,
+                             "could not parse the exchange-rate reply: %s",
+                             error ? error->message : "(unknown)");
         g_clear_error (&error);
         g_object_unref (parser);
         return;
@@ -481,6 +625,7 @@ pn_rate_emit_message (
     root = json_parser_get_root (parser);
     if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
     {
+        rate_record_failure (self, "unexpected shape in the exchange-rate reply");
         g_object_unref (parser);
         return;
     }
@@ -493,30 +638,23 @@ pn_rate_emit_message (
 
     if (!isfinite (price_from) || !isfinite (price_to) || price_to == 0.0)
     {
+        rate_record_failure (self, "no usable %s/%s price in the reply",
+                             currency_info (from)->nick,
+                             currency_info (to)->nick);
         g_object_unref (parser);
         return;
     }
 
     new_rate = price_from / price_to;
 
-    {
-        GDateTime *now = g_date_time_new_now_local ();
-        gchar     *iso = g_date_time_format_iso8601 (now);
-
-        g_mutex_lock (&self->mutex);
-        self->rate = new_rate;
-        g_free (self->last_update);
-        self->last_update = iso;     /* takes ownership */
-        g_mutex_unlock (&self->mutex);
-
-        g_date_time_unref (now);
-    }
-
-    /* Notifications are intentionally NOT fired here: they would run
-     * on the worker thread and could trip GTK from inside any
-     * dialog binding currently watching these properties.  The
-     * worksheet save path reads the new state through the
-     * mutex-guarded getter, and the dialog re-reads on next open. */
+    /* Success.  rate_record_success stores the new state under the mutex
+     * and bounces a canvas refresh to the main thread.  Notifications
+     * are intentionally NOT fired from here: they would run on the
+     * worker thread and could trip GTK from inside any dialog binding
+     * currently watching these properties.  The worksheet save path
+     * reads the new state through the mutex-guarded getter, and the
+     * dialog re-reads on next open. */
+    rate_record_success (self, new_rate);
 
     g_object_unref (parser);
 }
@@ -542,10 +680,12 @@ pn_rate_receive (
     PnCurrency           to;
     const CurrencyInfo  *tinfo;
     gdouble              rate;
+    gboolean             deprecated;
 
     g_mutex_lock (&self->mutex);
-    rate = self->rate;
-    to   = self->to;
+    rate       = self->rate;
+    to         = self->to;
+    deprecated = (self->last_update == NULL || *self->last_update == '\0');
     g_mutex_unlock (&self->mutex);
 
     tinfo = currency_info (to);
@@ -564,6 +704,12 @@ pn_rate_receive (
 
     pn_message_set_double (message, "rate",     rate);
     pn_message_set_string (message, "currency", tinfo->nick);
+
+    /* Flag the conversion as untrustworthy while the rate is deprecated
+     * (no successful fetch yet for the current pair, or the last fetch
+     * failed).  Downstream Debug / Format nodes can surface it; the
+     * value is still passed through converted so chains do not stall. */
+    pn_message_set_boolean (message, "deprecated", deprecated);
 
     pn_node_emit_message (node, message);
 }
@@ -596,6 +742,11 @@ pn_rate_get_property (
         g_mutex_lock (&self->mutex);
         g_value_set_string (value,
                             self->last_update ? self->last_update : "");
+        g_mutex_unlock (&self->mutex);
+        break;
+    case PROP_STATUS:
+        g_mutex_lock (&self->mutex);
+        g_value_set_string (value, self->status ? self->status : "");
         g_mutex_unlock (&self->mutex);
         break;
     default:
@@ -639,15 +790,25 @@ pn_rate_set_property (
              * Drop the timestamp so the cache-freshness gate in
              * pn_rate_trigger falls through to a real fetch — the
              * kick below would otherwise be silently swallowed when
-             * the previous fetch happened within @period seconds. */
+             * the previous fetch happened within @period seconds.
+             * Clearing it also marks the rate deprecated at once (see
+             * rate_is_deprecated_locked), so the node flags the stale
+             * conversion the instant the user picks a new pair rather
+             * than waiting for the refresh to land. */
             g_free (self->last_update);
             self->last_update = NULL;
+            /* The new pair has never been fetched; reset the status to
+             * match so a stale "OK" from the previous pair is not left
+             * sitting next to a now-deprecated rate. */
+            g_free (self->status);
+            self->status = g_strdup (PN_RATE_STATUS_NEVER);
         }
         g_mutex_unlock (&self->mutex);
 
-        pn_http_apply_visual_state (
-                http,
-                PN_HTTP_GET_CLASS (self)->is_configured (http));
+        /* On the main thread already (property setter), so refresh the
+         * canvas synchronously; this also repaints the error marker for
+         * the freshly-deprecated rate. */
+        rate_refresh_visual (self);
 
         /* Picking a different pair invalidates the cached rate,
          * which is for the previous (from, to).  Kick the worker so
@@ -671,6 +832,12 @@ pn_rate_set_property (
         self->last_update = g_value_dup_string (value);
         g_mutex_unlock (&self->mutex);
         break;
+    case PROP_STATUS:
+        g_mutex_lock (&self->mutex);
+        g_free (self->status);
+        self->status = g_value_dup_string (value);
+        g_mutex_unlock (&self->mutex);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -686,6 +853,7 @@ pn_rate_finalize (GObject *object)
     PnRate *self = PN_RATE (object);
 
     g_clear_pointer (&self->last_update, g_free);
+    g_clear_pointer (&self->status, g_free);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_rate_parent_class)->finalize (object);
@@ -757,6 +925,19 @@ pn_rate_class_init (PnRateClass *klass)
             "",
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    /* Human-readable outcome of the most recent fetch, surfaced
+     * read-only in the settings dialog ("OK", "Update failed: …",
+     * "Never updated", "Awaiting update (pair changed)").  READWRITE so
+     * the settings dialog enumerates it and it survives save/load; the
+     * gui tier renders it as a read-only label, and the node writes it
+     * directly through the mutex-guarded field rather than the setter
+     * on the fetch worker. */
+    props[PROP_STATUS] = g_param_spec_string (
+            "status", "Status",
+            "Outcome of the most recent rate fetch.",
+            PN_RATE_STATUS_NEVER,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -770,6 +951,7 @@ pn_rate_init (PnRate *self)
     self->to          = PN_CURRENCY_USD;
     self->rate        = 1.0;
     self->last_update = NULL;
+    self->status      = g_strdup (PN_RATE_STATUS_NEVER);
 
     pn_node_set_class_name (node, "FX Converter");
     pn_node_set_has_input  (node, TRUE);

@@ -25,6 +25,18 @@
 
 #define PN_HTTP_DEFAULT_PERIOD 5u
 
+/* Descriptive User-Agent sent on every request.  libsoup's default
+ * session sends *no* User-Agent at all, and several APIs we talk to
+ * (CoinGecko's free tier in particular) answer an absent or blank UA
+ * with an HTTP 403 and a JSON error body — which silently broke the
+ * Rate node when it moved off curl (curl always sent its own UA).  A
+ * stable, descriptive UA both satisfies those servers and identifies
+ * us politely. */
+#ifndef PACKAGE_VERSION
+#define PACKAGE_VERSION "dev"
+#endif
+#define PN_HTTP_USER_AGENT "pipnode/" PACKAGE_VERSION " (+https://pipnode.org)"
+
 /* Default body colour applied when a subclass leaves
  * PnHttpClass.normal_color zero-initialised. */
 static const PnColor PN_HTTP_DEFAULT_COLOR = { 0.40, 0.70, 0.45, 1.0 };
@@ -247,7 +259,10 @@ pn_http_trigger (PnAutoTrigger *trigger)
     }
 
     if (priv->session == NULL)
+    {
         priv->session = soup_session_new ();
+        soup_session_set_user_agent (priv->session, PN_HTTP_USER_AGENT);
+    }
 
     /* Bound the request so a dead or slow host never delays the next
      * tick: cap socket I/O one second below the period.  Unlike curl's

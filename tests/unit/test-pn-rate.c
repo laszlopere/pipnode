@@ -195,6 +195,85 @@ test_stamps_even_without_value (void)
     g_object_unref (node);
 }
 
+/* A node that has never recorded a successful fetch (empty last-update)
+ * stamps every conversion as `deprecated`, and reports "Never updated"
+ * as its status — the user-visible signals that the rate is not to be
+ * trusted yet. */
+static void
+test_deprecated_without_last_update (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (&cap);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+    gchar     *status = NULL;
+
+    g_object_set (node, "to", PN_CURRENCY_BTC, "rate", 3.0, NULL);
+
+    pn_message_set_double (msg, "value", 2.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK       (pn_test_bool (cap.last, "deprecated"));
+    PN_CHECK_NEAR  (pn_test_num (cap.last, "value"), 6.0, 1e-9);  /* still converts */
+
+    g_object_get (node, "status", &status, NULL);
+    PN_CHECK_CMPSTR (status, ==, "Never updated");
+    g_free (status);
+
+    g_clear_object (&cap.last);
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* A recorded last-update timestamp clears the deprecated flag. */
+static void
+test_not_deprecated_with_last_update (void)
+{
+    Capture    cap;
+    PnNode    *node = make_node (&cap);
+    PnMessage *msg  = pn_message_new (NULL, NULL);
+
+    g_object_set (node, "to", PN_CURRENCY_BTC, "rate", 3.0,
+                  "last-update", "2026-06-07T08:00:00+00", NULL);
+
+    pn_message_set_double (msg, "value", 2.0);
+    pn_node_receive_message (node, msg);
+
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK_FALSE  (pn_test_bool (cap.last, "deprecated"));
+
+    g_clear_object (&cap.last);
+    g_object_unref (msg);
+    g_object_unref (node);
+}
+
+/* Changing the currency pair deprecates the cached rate at once: the
+ * last-update timestamp is dropped and the status falls back to "Never
+ * updated" so a stale outcome is not left next to the new pair. */
+static void
+test_pair_change_deprecates (void)
+{
+    Capture  cap;
+    PnNode  *node = make_node (&cap);
+    gchar   *last = NULL;
+    gchar   *status = NULL;
+
+    g_object_set (node, "from", PN_CURRENCY_ETH, "to", PN_CURRENCY_USD,
+                  "rate", 3000.0, "last-update", "2026-06-07T08:00:00+00",
+                  "status", "OK", NULL);
+
+    /* Pick a different source currency. */
+    g_object_set (node, "from", PN_CURRENCY_BTC, NULL);
+
+    g_object_get (node, "last-update", &last, "status", &status, NULL);
+    PN_CHECK_CMPSTR (last, ==, "");                 /* timestamp dropped */
+    PN_CHECK_CMPSTR (status, ==, "Never updated");  /* status reset */
+    g_free (last);
+    g_free (status);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -205,5 +284,8 @@ main (int argc, char **argv)
     pn_test_add ("converts_integer",       test_converts_integer_value);
     pn_test_add ("non_numeric_value",      test_leaves_non_numeric_value_alone);
     pn_test_add ("stamps_without_value",   test_stamps_even_without_value);
+    pn_test_add ("deprecated_no_update",   test_deprecated_without_last_update);
+    pn_test_add ("not_deprecated_update",  test_not_deprecated_with_last_update);
+    pn_test_add ("pair_change_deprecates", test_pair_change_deprecates);
     return pn_test_run ();
 }

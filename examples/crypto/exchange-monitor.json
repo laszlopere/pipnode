@@ -1,0 +1,121 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnRate",
+      "uuid" : "dc83c815-92f7-4b29-9eb8-448207197430",
+      "name" : "PLS -> USD",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 457.82012939453125,
+        "y" : 115.73529052734375
+      },
+      "properties" : {
+        "period" : 600,
+        "url" : "https://api.coingecko.com/api/v3/simple/price",
+        "from" : "PLS",
+        "to" : "USD",
+        "rate" : 6.4999999999999996e-06,
+        "last-update" : ""
+      }
+    },
+    {
+      "type" : "PnAutoInjector",
+      "uuid" : "2e72d602-b81b-48a4-949e-6c6fa12e1363",
+      "name" : "1M",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 277.82012939453125,
+        "y" : 115.73529052734375
+      },
+      "properties" : {
+        "period" : 600,
+        "output" : "AutoInjector activated.",
+        "value" : 1000000.0,
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "da529990-adb9-4e6e-8024-9025bbcf8ca0",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 637.82012939453125,
+        "y" : 115.73529052734375
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(51,209,122)",
+        "unlit-segment-color" : "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "65bedf58-40c1-43e5-8e27-72e0a3a0a39d",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 637.82012939453125,
+        "y" : 275.73529052734375
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "x-buckets" : 200,
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "line-color" : "rgb(38,162,105)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : false
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "e79ab993-c900-402f-9cec-14baeabf2b2d",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "2e72d602-b81b-48a4-949e-6c6fa12e1363",
+      "target_id" : "dc83c815-92f7-4b29-9eb8-448207197430"
+    },
+    {
+      "source_id" : "dc83c815-92f7-4b29-9eb8-448207197430",
+      "target_id" : "da529990-adb9-4e6e-8024-9025bbcf8ca0"
+    },
+    {
+      "source_id" : "dc83c815-92f7-4b29-9eb8-448207197430",
+      "target_id" : "65bedf58-40c1-43e5-8e27-72e0a3a0a39d"
+    },
+    {
+      "source_id" : "2e72d602-b81b-48a4-949e-6c6fa12e1363",
+      "target_id" : "e79ab993-c900-402f-9cec-14baeabf2b2d"
+    },
+    {
+      "source_id" : "dc83c815-92f7-4b29-9eb8-448207197430",
+      "target_id" : "e79ab993-c900-402f-9cec-14baeabf2b2d"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

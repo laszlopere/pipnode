@@ -100,7 +100,16 @@ readonly_binding_pull (PnReadOnlyBinding *bind)
         gchar *v = NULL;
 
         g_object_get (bind->target, bind->property, &v, NULL);
-        gtk_label_set_text (bind->label, v != NULL ? v : "");
+
+        /* An empty `last-update` means the rate has never been fetched
+         * since the worksheet loaded; spell that out rather than showing
+         * a blank cell. */
+        if ((v == NULL || *v == '\0') &&
+            g_strcmp0 (bind->property, "last-update") == 0)
+            gtk_label_set_text (bind->label, "Never");
+        else
+            gtk_label_set_text (bind->label, v != NULL ? v : "");
+
         g_free (v);
     }
     else
@@ -379,7 +388,8 @@ pn_rate_build_property_editor (PnNode      *self      G_GNUC_UNUSED,
     GType        ptype = G_PARAM_SPEC_VALUE_TYPE (pspec);
 
     if (g_strcmp0 (name, "rate")        == 0 ||
-        g_strcmp0 (name, "last-update") == 0)
+        g_strcmp0 (name, "last-update") == 0 ||
+        g_strcmp0 (name, "status")      == 0)
         return build_readonly_label_editor (target, pspec);
 
     if ((g_strcmp0 (name, "from") == 0 || g_strcmp0 (name, "to") == 0) &&
