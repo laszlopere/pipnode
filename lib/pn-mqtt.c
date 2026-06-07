@@ -456,11 +456,19 @@ post_conn_state_on_main_full (PnMqtt      *self,
         c->reason = g_strdup_vprintf (fmt, args);
         va_end (args);
     }
-    g_main_context_invoke_full (NULL,
-                                G_PRIORITY_DEFAULT,
-                                conn_state_trampoline,
-                                c,
-                                conn_state_closure_free);
+    /* Fire-and-forget onto the main loop, exactly like emit_message_on_main's
+     * g_idle_add.  g_main_context_invoke_full() can acquire the context and run
+     * synchronously, blocking the network thread on the GMainContext lock.  A
+     * teardown that joins this thread from the main thread (window close ->
+     * pn_mqtt_dispose -> stop_client -> mosquitto_loop_stop) would then deadlock,
+     * because the join cannot complete until the callback runs and the callback
+     * cannot run until the join releases the main loop.  g_idle_add only queues
+     * the source and returns, so the network thread never blocks and the join
+     * completes; the trampoline's generation check still drops stale updates. */
+    g_idle_add_full (G_PRIORITY_DEFAULT,
+                     conn_state_trampoline,
+                     c,
+                     conn_state_closure_free);
 }
 
 /** Convenience: state change with no Log-dialog line. */
@@ -654,11 +662,14 @@ stop_client (PnMqtt *self)
      * force=FALSE (graceful): the disconnect above shuts the socket
      * down, which wakes the loop out of any blocking read(), so the
      * thread exits at a safe point on its own.  We must NOT force
-     * (pthread_cancel) here: the network thread can be inside
-     * post_conn_state_on_main_full() -> g_main_context_invoke_full(),
-     * holding the process-wide GMainContext lock.  Cancelling it there
-     * orphans that mutex and deadlocks every later main-loop invoke
-     * (the whole editor freezes on the next reconnect). */
+     * (pthread_cancel) here: the network thread can be inside a marshal
+     * to the main loop (post_conn_state_on_main_full / emit_message_on_main,
+     * both g_idle_add-based) momentarily holding the process-wide
+     * GMainContext lock.  Cancelling it there orphans that mutex and
+     * deadlocks every later main-loop operation.  Conversely those marshals
+     * must stay non-blocking (g_idle_add, never g_main_context_invoke_full):
+     * since this join runs on the main thread, a marshal that waited on the
+     * main loop would deadlock the join itself (window-close freeze). */
     mosquitto_disconnect (priv->client);
     if (priv->loop_running)
     {
