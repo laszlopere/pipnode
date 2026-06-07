@@ -352,6 +352,38 @@ collect_error_bars (
         }
     }
 
+    /* A bin holding a single sample has min == max, so its whisker would
+     * collapse to a zero-height glyph — a row of disconnected dashes for a
+     * slow, one-sample-per-bin series.  Extend each whisker halfway toward
+     * the neighbouring buckets' means so adjacent whiskers meet at the
+     * midpoints, tracing the movement as a continuous vertical band while
+     * still leaving the sample's own value at the centre.  Any genuine
+     * intra-bin spread (w_lo..w_hi) is kept via the union.  Midpoints of
+     * in-range means stay in range, so the y-range needs no adjustment. */
+    for (i = 0; i < n; i++)
+    {
+        gdouble lo = mean[i], hi = mean[i];
+
+        if ((gdouble) w_lo[i] < lo) lo = w_lo[i];
+        if ((gdouble) w_hi[i] > hi) hi = w_hi[i];
+
+        if (i > 0)
+        {
+            gdouble mid = 0.5 * ((gdouble) mean[i] + (gdouble) mean[i - 1]);
+            if (mid < lo) lo = mid;
+            if (mid > hi) hi = mid;
+        }
+        if (i + 1 < n)
+        {
+            gdouble mid = 0.5 * ((gdouble) mean[i] + (gdouble) mean[i + 1]);
+            if (mid < lo) lo = mid;
+            if (mid > hi) hi = mid;
+        }
+
+        w_lo[i] = (PLFLT) lo;
+        w_hi[i] = (PLFLT) hi;
+    }
+
     return n;
 }
 
