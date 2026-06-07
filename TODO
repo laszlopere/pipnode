@@ -1,1419 +1,1416 @@
-(12) Let us implement node measuring certain processes something like this
-ssh eth4 "pidstat -p 5365,6902 30 1 2>/dev/null | awk '/Average/ {print}'"
-     Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
-     Average:     1000      5365  101.63   11.07    0.00    0.00  112.70     -  geth-pulse
-     Average:     1000      6902  155.43   14.63    0.00    0.00  170.07     -  geth-pulse
-
-but the PID should be obtained by checking the pre-set process name(s).
-
-(13) Add a node to periodically check if a process exists on a remote host,
-report success if so, false if not. Report the PID as "value".
-
-(15) The functional tests are executed very fast so that the user can't see what
-happens. Let us slow them down a little but. They can finish fast, but every
-step that causes visual update should take about 1 second at least.
-
-(20) Add an on-demand poll mechanism for Tasmota devices that piggybacks on
-the new MQTT sink: a node (or a worksheet recipe documented in the help)
-that publishes "cmnd/tasmotas/Status 5" to the broker and listens on
-"stat/+/STATUS5" through an MQTT source, then surfaces each device's
-IPAddress / Hostname / Mac from the StatusNET reply. The result is a
-discovery feed that can be wired into the HTTPS Client (or a future plain
-HTTP client) to drive per-device REST calls without any external scan.
-
-(22) Implement a tasmota concentrator. Here is how a discovery message can be
-sent to a tasmota device:
-mosquitto_pub -h mqtt.homelab.local -p 1883 -t 'cmnd/sonoff19/Status' -m '5'
-
-Why this needs to be per-device (verified live 2026-06-06 against the
-homelab broker while building PnTasmotaStatusRequest, the manual
-single-shot building block): a command published to the "tasmotas" GROUP
-topic (cmnd/tasmotas/Status) is acted on by every device but Tasmota
-deliberately suppresses the MQTT reply, so you get ZERO stat/+/STATUS
-responses back. A request to a SINGLE device (cmnd/sonoff47/Status 0)
-returns the full STATUS..STATUS11 set. MQTT wildcards (#, +) are
-subscribe-only and illegal in a publish topic; "*" is a literal, not a
-wildcard. Conclusion: to read info back from EVERY device you must send
-one request per device -- there is no broadcast-and-collect shortcut.
-The concentrator automates that loop.
-
-Design: two cooperating nodes (both core-only, plugins/tasmota tier),
-used alongside the existing PnTasmotaStatusRequest.
-
-[x] 22.1 Prober node (PnTasmotaProbe). DONE. Input wires from an MQTT
-    Source on the broker; output wires to an MQTT Sink. Passively watches
-    inbound traffic for Tasmota device names (parses the <device> segment
-    out of tele/<device>/..., stat/<device>/..., cmnd/<device>/...; other
-    prefixes and the "tasmotas" group topic are ignored), keeps a live
-    set of known devices, and emits per-device discovery requests on its
-    output (cmnd/<device>/Status <n>, same shape as
-    PnTasmotaStatusRequest) so the Sink publishes them. Rate-limit:
-    newly-seen device probed promptly, an already-known one never
-    re-probed more often than the configurable `interval` (seconds,
-    default 300; 0 = every message). `request` property picks the Status
-    section (shared PnTasmotaStatusKind enum, lifted from status-request
-    into pn-tasmota-common). fa-binoculars icon, violet body. Help page +
-    8-case unit test (tests/unit/test-pn-tasmota-probe.c) added.
-
-[x] 22.2 Concentrator / collector node (PnTasmotaConcentrator). DONE.
-    Input wires from the MQTT Source (the stat/<device>/STATUS* replies,
-    optionally also tele/.../STATE|SENSOR via the merge-telemetry prop).
-    Accumulates a per-device record, top-level-merging each STATUS /
-    STATUS5 / STATUS11 fragment into one object keyed by device. Emit
-    policy: when an accepted message arrives AND >= `interval` seconds
-    (default 2, debounce; 0 = every message) have elapsed since the last
-    emit, sends ONE combined message with data.devices = { <device>:
-    {..merged..}, ... } + data.value (device count) to a downstream
-    Debug / table / HTTP view. Holds state across messages; optional
-    `timeout` (default 0 = never) drops devices gone silent. fa-database
-    icon, sea-green body. Help page + 10-case unit test
-    (tests/unit/test-pn-tasmota-concentrator.c) added.
-
-[x] 22.3 Wiring recipe + example worksheet. DONE.
-    examples/home-automation/tasmota-discovery.json wires MQTT Source ->
-    Tasmota Probe -> MQTT Sink and MQTT Source -> Tasmota Concentrator ->
-    Debug (registered in examples/Makefile.am; loads clean under
-    pipnode-run). Help pages for both nodes already shipped with 22.1/22.2
-    and document the group-topic no-reply gotcha (PnTasmotaProbe.html
-    "Why per-device, not one broadcast").
-
-[x] 22.4 Keep prober and concentrator as SEPARATE nodes. DONE -- they are
-    two independently-wireable core nodes (PnTasmotaProbe,
-    PnTasmotaConcentrator) and the tasmota-discovery.json example composes
-    them into the full discover-poll-collect-present loop rather than
-    fusing them.
-
-Relation to item (20): (20) is the same idea at recipe level (publish
-Status 5, listen on stat/+/STATUS5, surface IPAddress/Hostname/Mac for
-REST follow-up); (22) is the node-based, auto-discovering, all-sections
-generalisation -- folding (20)'s StatusNET-for-REST use case in here is
-reasonable.
-
-(26) The Text to Speech node should default to "any engine you find" + "any
-voice you find": on a fresh node, auto-detect the first available TTS engine
-(piper/espeak-ng/espeak/festival/flite on $PATH) and the first available voice
-for it, instead of defaulting to a fixed engine/model that may not exist on the
-machine. The auto-pick must stay overridable in the editor (keep the existing
-engine/voice selectors). Once this lands, update the bundled panel applets --
-the shipped starter worksheet panel-plugins/pipnode-xfce-applet/
-pipnode-xfce-applet-default.json currently hard-codes an absolute
-~/.local/share/piper/...onnx model path -- to rely on the auto-default so a new
-applet's TTS works on any machine out of the box. (Came up while wiring the
-panel applet's click -> Panel Input -> Text to Speech demo: the shipped template
-only spoke on the author's machine.)
-
-(28) Host-managed shared profile sessions (plugin ABI v6). Today a profile
-(ABI v5, item 27) is a CONFIG store: a node resolves a profile-ref at fire
-time, gets host/port/credentials, and opens its own connection. That is
-fine for one-shot HTTP-style work but breaks down whenever the underlying
-resource is single-owner or stateful: a USB-serial device can only be
-held by one fd, and an MQTT broker session is logically one TCP socket
-per (broker,client-id) that wants its subscriptions and outbound
-publishes funnelled through one place. The Meshtastic node already paid
-this tax (one device <-> one node, no multi-node fan-out possible) and
-the upcoming pipnode-zigbee-plugin would inherit the same limitation
-(the GW70-MQTT CC2652 dongle speaks ZNP over /dev/ttyUSB0; multiple
-debug nodes -- status, list-devices, dump-frames, permit-join -- all
-need to share that one fd, queue requests serially, and fan
-unsolicited frames out to subscribers).
-
-Fix it at the host. Keep the existing profile as the CONFIG layer, and
-add a LIVE-RESOURCE layer on top: PnProfileSession, a per-profile-id
-object opened on first reference and torn down on last release, owned
-and ref-counted by the host. The plugin teaches the host how to build
-one via two new vfuncs on PnProfileSchemaClass:
-    PnProfileSession *(*open_session)  (PnProfile *cfg, GError **error);
-    void              (*close_session) (PnProfileSession *session);
-Host-side API the nodes use:
-    PnProfileSession *pn_profile_acquire_session (const gchar *profile_id,
-                                                  GError **);
-    void              pn_profile_release_session (PnProfileSession *);
-Acquire in constructed(), release in dispose(), exactly mirroring the
-existing pn_node_get_profile lifecycle. Re-emit PnVault::changed as a
-session teardown+rebuild so a credential edit propagates the same way
-it does today. State changes (device unplug, broker disconnect) fan out
-via a PnProfileSession::state-changed signal mirroring PnVault::changed.
-Concurrency model: single-threaded GLib mainloop, GIOChannel/GUnixIO on
-the fd, all callbacks on the main thread (no new threads -- pipnode
-does not use them elsewhere). Lives in libpipnode-core so pipnode-run
-gets the same shared sessions headlessly (see item 23).
-
-The session object itself is plugin-defined. For Zigbee that means a
-ZNP transport with a FIFO request queue (pn_znp_request(session, cmd,
-payload, callback)) plus a subscriber registry for unsolicited frames
-(pn_znp_subscribe(session, type, callback)); for MQTT it is a libmosq
-client with one TCP connection, a subscribe-multiplex table and a
-publish queue; for Meshtastic a serial-mesh session of the same shape
-as Zigbee.
-
-Pilot/port order, smallest blast radius first: (a) ship the host-side
-registry + the two vfuncs + the ABI bump 5 -> 6, no plugin work; (b)
-port the bundled MQTT Source/Sink in plugins/network onto it -- the
-win is immediate and observable (N MQTT nodes against one broker stop
-dialling N sockets, and their subscriptions merge into one), and it
-proves the API on existing test coverage; (c) build the Zigbee plugin
-greenfield against the now-proven API (GW70Profile + ZnpSession +
-small debug nodes -- see item 29 if/when filed); (d) retrofit the
-Meshtastic node to lift its one-device-one-node ceiling; (e)
-opportunistically: the kodi plugin's JSON-RPC client (multiple kodi
-nodes currently each open their own libsoup session), shell SSH, any
-future stateful-socket plugin.
-
-Trade-offs to nail in design: ownership boundary (plugin defines what
-a session IS, host owns the registry + ref-count + lifetime; plugin
-never caches a PnProfileSession* outside an acquire/release pair),
-error propagation (every subscribed node must learn when the device
-disappears -- state-changed signal), and the headless story (sessions
-must work under pipnode-run, which is why the layer lives in core not
-gui). Same ABI-bump drill as item 27: sudo make install + reinstall
-every plugin or the scan will deadlock on stale .so's (see the caveat
-documented under item 23).
-
-(29) Devices -> Meshtastic configuration dialog. Today PnMeshtastic
-nodes are unusable until the device is set up via the external
-/usr/bin/pip-mesh bash prototype (4994 lines, hand-rolled bash
-protobuf, USB serial only, channel/QR share tested working with the
-author's handheld). Port that knowledge into a first-class editor
-dialog so an unboxer can go from "plug in a Heltec/Tracker" to "send a
-test message" without leaving pipnode. Constraints from the user:
-device is the source of truth, NOTHING persisted on pipnode's side
-(close = disconnect, no caches, no auto-scan, no "remembered
-devices"); discovery only on explicit Scan; list devices, never
-auto-select.
-
-Shape decided in chat: top-level Devices menu in the editor with one
-entry per supported device kind, first being "Meshtastic..."; opens a
-GtkDialog with the device list on the left (empty until Scan), a
-stage-based settings stack on the right (Identity / Region / Channels
-/ Share / Test). Per-device session is held only while the dialog is
-open. Code lives in the editor (lib/devices/meshtastic/) for the first
-cut; designed with a clean seam so Phase 8 moves it into the
-meshtastic plugin and turns the menu into a plugin-registered list.
-
-Architecture decisions: (a) hand-translate pip-mesh's narrow protobuf
-subset into C rather than pull in nanopb -- the surface we write
-(LoRa, owner, channels) is small and self-contained; (b) optional
-libqrencode dep, auto-detected at configure time, URL-only fallback;
-(c) discovery via sysfs walk against pip-mesh's VID:PID table
-(10c4:ea60 Heltec V3, 239a:0029/8027/8029 Trackers), no libgudev; (d)
-threading: dialog on main thread, serial I/O on GTask worker threads,
-results marshalled back via g_main_context_invoke -- no blocking the
-UI, no g_idle polling. Defaults chosen for the open questions, all
-revisitable: libqrencode optional dep; transport-profile-save
-deferred to Phase 8; Region page covers the full LoRa surface (not
-just pip-mesh's QR subset); test page is text-only first.
-
-File layout (flat lib/ to match repo convention; subdir grouping is
-notional, the prefix groups them. Phase 8 may move them under a
-plugin tree but for now keep them next to the other lib/pn-*.c):
-    src/pn-devices-menu.{c,h}              -- Devices menu host (editor only)
-    lib/pn-mesh-discover.{c,h}             -- sysfs walk, VID:PID table
-    lib/pn-mesh-serial.{c,h}               -- termios open, frame I/O
-    lib/pn-mesh-pb.{c,h}                   -- minimal protobuf codec
-    lib/pn-mesh-protos.{c,h}               -- typed accessors per message
-    lib/pn-mesh-connection.{c,h}           -- per-device session, admin frames
-    lib/pn-mesh-qr.{c,h}                   -- ChannelSet -> URL -> optional pixmap
-    lib/pn-mesh-dialog.{c,h}               -- top-level GtkDialog
-    lib/pn-mesh-device-list.{c,h}          -- left: scan button + GtkListBox
-    lib/pn-mesh-page-identity.{c,h}        -- metadata + owner names
-    lib/pn-mesh-page-region.{c,h}          -- region / preset / hop / tx-power
-    lib/pn-mesh-page-channels.{c,h}        -- list/create/delete/copy (txn)
-    lib/pn-mesh-page-share.{c,h}           -- QR + URL for channels / full config
-    lib/pn-mesh-page-test.{c,h}            -- send + live monitor
-    tests/unit/
-        test-pn-mesh-pb.c, test-pn-mesh-frame.c, test-pn-mesh-qr.c
-
-Phase tracker (mark DONE inline as each ships; "where we left off"
-lives here so future sessions can pick up without re-reading chat):
-
-    [x] Phase 1  Menu + empty dialog (UX skeleton). Devices ->
-                 Meshtastic... menu item, dialog opens with left list
-                 "No devices. [Scan]" and a blank right stack.
-                 Scan stubbed to return a fake row so layout is
-                 judgable before protocol code lands. Files shipped:
-                 src/pn-devices-menu.{c,h}, lib/pn-mesh-dialog.{c,h},
-                 lib/pn-mesh-device-list.{c,h}. User-confirmed.
-    [x] Phase 2  Real discovery + connect (no writes). sysfs scan +
-                 serial + framing + want_config_id handshake. Selecting
-                 a row populates Identity page read-only (HW model raw
-                 enum, owner names, channel count). Status bar shows
-                 connection state. Files shipped:
-                 lib/pn-mesh-{discover,pb,serial,connection,page-identity}.{c,h}
-                 (all GTK-free except page-identity, in libpipnode-core),
-                 lib/pn-mesh-{dialog,device-list,page-identity}.{c,h}
-                 (libpipnode-gui).
-                 Unit tests: test-pn-mesh-pb (123 checks), test-pn-mesh-frame
-                 (44 checks). Firmware version + HW model name deferred to
-                 Phase 3 (needs admin protocol round-trip).
-                 User-verified against real Heltec V3.
-    [x] Phase 3  Owner-names write (smallest write path), admin
-                 protocol primitives, DeviceMetadata read. Long/short
-                 name editable on Identity with per-field Apply
-                 (write -> 0.5s settle -> verifying handshake);
-                 Identity also shows firmware version, hardware model
-                 with friendly name (HELTEC_V3 etc.), device role,
-                 capability flags (Wi-Fi / Bluetooth / Ethernet). New
-                 admin-protocol helpers in pn-mesh-connection.c wrap
-                 MeshPacket+Data+AdminMessage so Phase 4+ can
-                 piggyback on send_admin/parse_admin_message for
-                 set_lora_config etc. HW-model + role lookup tables
-                 ported from pip-mesh inline in pn-mesh-page-identity.c.
-                 GOTCHAS rediscovered: (i) the page status callback
-                 signature is (text, user_data) -- DO NOT
-                 function-cast set_status which is (ctx, text), the
-                 args swap and crash on first emit; bridge through a
-                 small thunk. (ii) After a successful Apply, only
-                 repaint the entry whose write we just finished --
-                 the other entry may hold a mid-edit value the user
-                 has typed but not applied, and a blind repaint
-                 silently throws it away. Tracked via an "applying"
-                 enum in the page ctx; APPLY_NONE on a fresh device
-                 pick paints both, APPLY_LONG/SHORT after Apply
-                 paints just that one. User-verified.
-    [x] Phase 4  Region / LoRa page. Region picker, modem preset,
-                 hop limit, tx_power, tx_enabled, single Apply
-                 button. Extended handshake captures FromRadio.config
-                 (field 5) -> Config { lora (6) = LoRaConfig {...} }.
-                 New pn_mesh_connection_set_lora_config_async wraps
-                 AdminMessage.set_config (34) = Config(lora=...) and
-                 ships the WHOLE LoRaConfig at once (proto3 defaults
-                 would silently reset omitted fields -- region=UNSET
-                 would brick the radio). channel_num + use_preset are
-                 read and round-tripped verbatim. Dialog right-pane
-                 now hosts a GtkStackSwitcher above the GtkStack;
-                 Identity + Region pages are titled (appear as
-                 switcher buttons); empty/connecting page stays
-                 untitled. Switcher hidden until a device connects.
-                 Files shipped: lib/pn-mesh-page-region.{c,h}; deltas
-                 in lib/pn-mesh-connection.{c,h} (LoRa fields +
-                 parse_config + set_lora_config) and lib/pn-mesh-
-                 dialog.c. User-verified against real Heltec V3.
-    [x] Phase 5  Channels page. List of 8 slots (index/name/role
-                 badge/PSK lock icon), Add channel (modal with name +
-                 prefilled random AES-256 PSK + Generate button),
-                 per-row Delete (primary protected, disabled slots
-                 inert). Bare set_channel admin writes (no
-                 begin/commit transaction; that was Phase 5 plan but
-                 single-channel writes don't need it -- pip-mesh's
-                 create_channel/delete_channel pattern). New
-                 pn_mesh_connection_set_channel_sync/async with
-                 AdminMessage.set_channel (field 33, NOT 32 -- the
-                 pip-mesh docstring at line 3905 says 32 but the
-                 code at line 3941 uses 33; trust the code). Spinner
-                 next to Add button while the 3-5s verify cycle
-                 runs. Files shipped: lib/pn-mesh-page-channels.{c,h}
-                 plus deltas in pn-mesh-connection / pn-mesh-serial /
-                 pn-mesh-dialog. User-verified against real Heltec V3.
-
-                 LOAD-BEARING GOTCHAS rediscovered, also relevant to
-                 Phase 6/7 (any future set_channel-shaped write):
-
-                 (i) PORT BOUNCE FOR set_channel. The Meshtastic
-                 firmware buffers channel-slot changes in RAM and
-                 only commits to flash when the serial session ends
-                 (DTR drop). pip-mesh gets this for free because it
-                 uses `echo > $tty` (a fresh open/close per write);
-                 our long-lived fd has to close+reopen explicitly or
-                 the write LOOKS accepted (verify-cycle handshake
-                 succeeds) but is silently dropped on the next
-                 device read or reboot, and pip-mesh later sees no
-                 change. set_owner and set_lora_config are stored
-                 differently and do NOT need the bounce. Added
-                 pn_mesh_serial_reopen() and the connection now
-                 bounces the fd between the set_channel write and
-                 the verify cycle. Phase 6's QR-import path will
-                 write multiple channels in sequence -- bundle them
-                 in a single begin_edit_settings(64)/commit_edit_
-                 settings(65) transaction (per pip-mesh's
-                 --copy-channels) and one bounce at the end.
-
-                 (ii) use-after-free across the modal-destroy in the
-                 Add dialog: gtk_entry_get_text returns a pointer
-                 INTO the entry's buffer; destroying the dialog
-                 frees the entry. The async write's internal
-                 g_strdup runs AFTER the destroy, picking up freed
-                 memory -- the channel name comes back as garbage on
-                 the next read-back. Fix: g_strdup the entry text
-                 BEFORE destroying the dialog. (psk_bytes was
-                 already safe because decode_psk_hex mallocs a fresh
-                 buffer we own.)
-
-                 (iii) UX: a 3-5s verify cycle with no visible
-                 motion reads as "the app froze". Add a GtkSpinner
-                 next to the action button, spin while writing=TRUE.
-                 Identity (Apply owner) and Region (Apply LoRa) have
-                 the same delay and would benefit from the same
-                 spinner -- not added yet (user didn't ask), one-
-                 liner each when wanted.
-    [x] Known    Known Nodes page (out-of-band insertion between
-        Nodes    Phase 5 and Phase 6 -- user-requested "everything
-                 works" diagnostic).  Read-only sortable
-                 GtkTreeView over PnMeshState->nodes; the device's
-                 own row is bolded and pinned to the top via a
-                 hidden is_us primary sort key, with columns ID /
-                 Short / Long / HW / Role / Hops / SNR / Last
-                 heard / Battery.  Last heard / SNR / Battery use
-                 separate numeric sort columns so the displayed
-                 strings ("3m ago", "—") sort by value not ASCII.
-                 Connection now captures the full NodeInfo set
-                 (added field defines NI_SNR=4, NI_LAST_HEARD=5,
-                 NI_DEVICE_METRICS=6, NI_HOPS_AWAY=9, U_ROLE=7;
-                 new parse_device_metrics; SeenNode extended with
-                 role/snr/last_heard/hops_away/battery/voltage)
-                 and publishes PnMeshState->nodes (GPtrArray of
-                 new public type PnMeshNode).  format_hw_model /
-                 format_role lifted out of page-identity into
-                 libpipnode-core (lib/pn-mesh-formats.{c,h}) so
-                 the new page reuses the same tables.  Files
-                 shipped: lib/pn-mesh-formats.{c,h} (core);
-                 lib/pn-mesh-page-known-nodes.{c,h} (gui).  No new
-                 unit test -- the page is a pure render layer over
-                 already-tested protobuf parsing; the existing
-                 test-pn-mesh-pb / test-pn-mesh-frame net still
-                 holds.  No protocol writes; no admin frames; no
-                 ABI bump (PnMeshState is internal to the dialog).
-                 Phase numbering unchanged below; "Phase 5.5" would
-                 misread, so it's tracked here as an inline entry.
-
-    [x] Phase 6  Share page (headline feature).  Single-QR page
-                 living under the Radio tab as a third expander
-                 (Region & LoRa / Channels / Share).  Top: subtitle
-                 line that rephrases per mode.  Channel checkbox
-                 list (primary pre-checked; rows are the device's
-                 non-disabled slots).  Mode-toggle radio group
-                 ("Share channels (additive)" vs "Share full config
-                 (replaces)") -- exactly one QR drawn from the
-                 active mode so a phone camera cannot lock on the
-                 wrong code.  Below the radios: a single cairo-
-                 rendered QR (when libqrencode is present at build
-                 time, else a "install libqrencode and rebuild"
-                 notice).  Underneath the QR: a wrapping selectable
-                 monospace GtkLabel showing the full URL + a
-                 clipboard Copy button (Label not GtkEntry -- a
-                 single-line entry hides the dynamic tail behind
-                 the identical "https://meshtastic.org/e/#" prefix
-                 and the user cannot tell when the URL changed).
-                 URL builder lives in libpipnode-core (pn-mesh-qr
-                 .{c,h}) as a pure-C, GTK-free port of pip-mesh's
-                 build_channel_set_hex + print_qr_url; cairo render
-                 (and the libqrencode include) lives in the gui-
-                 side page-share.c so the core tier stays headless.
-
-                 ChannelSet wire layout (pip-mesh-compatible):
-                   ChannelSet {
-                     repeated ChannelSettings settings = 1; // embedded
-                     LoRaConfig               lora     = 2; // optional
-                   }
-                   ChannelSettings { bytes psk = 2; string name = 3; }
-                   LoRaConfig (QR subset):
-                     bool use_preset = 1; ModemPreset modem = 2;
-                     RegionCode region = 7; uint32 hop_limit = 8;
-                 URL = "https://meshtastic.org/e/#" + base64url
-                 (RFC 4648 with '+'->'-', '/'->'_', trailing '='
-                 stripped) of the serialized ChannelSet.
-
-                 Optional dep: libqrencode (PKG_CHECK_MODULES,
-                 AC_DEFINE HAVE_QRENCODE, AM_CONDITIONAL); auto-
-                 detected, URL-only fallback paints a "install
-                 libqrencode and rebuild" notice in the QR slot when
-                 missing.  Configure prints "libqrencode not found;
-                 Meshtastic Share page will show URLs only" in that
-                 case.
-
-                 Files shipped: lib/pn-mesh-qr.{c,h} (core),
-                 lib/pn-mesh-page-share.{c,h} (gui); deltas in
-                 lib/pn-mesh-dialog.c (third expander on Radio tab,
-                 set_state on connect/drop, GtkOverlay loading
-                 spinner over the notebook -- see UX FOLLOW-UPS
-                 below) and lib/Makefile.am (QRENCODE_CFLAGS/LIBS
-                 on the gui lib).  Unit test tests/unit/
-                 test-pn-mesh-qr.c (5 cases, 19 checks) pins byte-
-                 for-byte URL match for a single default channel
-                 and for the full-config form, plus skip-disabled,
-                 selection-subset and empty-error paths.
-
-                 UX FOLLOW-UPS landed with Phase 6:
-
-                 - Handshake loading overlay.  The 3-5s handshake
-                 would otherwise let the user switch to a tab whose
-                 state hasn't arrived and read it as "device has no
-                 channels / no MQTT".  Notebook is now wrapped in a
-                 GtkOverlay with a 64x64 centred GtkSpinner +
-                 "Reading configuration from device…" label;
-                 show_loading/hide_loading also flip notebook
-                 sensitivity so tabs cannot be clicked while the
-                 spinner is up.  drop_connection hides it too so a
-                 dialog-close mid-handshake leaves no ghost widget.
-
-                 - Channels page list height.  set_min_content_
-                 height(220) + set_propagate_natural_height(TRUE)
-                 + a hard set_size_request(list, -1, 200) on the
-                 GtkListBox itself.  Without all three, the FALSE/
-                 FALSE-packed Channels expander pinned the scrolled
-                 list to a single row.  Same pattern (with smaller
-                 numbers) used for the Share page's channel
-                 checkbox list -- the QR area's set_size_request
-                 was eating the slack the list needed.
-
-                 - Trash-can delete glyph.  Per-row delete on the
-                 Channels page uses "user-trash-symbolic" (verified
-                 present in the icon theme) instead of "edit-
-                 delete"; reads as "discard" rather than "erase".
-
-                 GOTCHAS for future cousins (Phase 7 / 11+):
-
-                 (i) ProtoBuf field numbers in pip-mesh's bash
-                 docstrings were not always accurate (Phase 5
-                 already hit this on set_channel: docstring 32,
-                 code 33).  For Phase 6 the field numbers came
-                 verbatim out of build_channel_set_hex /
-                 print_qr_config and matched what the firmware
-                 expects; the test pins them at the URL level so
-                 a future "tidy up" cannot silently drift.
-
-                 (ii) Region UNSET would brick the receiver on
-                 full-config import (proto3 zero == UNSET, no fall-
-                 back).  refresh_url skips emission in full-config
-                 mode unless PnMeshState->have_lora_config is TRUE
-                 (a small dim notice paints in its place) so the
-                 URL/QR pair stays blank (not "garbage URL") until
-                 the handshake actually surfaces a LoRa config.
-
-                 (iii) Cairo QR render budgets four modules of
-                 quiet zone around the matrix even though Meshtastic
-                 phone apps are tolerant; without it the white
-                 border collapses when the dialog uses a dark theme
-                 and decode rate drops.  Drawing happens against
-                 the cached URL so toggle->draw is one cycle of
-                 queue_draw -- no re-encode on every expose.
-
-                 (iv) GtkScrolledWindow's set_min_content_height
-                 ALONE was repeatedly observed to be ignored when
-                 the scrolled window lives inside a GtkExpander
-                 packed FALSE/FALSE in a tab box: the listbox
-                 collapsed to one row.  The reliable recipe is
-                 min_content_height + propagate_natural_height +
-                 an explicit gtk_widget_set_size_request on the
-                 listbox itself.  Any future tab-hosted scrolled
-                 list (Phase 7 test page, Phase 11+ module pages)
-                 should follow the same belt-and-braces pattern.
-
-                 (v) Long URLs in a single-line GtkEntry hide
-                 their dynamic suffix behind the (identical) URL
-                 prefix.  Wrapping selectable GtkLabel was the
-                 right widget; reuse it for any other "show me
-                 this URL" affordance instead of an entry.
-    [x] Phase 7  Test page. Channel picker + message entry + Send;
-                 below, a live "Incoming traffic" log running monitor
-                 on the open connection. Auto-stops on dialog close.
-                 Shipped as the Diagnostics tab's "Test" expander
-                 alongside Known Nodes; PORTNUM_TEXT_MESSAGE_APP =1
-                 wire defines on the ToRadio side, MeshPacket parser
-                 on the FromRadio side queues PnMeshTextEvent records
-                 the dialog drains via a 200 ms timer
-                 (pump_monitor + take_text_event).  Synthesised
-                 "outgoing" events are echoed back from
-                 send_text_sync so a single transcript shows both
-                 directions.  Per dialog-lifetime rule the monitor
-                 timer is owned by MeshDialogCtx (start in
-                 on_connection_ready, stop in drop_connection /
-                 dialog dispose), and pump_monitor is skipped while
-                 any write is in flight via the busy_count so the
-                 frame reader does not race the worker thread.
-    [x] Phase 9  Modules tab + External Notification (the "stop
-                 the beeping" fix) -- shipped under Notifications
-                 tab via the 7-tab layout (see Phase 10 note); the
-                 sidebar plan below is historical.  pip-mesh never
-                 touched ModuleConfig at all; we want the full
-                 module surface eventually, starting with the one
-                 users most often need to disable (nag_timeout +
-                 enabled).  Concrete steps:
-
-                 (a) Wire defines: FR_MODULE_CONFIG=9 (FromRadio
-                     subfield), MC_EXTERNAL_NOTIFICATION=3
-                     (ModuleConfig oneof case),
-                     AM_SET_MODULE_CONFIG=35 (AdminMessage),
-                     EN_* for all 15 ExternalNotificationConfig
-                     fields.
-                 (b) Handshake parser: parse_module_config()
-                     dispatcher (mirroring parse_config) and
-                     parse_ext_notification() (mirroring
-                     parse_lora_config).
-                 (c) State: new PnMeshExtNotificationConfig struct
-                     in pn-mesh-connection.h with all 15 fields,
-                     plus have_ext_notification flag on
-                     PnMeshState.
-                 (d) Writer: pn_mesh_connection_set_ext_notification
-                     _sync/async/finish, shipping the WHOLE
-                     ExternalNotificationConfig at once (same
-                     proto3-defaults rule as LoRa -- ship every
-                     field on every write or omitted ones reset).
-                 (e) UI: new "Modules" stack page in the dialog.
-                     Designed as a sidebar (list of available
-                     modules) + content panel.  Phase 9 lists only
-                     "External Notification"; Phases 10/11 add
-                     rows.  ExternalNotification form: switch for
-                     enabled, spinner for nag_timeout (the
-                     "actually fix the beep" knob), spinners for
-                     output_ms, output / output_vibra /
-                     output_buzzer GPIO pins, switch for active
-                     (active-high vs active-low), alert_message /
-                     _vibra / _buzzer + alert_bell / _vibra /
-                     _buzzer switches, use_pwm switch,
-                     use_i2s_as_buzzer switch; single Apply
-                     button at the bottom.
-                 (f) ABI: PnMeshState is private to the dialog;
-                     no plugin ABI bump.
-
-    [x] Phase 10 MQTT module.  The Modules-sidebar plan was
-                 superseded by the 7-tab + GtkExpander layout
-                 (Device/Radio/Network/Notifications/Telemetry/
-                 Mesh tools/Diagnostics, accordion sub-sections
-                 inside each).  Phase 10 ships MQTT specifically
-                 (10 simple fields + opaque MapReportSettings
-                 round-trip) under the Network tab; remaining
-                 modules picked up by Phase 11+.  Wire side:
-                 MC_MQTT=1 ModuleConfig dispatch, MQTT_* field
-                 defines, parse_mqtt, send_set_mqtt_config,
-                 PnMeshMqttConfigWrite, sync/async/finish.
-                 PnMeshState gains 9 typed fields plus a GBytes*
-                 holding the un-exposed MapReportSettings sub-
-                 message so writes don't reset its hidden sub-
-                 fields to proto3 zero.  UI: pn-mesh-page-mqtt.
-                 {c,h} mirrors the External Notification page --
-                 master Enabled gates the detail fields,
-                 password entry has visibility=FALSE, address &
-                 root entries grow to fill the row.  Field 6
-                 (json_enabled) is upstream-deprecated and
-                 intentionally NOT written -- the firmware
-                 ignores it.
-
-    [-] Phase 11 Remaining modules.  POSTPONED to a later
-                 revision (decided 2026-05-28).  No donor code
-                 in pip-mesh; each module is a fresh page on the
-                 Phase 10 pattern, and none of the leftovers are
-                 must-haves for the unbox-to-test-message goal.
-                 Candidates if/when this comes back:
-                 Serial (Network tab); Neighbor Info, Detection
-                 Sensor, Range Test, Paxcounter (Telemetry tab);
-                 Canned Message, Audio, Ambient Lighting
-                 (Notifications tab); Store & Forward, Remote
-                 Hardware, TAK (Mesh tools tab).  Sub-messages
-                 that the UI doesn't expose go via the opaque-
-                 bytes round-trip introduced in Phase 10
-                 (PnMeshState->mqtt_map_report_settings).
-                 Notes on TODO transcription slips found while
-                 descoping: "Status Message" is not a real
-                 ModuleConfig sub-block; "Traffic Management"
-                 is rebroadcast_mode inside DeviceConfig
-                 (covered by Phase 14); "Display" is a Config
-                 sub-block (was covered by Phase 13, now also
-                 postponed -- see below).
-
-    [x] Phase 12 Position + Power config tabs.  Shipped as two
-                 new GtkExpanders distributed across the existing
-                 7-tab layout rather than dedicated tabs -- Power
-                 sits under "Device" alongside Identity, Position
-                 sits under "Radio" after Region / Channels / Share.
-                 Both reuse the LoRa pattern: read whole sub-block
-                 during the handshake, mutate one or more fields,
-                 ship every typed field back at once via
-                 AM_SET_CONFIG=34 wrapped in Config{<sub>}.
-
-                 Wire side (pn-mesh-connection.[ch]): CFG_POSITION
-                 =2 and CFG_POWER=3 dispatch in parse_config; POS_*
-                 / POW_* field defines mirror the Meshtastic proto;
-                 parse_position_config / parse_power_config follow
-                 parse_lora_config's shape.  PnMeshState gains 13
-                 pos_* and 9 pow_* fields plus have_position /
-                 have_power flags.  Two new writer pairs --
-                 PnMeshPositionConfigWrite + set_position_config_*,
-                 PnMeshPowerConfigWrite + set_power_config_* --
-                 share two helpers (send_set_config_subblock and
-                 finish_set_config) extracted from set_lora_config
-                 so the second writer collapses to a per-field
-                 write loop + one call.  Power's
-                 adc_multiplier_override is the project's first
-                 float-on-the-wire field; written via
-                 pn_mesh_pb_write_fixed32_field with a union punning
-                 trick, read via pn_mesh_pb_read_float.
-
-                 UI side: pn-mesh-page-position.[c,h] and
-                 pn-mesh-page-power.[c,h] are direct clones of
-                 pn-mesh-page-region.[c,h]: subtitle + grid of
-                 bold-label / control rows + right-aligned Apply
-                 button at the bottom; ctx struct with all widget
-                 handles + status / busy callbacks + writing flag;
-                 set_writing toggles every control's sensitivity in
-                 one shot and emits busy(TRUE/FALSE) on transition;
-                 set_state mirrors the device state into the
-                 controls and stashes round-trip-only fields
-                 (position_flags, the GPIOs, the legacy gps_enabled
-                 vs gps_mode pair, the INA address) in ctx so Apply
-                 ships them back unchanged.
-
-                 Position page exposes GPS mode (combo: DISABLED /
-                 ENABLED / NOT_PRESENT), the legacy gps_enabled
-                 boolean synced from mode at Apply-time so older
-                 firmware keeps consistent state, fixed_position
-                 switch, smart-broadcast switch + its min-distance
-                 (m) and min-interval (s) thresholds, plus
-                 position_broadcast_secs and gps_update_interval.
-                 GPIO assignments are deliberately NOT surfaced as
-                 controls -- they are board-specific and the user
-                 is more likely to set them via the firmware
-                 console than the dialog; round-trip preserves
-                 them anyway.
-
-                 Power page exposes is_power_saving switch,
-                 on_battery_shutdown_after_secs,
-                 adc_multiplier_override (float spinner, 3-digit
-                 precision, 0 = firmware default),
-                 wait_bluetooth_secs, sds_secs, ls_secs,
-                 min_wake_secs; device_battery_ina_address is
-                 round-tripped only.  powermon_enables (field 32)
-                 is a debug-only flag the dialog ignores -- same
-                 caveat the LoRa page carries for spread_factor
-                 etc.  It gets proto3-zero-reset on Apply (rare;
-                 no end-user touched it via the GUI), document
-                 if a user reports it.
-
-                 Gotchas for the next Config sub-block writer
-                 (Phase 14):
-
-                 (i) Float on the wire uses
-                 pn_mesh_pb_write_fixed32_field with a union to
-                 reinterpret bits; pn_mesh_pb_read_float
-                 reciprocates.  Do NOT write a varint -- proto's
-                 float wire type is fixed32 (wire 5), and a varint
-                 of the bit pattern would be read as garbage.
-
-                 (ii) Signed int32 fields on the wire encode
-                 negative values as 10-byte sign-extended varints.
-                 The dialog's smart-min-distance spinner clamps to
-                 0 so the path is never hit in practice, but the
-                 writer still casts gint32 -> gint64 -> guint64
-                 before pn_mesh_pb_write_varint_field so the
-                 contract is correct for any signed field added
-                 later.
-
-                 (iii) The pattern is: parse all fields the
-                 firmware sends, expose only the practically-
-                 useful ones in the UI, stash the rest in ctx and
-                 ship them back unchanged.  This avoids the
-                 proto3-defaults trap and keeps board-specific /
-                 advanced settings intact without bloating the
-                 page.
-
-    [-] Phase 13 Display + Bluetooth config tabs.  POSTPONED
-                 to a later revision (decided 2026-05-28) --
-                 lower payoff than Phases 7/12/14 for the unbox
-                 flow; revisit alongside any Phase 11 module
-                 work.  DisplayConfig (13 fields: screen_on_secs,
-                 flip_screen, units, use_12h_clock, ...) and
-                 BluetoothConfig (3 fields: enabled, mode,
-                 fixed_pin).
-
-    [x] Phase 14 Device + Network + Security config tabs.
-                 Three new pages following the LoRa/Position/Power
-                 set_config_subblock pattern: parse the whole
-                 sub-block during the handshake, ship every typed
-                 field back at once via AM_SET_CONFIG=34 wrapped in
-                 Config{<sub>}.  Reuses send_set_config_subblock +
-                 finish_set_config helpers from Phase 12.
-
-                 Tab layout (touched 3 of the 7 existing tabs;
-                 Mesh tools + Notifications + Telemetry +
-                 Diagnostics unchanged):
-                   Device:  Identity / Device role & GPIO (new) /
-                            Power / Security (new)
-                   Radio:   Region & LoRa / Channels / Share /
-                            Position
-                   Network: WiFi/Ethernet/IPv6 (new) / MQTT
-                            (placeholder dropped)
-
-                 Wire side (pn-mesh-connection.[ch]): CFG_DEVICE=1
-                 / CFG_NETWORK=4 / CFG_SECURITY=8 dispatch in
-                 parse_config; DEV_*/NET_*/SEC_* field defines
-                 mirror the Meshtastic Config.proto exactly.
-                 parse_device_config / parse_network_config /
-                 parse_security_config follow parse_lora_config's
-                 shape.  PnMeshState gains 13 dev_*, 10 net_*,
-                 7 sec_* fields plus have_device/have_network/
-                 have_security flags.  Three writer pairs --
-                 PnMeshDeviceConfigWrite + set_device_config_*,
-                 PnMeshNetworkConfigWrite + set_network_config_*,
-                 PnMeshSecurityConfigWrite + set_security_config_*
-                 -- all use the shared subblock helpers.
-
-                 Device page: Role + RebroadcastMode combos,
-                 NodeInfo-broadcast spinner, button/buzzer GPIO
-                 spinners.  Round-trips serial_enabled, double_
-                 tap_as_button_press, deprecated is_managed,
-                 disable_triple_click, tzdef, led_heartbeat_
-                 disabled, buzzer_mode unchanged.
-
-                 Network page: WiFi switch + SSID/PSK entries
-                 (PSK masked), Ethernet switch, IPv6 switch.
-                 Round-trips ntp_server, address_mode,
-                 ipv4_config (opaque GBytes, same pattern as
-                 mqtt_map_report_settings), rsyslog_server,
-                 enabled_protocols.
-
-                 Security page: read-only base64 view of the
-                 X25519 public/private keys + admin key list,
-                 switches for is_managed / serial_enabled /
-                 debug_log_api_enabled / admin_channel_enabled.
-                 Per TODO: "I understand the risks" check gates
-                 Apply, and the check is auto-reset after a
-                 successful Apply / on every set_state so the
-                 next write needs an explicit re-confirmation.
-                 Key bytes shipped back verbatim from PnMeshState
-                 (typing 32 random bytes by hand is not useful).
-
-                 Files shipped: lib/pn-mesh-page-device.{c,h},
-                 lib/pn-mesh-page-network.{c,h},
-                 lib/pn-mesh-page-security.{c,h}; deltas in
-                 lib/pn-mesh-connection.{c,h}, lib/pn-mesh-dialog.c,
-                 lib/Makefile.am.
-
-                 Gotchas for any future Config sub-block writer
-                 (none yet planned; Phase 11/13 are postponed):
-
-                 (i) BYTES round-trip via GBytes.  ipv4_config,
-                 public_key, private_key are length-delimited
-                 bytes sub-fields.  Stash them on PnMeshState as
-                 GBytes* (own-on-parse, free-on-close, clear in
-                 clear_state) and ref+copy into a per-call struct
-                 in the async wrapper so the worker thread sees a
-                 stable input even if the page rebuilds its ctx
-                 mid-flight.
-
-                 (ii) REPEATED bytes (admin_key).  Same recipe but
-                 a GPtrArray-of-GBytes with g_bytes_unref as the
-                 free func, allocated up front in open_sync and
-                 set_size(0) at the top of each parse pass.  The
-                 async wrapper deep-copies the array (g_bytes_ref
-                 each entry) before handing it to the thread.
-
-                 (iii) "I understand" check.  Reset to FALSE on
-                 every set_state and after a successful Apply --
-                 a sticky check would let a user accidentally
-                 re-Apply a stale config after a handshake gave
-                 fresh data.
-
-Phase 8 (Plugin extraction) is no longer tracked under TODO #29 --
-moved out 2026-05-28: it is its own cross-cutting project (Devices
-menu becomes plugin-driven via a new PnDeviceProvider core API; the
-meshtastic dialog code migrates into the meshtastic plugin's GUI
-companion; PnMeshtastic nodes gain a "Set up device..." affordance
-that pre-picks the device).  Will get its own TODO entry when picked
-up.
-
-Gotchas worth re-reading before each phase (from pip-mesh, costly to
-rediscover): always drain stale bytes before any handshake; never
-wait for an end marker, wait for silence (3s config, 5s metadata);
-sleep 0.5 after every write; bare set_channel is no-reboot,
-commit_edit_settings persists+may reboot -- transactional only when
-needed; cache invalidation keyed on USB VID:PID (the tty name gets
-reused); frame magic is 0x94 0xC3, length is 2-byte BIG-endian;
-short-name <=4 chars, long-name <=39, PSK exactly 32 or 64 hex chars.
-The pip-mesh --help string flags --list-messages as broken; trust
-the help text not the man page.
-
-Hard rules (do not inherit from pip-mesh): no ~/.cache/, no
-auto-detect on dialog open, no "auto-select if exactly one device",
-no --raw or --max-messages CLI modes leaking into the GUI, no global
-HEXDATA/PB_POS state -- each PnMeshConnection holds its own.
-
-(30) MQTT node hardening (from the 2026-05-28 code review of
-lib/pn-mqtt.c/.h, lib/pn-mqtt-sink.c/.h, lib/pn-mqtt-profile.c/.h and
-tests/unit/test-pn-mqtt*.c).  The nodes are sound and GTK-free; these
-are the findings worth fixing.  NOTE: pn-mesh-page-mqtt.c is the
-Meshtastic radio's MQTT-gateway page (#29), NOT one of these nodes.
-
-  CRITICAL
-  - [x] C1  Sink reports every failure only via g_warning/g_message ->
-        invisible from the desktop launcher (violates the "errors via
-        failure message, not stdout" rule; cf. pn-http.c:272).  Offenders
-        in pn-mqtt-sink.c: queued-publish fail :486, live publish fail
-        :671, connect refused :564, invalid URL :731, mosquitto_new/
-        connect_async/loop_start/username_pw_set/tls_set :744,766,774,
-        782,795.  Emit success=FALSE + human-readable output instead.
-        (Source has the same smell -- see L1.)
-        VISUAL ERROR INDICATION DONE 2026-05-29: added a GENERIC node
-        error state to the core -- pn_node_set_has_error()/
-        pn_node_get_has_error() + "has-error" property on PnNode
-        (transient, not serialized, not shown in the dialog).  The
-        worksheet painter (draw_node) now paints ANY node with has-error
-        set red + ❗, exactly like it greys `disabled` nodes; disabled
-        wins over error.  So error indication is uniform and free for
-        every node type -- the ~25 other nodes that still hand-roll their
-        own red+❗ WARNING_ICON swap (pn-http, pn-ws, pn-tts, tasmota/*,
-        shell/*, network/*, ...) are candidates to migrate later.  MQTT
-        Source + Sink now drop their bespoke colour/icon swap and just
-        toggle has-error from apply_visual_state; the Sink gained a
-        sticky publish_error flag (set on a rejected live/queued publish,
-        cleared on the next good publish or reconnect) so a publish that
-        fails while the session is up turns the node red instead of
-        silently dropping the message.  Source subscribe-failure now goes
-        red instead of green (also closes L1).
-        TEXTUAL-REASON MECHANISM DONE 2026-05-29 (#32): the agreed
-        per-node "log" dialog now exists -- every PnNode carries a log
-        ring (pn_node_log) and the right-click menu opens a live console
-        (PnLogDialog).
-        C1 NOW CLOSED 2026-05-29: pn-mqtt.c and pn-mqtt-sink.c report their
-        failures through pn_node_log so the REASON is readable in the node's
-        Log dialog.  restart_client failures (main thread) log directly; the
-        net-thread reasons (connect refused / subscribe failed / disconnect /
-        connected, plus the Sink's live & queued publish failures) ride the
-        existing main-thread conn-state trampoline (post_conn_state_on_main_
-        full) so log-changed is emitted on the main loop.  The g_warning/
-        g_message calls were then REMOVED (the user did not want the stderr
-        noise once the Log dialog covered it) -- pn_node_log is the sole
-        reporting channel for these nodes now.  (The Source could ALSO
-        emit success=FALSE downstream per the Weather pattern -- not needed
-        now that the log dialog covers both Source and the output-less Sink.)
-  - [x] C2  restart_client() runs from _init() (pn-mqtt.c:1173,
-        pn-mqtt-sink.c:1154), before construction/deserialization is done.
-        Source: starts the network thread before a SUBCLASS (Sink,
-        Tasmota, Zigbee2MQTT) has initialized its private state, yet
-        on_mqtt_message calls klass->accept_topic() on the net thread.
-        Sink: every credential setter (broker-profile/url/username/
-        password/client-id, :854,859,875,880,885) re-runs restart_client,
-        so loading a document fires ~5 full connect cycles in a burst.
-        Fix: defer the initial connect to constructed()/g_idle and
-        debounce reconnects into one idle instead of reconnecting
-        synchronously in each setter.
-        DONE 2026-05-29: both nodes gained schedule_restart() — a debounced
-        g_idle (restart_idle_id) that coalesces a burst of setter / vault-
-        change calls into ONE restart_client run.  The _init() call is gone;
-        the initial connect is scheduled from constructed() (after the migrate
-        idle, so a broker-profile change the migration makes folds into the
-        same restart) and thus runs only after deserialization + subclass init
-        are complete.  restart_idle_id is cancelled in dispose.  The Sink's
-        offline queue means a message arriving before the deferred connect is
-        buffered + flushed, so deferring loses nothing.  (test-pn-mqtt-sink's
-        error_funnel_subclass now pumps the main loop to let the debounced
-        restart run.)
-
-  HIGH
-  - [x] H1  Network-thread read of priv->topic/priv->qos races runtime
-        reconfigure (pn-mqtt.c:467-469).  The "no mutex for config fields"
-        invariant assumes setters always stop_client (join the thread)
-        first, but libmosquitto's AUTO-RECONNECT keeps the net thread
-        alive and re-fires on_mqtt_connect with no stop_client -- so a
-        reconnect can read priv->topic while a setter frees/replaces it
-        (torn read / UAF).  Fix: snapshot topic/qos at connect time or
-        guard with the existing lock.
-        DONE 2026-05-29 (Source only; the Sink has no net-thread topic read):
-        restart_client snapshots priv->topic/qos into priv->sub_topic/sub_qos
-        on the main thread (after stop_client has joined the previous thread,
-        before loop_start), and on_mqtt_connect re-subscribes from the
-        snapshot, never the live property.  The snapshot is fixed for a
-        client's lifetime and only replaced after the next stop_client joins
-        the thread, so an auto-reconnect re-firing on_mqtt_connect cannot race
-        a setter freeing priv->topic.  sub_topic is owned, freed in
-        stop_client + finalize.
-  - [x] H2  Stale-disconnect race during reconnect-while-restarting, present
-        EQUALLY in both nodes.  The conn-state trampoline guards only on
-        client != NULL (pn-mqtt.c:413, pn-mqtt-sink.c:514); neither has a
-        real generation/epoch counter, so an old session's queued
-        trampoline running after restart_client installs a new client can
-        flip a live node back to red (and on the Source skip the genuine
-        reconnect's re-subscribe).  Fix: capture a generation counter in
-        the closure, compare in the trampoline.
-        DONE 2026-05-29: each client carries a heap PnMqtt[Sink]NetCtx
-        {self, generation} as its mosquitto_new user data instead of bare
-        `self`; restart_client bumps priv->generation per client and stamps it
-        on the ctx.  The net-thread callbacks read THEIR generation off the
-        ctx (no racy read of priv->generation) and pass it into the conn-state
-        closure; the trampoline honours an update only when client != NULL AND
-        c->generation == priv->generation, so a stale session's queued
-        trampoline is dropped.  net_ctx is owned in priv and freed when its
-        client is destroyed (stop_client / restart's fail path), after the
-        thread is joined.
-  - [x] H3  Sink drops buffered startup commands on flush failure:
-        flush_pending (pn-mqtt-sink.c:476-492) pending_free's each entry
-        unconditionally even when mosquitto_publish errored (:485),
-        defeating the buffer-and-flush guarantee.  Fix: on NOMEM/CONN_LOST
-        re-queue rather than discard.
-        DONE 2026-05-29: flush_pending now classifies the publish error.  On a
-        TRANSIENT error (MOSQ_ERR_NOMEM / CONN_LOST / NO_CONN — the link
-        dropped mid-flush) it re-queues the failed entry AND every still-
-        unflushed one (preserving order + original timestamps, by detaching
-        them from the collect_fresh array with index = NULL so the array's
-        free func skips them) and stops, so a buffered startup command
-        survives to the next reconnect.  A PERMANENT error (payload too large,
-        protocol) still drops that one entry and continues, since re-queueing
-        it would loop forever.
-
-  MEDIUM
-  - [x] M1  build_mqtt_message (pn-mqtt.c:592-598) mirrors only DOUBLE/INT64
-        JSON scalars to data.value; a bare true/false payload sets nothing
-        (breaks the 0.0/1.0 boolean convention), and int64 loses precision
-        via get_double.  Add a JSON-boolean -> 0.0/1.0 case.
-        DONE 2026-05-29: pn_mqtt_build_message (now in pn-mqtt-util.c) gained a
-        G_TYPE_BOOLEAN arm in the scalar->value mirror — false->0.0, true->1.0
-        per the project boolean convention.  test-pn-mqtt-util's old
-        message_json_bool_no_value (which PINNED the missing mirror) is now
-        message_json_bool_value, asserting 1.0/0.0.  (int64 precision left as
-        is — data.value is a double by contract.)
-  - [ ] M2  Sink loses buffered messages on dispose (finalize :989) and on a
-        runtime URL change keeps the backlog and flushes commands meant
-        for broker A to broker B.  Decide + document; likely clear the
-        queue when broker identity changes.
-  - [ ] M3  Profile lacks TLS/CA-file, port-as-int, and keepalive fields.
-        TLS is inferred from URL scheme only and mosquitto_tls_set(...NULL)
-        uses the system trust store (pn-mqtt.c:771), so a PRIVATE-CA broker
-        is unconfigurable; keepalive hard-coded to 60s.  Known/deferred.
-  - [ ] M4  payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666; >256MB
-        hits MQTT's limit and mosquitto_publish rejects -- logged only to
-        stderr (see C1).
-
-  LOW / NIT
-  - [x] L1  Source: subscribe failure (pn-mqtt.c:469-475) g_warns then flips
-        the node GREEN anyway -> looks healthy, receives nothing.
-  - [x] L2  Dead variable need_schedule (pn-mqtt.c:375,388,394).
-        DONE 2026-05-29: removed from emit_message_on_main.
-  - [ ] L3  Default topic "#" + a primary broker profile = a freshly dropped
-        node auto-subscribes to the entire broker (footgun, intentional).
-  - [ ] L4  Empty-payload publish is dropped (pn-mqtt-sink.c:383) -> cannot
-        clear a retained topic with a null payload; document in help.
-  - [x] N1  restart_client repeats the g_free(url/user/pass/cid/host) cleanup
-        block ~5x per file; an out: goto would remove the divergence risk.
-        DONE 2026-05-29: both restart_client bodies now use a single out:
-        label for the free + apply_visual_state tail and a fail_destroy:
-        label for the post-mosquitto_new failure paths (destroy client + free
-        net_ctx).  The ~5 duplicated cleanup blocks are gone.
-  - [x] N2  Stale header docs: pn-mqtt.h says property "topic" but the
-        installed name is "subscribe-topic" (:1101); pn-mqtt-sink.h omits
-        broker-profile/topic-template.
-        DONE 2026-05-29: pn-mqtt.h Properties block now lists broker-profile
-        + subscribe-topic (was "topic"); pn-mqtt-sink.h adds broker-profile +
-        topic-template and tags url as the inline "Custom settings" field.
-  - [x] N3  parse_mqtt_url is DUPLICATED across both .c files (divergence
-        risk); a shared static + shared test would cover both.
-        DONE 2026-05-28: extracted to pn_mqtt_parse_url in pn-mqtt-util.c,
-        both nodes call it.
-  - [x] N4  pn_mqtt_parse_url mis-parses IPv6 literals: it locates the port
-        with strchr(p, ':'), so tcp://[::1]:1883 splits on the first ':'
-        inside the address.  Bracketed-IPv6 host[:port] is unsupported;
-        handle '[...]' before scanning for the port colon (then add a
-        parse-table case -- today's behaviour is a bug, so don't pin it).
-        DONE 2026-05-29: pn_mqtt_parse_url handles a leading '[' — host is the
-        bracket contents, an optional ":port" may follow the ']', and an
-        unterminated/empty/junk-after form is rejected.  Port parsing factored
-        into a parse_port_str helper (also requires the port token be fully
-        consumed, *endp=='\0').  New test-pn-mqtt-util url_ipv6 case covers
-        tcp://[::1], [::1], mqtts://[2001:db8::1], ...:port, and the malformed
-        rejections.
-  - [x] U1  Inline Broker URL silently ignored once any mqtt-broker profile
-        exists: empty broker-profile -> pn_node_get_profile falls back to
-        the PRIMARY profile, and pn_mqtt_resolve_connection takes every
-        field from a non-NULL profile, so a typed url did nothing (user
-        report 2026-05-29: "no matter what I write to Broker URL it keeps
-        using the saved broker").
-        DONE 2026-05-29 (final model = explicit "Custom settings"): the Broker
-        profile picker gained a third choice.  broker-profile now has three
-        states -- "" = Default/primary profile, "<id>" = that profile, and the
-        reserved sentinel PN_PROFILE_REF_CUSTOM ("@custom") = "Custom settings",
-        i.e. use the node's own inline url/credentials.  pn_node_get_profile()
-        returns NULL for the sentinel (no primary fallback), so resolution is
-        back to the simple profile-XOR-inline (pn_mqtt_resolve_connection
-        reverted from the interim per-field variant).  Applies to BOTH Source
-        and Sink.  Opt-in via pn_param_spec_set_profile_ref_inline_fields(pspec,
-        "url,username,password,client-id") on the shared profile-ref combo in
-        pn-node-dialog.c, which adds the "Custom settings" entry (LAST in the
-        list).
-        SAVE/LOAD INVARIANT + GATING (2026-05-29 follow-up): inline custom data
-        exists ONLY in "Custom settings" mode.  (a) The combo greys out the
-        tagged inline-field editors unless "@custom" is selected (find-by-name
-        "pn-prop-<field>" under the grid; applied on combo "map" + each
-        populate).  (b) Picking Default/a profile clears those fields ("").  (c)
-        On load, migrate_legacy_credentials clears stale inline data when a real
-        profile id is selected, keeps it for "@custom", and for "" still does the
-        legacy creds-import / url->@custom (a new-model Default node has empty
-        inline fields, so that flip only fires for genuinely legacy files --
-        distinguished by url emptiness, no extra flag).  This makes the picker's
-        choice survive save->load reliably (the reported bug: leftover inline
-        url re-triggered Custom on load).  The earlier "editing url auto-selects
-        Custom" was removed -- a greyed field can't be edited; the user picks
-        Custom via the combo.  Bundled example mqtt-test.json set to "@custom".
-        Covered by test-pn-mqtt-resolve.c (profile_wins, custom_sentinel_uses_
-        inline); clearing/gating are dialog/idle behavior, verified manually.
-        Docs: url property blurb + PnMqtt.html / PnMqttSink.html.
-        (History: first "explicit profile wins / typed url overrides primary",
-        then per-field, then this explicit-mode model + the save/load invariant.)
-
-  TEST COVERAGE -- DONE 2026-05-28.  The pure logic was extracted into a
-  new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
-  it; this also de-dups parse_mqtt_url, closing N3) and covered by two new
-  binaries -- tests/unit/test-pn-mqtt-profile.c and test-pn-mqtt-util.c.
-  All five items landed:
-  1. [x] Profile schema characterization (test-pn-mqtt-profile.c): 4 field
-         names/kinds + password==PN_FIELD_SECRET + help page.
-  2. [x] pn_mqtt_parse_url table: scheme->TLS+default-port (1883/8883),
-         bare host:port, port-range and empty-host/leading-'/' rejection.
-  3. [x] pn_mqtt_build_message data-bag contract: object->nested payload,
-         number->value, text->coerced value, non-UTF-8->payload "",
-         envelope qos/retained/success.  ALSO pins M1's current behaviour
-         (JSON boolean does NOT set value) so a future M1 fix is a visible
-         test change.
-  4. [x] pn_mqtt_build_payload: template expansion, string + structured
-         data.payload fallback, missing-payload drop.
-  5. [x] Offline queue (pn_mqtt_pending_*): LEN-cap eviction, AGE discard
-         with an INJECTED clock (now_us param) + FIFO order.  flush_pending's
-         mosquitto_publish stays on the node; the policy is in util.
-  6. [x] Connection-identity resolution (pn_mqtt_resolve_connection, also
-         extracted from both nodes): inline fallback (NULL->""), and a
-         provisioned profile winning over inline with the password read via
-         the secret path.  In its own test-pn-mqtt-resolve.c (uses a temp
-         vault like test-pn-vault, so kept out of the FS-free util test).
-         Plus robustness: empty-queue collect_fresh, missing-path template
-         -> "".
-  test-pn-mqtt-util = 130 checks, test-pn-mqtt-resolve = 12; `make check` = 76/76.
-
-  STILL OPEN: C1 fully CLOSED (visual + reason); C2, H1, H2, H3, M1 all
-  DONE 2026-05-29 (see the per-item notes above), as are the nits L2 (dead
-  var), N1 (goto cleanup), N2 (header docs), N3 (url-dedup, earlier), N4
-  (IPv6 brackets).  `make check` = 77/77; the python regression net
-  (test_plugin_load / test_credentials_migration / test_credentials_profile)
-  still PASSES with the deferred-connect change.
-
-  REMAINING (deferred / doc-only, not blocking):
-    - [ ] M2  Sink keeps its offline backlog across a runtime broker change, so
-          commands buffered for broker A can flush to broker B.  Decide +
-          document; likely clear the queue when the broker identity changes.
-    - [ ] M3  Profile lacks TLS CA-file / port-int / keepalive fields (private-CA
-          broker unconfigurable; keepalive hard-coded 60s).  Known/deferred.
-    - [ ] M4  payload_len (gsize) cast to int at the publish calls; >256MB hits
-          MQTT's limit.  Now at least surfaced via the Log dialog (C1).
-    - [ ] L3  Default topic "#" + primary profile auto-subscribes the whole
-          broker (intentional footgun).
-    - [ ] L4  Empty-payload publish is dropped -> cannot clear a retained topic
-          with a null payload; document in PnMqttSink help.
-
-(33) Meshtastic discovery: stop treating a BARE 10c4:ea60 as a Meshtastic
-device.  The VID:PID table in lib/pn-mesh-discover.c (KNOWN_DEVICES) matches
-the Heltec V3 on 10c4:ea60 -- but that is the GENERIC Silicon Labs CP2102 /
-CP2102N USB-UART chip, used by countless unrelated boards.  In particular the
-common Sonoff/ITead Zigbee dongles (ZBDongle-P) are CP2102N -> 10c4:ea60, so a
-plugged-in Zigbee coordinator shows up in the Meshtastic dialog as a "Heltec
-V3".  Picking it aims the Meshtastic want_config_id handshake at a Z-Stack
-UART (root cause of the 2026-05-29 zigbee2mqtt CPU-spin incident: pipnode
-opened the shared /dev/ttyUSB and wrote Meshtastic frames into it; zigbee2mqtt
-choked on the corrupted byte stream).
-
-  MITIGATED 2026-05-29 (see the in-use guard added the same day): such a
-  device, while it is open by zigbee2mqtt (or anything else), now appears
-  DISABLED in the list with an "in use by <proc>" note and can never be
-  opened (pn_mesh_tty_in_use + TIOCEXCL in pn-mesh-serial.c).  But that only
-  helps WHILE the other process holds the port -- an idle, unclaimed CP2102
-  Zigbee dongle would still be mislabelled "Heltec V3" and be connectable.
-
-  THE WORK (why it is hard): sysfs alone cannot disambiguate -- the product /
-  manufacturer / serial strings are the chip's generic defaults
-  ("CP2102 USB to UART Bridge Controller" / "Silicon Labs"), identical on a
-  Heltec and a Zigbee dongle.  The only reliable tell is a safe, read-only
-  probe over the wire (e.g. a Meshtastic want_config_id and a bounded wait for
-  a valid 0x94 0xC3 frame) -- but ANY write is exactly what we must NOT do to
-  a non-Meshtastic device.  Options to weigh: (a) mark generic-CP2102 matches
-  as "unverified / possibly another device" in the UI and require an explicit
-  user confirm before the first write; (b) keep a denylist of known-NON-mesh
-  CP2102 product/serial strings; (c) cross-check against a system Zigbee/serial
-  registry.  None is clean; deferred deliberately.
-
-(36) Stop ModemManager from probing Meshtastic serial devices.  When a tty
-appears, ModemManager (root) opens it and fires AT commands -- which toggles
-DTR/RTS (rebooting the ESP32) and races pipnode's open.  pipnode's in-use
-guard is a /proc scan that can't see root-owned holders, so it misses MM.
-Fix: ship a udev rule setting ID_MM_DEVICE_IGNORE=1 for the Meshtastic
-VID:PIDs (packaging step), and/or inhibit the device over MM's D-Bus API
-around open.  Caveat: 10c4:ea60 is generic CP2102 (see #33); a blanket
-ignore also hides real CP2102 modems.  Touches system config -- weigh against
-the minimal-invasive-packaging line.
-
-(39) Node source code-review findings (from the 2026-06-01 fan-out review
-of every node-implementing source file -- ~70 core lib/pn-*.c nodes + 30
--gui.c companions, the network/ollama/tasmota/sound-effects plugins, and
-the 54 plugins/image/pn-image-*.c filters).  Overall the tree is in very
-good shape: timer/idle/thread teardown in dispose/finalize, GObject
-refcounting + g_free pairing, the value>0.5 boolean convention, FA-4.7
-icons, and the shared rowstride-aware plugins/image/pn-image-ops.c helper
-layer are all sound.  These are the individual issues worth fixing, each
-tracked separately below.  (The hand-rolled WARNING_ICON nodes the review
-also re-flagged -- pn-inject, pn-sound, pn-tts, ollama, sci-fi-sound,
-tasmota/* -- are already TODO #31.3.  The subprocess-spawn items M6/M7/L4
-are the same "pure C, no helper subprocess" theme as #38.1, which covers
-PnHttp/curl specifically.)
-
-  HIGH
-  [ ] 39.1  Ollama silently drops every message when "hostname" is empty
-        (plugins/ollama/pn-ollama.c:370).  Empty hostname is the INTENDED
-        default -- build_endpoint resolves ""->localhost and
-        refresh_visual_state shows the node as configured with only a model
-        set -- but receive()'s guard also rejects empty hostname, so a
-        freshly dropped Ollama node looks green/ready yet swallows all
-        input.  Fix: drop the hostname clause from the receive() guard to
-        match refresh_visual_state / build_endpoint.
-
-  MEDIUM
-  [ ] 39.2  Expression parser has no recursion-depth limit -> C-stack-overflow
-        crash on pathological nesting (lib/pn-expr-parser.c, the
-        parse_factor<->parse_expression recursive descent).  A configured
-        expression like ((((...)))) or a long unary-minus chain overflows
-        the native stack and crashes the process with no recovery.  Input is
-        local node config (not network-facing), so impact is a user pasting
-        a bad expression.  Fix: add a depth counter to Ctx and error out
-        past a sane limit.  (pn-var-store.c's evaluator recurses to the same
-        depth; the parser is the gate that builds the tree.)
-  [ ] 39.3  Graph 3D line mode overflows the PLplot cmap0 with >=9 series
-        (lib/pn-graph-gui.c:922).  paint_line_3d writes each series colour
-        to cmap0 slot 8+i (up to 19 for the 12-series cap) but
-        paint_setup_page never grows the colormap (no plscmap0n) and the
-        default cmap0 holds only 16 entries (0-15); series past slot 15
-        render in a stale/wrong colour.  Fix: plscmap0n(8 + nseries) before
-        the per-series loop in the 3D paths.  (3D-histogram path is
-        unaffected -- it reuses low slots.)  Triggers only at 9+ topics.
-  [x] 39.4  Table cell/title truncation can emit invalid UTF-8
-        (lib/pn-table-gui.c:80, fit_text_with_ellipsis).  The first
-        truncation pass cuts at a fixed 252-byte offset that is not
-        codepoint-aligned, so the inserted ellipsis can follow a partial
-        code point; the step-back realign loop only runs on SUBSEQUENT
-        passes, never the initial cut.  cairo renders tofu.  Fix: align the
-        first cut to a UTF-8 boundary (g_utf8_find_prev_char).  Triggers
-        only on >252-byte strings.
-  [ ] 39.5  Image Pixelate dereferences dst before its NULL check
-        (plugins/image/pn-image-pixelate.c:54,56).  gdk_pixbuf_get_rowstride
-        /_get_pixels are called on dst before the `if (dst == NULL) return`
-        guard at :59, so the guard is dead and a failed gdk_pixbuf_copy
-        crashes the GTask worker thread.  Fix: move the NULL check above the
-        dereferences.  Low probability (copy only fails on OOM) but a clear
-        regression against the pattern every sibling node follows.
-  [x] 39.6  Image Dither has no NULL check on dst at all
-        (plugins/image/pn-image-dither.c:62-64) -- dst = gdk_pixbuf_copy(src)
-        is immediately dereferenced (unlike every sibling).  NULL dst ->
-        crash; the buf malloc at :51 also leaks on that (currently
-        impossible) path.  Fix: add the standard NULL guard + free buf.
-        DONE 2026-06-01: dither_transform now checks dst == NULL right after
-        gdk_pixbuf_copy and, if so, g_free(buf) + return NULL before the
-        rowstride/pixels dereferences -- matching the sibling guard in
-        pn-image-pixelate.c.
-  [ ] 39.7  Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188), violating
-        the "pure C, no helper subprocesses at runtime" rule.  Implement
-        audio playback in-process.  (on_play_done itself is safe -- holds a
-        ref on self, main-thread-only state.)  Sibling theme to #38.1.
-  [ ] 39.8  Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c <cmd>`
-        per utterance (:433-475, :1040-1095, :1171-1288),
-        g_spawn_command_line_sync for `pactl list sinks`, and
-        `<engine> --voices` enumeration -- the most subprocess use in the
-        tree.  Port to in-process C.  Sibling theme to #38.1.
-
-  LOW / NIT
-  [ ] 39.9  Numeric readout can cast an out-of-range double to gint64 (UB)
-        before the overload check (lib/pn-numeric-gui.c:199-201).  With
-        digits=12/decimals=6, scale=1e6; a finite but huge data.value (e.g.
-        1e300) makes av*scale ~1e306 and `(gint64) floor(av*scale+0.5)` is
-        computed BEFORE the `int_part > max_int` guard.  read_value only
-        filters non-finite, not out-of-gint64-range.  Fix: clamp av (or
-        test av*scale against G_MAXINT64) before the cast.
-  [ ] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
-        (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
-        desktop launcher; convention prefers a node failure message / log.
-  [ ] 39.11 Ollama cancellation lives in finalize, not dispose
-        (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
-        in-flight request -- on_generate_done holds a strong ref on self, so
-        finalize cannot run until the request completes and the
-        g_cancellable_cancel is dead code for that case.  No UAF, but
-        closing the worksheet pins the node until Ollama replies.  Fix:
-        cancel in dispose (the pn-ws.c / https-tunnel pattern).
-  [ ] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async callback
-        g_object_ref's self but the spawned media player is never
-        terminated and the wait is never cancelled
-        (plugins/sound-effects/pn-sci-fi-sound.c:154 + overall).  No UAF
-        (the ref pins self until the player exits; on_play_done is
-        main-thread), but a node mid-playback can't be torn down and closing
-        the worksheet leaves the player running.  Also the per-message
-        subprocess spawn is the #38.1 convention theme (likely an inherent
-        exception for a GTK-free core audio node).
-  [ ] 39.13 Ollama can pass NULL to json_node_get_object
-        (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
-        whitespace body as success with a NULL root, so
-        json_node_get_object(json_parser_get_root(parser)) emits a
-        g_critical (noisy, invisible under the launcher) before the
-        subsequent `root == NULL` check handles it cleanly.  Fix: NULL /
-        JSON_NODE_HOLDS_OBJECT guard the root before the call.
-  [ ] 39.14 TTS queue can stall on a failed re-spawn (lib/pn-tts.c:336-350): in
-        on_speak_done, if pn_tts_speak fails to spawn the next utterance,
-        self->speaking stays FALSE and on_speak_done never fires again, so
-        the remaining backlog is stranded until the next inbound message
-        (self-heals on the next receive).  Fix: drain-retry the rest of the
-        queue on a failed re-spawn.
-  [ ] 39.15 HTTPS-tunnel sender wires on_accept_certificate with g_signal_connect
-        (not _object) and never disconnects
-        (plugins/network/pn-https-tunnel-sender.c:352).  Not a live UAF --
-        the handler is a pure `return TRUE` that ignores user_data and dies
-        when msg is unref'd -- but fragile if it ever starts touching self.
-        Fix: g_signal_connect_object or disconnect explicitly.
-
-  CONSIDERED, NO ACTION (reviewed and judged not bugs; recorded so a future
-  pass doesn't re-litigate them):
-  - Weather-report's 15s clock_source is removed in finalize rather than
-    dispose (lib/pn-weather-report.c:614) -- safe: the timeout holds no ref
-    on self and only calls pn_node_request_repaint, finalize is reachable.
-  - Meshtastic's cross-thread set_*_on_main closures g_object_ref(self) and
-    briefly resurrect the object during dispose's worker join -- legal,
-    intentional GLib behaviour.
-  - Stats' g_get_monotonic_time()-derived slot modulo (lib/pn-stats.c:191)
-    -- monotonic time is non-negative on supported platforms.
-  - 52 of the 54 image filters are clean: the shared pn-image-ops.c helpers
-    (map_point/convolve/gradient/separable/median/compose) are rowstride-
-    aware, (gsize)-cast against w*h*nch overflow, divisor==0-guarded,
-    clamped, and NULL-checked.  Only the two hand-rolled loops (M4, M5)
-    slipped.
-
-(45) Oscilloscope polish (carved out of the now-completed TODO #44, the
-green-phosphor CRT scope sink).  The base node shipped and is the working
-pure-vector CONSUMER of the analog-computer toy; these are the "own session"
-enhancements that 44.3 deferred:
-
-  [ ] 45.1  Afterglow / persistence -- phosphor decay so an older trace fades
-        out beneath the new one (the classic CRT look).
-  [ ] 45.2  Explicit X-Y vs sweep mode selector.  Today the parametric plot is
-        implicit (whether the x-key resolves to a vector or a scalar); this
-        makes true X-Y / Lissajous mode a deliberate choice rather than a side
-        effect of the data shape.
-  [ ] 45.3  Bench-style controls: time/div + volts/div, plus a roll / trigger
-        model.
-  [ ] 45.4  On-screen knobs / buttons.  44.x shipped display-only with no
-        on-canvas controls.
-
-(46) Tasmota Devices dialog.  A "Tasmota Devices" entry in the editor's
-Devices menu, modelled on the proprietary zigbee plugin's "Zigbee Devices"
-dialog: pick an MQTT broker profile, and a hidden MQTT session discovers and
-lists every Tasmota device in the left sidebar.  Unlike Zigbee (which gets a
-retained bridge/devices inventory all at once), Tasmota discovery is poll-based
-and slow -- each device is asked `cmnd/<dev>/Status 0` and answers in its own
-time -- so the list fills PROGRESSIVELY via the incremental row API
-(pn_device_dialog_add/update_device_row), not a one-shot set_device_rows.  The
-discovery mirrors the PnTasmotaProbe + PnTasmotaConcentrator worksheet nodes
-(poll-on-sight, top-level STATUS merge), done inline in the dialog over the
-shared GTK-free parser pn-tasmota-common.c (compiled into both the logic and
-the new -gui companion).
-
-  [x] 46.1  Split plugins/tasmota into two tiers (logic pipnode_tasmota.so +
-        companion pipnode_tasmota-gui.so), following plugins/shell.
-  [x] 46.2  pn-tasmota-gui.c: provider registration, dialog shell, broker
-        combo from PnVault, hidden MQTT source/sink, progressive discovery
-        list, read-only device-info pane.
-  [x] 46.3  Manual GUI verification against a live broker with real devices
-        (the list filling in progressively is the acceptance criterion).
-        Verified: 10 devices discovered, rows trickling "Querying…" -> IP·fw.
-  [ ] 46.4  Possible follow-ups (deferred): relay on/off control and
-        FriendlyName/config write-back in the info pane; a dedicated menu
-        icon instead of the themed "network-wireless".
-
-(47) Device dialogs over D-Bus.  A fourth host automation interface,
-org.pipas.pipnode.Devices (sibling of .Worksheet/.Editor/.Engine in
-src/pn-application.c), exposes the Devices menu and every open device dialog
-(Tasmota, Zigbee, Meshtastic) over the session bus -- generic, the host names
-no device.  The reusable seam lives in the core gui tier so every dialog gets
-it for free: pn-device-provider.c publishes the provider id around the present
-callback (the menu and the D-Bus Present both funnel through it, so zero plugin
-changes), and pn-device-dialog.c self-registers each open shell in an id->shell
-registry and grows read/drive accessors (rows, status, selection, scan) + a
-changed-callback the host re-emits as DevicesChanged.  Consent rule: NO method
-connects -- Present only opens the dialog, Scan only re-polls an
-already-connected session; the user still presses Connect.
-
-  [x] 47.1  org.pipas.pipnode.Devices: ListProviders, Present, Close,
-        ListDevices, GetStatus, GetSelected, SelectDevice, Scan,
-        GetDeviceDetail + DevicesChanged signal.
-  [x] 47.2  Generic seam in pn-device-provider.c (current-id capture) and
-        pn-device-dialog.c (open-dialog registry, row/status/selection
-        read-back, changed + detail callbacks, observer hook).
-  [x] 47.3  Tasmota opts into the per-device detail seam (merged Status JSON).
-  [x] 47.4  Documented in DBUS-API.md; verified over busctl against a live
-        instance (after pressing Connect via AT-SPI).
-
-(48) A proper, fast test/example for the error-bar Graph.  Today the only
-way to see the Graph node's "Error bars" draw-style is to leave a live feed
-running for hours: the node bins SCALAR values by wall-clock arrival time
-(g_get_monotonic_time), one sample per bin, so the box-and-whisker glyphs
-only fill in as real time passes.  That also made the single-sample case
-look like scattered dashes -- just fixed by extending each whisker halfway
-toward its neighbouring buckets' means (lib/pn-graph-gui.c collect_error_bars),
-but the fix can only be eyeballed against a slow live feed.  We want a
-deterministic, instant way to drive the same rendering from a vector so the
-look can be checked from an example worksheet and a headless test.
-
-  [x] 48.1  New graph node that renders exactly like PnGraph but ingests its
-        data the way PnOscilloscope does -- a VECTOR on data.value is taken as
-        the whole dataset in one message (pn_message_resolve_vector, the
-        snapshot path), instead of time-binned scalar arrivals.  Feed it a
-        Ramp (PN_TYPE_RAMP emits a $pnvector on data.value) and the graph
-        fills instantly.  Sibling node mirroring PnXYGraph/PnOscilloscope:
-        core lib/pn-<name>.c/.h + gui companion lib/pn-<name>-gui.c/.h,
-        registered in pn-node-factory.c (PN_TYPE) and pn-gui.c (gui_install),
-        four entries in lib/Makefile.am, plus a help page.  REUSE the existing
-        PnGraphBin model + collect_error_bars + draw_* path so every draw-style
-        (Lines/Points/Bars/Error bars/2D/3D) works unchanged -- the node only
-        swaps the receive() front-end (vector -> bins) for PnGraph's
-        (scalar -> time bin).  DECIDED: a new SIBLING node (PnGraph left
-        untouched).  DONE: name = PnPlot ("Plot", fa-line-chart, Sinks,
-        orange).  Core lib/pn-plot.c/.h + gui lib/pn-plot-gui.c/.h; the six
-        reusable PnGraph draw/collect helpers were exposed via a new
-        pn-graph-draw.h (un-static'd + pn_graph_* prefixed in pn-graph-gui.c,
-        zero logic change) and the PnPlot painter calls them with a
-        bucket-indexed X axis (cur_epoch = M-1, oldest_valid = 0) instead of
-        PnGraph's wall-clock epoch, so Error-bars (incl. the neighbour-reach
-        whisker fix), Lines/Points/Bars and the Distribution view all render
-        identically.  Registered + Makefile + PnPlot.html help all wired;
-        builds clean, 96 C unit tests green.
-  [x] 48.2  Vector -> bucket mapping: DECIDED -- distribute the N vector
-        elements across M consecutive X-buckets (M = the node's bin-count
-        property), each bucket aggregating its run into real mean/sd/min/max so
-        the box-and-whisker glyphs are genuinely fat.  Setting M near N
-        collapses to ~one sample/bucket and re-exercises the new
-        neighbour-reaching whisker path, so both looks are reachable from the
-        one node by changing the bin count.
-        DONE in pn-plot.c rebucket(): bucket b owns elements [b*N/M,(b+1)*N/M),
-        epoch == bucket index; the held vector is re-binned live on an
-        x-buckets change.  Verified headless: vector 0..11 / M=4 -> means
-        1,4,7,10 (min/max exact); M=12 -> 12 single-sample buckets.  Default
-        M = 16 (fat buckets) since the dataset arrives whole, not over time.
-  [x] 48.3  Example worksheet under examples/ (Ramp [+ jitter source] -> new
-        graph in Error-bars style), committed so the look is reproducible and
-        the just-landed whisker fix is visible at a glance.
-        DONE: examples/Compute/error-bars.json (next to its vector-fed sibling
-        oscilloscope.json; that dir is tracked in git but, like Clocks/crypto/
-        meshtastic, intentionally not in examples/Makefile.am, so it ships in
-        the repo not the install).  Three startup-announcing Knobs (from=0,
-        to=8pi, N=512) drive a Ramp -> Expression -> PnPlot chain, so the plot
-        fills on load with no fiddling.  The deterministic jitter is folded
-        into the Expression itself -- "sin(value) + 0.18 * sin(value * 23)" --
-        since there is no noise source node and Expression has no rand(): the
-        low-frequency sin gives the bucket-to-bucket trend (green rising / red
-        falling boxes) and the high-frequency term gives genuine within-bucket
-        spread (fat sd box + min/max whiskers).  PnPlot set to Error bars,
-        x-buckets 16, Time series.
-  [x] 48.4  Headless unit test in tests/unit/ characterising the
-        vector -> bin aggregation (mean/sd/min/max per bucket, neighbour-reach
-        whisker bounds), following the pntest harness conventions.
-        DONE: tests/unit/test-pn-plot.c (registered in tests/unit/Makefile.am,
-        TESTS now 97).  Pins via the GTK-free pn_plot_peek_series / PnGraphBin
-        seam: sink (never emits), defaults, scalar/empty-key no-ops, the
-        vector->bucket aggregation (12 elements / 4 buckets -> means 1,4,7,10,
-        exact min/max, sd sqrt(2/3)), live re-bucketing on an x-buckets change
-        with no fresh feed, M>N leaving trailing buckets unused (epoch
-        G_MININT64), and the raw-sample mirror for the distribution view.  The
-        actual neighbour-reach whisker STRETCH is gui/PLplot-tier
-        (pn_graph_collect_error_bars, not linkable headless), so the test pins
-        its TRIGGER condition instead: single-sample buckets (M==N) collapse to
-        count 1 / min==max / sd 0, exactly the dash case the stretch cures.
-  [x] 48.5  Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
-        palette category/icon metadata.
-        DONE alongside 48.1: data/help/PnPlot.html (+ data/Makefile.am entry),
-        category "Sinks", icon fa-line-chart (U+F201), body colour orange.
+[ ] 12 Let us implement node measuring certain processes something like this
+       ssh eth4 "pidstat -p 5365,6902 30 1 2>/dev/null | awk '/Average/ {print}'"
+            Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+            Average:     1000      5365  101.63   11.07    0.00    0.00  112.70     -  geth-pulse
+            Average:     1000      6902  155.43   14.63    0.00    0.00  170.07     -  geth-pulse
+
+       but the PID should be obtained by checking the pre-set process name(s).
+
+[ ] 13 Add a node to periodically check if a process exists on a remote host,
+       report success if so, false if not. Report the PID as "value".
+
+[ ] 15 The functional tests are executed very fast so that the user can't see
+       what happens. Let us slow them down a little but. They can finish fast,
+       but every step that causes visual update should take about 1 second at
+       least.
+
+[ ] 20 Add an on-demand poll mechanism for Tasmota devices that piggybacks on
+       the new MQTT sink: a node (or a worksheet recipe documented in the help)
+       that publishes "cmnd/tasmotas/Status 5" to the broker and listens on
+       "stat/+/STATUS5" through an MQTT source, then surfaces each device's
+       IPAddress / Hostname / Mac from the StatusNET reply. The result is a
+       discovery feed that can be wired into the HTTPS Client (or a future plain
+       HTTP client) to drive per-device REST calls without any external scan.
+
+[x] 22 Implement a tasmota concentrator. Here is how a discovery message can be
+       sent to a tasmota device:
+       mosquitto_pub -h mqtt.homelab.local -p 1883 -t 'cmnd/sonoff19/Status' -m '5'
+
+       Why this needs to be per-device (verified live 2026-06-06 against the
+       homelab broker while building PnTasmotaStatusRequest, the manual
+       single-shot building block): a command published to the "tasmotas" GROUP
+       topic (cmnd/tasmotas/Status) is acted on by every device but Tasmota
+       deliberately suppresses the MQTT reply, so you get ZERO stat/+/STATUS
+       responses back. A request to a SINGLE device (cmnd/sonoff47/Status 0)
+       returns the full STATUS..STATUS11 set. MQTT wildcards (#, +) are
+       subscribe-only and illegal in a publish topic; "*" is a literal, not a
+       wildcard. Conclusion: to read info back from EVERY device you must send
+       one request per device -- there is no broadcast-and-collect shortcut. The
+       concentrator automates that loop.
+
+       Design: two cooperating nodes (both core-only, plugins/tasmota tier),
+       used alongside the existing PnTasmotaStatusRequest.
+
+       [x] 22.1 Prober node (PnTasmotaProbe). DONE. Input wires from an MQTT
+           Source on the broker; output wires to an MQTT Sink. Passively watches
+           inbound traffic for Tasmota device names (parses the <device> segment
+           out of tele/<device>/..., stat/<device>/..., cmnd/<device>/...; other
+           prefixes and the "tasmotas" group topic are ignored), keeps a live
+           set of known devices, and emits per-device discovery requests on its
+           output (cmnd/<device>/Status <n>, same shape as
+           PnTasmotaStatusRequest) so the Sink publishes them. Rate-limit:
+           newly-seen device probed promptly, an already-known one never
+           re-probed more often than the configurable `interval` (seconds,
+           default 300; 0 = every message). `request` property picks the Status
+           section (shared PnTasmotaStatusKind enum, lifted from status-request
+           into pn-tasmota-common). fa-binoculars icon, violet body. Help page +
+           8-case unit test (tests/unit/test-pn-tasmota-probe.c) added.
+
+       [x] 22.2 Concentrator / collector node (PnTasmotaConcentrator). DONE.
+           Input wires from the MQTT Source (the stat/<device>/STATUS* replies,
+           optionally also tele/.../STATE|SENSOR via the merge-telemetry prop).
+           Accumulates a per-device record, top-level-merging each STATUS /
+           STATUS5 / STATUS11 fragment into one object keyed by device. Emit
+           policy: when an accepted message arrives AND >= `interval` seconds
+           (default 2, debounce; 0 = every message) have elapsed since the last
+           emit, sends ONE combined message with data.devices = { <device>:
+           {..merged..}, ... } + data.value (device count) to a downstream Debug
+           / table / HTTP view. Holds state across messages; optional `timeout`
+           (default 0 = never) drops devices gone silent. fa-database icon,
+           sea-green body. Help page + 10-case unit test
+           (tests/unit/test-pn-tasmota-concentrator.c) added.
+
+       [x] 22.3 Wiring recipe + example worksheet. DONE.
+           examples/home-automation/tasmota-discovery.json wires MQTT Source ->
+           Tasmota Probe -> MQTT Sink and MQTT Source -> Tasmota Concentrator ->
+           Debug (registered in examples/Makefile.am; loads clean under
+           pipnode-run). Help pages for both nodes already shipped with
+           22.1/22.2 and document the group-topic no-reply gotcha
+           (PnTasmotaProbe.html "Why per-device, not one broadcast").
+
+       [x] 22.4 Keep prober and concentrator as SEPARATE nodes. DONE -- they are
+           two independently-wireable core nodes (PnTasmotaProbe,
+           PnTasmotaConcentrator) and the tasmota-discovery.json example
+           composes them into the full discover-poll-collect-present loop rather
+           than fusing them.
+
+       Relation to item (20): (20) is the same idea at recipe level (publish
+       Status 5, listen on stat/+/STATUS5, surface IPAddress/Hostname/Mac for
+       REST follow-up); (22) is the node-based, auto-discovering, all-sections
+       generalisation -- folding (20)'s StatusNET-for-REST use case in here is
+       reasonable.
+
+[ ] 26 The Text to Speech node should default to "any engine you find" + "any
+       voice you find": on a fresh node, auto-detect the first available TTS
+       engine (piper/espeak-ng/espeak/festival/flite on $PATH) and the first
+       available voice for it, instead of defaulting to a fixed engine/model
+       that may not exist on the machine. The auto-pick must stay overridable in
+       the editor (keep the existing engine/voice selectors). Once this lands,
+       update the bundled panel applets -- the shipped starter worksheet
+       panel-plugins/pipnode-xfce-applet/ pipnode-xfce-applet-default.json
+       currently hard-codes an absolute ~/.local/share/piper/...onnx model path
+       -- to rely on the auto-default so a new applet's TTS works on any machine
+       out of the box. (Came up while wiring the panel applet's click -> Panel
+       Input -> Text to Speech demo: the shipped template only spoke on the
+       author's machine.)
+
+[ ] 28 Host-managed shared profile sessions (plugin ABI v6). Today a profile
+       (ABI v5, item 27) is a CONFIG store: a node resolves a profile-ref at
+       fire time, gets host/port/credentials, and opens its own connection. That
+       is fine for one-shot HTTP-style work but breaks down whenever the
+       underlying resource is single-owner or stateful: a USB-serial device can
+       only be held by one fd, and an MQTT broker session is logically one TCP
+       socket per (broker,client-id) that wants its subscriptions and outbound
+       publishes funnelled through one place. The Meshtastic node already paid
+       this tax (one device <-> one node, no multi-node fan-out possible) and
+       the upcoming pipnode-zigbee-plugin would inherit the same limitation (the
+       GW70-MQTT CC2652 dongle speaks ZNP over /dev/ttyUSB0; multiple debug
+       nodes -- status, list-devices, dump-frames, permit-join -- all need to
+       share that one fd, queue requests serially, and fan unsolicited frames
+       out to subscribers).
+
+       Fix it at the host. Keep the existing profile as the CONFIG layer, and
+       add a LIVE-RESOURCE layer on top: PnProfileSession, a per-profile-id
+       object opened on first reference and torn down on last release, owned and
+       ref-counted by the host. The plugin teaches the host how to build one via
+       two new vfuncs on PnProfileSchemaClass:
+           PnProfileSession *(*open_session)  (PnProfile *cfg, GError **error);
+           void              (*close_session) (PnProfileSession *session);
+       Host-side API the nodes use:
+           PnProfileSession *pn_profile_acquire_session (const gchar *profile_id,
+                                                         GError **);
+           void              pn_profile_release_session (PnProfileSession *);
+       Acquire in constructed(), release in dispose(), exactly mirroring the
+       existing pn_node_get_profile lifecycle. Re-emit PnVault::changed as a
+       session teardown+rebuild so a credential edit propagates the same way it
+       does today. State changes (device unplug, broker disconnect) fan out via
+       a PnProfileSession::state-changed signal mirroring PnVault::changed.
+       Concurrency model: single-threaded GLib mainloop, GIOChannel/GUnixIO on
+       the fd, all callbacks on the main thread (no new threads -- pipnode does
+       not use them elsewhere). Lives in libpipnode-core so pipnode-run gets the
+       same shared sessions headlessly (see item 23).
+
+       The session object itself is plugin-defined. For Zigbee that means a ZNP
+       transport with a FIFO request queue (pn_znp_request(session, cmd,
+       payload, callback)) plus a subscriber registry for unsolicited frames
+       (pn_znp_subscribe(session, type, callback)); for MQTT it is a libmosq
+       client with one TCP connection, a subscribe-multiplex table and a publish
+       queue; for Meshtastic a serial-mesh session of the same shape as Zigbee.
+
+       Pilot/port order, smallest blast radius first: (a) ship the host-side
+       registry + the two vfuncs + the ABI bump 5 -> 6, no plugin work; (b) port
+       the bundled MQTT Source/Sink in plugins/network onto it -- the win is
+       immediate and observable (N MQTT nodes against one broker stop dialling N
+       sockets, and their subscriptions merge into one), and it proves the API
+       on existing test coverage; (c) build the Zigbee plugin greenfield against
+       the now-proven API (GW70Profile + ZnpSession + small debug nodes -- see
+       item 29 if/when filed); (d) retrofit the Meshtastic node to lift its
+       one-device-one-node ceiling; (e) opportunistically: the kodi plugin's
+       JSON-RPC client (multiple kodi nodes currently each open their own
+       libsoup session), shell SSH, any future stateful-socket plugin.
+
+       Trade-offs to nail in design: ownership boundary (plugin defines what a
+       session IS, host owns the registry + ref-count + lifetime; plugin never
+       caches a PnProfileSession* outside an acquire/release pair), error
+       propagation (every subscribed node must learn when the device disappears
+       -- state-changed signal), and the headless story (sessions must work
+       under pipnode-run, which is why the layer lives in core not gui). Same
+       ABI-bump drill as item 27: sudo make install + reinstall every plugin or
+       the scan will deadlock on stale .so's (see the caveat documented under
+       item 23).
+
+[ ] 29 Devices -> Meshtastic configuration dialog. Today PnMeshtastic nodes are
+       unusable until the device is set up via the external /usr/bin/pip-mesh
+       bash prototype (4994 lines, hand-rolled bash protobuf, USB serial only,
+       channel/QR share tested working with the author's handheld). Port that
+       knowledge into a first-class editor dialog so an unboxer can go from
+       "plug in a Heltec/Tracker" to "send a test message" without leaving
+       pipnode. Constraints from the user: device is the source of truth,
+       NOTHING persisted on pipnode's side (close = disconnect, no caches, no
+       auto-scan, no "remembered devices"); discovery only on explicit Scan;
+       list devices, never auto-select.
+
+       Shape decided in chat: top-level Devices menu in the editor with one
+       entry per supported device kind, first being "Meshtastic..."; opens a
+       GtkDialog with the device list on the left (empty until Scan), a
+       stage-based settings stack on the right (Identity / Region / Channels /
+       Share / Test). Per-device session is held only while the dialog is open.
+       Code lives in the editor (lib/devices/meshtastic/) for the first cut;
+       designed with a clean seam so Phase 8 moves it into the meshtastic plugin
+       and turns the menu into a plugin-registered list.
+
+       Architecture decisions: (a) hand-translate pip-mesh's narrow protobuf
+       subset into C rather than pull in nanopb -- the surface we write (LoRa,
+       owner, channels) is small and self-contained; (b) optional libqrencode
+       dep, auto-detected at configure time, URL-only fallback;
+       (c) discovery via sysfs walk against pip-mesh's VID:PID table (10c4:ea60
+       Heltec V3, 239a:0029/8027/8029 Trackers), no libgudev; (d) threading:
+       dialog on main thread, serial I/O on GTask worker threads, results
+       marshalled back via g_main_context_invoke -- no blocking the UI, no
+       g_idle polling. Defaults chosen for the open questions, all revisitable:
+       libqrencode optional dep; transport-profile-save deferred to Phase 8;
+       Region page covers the full LoRa surface (not just pip-mesh's QR subset);
+       test page is text-only first.
+
+       File layout (flat lib/ to match repo convention; subdir grouping is
+       notional, the prefix groups them. Phase 8 may move them under a plugin
+       tree but for now keep them next to the other lib/pn-*.c):
+           src/pn-devices-menu.{c,h}              -- Devices menu host (editor only)
+           lib/pn-mesh-discover.{c,h}             -- sysfs walk, VID:PID table
+           lib/pn-mesh-serial.{c,h}               -- termios open, frame I/O
+           lib/pn-mesh-pb.{c,h}                   -- minimal protobuf codec
+           lib/pn-mesh-protos.{c,h}               -- typed accessors per message
+           lib/pn-mesh-connection.{c,h}           -- per-device session, admin frames
+           lib/pn-mesh-qr.{c,h}                   -- ChannelSet -> URL -> optional pixmap
+           lib/pn-mesh-dialog.{c,h}               -- top-level GtkDialog
+           lib/pn-mesh-device-list.{c,h}          -- left: scan button + GtkListBox
+           lib/pn-mesh-page-identity.{c,h}        -- metadata + owner names
+           lib/pn-mesh-page-region.{c,h}          -- region / preset / hop / tx-power
+           lib/pn-mesh-page-channels.{c,h}        -- list/create/delete/copy (txn)
+           lib/pn-mesh-page-share.{c,h}           -- QR + URL for channels / full config
+           lib/pn-mesh-page-test.{c,h}            -- send + live monitor
+           tests/unit/
+               test-pn-mesh-pb.c, test-pn-mesh-frame.c, test-pn-mesh-qr.c
+
+       Phase tracker (mark DONE inline as each ships; "where we left off" lives
+       here so future sessions can pick up without re-reading chat):
+
+           [x] Phase 1 Menu + empty dialog (UX skeleton). Devices ->
+                        Meshtastic... menu item, dialog opens with left list "No
+                        devices. [Scan]" and a blank right stack. Scan stubbed
+                        to return a fake row so layout is judgable before
+                        protocol code lands. Files shipped:
+                        src/pn-devices-menu.{c,h}, lib/pn-mesh-dialog.{c,h},
+                        lib/pn-mesh-device-list.{c,h}. User-confirmed.
+           [x] Phase 2 Real discovery + connect (no writes). sysfs scan + serial
+                        + framing + want_config_id handshake. Selecting a row
+                        populates Identity page read-only (HW model raw enum,
+                        owner names, channel count). Status bar shows connection
+                        state. Files shipped:
+                        lib/pn-mesh-{discover,pb,serial,connection,page-identity}.{c,h}
+                        (all GTK-free except page-identity, in libpipnode-core),
+                        lib/pn-mesh-{dialog,device-list,page-identity}.{c,h}
+                        (libpipnode-gui). Unit tests: test-pn-mesh-pb (123
+                        checks), test-pn-mesh-frame (44 checks). Firmware
+                        version + HW model name deferred to Phase 3 (needs admin
+                        protocol round-trip). User-verified against real Heltec
+                        V3.
+           [x] Phase 3 Owner-names write (smallest write path), admin protocol
+                        primitives, DeviceMetadata read. Long/short name
+                        editable on Identity with per-field Apply (write -> 0.5s
+                        settle -> verifying handshake); Identity also shows
+                        firmware version, hardware model with friendly name
+                        (HELTEC_V3 etc.), device role, capability flags (Wi-Fi /
+                        Bluetooth / Ethernet). New admin-protocol helpers in
+                        pn-mesh-connection.c wrap MeshPacket+Data+AdminMessage
+                        so Phase 4+ can piggyback on
+                        send_admin/parse_admin_message for set_lora_config etc.
+                        HW-model + role lookup tables ported from pip-mesh
+                        inline in pn-mesh-page-identity.c. GOTCHAS rediscovered:
+                        (i) the page status callback signature is (text,
+                        user_data) -- DO NOT function-cast set_status which is
+                        (ctx, text), the args swap and crash on first emit;
+                        bridge through a small thunk. (ii) After a successful
+                        Apply, only repaint the entry whose write we just
+                        finished -- the other entry may hold a mid-edit value
+                        the user has typed but not applied, and a blind repaint
+                        silently throws it away. Tracked via an "applying" enum
+                        in the page ctx; APPLY_NONE on a fresh device pick
+                        paints both, APPLY_LONG/SHORT after Apply paints just
+                        that one. User-verified.
+           [x] Phase 4 Region / LoRa page. Region picker, modem preset, hop
+                        limit, tx_power, tx_enabled, single Apply button.
+                        Extended handshake captures FromRadio.config (field 5)
+                        -> Config { lora (6) = LoRaConfig {...} }. New
+                        pn_mesh_connection_set_lora_config_async wraps
+                        AdminMessage.set_config (34) = Config(lora=...) and
+                        ships the WHOLE LoRaConfig at once (proto3 defaults
+                        would silently reset omitted fields -- region=UNSET
+                        would brick the radio). channel_num + use_preset are
+                        read and round-tripped verbatim. Dialog right-pane now
+                        hosts a GtkStackSwitcher above the GtkStack; Identity +
+                        Region pages are titled (appear as switcher buttons);
+                        empty/connecting page stays untitled. Switcher hidden
+                        until a device connects.
+                        Files shipped: lib/pn-mesh-page-region.{c,h}; deltas
+                        in lib/pn-mesh-connection.{c,h} (LoRa fields +
+                        parse_config + set_lora_config) and
+                        lib/pn-mesh-dialog.c. User-verified against real Heltec
+                        V3.
+           [x] Phase 5 Channels page. List of 8 slots (index/name/role badge/PSK
+                        lock icon), Add channel (modal with name + prefilled
+                        random AES-256 PSK + Generate button), per-row Delete
+                        (primary protected, disabled slots inert). Bare
+                        set_channel admin writes (no begin/commit transaction;
+                        that was Phase 5 plan but single-channel writes don't
+                        need it -- pip-mesh's create_channel/delete_channel
+                        pattern). New pn_mesh_connection_set_channel_sync/async
+                        with AdminMessage.set_channel (field 33, NOT 32 -- the
+                        pip-mesh docstring at line 3905 says 32 but the code at
+                        line 3941 uses 33; trust the code). Spinner next to Add
+                        button while the 3-5s verify cycle
+                        runs. Files shipped: lib/pn-mesh-page-channels.{c,h}
+                        plus deltas in pn-mesh-connection / pn-mesh-serial /
+                        pn-mesh-dialog. User-verified against real Heltec V3.
+
+                        LOAD-BEARING GOTCHAS rediscovered, also relevant to
+                        Phase 6/7 (any future set_channel-shaped write):
+
+                        (i) PORT BOUNCE FOR set_channel. The Meshtastic firmware
+                        buffers channel-slot changes in RAM and only commits to
+                        flash when the serial session ends (DTR drop). pip-mesh
+                        gets this for free because it uses `echo > $tty` (a
+                        fresh open/close per write); our long-lived fd has to
+                        close+reopen explicitly or the write LOOKS accepted
+                        (verify-cycle handshake succeeds) but is silently
+                        dropped on the next device read or reboot, and pip-mesh
+                        later sees no change. set_owner and set_lora_config are
+                        stored differently and do NOT need the bounce. Added
+                        pn_mesh_serial_reopen() and the connection now bounces
+                        the fd between the set_channel write and the verify
+                        cycle. Phase 6's QR-import path will write multiple
+                        channels in sequence -- bundle them in a single
+                        begin_edit_settings(64)/commit_edit_settings(65)
+                        transaction (per pip-mesh's --copy-channels) and one
+                        bounce at the end.
+
+                        (ii) use-after-free across the modal-destroy in the Add
+                        dialog: gtk_entry_get_text returns a pointer INTO the
+                        entry's buffer; destroying the dialog frees the entry.
+                        The async write's internal g_strdup runs AFTER the
+                        destroy, picking up freed memory -- the channel name
+                        comes back as garbage on the next read-back. Fix:
+                        g_strdup the entry text BEFORE destroying the dialog.
+                        (psk_bytes was already safe because decode_psk_hex
+                        mallocs a fresh buffer we own.)
+
+                        (iii) UX: a 3-5s verify cycle with no visible motion
+                        reads as "the app froze". Add a GtkSpinner next to the
+                        action button, spin while writing=TRUE. Identity (Apply
+                        owner) and Region (Apply LoRa) have the same delay and
+                        would benefit from the same spinner -- not added yet
+                        (user didn't ask), one-liner each when wanted.
+           [x] Known Known Nodes page (out-of-band insertion between Nodes Phase
+               5 and Phase 6 -- user-requested "everything works" diagnostic).
+               Read-only sortable GtkTreeView over PnMeshState->nodes; the
+               device's own row is bolded and pinned to the top via a hidden
+               is_us primary sort key, with columns ID / Short / Long / HW /
+               Role / Hops / SNR / Last heard / Battery. Last heard / SNR /
+               Battery use separate numeric sort columns so the displayed
+               strings ("3m ago", "—") sort by value not ASCII. Connection now
+               captures the full NodeInfo set (added field defines NI_SNR=4,
+               NI_LAST_HEARD=5, NI_DEVICE_METRICS=6, NI_HOPS_AWAY=9, U_ROLE=7;
+               new parse_device_metrics; SeenNode extended with
+               role/snr/last_heard/hops_away/battery/voltage) and publishes
+               PnMeshState->nodes (GPtrArray of new public type PnMeshNode).
+               format_hw_model / format_role lifted out of page-identity into
+                        libpipnode-core (lib/pn-mesh-formats.{c,h}) so
+                        the new page reuses the same tables. Files
+                        shipped: lib/pn-mesh-formats.{c,h} (core);
+                        lib/pn-mesh-page-known-nodes.{c,h} (gui).  No new
+                        unit test -- the page is a pure render layer over
+                        already-tested protobuf parsing; the existing
+                        test-pn-mesh-pb / test-pn-mesh-frame net still holds. No
+                        protocol writes; no admin frames; no ABI bump
+                        (PnMeshState is internal to the dialog). Phase numbering
+                        unchanged below; "Phase 5.5" would misread, so it's
+                        tracked here as an inline entry.
+
+           [x] Phase 6 Share page (headline feature). Single-QR page living
+                        under the Radio tab as a third expander (Region & LoRa /
+                        Channels / Share). Top: subtitle line that rephrases per
+                        mode. Channel checkbox list (primary pre-checked; rows
+                        are the device's non-disabled slots). Mode-toggle radio
+                        group ("Share channels (additive)" vs "Share full config
+                        (replaces)") -- exactly one QR drawn from the active
+                        mode so a phone camera cannot lock on the wrong code.
+                        Below the radios: a single cairo-rendered QR (when
+                        libqrencode is present at build time, else a "install
+                        libqrencode and rebuild" notice). Underneath the QR: a
+                        wrapping selectable monospace GtkLabel showing the full
+                        URL + a clipboard Copy button (Label not GtkEntry -- a
+                        single-line entry hides the dynamic tail behind
+                        the identical "https://meshtastic.org/e/#" prefix
+                        and the user cannot tell when the URL changed). URL
+                        builder lives in libpipnode-core (pn-mesh-qr
+                        .{c,h}) as a pure-C, GTK-free port of pip-mesh's
+                        build_channel_set_hex + print_qr_url; cairo render (and
+                        the libqrencode include) lives in the gui-side
+                        page-share.c so the core tier stays headless.
+
+                        ChannelSet wire layout (pip-mesh-compatible):
+                          ChannelSet {
+                            repeated ChannelSettings settings = 1; // embedded
+                            LoRaConfig               lora     = 2; // optional
+                          }
+                          ChannelSettings { bytes psk = 2; string name = 3; }
+                          LoRaConfig (QR subset):
+                            bool use_preset = 1; ModemPreset modem = 2;
+                            RegionCode region = 7; uint32 hop_limit = 8;
+                        URL = "https://meshtastic.org/e/#" + base64url
+                        (RFC 4648 with '+'->'-', '/'->'_', trailing '='
+                        stripped) of the serialized ChannelSet.
+
+                        Optional dep: libqrencode (PKG_CHECK_MODULES, AC_DEFINE
+                        HAVE_QRENCODE, AM_CONDITIONAL); auto-detected, URL-only
+                        fallback paints a "install libqrencode and rebuild"
+                        notice in the QR slot when missing. Configure prints
+                        "libqrencode not found; Meshtastic Share page will show
+                        URLs only" in that case.
+
+                        Files shipped: lib/pn-mesh-qr.{c,h} (core),
+                        lib/pn-mesh-page-share.{c,h} (gui); deltas in
+                        lib/pn-mesh-dialog.c (third expander on Radio tab,
+                        set_state on connect/drop, GtkOverlay loading spinner
+                        over the notebook -- see UX FOLLOW-UPS below) and
+                        lib/Makefile.am (QRENCODE_CFLAGS/LIBS on the gui lib).
+                        Unit test tests/unit/ test-pn-mesh-qr.c (5 cases, 19
+                        checks) pins byte-for-byte URL match for a single
+                        default channel and for the full-config form, plus
+                        skip-disabled, selection-subset and empty-error paths.
+
+                        UX FOLLOW-UPS landed with Phase 6:
+
+                        - Handshake loading overlay. The 3-5s handshake would
+                        otherwise let the user switch to a tab whose state
+                        hasn't arrived and read it as "device has no channels /
+                        no MQTT". Notebook is now wrapped in a GtkOverlay with a
+                        64x64 centred GtkSpinner + "Reading configuration from
+                        device…" label; show_loading/hide_loading also flip
+                        notebook sensitivity so tabs cannot be clicked while the
+                        spinner is up. drop_connection hides it too so a
+                        dialog-close mid-handshake leaves no ghost widget.
+
+                        - Channels page list height. set_min_content_height(220)
+                        + set_propagate_natural_height(TRUE) + a hard
+                        set_size_request(list, -1, 200) on the GtkListBox
+                        itself. Without all three, the FALSE/ FALSE-packed
+                        Channels expander pinned the scrolled list to a single
+                        row. Same pattern (with smaller numbers) used for the
+                        Share page's channel checkbox list -- the QR area's
+                        set_size_request was eating the slack the list needed.
+
+                        - Trash-can delete glyph. Per-row delete on the Channels
+                        page uses "user-trash-symbolic" (verified present in the
+                        icon theme) instead of "edit-delete"; reads as "discard"
+                        rather than "erase".
+
+                        GOTCHAS for future cousins (Phase 7 / 11+):
+
+                        (i) ProtoBuf field numbers in pip-mesh's bash docstrings
+                        were not always accurate (Phase 5 already hit this on
+                        set_channel: docstring 32, code 33). For Phase 6 the
+                        field numbers came verbatim out of build_channel_set_hex
+                        / print_qr_config and matched what the firmware expects;
+                        the test pins them at the URL level so a future "tidy
+                        up" cannot silently drift.
+
+                        (ii) Region UNSET would brick the receiver on
+                        full-config import (proto3 zero == UNSET, no fall-back).
+                        refresh_url skips emission in full-config mode unless
+                        PnMeshState->have_lora_config is TRUE (a small dim
+                        notice paints in its place) so the URL/QR pair stays
+                        blank (not "garbage URL") until the handshake actually
+                        surfaces a LoRa config.
+
+                        (iii) Cairo QR render budgets four modules of quiet zone
+                        around the matrix even though Meshtastic phone apps are
+                        tolerant; without it the white border collapses when the
+                        dialog uses a dark theme and decode rate drops. Drawing
+                        happens against the cached URL so toggle->draw is one
+                        cycle of queue_draw -- no re-encode on every expose.
+
+                        (iv) GtkScrolledWindow's set_min_content_height ALONE
+                        was repeatedly observed to be ignored when the scrolled
+                        window lives inside a GtkExpander packed FALSE/FALSE in
+                        a tab box: the listbox collapsed to one row. The
+                        reliable recipe is min_content_height +
+                        propagate_natural_height + an explicit
+                        gtk_widget_set_size_request on the listbox itself. Any
+                        future tab-hosted scrolled list (Phase 7 test page,
+                        Phase 11+ module pages) should follow the same
+                        belt-and-braces pattern.
+
+                        (v) Long URLs in a single-line GtkEntry hide their
+                        dynamic suffix behind the (identical) URL prefix.
+                        Wrapping selectable GtkLabel was the right widget; reuse
+                        it for any other "show me this URL" affordance instead
+                        of an entry.
+           [x] Phase 7 Test page. Channel picker + message entry + Send; below,
+                        a live "Incoming traffic" log running monitor on the
+                        open connection. Auto-stops on dialog close. Shipped as
+                        the Diagnostics tab's "Test" expander alongside Known
+                        Nodes; PORTNUM_TEXT_MESSAGE_APP =1 wire defines on the
+                        ToRadio side, MeshPacket parser on the FromRadio side
+                        queues PnMeshTextEvent records the dialog drains via a
+                        200 ms timer (pump_monitor + take_text_event).
+                        Synthesised "outgoing" events are echoed back from
+                        send_text_sync so a single transcript shows both
+                        directions. Per dialog-lifetime rule the monitor timer
+                        is owned by MeshDialogCtx (start in on_connection_ready,
+                        stop in drop_connection / dialog dispose), and
+                        pump_monitor is skipped while any write is in flight via
+                        the busy_count so the frame reader does not race the
+                        worker thread.
+           [x] Phase 9 Modules tab + External Notification (the "stop the
+                        beeping" fix) -- shipped under Notifications tab via the
+                        7-tab layout (see Phase 10 note); the sidebar plan below
+                        is historical. pip-mesh never touched ModuleConfig at
+                        all; we want the full module surface eventually,
+                        starting with the one users most often need to disable
+                        (nag_timeout + enabled). Concrete steps:
+
+                        (a) Wire defines: FR_MODULE_CONFIG=9 (FromRadio
+                            subfield), MC_EXTERNAL_NOTIFICATION=3 (ModuleConfig
+                            oneof case), AM_SET_MODULE_CONFIG=35 (AdminMessage),
+                            EN_* for all 15 ExternalNotificationConfig fields.
+                        (b) Handshake parser: parse_module_config() dispatcher
+                            (mirroring parse_config) and
+                            parse_ext_notification() (mirroring
+                            parse_lora_config).
+                        (c) State: new PnMeshExtNotificationConfig struct in
+                            pn-mesh-connection.h with all 15 fields, plus
+                            have_ext_notification flag on PnMeshState.
+                        (d) Writer:
+                            pn_mesh_connection_set_ext_notification_sync/async/finish,
+                            shipping the WHOLE ExternalNotificationConfig at
+                            once (same proto3-defaults rule as LoRa -- ship
+                            every field on every write or omitted ones reset).
+                        (e) UI: new "Modules" stack page in the dialog. Designed
+                            as a sidebar (list of available modules) + content
+                            panel. Phase 9 lists only "External Notification";
+                            Phases 10/11 add rows. ExternalNotification form:
+                            switch for enabled, spinner for nag_timeout (the
+                            "actually fix the beep" knob), spinners for
+                            output_ms, output / output_vibra / output_buzzer
+                            GPIO pins, switch for active (active-high vs
+                            active-low), alert_message / _vibra / _buzzer +
+                            alert_bell / _vibra / _buzzer switches, use_pwm
+                            switch, use_i2s_as_buzzer switch; single Apply
+                            button at the bottom.
+                        (f) ABI: PnMeshState is private to the dialog; no plugin
+                            ABI bump.
+
+           [x] Phase 10 MQTT module. The Modules-sidebar plan was superseded by
+                        the 7-tab + GtkExpander layout
+                        (Device/Radio/Network/Notifications/Telemetry/ Mesh
+                        tools/Diagnostics, accordion sub-sections inside each).
+                        Phase 10 ships MQTT specifically (10 simple fields +
+                        opaque MapReportSettings round-trip) under the Network
+                        tab; remaining modules picked up by Phase 11+. Wire
+                        side: MC_MQTT=1 ModuleConfig dispatch, MQTT_* field
+                        defines, parse_mqtt, send_set_mqtt_config,
+                        PnMeshMqttConfigWrite, sync/async/finish. PnMeshState
+                        gains 9 typed fields plus a GBytes* holding the
+                        un-exposed MapReportSettings sub-message so writes don't
+                        reset its hidden sub-fields to proto3 zero. UI:
+                        pn-mesh-page-mqtt. {c,h} mirrors the External
+                        Notification page -- master Enabled gates the detail
+                        fields, password entry has visibility=FALSE, address &
+                        root entries grow to fill the row. Field 6
+                        (json_enabled) is upstream-deprecated and intentionally
+                        NOT written -- the firmware ignores it.
+
+           [-] Phase 11 Remaining modules. POSTPONED to a later revision
+                        (decided 2026-05-28). No donor code in pip-mesh; each
+                        module is a fresh page on the Phase 10 pattern, and none
+                        of the leftovers are must-haves for the
+                        unbox-to-test-message goal. Candidates if/when this
+                        comes back: Serial (Network tab); Neighbor Info,
+                        Detection Sensor, Range Test, Paxcounter (Telemetry
+                        tab); Canned Message, Audio, Ambient Lighting
+                        (Notifications tab); Store & Forward, Remote Hardware,
+                        TAK (Mesh tools tab). Sub-messages that the UI doesn't
+                        expose go via the opaque-
+                        bytes round-trip introduced in Phase 10
+                        (PnMeshState->mqtt_map_report_settings). Notes on TODO
+                        transcription slips found while descoping: "Status
+                        Message" is not a real ModuleConfig sub-block; "Traffic
+                        Management" is rebroadcast_mode inside DeviceConfig
+                        (covered by Phase 14); "Display" is a Config sub-block
+                        (was covered by Phase 13, now also postponed -- see
+                        below).
+
+           [x] Phase 12 Position + Power config tabs. Shipped as two new
+                        GtkExpanders distributed across the existing 7-tab
+                        layout rather than dedicated tabs -- Power sits under
+                        "Device" alongside Identity, Position sits under "Radio"
+                        after Region / Channels / Share. Both reuse the LoRa
+                        pattern: read whole sub-block during the handshake,
+                        mutate one or more fields, ship every typed field back
+                        at once via AM_SET_CONFIG=34 wrapped in Config{<sub>}.
+
+                        Wire side (pn-mesh-connection.[ch]): CFG_POSITION =2 and
+                        CFG_POWER=3 dispatch in parse_config; POS_* / POW_*
+                        field defines mirror the Meshtastic proto;
+                        parse_position_config / parse_power_config follow
+                        parse_lora_config's shape. PnMeshState gains 13 pos_*
+                        and 9 pow_* fields plus have_position / have_power
+                        flags. Two new writer pairs -- PnMeshPositionConfigWrite
+                        + set_position_config_*, PnMeshPowerConfigWrite +
+                        set_power_config_* -- share two helpers
+                        (send_set_config_subblock and finish_set_config)
+                        extracted from set_lora_config so the second writer
+                        collapses to a per-field write loop + one call. Power's
+                        adc_multiplier_override is the project's first
+                        float-on-the-wire field; written via
+                        pn_mesh_pb_write_fixed32_field with a union punning
+                        trick, read via pn_mesh_pb_read_float.
+
+                        UI side: pn-mesh-page-position.[c,h] and
+                        pn-mesh-page-power.[c,h] are direct clones of
+                        pn-mesh-page-region.[c,h]: subtitle + grid of bold-label
+                        / control rows + right-aligned Apply button at the
+                        bottom; ctx struct with all widget handles + status /
+                        busy callbacks + writing flag; set_writing toggles every
+                        control's sensitivity in one shot and emits
+                        busy(TRUE/FALSE) on transition; set_state mirrors the
+                        device state into the controls and stashes
+                        round-trip-only fields (position_flags, the GPIOs, the
+                        legacy gps_enabled vs gps_mode pair, the INA address) in
+                        ctx so Apply ships them back unchanged.
+
+                        Position page exposes GPS mode (combo: DISABLED /
+                        ENABLED / NOT_PRESENT), the legacy gps_enabled boolean
+                        synced from mode at Apply-time so older firmware keeps
+                        consistent state, fixed_position switch, smart-broadcast
+                        switch + its min-distance
+                        (m) and min-interval (s) thresholds, plus
+                        position_broadcast_secs and gps_update_interval. GPIO
+                        assignments are deliberately NOT surfaced as controls --
+                        they are board-specific and the user is more likely to
+                        set them via the firmware console than the dialog;
+                        round-trip preserves them anyway.
+
+                        Power page exposes is_power_saving switch,
+                        on_battery_shutdown_after_secs, adc_multiplier_override
+                        (float spinner, 3-digit precision, 0 = firmware
+                        default), wait_bluetooth_secs, sds_secs, ls_secs,
+                        min_wake_secs; device_battery_ina_address is
+                        round-tripped only. powermon_enables (field 32) is a
+                        debug-only flag the dialog ignores -- same caveat the
+                        LoRa page carries for spread_factor etc. It gets
+                        proto3-zero-reset on Apply (rare; no end-user touched it
+                        via the GUI), document if a user reports it.
+
+                        Gotchas for the next Config sub-block writer (Phase 14):
+
+                        (i) Float on the wire uses
+                        pn_mesh_pb_write_fixed32_field with a union to
+                        reinterpret bits; pn_mesh_pb_read_float reciprocates. Do
+                        NOT write a varint -- proto's float wire type is fixed32
+                        (wire 5), and a varint of the bit pattern would be read
+                        as garbage.
+
+                        (ii) Signed int32 fields on the wire encode negative
+                        values as 10-byte sign-extended varints. The dialog's
+                        smart-min-distance spinner clamps to 0 so the path is
+                        never hit in practice, but the writer still casts gint32
+                        -> gint64 -> guint64 before
+                        pn_mesh_pb_write_varint_field so the contract is correct
+                        for any signed field added later.
+
+                        (iii) The pattern is: parse all fields the firmware
+                        sends, expose only the practically-useful ones in the
+                        UI, stash the rest in ctx and ship them back unchanged.
+                        This avoids the proto3-defaults trap and keeps
+                        board-specific / advanced settings intact without
+                        bloating the page.
+
+           [-] Phase 13 Display + Bluetooth config tabs. POSTPONED to a later
+                        revision (decided 2026-05-28) -- lower payoff than
+                        Phases 7/12/14 for the unbox flow; revisit alongside any
+                        Phase 11 module work. DisplayConfig (13 fields:
+                        screen_on_secs, flip_screen, units, use_12h_clock, ...)
+                        and BluetoothConfig (3 fields: enabled, mode,
+                        fixed_pin).
+
+           [x] Phase 14 Device + Network + Security config tabs. Three new pages
+                        following the LoRa/Position/Power set_config_subblock
+                        pattern: parse the whole sub-block during the handshake,
+                        ship every typed field back at once via AM_SET_CONFIG=34
+                        wrapped in Config{<sub>}. Reuses
+                        send_set_config_subblock + finish_set_config helpers
+                        from Phase 12.
+
+                        Tab layout (touched 3 of the 7 existing tabs; Mesh tools
+                        + Notifications + Telemetry + Diagnostics unchanged):
+                        Device: Identity / Device role & GPIO (new) / Power /
+                        Security (new) Radio: Region & LoRa / Channels / Share /
+                        Position Network: WiFi/Ethernet/IPv6 (new) / MQTT
+                        (placeholder dropped)
+
+                        Wire side (pn-mesh-connection.[ch]): CFG_DEVICE=1 /
+                        CFG_NETWORK=4 / CFG_SECURITY=8 dispatch in parse_config;
+                        DEV_*/NET_*/SEC_* field defines mirror the Meshtastic
+                        Config.proto exactly. parse_device_config /
+                        parse_network_config / parse_security_config follow
+                        parse_lora_config's shape. PnMeshState gains 13 dev_*,
+                        10 net_*, 7 sec_* fields plus have_device/have_network/
+                        have_security flags. Three writer pairs --
+                        PnMeshDeviceConfigWrite + set_device_config_*,
+                        PnMeshNetworkConfigWrite + set_network_config_*,
+                        PnMeshSecurityConfigWrite + set_security_config_* -- all
+                        use the shared subblock helpers.
+
+                        Device page: Role + RebroadcastMode combos,
+                        NodeInfo-broadcast spinner, button/buzzer GPIO spinners.
+                        Round-trips serial_enabled, double_tap_as_button_press,
+                        deprecated is_managed, disable_triple_click, tzdef,
+                        led_heartbeat_disabled, buzzer_mode unchanged.
+
+                        Network page: WiFi switch + SSID/PSK entries (PSK
+                        masked), Ethernet switch, IPv6 switch. Round-trips
+                        ntp_server, address_mode, ipv4_config (opaque GBytes,
+                        same pattern as mqtt_map_report_settings),
+                        rsyslog_server, enabled_protocols.
+
+                        Security page: read-only base64 view of the X25519
+                        public/private keys + admin key list, switches for
+                        is_managed / serial_enabled / debug_log_api_enabled /
+                        admin_channel_enabled. Per TODO: "I understand the
+                        risks" check gates Apply, and the check is auto-reset
+                        after a successful Apply / on every set_state so the
+                        next write needs an explicit re-confirmation. Key bytes
+                        shipped back verbatim from PnMeshState (typing 32 random
+                        bytes by hand is not useful).
+
+                        Files shipped: lib/pn-mesh-page-device.{c,h},
+                        lib/pn-mesh-page-network.{c,h},
+                        lib/pn-mesh-page-security.{c,h}; deltas in
+                        lib/pn-mesh-connection.{c,h}, lib/pn-mesh-dialog.c,
+                        lib/Makefile.am.
+
+                        Gotchas for any future Config sub-block writer (none yet
+                        planned; Phase 11/13 are postponed):
+
+                        (i) BYTES round-trip via GBytes. ipv4_config,
+                        public_key, private_key are length-delimited
+                        bytes sub-fields.  Stash them on PnMeshState as
+                        GBytes* (own-on-parse, free-on-close, clear in
+                        clear_state) and ref+copy into a per-call struct in the
+                        async wrapper so the worker thread sees a stable input
+                        even if the page rebuilds its ctx mid-flight.
+
+                        (ii) REPEATED bytes (admin_key). Same recipe but a
+                        GPtrArray-of-GBytes with g_bytes_unref as the free func,
+                        allocated up front in open_sync and set_size(0) at the
+                        top of each parse pass. The async wrapper deep-copies
+                        the array (g_bytes_ref each entry) before handing it to
+                        the thread.
+
+                        (iii) "I understand" check. Reset to FALSE on every
+                        set_state and after a successful Apply -- a sticky check
+                        would let a user accidentally re-Apply a stale config
+                        after a handshake gave fresh data.
+
+       Phase 8 (Plugin extraction) is no longer tracked under TODO #29 -- moved
+       out 2026-05-28: it is its own cross-cutting project (Devices menu becomes
+       plugin-driven via a new PnDeviceProvider core API; the meshtastic dialog
+       code migrates into the meshtastic plugin's GUI companion; PnMeshtastic
+       nodes gain a "Set up device..." affordance that pre-picks the device).
+       Will get its own TODO entry when picked up.
+
+       Gotchas worth re-reading before each phase (from pip-mesh, costly to
+       rediscover): always drain stale bytes before any handshake; never wait
+       for an end marker, wait for silence (3s config, 5s metadata); sleep 0.5
+       after every write; bare set_channel is no-reboot, commit_edit_settings
+       persists+may reboot -- transactional only when needed; cache invalidation
+       keyed on USB VID:PID (the tty name gets reused); frame magic is 0x94
+       0xC3, length is 2-byte BIG-endian; short-name <=4 chars, long-name <=39,
+       PSK exactly 32 or 64 hex chars. The pip-mesh --help string flags
+       --list-messages as broken; trust the help text not the man page.
+
+       Hard rules (do not inherit from pip-mesh): no ~/.cache/, no auto-detect
+       on dialog open, no "auto-select if exactly one device", no --raw or
+       --max-messages CLI modes leaking into the GUI, no global HEXDATA/PB_POS
+       state -- each PnMeshConnection holds its own.
+
+[ ] 30 MQTT node hardening (from the 2026-05-28 code review of lib/pn-mqtt.c/.h,
+       lib/pn-mqtt-sink.c/.h, lib/pn-mqtt-profile.c/.h and
+       tests/unit/test-pn-mqtt*.c). The nodes are sound and GTK-free; these are
+       the findings worth fixing. NOTE: pn-mesh-page-mqtt.c is the Meshtastic
+       radio's MQTT-gateway page (#29), NOT one of these nodes.
+
+         CRITICAL
+         - [x] C1 Sink reports every failure only via g_warning/g_message ->
+               invisible from the desktop launcher (violates the "errors via
+               failure message, not stdout" rule; cf. pn-http.c:272). Offenders
+               in pn-mqtt-sink.c: queued-publish fail :486, live publish fail
+               :671, connect refused :564, invalid URL :731, mosquitto_new/
+               connect_async/loop_start/username_pw_set/tls_set :744,766,774,
+               782,795. Emit success=FALSE + human-readable output instead.
+               (Source has the same smell -- see L1.)
+               VISUAL ERROR INDICATION DONE 2026-05-29: added a GENERIC node
+               error state to the core -- pn_node_set_has_error()/
+               pn_node_get_has_error() + "has-error" property on PnNode
+               (transient, not serialized, not shown in the dialog). The
+               worksheet painter (draw_node) now paints ANY node with has-error
+               set red + ❗, exactly like it greys `disabled` nodes; disabled
+               wins over error. So error indication is uniform and free for
+               every node type -- the ~25 other nodes that still hand-roll their
+               own red+❗ WARNING_ICON swap (pn-http, pn-ws, pn-tts, tasmota/*,
+               shell/*, network/*, ...) are candidates to migrate later. MQTT
+               Source + Sink now drop their bespoke colour/icon swap and just
+               toggle has-error from apply_visual_state; the Sink gained a
+               sticky publish_error flag (set on a rejected live/queued publish,
+               cleared on the next good publish or reconnect) so a publish that
+               fails while the session is up turns the node red instead of
+               silently dropping the message. Source subscribe-failure now goes
+               red instead of green (also closes L1).
+               TEXTUAL-REASON MECHANISM DONE 2026-05-29 (#32): the agreed
+               per-node "log" dialog now exists -- every PnNode carries a log
+               ring (pn_node_log) and the right-click menu opens a live console
+               (PnLogDialog).
+               C1 NOW CLOSED 2026-05-29: pn-mqtt.c and pn-mqtt-sink.c report
+               their failures through pn_node_log so the REASON is readable in
+               the node's Log dialog. restart_client failures (main thread) log
+               directly; the net-thread reasons (connect refused / subscribe
+               failed / disconnect / connected, plus the Sink's live & queued
+               publish failures) ride the existing main-thread conn-state
+               trampoline (post_conn_state_on_main_full) so log-changed is
+               emitted on the main loop. The g_warning/ g_message calls were
+               then REMOVED (the user did not want the stderr noise once the Log
+               dialog covered it) -- pn_node_log is the sole reporting channel
+               for these nodes now. (The Source could ALSO emit success=FALSE
+               downstream per the Weather pattern -- not needed now that the log
+               dialog covers both Source and the output-less Sink.)
+         - [x] C2 restart_client() runs from _init() (pn-mqtt.c:1173,
+               pn-mqtt-sink.c:1154), before construction/deserialization is
+               done. Source: starts the network thread before a SUBCLASS (Sink,
+               Tasmota, Zigbee2MQTT) has initialized its private state, yet
+               on_mqtt_message calls klass->accept_topic() on the net thread.
+               Sink: every credential setter (broker-profile/url/username/
+               password/client-id, :854,859,875,880,885) re-runs restart_client,
+               so loading a document fires ~5 full connect cycles in a burst.
+               Fix: defer the initial connect to constructed()/g_idle and
+               debounce reconnects into one idle instead of reconnecting
+               synchronously in each setter.
+               DONE 2026-05-29: both nodes gained schedule_restart() — a
+               debounced g_idle (restart_idle_id) that coalesces a burst of
+               setter / vault-change calls into ONE restart_client run. The
+               _init() call is gone; the initial connect is scheduled from
+               constructed() (after the migrate idle, so a broker-profile change
+               the migration makes folds into the same restart) and thus runs
+               only after deserialization + subclass init are complete.
+               restart_idle_id is cancelled in dispose. The Sink's offline queue
+               means a message arriving before the deferred connect is buffered
+               + flushed, so deferring loses nothing. (test-pn-mqtt-sink's
+               error_funnel_subclass now pumps the main loop to let the
+               debounced restart run.)
+
+         HIGH
+         - [x] H1 Network-thread read of priv->topic/priv->qos races runtime
+               reconfigure (pn-mqtt.c:467-469). The "no mutex for config fields"
+               invariant assumes setters always stop_client (join the thread)
+               first, but libmosquitto's AUTO-RECONNECT keeps the net thread
+               alive and re-fires on_mqtt_connect with no stop_client -- so a
+               reconnect can read priv->topic while a setter frees/replaces it
+               (torn read / UAF). Fix: snapshot topic/qos at connect time or
+               guard with the existing lock.
+               DONE 2026-05-29 (Source only; the Sink has no net-thread topic
+               read): restart_client snapshots priv->topic/qos into
+               priv->sub_topic/sub_qos on the main thread (after stop_client has
+               joined the previous thread, before loop_start), and
+               on_mqtt_connect re-subscribes from the snapshot, never the live
+               property. The snapshot is fixed for a client's lifetime and only
+               replaced after the next stop_client joins the thread, so an
+               auto-reconnect re-firing on_mqtt_connect cannot race a setter
+               freeing priv->topic. sub_topic is owned, freed in stop_client +
+               finalize.
+         - [x] H2 Stale-disconnect race during reconnect-while-restarting,
+               present EQUALLY in both nodes. The conn-state trampoline guards
+               only on client != NULL (pn-mqtt.c:413, pn-mqtt-sink.c:514);
+               neither has a real generation/epoch counter, so an old session's
+               queued trampoline running after restart_client installs a new
+               client can flip a live node back to red (and on the Source skip
+               the genuine reconnect's re-subscribe). Fix: capture a generation
+               counter in the closure, compare in the trampoline.
+               DONE 2026-05-29: each client carries a heap PnMqtt[Sink]NetCtx
+               {self, generation} as its mosquitto_new user data instead of bare
+               `self`; restart_client bumps priv->generation per client and
+               stamps it on the ctx. The net-thread callbacks read THEIR
+               generation off the ctx (no racy read of priv->generation) and
+               pass it into the conn-state closure; the trampoline honours an
+               update only when client != NULL AND c->generation ==
+               priv->generation, so a stale session's queued trampoline is
+               dropped. net_ctx is owned in priv and freed when its client is
+               destroyed (stop_client / restart's fail path), after the thread
+               is joined.
+         - [x] H3 Sink drops buffered startup commands on flush failure:
+               flush_pending (pn-mqtt-sink.c:476-492) pending_free's each entry
+               unconditionally even when mosquitto_publish errored (:485),
+               defeating the buffer-and-flush guarantee. Fix: on NOMEM/CONN_LOST
+               re-queue rather than discard.
+               DONE 2026-05-29: flush_pending now classifies the publish error.
+               On a TRANSIENT error (MOSQ_ERR_NOMEM / CONN_LOST / NO_CONN — the
+               link dropped mid-flush) it re-queues the failed entry AND every
+               still-unflushed one (preserving order + original timestamps, by
+               detaching them from the collect_fresh array with index = NULL so
+               the array's free func skips them) and stops, so a buffered
+               startup command survives to the next reconnect. A PERMANENT error
+               (payload too large, protocol) still drops that one entry and
+               continues, since re-queueing it would loop forever.
+
+         MEDIUM
+         - [x] M1 build_mqtt_message (pn-mqtt.c:592-598) mirrors only
+               DOUBLE/INT64 JSON scalars to data.value; a bare true/false
+               payload sets nothing (breaks the 0.0/1.0 boolean convention), and
+               int64 loses precision via get_double. Add a JSON-boolean ->
+               0.0/1.0 case.
+               DONE 2026-05-29: pn_mqtt_build_message (now in pn-mqtt-util.c)
+               gained a G_TYPE_BOOLEAN arm in the scalar->value mirror —
+               false->0.0, true->1.0 per the project boolean convention.
+               test-pn-mqtt-util's old message_json_bool_no_value (which PINNED
+               the missing mirror) is now message_json_bool_value, asserting
+               1.0/0.0. (int64 precision left as is — data.value is a double by
+               contract.)
+         - [ ] M2 Sink loses buffered messages on dispose (finalize :989) and on
+               a runtime URL change keeps the backlog and flushes commands meant
+               for broker A to broker B. Decide + document; likely clear the
+               queue when broker identity changes.
+         - [ ] M3 Profile lacks TLS/CA-file, port-as-int, and keepalive fields.
+               TLS is inferred from URL scheme only and
+               mosquitto_tls_set(...NULL) uses the system trust store
+               (pn-mqtt.c:771), so a PRIVATE-CA broker is unconfigurable;
+               keepalive hard-coded to 60s. Known/deferred.
+         - [ ] M4 payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666;
+               >256MB hits MQTT's limit and mosquitto_publish rejects -- logged
+               only to stderr (see C1).
+
+         LOW / NIT
+         - [x] L1 Source: subscribe failure (pn-mqtt.c:469-475) g_warns then
+               flips the node GREEN anyway -> looks healthy, receives nothing.
+         - [x] L2 Dead variable need_schedule (pn-mqtt.c:375,388,394).
+               DONE 2026-05-29: removed from emit_message_on_main.
+         - [ ] L3 Default topic "#" + a primary broker profile = a freshly
+               dropped node auto-subscribes to the entire broker (footgun,
+               intentional).
+         - [ ] L4 Empty-payload publish is dropped (pn-mqtt-sink.c:383) ->
+               cannot clear a retained topic with a null payload; document in
+               help.
+         - [x] N1 restart_client repeats the g_free(url/user/pass/cid/host)
+               cleanup block ~5x per file; an out: goto would remove the
+               divergence risk.
+               DONE 2026-05-29: both restart_client bodies now use a single out:
+               label for the free + apply_visual_state tail and a fail_destroy:
+               label for the post-mosquitto_new failure paths (destroy client +
+               free net_ctx). The ~5 duplicated cleanup blocks are gone.
+         - [x] N2 Stale header docs: pn-mqtt.h says property "topic" but the
+               installed name is "subscribe-topic" (:1101); pn-mqtt-sink.h omits
+               broker-profile/topic-template.
+               DONE 2026-05-29: pn-mqtt.h Properties block now lists
+               broker-profile + subscribe-topic (was "topic"); pn-mqtt-sink.h
+               adds broker-profile + topic-template and tags url as the inline
+               "Custom settings" field.
+         - [x] N3 parse_mqtt_url is DUPLICATED across both .c files (divergence
+               risk); a shared static + shared test would cover both.
+               DONE 2026-05-28: extracted to pn_mqtt_parse_url in
+               pn-mqtt-util.c, both nodes call it.
+         - [x] N4 pn_mqtt_parse_url mis-parses IPv6 literals: it locates the
+               port with strchr(p, ':'), so tcp://[::1]:1883 splits on the first
+               ':' inside the address. Bracketed-IPv6 host[:port] is
+               unsupported; handle '[...]' before scanning for the port colon
+               (then add a parse-table case -- today's behaviour is a bug, so
+               don't pin it).
+               DONE 2026-05-29: pn_mqtt_parse_url handles a leading '[' — host
+               is the bracket contents, an optional ":port" may follow the ']',
+               and an unterminated/empty/junk-after form is rejected. Port
+               parsing factored into a parse_port_str helper (also requires the
+               port token be fully consumed, *endp=='\0'). New test-pn-mqtt-util
+               url_ipv6 case covers tcp://[::1], [::1], mqtts://[2001:db8::1],
+               ...:port, and the malformed rejections.
+         - [x] U1 Inline Broker URL silently ignored once any mqtt-broker
+               profile exists: empty broker-profile -> pn_node_get_profile falls
+               back to the PRIMARY profile, and pn_mqtt_resolve_connection takes
+               every field from a non-NULL profile, so a typed url did nothing
+               (user report 2026-05-29: "no matter what I write to Broker URL it
+               keeps using the saved broker").
+               DONE 2026-05-29 (final model = explicit "Custom settings"): the
+               Broker profile picker gained a third choice. broker-profile now
+               has three states -- "" = Default/primary profile, "<id>" = that
+               profile, and the reserved sentinel PN_PROFILE_REF_CUSTOM
+               ("@custom") = "Custom settings", i.e. use the node's own inline
+               url/credentials. pn_node_get_profile() returns NULL for the
+               sentinel (no primary fallback), so resolution is back to the
+               simple profile-XOR-inline (pn_mqtt_resolve_connection reverted
+               from the interim per-field variant). Applies to BOTH Source and
+               Sink. Opt-in via
+               pn_param_spec_set_profile_ref_inline_fields(pspec,
+               "url,username,password,client-id") on the shared profile-ref
+               combo in pn-node-dialog.c, which adds the "Custom settings" entry
+               (LAST in the list).
+               SAVE/LOAD INVARIANT + GATING (2026-05-29 follow-up): inline
+               custom data exists ONLY in "Custom settings" mode. (a) The combo
+               greys out the tagged inline-field editors unless "@custom" is
+               selected (find-by-name "pn-prop-<field>" under the grid; applied
+               on combo "map" + each populate). (b) Picking Default/a profile
+               clears those fields (""). (c) On load, migrate_legacy_credentials
+               clears stale inline data when a real profile id is selected,
+               keeps it for "@custom", and for "" still does the legacy
+               creds-import / url->@custom (a new-model Default node has empty
+               inline fields, so that flip only fires for genuinely legacy files
+               -- distinguished by url emptiness, no extra flag). This makes the
+               picker's choice survive save->load reliably (the reported bug:
+               leftover inline url re-triggered Custom on load). The earlier
+               "editing url auto-selects Custom" was removed -- a greyed field
+               can't be edited; the user picks Custom via the combo. Bundled
+               example mqtt-test.json set to "@custom". Covered by
+               test-pn-mqtt-resolve.c (profile_wins,
+               custom_sentinel_uses_inline); clearing/gating are dialog/idle
+               behavior, verified manually. Docs: url property blurb +
+               PnMqtt.html / PnMqttSink.html. (History: first "explicit profile
+               wins / typed url overrides primary", then per-field, then this
+               explicit-mode model + the save/load invariant.)
+
+         TEST COVERAGE -- DONE 2026-05-28. The pure logic was extracted into a
+         new GTK-free/mosquitto-free lib/pn-mqtt-util.{c,h} (both nodes now wrap
+         it; this also de-dups parse_mqtt_url, closing N3) and covered by two
+         new binaries -- tests/unit/test-pn-mqtt-profile.c and
+         test-pn-mqtt-util.c. All five items landed:
+         1. [x] Profile schema characterization (test-pn-mqtt-profile.c): 4
+                field names/kinds + password==PN_FIELD_SECRET + help page.
+         2. [x] pn_mqtt_parse_url table: scheme->TLS+default-port (1883/8883),
+                bare host:port, port-range and empty-host/leading-'/' rejection.
+         3. [x] pn_mqtt_build_message data-bag contract: object->nested payload,
+                number->value, text->coerced value, non-UTF-8->payload "",
+                envelope qos/retained/success. ALSO pins M1's current behaviour
+                (JSON boolean does NOT set value) so a future M1 fix is a
+                visible test change.
+         4. [x] pn_mqtt_build_payload: template expansion, string + structured
+                data.payload fallback, missing-payload drop.
+         5. [x] Offline queue (pn_mqtt_pending_*): LEN-cap eviction, AGE discard
+                with an INJECTED clock (now_us param) + FIFO order.
+                flush_pending's mosquitto_publish stays on the node; the policy
+                is in util.
+         6. [x] Connection-identity resolution (pn_mqtt_resolve_connection, also
+                extracted from both nodes): inline fallback (NULL->""), and a
+                provisioned profile winning over inline with the password read
+                via the secret path. In its own test-pn-mqtt-resolve.c (uses a
+                temp vault like test-pn-vault, so kept out of the FS-free util
+                test). Plus robustness: empty-queue collect_fresh, missing-path
+                template -> "". test-pn-mqtt-util = 130 checks,
+                test-pn-mqtt-resolve = 12; `make check` = 76/76.
+
+         STILL OPEN: C1 fully CLOSED (visual + reason); C2, H1, H2, H3, M1 all
+         DONE 2026-05-29 (see the per-item notes above), as are the nits L2
+         (dead var), N1 (goto cleanup), N2 (header docs), N3 (url-dedup,
+         earlier), N4 (IPv6 brackets). `make check` = 77/77; the python
+         regression net (test_plugin_load / test_credentials_migration /
+         test_credentials_profile) still PASSES with the deferred-connect
+         change.
+
+         REMAINING (deferred / doc-only, not blocking):
+           - [ ] M2 Sink keeps its offline backlog across a runtime broker
+                 change, so commands buffered for broker A can flush to broker
+                 B. Decide + document; likely clear the queue when the broker
+                 identity changes.
+           - [ ] M3 Profile lacks TLS CA-file / port-int / keepalive fields
+                 (private-CA broker unconfigurable; keepalive hard-coded 60s).
+                 Known/deferred.
+           - [ ] M4 payload_len (gsize) cast to int at the publish calls; >256MB
+                 hits MQTT's limit. Now at least surfaced via the Log dialog
+                 (C1).
+           - [ ] L3 Default topic "#" + primary profile auto-subscribes the
+                 whole broker (intentional footgun).
+           - [ ] L4 Empty-payload publish is dropped -> cannot clear a retained
+                 topic with a null payload; document in PnMqttSink help.
+
+[ ] 33 Meshtastic discovery: stop treating a BARE 10c4:ea60 as a Meshtastic
+       device. The VID:PID table in lib/pn-mesh-discover.c (KNOWN_DEVICES)
+       matches the Heltec V3 on 10c4:ea60 -- but that is the GENERIC Silicon
+       Labs CP2102 /
+       CP2102N USB-UART chip, used by countless unrelated boards. In particular
+       the common Sonoff/ITead Zigbee dongles (ZBDongle-P) are CP2102N ->
+       10c4:ea60, so a plugged-in Zigbee coordinator shows up in the Meshtastic
+       dialog as a "Heltec V3". Picking it aims the Meshtastic want_config_id
+       handshake at a Z-Stack UART (root cause of the 2026-05-29 zigbee2mqtt
+       CPU-spin incident: pipnode opened the shared /dev/ttyUSB and wrote
+       Meshtastic frames into it; zigbee2mqtt choked on the corrupted byte
+       stream).
+
+         MITIGATED 2026-05-29 (see the in-use guard added the same day): such a
+         device, while it is open by zigbee2mqtt (or anything else), now appears
+         DISABLED in the list with an "in use by <proc>" note and can never be
+         opened (pn_mesh_tty_in_use + TIOCEXCL in pn-mesh-serial.c). But that
+         only helps WHILE the other process holds the port -- an idle, unclaimed
+         CP2102 Zigbee dongle would still be mislabelled "Heltec V3" and be
+         connectable.
+
+         THE WORK (why it is hard): sysfs alone cannot disambiguate -- the
+         product / manufacturer / serial strings are the chip's generic defaults
+         ("CP2102 USB to UART Bridge Controller" / "Silicon Labs"), identical on
+         a Heltec and a Zigbee dongle. The only reliable tell is a safe,
+         read-only probe over the wire (e.g. a Meshtastic want_config_id and a
+         bounded wait for a valid 0x94 0xC3 frame) -- but ANY write is exactly
+         what we must NOT do to a non-Meshtastic device. Options to weigh: (a)
+         mark generic-CP2102 matches as "unverified / possibly another device"
+         in the UI and require an explicit user confirm before the first write;
+         (b) keep a denylist of known-NON-mesh CP2102 product/serial strings;
+         (c) cross-check against a system Zigbee/serial registry. None is clean;
+         deferred deliberately.
+
+[ ] 36 Stop ModemManager from probing Meshtastic serial devices. When a tty
+       appears, ModemManager (root) opens it and fires AT commands -- which
+       toggles DTR/RTS (rebooting the ESP32) and races pipnode's open. pipnode's
+       in-use guard is a /proc scan that can't see root-owned holders, so it
+       misses MM. Fix: ship a udev rule setting ID_MM_DEVICE_IGNORE=1 for the
+       Meshtastic VID:PIDs (packaging step), and/or inhibit the device over MM's
+       D-Bus API around open. Caveat: 10c4:ea60 is generic CP2102 (see #33); a
+       blanket ignore also hides real CP2102 modems. Touches system config --
+       weigh against the minimal-invasive-packaging line.
+
+[ ] 39 Node source code-review findings (from the 2026-06-01 fan-out review of
+       every node-implementing source file -- ~70 core lib/pn-*.c nodes + 30
+       -gui.c companions, the network/ollama/tasmota/sound-effects plugins, and
+       the 54 plugins/image/pn-image-*.c filters). Overall the tree is in very
+       good shape: timer/idle/thread teardown in dispose/finalize, GObject
+       refcounting + g_free pairing, the value>0.5 boolean convention, FA-4.7
+       icons, and the shared rowstride-aware plugins/image/pn-image-ops.c helper
+       layer are all sound. These are the individual issues worth fixing, each
+       tracked separately below. (The hand-rolled WARNING_ICON nodes the review
+       also re-flagged -- pn-inject, pn-sound, pn-tts, ollama, sci-fi-sound,
+       tasmota/* -- are already TODO #31.3. The subprocess-spawn items M6/M7/L4
+       are the same "pure C, no helper subprocess" theme as #38.1, which covers
+       PnHttp/curl specifically.)
+
+         HIGH
+         [ ] 39.1 Ollama silently drops every message when "hostname" is empty
+               (plugins/ollama/pn-ollama.c:370). Empty hostname is the INTENDED
+               default -- build_endpoint resolves ""->localhost and
+               refresh_visual_state shows the node as configured with only a
+               model set -- but receive()'s guard also rejects empty hostname,
+               so a freshly dropped Ollama node looks green/ready yet swallows
+               all input. Fix: drop the hostname clause from the receive() guard
+               to match refresh_visual_state / build_endpoint.
+
+         MEDIUM
+         [ ] 39.2 Expression parser has no recursion-depth limit ->
+               C-stack-overflow crash on pathological nesting
+               (lib/pn-expr-parser.c, the parse_factor<->parse_expression
+               recursive descent). A configured expression like ((((...)))) or a
+               long unary-minus chain overflows the native stack and crashes the
+               process with no recovery. Input is local node config (not
+               network-facing), so impact is a user pasting a bad expression.
+               Fix: add a depth counter to Ctx and error out past a sane limit.
+               (pn-var-store.c's evaluator recurses to the same depth; the
+               parser is the gate that builds the tree.)
+         [ ] 39.3 Graph 3D line mode overflows the PLplot cmap0 with >=9 series
+               (lib/pn-graph-gui.c:922). paint_line_3d writes each series colour
+               to cmap0 slot 8+i (up to 19 for the 12-series cap) but
+               paint_setup_page never grows the colormap (no plscmap0n) and the
+               default cmap0 holds only 16 entries (0-15); series past slot 15
+               render in a stale/wrong colour. Fix: plscmap0n(8 + nseries)
+               before the per-series loop in the 3D paths. (3D-histogram path is
+               unaffected -- it reuses low slots.) Triggers only at 9+ topics.
+         [x] 39.4 Table cell/title truncation can emit invalid UTF-8
+               (lib/pn-table-gui.c:80, fit_text_with_ellipsis). The first
+               truncation pass cuts at a fixed 252-byte offset that is not
+               codepoint-aligned, so the inserted ellipsis can follow a partial
+               code point; the step-back realign loop only runs on SUBSEQUENT
+               passes, never the initial cut. cairo renders tofu. Fix: align the
+               first cut to a UTF-8 boundary (g_utf8_find_prev_char). Triggers
+               only on >252-byte strings.
+         [ ] 39.5 Image Pixelate dereferences dst before its NULL check
+               (plugins/image/pn-image-pixelate.c:54,56).
+               gdk_pixbuf_get_rowstride /_get_pixels are called on dst before
+               the `if (dst == NULL) return` guard at :59, so the guard is dead
+               and a failed gdk_pixbuf_copy crashes the GTask worker thread.
+               Fix: move the NULL check above the dereferences. Low probability
+               (copy only fails on OOM) but a clear regression against the
+               pattern every sibling node follows.
+         [x] 39.6 Image Dither has no NULL check on dst at all
+               (plugins/image/pn-image-dither.c:62-64) -- dst =
+               gdk_pixbuf_copy(src) is immediately dereferenced (unlike every
+               sibling). NULL dst -> crash; the buf malloc at :51 also leaks on
+               that (currently impossible) path. Fix: add the standard NULL
+               guard + free buf.
+               DONE 2026-06-01: dither_transform now checks dst == NULL right
+               after gdk_pixbuf_copy and, if so, g_free(buf) + return NULL
+               before the rowstride/pixels dereferences -- matching the sibling
+               guard in pn-image-pixelate.c.
+         [ ] 39.7 Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188),
+               violating the "pure C, no helper subprocesses at runtime" rule.
+               Implement audio playback in-process. (on_play_done itself is safe
+               -- holds a ref on self, main-thread-only state.) Sibling theme to
+               #38.1.
+         [ ] 39.8 Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c
+               <cmd>` per utterance (:433-475, :1040-1095, :1171-1288),
+               g_spawn_command_line_sync for `pactl list sinks`, and `<engine>
+               --voices` enumeration -- the most subprocess use in the tree.
+               Port to in-process C. Sibling theme to #38.1.
+
+         LOW / NIT
+         [ ] 39.9 Numeric readout can cast an out-of-range double to gint64 (UB)
+               before the overload check (lib/pn-numeric-gui.c:199-201). With
+               digits=12/decimals=6, scale=1e6; a finite but huge data.value
+               (e.g. 1e300) makes av*scale ~1e306 and `(gint64)
+               floor(av*scale+0.5)` is computed BEFORE the `int_part > max_int`
+               guard. read_value only filters non-finite, not
+               out-of-gint64-range. Fix: clamp av (or test av*scale against
+               G_MAXINT64) before the cast.
+         [ ] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
+               (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
+               desktop launcher; convention prefers a node failure message /
+               log.
+         [ ] 39.11 Ollama cancellation lives in finalize, not dispose
+               (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
+               in-flight request -- on_generate_done holds a strong ref on self,
+               so finalize cannot run until the request completes and the
+               g_cancellable_cancel is dead code for that case. No UAF, but
+               closing the worksheet pins the node until Ollama replies. Fix:
+               cancel in dispose (the pn-ws.c / https-tunnel pattern).
+         [ ] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async
+               callback g_object_ref's self but the spawned media player is
+               never terminated and the wait is never cancelled
+               (plugins/sound-effects/pn-sci-fi-sound.c:154 + overall). No UAF
+               (the ref pins self until the player exits; on_play_done is
+               main-thread), but a node mid-playback can't be torn down and
+               closing the worksheet leaves the player running. Also the
+               per-message subprocess spawn is the #38.1 convention theme
+               (likely an inherent exception for a GTK-free core audio node).
+         [ ] 39.13 Ollama can pass NULL to json_node_get_object
+               (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
+               whitespace body as success with a NULL root, so
+               json_node_get_object(json_parser_get_root(parser)) emits a
+               g_critical (noisy, invisible under the launcher) before the
+               subsequent `root == NULL` check handles it cleanly. Fix: NULL /
+               JSON_NODE_HOLDS_OBJECT guard the root before the call.
+         [ ] 39.14 TTS queue can stall on a failed re-spawn
+               (lib/pn-tts.c:336-350): in on_speak_done, if pn_tts_speak fails
+               to spawn the next utterance, self->speaking stays FALSE and
+               on_speak_done never fires again, so the remaining backlog is
+               stranded until the next inbound message (self-heals on the next
+               receive). Fix: drain-retry the rest of the queue on a failed
+               re-spawn.
+         [ ] 39.15 HTTPS-tunnel sender wires on_accept_certificate with
+               g_signal_connect (not _object) and never disconnects
+               (plugins/network/pn-https-tunnel-sender.c:352). Not a live UAF --
+               the handler is a pure `return TRUE` that ignores user_data and
+               dies when msg is unref'd -- but fragile if it ever starts
+               touching self. Fix: g_signal_connect_object or disconnect
+               explicitly.
+
+         CONSIDERED, NO ACTION (reviewed and judged not bugs; recorded so a
+         future pass doesn't re-litigate them):
+         - Weather-report's 15s clock_source is removed in finalize rather than
+           dispose (lib/pn-weather-report.c:614) -- safe: the timeout holds no
+           ref on self and only calls pn_node_request_repaint, finalize is
+           reachable.
+         - Meshtastic's cross-thread set_*_on_main closures g_object_ref(self)
+           and briefly resurrect the object during dispose's worker join --
+           legal, intentional GLib behaviour.
+         - Stats' g_get_monotonic_time()-derived slot modulo
+           (lib/pn-stats.c:191) -- monotonic time is non-negative on supported
+           platforms.
+         - 52 of the 54 image filters are clean: the shared pn-image-ops.c
+           helpers (map_point/convolve/gradient/separable/median/compose) are
+           rowstride-aware, (gsize)-cast against w*h*nch overflow,
+           divisor==0-guarded, clamped, and NULL-checked. Only the two
+           hand-rolled loops (M4, M5) slipped.
+
+[ ] 45 Oscilloscope polish (carved out of the now-completed TODO #44, the
+       green-phosphor CRT scope sink). The base node shipped and is the working
+       pure-vector CONSUMER of the analog-computer toy; these are the "own
+       session" enhancements that 44.3 deferred:
+
+         [ ] 45.1 Afterglow / persistence -- phosphor decay so an older trace
+               fades out beneath the new one (the classic CRT look).
+         [ ] 45.2 Explicit X-Y vs sweep mode selector. Today the parametric plot
+               is implicit (whether the x-key resolves to a vector or a scalar);
+               this makes true X-Y / Lissajous mode a deliberate choice rather
+               than a side effect of the data shape.
+         [ ] 45.3 Bench-style controls: time/div + volts/div, plus a roll /
+               trigger model.
+         [ ] 45.4 On-screen knobs / buttons. 44.x shipped display-only with no
+               on-canvas controls.
+
+[ ] 46 Tasmota Devices dialog. A "Tasmota Devices" entry in the editor's Devices
+       menu, modelled on the proprietary zigbee plugin's "Zigbee Devices"
+       dialog: pick an MQTT broker profile, and a hidden MQTT session discovers
+       and lists every Tasmota device in the left sidebar. Unlike Zigbee (which
+       gets a retained bridge/devices inventory all at once), Tasmota discovery
+       is poll-based and slow -- each device is asked `cmnd/<dev>/Status 0` and
+       answers in its own time -- so the list fills PROGRESSIVELY via the
+       incremental row API (pn_device_dialog_add/update_device_row), not a
+       one-shot set_device_rows. The discovery mirrors the PnTasmotaProbe +
+       PnTasmotaConcentrator worksheet nodes (poll-on-sight, top-level STATUS
+       merge), done inline in the dialog over the shared GTK-free parser
+       pn-tasmota-common.c (compiled into both the logic and the new -gui
+       companion).
+
+         [x] 46.1 Split plugins/tasmota into two tiers (logic pipnode_tasmota.so
+               + companion pipnode_tasmota-gui.so), following plugins/shell.
+         [x] 46.2 pn-tasmota-gui.c: provider registration, dialog shell, broker
+               combo from PnVault, hidden MQTT source/sink, progressive
+               discovery list, read-only device-info pane.
+         [x] 46.3 Manual GUI verification against a live broker with real
+               devices (the list filling in progressively is the acceptance
+               criterion). Verified: 10 devices discovered, rows trickling
+               "Querying…" -> IP·fw.
+         [ ] 46.4 Possible follow-ups (deferred): relay on/off control and
+               FriendlyName/config write-back in the info pane; a dedicated menu
+               icon instead of the themed "network-wireless".
+
+[x] 47 Device dialogs over D-Bus. A fourth host automation interface,
+       org.pipas.pipnode.Devices (sibling of .Worksheet/.Editor/.Engine in
+       src/pn-application.c), exposes the Devices menu and every open device
+       dialog (Tasmota, Zigbee, Meshtastic) over the session bus -- generic, the
+       host names no device. The reusable seam lives in the core gui tier so
+       every dialog gets it for free: pn-device-provider.c publishes the
+       provider id around the present callback (the menu and the D-Bus Present
+       both funnel through it, so zero plugin changes), and pn-device-dialog.c
+       self-registers each open shell in an id->shell registry and grows
+       read/drive accessors (rows, status, selection, scan) + a changed-callback
+       the host re-emits as DevicesChanged. Consent rule: NO method connects --
+       Present only opens the dialog, Scan only re-polls an already-connected
+       session; the user still presses Connect.
+
+         [x] 47.1 org.pipas.pipnode.Devices: ListProviders, Present, Close,
+               ListDevices, GetStatus, GetSelected, SelectDevice, Scan,
+               GetDeviceDetail + DevicesChanged signal.
+         [x] 47.2 Generic seam in pn-device-provider.c (current-id capture) and
+               pn-device-dialog.c (open-dialog registry, row/status/selection
+               read-back, changed + detail callbacks, observer hook).
+         [x] 47.3 Tasmota opts into the per-device detail seam (merged Status
+             JSON).
+         [x] 47.4 Documented in DBUS-API.md; verified over busctl against a live
+               instance (after pressing Connect via AT-SPI).
+
+[x] 48 A proper, fast test/example for the error-bar Graph. Today the only way
+       to see the Graph node's "Error bars" draw-style is to leave a live feed
+       running for hours: the node bins SCALAR values by wall-clock arrival time
+       (g_get_monotonic_time), one sample per bin, so the box-and-whisker glyphs
+       only fill in as real time passes. That also made the single-sample case
+       look like scattered dashes -- just fixed by extending each whisker
+       halfway toward its neighbouring buckets' means (lib/pn-graph-gui.c
+       collect_error_bars), but the fix can only be eyeballed against a slow
+       live feed. We want a deterministic, instant way to drive the same
+       rendering from a vector so the look can be checked from an example
+       worksheet and a headless test.
+
+         [x] 48.1 New graph node that renders exactly like PnGraph but ingests
+               its data the way PnOscilloscope does -- a VECTOR on data.value is
+               taken as the whole dataset in one message
+               (pn_message_resolve_vector, the snapshot path), instead of
+               time-binned scalar arrivals. Feed it a Ramp (PN_TYPE_RAMP emits a
+               $pnvector on data.value) and the graph fills instantly. Sibling
+               node mirroring PnXYGraph/PnOscilloscope: core lib/pn-<name>.c/.h
+               + gui companion lib/pn-<name>-gui.c/.h, registered in
+               pn-node-factory.c (PN_TYPE) and pn-gui.c (gui_install), four
+               entries in lib/Makefile.am, plus a help page. REUSE the existing
+               PnGraphBin model + collect_error_bars + draw_* path so every
+               draw-style (Lines/Points/Bars/Error bars/2D/3D) works unchanged
+               -- the node only swaps the receive() front-end (vector -> bins)
+               for PnGraph's (scalar -> time bin). DECIDED: a new SIBLING node
+               (PnGraph left untouched). DONE: name = PnPlot ("Plot",
+               fa-line-chart, Sinks, orange). Core lib/pn-plot.c/.h + gui
+               lib/pn-plot-gui.c/.h; the six reusable PnGraph draw/collect
+               helpers were exposed via a new pn-graph-draw.h (un-static'd +
+               pn_graph_* prefixed in pn-graph-gui.c, zero logic change) and the
+               PnPlot painter calls them with a bucket-indexed X axis (cur_epoch
+               = M-1, oldest_valid = 0) instead of PnGraph's wall-clock epoch,
+               so Error-bars (incl. the neighbour-reach whisker fix),
+               Lines/Points/Bars and the Distribution view all render
+               identically. Registered + Makefile + PnPlot.html help all wired;
+               builds clean, 96 C unit tests green.
+         [x] 48.2 Vector -> bucket mapping: DECIDED -- distribute the N vector
+               elements across M consecutive X-buckets (M = the node's bin-count
+               property), each bucket aggregating its run into real
+               mean/sd/min/max so the box-and-whisker glyphs are genuinely fat.
+               Setting M near N collapses to ~one sample/bucket and re-exercises
+               the new neighbour-reaching whisker path, so both looks are
+               reachable from the one node by changing the bin count. DONE in
+               pn-plot.c rebucket(): bucket b owns elements [b*N/M,(b+1)*N/M),
+               epoch == bucket index; the held vector is re-binned live on an
+               x-buckets change. Verified headless: vector 0..11 / M=4 -> means
+               1,4,7,10 (min/max exact); M=12 -> 12 single-sample buckets.
+               Default M = 16 (fat buckets) since the dataset arrives whole, not
+               over time.
+         [x] 48.3 Example worksheet under examples/ (Ramp [+ jitter source] ->
+               new graph in Error-bars style), committed so the look is
+               reproducible and the just-landed whisker fix is visible at a
+               glance. DONE: examples/Compute/error-bars.json (next to its
+               vector-fed sibling oscilloscope.json; that dir is tracked in git
+               but, like Clocks/crypto/ meshtastic, intentionally not in
+               examples/Makefile.am, so it ships in the repo not the install).
+               Three startup-announcing Knobs (from=0, to=8pi, N=512) drive a
+               Ramp -> Expression -> PnPlot chain, so the plot fills on load
+               with no fiddling. The deterministic jitter is folded into the
+               Expression itself -- "sin(value) + 0.18 * sin(value * 23)" --
+               since there is no noise source node and Expression has no rand():
+               the low-frequency sin gives the bucket-to-bucket trend (green
+               rising / red falling boxes) and the high-frequency term gives
+               genuine within-bucket spread (fat sd box + min/max whiskers).
+               PnPlot set to Error bars, x-buckets 16, Time series.
+         [x] 48.4 Headless unit test in tests/unit/ characterising the vector ->
+               bin aggregation (mean/sd/min/max per bucket, neighbour-reach
+               whisker bounds), following the pntest harness conventions. DONE:
+               tests/unit/test-pn-plot.c (registered in tests/unit/Makefile.am,
+               TESTS now 97). Pins via the GTK-free pn_plot_peek_series /
+               PnGraphBin seam: sink (never emits), defaults, scalar/empty-key
+               no-ops, the vector->bucket aggregation (12 elements / 4 buckets
+               -> means 1,4,7,10, exact min/max, sd sqrt(2/3)), live
+               re-bucketing on an x-buckets change with no fresh feed, M>N
+               leaving trailing buckets unused (epoch G_MININT64), and the
+               raw-sample mirror for the distribution view. The actual
+               neighbour-reach whisker STRETCH is gui/PLplot-tier
+               (pn_graph_collect_error_bars, not linkable headless), so the test
+               pins its TRIGGER condition instead: single-sample buckets (M==N)
+               collapse to count 1 / min==max / sd 0, exactly the dash case the
+               stretch cures.
+         [x] 48.5 Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
+               palette category/icon metadata. DONE alongside 48.1:
+               data/help/PnPlot.html (+ data/Makefile.am entry), category
+               "Sinks", icon fa-line-chart (U+F201), body colour orange.
 
