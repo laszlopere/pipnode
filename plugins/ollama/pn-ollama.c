@@ -539,15 +539,33 @@ pn_ollama_set_property (GObject *object, guint prop_id,
 /* ------------------------------------------------------------------ */
 
 static void
-pn_ollama_finalize (GObject *object)
+pn_ollama_dispose (GObject *object)
 {
     PnOllama *self = PN_OLLAMA (object);
 
+    /* Abort any in-flight generate request here rather than in finalize.
+     * on_generate_done holds a strong ref on the node via GenerateCtx,
+     * so finalize cannot run until the request completes -- a
+     * finalize-time cancel is dead code for the in-flight case and the
+     * node (and the closed worksheet) stays pinned until Ollama replies.
+     * dispose runs when the worksheet drops its ref, before that ctx ref;
+     * cancelling here makes soup invoke on_generate_done with
+     * G_IO_ERROR_CANCELLED, which drops the last ref and lets finalize
+     * proceed.  dispose may run more than once, so guard on non-NULL and
+     * rely on g_clear_object being a no-op the second time. */
     if (self->cancellable != NULL)
         g_cancellable_cancel (self->cancellable);
 
     g_clear_object (&self->cancellable);
     g_clear_object (&self->session);
+
+    G_OBJECT_CLASS (pn_ollama_parent_class)->dispose (object);
+}
+
+static void
+pn_ollama_finalize (GObject *object)
+{
+    PnOllama *self = PN_OLLAMA (object);
 
     g_clear_pointer (&self->hostname,   g_free);
     g_clear_pointer (&self->model,      g_free);
@@ -566,6 +584,7 @@ pn_ollama_class_init (PnOllamaClass *klass)
 
     object_class->get_property = pn_ollama_get_property;
     object_class->set_property = pn_ollama_set_property;
+    object_class->dispose      = pn_ollama_dispose;
     object_class->finalize     = pn_ollama_finalize;
 
     node_class->receive               = pn_ollama_receive;

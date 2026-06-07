@@ -1206,13 +1206,19 @@
                the Log dialog / Debug View without a terminal) instead of
                g_warning. compile_rules() gained a PnNode* parameter threaded
                from set_property so it can log against the node.
-         [ ] 39.11 Ollama cancellation lives in finalize, not dispose
+         [x] 39.11 Ollama cancellation lives in finalize, not dispose
                (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
                in-flight request -- on_generate_done holds a strong ref on self,
                so finalize cannot run until the request completes and the
                g_cancellable_cancel is dead code for that case. No UAF, but
                closing the worksheet pins the node until Ollama replies. Fix:
                cancel in dispose (the pn-ws.c / https-tunnel pattern).
+               DONE 2026-06-07: added pn_ollama_dispose (registered in
+               class_init) that cancels + clears the cancellable and session;
+               finalize now only frees the owned strings. Cancelling in
+               dispose aborts the in-flight request so soup fires
+               on_generate_done with G_IO_ERROR_CANCELLED (already handled),
+               dropping the GenerateCtx ref and unpinning the node.
          [ ] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async
                callback g_object_ref's self but the spawned media player is
                never terminated and the wait is never cancelled
