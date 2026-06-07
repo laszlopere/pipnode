@@ -386,15 +386,20 @@ build_profile_frame (PnCredentialsDialog *self,
     for (i = 0; i < n; i++)
     {
         const gchar *label = pn_profile_schema_field_get_label (schema, i);
+        const gchar *tip   = pn_profile_schema_field_get_tooltip (schema, i);
         GtkWidget   *lab   = gtk_label_new (label);
         GtkWidget   *editor;
 
         gtk_label_set_xalign (GTK_LABEL (lab), 0.0);
         gtk_widget_set_halign (lab, GTK_ALIGN_START);
+        if (tip != NULL)
+            gtk_widget_set_tooltip_text (lab, tip);
         gtk_grid_attach (GTK_GRID (grid), lab, 0, (gint) i, 1, 1);
 
         editor = build_field_editor (self, schema, p, i);
         gtk_widget_set_hexpand (editor, TRUE);
+        if (tip != NULL)
+            gtk_widget_set_tooltip_text (editor, tip);
         gtk_grid_attach (GTK_GRID (grid), editor, 1, (gint) i, 1, 1);
     }
     gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);

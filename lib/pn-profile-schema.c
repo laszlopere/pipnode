@@ -29,6 +29,7 @@ typedef struct
     gchar              *label;       /* human label (owned)            */
     PnProfileFieldKind  kind;
     gchar              *def;         /* default value, or NULL          */
+    gchar              *tooltip;     /* hover hint, or NULL             */
     gchar             **choices;     /* NULL-terminated, owned, or NULL */
 } PnSchemaField;
 
@@ -47,6 +48,7 @@ schema_field_free (PnSchemaField *f)
     g_free (f->name);
     g_free (f->label);
     g_free (f->def);
+    g_free (f->tooltip);
     g_strfreev (f->choices);
     g_free (f);
 }
@@ -213,6 +215,28 @@ pn_profile_schema_field_choices (PnProfileSchema    *self,
         f->kind = PN_FIELD_ENUM;
 }
 
+void
+pn_profile_schema_field_tooltip (PnProfileSchema *self,
+                                 const gchar     *name,
+                                 const gchar     *tooltip)
+{
+    PnSchemaField *f;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (name != NULL);
+
+    f = schema_find (self, name);
+    if (f == NULL)
+    {
+        g_warning ("pn_profile_schema_field_tooltip: no field '%s'", name);
+        return;
+    }
+
+    g_free (f->tooltip);
+    f->tooltip = (tooltip != NULL && *tooltip != '\0')
+                 ? g_strdup (tooltip) : NULL;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Read-back accessors                                                */
 /* ------------------------------------------------------------------ */
@@ -264,6 +288,13 @@ pn_profile_schema_field_get_default (PnProfileSchema *self, guint index)
 {
     PnSchemaField *f = schema_at (self, index);
     return f != NULL ? f->def : NULL;
+}
+
+const gchar *
+pn_profile_schema_field_get_tooltip (PnProfileSchema *self, guint index)
+{
+    PnSchemaField *f = schema_at (self, index);
+    return f != NULL ? f->tooltip : NULL;
 }
 
 const gchar *const *

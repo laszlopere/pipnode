@@ -159,6 +159,20 @@ void pn_profile_schema_field_choices (PnProfileSchema    *self,
                                       const gchar        *name,
                                       const gchar *const *choices);
 
+/**
+ * pn_profile_schema_field_tooltip:
+ * @self:    a schema
+ * @name:    a field added by a previous pn_profile_schema_field()
+ * @tooltip: a short hint shown when the user hovers the field's label and
+ *           editor in the credentials manager (copied); %NULL/"" clears it
+ *
+ * Attach explanatory hover text to a field.  The data lives in the GTK-free
+ * schema; the credentials manager applies it as the widget tooltip.
+ */
+void pn_profile_schema_field_tooltip (PnProfileSchema *self,
+                                      const gchar     *name,
+                                      const gchar     *tooltip);
+
 /* ---- read-back (manager, vault, tests) -------------------------- */
 
 const gchar        *pn_profile_schema_get_type_id      (PnProfileSchema *self);
@@ -171,6 +185,8 @@ const gchar        *pn_profile_schema_field_get_label  (PnProfileSchema *self,
 PnProfileFieldKind  pn_profile_schema_field_get_kind   (PnProfileSchema *self,
                                                         guint            index);
 const gchar        *pn_profile_schema_field_get_default (PnProfileSchema *self,
+                                                         guint            index);
+const gchar        *pn_profile_schema_field_get_tooltip (PnProfileSchema *self,
                                                          guint            index);
 const gchar *const *pn_profile_schema_field_get_choices (PnProfileSchema *self,
                                                          guint            index);

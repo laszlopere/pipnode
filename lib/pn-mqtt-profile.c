@@ -47,6 +47,37 @@ pn_mqtt_register_profile_type (PnNodeFactory *factory)
     pn_profile_schema_field (schema, "keepalive", "Keep-alive (seconds)", PN_FIELD_INT);
     pn_profile_schema_field_default (schema, "keepalive", "60");
 
+    /* Hover hints shown on each field's label + editor in the Credentials
+     * dialog (the full reference lives in MqttBrokerProfile.html). */
+    pn_profile_schema_field_tooltip (schema, "url",
+            "Broker address: tcp://host[:port] (plain, default 1883), "
+            "ssl:// or mqtts://host[:port] (TLS, default 8883), or "
+            "ws:// / wss:// for WebSockets.");
+    pn_profile_schema_field_tooltip (schema, "username",
+            "Broker login name. Leave empty for an anonymous broker.");
+    pn_profile_schema_field_tooltip (schema, "password",
+            "Password for the username. Stored in the host vault (mode 0600), "
+            "never written into a worksheet file.");
+    pn_profile_schema_field_tooltip (schema, "client-id",
+            "Optional stable MQTT client identifier for this machine "
+            "(e.g. pipnode-livingroom). Blank → a random id each connect.");
+    pn_profile_schema_field_tooltip (schema, "ca-file",
+            "Optional. Absolute path to the PEM CA bundle that signed the "
+            "broker's certificate. Needed only for a private / self-signed "
+            "CA; blank verifies against the system trust store. TLS URLs only.");
+    pn_profile_schema_field_tooltip (schema, "client-cert",
+            "Optional. Path to this client's certificate for mutual TLS. "
+            "Must be paired with the client key.");
+    pn_profile_schema_field_tooltip (schema, "client-key",
+            "Optional. Path to the private key for the client certificate "
+            "(mutual TLS).");
+    pn_profile_schema_field_tooltip (schema, "tls-insecure",
+            "Accept the broker's certificate even if it does not verify or "
+            "match the hostname. Insecure — local development only.");
+    pn_profile_schema_field_tooltip (schema, "keepalive",
+            "Seconds between pings to an idle broker. Blank or 0 → the default "
+            "(60); maximum 65535.");
+
     pn_profile_schema_set_help_page (schema, "MqttBrokerProfile.html");
     pn_node_factory_register_profile_type (factory, schema);
 }

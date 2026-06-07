@@ -126,6 +126,29 @@ test_password_is_secret (void)
     PN_CHECK (pn_profile_schema_field_get_kind (s, idx) == PN_FIELD_SECRET);
 }
 
+/* Every field carries hover help: the credentials manager applies it as the
+ * label + editor tooltip, so a missing one leaves a widget unexplained. */
+static void
+test_field_tooltips (void)
+{
+    PnProfileSchema *s = mqtt_schema ();
+    guint            i, n;
+
+    if (s == NULL)
+    {
+        PN_CHECK (s != NULL);
+        return;
+    }
+
+    n = pn_profile_schema_get_n_fields (s);
+    for (i = 0; i < n; i++)
+    {
+        const gchar *tip = pn_profile_schema_field_get_tooltip (s, i);
+        /* Non-NULL and non-empty for each field. */
+        PN_CHECK (tip != NULL && *tip != '\0');
+    }
+}
+
 /* The Help button on the Credentials dialog's MQTT page is wired to this. */
 static void
 test_help_page (void)
@@ -149,6 +172,7 @@ main (int argc, char **argv)
     pn_test_add ("registered",        test_registered);
     pn_test_add ("fields",            test_fields);
     pn_test_add ("password_is_secret", test_password_is_secret);
+    pn_test_add ("field_tooltips",    test_field_tooltips);
     pn_test_add ("help_page",         test_help_page);
     return pn_test_run ();
 }
