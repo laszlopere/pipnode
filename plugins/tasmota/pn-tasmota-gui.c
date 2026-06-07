@@ -182,8 +182,14 @@ typedef struct
 
     /* device name (owned gchar*) -> TsDevice*.  The live fleet. */
     GHashTable      *devices;
-    guint            seen_count;      /* devices ever added to the list */
+    guint            seen_count;      /* devices currently in the list */
     guint            resolved_count;  /* devices that answered Status */
+
+    /* Set of device names (owned gchar*) the broker reports offline via a
+     * retained `tele/<name>/LWT = Offline`.  These are never listed -- the
+     * broker replays the stale will on Connect, so a device unplugged for
+     * days would otherwise reappear and sit forever at "Querying…". */
+    GHashTable      *offline;
 
     /* The list-row id (device name) currently shown on the right, or NULL
      * when nothing is selected.  Owned. */
@@ -413,6 +419,21 @@ ts_payload_object (PnMessage *message)
     return json_node_get_object (node);
 }
 
+/* Pull data.payload off @message as a plain string, or NULL when it is
+ * absent or not a string scalar.  A raw publish like the LWT's "Online" /
+ * "Offline" lands here (JSON payloads go through ts_payload_object). */
+static const gchar *
+ts_payload_string (PnMessage *message)
+{
+    JsonNode *node = pn_message_get_member (message, "payload");
+
+    if (node == NULL || !JSON_NODE_HOLDS_VALUE (node))
+        return NULL;
+    if (json_node_get_value_type (node) != G_TYPE_STRING)
+        return NULL;
+    return json_node_get_string (node);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Connection state readout                                           */
 /* ------------------------------------------------------------------ */
@@ -510,6 +531,35 @@ ts_ingest_status (TsDevCtx    *ctx,
     ts_update_status (ctx);
 }
 
+/* Forget a device entirely: drop its row, its record, and any selection or
+ * info page pointing at it.  Used when the broker reports it offline.  A
+ * no-op for a name that was never seeded. */
+static void
+ts_forget_device (TsDevCtx *ctx, const gchar *name)
+{
+    TsDevice *dev = g_hash_table_lookup (ctx->devices, name);
+
+    if (dev == NULL)
+        return;
+
+    if (ctx->shell != NULL)
+        pn_device_dialog_remove_device_row (ctx->shell, name);
+
+    if (dev->resolved && ctx->resolved_count > 0)
+        ctx->resolved_count--;
+    if (ctx->seen_count > 0)
+        ctx->seen_count--;
+
+    if (g_strcmp0 (name, ctx->selected_id) == 0)
+    {
+        g_clear_pointer (&ctx->selected_id, g_free);
+        ts_refresh_info (ctx);                  /* blank the info page */
+    }
+
+    g_hash_table_remove (ctx->devices, name);   /* frees the TsDevice */
+    ts_update_status (ctx);
+}
+
 /* The hidden source's "message" signal: every PUBLISH the broker delivers
  * lands here on the main thread. */
 static void
@@ -540,6 +590,37 @@ ts_on_message (PnMqtt *source, PnMessage *message, gpointer user_data)
     if (g_strcmp0 (name, TS_GROUP_DEVICE) == 0)
     {
         g_free (name);                          /* group broadcast, skip */
+        return;
+    }
+
+    /* The broker retains each device's last will (`tele/<name>/LWT`) and
+     * replays it to every new subscriber.  So on Connect a device that has
+     * been unplugged for days re-announces itself -- as "Offline".  Honour
+     * that verdict: an offline device is never listed, and one that drops
+     * while the dialog is open is removed.  We key off the LWT payload, not
+     * message age -- a retained message carries no publish timestamp, and an
+     * offline device typically has nothing but this LWT retained to date it
+     * by, so an age threshold could not catch it. */
+    if (g_str_has_suffix (topic, "/LWT"))
+    {
+        const gchar *state = ts_payload_string (message);
+
+        if (state != NULL && g_ascii_strcasecmp (state, "Offline") == 0)
+        {
+            g_hash_table_add (ctx->offline, g_strdup (name));
+            ts_forget_device (ctx, name);
+            g_free (name);
+            return;
+        }
+        if (state != NULL && g_ascii_strcasecmp (state, "Online") == 0)
+            g_hash_table_remove (ctx->offline, name);   /* back from the dead */
+    }
+
+    /* A device the broker has flagged offline: ignore everything else it
+     * retained (a stale row would only sit forever at "Querying…"). */
+    if (g_hash_table_contains (ctx->offline, name))
+    {
+        g_free (name);
         return;
     }
 
@@ -707,6 +788,19 @@ ts_drop_source (TsDevCtx *ctx)
     g_clear_object (&ctx->sink);
 }
 
+/* PnDeviceDialogCloseFunc: the user is closing the dialog.  Drop the live
+ * MQTT session now -- ts_drop_source joins the network thread -- so the
+ * widget teardown that follows cannot race an in-flight message delivery.
+ * (ts_dev_ctx_free also calls ts_drop_source; it is idempotent.) */
+static void
+ts_on_close (PnDeviceDialog *shell, gpointer user_data)
+{
+    TsDevCtx *ctx = user_data;
+
+    (void) shell;
+    ts_drop_source (ctx);
+}
+
 /* Tear the dialog back to its disconnected state: drop the live session,
  * forget the fleet, blank the list and counters, repaint Status. */
 static void
@@ -720,6 +814,7 @@ ts_reset_to_disconnected (TsDevCtx *ctx)
     pn_device_form_set_value (ctx->count_label, "0");
 
     g_hash_table_remove_all (ctx->devices);
+    g_hash_table_remove_all (ctx->offline);
     g_clear_pointer (&ctx->selected_id, g_free);
     pn_device_dialog_set_device_rows (ctx->shell, NULL);   /* clears the list */
     ts_refresh_info (ctx);
@@ -870,6 +965,8 @@ ts_build_dialog (GtkWindow *parent, TsDevCtx *ctx)
 
     ctx->devices = g_hash_table_new_full (g_str_hash, g_str_equal,
                                           g_free, ts_device_free);
+    ctx->offline = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                          g_free, NULL);
 
     ctx->shell = pn_device_dialog_new (parent, "Tasmota Devices",
                                        PN_DEVICE_DIALOG_WITH_DEVICE_LIST);
@@ -955,6 +1052,10 @@ ts_build_dialog (GtkWindow *parent, TsDevCtx *ctx)
     pn_device_dialog_set_scan_callback (ctx->shell, ts_on_scan, ctx);
     pn_device_dialog_set_selected_callback (ctx->shell,
                                             ts_on_device_selected, ctx);
+    /* Stop the MQTT source/sink BEFORE the dialog's widgets are torn down:
+     * the network thread is joined here so it cannot post a delivered
+     * message to the main loop mid-destroy and deadlock the close. */
+    pn_device_dialog_set_close_callback (ctx->shell, ts_on_close, ctx);
     /* Expose each device's merged Status reply over the host's Devices
      * D-Bus interface (GetDeviceDetail). */
     pn_device_dialog_set_detail_callback (ctx->shell, ts_device_detail, ctx);
@@ -985,6 +1086,7 @@ ts_dev_ctx_free (gpointer data)
 
     ts_drop_source (ctx);
     g_clear_pointer (&ctx->devices, g_hash_table_unref);
+    g_clear_pointer (&ctx->offline, g_hash_table_unref);
     g_clear_pointer (&ctx->selected_id, g_free);
     g_free (ctx);
 }
