@@ -1125,7 +1125,7 @@
        PnHttp/curl specifically.)
 
          HIGH
-         [ ] 39.1 Ollama silently drops every message when "hostname" is empty
+         [x] 39.1 Ollama silently drops every message when "hostname" is empty
                (plugins/ollama/pn-ollama.c:370). Empty hostname is the INTENDED
                default -- build_endpoint resolves ""->localhost and
                refresh_visual_state shows the node as configured with only a

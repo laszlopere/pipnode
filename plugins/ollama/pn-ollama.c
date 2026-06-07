@@ -366,8 +366,10 @@ pn_ollama_receive (
     gchar      *url;
     GenerateCtx *ctx;
 
-    if (self->hostname == NULL || *self->hostname == '\0'
-        || self->model == NULL || *self->model == '\0')
+    /* Empty hostname is the intended default (build_endpoint resolves it to
+     * localhost, and refresh_visual_state shows the node as ready with only a
+     * model set), so guard on the model alone -- matching that visual state. */
+    if (self->model == NULL || *self->model == '\0')
         return;
 
     data = pn_message_get_data (message);
