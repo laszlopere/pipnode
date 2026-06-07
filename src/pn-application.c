@@ -20,6 +20,7 @@
 #include "pn-application.h"
 #include "pn-window.h"
 #include "pn-device-provider.h"
+#include "pn-device-dialog.h"
 #include "pn-worksheet.h"
 #include "pn-node-factory.h"
 #include "pn-node-store.h"
@@ -73,6 +74,12 @@ struct _PnApplication
      *  (the panel-applet control surface), installed at the same object
      *  path.  Zero while no interface is registered. */
     guint dbus_engine_reg_id;
+
+    /** Registration id for the org.pipas.pipnode.Devices D-Bus interface
+     *  (the Devices-menu provider + open device-dialog control surface),
+     *  the sibling of the others on the same object path.  Zero while no
+     *  interface is registered. */
+    guint dbus_devices_reg_id;
 
     /** Worksheets the engine is running for panel applets: file path
      *  (owned key) -> panel-backed #PnWindow (borrowed; owned by the
@@ -4750,6 +4757,316 @@ on_signal_bridge_window_added (GtkApplication *gtkapp,
         signal_bridge_attach (PN_APPLICATION (gtkapp), PN_WINDOW (window));
 }
 
+/* ================================================================== */
+/*  org.pipas.pipnode.Devices — Devices-menu + open-dialog control     */
+/*                                                                     */
+/*  The Devices menu and every device-configuration dialog mirrored    */
+/*  onto D-Bus.  ListProviders enumerates the menu; Present opens (or   */
+/*  raises) a provider's dialog; the rest address an OPEN dialog by its */
+/*  provider id through the open-dialog registry in pn-device-dialog.c. */
+/*  Generic across every provider (Tasmota, Zigbee, Meshtastic, …) —    */
+/*  the host names no device.  GetDeviceDetail forwards to the dialog's */
+/*  optional plugin detail seam.  DevicesChanged fires whenever a       */
+/*  dialog's device set / status / selection changes, so a client can   */
+/*  watch a slow discovery (e.g. Tasmota) fill in live.                 */
+/* ================================================================== */
+
+#define PN_DEVICES_IFACE "org.pipas.pipnode.Devices"
+
+static const gchar devices_introspection_xml[] =
+    "<node>"
+    "  <interface name='org.pipas.pipnode.Devices'>"
+    "    <method name='ListProviders'>"
+    "      <arg type='a(sss)' name='providers' direction='out'/>"
+    "    </method>"
+    "    <method name='Present'>"
+    "      <arg type='s' name='id'    direction='in'/>"
+    "      <arg type='b' name='shown' direction='out'/>"
+    "    </method>"
+    "    <method name='Close'>"
+    "      <arg type='s' name='id'     direction='in'/>"
+    "      <arg type='b' name='closed' direction='out'/>"
+    "    </method>"
+    "    <method name='ListDevices'>"
+    "      <arg type='s'       name='id'      direction='in'/>"
+    "      <arg type='a(ssss)' name='devices' direction='out'/>"
+    "    </method>"
+    "    <method name='GetStatus'>"
+    "      <arg type='s' name='id'     direction='in'/>"
+    "      <arg type='s' name='status' direction='out'/>"
+    "    </method>"
+    "    <method name='GetSelected'>"
+    "      <arg type='s' name='id'       direction='in'/>"
+    "      <arg type='s' name='deviceId' direction='out'/>"
+    "    </method>"
+    "    <method name='SelectDevice'>"
+    "      <arg type='s' name='id'       direction='in'/>"
+    "      <arg type='s' name='deviceId' direction='in'/>"
+    "      <arg type='b' name='ok'       direction='out'/>"
+    "    </method>"
+    "    <method name='Scan'>"
+    "      <arg type='s' name='id' direction='in'/>"
+    "      <arg type='b' name='ok' direction='out'/>"
+    "    </method>"
+    "    <method name='GetDeviceDetail'>"
+    "      <arg type='s' name='id'       direction='in'/>"
+    "      <arg type='s' name='deviceId' direction='in'/>"
+    "      <arg type='s' name='detail'   direction='out'/>"
+    "    </method>"
+    "    <signal name='DevicesChanged'>"
+    "      <arg type='s' name='id'/>"
+    "    </signal>"
+    "  </interface>"
+    "</node>";
+
+/** Resolve a provider id to its open dialog, or return an error to the
+ *  caller and NULL when no dialog for that id is open. */
+static PnDeviceDialog *
+devices_require_open (const gchar *id, GDBusMethodInvocation *invocation)
+{
+    PnDeviceDialog *dialog = pn_device_dialog_lookup_open (id);
+
+    if (dialog == NULL)
+        g_dbus_method_invocation_return_error (
+                invocation,
+                PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+                "No open device dialog for provider '%s' "
+                "(call Present first)", id != NULL ? id : "");
+    return dialog;
+}
+
+static void
+handle_devices_method_call (
+        GDBusConnection       *connection,
+        const gchar           *sender,
+        const gchar           *object_path,
+        const gchar           *interface_name,
+        const gchar           *method_name,
+        GVariant              *parameters,
+        GDBusMethodInvocation *invocation,
+        gpointer               user_data)
+{
+    GApplication *app = G_APPLICATION (user_data);
+
+    (void) connection; (void) sender; (void) object_path;
+    (void) interface_name;
+
+    note_automation_activity (app, method_name);
+
+    if (g_strcmp0 (method_name, "ListProviders") == 0)
+    {
+        GVariantBuilder b;
+        GList          *providers, *l;
+
+        g_variant_builder_init (&b, G_VARIANT_TYPE ("a(sss)"));
+        providers = pn_device_provider_list ();
+        for (l = providers; l != NULL; l = l->next)
+        {
+            PnDeviceProviderInfo *info = l->data;
+            g_variant_builder_add (&b, "(sss)",
+                                   info->id,
+                                   info->display_name,
+                                   info->icon_name != NULL
+                                       ? info->icon_name : "");
+        }
+        g_list_free_full (providers,
+                          (GDestroyNotify) pn_device_provider_info_free);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(sss))", &b));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "Present") == 0)
+    {
+        const gchar *id = NULL;
+        GtkWindow   *parent;
+        gboolean     shown;
+
+        g_variant_get (parameters, "(&s)", &id);
+        /* Parent to the active editor window when there is one; a
+         * parentless dialog is still fine (e.g. headless service). */
+        parent = gtk_application_get_active_window (GTK_APPLICATION (app));
+        shown  = pn_device_provider_present (id, parent);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", shown));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "Close") == 0)
+    {
+        const gchar    *id = NULL;
+        PnDeviceDialog *dialog;
+        gboolean        closed = FALSE;
+
+        g_variant_get (parameters, "(&s)", &id);
+        dialog = pn_device_dialog_lookup_open (id);
+        if (dialog != NULL)
+        {
+            gtk_widget_destroy (pn_device_dialog_get_dialog (dialog));
+            closed = TRUE;
+        }
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", closed));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "ListDevices") == 0)
+    {
+        const gchar    *id = NULL;
+        PnDeviceDialog *dialog;
+        GVariantBuilder b;
+        GPtrArray      *rows;
+        guint           i;
+
+        g_variant_get (parameters, "(&s)", &id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+
+        g_variant_builder_init (&b, G_VARIANT_TYPE ("a(ssss)"));
+        rows = pn_device_dialog_get_rows (dialog);
+        for (i = 0; i < rows->len; i++)
+        {
+            PnDeviceRow *r = g_ptr_array_index (rows, i);
+            g_variant_builder_add (&b, "(ssss)",
+                                   r->id        != NULL ? r->id        : "",
+                                   r->primary   != NULL ? r->primary   : "",
+                                   r->secondary != NULL ? r->secondary : "",
+                                   r->disabled_reason != NULL
+                                       ? r->disabled_reason : "");
+        }
+        g_ptr_array_unref (rows);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(a(ssss))", &b));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "GetStatus") == 0)
+    {
+        const gchar    *id = NULL;
+        PnDeviceDialog *dialog;
+        const gchar    *status;
+
+        g_variant_get (parameters, "(&s)", &id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+        status = pn_device_dialog_get_status (dialog);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", status != NULL ? status : ""));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "GetSelected") == 0)
+    {
+        const gchar    *id = NULL;
+        PnDeviceDialog *dialog;
+        const gchar    *sel;
+
+        g_variant_get (parameters, "(&s)", &id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+        sel = pn_device_dialog_get_selected_id (dialog);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", sel != NULL ? sel : ""));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "SelectDevice") == 0)
+    {
+        const gchar    *id = NULL, *device_id = NULL;
+        PnDeviceDialog *dialog;
+        gboolean        ok;
+
+        g_variant_get (parameters, "(&s&s)", &id, &device_id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+        pn_device_dialog_reselect_device (dialog, device_id);
+        ok = (g_strcmp0 (pn_device_dialog_get_selected_id (dialog),
+                         device_id) == 0);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", ok));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "Scan") == 0)
+    {
+        const gchar    *id = NULL;
+        PnDeviceDialog *dialog;
+
+        g_variant_get (parameters, "(&s)", &id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+        pn_device_dialog_scan (dialog);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(b)", TRUE));
+        return;
+    }
+
+    if (g_strcmp0 (method_name, "GetDeviceDetail") == 0)
+    {
+        const gchar    *id = NULL, *device_id = NULL;
+        PnDeviceDialog *dialog;
+        gchar          *detail;
+
+        g_variant_get (parameters, "(&s&s)", &id, &device_id);
+        dialog = devices_require_open (id, invocation);
+        if (dialog == NULL)
+            return;
+        detail = pn_device_dialog_get_device_detail (dialog, device_id);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", detail != NULL ? detail : ""));
+        g_free (detail);
+        return;
+    }
+
+    g_dbus_method_invocation_return_error (
+            invocation, PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_FAILED,
+            "Unknown Devices method '%s'", method_name);
+}
+
+static const GDBusInterfaceVTable devices_vtable = {
+    handle_devices_method_call,
+    NULL,
+    NULL
+};
+
+static GDBusNodeInfo *devices_introspection_data = NULL;
+
+/** Per-dialog change hook: re-emit DevicesChanged so a client can watch a
+ *  dialog's device set / status / selection evolve without polling. */
+static void
+on_device_dialog_changed (PnDeviceDialog *dialog, gpointer user_data)
+{
+    PnApplication *self = user_data;
+    const gchar   *id   = pn_device_dialog_get_provider_id (dialog);
+
+    if (id != NULL)
+        automation_emit_signal (self, PN_DEVICES_IFACE, "DevicesChanged",
+                                g_variant_new ("(s)", id));
+}
+
+/** Open-dialog registry observer: hook each dialog's change callback as it
+ *  opens, and emit one DevicesChanged across the open/close transition so a
+ *  client learns a dialog appeared or went away. */
+static void
+on_device_dialog_observed (const gchar    *provider_id,
+                           PnDeviceDialog *dialog,
+                           gboolean        opened,
+                           gpointer        user_data)
+{
+    PnApplication *self = user_data;
+
+    if (opened)
+        pn_device_dialog_set_changed_callback (dialog,
+                                               on_device_dialog_changed, self);
+    automation_emit_signal (self, PN_DEVICES_IFACE, "DevicesChanged",
+                            g_variant_new ("(s)", provider_id));
+}
+
 static gboolean
 pn_application_dbus_register (
         GApplication    *app,
@@ -4817,7 +5134,33 @@ pn_application_dbus_register (
                 NULL,
                 error);
 
-    return self->dbus_engine_reg_id > 0;
+    if (self->dbus_engine_reg_id == 0)
+        return FALSE;
+
+    /* Sibling interface: the Devices menu + open device-dialog control
+     * surface.  Install the open-dialog observer so every dialog's change
+     * callback is hooked to DevicesChanged as it opens. */
+    if (!devices_introspection_data)
+        devices_introspection_data =
+                g_dbus_node_info_new_for_xml (
+                        devices_introspection_xml, NULL);
+
+    self->dbus_devices_reg_id =
+        g_dbus_connection_register_object (
+                connection,
+                object_path,
+                devices_introspection_data->interfaces[0],
+                &devices_vtable,
+                app,
+                NULL,
+                error);
+
+    if (self->dbus_devices_reg_id == 0)
+        return FALSE;
+
+    pn_device_dialog_set_observer (on_device_dialog_observed, self);
+
+    return TRUE;
 }
 
 static void
@@ -4847,6 +5190,14 @@ pn_application_dbus_unregister (
         g_dbus_connection_unregister_object (
                 connection, self->dbus_engine_reg_id);
         self->dbus_engine_reg_id = 0;
+    }
+
+    if (self->dbus_devices_reg_id)
+    {
+        pn_device_dialog_set_observer (NULL, NULL);
+        g_dbus_connection_unregister_object (
+                connection, self->dbus_devices_reg_id);
+        self->dbus_devices_reg_id = 0;
     }
 
     G_APPLICATION_CLASS (pn_application_parent_class)->

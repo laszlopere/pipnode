@@ -202,6 +202,80 @@ void pn_device_dialog_set_auto_scan (PnDeviceDialog *self,
 void pn_device_dialog_reselect_device (PnDeviceDialog *self,
                                        const gchar    *id);
 
+/* ------------------------------------------------------------------ */
+/*  D-Bus introspection seam                                            */
+/* ------------------------------------------------------------------ */
+
+/* The whole device-dialog toolkit is mirrored onto the host's
+ * org.pipas.pipnode.Devices D-Bus interface so an automation client can
+ * enumerate, drive and read back a dialog the same way the user does.
+ * The functions below are what that interface is built on; a plugin's
+ * dialog gets all of it for free (the open-dialog registry, the row /
+ * status / selection read-back and the Scan/Select drive) and may opt in
+ * to the one plugin-specific bit -- the rich per-device detail -- with
+ * pn_device_dialog_set_detail_callback().  None of this is needed for a
+ * dialog to function on screen; it is purely the remote-control surface. */
+
+/* The provider id this dialog was opened for, captured at construction
+ * from pn_device_provider_current_id(), or NULL when it was built outside
+ * a provider present (then it is not in the open-dialog registry).  The
+ * stable key the Devices interface addresses it by. */
+const gchar *pn_device_dialog_get_provider_id (PnDeviceDialog *self);
+
+/* The open dialog registered for provider @id, or NULL when none is
+ * open.  Borrowed (owned by its GtkDialog).  The host's Devices methods
+ * resolve a provider id to its live dialog through this. */
+PnDeviceDialog *pn_device_dialog_lookup_open (const gchar *id);
+
+/* A snapshot of the current device rows as a #PnDeviceRow GPtrArray
+ * (element-free pn_device_row_free; free with g_ptr_array_unref).  Empty,
+ * never NULL.  Independent of the empty/list stack state. */
+GPtrArray *pn_device_dialog_get_rows (PnDeviceDialog *self);
+
+/* The current status-bar text (borrowed, may be empty) and the id of the
+ * selected row (borrowed, NULL when none) -- the read-back the Devices
+ * interface reports. */
+const gchar *pn_device_dialog_get_status      (PnDeviceDialog *self);
+const gchar *pn_device_dialog_get_selected_id (PnDeviceDialog *self);
+
+/* Programmatically trigger the scan/Reload callback, as the right-click
+ * Reload does.  A no-op when no scan callback is set. */
+void pn_device_dialog_scan (PnDeviceDialog *self);
+
+/* Called whenever the device set, status text or selection changes, so a
+ * host can re-emit a D-Bus change signal that lets a client watch a slow
+ * discovery fill in live. */
+typedef void (*PnDeviceDialogChangedFunc) (PnDeviceDialog *self,
+                                           gpointer        user_data);
+void pn_device_dialog_set_changed_callback (PnDeviceDialog            *self,
+                                            PnDeviceDialogChangedFunc  callback,
+                                            gpointer                   user_data);
+
+/* Optional plugin seam: return a newly-allocated, human-or-machine
+ * readable detail string (typically JSON) for the device with @id, or
+ * NULL when unknown.  The Devices interface's GetDeviceDetail forwards to
+ * it; a dialog that does not set one reports an empty detail. */
+typedef gchar *(*PnDeviceDialogDetailFunc) (const gchar *device_id,
+                                            gpointer     user_data);
+void pn_device_dialog_set_detail_callback (PnDeviceDialog           *self,
+                                           PnDeviceDialogDetailFunc  callback,
+                                           gpointer                  user_data);
+/* Detail string for @device_id via the callback above (newly allocated,
+ * caller frees), or NULL when no callback is set or the id is unknown. */
+gchar *pn_device_dialog_get_device_detail (PnDeviceDialog *self,
+                                           const gchar    *device_id);
+
+/* Process-global observer fired when any device dialog enters (@opened
+ * TRUE) or leaves (@opened FALSE) the open-dialog registry.  The host
+ * installs one to hook each dialog's changed callback as it opens.  Only
+ * one observer; registering replaces the previous.  Main-thread only. */
+typedef void (*PnDeviceDialogObserverFunc) (const gchar    *provider_id,
+                                            PnDeviceDialog *dialog,
+                                            gboolean        opened,
+                                            gpointer        user_data);
+void pn_device_dialog_set_observer (PnDeviceDialogObserverFunc callback,
+                                    gpointer                   user_data);
+
 G_END_DECLS
 
 #endif /* PN_DEVICE_DIALOG_H */

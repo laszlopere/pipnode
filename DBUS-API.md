@@ -36,7 +36,8 @@ it is the easiest thing to copy into a new automation client — see
 4. [The error contract](#the-error-contract)
 5. [`org.pipas.pipnode.Worksheet` — the active sheet](#orgpipaspipnodeworksheet--the-active-sheet)
 6. [`org.pipas.pipnode.Editor` — the document](#orgpipaspipnodeeditor--the-document)
-7. [Signals — observing changes live](#signals--observing-changes-live)
+7. [`org.pipas.pipnode.Devices` — the Devices menu + device dialogs](#orgpipaspipnodedevices--the-devices-menu--device-dialogs)
+8. [Signals — observing changes live](#signals--observing-changes-live)
 8. [Data formats](#data-formats)
 9. [Worked examples](#worked-examples)
 10. [The reference Python client](#the-reference-python-client)
@@ -95,6 +96,7 @@ Two automation interfaces co-exist on the same object:
 |-----------|-------|
 | `org.pipas.pipnode.Worksheet` | The **active sheet's** graph: nodes, wires, properties, discovery, selection/view, message injection, and the live graph signals. |
 | `org.pipas.pipnode.Editor`    | The **document**: the API version handshake, whole-file/active-sheet JSON, sheets, file lifecycle (New/Open/Save), document globals, and the document-level signals. |
+| `org.pipas.pipnode.Devices`   | The **Devices menu** and its open device-configuration dialogs (Tasmota, Zigbee, Meshtastic, …): enumerate providers, open/close a dialog, and read back / drive its device list. |
 
 The split mirrors how an agent works: most calls are graph edits on the
 active sheet (`.Worksheet`); the document-wide operations (which sheet is
@@ -315,6 +317,55 @@ variables the Document Settings dialog edits.
 The `type` is one of the four scalar nicks the on-disk format records:
 `boolean`, `integer`, `double`, `string`. Numbers are parsed/rendered
 locale-independently.
+
+---
+
+## `org.pipas.pipnode.Devices` — the Devices menu + device dialogs
+
+The editor's **Devices** menu and every device-configuration dialog behind
+it, mirrored onto D-Bus. It is generic across providers — the host names no
+particular device; Tasmota, Zigbee and Meshtastic all appear through the same
+methods. The interface is the remote-control twin of what a user does by hand:
+enumerate the menu, open a dialog, then read back (or drive) its device list.
+
+A **provider id** (`tasmota`, `zigbee`, `meshtastic`, …) keys everything. The
+read/drive methods address an **open** dialog; call `Present` first, or they
+raise `Failed` ("No open device dialog for provider '…'").
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `ListProviders` | `() → (a(sss))` rows of `{id, displayName, icon}` | The Devices menu, in menu order. `icon` is a themed name or an absolute path, possibly empty. |
+| `Present` | `(s id) → (b shown)` | Opens (or raises) the provider's dialog, parented to the active window. `false` for an unknown id. **Does not connect to anything** — see the note below. |
+| `Close` | `(s id) → (b closed)` | Closes the open dialog; `false` when none was open. |
+| `ListDevices` | `(s id) → (a(ssss))` rows of `{id, primary, secondary, disabledReason}` | The dialog's live left-hand list. For a slow discovery (Tasmota) this fills in over time — poll it, or watch `DevicesChanged`. |
+| `GetStatus` | `(s id) → (s status)` | The dialog's status-bar line. |
+| `GetSelected` | `(s id) → (s deviceId)` | The selected row id, or empty. |
+| `SelectDevice` | `(s id, s deviceId) → (b ok)` | Selects a row (as a click would); `ok` is whether it became the selection. |
+| `Scan` | `(s id) → (b ok)` | The right-click **Reload**: re-polls an **already-connected** session. It does **not** start a connection. |
+| `GetDeviceDetail` | `(s id, s deviceId) → (s detail)` | Optional rich per-device detail, when the provider supplies it. Tasmota returns the device's merged `Status` reply as pretty JSON; providers without a detail seam return empty. |
+
+Signal:
+
+| Signal | Args | When |
+|--------|------|------|
+| `DevicesChanged` | `(s id)` | The named provider's dialog opened, closed, or its device set / status / selection changed. Subscribe and re-`ListDevices` to follow a discovery live. |
+
+> **Consent — no remote connect.** Opening a live broker/radio session is an
+> outward action the **user** authorises by pressing **Connect** in the dialog.
+> Nothing on this interface does that: `Present` only shows the dialog, and
+> `Scan` only re-polls a session the user already connected. So an automation
+> client can enumerate, open, observe and read device dialogs, but the
+> human stays in the loop for the act of reaching out to a device network.
+
+```bash
+# Enumerate the Devices menu
+busctl --user call $BUS $OBJ org.pipas.pipnode.Devices ListProviders
+# Open the Tasmota dialog (the user then presses Connect)
+busctl --user call $BUS $OBJ org.pipas.pipnode.Devices Present s tasmota
+# Once connected, watch the list fill in
+busctl --user call $BUS $OBJ org.pipas.pipnode.Devices ListDevices s tasmota
+busctl --user call $BUS $OBJ org.pipas.pipnode.Devices GetDeviceDetail ss tasmota sonoff37
+```
 
 ---
 

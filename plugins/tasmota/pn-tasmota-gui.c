@@ -649,6 +649,31 @@ ts_refresh_info (TsDevCtx *ctx)
     g_free (sensors);
 }
 
+/* PnDeviceDialogDetailFunc: the merged STATUS record for @device_id as a
+ * pretty-printed JSON string (newly allocated), or NULL when the device is
+ * unknown.  Exposed over the host's Devices D-Bus interface
+ * (GetDeviceDetail) so an automation client can read the same data the
+ * info pane shows. */
+static gchar *
+ts_device_detail (const gchar *device_id, gpointer user_data)
+{
+    TsDevCtx     *ctx = user_data;
+    TsDevice     *dev;
+    JsonGenerator *gen;
+    gchar        *out;
+
+    dev = g_hash_table_lookup (ctx->devices, device_id);
+    if (dev == NULL)
+        return NULL;
+
+    gen = json_generator_new ();
+    json_generator_set_pretty (gen, TRUE);
+    json_generator_set_root (gen, dev->merged);
+    out = json_generator_to_data (gen, NULL);
+    g_object_unref (gen);
+    return out;
+}
+
 /* PnDeviceSelectedFunc: a row was clicked / activated. */
 static void
 ts_on_device_selected (const PnDeviceRow *row, gpointer user_data)
@@ -779,8 +804,10 @@ ts_on_broker_changed (GtkComboBox *combo, gpointer user_data)
     }
 }
 
-/* PnDeviceScanFunc: the right-click Reload.  Re-run discovery on the live
- * broker (reconnect + re-poll); otherwise nudge the user to Connect. */
+/* PnDeviceScanFunc: the right-click Reload (and the D-Bus Scan method).
+ * Re-poll the live broker only; never initiate a connection -- a broker
+ * session is an outward action the user must authorise with Connect, so
+ * Reload before that just nudges, it does not connect. */
 static void
 ts_on_scan (gpointer user_data)
 {
@@ -928,6 +955,9 @@ ts_build_dialog (GtkWindow *parent, TsDevCtx *ctx)
     pn_device_dialog_set_scan_callback (ctx->shell, ts_on_scan, ctx);
     pn_device_dialog_set_selected_callback (ctx->shell,
                                             ts_on_device_selected, ctx);
+    /* Expose each device's merged Status reply over the host's Devices
+     * D-Bus interface (GetDeviceDetail). */
+    pn_device_dialog_set_detail_callback (ctx->shell, ts_device_detail, ctx);
 
     ts_populate_brokers (ctx);
 

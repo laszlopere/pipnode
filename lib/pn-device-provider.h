@@ -96,6 +96,14 @@ GList *pn_device_provider_list (void);
 gboolean pn_device_provider_present (const gchar *id,
                                      GtkWindow   *parent);
 
+/* The provider id currently being presented, or NULL outside a present
+ * call.  Set for the duration of the present callback (the menu and the
+ * D-Bus Present method both go through pn_device_provider_present), so a
+ * #PnDeviceDialog built inside that callback can learn the id it belongs
+ * to and register itself for D-Bus introspection without the plugin
+ * having to thread the id through.  Main-thread only. */
+const gchar *pn_device_provider_current_id (void);
+
 G_END_DECLS
 
 #endif /* PN_DEVICE_PROVIDER_H */

@@ -1307,9 +1307,33 @@ the new -gui companion).
   [x] 46.2  pn-tasmota-gui.c: provider registration, dialog shell, broker
         combo from PnVault, hidden MQTT source/sink, progressive discovery
         list, read-only device-info pane.
-  [ ] 46.3  Manual GUI verification against a live broker with real devices
+  [x] 46.3  Manual GUI verification against a live broker with real devices
         (the list filling in progressively is the acceptance criterion).
+        Verified: 10 devices discovered, rows trickling "Querying…" -> IP·fw.
   [ ] 46.4  Possible follow-ups (deferred): relay on/off control and
         FriendlyName/config write-back in the info pane; a dedicated menu
         icon instead of the themed "network-wireless".
+
+(47) Device dialogs over D-Bus.  A fourth host automation interface,
+org.pipas.pipnode.Devices (sibling of .Worksheet/.Editor/.Engine in
+src/pn-application.c), exposes the Devices menu and every open device dialog
+(Tasmota, Zigbee, Meshtastic) over the session bus -- generic, the host names
+no device.  The reusable seam lives in the core gui tier so every dialog gets
+it for free: pn-device-provider.c publishes the provider id around the present
+callback (the menu and the D-Bus Present both funnel through it, so zero plugin
+changes), and pn-device-dialog.c self-registers each open shell in an id->shell
+registry and grows read/drive accessors (rows, status, selection, scan) + a
+changed-callback the host re-emits as DevicesChanged.  Consent rule: NO method
+connects -- Present only opens the dialog, Scan only re-polls an
+already-connected session; the user still presses Connect.
+
+  [x] 47.1  org.pipas.pipnode.Devices: ListProviders, Present, Close,
+        ListDevices, GetStatus, GetSelected, SelectDevice, Scan,
+        GetDeviceDetail + DevicesChanged signal.
+  [x] 47.2  Generic seam in pn-device-provider.c (current-id capture) and
+        pn-device-dialog.c (open-dialog registry, row/status/selection
+        read-back, changed + detail callbacks, observer hook).
+  [x] 47.3  Tasmota opts into the per-device detail seam (merged Status JSON).
+  [x] 47.4  Documented in DBUS-API.md; verified over busctl against a live
+        instance (after pressing Connect via AT-SPI).
 

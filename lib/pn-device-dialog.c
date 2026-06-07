@@ -27,6 +27,7 @@
 #endif
 
 #include "pn-device-dialog.h"
+#include "pn-device-provider.h"
 
 #define PN_DEVICE_DIALOG_CTX_QDATA "pn-device-dialog-ctx"
 #define PN_DEVICE_DIALOG_ROW_QDATA "pn-device-dialog-row"
@@ -76,7 +77,36 @@ struct _PnDeviceDialog
      * built-in defaults in build_empty_page(). */
     gchar       *prescan_icon, *prescan_primary, *prescan_secondary;
     gchar       *empty_icon,   *empty_primary,   *empty_secondary;
+
+    /* D-Bus introspection seam (see the header).  provider_id is the
+     * registry key, captured at construction; the callbacks let the host
+     * watch changes and a plugin expose rich per-device detail. */
+    gchar                     *provider_id;
+    PnDeviceDialogChangedFunc  changed_cb;
+    gpointer                   changed_ud;
+    PnDeviceDialogDetailFunc   detail_cb;
+    gpointer                   detail_ud;
 };
+
+/* ------------------------------------------------------------------ */
+/*  Open-dialog registry + change notification                          */
+/* ------------------------------------------------------------------ */
+
+/* provider id -> the open #PnDeviceDialog* (borrowed; owned by its
+ * GtkDialog).  Keyed by a strdup of the id; at most one dialog per
+ * provider (a second present raises the first), so the most recently
+ * opened wins across windows.  Lazily created, never torn down. */
+static GHashTable                 *open_dialogs   = NULL;
+static PnDeviceDialogObserverFunc  observer_cb    = NULL;
+static gpointer                    observer_ud    = NULL;
+
+/* Notify the host that the device set / status / selection changed. */
+static void
+emit_changed (PnDeviceDialog *self)
+{
+    if (self->changed_cb != NULL)
+        self->changed_cb (self, self->changed_ud);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Status bar                                                          */
@@ -87,6 +117,7 @@ pn_device_dialog_set_status (PnDeviceDialog *self, const gchar *text)
 {
     g_return_if_fail (self != NULL);
     gtk_label_set_text (self->status_label, text != NULL ? text : "");
+    emit_changed (self);
 }
 
 void
@@ -468,6 +499,7 @@ select_and_fire (PnDeviceDialog *self, GtkListBoxRow *row)
         self->selected_id = g_strdup (d->id);
         if (self->selected_cb != NULL)
             self->selected_cb (d, self->selected_ud);
+        emit_changed (self);
     }
 }
 
@@ -603,6 +635,8 @@ pn_device_dialog_set_device_rows (PnDeviceDialog *self, GPtrArray *rows)
 
     if (target != NULL)
         select_and_fire (self, target);
+
+    emit_changed (self);
 }
 
 void
@@ -614,6 +648,7 @@ pn_device_dialog_add_device_row (PnDeviceDialog *self, const PnDeviceRow *row)
 
     gtk_container_add (GTK_CONTAINER (self->list), list_row_new (row));
     show_list_state (self, "list");
+    emit_changed (self);
 }
 
 void
@@ -641,6 +676,7 @@ pn_device_dialog_update_device_row (PnDeviceDialog *self, const PnDeviceRow *row
         if (was_selected && row->disabled_reason == NULL)
             gtk_list_box_select_row (self->list, GTK_LIST_BOX_ROW (fresh));
     }
+    emit_changed (self);
 }
 
 void
@@ -657,6 +693,7 @@ pn_device_dialog_remove_device_row (PnDeviceDialog *self, const gchar *id)
 
     if (gtk_container_get_children (GTK_CONTAINER (self->list)) == NULL)
         show_list_state (self, "empty-result");
+    emit_changed (self);
 }
 
 void
@@ -910,6 +947,19 @@ device_dialog_free (gpointer data)
 {
     PnDeviceDialog *self = data;
 
+    /* Leave the open-dialog registry and tell the host, but only if we
+     * are still the entry under our id -- a newer dialog for the same
+     * provider may have replaced us. */
+    if (self->provider_id != NULL)
+    {
+        if (open_dialogs != NULL &&
+            g_hash_table_lookup (open_dialogs, self->provider_id) == self)
+            g_hash_table_remove (open_dialogs, self->provider_id);
+        if (observer_cb != NULL)
+            observer_cb (self->provider_id, self, FALSE, observer_ud);
+    }
+
+    g_free (self->provider_id);
     g_free (self->selected_id);
     g_free (self->prescan_icon);
     g_free (self->prescan_primary);
@@ -965,6 +1015,24 @@ pn_device_dialog_new (GtkWindow           *parent,
     /* Own the shell from the dialog so it is freed on destroy. */
     g_object_set_data_full (G_OBJECT (dialog), PN_DEVICE_DIALOG_CTX_QDATA,
                             self, device_dialog_free);
+
+    /* If we are being built inside a provider present (the menu or the
+     * D-Bus Present method), adopt that id and join the open-dialog
+     * registry so the Devices interface can address us.  device_dialog_free
+     * leaves the registry again. */
+    {
+        const gchar *id = pn_device_provider_current_id ();
+        if (id != NULL)
+        {
+            self->provider_id = g_strdup (id);
+            if (open_dialogs == NULL)
+                open_dialogs = g_hash_table_new_full (
+                        g_str_hash, g_str_equal, g_free, NULL);
+            g_hash_table_insert (open_dialogs, g_strdup (id), self);
+            if (observer_cb != NULL)
+                observer_cb (id, self, TRUE, observer_ud);
+        }
+    }
     return self;
 }
 
@@ -973,4 +1041,106 @@ pn_device_dialog_get_dialog (PnDeviceDialog *self)
 {
     g_return_val_if_fail (self != NULL, NULL);
     return self->dialog;
+}
+
+/* ------------------------------------------------------------------ */
+/*  D-Bus introspection seam                                            */
+/* ------------------------------------------------------------------ */
+
+const gchar *
+pn_device_dialog_get_provider_id (PnDeviceDialog *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    return self->provider_id;
+}
+
+PnDeviceDialog *
+pn_device_dialog_lookup_open (const gchar *id)
+{
+    if (open_dialogs == NULL || id == NULL)
+        return NULL;
+    return g_hash_table_lookup (open_dialogs, id);
+}
+
+GPtrArray *
+pn_device_dialog_get_rows (PnDeviceDialog *self)
+{
+    GPtrArray *out;
+    GList     *rows, *l;
+
+    g_return_val_if_fail (self != NULL, NULL);
+
+    out = pn_device_row_array_new ();
+    if (self->list == NULL)
+        return out;
+
+    rows = gtk_container_get_children (GTK_CONTAINER (self->list));
+    for (l = rows; l != NULL; l = l->next)
+    {
+        PnDeviceRow *d = row_desc (GTK_LIST_BOX_ROW (l->data));
+        if (d != NULL)
+            g_ptr_array_add (out, pn_device_row_copy (d));
+    }
+    g_list_free (rows);
+    return out;
+}
+
+const gchar *
+pn_device_dialog_get_status (PnDeviceDialog *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    return gtk_label_get_text (self->status_label);
+}
+
+const gchar *
+pn_device_dialog_get_selected_id (PnDeviceDialog *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    return self->selected_id;
+}
+
+void
+pn_device_dialog_scan (PnDeviceDialog *self)
+{
+    g_return_if_fail (self != NULL);
+    if (self->scan_cb != NULL)
+        self->scan_cb (self->scan_ud);
+}
+
+void
+pn_device_dialog_set_changed_callback (PnDeviceDialog            *self,
+                                       PnDeviceDialogChangedFunc  callback,
+                                       gpointer                   user_data)
+{
+    g_return_if_fail (self != NULL);
+    self->changed_cb = callback;
+    self->changed_ud = user_data;
+}
+
+void
+pn_device_dialog_set_detail_callback (PnDeviceDialog           *self,
+                                      PnDeviceDialogDetailFunc  callback,
+                                      gpointer                  user_data)
+{
+    g_return_if_fail (self != NULL);
+    self->detail_cb = callback;
+    self->detail_ud = user_data;
+}
+
+gchar *
+pn_device_dialog_get_device_detail (PnDeviceDialog *self,
+                                    const gchar    *device_id)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+    if (self->detail_cb == NULL || device_id == NULL)
+        return NULL;
+    return self->detail_cb (device_id, self->detail_ud);
+}
+
+void
+pn_device_dialog_set_observer (PnDeviceDialogObserverFunc callback,
+                               gpointer                   user_data)
+{
+    observer_cb = callback;
+    observer_ud = user_data;
 }

@@ -34,6 +34,12 @@ typedef struct
  * only; never freed (providers live for the process lifetime). */
 static GList *providers = NULL;
 
+/* The id whose present callback is currently running, or NULL.  Set
+ * around the callback in pn_device_provider_present() so a dialog built
+ * there can read it via pn_device_provider_current_id().  Saved/restored
+ * to tolerate a present nested inside another. */
+static const gchar *current_present_id = NULL;
+
 static Provider *
 provider_find (const gchar *id)
 {
@@ -129,6 +135,20 @@ pn_device_provider_present (const gchar *id, GtkWindow *parent)
     if (p == NULL)
         return FALSE;
 
-    p->present (parent, p->user_data);
+    /* Publish the id for the duration of the callback so a dialog built
+     * inside it can self-register; restore the prior value afterwards in
+     * case this present is nested inside another. */
+    {
+        const gchar *saved = current_present_id;
+        current_present_id = p->id;
+        p->present (parent, p->user_data);
+        current_present_id = saved;
+    }
     return TRUE;
+}
+
+const gchar *
+pn_device_provider_current_id (void)
+{
+    return current_present_id;
 }
