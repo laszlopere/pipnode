@@ -110,6 +110,19 @@ void pn_device_dialog_set_statusf (PnDeviceDialog *self,
                                    const gchar    *fmt,
                                    ...) G_GNUC_PRINTF (2, 3);
 
+/* Cleanup hook run when the user closes the dialog, BEFORE its widgets
+ * are destroyed.  A provider that drives live I/O (an MQTT subscription,
+ * an open serial port) must stop it here: tearing the widgets down while a
+ * background thread still posts work to the main loop deadlocks the close
+ * (the network thread blocks in g_idle_add on the GMainContext lock the
+ * teardown is contending for).  Stopping the I/O first joins that thread so
+ * no late main-loop work can race the destroy.  Called at most once. */
+typedef void (*PnDeviceDialogCloseFunc) (PnDeviceDialog *self,
+                                         gpointer        user_data);
+void pn_device_dialog_set_close_callback (PnDeviceDialog          *self,
+                                          PnDeviceDialogCloseFunc  callback,
+                                          gpointer                 user_data);
+
 /* ------------------------------------------------------------------ */
 /*  Device-list pane (PN_DEVICE_DIALOG_WITH_DEVICE_LIST)                */
 /* ------------------------------------------------------------------ */

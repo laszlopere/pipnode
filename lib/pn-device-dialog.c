@@ -86,6 +86,12 @@ struct _PnDeviceDialog
     gpointer                   changed_ud;
     PnDeviceDialogDetailFunc   detail_cb;
     gpointer                   detail_ud;
+
+    /* Cleanup run on close, before the widgets are destroyed (see the
+     * header).  closed guards against a double fire. */
+    PnDeviceDialogCloseFunc    close_cb;
+    gpointer                   close_ud;
+    gboolean                   closed;
 };
 
 /* ------------------------------------------------------------------ */
@@ -970,6 +976,38 @@ device_dialog_free (gpointer data)
     g_slice_free (PnDeviceDialog, self);
 }
 
+void
+pn_device_dialog_set_close_callback (PnDeviceDialog          *self,
+                                     PnDeviceDialogCloseFunc  callback,
+                                     gpointer                 user_data)
+{
+    g_return_if_fail (self != NULL);
+    self->close_cb = callback;
+    self->close_ud = user_data;
+}
+
+/* The Close button (or any dialog response).  Run the provider's cleanup
+ * FIRST -- so it can stop background I/O and join its threads while the
+ * widgets are still intact and the main loop is otherwise quiet -- and
+ * only then destroy the dialog.  Doing it the other way round lets a
+ * still-running worker thread post to the main loop mid-teardown and
+ * deadlock the close. */
+static void
+on_dialog_response (GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+    PnDeviceDialog *self = user_data;
+
+    (void) response_id;
+
+    if (self->close_cb != NULL && !self->closed)
+    {
+        self->closed = TRUE;
+        self->close_cb (self, self->close_ud);
+    }
+
+    gtk_widget_destroy (GTK_WIDGET (dialog));
+}
+
 PnDeviceDialog *
 pn_device_dialog_new (GtkWindow           *parent,
                       const gchar         *title,
@@ -990,7 +1028,7 @@ pn_device_dialog_new (GtkWindow           *parent,
             "_Close", GTK_RESPONSE_CLOSE, NULL);
     gtk_window_set_modal (GTK_WINDOW (dialog), FALSE);
     g_signal_connect (dialog, "response",
-                      G_CALLBACK (gtk_widget_destroy), NULL);
+                      G_CALLBACK (on_dialog_response), self);
     self->dialog = dialog;
 
     content = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
