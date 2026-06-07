@@ -872,9 +872,19 @@
                longer system-trust-only and keepalive is no longer hard-coded.
                (port-as-int dropped — the URL already takes host:port.) Full
                resolution + checkbox breakdown in the REMAINING block below.
-         - [ ] M4 payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666;
+         - [x] M4 payload_len (gsize) cast to int at pn-mqtt-sink.c:483,666;
                >256MB hits MQTT's limit and mosquitto_publish rejects -- logged
                only to stderr (see C1).
+               DONE 2026-06-07 (commit 776f004) -- this is a duplicate of the
+               M4 entry resolved in the REMAINING block below. The gsize->int
+               narrowing at both publish sites is guarded by the pure predicate
+               pn_mqtt_payload_within_limit (ceiling PN_MQTT_MAX_PAYLOAD_BYTES =
+               268,435,455): a live over-limit publish returns
+               MOSQ_ERR_PAYLOAD_SIZE via sink_publish, an oversize payload
+               arriving offline is dropped at receive with a node-Log error
+               (not buffered). C1 is closed, so the rejection surfaces in the
+               node Log, not just stderr. Covered by test-pn-mqtt-util
+               payload_within_limit; documented in PnMqttSink.html.
 
          LOW / NIT
          - [x] L1 Source: subscribe failure (pn-mqtt.c:469-475) g_warns then
