@@ -59,8 +59,21 @@ enable TLS.  Point Mosquitto at a certificate (Let's Encrypt, an
 internal CA, or a self-signed one) with
 <code>certfile</code> / <code>keyfile</code> / <code>cafile</code> in
 <code>/etc/mosquitto/conf.d/local.conf</code>, raise a TLS listener on
-<code>8883</code>, and use the <code>ssl://</code> URL scheme in this
-profile.
+<code>8883</code>, and use the <code>ssl://</code> (or
+<code>mqtts://</code>) URL scheme in this profile.
+</p>
+<p>
+A <code>ssl://</code> / <code>mqtts://</code> URL turns TLS on; the
+broker's certificate is then verified against your operating system's
+trust store.  That is all a publicly-signed broker (Let's Encrypt and
+the like) needs.  For a broker signed by a <strong>private or
+self-signed CA</strong> the system store will not contain the signer,
+so verification fails until you name the CA explicitly in the
+<code>CA&nbsp;certificate&nbsp;file</code> field below.  The
+<code>Client&nbsp;certificate</code> / <code>Client&nbsp;key</code>
+pair enables <em>mutual</em> TLS, where the broker also authenticates
+this client by certificate.  All of these are consulted only when the
+URL scheme selects TLS.
 </p>
 
 <h5>Filling in the profile</h5>
@@ -87,6 +100,36 @@ profile.
   audit log can pick it out.  Pick something stable per machine
   (e.g. <code>pipnode-livingroom</code>); leaving it blank causes
   Pipnode to generate a random id on each connect.
+</td></tr>
+<tr><td><code>CA&nbsp;certificate&nbsp;file&nbsp;(TLS)</code></td><td>
+  Optional.  Absolute path, on the machine running Pipnode, to the PEM
+  CA bundle that signed the broker's certificate.  Needed only for a
+  private / self-signed CA the system trust store does not already
+  know.  Leave blank to verify against the system store (the default
+  for a publicly-signed broker).  Used only with a TLS
+  (<code>ssl://</code> / <code>mqtts://</code>) URL.
+</td></tr>
+<tr><td><code>Client&nbsp;certificate&nbsp;(mutual&nbsp;TLS)</code></td><td>
+  Optional.  Path to this client's certificate, for brokers that
+  require <em>mutual</em> TLS.  Must be paired with
+  <code>Client&nbsp;key</code> — supplying only one is ignored with a
+  logged warning.
+</td></tr>
+<tr><td><code>Client&nbsp;key&nbsp;(mutual&nbsp;TLS)</code></td><td>
+  Optional.  Path to the private key for <code>Client&nbsp;certificate</code>.
+</td></tr>
+<tr><td><code>Skip&nbsp;TLS&nbsp;verification&nbsp;(insecure)</code></td><td>
+  Off by default.  When on, the broker's certificate is accepted even
+  if it does not chain to a trusted CA or match the hostname.  This
+  defeats the protection TLS provides — use it only for local
+  development against a self-signed broker, never in production.  Each
+  connect logs a warning while it is on.
+</td></tr>
+<tr><td><code>Keep-alive&nbsp;(seconds)</code></td><td>
+  How often the client pings an idle broker so the link's health is
+  known; the broker drops a client silent for 1.5&times; this.  Defaults
+  to <code>60</code> (leave blank or <code>0</code> for the default);
+  capped at the protocol maximum of 65535.
 </td></tr>
 </table>
 

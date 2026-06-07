@@ -154,15 +154,16 @@ pn_mqtt_parse_url (
 
 void
 pn_mqtt_resolve_connection (
-        PnProfile   *profile,
-        const gchar *inline_url,
-        const gchar *inline_user,
-        const gchar *inline_pass,
-        const gchar *inline_cid,
-        gchar      **out_url,
-        gchar      **out_user,
-        gchar      **out_pass,
-        gchar      **out_cid)
+        PnProfile      *profile,
+        const gchar    *inline_url,
+        const gchar    *inline_user,
+        const gchar    *inline_pass,
+        const gchar    *inline_cid,
+        gchar         **out_url,
+        gchar         **out_user,
+        gchar         **out_pass,
+        gchar         **out_cid,
+        PnMqttConnOpts *out_opts)
 {
     if (profile != NULL)
     {
@@ -170,6 +171,18 @@ pn_mqtt_resolve_connection (
         if (out_user) *out_user = pn_profile_get_string (profile, "username");
         if (out_pass) *out_pass = pn_profile_get_secret (profile, "password");
         if (out_cid)  *out_cid  = pn_profile_get_string (profile, "client-id");
+        if (out_opts)
+        {
+            /* TLS material + keep-alive live only in the profile.  ca-file and
+             * the mTLS cert/key are filesystem paths the host trusts, not
+             * credentials, so they are PN_FIELD_STRING (unmasked), not secrets;
+             * keepalive defaults to 60 via the schema. */
+            out_opts->ca_file      = pn_profile_get_string (profile, "ca-file");
+            out_opts->client_cert  = pn_profile_get_string (profile, "client-cert");
+            out_opts->client_key   = pn_profile_get_string (profile, "client-key");
+            out_opts->tls_insecure = pn_profile_get_bool   (profile, "tls-insecure");
+            out_opts->keepalive    = (gint) pn_profile_get_int (profile, "keepalive");
+        }
     }
     else
     {
@@ -177,7 +190,41 @@ pn_mqtt_resolve_connection (
         if (out_user) *out_user = g_strdup (inline_user ? inline_user : "");
         if (out_pass) *out_pass = g_strdup (inline_pass ? inline_pass : "");
         if (out_cid)  *out_cid  = g_strdup (inline_cid  ? inline_cid  : "");
+        if (out_opts)
+        {
+            /* Custom-settings inline mode exposes no TLS / keep-alive UI: leave
+             * the unset defaults so the node keeps today's behaviour (system
+             * trust store, no mTLS, default keep-alive). */
+            out_opts->ca_file      = g_strdup ("");
+            out_opts->client_cert  = g_strdup ("");
+            out_opts->client_key   = g_strdup ("");
+            out_opts->tls_insecure = FALSE;
+            out_opts->keepalive    = 0;
+        }
     }
+}
+
+void
+pn_mqtt_conn_opts_clear (PnMqttConnOpts *opts)
+{
+    if (opts == NULL)
+        return;
+
+    g_clear_pointer (&opts->ca_file,     g_free);
+    g_clear_pointer (&opts->client_cert, g_free);
+    g_clear_pointer (&opts->client_key,  g_free);
+    opts->tls_insecure = FALSE;
+    opts->keepalive    = 0;
+}
+
+int
+pn_mqtt_keepalive_seconds (gint configured)
+{
+    if (configured <= 0)
+        return PN_MQTT_DEFAULT_KEEPALIVE_SECONDS;
+    if (configured > 65535)   /* MQTT keep-alive is a 16-bit field. */
+        return 65535;
+    return configured;
 }
 
 /* ------------------------------------------------------------------ */

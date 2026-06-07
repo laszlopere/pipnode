@@ -31,6 +31,22 @@ pn_mqtt_register_profile_type (PnNodeFactory *factory)
     pn_profile_schema_field (schema, "username",  "Username",  PN_FIELD_STRING);
     pn_profile_schema_field (schema, "password",  "Password",  PN_FIELD_SECRET);
     pn_profile_schema_field (schema, "client-id", "Client ID", PN_FIELD_STRING);
+
+    /* TLS trust material (review M3).  These are filesystem paths the host
+     * trusts, not credentials, so they are plain strings (unmasked, stored in
+     * the workflow-free vault like the rest), not secrets.  A CA bundle lets a
+     * private / self-signed broker verify; the cert+key pair enables mutual
+     * TLS; the insecure toggle is a deliberate, logged dev-only escape hatch.
+     * All are only consulted when the URL scheme selects TLS (ssl:// / mqtts://). */
+    pn_profile_schema_field (schema, "ca-file",      "CA certificate file (TLS)",      PN_FIELD_STRING);
+    pn_profile_schema_field (schema, "client-cert",  "Client certificate (mutual TLS)", PN_FIELD_STRING);
+    pn_profile_schema_field (schema, "client-key",   "Client key (mutual TLS)",         PN_FIELD_STRING);
+    pn_profile_schema_field (schema, "tls-insecure", "Skip TLS verification (insecure)", PN_FIELD_BOOL);
+
+    /* Keep-alive seconds: 0/blank → the built-in default (60). */
+    pn_profile_schema_field (schema, "keepalive", "Keep-alive (seconds)", PN_FIELD_INT);
+    pn_profile_schema_field_default (schema, "keepalive", "60");
+
     pn_profile_schema_set_help_page (schema, "MqttBrokerProfile.html");
     pn_node_factory_register_profile_type (factory, schema);
 }

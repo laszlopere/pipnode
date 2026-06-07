@@ -537,6 +537,22 @@ test_payload_within_limit (void)
                   (gsize) PN_MQTT_MAX_PAYLOAD_BYTES + 1) == FALSE);
 }
 
+/* keep-alive normalisation (review M3): a configured value passes through,
+ * 0 / negative falls back to the default, and anything past the 16-bit
+ * protocol ceiling is clamped to 65535. */
+static void
+test_keepalive_seconds (void)
+{
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (30),  ==, 30);
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (1),   ==, 1);
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (0),   ==,
+                     PN_MQTT_DEFAULT_KEEPALIVE_SECONDS);
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (-5),  ==,
+                     PN_MQTT_DEFAULT_KEEPALIVE_SECONDS);
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (65535), ==, 65535);
+    PN_CHECK_CMPINT (pn_mqtt_keepalive_seconds (70000), ==, 65535);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -564,5 +580,6 @@ main (int argc, char **argv)
     pn_test_add ("queue_fifo_order",     test_queue_fifo_order);
     pn_test_add ("queue_retarget",       test_queue_retarget);
     pn_test_add ("payload_within_limit", test_payload_within_limit);
+    pn_test_add ("keepalive_seconds",    test_keepalive_seconds);
     return pn_test_run ();
 }

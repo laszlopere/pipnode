@@ -58,6 +58,59 @@ gboolean pn_mqtt_parse_url (const gchar *url,
                             int         *out_port,
                             gboolean    *out_tls);
 
+/* Default MQTT keep-alive (seconds): the broker disconnects a client that
+ * goes silent for 1.5x this, so 60 s gives brisk dead-peer detection without
+ * flooding an idle link with pings.  Used when a profile does not pin one. */
+#define PN_MQTT_DEFAULT_KEEPALIVE_SECONDS 60
+
+/**
+ * pn_mqtt_keepalive_seconds:
+ * @configured: a profile's resolved keep-alive (0 when unset / inline mode)
+ *
+ * Normalises a configured keep-alive into the value handed to
+ * mosquitto_connect: @configured when it is a sane positive number, the
+ * %PN_MQTT_DEFAULT_KEEPALIVE_SECONDS default when it is 0 or negative, and the
+ * 16-bit protocol ceiling (65535) when it is larger.  Pure, so the nodes share
+ * one clamp instead of each open-coding the default.
+ *
+ * Returns: a keep-alive in the inclusive range 1..65535.
+ */
+int pn_mqtt_keepalive_seconds (gint configured);
+
+/**
+ * PnMqttConnOpts:
+ * @ca_file:      (transfer full): trusted CA bundle for TLS; "" → the system
+ *                trust store (lets a private / self-signed CA broker verify).
+ * @client_cert:  (transfer full): client certificate for mutual TLS; "" → none.
+ * @client_key:   (transfer full): client private key for mutual TLS; "" → none.
+ * @tls_insecure: skip certificate / hostname verification (dev only).
+ * @keepalive:    keep-alive seconds; 0 → the node default (see
+ *                #pn_mqtt_keepalive_seconds).
+ *
+ * The connection options beyond the broker identity (url/user/pass/cid): the
+ * TLS trust material and the keep-alive interval.  These come only from a
+ * provisioned profile — "Custom settings" inline mode has no UI for them, so
+ * an inline resolve yields the unset defaults ("" / %FALSE / 0).  The owned
+ * strings are released by #pn_mqtt_conn_opts_clear.
+ */
+typedef struct
+{
+    gchar    *ca_file;
+    gchar    *client_cert;
+    gchar    *client_key;
+    gboolean  tls_insecure;
+    gint      keepalive;
+} PnMqttConnOpts;
+
+/**
+ * pn_mqtt_conn_opts_clear:
+ * @opts: (transfer none): a #PnMqttConnOpts filled by pn_mqtt_resolve_connection()
+ *
+ * Frees the owned strings and resets every field, leaving @opts safe to reuse
+ * or discard.  Does not free @opts itself (it is normally stack-allocated).
+ */
+void pn_mqtt_conn_opts_clear (PnMqttConnOpts *opts);
+
 /**
  * pn_mqtt_resolve_connection:
  * @profile:     (nullable): the resolved "mqtt-broker" vault profile, or
@@ -70,6 +123,8 @@ gboolean pn_mqtt_parse_url (const gchar *url,
  * @out_user:    (out) (optional): resolved username (caller frees)
  * @out_pass:    (out) (optional): resolved password (caller frees)
  * @out_cid:     (out) (optional): resolved client id (caller frees)
+ * @out_opts:    (out caller-allocates) (optional): TLS / keep-alive options;
+ *               %NULL to skip.  Clear with #pn_mqtt_conn_opts_clear.
  *
  * Resolves the connection identity: when @profile is non-%NULL every field
  * comes from it (the password via #pn_profile_get_secret, so it follows the
@@ -77,17 +132,21 @@ gboolean pn_mqtt_parse_url (const gchar *url,
  * value yields "").  The choice of which is made by the caller: a node passes
  * the profile from pn_node_get_profile(), which is %NULL when the picker is on
  * "Custom settings" (#PN_PROFILE_REF_CUSTOM) so the inline fields take effect.
- * Every requested out string is freshly allocated and non-%NULL.
+ * Every requested out string is freshly allocated and non-%NULL.  @out_opts,
+ * when requested, carries the TLS trust material and keep-alive — profile-only
+ * settings, so an inline (%NULL @profile) resolve leaves them at their unset
+ * defaults ("" / %FALSE / 0).
  */
-void pn_mqtt_resolve_connection (PnProfile   *profile,
-                                 const gchar *inline_url,
-                                 const gchar *inline_user,
-                                 const gchar *inline_pass,
-                                 const gchar *inline_cid,
-                                 gchar      **out_url,
-                                 gchar      **out_user,
-                                 gchar      **out_pass,
-                                 gchar      **out_cid);
+void pn_mqtt_resolve_connection (PnProfile      *profile,
+                                 const gchar    *inline_url,
+                                 const gchar    *inline_user,
+                                 const gchar    *inline_pass,
+                                 const gchar    *inline_cid,
+                                 gchar         **out_url,
+                                 gchar         **out_user,
+                                 gchar         **out_pass,
+                                 gchar         **out_cid,
+                                 PnMqttConnOpts *out_opts);
 
 /**
  * pn_mqtt_build_message:

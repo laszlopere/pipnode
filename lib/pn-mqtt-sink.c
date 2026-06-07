@@ -46,10 +46,8 @@
  * with no per-node setup; the inline url is the empty legacy fallback. */
 #define PN_MQTT_SINK_DEFAULT_URL ""
 
-/* MQTT keep-alive + reconnect bounds.  Same values as PnMqtt -- this
- * is per-broker rather than per-direction, so the publisher uses the
- * same numbers a subscriber would. */
-#define PN_MQTT_SINK_KEEPALIVE_SECONDS    60
+/* Reconnect back-off bounds.  Keep-alive now comes from the broker profile
+ * (default 60); see pn_mqtt_keepalive_seconds() in pn-mqtt-util. */
 #define PN_MQTT_SINK_RECONNECT_DELAY_MIN   1u
 #define PN_MQTT_SINK_RECONNECT_DELAY_MAX  30u
 
@@ -248,7 +246,8 @@ resolve_connection (PnMqttSink *self,
                     gchar **out_url,
                     gchar **out_user,
                     gchar **out_pass,
-                    gchar **out_cid)
+                    gchar **out_cid,
+                    PnMqttConnOpts *out_opts)
 {
     PnMqttSinkPrivate *priv = PRIV (self);
     PnProfile         *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
@@ -259,7 +258,7 @@ resolve_connection (PnMqttSink *self,
      * returns NULL (see pn_mqtt_resolve_connection). */
     pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
                                 priv->client_id,
-                                out_url, out_user, out_pass, out_cid);
+                                out_url, out_user, out_pass, out_cid, out_opts);
 }
 
 /** Flip the node body between the connected (green paper-plane) and
@@ -280,7 +279,7 @@ apply_visual_state (PnMqttSink *self)
 
     PnColor green = { 0.36, 0.66, 0.36, 1.0 };
 
-    resolve_connection (self, &url, NULL, NULL, NULL);
+    resolve_connection (self, &url, NULL, NULL, NULL, NULL);
     ok = priv->connected && url != NULL && *url != '\0' && !priv->publish_error;
     g_free (url);
 
@@ -774,10 +773,11 @@ restart_client (PnMqttSink *self)
     gchar             *user = NULL;
     gchar             *pass = NULL;
     gchar             *cid  = NULL;
+    PnMqttConnOpts     opts = { 0 };
 
     stop_client (self);
 
-    resolve_connection (self, &url, &user, &pass, &cid);
+    resolve_connection (self, &url, &user, &pass, &cid, &opts);
 
     /* Retarget guard (review M2): if the broker we are about to (re)connect
      * to differs from the one the backlog was buffered for, those publishes
@@ -847,14 +847,40 @@ restart_client (PnMqttSink *self)
 
     if (tls)
     {
-        err = mosquitto_tls_set (priv->client, NULL, NULL, NULL, NULL, NULL);
+        /* Trust material from the profile (review M3): a CA bundle (NULL →
+         * the system trust store, today's behaviour) plus an optional client
+         * cert/key pair for mutual TLS.  Empty strings mean "unset". */
+        const gchar *cafile = (opts.ca_file     && *opts.ca_file)     ? opts.ca_file     : NULL;
+        const gchar *cert   = (opts.client_cert && *opts.client_cert) ? opts.client_cert : NULL;
+        const gchar *key    = (opts.client_key  && *opts.client_key)  ? opts.client_key  : NULL;
+
+        /* libmosquitto needs both halves of an mTLS pair or neither; a lone
+         * one is a misconfiguration, so drop it rather than fail the connect. */
+        if ((cert != NULL) != (key != NULL))
+        {
+            report_error (self,
+                          "mutual TLS needs both a client certificate and a "
+                          "key; ignoring the lone %s",
+                          cert ? "certificate" : "key");
+            cert = key = NULL;
+        }
+
+        err = mosquitto_tls_set (priv->client, cafile, NULL, cert, key, NULL);
         if (err != MOSQ_ERR_SUCCESS)
             report_error (self, "TLS setup failed: %s",
                           mosquitto_strerror (err));
+        else if (opts.tls_insecure)
+        {
+            /* Opt-in, dev-only: accept a certificate that does not chain to a
+             * trusted CA or match the hostname.  Logged so it is never silent. */
+            mosquitto_tls_insecure_set (priv->client, TRUE);
+            pn_node_log (PN_NODE (self), PN_LOG_LEVEL_WARNING,
+                         "TLS certificate verification disabled (insecure)");
+        }
     }
 
     err = mosquitto_connect_async (priv->client, host, port,
-                                   PN_MQTT_SINK_KEEPALIVE_SECONDS);
+                                   pn_mqtt_keepalive_seconds (opts.keepalive));
     if (err != MOSQ_ERR_SUCCESS)
     {
         report_error (self, "connect to %s:%d failed: %s",
@@ -888,6 +914,7 @@ fail_destroy:
 out:
     g_free (host);
     g_free (url); g_free (user); g_free (pass); g_free (cid);
+    pn_mqtt_conn_opts_clear (&opts);
     apply_visual_state (self);
 }
 

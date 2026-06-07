@@ -32,8 +32,10 @@ shapes are accepted:
   <li><code>ssl://host[:port]</code> or
       <code>mqtts://host[:port]</code> &mdash; MQTT over TLS, default
       port <code>8883</code>. The broker's certificate is verified
-      against the system trust store; install your CA in the OS trust
-      store when using a private PKI.</li>
+      against the system trust store; for a private PKI, name your CA
+      bundle (and, for mutual TLS, a client certificate/key) in the
+      broker profile's TLS fields, or install the CA in the OS trust
+      store.</li>
   <li>A bare <code>host[:port]</code> with no scheme, treated as
       plain TCP.</li>
 </ul>

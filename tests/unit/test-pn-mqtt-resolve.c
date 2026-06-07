@@ -48,7 +48,7 @@ test_inline_fallback (void)
 
     pn_mqtt_resolve_connection (NULL,
                                 "tcp://inline:1883", "alice", "s3cret", "cid1",
-                                &url, &user, &pass, &cid);
+                                &url, &user, &pass, &cid, NULL);
 
     PN_CHECK_CMPSTR (url,  ==, "tcp://inline:1883");
     PN_CHECK_CMPSTR (user, ==, "alice");
@@ -56,6 +56,28 @@ test_inline_fallback (void)
     PN_CHECK_CMPSTR (cid,  ==, "cid1");
 
     g_free (url); g_free (user); g_free (pass); g_free (cid);
+}
+
+/* Inline ("Custom settings") mode exposes no TLS / keep-alive UI, so the
+ * options resolve to their unset defaults: no CA bundle, no mTLS pair,
+ * verification on, keep-alive 0 (-> the node's compiled default). */
+static void
+test_inline_opts_default (void)
+{
+    gchar         *url = NULL;
+    PnMqttConnOpts opts = { 0 };
+
+    pn_mqtt_resolve_connection (NULL, "tcp://inline", NULL, NULL, NULL,
+                                &url, NULL, NULL, NULL, &opts);
+
+    PN_CHECK_CMPSTR (opts.ca_file,     ==, "");
+    PN_CHECK_CMPSTR (opts.client_cert, ==, "");
+    PN_CHECK_CMPSTR (opts.client_key,  ==, "");
+    PN_CHECK (opts.tls_insecure == FALSE);
+    PN_CHECK_CMPINT (opts.keepalive, ==, 0);
+
+    g_free (url);
+    pn_mqtt_conn_opts_clear (&opts);
 }
 
 /* NULL inline values coerce to "" (never NULL), so callers can always
@@ -66,7 +88,7 @@ test_inline_nulls_become_empty (void)
     gchar *url = NULL, *user = NULL, *pass = NULL, *cid = NULL;
 
     pn_mqtt_resolve_connection (NULL, NULL, NULL, NULL, NULL,
-                                &url, &user, &pass, &cid);
+                                &url, &user, &pass, &cid, NULL);
 
     PN_CHECK_CMPSTR (url,  ==, "");
     PN_CHECK_CMPSTR (user, ==, "");
@@ -95,7 +117,7 @@ test_profile_wins (void)
     /* Inline values are deliberately different; the profile must win. */
     pn_mqtt_resolve_connection (p,
                                 "tcp://INLINE", "INLINE-U", "INLINE-P", "INLINE-C",
-                                &url, &user, &pass, &cid);
+                                &url, &user, &pass, &cid, NULL);
 
     PN_CHECK_CMPSTR (url,  ==, "ssl://broker:8883");
     PN_CHECK_CMPSTR (user, ==, "vault-user");
@@ -103,6 +125,69 @@ test_profile_wins (void)
     PN_CHECK_CMPSTR (cid,  ==, "vault-cid");
 
     g_free (url); g_free (user); g_free (pass); g_free (cid);
+    g_object_unref (v);
+    g_free (path);
+}
+
+/* TLS trust material + keep-alive come from the profile (review M3).  A field
+ * left unset resolves to its schema default: "" for the paths, FALSE for the
+ * insecure toggle, and 60 for keep-alive. */
+static void
+test_profile_tls_opts (void)
+{
+    gchar         *path = g_build_filename (tmp_dir, "tls.json", NULL);
+    PnVault       *v    = pn_vault_new_for_path (path);
+    PnProfile     *p    = pn_vault_create_profile (v, PN_PROFILE_TYPE_MQTT_BROKER,
+                                                   "TLS Broker");
+    gchar         *url  = NULL;
+    PnMqttConnOpts opts = { 0 };
+
+    pn_profile_set_field (p, "url",          "ssl://broker:8883");
+    pn_profile_set_field (p, "ca-file",      "/etc/pki/ca.pem");
+    pn_profile_set_field (p, "client-cert",  "/etc/pki/client.pem");
+    pn_profile_set_field (p, "client-key",   "/etc/pki/client.key");
+    pn_profile_set_field (p, "tls-insecure", "true");
+    pn_profile_set_field (p, "keepalive",    "30");
+
+    pn_mqtt_resolve_connection (p, NULL, NULL, NULL, NULL,
+                                &url, NULL, NULL, NULL, &opts);
+
+    PN_CHECK_CMPSTR (url,               ==, "ssl://broker:8883");
+    PN_CHECK_CMPSTR (opts.ca_file,      ==, "/etc/pki/ca.pem");
+    PN_CHECK_CMPSTR (opts.client_cert,  ==, "/etc/pki/client.pem");
+    PN_CHECK_CMPSTR (opts.client_key,   ==, "/etc/pki/client.key");
+    PN_CHECK (opts.tls_insecure == TRUE);
+    PN_CHECK_CMPINT (opts.keepalive,    ==, 30);
+
+    g_free (url);
+    pn_mqtt_conn_opts_clear (&opts);
+    g_object_unref (v);
+    g_free (path);
+}
+
+/* An unconfigured profile yields the schema defaults: empty TLS paths,
+ * verification on, and the 60 s keep-alive default. */
+static void
+test_profile_opts_defaults (void)
+{
+    gchar         *path = g_build_filename (tmp_dir, "tls-default.json", NULL);
+    PnVault       *v    = pn_vault_new_for_path (path);
+    PnProfile     *p    = pn_vault_create_profile (v, PN_PROFILE_TYPE_MQTT_BROKER,
+                                                   "Plain Broker");
+    PnMqttConnOpts opts = { 0 };
+
+    pn_profile_set_field (p, "url", "ssl://broker:8883");
+
+    pn_mqtt_resolve_connection (p, NULL, NULL, NULL, NULL,
+                                NULL, NULL, NULL, NULL, &opts);
+
+    PN_CHECK_CMPSTR (opts.ca_file,     ==, "");
+    PN_CHECK_CMPSTR (opts.client_cert, ==, "");
+    PN_CHECK_CMPSTR (opts.client_key,  ==, "");
+    PN_CHECK (opts.tls_insecure == FALSE);
+    PN_CHECK_CMPINT (opts.keepalive,   ==, 60);   /* schema default */
+
+    pn_mqtt_conn_opts_clear (&opts);
     g_object_unref (v);
     g_free (path);
 }
@@ -162,7 +247,10 @@ main (int argc, char **argv)
 
     pn_test_add ("inline_fallback",          test_inline_fallback);
     pn_test_add ("inline_nulls_become_empty", test_inline_nulls_become_empty);
+    pn_test_add ("inline_opts_default",      test_inline_opts_default);
     pn_test_add ("profile_wins",             test_profile_wins);
+    pn_test_add ("profile_tls_opts",         test_profile_tls_opts);
+    pn_test_add ("profile_opts_defaults",    test_profile_opts_defaults);
     pn_test_add ("custom_sentinel_uses_inline", test_custom_sentinel_uses_inline);
 
     rc = pn_test_run ();

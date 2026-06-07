@@ -41,10 +41,8 @@
 #define PN_MQTT_DEFAULT_URL   ""
 #define PN_MQTT_DEFAULT_TOPIC "#"
 
-/* MQTT keep-alive (seconds).  The broker disconnects a client that
- * goes silent for 1.5x this — 60 s gives a brisk dead-peer detection
- * window without flooding the network with pings on idle sessions. */
-#define PN_MQTT_KEEPALIVE_SECONDS 60
+/* Keep-alive comes from the broker profile now (default 60); see
+ * pn_mqtt_keepalive_seconds() in pn-mqtt-util. */
 
 /* Reconnect back-off bounds in seconds.  libmosquitto handles the
  * actual reconnect itself when used through the threaded loop; we just
@@ -232,7 +230,8 @@ resolve_connection (PnMqtt *self,
                     gchar **out_url,
                     gchar **out_user,
                     gchar **out_pass,
-                    gchar **out_cid)
+                    gchar **out_cid,
+                    PnMqttConnOpts *out_opts)
 {
     PnMqttPrivate *priv = PRIV (self);
     PnProfile     *p    = pn_node_get_profile (PN_NODE (self), "broker-profile");
@@ -243,7 +242,7 @@ resolve_connection (PnMqtt *self,
      * pn_node_get_profile returns NULL (see pn_mqtt_resolve_connection). */
     pn_mqtt_resolve_connection (p, priv->url, priv->username, priv->password,
                                 priv->client_id,
-                                out_url, out_user, out_pass, out_cid);
+                                out_url, out_user, out_pass, out_cid, out_opts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -264,7 +263,7 @@ apply_visual_state (PnMqtt *self)
     gchar         *url   = NULL;
     gboolean       ok;
 
-    resolve_connection (self, &url, NULL, NULL, NULL);
+    resolve_connection (self, &url, NULL, NULL, NULL, NULL);
     ok = priv->connected && url != NULL && *url != '\0';
     g_free (url);
 
@@ -703,10 +702,11 @@ restart_client (PnMqtt *self)
     gchar         *user = NULL;
     gchar         *pass = NULL;
     gchar         *cid  = NULL;
+    PnMqttConnOpts opts = { 0 };
 
     stop_client (self);
 
-    resolve_connection (self, &url, &user, &pass, &cid);
+    resolve_connection (self, &url, &user, &pass, &cid, &opts);
 
     if (url == NULL || *url == '\0')
         goto out;
@@ -765,15 +765,36 @@ restart_client (PnMqtt *self)
 
     if (tls)
     {
-        /* No CA file / cert pinning yet — let the system trust store
-         * verify the broker's certificate.  Users with a private CA
-         * can supply the cert through the OS trust store; richer TLS
-         * knobs (CAfile, mTLS) can land later as additional
-         * properties without breaking this path. */
-        err = mosquitto_tls_set (priv->client, NULL, NULL, NULL, NULL, NULL);
+        /* Trust material from the profile (review M3): a CA bundle (NULL →
+         * the system trust store, today's behaviour) plus an optional client
+         * cert/key pair for mutual TLS.  Empty strings mean "unset". */
+        const gchar *cafile = (opts.ca_file     && *opts.ca_file)     ? opts.ca_file     : NULL;
+        const gchar *cert   = (opts.client_cert && *opts.client_cert) ? opts.client_cert : NULL;
+        const gchar *key    = (opts.client_key  && *opts.client_key)  ? opts.client_key  : NULL;
+
+        /* libmosquitto needs both halves of an mTLS pair or neither; a lone
+         * one is a misconfiguration, so drop it rather than fail the connect. */
+        if ((cert != NULL) != (key != NULL))
+        {
+            pn_node_log_error (PN_NODE (self),
+                               "mutual TLS needs both a client certificate and "
+                               "a key; ignoring the lone %s",
+                               cert ? "certificate" : "key");
+            cert = key = NULL;
+        }
+
+        err = mosquitto_tls_set (priv->client, cafile, NULL, cert, key, NULL);
         if (err != MOSQ_ERR_SUCCESS)
             pn_node_log_error (PN_NODE (self), "TLS setup failed: %s",
                                mosquitto_strerror (err));
+        else if (opts.tls_insecure)
+        {
+            /* Opt-in, dev-only: accept a certificate that does not chain to a
+             * trusted CA or match the hostname.  Logged so it is never silent. */
+            mosquitto_tls_insecure_set (priv->client, TRUE);
+            pn_node_log (PN_NODE (self), PN_LOG_LEVEL_WARNING,
+                         "TLS certificate verification disabled (insecure)");
+        }
     }
 
     /* Snapshot the subscribe topic/qos for the network thread before the
@@ -783,7 +804,7 @@ restart_client (PnMqtt *self)
     priv->sub_qos   = (int) priv->qos;
 
     err = mosquitto_connect_async (priv->client, host, port,
-                                   PN_MQTT_KEEPALIVE_SECONDS);
+                                   pn_mqtt_keepalive_seconds (opts.keepalive));
     if (err != MOSQ_ERR_SUCCESS)
     {
         pn_node_log_error (PN_NODE (self), "connect to %s:%d failed: %s",
@@ -819,6 +840,7 @@ fail_destroy:
 out:
     g_free (host);
     g_free (url); g_free (user); g_free (pass); g_free (cid);
+    pn_mqtt_conn_opts_clear (&opts);
     /* Visual state stays red until on_mqtt_connect lands a successful
      * CONNACK on the main thread — which is when we actually have a
      * working subscription, not just a TCP socket pending. */
