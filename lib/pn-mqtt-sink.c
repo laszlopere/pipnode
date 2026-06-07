@@ -1134,6 +1134,29 @@ pn_mqtt_sink_dispose (GObject *object)
         g_source_remove (priv->restart_idle_id);
         priv->restart_idle_id = 0;
     }
+
+    /* The offline backlog is a transient, in-memory, best-effort buffer
+     * scoped to the live broker session and this node's lifetime; it is
+     * not persisted across saves or sessions (review M2).  On teardown
+     * (node removed, worksheet closed, app quitting) we give it one last
+     * chance: if the link is still up, flush before stop_client destroys
+     * the client — the network thread is still running here, so a QoS-0
+     * publish reaches the wire.  Anything that cannot go out now (we are
+     * offline, or a queued publish failed) is dropped with the node;
+     * surface that count rather than discarding it silently in finalize. */
+    if (priv->client != NULL && priv->connected)
+        flush_pending (self);
+    if (priv->pending != NULL)
+    {
+        guint lost = g_queue_get_length (priv->pending);
+        if (lost > 0)
+            pn_node_log (PN_NODE (self), PN_LOG_LEVEL_WARNING,
+                         "discarding %u buffered publish%s never delivered "
+                         "to the broker (the offline backlog is not "
+                         "persisted across sessions)",
+                         lost, lost == 1 ? "" : "es");
+    }
+
     stop_client (self);
 
     G_OBJECT_CLASS (pn_mqtt_sink_parent_class)->dispose (object);

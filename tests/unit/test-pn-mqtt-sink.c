@@ -365,6 +365,69 @@ test_process_message_invoked (void)
     g_object_unref (self);
 }
 
+/* Captures the most recent log line containing "discarding", written by
+ * the handler below while the node (and its per-node log ring) is still
+ * alive — the ring is freed in finalize, so we cannot read it after the
+ * unref returns. */
+static gchar *g_dispose_log;
+
+static void
+on_log_changed_capture (PnNode *node, gpointer user_data)
+{
+    GPtrArray *log = pn_node_get_log (node);
+
+    (void) user_data;
+    if (log != NULL && log->len >= 1)
+    {
+        PnLogEntry  *e = g_ptr_array_index (log, log->len - 1);
+        const gchar *m = pn_log_entry_get_message (e);
+
+        if (m != NULL && g_strstr_len (m, -1, "discarding") != NULL)
+        {
+            g_free (g_dispose_log);
+            g_dispose_log = g_strdup (m);
+        }
+    }
+}
+
+/* A publish that arrives while the sink is offline is held in the
+ * bounded backlog.  That backlog is transient: it is not persisted, and
+ * when the node is torn down it is discarded.  Pin that the sink notes
+ * the dropped count in its log on dispose rather than losing the
+ * messages silently (review M2).  No broker is configured, so the
+ * default-construct sink never connects and the publish stays buffered. */
+static void
+test_dispose_warns_on_dropped_backlog (void)
+{
+    PnMqttSink *self = make_sink ();
+    PnNode     *node = PN_NODE (self);
+    PnMessage  *msg  = pn_message_new (NULL, "some/topic");
+
+    /* Drain the construction idles (migrate + the debounced initial
+     * connect); with no broker configured nothing actually connects. */
+    while (g_main_context_iteration (NULL, FALSE))
+        ;
+
+    /* A literal payload template makes build_payload succeed without a
+     * message member; offline, the resolved publish lands in the backlog
+     * instead of going out. */
+    g_object_set (self, "payload", "hello", NULL);
+    PN_NODE_GET_CLASS (node)->receive (node, msg);
+
+    g_clear_pointer (&g_dispose_log, g_free);
+    g_signal_connect (node, "log-changed",
+                      G_CALLBACK (on_log_changed_capture), NULL);
+
+    g_object_unref (msg);
+    g_object_unref (self);   /* dispose: logs + drops the buffered publish */
+
+    PN_CHECK (g_dispose_log != NULL);
+    if (g_dispose_log != NULL)
+        PN_CHECK (g_strstr_len (g_dispose_log, -1, "1 buffered publish") != NULL);
+
+    g_clear_pointer (&g_dispose_log, g_free);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -379,5 +442,6 @@ main (int argc, char **argv)
     pn_test_add ("default_report_error", test_default_report_error_logs);
     pn_test_add ("error_funnel_subclass", test_error_funnel_reaches_subclass);
     pn_test_add ("process_message_invoked", test_process_message_invoked);
+    pn_test_add ("dispose_warns_dropped_backlog", test_dispose_warns_on_dropped_backlog);
     return pn_test_run ();
 }

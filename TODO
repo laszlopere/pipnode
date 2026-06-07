@@ -847,10 +847,26 @@
                the missing mirror) is now message_json_bool_value, asserting
                1.0/0.0. (int64 precision left as is — data.value is a double by
                contract.)
-         - [ ] M2 Sink loses buffered messages on dispose (finalize :989) and on
+         - [x] M2 Sink loses buffered messages on dispose (finalize :989) and on
                a runtime URL change keeps the backlog and flushes commands meant
                for broker A to broker B. Decide + document; likely clear the
                queue when broker identity changes.
+               DONE in two parts. (a) Runtime broker change (commit 169721c):
+               restart_client's retarget guard drops a backlog buffered for the
+               old broker rather than misdelivering it to the new one; the
+               empty-URL "no broker" state is its own identity, so removing the
+               broker also clears it. (b) Dispose (2026-06-08): the offline
+               backlog is now documented as a transient, in-memory, best-effort
+               buffer scoped to the live session + node lifetime -- NOT persisted
+               across saves/sessions. pn_mqtt_sink_dispose makes one last
+               best-effort flush if still connected (the net thread is alive
+               there, so a QoS-0 publish reaches the wire), then logs a WARNING
+               with the count of anything still undelivered before stop_client
+               tears down -- finalize no longer drops it silently. Contract
+               written into PnMqttSink.html (backlog "lives only in memory"
+               paragraph); characterization test
+               dispose_warns_dropped_backlog in test-pn-mqtt-sink.c pins the
+               dispose-time log line.
          - [x] M3 DONE 2026-06-08. The broker profile gained CA-file / mTLS
                (client cert+key) / tls-insecure / keepalive fields; TLS is no
                longer system-trust-only and keepalive is no longer hard-coded.

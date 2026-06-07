@@ -74,6 +74,17 @@ broker is not silently misdelivered to another. Reconnecting to the
 the address unchanged) keeps the backlog, which is the whole point of
 the queue.
 </p>
+<p>
+The backlog lives only in memory, for the life of the node. It is
+<em>not</em> saved with the worksheet and does not survive a restart.
+When the node is torn down &mdash; deleted, its worksheet closed, or
+the application quit &mdash; the sink makes one last best-effort flush
+if it is still connected, then discards anything left undelivered and
+notes the count in its log. So an offline backlog is a bridge across a
+brief reconnect, not a durable store-and-forward spool: if delivery
+across process restarts matters, give the broker a persistent session
+or publish through one that retains.
+</p>
 
 <h5>Publish topic</h5>
 <p>
