@@ -196,8 +196,16 @@ render_value (gdouble  value,
 
     *neg_out = neg;
 
-    /* Round half-away-from-zero to the configured fractional resolution. */
-    scale  = pow (10.0, (double) frac_n);
+    /* Round half-away-from-zero to the configured fractional resolution.
+     * Guard the gint64 cast first: a finite but enormous reading (e.g.
+     * 1e300) makes av*scale overflow gint64, and casting an out-of-range
+     * double to gint64 is undefined behaviour.  Such a value can never
+     * fit in @int_n digits anyway, so treat it as an overload before the
+     * cast rather than after.  (gdouble) G_MAXINT64 rounds to 2^63, so
+     * the >= test keeps the surviving cast strictly in range. */
+    scale = pow (10.0, (double) frac_n);
+    if (!(av * scale + 0.5 < (gdouble) G_MAXINT64))
+        return FALSE;   /* overload (would overflow the gint64 below) */
     scaled = (gint64) floor (av * scale + 0.5);
 
     /* Split: low @frac_n digits are the fractional part, the rest the

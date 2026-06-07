@@ -1185,7 +1185,7 @@
                -- holds a ref on self, main-thread-only state.) Sibling theme to
                #38.1.
          LOW / NIT
-         [ ] 39.9 Numeric readout can cast an out-of-range double to gint64 (UB)
+         [x] 39.9 Numeric readout can cast an out-of-range double to gint64 (UB)
                before the overload check (lib/pn-numeric-gui.c:199-201). With
                digits=12/decimals=6, scale=1e6; a finite but huge data.value
                (e.g. 1e300) makes av*scale ~1e306 and `(gint64)
@@ -1193,6 +1193,11 @@
                guard. read_value only filters non-finite, not
                out-of-gint64-range. Fix: clamp av (or test av*scale against
                G_MAXINT64) before the cast.
+               DONE 2026-06-07: render_value now returns FALSE (overload)
+               when av*scale+0.5 >= (gdouble) G_MAXINT64 -- before the gint64
+               cast rather than after -- so an enormous finite reading reads
+               as overload instead of triggering UB. Such a value can never
+               fit in int_n (<=12) digits anyway.
          [ ] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
                (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
                desktop launcher; convention prefers a node failure message /
