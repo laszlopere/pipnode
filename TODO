@@ -1228,13 +1228,18 @@
                closing the worksheet leaves the player running. Also the
                per-message subprocess spawn is the #38.1 convention theme
                (likely an inherent exception for a GTK-free core audio node).
-         [ ] 39.13 Ollama can pass NULL to json_node_get_object
+         [x] 39.13 Ollama can pass NULL to json_node_get_object
                (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
                whitespace body as success with a NULL root, so
                json_node_get_object(json_parser_get_root(parser)) emits a
                g_critical (noisy, invisible under the launcher) before the
                subsequent `root == NULL` check handles it cleanly. Fix: NULL /
                JSON_NODE_HOLDS_OBJECT guard the root before the call.
+               DONE 2026-06-07: parse_generate_reply now fetches the root
+               node and rejects it with the existing "response root is not an
+               object" parse error when it's NULL or !JSON_NODE_HOLDS_OBJECT,
+               before json_node_get_object -- no more g_critical on a blank or
+               non-object body.
          [ ] 39.14 TTS queue can stall on a failed re-spawn
                (lib/pn-tts.c:336-350): in on_speak_done, if pn_tts_speak fails
                to spawn the next utterance, self->speaking stays FALSE and

@@ -191,13 +191,21 @@ parse_generate_reply (
         return NULL;
     }
 
-    root = json_node_get_object (json_parser_get_root (parser));
-    if (root == NULL)
+    /* json-glib parses an empty / whitespace-only body as success with a
+     * NULL root, and json_node_get_object() g_critical()s on a NULL or
+     * non-object node -- noisy and invisible under the desktop launcher.
+     * Check the node first so a blank or malformed-shape reply degrades
+     * to a clean parse error instead. */
     {
-        if (error_out)
-            *error_out = g_strdup ("response root is not an object");
-        g_object_unref (parser);
-        return NULL;
+        JsonNode *root_node = json_parser_get_root (parser);
+        if (root_node == NULL || !JSON_NODE_HOLDS_OBJECT (root_node))
+        {
+            if (error_out)
+                *error_out = g_strdup ("response root is not an object");
+            g_object_unref (parser);
+            return NULL;
+        }
+        root = json_node_get_object (root_node);
     }
 
     /* Ollama surfaces request-level errors as `{"error": "..."}` with
