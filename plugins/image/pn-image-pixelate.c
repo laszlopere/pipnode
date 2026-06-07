@@ -51,13 +51,16 @@ pixelate_transform (GdkPixbuf *src, PnNode *node)
     const gint h   = gdk_pixbuf_get_height (src);
     const gint nch = gdk_pixbuf_get_n_channels (src);
     const gint srs = gdk_pixbuf_get_rowstride  (src);
-    const gint drs = gdk_pixbuf_get_rowstride  (dst);
     const guchar *sbase = gdk_pixbuf_get_pixels (src);
-    guchar       *dbase = gdk_pixbuf_get_pixels (dst);
+    gint drs;
+    guchar *dbase;
     gint bx, by, i, j;
 
     if (dst == NULL)
         return NULL;
+
+    drs   = gdk_pixbuf_get_rowstride (dst);
+    dbase = gdk_pixbuf_get_pixels (dst);
 
     for (by = 0; by < h; by += block)
     {

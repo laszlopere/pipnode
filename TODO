@@ -1161,7 +1161,7 @@
                passes, never the initial cut. cairo renders tofu. Fix: align the
                first cut to a UTF-8 boundary (g_utf8_find_prev_char). Triggers
                only on >252-byte strings.
-         [ ] 39.5 Image Pixelate dereferences dst before its NULL check
+         [x] 39.5 Image Pixelate dereferences dst before its NULL check
                (plugins/image/pn-image-pixelate.c:54,56).
                gdk_pixbuf_get_rowstride /_get_pixels are called on dst before
                the `if (dst == NULL) return` guard at :59, so the guard is dead
