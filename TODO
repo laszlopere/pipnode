@@ -1215,11 +1215,17 @@
                cancel in dispose (the pn-ws.c / https-tunnel pattern).
                DONE 2026-06-07: added pn_ollama_dispose (registered in
                class_init) that cancels + clears the cancellable and session;
-               finalize now only frees the owned strings. Cancelling in
-               dispose aborts the in-flight request so soup fires
-               on_generate_done with G_IO_ERROR_CANCELLED (already handled),
-               dropping the GenerateCtx ref and unpinning the node.
-         [ ] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async
+               finalize now only frees the owned strings. CAVEAT discovered
+               while doing #39.12: node teardown here is refcount-only (no
+               g_object_run_dispose anywhere in the tree), so dispose runs at
+               refcount 0 -- same moment as finalize -- and on_generate_done's
+               GenerateCtx strong ref holds that off until the request
+               completes. So this is the conventional place for the teardown
+               and matches pn-ws.c, but it does NOT actually abort an
+               in-flight request early / unpin the node mid-request. A true
+               early abort would need the node store to run_dispose nodes on
+               removal (deferred -- broad blast radius across every node).
+         [x] 39.12 Sci-Fi Sound has no dispose: the g_subprocess_wait_async
                callback g_object_ref's self but the spawned media player is
                never terminated and the wait is never cancelled
                (plugins/sound-effects/pn-sci-fi-sound.c:154 + overall). No UAF
@@ -1228,6 +1234,16 @@
                closing the worksheet leaves the player running. Also the
                per-message subprocess spawn is the #38.1 convention theme
                (likely an inherent exception for a GTK-free core audio node).
+               DONE 2026-06-07: the node now keeps the player (sub) + a
+               per-play GCancellable on the struct; pn_sci_fi_sound_dispose
+               cancels the wait and g_subprocess_force_exit's the player,
+               on_play_done clears both and skips logging G_IO_ERROR_CANCELLED.
+               Same refcount-0 caveat as #39.11 (no g_object_run_dispose in
+               the tree, on_play_done holds a strong ref): this is teardown
+               hygiene -- the right place to release the player + wait -- not
+               a true mid-playback abort, which would need run_dispose on node
+               removal. The per-message subprocess spawn is left as-is (the
+               #38.1 inherent exception for a GTK-free core audio node).
          [x] 39.13 Ollama can pass NULL to json_node_get_object
                (plugins/ollama/pn-ollama.c:200): json-glib parses an empty/
                whitespace body as success with a NULL root, so

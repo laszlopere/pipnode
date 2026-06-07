@@ -66,6 +66,12 @@ struct _PnSciFiSound
     guint    dead_period;
     gboolean playing;
     gint64   ready_at_us;
+
+    /* The running media player and the cancellable for its wait_async,
+     * kept so dispose can force the player to exit and cancel the wait.
+     * Both non-NULL only while @playing; cleared in on_play_done. */
+    GSubprocess  *sub;
+    GCancellable *cancellable;
 };
 
 G_DEFINE_TYPE (PnSciFiSound, pn_sci_fi_sound, PN_TYPE_NODE)
@@ -112,8 +118,11 @@ on_play_done (GObject *source, GAsyncResult *result, gpointer user_data)
     g_subprocess_wait_finish (sub, result, &error);
     if (error != NULL)
     {
-        pn_node_log_error (PN_NODE (self),
-                           "Playback failed: %s", error->message);
+        /* A dispose-time cancellation lands here too; that is an orderly
+         * teardown, not a playback failure, so don't log it. */
+        if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            pn_node_log_error (PN_NODE (self),
+                               "Playback failed: %s", error->message);
         g_error_free (error);
     }
 
@@ -125,7 +134,8 @@ on_play_done (GObject *source, GAsyncResult *result, gpointer user_data)
      * sci_fi_sound_play_file(). */
     pn_node_processing_end (PN_NODE (self));
 
-    g_object_unref (sub);
+    g_clear_object (&self->cancellable);
+    g_clear_object (&self->sub);   /* drops the g_subprocess_newv ref */
     g_object_unref (self);
 }
 
@@ -166,12 +176,19 @@ sci_fi_sound_play_file (PnSciFiSound *self, const gchar *path)
 
     self->playing = TRUE;
 
+    /* Hold the player's ref and a fresh cancellable so dispose can stop
+     * it; a GCancellable stays cancelled once tripped, so recreate it per
+     * play rather than reuse. */
+    g_clear_object (&self->cancellable);
+    self->cancellable = g_cancellable_new ();
+    self->sub         = sub;   /* transfers the g_subprocess_newv ref */
+
     /* Light the processing glow for the whole playback run; the
      * synchronous receive() wrap only covers the kickoff.  Balanced by
      * the pn_node_processing_end() in on_play_done(). */
     pn_node_processing_begin (PN_NODE (self));
 
-    g_subprocess_wait_async (sub, NULL,
+    g_subprocess_wait_async (sub, self->cancellable,
                              on_play_done, g_object_ref (self));
     return TRUE;
 }
@@ -278,6 +295,33 @@ pn_sci_fi_sound_set_property (GObject      *object,
 /* ------------------------------------------------------------------ */
 
 static void
+pn_sci_fi_sound_dispose (GObject *object)
+{
+    PnSciFiSound *self = PN_SCI_FI_SOUND (object);
+
+    /* Stop a clip still playing when the node is torn down: cancel the
+     * wait and force the media player to exit so it doesn't keep playing
+     * after the worksheet closes.
+     *
+     * Caveat (same as Ollama #39.11): node teardown in this tree is
+     * refcount-only -- there is no g_object_run_dispose anywhere, so this
+     * runs at refcount 0, which the on_play_done strong ref from
+     * wait_async holds off until the player exits.  So mid-playback this
+     * is teardown hygiene (the right place to release the player + wait)
+     * rather than a true early abort; a real abort would need the store
+     * to run_dispose nodes on removal. */
+    if (self->cancellable != NULL)
+        g_cancellable_cancel (self->cancellable);
+    if (self->sub != NULL)
+        g_subprocess_force_exit (self->sub);
+
+    g_clear_object (&self->cancellable);
+    g_clear_object (&self->sub);
+
+    G_OBJECT_CLASS (pn_sci_fi_sound_parent_class)->dispose (object);
+}
+
+static void
 pn_sci_fi_sound_finalize (GObject *object)
 {
     PnSciFiSound *self = PN_SCI_FI_SOUND (object);
@@ -299,6 +343,7 @@ pn_sci_fi_sound_class_init (PnSciFiSoundClass *klass)
 
     object_class->get_property = pn_sci_fi_sound_get_property;
     object_class->set_property = pn_sci_fi_sound_set_property;
+    object_class->dispose      = pn_sci_fi_sound_dispose;
     object_class->finalize     = pn_sci_fi_sound_finalize;
 
     /* No build_class_tabs here — the settings dialog ships in the
@@ -351,6 +396,8 @@ pn_sci_fi_sound_init (PnSciFiSound *self)
     self->dead_period = PN_SCI_FI_SOUND_DEAD_PERIOD_DEF;
     self->playing     = FALSE;
     self->ready_at_us = 0;
+    self->sub         = NULL;
+    self->cancellable = NULL;
 
     pn_node_set_class_name (node, "SciFi Sound");
     pn_node_set_has_input  (node, TRUE);
