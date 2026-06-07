@@ -33,6 +33,12 @@ Core nodes, by category:
 Bundled-plugin nodes (in-tree, under `plugins/`):
 
 - [`reference/plugins-tasmota.md`](reference/plugins-tasmota.md) — **Tasmota** (smart plugs/switches/sensors over MQTT): Power, Current, Voltage, Apparent Power, Reactive Power, Power Factor, Temperature, Humidity, Switch, Relay Command, Relay Status, Status, Status Request, Probe, Concentrator
+- [`reference/plugins-host-monitoring.md`](reference/plugins-host-monitoring.md) — **Host monitoring** (periodic local/SSH host metrics): CPU, Memory, System Load, CPU Temperature, Ambient Temperature, Disk I/O, Network I/O, Net Connections
+- [`reference/plugins-network.md`](reference/plugins-network.md) — **Network** (the plugin, distinct from the core Network category): Network Ping, DNS Check, HTTPS Tunnel Sender, HTTPS Tunnel Receiver
+- [`reference/plugins-shell.md`](reference/plugins-shell.md) — **Shell** (periodic CLI-runner sources, the documented subprocess exception): Shell Command, Df Command, Free Command, Lxc Ls Command, Tmux Monitor
+- [`reference/plugins-image.md`](reference/plugins-image.md) — **Image Processing** (55 pure-C pixbuf filters): Grayscale, Brightness, Gaussian Blur, Sobel Edge, Multiply, Crop, Resize, Rotate, … (Color/Adjust/Blur/Sharpen/Edge/Composite/Geometry/Stylize)
+- [`reference/plugins-ollama.md`](reference/plugins-ollama.md) — **Ollama** (LLM completion via a local/remote Ollama server)
+- [`reference/plugins-sound-effects.md`](reference/plugins-sound-effects.md) — **Sound effects**: SciFi Sound (downloadable Star Trek clip player)
 
 ## The message contract (read this first)
 
