@@ -41,6 +41,7 @@
 #include "pn-tasmota-status.h"
 #include "pn-tasmota-status-request.h"
 #include "pn-tasmota-probe.h"
+#include "pn-tasmota-concentrator.h"
 #include "pn-tasmota-relay-status.h"
 #include "pn-tasmota-relay-command.h"
 #include "pn-tasmota-switch.h"
@@ -66,6 +67,7 @@ pn_plugin_init (PnNodeFactory *factory)
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_STATUS);
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_STATUS_REQUEST);
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_PROBE);
+    pn_node_factory_register (factory, PN_TYPE_TASMOTA_CONCENTRATOR);
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_RELAY_STATUS);
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_RELAY_COMMAND);
     pn_node_factory_register (factory, PN_TYPE_TASMOTA_SWITCH);

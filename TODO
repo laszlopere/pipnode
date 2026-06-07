@@ -55,17 +55,19 @@ used alongside the existing PnTasmotaStatusRequest.
     into pn-tasmota-common). fa-binoculars icon, violet body. Help page +
     8-case unit test (tests/unit/test-pn-tasmota-probe.c) added.
 
-[ ] 22.2 Concentrator / collector node (e.g. PnTasmotaConcentrator).
+[x] 22.2 Concentrator / collector node (PnTasmotaConcentrator). DONE.
     Input wires from the MQTT Source (the stat/<device>/STATUS* replies,
-    optionally also tele/.../STATE|SENSOR). Accumulates a per-device
-    record, merging each STATUS / STATUS5 / STATUS11 fragment into one
-    object keyed by device. Emit policy per the user's spec: when a
-    Tasmota message arrives AND enough time has elapsed since the last
-    emit (debounce / min-interval, configurable), send ONE combined
-    message carrying the collected data for ALL devices (e.g.
-    data.devices = { <device>: {..merged..}, ... }) to a downstream
+    optionally also tele/.../STATE|SENSOR via the merge-telemetry prop).
+    Accumulates a per-device record, top-level-merging each STATUS /
+    STATUS5 / STATUS11 fragment into one object keyed by device. Emit
+    policy: when an accepted message arrives AND >= `interval` seconds
+    (default 2, debounce; 0 = every message) have elapsed since the last
+    emit, sends ONE combined message with data.devices = { <device>:
+    {..merged..}, ... } + data.value (device count) to a downstream
     Debug / table / HTTP view. Holds state across messages; optional
-    timeout to drop devices that have gone silent.
+    `timeout` (default 0 = never) drops devices gone silent. fa-database
+    icon, sea-green body. Help page + 10-case unit test
+    (tests/unit/test-pn-tasmota-concentrator.c) added.
 
 [ ] 22.3 Wiring recipe + example worksheet (tasmota-discovery.json:
     MQTT Source -> Prober -> MQTT Sink, and MQTT Source -> Concentrator

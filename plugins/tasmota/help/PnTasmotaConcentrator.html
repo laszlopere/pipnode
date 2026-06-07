@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Concentrator (PnTasmotaConcentrator) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaConcentrator">Tasmota Concentrator</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaConcentrator</code>.
+</p>
+<p>
+The collector half of the Tasmota concentrator, companion to the
+<em>Tasmota Probe</em>. Sits on a branch from an <em>MQTT Source</em> and
+gathers the per-device replies the devices publish on
+<code>stat/&lt;device&gt;/STATUS#</code> (and, optionally, the
+<code>tele/&lt;device&gt;/STATE</code> and
+<code>tele/&lt;device&gt;/SENSOR</code> telemetry). It accumulates one
+record per device and emits a single combined snapshot of the whole
+fleet to a downstream <em>Debug</em>, table, or HTTP view.
+</p>
+
+<h5>How the two nodes cooperate</h5>
+<p>
+The <em>Probe</em> is the <strong>active</strong> half: it discovers
+devices from the telemetry stream and fires a <code>Status</code> query
+at each one. The <em>Concentrator</em> is the <strong>passive</strong>
+half: it consumes the <code>STATUS#</code> replies those queries
+provoke. They are kept as <strong>separate nodes</strong> so each can be
+wired independently &mdash; the Probe&apos;s output to an <em>MQTT
+Sink</em>, the Concentrator on a parallel branch to a view &mdash; and
+composed into the full <em>discover &rarr; poll &rarr; collect &rarr;
+present</em> loop.
+</p>
+
+<h5>Why the replies arrive in fragments</h5>
+<p>
+A Tasmota <code>Status&nbsp;0</code> query does not answer with one
+message: the firmware splits its report across a dozen separate
+publishes &mdash; <code>STATUS</code>, <code>STATUS1</code> &hellip;
+<code>STATUS11</code> &mdash; each on its own topic and each carrying a
+distinctly-keyed JSON object (<code>Status</code>, <code>StatusNET</code>,
+<code>StatusSTS</code>, &hellip;). This node stitches those fragments
+back into one object per device.
+</p>
+
+<h5>How it merges</h5>
+<p>
+Each accepted payload is <strong>shallow-merged at the top level</strong>
+into the device&apos;s record: every member of the incoming object is
+copied in, replacing any member of the same name. Because Tasmota keys
+each section distinctly, the sections accumulate side by side rather than
+clobbering each other; re-sending a section simply refreshes it. The
+device is identified by the <code>&lt;device&gt;</code> segment of the
+topic (the canonical Tasmota <code>&lt;prefix&gt;/&lt;device&gt;/&lt;command&gt;</code>
+topology). The group topic <code>tasmotas</code> is never collected.
+</p>
+
+<h5>When it emits</h5>
+<p>
+Whenever an accepted message arrives <strong>and</strong> at least
+<code>interval</code> seconds have elapsed since the previous emit, the
+node sends <strong>one</strong> combined message whose
+<code>data.devices</code> member maps every known device to its merged
+record. The min-interval debounces the burst of <code>STATUS#</code>
+replies that a single <code>Status&nbsp;0</code> provokes into one
+downstream update.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>interval</code></td>
+      <td>Minimum seconds between two emitted snapshots. Default:
+          <code>2</code>. Set to <code>0</code> to emit a snapshot on
+          every collected message.</td></tr>
+  <tr><td><code>timeout</code></td>
+      <td>Drop a device from the snapshot when its most recent reply is
+          older than this many seconds, so the snapshot reflects only
+          devices still reporting. Default: <code>0</code> (keep every
+          device once seen).</td></tr>
+  <tr><td><code>merge-telemetry</code></td>
+      <td>When on (the default), also fold
+          <code>tele/&lt;device&gt;/STATE</code> and
+          <code>tele/&lt;device&gt;/SENSOR</code> telemetry into each
+          record. Turn off to collect only the explicit
+          <code>STATUS#</code> sections.</td></tr>
+</table>
+
+<h5>Output shape</h5>
+<table>
+  <tr><th>Member</th><th>Value</th></tr>
+  <tr><td>envelope <code>topic</code></td>
+      <td><code>tasmota/devices</code></td></tr>
+  <tr><td><code>data.devices</code></td>
+      <td>Object mapping each known device name to its merged record,
+          e.g. <code>{ "sonoff19": { "Status": &hellip;, "StatusNET":
+          &hellip; }, "sonoff47": { &hellip; } }</code>.</td></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The number of devices in the snapshot.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>true</code> on every emitted snapshot.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g.
+          <code>2 devices: sonoff19, sonoff47</code>.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = tele/#, stat/#)
+    &rarr; Tasmota Probe (request  = Everything (Status 0),
+                          interval = 300)
+        &rarr; MQTT Sink (url = tcp://mqtt.homelab.local:1883)
+
+MQTT Source (topic = stat/+/STATUS#, tele/+/STATE, tele/+/SENSOR)
+    &rarr; Tasmota Concentrator (interval = 2)
+        &rarr; Debug</pre>
+<p>
+The <em>Probe</em> publishes <code>cmnd/&lt;device&gt;/Status&nbsp;0</code>
+per discovered device; each device answers with its
+<code>STATUS#</code> fragments, which the parallel branch&apos;s
+<em>Tasmota Concentrator</em> merges per device and presents as one
+combined snapshot in <em>Debug</em>.
+</p>
+
+<h5>See also</h5>
+<ul>
+  <li><em>Tasmota Probe</em> &mdash; the discovery / poll half that
+      emits the <code>Status</code> queries this node collects the
+      replies to.</li>
+  <li><em>Tasmota Status Request</em> &mdash; the manual, single-shot
+      query for one named device.</li>
+</ul>
+
+</body>
+</html>

@@ -121,6 +121,7 @@ check_PROGRAMS = \
 	test-pn-mqtt-util \
 	test-pn-mqtt-resolve \
 	test-pn-tasmota-probe \
+	test-pn-tasmota-concentrator \
 	test-pn-node-log \
 	test-pn-node-collate \
 	test-pn-node-processing
@@ -248,6 +249,11 @@ test_pn_mqtt_resolve_SOURCES = test-pn-mqtt-resolve.c pntest.c pntest.h
 # the same arrangement the shell / host-monitoring node tests use above.
 test_pn_tasmota_probe_SOURCES = test-pn-tasmota-probe.c pntest.c pntest.h \
 	$(top_srcdir)/plugins/tasmota/pn-tasmota-probe.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+
+test_pn_tasmota_concentrator_SOURCES = test-pn-tasmota-concentrator.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-concentrator.c \
 	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
 
 TESTS = $(check_PROGRAMS)
