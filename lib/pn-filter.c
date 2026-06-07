@@ -126,7 +126,7 @@ free_compiled (GArray *arr)
 }
 
 static GArray *
-compile_rules (const gchar *json_string)
+compile_rules (PnNode *node, const gchar *json_string)
 {
     GArray       *out    = g_array_new (FALSE, FALSE, sizeof (CompiledRule));
     JsonParser   *parser = json_parser_new ();
@@ -140,7 +140,8 @@ compile_rules (const gchar *json_string)
 
     if (!json_parser_load_from_data (parser, json_string, -1, &error))
     {
-        g_warning ("pn-filter: invalid rules JSON: %s", error->message);
+        pn_node_log_error (node, "Filter rules are not valid JSON: %s",
+                           error->message);
         g_error_free (error);
         g_object_unref (parser);
         return out;
@@ -487,7 +488,7 @@ pn_filter_set_property (
 
             free_compiled (self->compiled);
             g_array_unref (self->compiled);
-            self->compiled = compile_rules (self->rules_json);
+            self->compiled = compile_rules (PN_NODE (self), self->rules_json);
 
             g_object_notify_by_pspec (object, props[PROP_RULES]);
         }

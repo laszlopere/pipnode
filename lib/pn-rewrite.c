@@ -222,8 +222,8 @@ pn_rewrite_receive (
     parser = json_parser_new ();
     if (!json_parser_load_from_data (parser, expanded, -1, &error))
     {
-        g_warning ("pn-rewrite: template is not valid JSON after "
-                   "placeholder expansion: %s", error->message);
+        pn_node_log_error (node, "Template is not valid JSON after "
+                           "placeholder expansion: %s", error->message);
         g_error_free (error);
     }
     else

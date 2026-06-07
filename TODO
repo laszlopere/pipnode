@@ -1198,10 +1198,14 @@
                cast rather than after -- so an enormous finite reading reads
                as overload instead of triggering UB. Such a value can never
                fit in int_n (<=12) digits anyway.
-         [ ] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
+         [x] 39.10 Rewrite/Filter report bad-JSON-after-expansion via g_warning
                (lib/pn-rewrite.c:225, lib/pn-filter.c:143), invisible under the
                desktop launcher; convention prefers a node failure message /
                log.
+               DONE 2026-06-07: both now call pn_node_log_error (visible in
+               the Log dialog / Debug View without a terminal) instead of
+               g_warning. compile_rules() gained a PnNode* parameter threaded
+               from set_property so it can log against the node.
          [ ] 39.11 Ollama cancellation lives in finalize, not dispose
                (plugins/ollama/pn-ollama.c:536-543), so it never aborts an
                in-flight request -- on_generate_done holds a strong ref on self,
