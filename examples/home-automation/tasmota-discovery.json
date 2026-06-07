@@ -1,0 +1,110 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "0f30cd3b-a6f0-42cf-b69d-6082074b8bf5",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 40.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "subscribe-topic" : "#",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaProbe",
+      "uuid" : "44d5c71c-a948-4327-b953-b8c576c4552b",
+      "name" : "Tasmota Probe 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "request" : "Everything (Status 0)",
+        "interval" : 300.0
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "c2c59338-a0c2-46a6-a7df-77076e791db6",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaConcentrator",
+      "uuid" : "5773dcf7-9aed-4638-b0c3-d19c790ca270",
+      "name" : "Tasmota Concentrator 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "interval" : 2.0,
+        "timeout" : 0.0,
+        "merge-telemetry" : true
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "b7edcdd2-df5b-4ce8-8618-d9d1ba24194f",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "0f30cd3b-a6f0-42cf-b69d-6082074b8bf5",
+      "target_id" : "44d5c71c-a948-4327-b953-b8c576c4552b"
+    },
+    {
+      "source_id" : "44d5c71c-a948-4327-b953-b8c576c4552b",
+      "target_id" : "c2c59338-a0c2-46a6-a7df-77076e791db6"
+    },
+    {
+      "source_id" : "0f30cd3b-a6f0-42cf-b69d-6082074b8bf5",
+      "target_id" : "5773dcf7-9aed-4638-b0c3-d19c790ca270"
+    },
+    {
+      "source_id" : "5773dcf7-9aed-4638-b0c3-d19c790ca270",
+      "target_id" : "b7edcdd2-df5b-4ce8-8618-d9d1ba24194f"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

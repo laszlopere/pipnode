@@ -69,14 +69,19 @@ used alongside the existing PnTasmotaStatusRequest.
     icon, sea-green body. Help page + 10-case unit test
     (tests/unit/test-pn-tasmota-concentrator.c) added.
 
-[ ] 22.3 Wiring recipe + example worksheet (tasmota-discovery.json:
-    MQTT Source -> Prober -> MQTT Sink, and MQTT Source -> Concentrator
-    -> Debug) + help pages for both nodes. Document the group-topic
-    no-reply gotcha in the help so the per-device design is explained.
+[x] 22.3 Wiring recipe + example worksheet. DONE.
+    examples/home-automation/tasmota-discovery.json wires MQTT Source ->
+    Tasmota Probe -> MQTT Sink and MQTT Source -> Tasmota Concentrator ->
+    Debug (registered in examples/Makefile.am; loads clean under
+    pipnode-run). Help pages for both nodes already shipped with 22.1/22.2
+    and document the group-topic no-reply gotcha (PnTasmotaProbe.html
+    "Why per-device, not one broadcast").
 
-[ ] 22.4 Keep prober and concentrator as SEPARATE nodes (each
-    independently wireable per the user's plan) rather than one fused
-    node; they compose into the full discover-poll-collect-present loop.
+[x] 22.4 Keep prober and concentrator as SEPARATE nodes. DONE -- they are
+    two independently-wireable core nodes (PnTasmotaProbe,
+    PnTasmotaConcentrator) and the tasmota-discovery.json example composes
+    them into the full discover-poll-collect-present loop rather than
+    fusing them.
 
 Relation to item (20): (20) is the same idea at recipe level (publish
 Status 5, listen on stat/+/STATUS5, surface IPAddress/Hostname/Mac for
