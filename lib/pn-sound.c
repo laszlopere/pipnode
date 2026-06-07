@@ -22,6 +22,12 @@
 
 #include <gio/gio.h>
 
+#ifdef HAVE_PN_AUDIO
+#include <sndfile.h>
+#include <pulse/simple.h>
+#include <pulse/error.h>
+#endif
+
 #define PN_SOUND_NORMAL_ICON  "\xef\x80\xa8"        /* fa-volume-up U+F028 */
 
 #define PN_SOUND_DEAD_PERIOD_MIN 0u
@@ -46,8 +52,9 @@ struct _PnSound
      * the dead window is active incoming messages are dropped. */
     guint dead_period;
 
-    /* %TRUE while a canberra-gtk-play subprocess is still running.
-     * Cleared from on_play_done() once the process exits. */
+    /* %TRUE while a clip is still playing (an in-process worker thread
+     * or, in the fallback build, a paplay subprocess).  Cleared by
+     * playback_finished() once playback completes. */
     gboolean playing;
 
     /* Monotonic timestamp (microseconds) at which the dead period
@@ -91,9 +98,128 @@ apply_visual_state (
 /*  Playback                                                           */
 /* ------------------------------------------------------------------ */
 
-/** Reap the asynchronous paplay spawn.  Releases the GSubprocess
- *  held by @source and arms the dead-period window so the next
- *  message can be considered after dead-period seconds. */
+/** Common post-playback bookkeeping, shared by the in-process and
+ *  subprocess paths.  Clears the busy flag, arms the dead-period window
+ *  so the next message is considered only after dead-period seconds, and
+ *  closes the processing glow opened in pn_sound_play().  Main thread. */
+static void
+playback_finished (PnSound *self)
+{
+    self->playing     = FALSE;
+    self->ready_at_us = g_get_monotonic_time ()
+                      + (gint64) self->dead_period * G_TIME_SPAN_SECOND;
+
+    pn_node_processing_end (PN_NODE (self));
+}
+
+#ifdef HAVE_PN_AUDIO
+/** Decode @path with libsndfile and stream it to the PulseAudio/PipeWire
+ *  server with libpulse-simple.  Runs on a GTask worker thread; touches
+ *  only the path handed in, never the node's main-thread state.  Both
+ *  calls block, which is exactly why this lives off the main loop. */
+static void
+play_in_thread (
+        GTask        *task,
+        gpointer      source,
+        gpointer      task_data,
+        GCancellable *cancellable)
+{
+    const gchar      *path = task_data;
+    SF_INFO           info = { 0 };
+    SNDFILE          *snd;
+    pa_simple        *pa;
+    pa_sample_spec    ss;
+    short            *buf;
+    sf_count_t        n;
+    const sf_count_t  frames_per_chunk = 4096;
+    int               paerr = 0;
+
+    (void) source;
+    (void) cancellable;
+
+    snd = sf_open (path, SFM_READ, &info);
+    if (snd == NULL)
+    {
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "could not open audio file '%s': %s",
+                                 path, sf_strerror (NULL));
+        return;
+    }
+    if (info.channels < 1 || info.samplerate < 1)
+    {
+        sf_close (snd);
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "unsupported audio format in '%s'", path);
+        return;
+    }
+
+    ss.format   = PA_SAMPLE_S16NE;
+    ss.rate     = (uint32_t) info.samplerate;
+    ss.channels = (uint8_t)  info.channels;
+
+    pa = pa_simple_new (NULL, "pipnode", PA_STREAM_PLAYBACK, NULL,
+                        "Sound node", &ss, NULL, NULL, &paerr);
+    if (pa == NULL)
+    {
+        sf_close (snd);
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "could not connect to the audio server: %s",
+                                 pa_strerror (paerr));
+        return;
+    }
+
+    buf = g_new (short, (gsize) frames_per_chunk * info.channels);
+    while ((n = sf_readf_short (snd, buf, frames_per_chunk)) > 0)
+    {
+        if (pa_simple_write (pa, buf,
+                             (size_t) n * info.channels * sizeof (short),
+                             &paerr) < 0)
+        {
+            g_free (buf);
+            pa_simple_free (pa);
+            sf_close (snd);
+            g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                     "audio playback failed: %s",
+                                     pa_strerror (paerr));
+            return;
+        }
+    }
+
+    g_free (buf);
+    pa_simple_drain (pa, &paerr);
+    pa_simple_free (pa);
+    sf_close (snd);
+    g_task_return_boolean (task, TRUE);
+}
+
+/** Main-thread completion for the in-process worker: surface any error
+ *  and run the shared teardown.  The GTask held the only ref keeping
+ *  @self alive across playback; it is released when @result is. */
+static void
+on_play_ready (
+        GObject      *source,
+        GAsyncResult *result,
+        gpointer      user_data)
+{
+    PnSound *self  = PN_SOUND (source);
+    GError  *error = NULL;
+
+    (void) user_data;
+
+    if (!g_task_propagate_boolean (G_TASK (result), &error))
+    {
+        if (error != NULL)
+        {
+            pn_node_log_error (PN_NODE (self), "%s", error->message);
+            g_error_free (error);
+        }
+    }
+
+    playback_finished (self);
+}
+#else  /* !HAVE_PN_AUDIO */
+/** Reap the asynchronous paplay spawn (fallback build).  Releases the
+ *  GSubprocess held by @source and runs the shared teardown. */
 static void
 on_play_done (
         GObject      *source,
@@ -112,17 +238,12 @@ on_play_done (
         g_error_free (error);
     }
 
-    self->playing     = FALSE;
-    self->ready_at_us = g_get_monotonic_time ()
-                      + (gint64) self->dead_period * G_TIME_SPAN_SECOND;
-
-    /* Playback finished: close the processing glow opened in
-     * pn_sound_play(). */
-    pn_node_processing_end (PN_NODE (self));
+    playback_finished (self);
 
     g_object_unref (sub);
     g_object_unref (self);
 }
+#endif /* HAVE_PN_AUDIO */
 
 /** Resolve @spec to a concrete file path: an absolute path is used
  *  verbatim, a bare sound id is looked up under the freedesktop
@@ -146,49 +267,78 @@ resolve_sound_path (const gchar *spec)
     return path;
 }
 
-/** Spawn `paplay PATH` in the background.  We use paplay rather than
+/** Start playing @spec in the background, returning once playback has
+ *  been kicked off.  With libsndfile + libpulse-simple this decodes and
+ *  streams the clip in-process on a worker thread; without them it falls
+ *  back to spawning `paplay`.  (We use paplay rather than
  *  canberra-gtk-play because the latter honours GTK's
- *  `gtk-enable-event-sounds` setting, which is off by default on
- *  many desktops and silently swallows playback ("Sound disabled"). */
+ *  `gtk-enable-event-sounds` setting, off by default on many desktops,
+ *  and silently swallows playback.)  In both cases the processing glow
+ *  is opened here and closed by playback_finished() when the clip ends. */
 static gboolean
 pn_sound_play (
         PnSound     *self,
         const gchar *spec)
 {
-    GSubprocess *sub;
-    GError      *error = NULL;
-    gchar       *path;
+    gchar *path = resolve_sound_path (spec);
 
-    path = resolve_sound_path (spec);
     if (path == NULL)
         return FALSE;
 
-    sub = g_subprocess_new (G_SUBPROCESS_FLAGS_STDOUT_SILENCE
-                            | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
-                            &error,
-                            "paplay", path, NULL);
-
-    g_free (path);
-
-    if (sub == NULL)
+#ifdef HAVE_PN_AUDIO
     {
-        pn_node_log_error (PN_NODE (self),
-                           "Could not start paplay: %s",
-                           error ? error->message : "(unknown)");
-        g_clear_error (&error);
-        return FALSE;
+        /* The GTask is created on the main thread, so its completion
+         * callback runs there too; it also holds the only ref keeping
+         * @self alive across the worker run. */
+        GTask *task = g_task_new (self, NULL, on_play_ready, NULL);
+
+        g_task_set_task_data (task, path, g_free);  /* transfers @path */
+
+        self->playing = TRUE;
+        pn_node_processing_begin (PN_NODE (self));
+
+        g_task_run_in_thread (task, play_in_thread);
+        g_object_unref (task);
+        return TRUE;
     }
+#else
+    {
+        GSubprocess *sub;
+        GError      *error = NULL;
 
-    self->playing = TRUE;
+        sub = g_subprocess_new (G_SUBPROCESS_FLAGS_STDOUT_SILENCE
+                                | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+                                &error,
+                                "paplay", path, NULL);
+        g_free (path);
 
-    /* Light the processing glow for the whole playback run; the
-     * synchronous receive() wrap only covers the kickoff.  Balanced by
-     * the pn_node_processing_end() in on_play_done(). */
-    pn_node_processing_begin (PN_NODE (self));
+        if (sub == NULL)
+        {
+            pn_node_log_error (PN_NODE (self),
+                               "Could not start paplay: %s",
+                               error ? error->message : "(unknown)");
+            g_clear_error (&error);
+            return FALSE;
+        }
 
-    g_subprocess_wait_async (sub, NULL,
-                             on_play_done, g_object_ref (self));
-    return TRUE;
+        self->playing = TRUE;
+        pn_node_processing_begin (PN_NODE (self));
+
+        g_subprocess_wait_async (sub, NULL,
+                                 on_play_done, g_object_ref (self));
+        return TRUE;
+    }
+#endif /* HAVE_PN_AUDIO */
+}
+
+const gchar *
+pn_sound_backend_description (void)
+{
+#ifdef HAVE_PN_AUDIO
+    return "In-process playback (libsndfile \xe2\x86\x92 PulseAudio)";
+#else
+    return "External player (paplay)";
+#endif
 }
 
 /* ------------------------------------------------------------------ */

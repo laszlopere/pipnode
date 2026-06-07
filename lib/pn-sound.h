@@ -26,15 +26,15 @@ G_BEGIN_DECLS
 /*  Sink node that plays a sound clip whenever a message arrives.      */
 /*  The clip is selected through #PnSound:sound, which holds either    */
 /*  a freedesktop sound-theme id (e.g. "bell", "complete") or an       */
-/*  absolute path to an audio file.  Both forms are dispatched to      */
-/*  `canberra-gtk-play` so the same backend handles theme lookups and  */
-/*  raw files.                                                         */
+/*  absolute path to an audio file.  Playback is in-process when the    */
+/*  build found libsndfile + libpulse-simple, and otherwise falls back  */
+/*  to spawning `paplay`; pn_sound_backend_description() reports which.  */
 /*                                                                     */
 /*  After each playback finishes the node enters a configurable        */
 /*  insensitive window of #PnSound:dead-period seconds during which    */
 /*  further incoming messages are dropped.  A new clip never overlaps  */
 /*  one already playing — fresh messages are silently ignored while    */
-/*  the subprocess is still running, irrespective of the dead-period.  */
+/*  a clip is still playing, irrespective of the dead-period.          */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_SOUND (pn_sound_get_type ())
@@ -67,6 +67,19 @@ gchar **pn_sound_list_system_sounds (void);
  * previous preview/message is still playing.
  */
 void pn_sound_preview (PnSound *self);
+
+/**
+ * pn_sound_backend_description:
+ *
+ * Return a short, human-readable description of the playback backend
+ * compiled into this build — in-process (libsndfile + PulseAudio) or the
+ * `paplay` subprocess fallback.  The settings dialog shows this so the
+ * user can tell which path their clips take.  The string is static and
+ * must not be freed.
+ *
+ * Returns: (transfer none): a constant description string
+ */
+const gchar *pn_sound_backend_description (void);
 
 G_END_DECLS
 

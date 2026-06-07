@@ -1179,7 +1179,7 @@
                after gdk_pixbuf_copy and, if so, g_free(buf) + return NULL
                before the rowstride/pixels dereferences -- matching the sibling
                guard in pn-image-pixelate.c.
-         [ ] 39.7 Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188),
+         [x] 39.7 Sound node spawns `paplay PATH` (lib/pn-sound.c:151-188),
                violating the "pure C, no helper subprocesses at runtime" rule.
                Implement audio playback in-process. (on_play_done itself is safe
                -- holds a ref on self, main-thread-only state.) Sibling theme to

@@ -14,8 +14,11 @@
 <em>Group:</em> Sinks. <em>Type:</em> <code>PnSound</code>.
 </p>
 <p>
-Plays a short clip whenever a message arrives. Playback is handed
-to <code>paplay</code>; bare sound-theme ids are resolved to
+Plays a short clip whenever a message arrives. When the program was
+built with libsndfile and libpulse-simple the clip is decoded and
+played in-process; otherwise playback falls back to spawning
+<code>paplay</code>. The settings dialog shows which path is in
+effect. Bare sound-theme ids are resolved to
 <code>/usr/share/sounds/freedesktop/stereo/&lt;id&gt;.oga</code>. Two
 clips never overlap: messages that arrive while a previous clip is
 still playing are dropped, as are messages that arrive within the
@@ -36,9 +39,10 @@ are ignored — the trigger fact alone is what plays the sound.
           should retrigger.</td></tr>
 </table>
 <div class="note">
-This node depends on <code>paplay</code> (PulseAudio) being
-installed; system sound ids additionally require the freedesktop
-sound theme under <code>/usr/share/sounds/freedesktop</code>.
+In-process playback needs a running PulseAudio/PipeWire server; the
+fallback path additionally needs <code>paplay</code> on
+<code>PATH</code>. System sound ids require the freedesktop sound
+theme under <code>/usr/share/sounds/freedesktop</code>.
 </div>
 
 </body>

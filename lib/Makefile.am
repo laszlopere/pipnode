@@ -229,6 +229,7 @@ libpipnode_core_la_CFLAGS = \
 	$(GMODULE_CFLAGS) \
 	$(GDK_PIXBUF_CFLAGS) \
 	$(MOSQUITTO_CFLAGS) \
+	$(PN_AUDIO_CFLAGS) \
 	-DPKGDATADIR=\"$(pkgdatadir)\" \
 	-DPKGLIBDIR=\"$(pkglibdir)\" \
 	-DSRCDIR=\"$(abs_top_srcdir)\" \
@@ -241,6 +242,7 @@ libpipnode_core_la_LIBADD = \
 	$(GMODULE_LIBS) \
 	$(GDK_PIXBUF_LIBS) \
 	$(MOSQUITTO_LIBS) \
+	$(PN_AUDIO_LIBS) \
 	-lm
 
 libpipnode_core_la_LDFLAGS = -version-info 0:0:0 -no-undefined

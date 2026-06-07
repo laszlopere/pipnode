@@ -180,14 +180,17 @@ build_sound_editor (
 {
     const gchar    *name     = pspec->name;
     gboolean        writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
-    GtkWidget      *box      = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget      *box      = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+    GtkWidget      *row      = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget      *combo    = gtk_combo_box_text_new ();
     GtkWidget      *chooser  = gtk_file_chooser_button_new (
             "Choose a sound file", GTK_FILE_CHOOSER_ACTION_OPEN);
+    GtkWidget      *status   = gtk_label_new (NULL);
     PnSoundBinding *bind;
     gchar         **ids;
     gchar         **p;
     gchar          *signal_name;
+    gchar          *status_markup;
 
     ids = pn_sound_list_system_sounds ();
     for (p = ids; *p != NULL; p++)
@@ -205,8 +208,22 @@ build_sound_editor (
     gtk_widget_set_hexpand (combo,   TRUE);
     gtk_widget_set_hexpand (chooser, TRUE);
 
-    gtk_box_pack_start (GTK_BOX (box), combo,   TRUE, TRUE, 0);
-    gtk_box_pack_start (GTK_BOX (box), chooser, TRUE, TRUE, 0);
+    gtk_box_pack_start (GTK_BOX (row), combo,   TRUE, TRUE, 0);
+    gtk_box_pack_start (GTK_BOX (row), chooser, TRUE, TRUE, 0);
+
+    /* Show which playback path this build uses (in-process vs the paplay
+     * fallback) so the choice is visible without reading the build log. */
+    status_markup = g_markup_printf_escaped (
+            "<small>Playback: %s</small>",
+            pn_sound_backend_description ());
+    gtk_label_set_markup (GTK_LABEL (status), status_markup);
+    g_free (status_markup);
+    gtk_widget_set_halign (status, GTK_ALIGN_START);
+    gtk_style_context_add_class (gtk_widget_get_style_context (status),
+                                 "dim-label");
+
+    gtk_box_pack_start (GTK_BOX (box), row,    FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), status, FALSE, FALSE, 0);
 
     bind = g_new0 (PnSoundBinding, 1);
     bind->target   = target;
@@ -230,7 +247,7 @@ build_sound_editor (
                           G_CALLBACK (on_sound_file_set),      bind);
     }
 
-    gtk_widget_set_sensitive (box, writable);
+    gtk_widget_set_sensitive (row, writable);
 
     g_object_set_data_full (G_OBJECT (box),
                             "pn-sound-binding",

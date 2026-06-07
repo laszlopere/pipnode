@@ -131,6 +131,25 @@ PKG_CHECK_MODULES([QRENCODE], [libqrencode >= 3.4.4],
      AC_SUBST([QRENCODE_LIBS])])
 AM_CONDITIONAL([HAVE_QRENCODE], [test "x$have_qrencode" = "xyes"])
 
+# Optional in-process audio playback for the core Sound node.  Playing a
+# clip without a helper needs both a decoder (libsndfile, for the
+# freedesktop .oga theme sounds and common file formats) and an output
+# path (libpulse-simple, to stream PCM to the running PulseAudio/PipeWire
+# server).  When either is missing the Sound node falls back to spawning
+# `paplay`, and its settings dialog reports which mode is in effect.
+have_pn_audio=no
+PKG_CHECK_MODULES([PN_AUDIO], [sndfile libpulse-simple],
+    [have_pn_audio=yes
+     AC_DEFINE([HAVE_PN_AUDIO], [1],
+         [Define to 1 if libsndfile + libpulse-simple are available for
+          in-process Sound playback.])],
+    [AC_MSG_NOTICE([libsndfile + libpulse-simple not both found; Sound node will spawn paplay])
+     PN_AUDIO_CFLAGS=
+     PN_AUDIO_LIBS=
+     AC_SUBST([PN_AUDIO_CFLAGS])
+     AC_SUBST([PN_AUDIO_LIBS])])
+AM_CONDITIONAL([HAVE_PN_AUDIO], [test "x$have_pn_audio" = "xyes"])
+
 # Embed git commit hash for --version
 GIT_VERSION=$(git -C "$srcdir" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 AC_SUBST([GIT_VERSION])
