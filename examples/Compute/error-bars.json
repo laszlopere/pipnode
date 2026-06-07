@@ -87,7 +87,7 @@
       },
       "properties" : {
         "value-key" : "value",
-        "x-buckets" : 16,
+        "x-buckets" : 80,
         "data-view" : "Time series",
         "draw-style" : "Error bars",
         "show-grid" : true,

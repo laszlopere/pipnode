@@ -758,14 +758,8 @@ pn_graph_draw_error_bars_2d (
             plline  (5, ox, oy);
         }
 
-        {
-            PLFLT mx[2] = { x - box_hw, x + box_hw };
-            PLFLT my[2] = { mean[i], mean[i] };
-
-            plcol0  (2);
-            plwidth ((PLINT) ps->line_width);
-            plline  (2, mx, my);
-        }
+        /* The box already spans the mean ±1 sd, so it is centred on the
+         * mean; no separate mean tick is drawn across it. */
     }
 }
 

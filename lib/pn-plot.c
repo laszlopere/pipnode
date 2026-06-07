@@ -653,8 +653,8 @@ pn_plot_class_init (PnPlotClass *klass)
             "How the data view is drawn: Points (a marker per bucket), "
             "Lines (a polyline through the bucket means), Bars (a filled "
             "bar per bucket), or Error bars (a box-and-whisker per bucket — "
-            "whiskers to the bucket min/max, a box over the mean ±1 "
-            "standard deviation, and a mean tick; each bucket is green when "
+            "whiskers to the bucket min/max and a box centred on the mean "
+            "spanning ±1 standard deviation; each bucket is green when "
             "its mean rose versus the previous bucket and red when it fell).",
             PN_TYPE_GRAPH_STYLE,
             PN_GRAPH_STYLE_ERROR_BARS,
