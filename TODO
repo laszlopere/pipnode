@@ -1348,7 +1348,7 @@ but the fix can only be eyeballed against a slow live feed.  We want a
 deterministic, instant way to drive the same rendering from a vector so the
 look can be checked from an example worksheet and a headless test.
 
-  [ ] 48.1  New graph node that renders exactly like PnGraph but ingests its
+  [x] 48.1  New graph node that renders exactly like PnGraph but ingests its
         data the way PnOscilloscope does -- a VECTOR on data.value is taken as
         the whole dataset in one message (pn_message_resolve_vector, the
         snapshot path), instead of time-binned scalar arrivals.  Feed it a
@@ -1361,20 +1361,36 @@ look can be checked from an example worksheet and a headless test.
         (Lines/Points/Bars/Error bars/2D/3D) works unchanged -- the node only
         swaps the receive() front-end (vector -> bins) for PnGraph's
         (scalar -> time bin).  DECIDED: a new SIBLING node (PnGraph left
-        untouched).  Still open: working name (PnVectorGraph? PnPlot?).
-  [ ] 48.2  Vector -> bucket mapping: DECIDED -- distribute the N vector
+        untouched).  DONE: name = PnPlot ("Plot", fa-line-chart, Sinks,
+        orange).  Core lib/pn-plot.c/.h + gui lib/pn-plot-gui.c/.h; the six
+        reusable PnGraph draw/collect helpers were exposed via a new
+        pn-graph-draw.h (un-static'd + pn_graph_* prefixed in pn-graph-gui.c,
+        zero logic change) and the PnPlot painter calls them with a
+        bucket-indexed X axis (cur_epoch = M-1, oldest_valid = 0) instead of
+        PnGraph's wall-clock epoch, so Error-bars (incl. the neighbour-reach
+        whisker fix), Lines/Points/Bars and the Distribution view all render
+        identically.  Registered + Makefile + PnPlot.html help all wired;
+        builds clean, 96 C unit tests green.
+  [x] 48.2  Vector -> bucket mapping: DECIDED -- distribute the N vector
         elements across M consecutive X-buckets (M = the node's bin-count
         property), each bucket aggregating its run into real mean/sd/min/max so
         the box-and-whisker glyphs are genuinely fat.  Setting M near N
         collapses to ~one sample/bucket and re-exercises the new
         neighbour-reaching whisker path, so both looks are reachable from the
         one node by changing the bin count.
+        DONE in pn-plot.c rebucket(): bucket b owns elements [b*N/M,(b+1)*N/M),
+        epoch == bucket index; the held vector is re-binned live on an
+        x-buckets change.  Verified headless: vector 0..11 / M=4 -> means
+        1,4,7,10 (min/max exact); M=12 -> 12 single-sample buckets.  Default
+        M = 16 (fat buckets) since the dataset arrives whole, not over time.
   [ ] 48.3  Example worksheet under examples/ (Ramp [+ jitter source] -> new
         graph in Error-bars style), committed so the look is reproducible and
         the just-landed whisker fix is visible at a glance.
   [ ] 48.4  Headless unit test in tests/unit/ characterising the
         vector -> bin aggregation (mean/sd/min/max per bucket, neighbour-reach
         whisker bounds), following the pntest harness conventions.
-  [ ] 48.5  Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
+  [x] 48.5  Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
         palette category/icon metadata.
+        DONE alongside 48.1: data/help/PnPlot.html (+ data/Makefile.am entry),
+        category "Sinks", icon fa-line-chart (U+F201), body colour orange.
 

@@ -83,6 +83,8 @@ libpipnode_core_la_SOURCES = \
 	pn-geocode.h \
 	pn-graph.c \
 	pn-graph.h \
+	pn-plot.c \
+	pn-plot.h \
 	pn-xy-graph.c \
 	pn-xy-graph.h \
 	pn-oscilloscope.c \
@@ -289,6 +291,9 @@ libpipnode_gui_la_SOURCES = \
 	pn-filter-gui.h \
 	pn-graph-gui.c \
 	pn-graph-gui.h \
+	pn-graph-draw.h \
+	pn-plot-gui.c \
+	pn-plot-gui.h \
 	pn-xy-graph-gui.c \
 	pn-xy-graph-gui.h \
 	pn-oscilloscope-gui.c \
@@ -457,6 +462,7 @@ pipnode_core_headers = \
 	pn-format.h \
 	pn-geocode.h \
 	pn-graph.h \
+	pn-plot.h \
 	pn-xy-graph.h \
 	pn-oscilloscope.h \
 	pn-http.h \
@@ -547,6 +553,7 @@ pipnode_gui_headers = \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \
 	pn-graph-gui.h \
+	pn-plot-gui.h \
 	pn-xy-graph-gui.h \
 	pn-oscilloscope-gui.h \
 	pn-gui.h \

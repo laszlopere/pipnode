@@ -33,6 +33,7 @@
 #include "pn-filedrop-gui.h"
 #include "pn-filter-gui.h"
 #include "pn-graph-gui.h"
+#include "pn-plot-gui.h"
 #include "pn-xy-graph-gui.h"
 #include "pn-oscilloscope-gui.h"
 #include "pn-inject-gui.h"
@@ -72,6 +73,7 @@ pn_gui_install_builtin_nodes (void)
     pn_filedrop_gui_install ();
     pn_filter_gui_install ();
     pn_graph_gui_install ();
+    pn_plot_gui_install ();
     pn_xy_graph_gui_install ();
     pn_oscilloscope_gui_install ();
     pn_inject_gui_install ();

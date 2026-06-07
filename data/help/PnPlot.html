@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plot (PnPlot) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPlot">Plot</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnPlot</code>.
+</p>
+<p>
+Sink that plots a whole <em>vector</em> arriving in a single message.
+It is the vector-fed sibling of the <a href="PnGraph.html">Graph</a>
+node: where Graph time-bins individual scalar values by their
+wall-clock arrival &mdash; so a plot only fills in as real time passes
+&mdash; Plot takes the entire dataset at once (a <code>$pnvector</code>
+on <code>data/value</code>, the same snapshot path the
+<a href="PnOscilloscope.html">Oscilloscope</a> uses) and distributes
+its elements across the X axis immediately. The plot is therefore
+filled and deterministic the instant a vector arrives, which makes the
+<em>Error bars</em> draw-style &mdash; a box-and-whisker per bucket
+&mdash; easy to drive from a <a href="PnRamp.html">Ramp</a> (with a
+little jitter) instead of waiting hours on a live feed.
+Plotting is done with PLplot, reusing Graph's renderers so every
+draw-style looks identical.
+</p>
+<h5>Vector &rarr; buckets</h5>
+<p>
+The <em>N</em> elements of the incoming vector are distributed across
+<em>M</em> consecutive X-buckets, where <em>M</em> is the
+<code>x-buckets</code> setting. Bucket <em>b</em> owns the half-open
+element range <code>[b&middot;N/M, (b+1)&middot;N/M)</code> and
+aggregates that whole run into a real count, mean, standard deviation,
+minimum and maximum &mdash; exactly the running totals Graph keeps per
+time bucket. The time-series view then draws one glyph per bucket. With
+the <em>Error bars</em> style each bucket becomes a box-and-whisker, so
+fewer buckets (a few dozen elements each) give genuinely fat spreads,
+while pushing <code>x-buckets</code> up toward the vector length
+collapses to about one element per bucket &mdash; at which point the
+whiskers reach halfway toward the neighbouring buckets' means so the
+single-sample buckets still trace a continuous band rather than a row of
+disconnected dashes.
+</p>
+<p>
+The most recent vector is retained, so changing <code>x-buckets</code>
+re-bins the same data live without waiting for a fresh message. A bare
+scalar value carries no spread to bucket, so scalars are ignored &mdash;
+use a <a href="PnGraph.html">Graph</a> for scalar time-series.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>value-key</code></td>
+      <td>Data-bag member holding the vector to plot (default
+          <code>value</code>, i.e. <code>data/value</code> &mdash; the
+          universal slot a <a href="PnRamp.html">Ramp</a> emits its
+          <code>$pnvector</code> on). Only a vector value is a dataset;
+          scalar values under this member are ignored.</td></tr>
+  <tr><td><code>x-buckets</code></td>
+      <td>How many buckets the vector is distributed across along the X
+          axis (2&ndash;200, default 16). Each bucket aggregates its run
+          of elements into a count, mean and spread, and the time-series
+          view draws one point per bucket (or, with the <em>Error
+          bars</em> draw-style, one box-and-whisker). Fewer, wider
+          buckets fold more elements together for a fuller spread per
+          error bar; setting the count near the vector length collapses
+          to about one element per bucket. Has no effect on the
+          distribution view, which bins by value rather than by
+          position.</td></tr>
+  <tr><td><code>data-view</code></td>
+      <td>What the plot represents. <em>Time series</em> (default) draws
+          one glyph per X-bucket (the X axis is the bucket index).
+          <em>Distribution</em> bins the vector's elements by value into
+          40 fixed-width bins and plots how often each value occurs (X
+          axis is value, Y axis is the count) &mdash; the shape reads as
+          a histogram of the vector. Bin edges auto-range over the
+          vector's <code>[min, max]</code>.</td></tr>
+  <tr><td><code>draw-style</code></td>
+      <td>How the chosen <code>data-view</code> is drawn (the
+          &ldquo;Draw as&rdquo; setting): <em>Points</em> marks each
+          bucket with a filled circle, <em>Lines</em> connects the
+          bucket means with a polyline, <em>Bars</em> draws each as a
+          filled bar from the baseline, and <em>Error bars</em> (default)
+          draws each bucket as a box-and-whisker.
+          <p>For the <em>Error bars</em> style the whisker spans the
+          bucket&rsquo;s minimum&hellip;maximum element, the box spans
+          the mean &plusmn;&thinsp;1 standard deviation, and a tick marks
+          the mean. Each box is filled
+          <span style="color:#2eb357">green</span> when its mean rose
+          versus the previous bucket and
+          <span style="color:#d94545">red</span> when it fell, so the
+          trend reads at a glance; the first bucket and any flat step are
+          drawn neutral grey. In the distribution view (where there is no
+          per-bucket spread) the style falls back to bars.</p></td></tr>
+  <tr><td><code>line-color</code></td>
+      <td>Colour of the plotted data &mdash; the polyline, the point
+          markers, or the bar fill, depending on
+          <code>draw-style</code>. Defaults to a dark blue that reads
+          well against a white background.</td></tr>
+  <tr><td><code>line-width</code></td>
+      <td>Stroke width of the data polyline, in pixels (1&ndash;8,
+          default 2). Also scales the marker size of the
+          <em>Points</em> draw-style.</td></tr>
+  <tr><td><code>axis-color</code></td>
+      <td>Colour of the plot frame, ticks, and tick labels. The same
+          colour is used for the thin frame painted around the plot
+          rectangle.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the plot rectangle behind the data. Defaults to
+          white.</td></tr>
+  <tr><td><code>show-grid</code></td>
+      <td>When enabled, draws a thin grid through every major tick on
+          both axes for easier reading of values.</td></tr>
+  <tr><td><code>log-y</code></td>
+      <td>Plots the Y axis on a base-10 logarithmic scale. Honoured in
+          the distribution view, useful for long-tailed distributions
+          whose tallest bars would otherwise crush the smaller ones
+          flat.</td></tr>
+  <tr><td><code>y-from-zero</code></td>
+      <td>Anchors the Y axis at zero instead of auto-fitting it tightly
+          around the data. Honoured in the time-series view on a linear
+          axis.</td></tr>
+</table>
+
+<p>
+In the node's settings dialog these properties are split across two
+tabs: <strong>Appearance</strong> collects how the plot is drawn
+(<code>draw-style</code>, <code>line-color</code>,
+<code>line-width</code>, <code>axis-color</code>,
+<code>background-color</code>, <code>show-grid</code>), while
+<strong>Data</strong> collects what is plotted and how the value axis is
+framed (<code>value-key</code>, <code>x-buckets</code>,
+<code>data-view</code>, <code>log-y</code>, <code>y-from-zero</code>).
+</p>
+
+</body>
+</html>

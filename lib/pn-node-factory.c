@@ -47,6 +47,7 @@
 #include "pn-filter.h"
 #include "pn-format.h"
 #include "pn-graph.h"
+#include "pn-plot.h"
 #include "pn-xy-graph.h"
 #include "pn-oscilloscope.h"
 #include "pn-http.h"
@@ -298,6 +299,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_DEBUG);
     pn_node_factory_register (self, PN_TYPE_LOGGER);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
+    pn_node_factory_register (self, PN_TYPE_PLOT);
     pn_node_factory_register (self, PN_TYPE_XY_GRAPH);
     pn_node_factory_register (self, PN_TYPE_OSCILLOSCOPE);
     pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
