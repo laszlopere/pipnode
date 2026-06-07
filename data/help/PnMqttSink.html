@@ -135,7 +135,9 @@ The <code>payload</code> property is an optional template:
           the last retained value per topic and delivers it to every
           late subscriber on connect. Used for device state
           (Tasmota's own POWER publishes are retained for exactly
-          this reason); leave off for transient events.</td></tr>
+          this reason); leave off for transient events. To
+          <em>clear</em> a retained topic, publish an empty payload with
+          <code>retain</code> on (see <em>Empty payloads</em> below).</td></tr>
   <tr><td><code>qos</code></td>
       <td>MQTT QoS for outgoing publishes (0 / 1 / 2). 0 is the
           right choice for high-rate telemetry, 1 for state changes
@@ -163,6 +165,19 @@ The <code>payload</code> property is an optional template:
 The <em>Rewrite</em> step both stamps the destination topic on the
 envelope and reshapes the payload into the literal string the relay
 expects; the sink then publishes wherever the envelope points.
+</p>
+
+<h5>Empty payloads</h5>
+<p>
+An <em>empty</em> payload is published, not dropped &mdash; it goes out
+as a zero-length MQTT message. This is the standard way to clear a
+retained topic: send an empty <code>data.payload</code> (or a template
+that resolves to nothing) with <code>retain</code> on, and the broker
+forgets the retained value. The drop below applies only when the
+inbound message carries <em>no</em> <code>data.payload</code> member at
+all &mdash; that is treated as &ldquo;nothing to publish&rdquo; rather
+than as an intentional empty payload, so it is dropped instead of
+sending a misleading empty message.
 </p>
 
 <h5>What gets dropped</h5>

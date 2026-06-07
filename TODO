@@ -865,12 +865,23 @@
                flips the node GREEN anyway -> looks healthy, receives nothing.
          - [x] L2 Dead variable need_schedule (pn-mqtt.c:375,388,394).
                DONE 2026-05-29: removed from emit_message_on_main.
-         - [ ] L3 Default topic "#" + a primary broker profile = a freshly
-               dropped node auto-subscribes to the entire broker (footgun,
-               intentional).
-         - [ ] L4 Empty-payload publish is dropped (pn-mqtt-sink.c:383) ->
-               cannot clear a retained topic with a null payload; document in
-               help.
+         - [x] L3 BY DESIGN (closed 2026-06-07). Default topic "#" + a
+               primary broker profile = a freshly dropped node
+               auto-subscribes to the entire broker. This is wanted, not a
+               footgun: a brand-new Source should show the user EVERYTHING on
+               the broker out of the box, so they can see what is flowing and
+               then narrow the topic. Keeping "#" as the default.
+         - [x] L4 INACCURATE (closed 2026-06-07). An EMPTY payload is NOT
+               dropped: an empty-string data.payload (or a template that
+               resolves to "") builds with len 0 and is published as a
+               zero-length MQTT message -- exactly how you clear a retained
+               topic (set retain on). pn_mqtt_build_payload returns FALSE
+               (-> drop) only when the data.payload member is ABSENT, which
+               is the deliberate "no payload to send" case (test
+               test_payload_missing_drops: avoid publishing a misleading
+               empty string). So a retained topic CAN be cleared today. The
+               empty-payload / clearing contract is now documented in
+               PnMqttSink.html ("Empty payloads" + retain row).
          - [x] N1 restart_client repeats the g_free(url/user/pass/cid/host)
                cleanup block ~5x per file; an out: goto would remove the
                divergence risk.
@@ -1009,10 +1020,19 @@
                  instead of buffering a doomed (huge) payload. Covered by
                  test-pn-mqtt-util payload_within_limit; documented in
                  PnMqttSink.html ("What gets dropped").
-           - [ ] L3 Default topic "#" + primary profile auto-subscribes the
-                 whole broker (intentional footgun).
-           - [ ] L4 Empty-payload publish is dropped -> cannot clear a retained
-                 topic with a null payload; document in PnMqttSink help.
+           - [x] L3 BY DESIGN (closed 2026-06-07). Default topic "#" +
+                 primary profile auto-subscribes the whole broker -- wanted,
+                 not a footgun: a fresh Source should show the user
+                 EVERYTHING on the broker so they can see what is flowing,
+                 then narrow. Default "#" stays.
+           - [x] L4 INACCURATE (closed 2026-06-07). An empty payload is NOT
+                 dropped -- it publishes as a zero-length message, which is
+                 exactly how a retained topic is cleared (empty data.payload
+                 or empty-resolving template + retain on). Only an ABSENT
+                 data.payload member is dropped (deliberate "nothing to send",
+                 test_payload_missing_drops). Contract now documented in
+                 PnMqttSink.html ("Empty payloads"). See the matching entry
+                 in the earlier review block above for the full rationale.
 
 [ ] 33 Meshtastic discovery: stop treating a BARE 10c4:ea60 as a Meshtastic
        device. The VID:PID table in lib/pn-mesh-discover.c (KNOWN_DEVICES)
