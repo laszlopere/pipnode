@@ -450,6 +450,64 @@ test_parse_errors (void)
     g_object_unref (p);
 }
 
+/* Pathological nesting must fail with a clean SYNTAX error rather than
+ * overflowing the C stack.  Both unbounded recursion paths are exercised:
+ * a deep parenthesis stack and a long unary-minus chain.  A moderately
+ * nested expression (well under the limit) must still parse and evaluate. */
+static void
+test_recursion_depth_limit (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    GError       *err  = NULL;
+    PnExprNode   *ast;
+    gboolean      ok;
+    gchar        *deep;
+    GString      *s;
+    guint         i;
+    const guint   n = 5000;     /* far past the 256-level cap */
+
+    /* (((( … 1 … )))) — n open + n close parens around a literal. */
+    deep = g_malloc (2 * n + 2);
+    memset (deep, '(', n);
+    deep[n] = '1';
+    memset (deep + n + 1, ')', n);
+    deep[2 * n + 1] = '\0';
+    ast = pn_expr_parser_parse (p, deep, &err);
+    PN_CHECK (ast == NULL);
+    PN_CHECK (err != NULL && err->domain == PN_EXPR_PARSER_ERROR &&
+              err->code == PN_EXPR_PARSER_ERROR_SYNTAX);
+    g_clear_error (&err);
+    g_free (deep);
+
+    /* A long unary-minus chain recurses parse_factor->parse_factor directly,
+     * not through parens; it must be capped too. */
+    s = g_string_new (NULL);
+    for (i = 0; i < n; i++)
+        g_string_append_c (s, '-');
+    g_string_append_c (s, '1');
+    ast = pn_expr_parser_parse (p, s->str, &err);
+    PN_CHECK (ast == NULL);
+    PN_CHECK (err != NULL && err->domain == PN_EXPR_PARSER_ERROR &&
+              err->code == PN_EXPR_PARSER_ERROR_SYNTAX);
+    g_clear_error (&err);
+    g_string_free (s, TRUE);
+
+    /* Nesting comfortably under the limit still works. */
+    s = g_string_new (NULL);
+    for (i = 0; i < 100; i++)
+        g_string_append_c (s, '(');
+    g_string_append_c (s, '7');
+    for (i = 0; i < 100; i++)
+        g_string_append_c (s, ')');
+    PN_CHECK_NEAR (parse_eval (p, vars, s->str, &ok), 7.0, 1e-9);
+    PN_CHECK (ok);
+    g_string_free (s, TRUE);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -469,5 +527,6 @@ main (int argc, char **argv)
     pn_test_add ("eval_semantics",        test_eval_semantics);
     pn_test_add ("parse_error_codes",     test_parse_error_codes);
     pn_test_add ("parse_errors",          test_parse_errors);
+    pn_test_add ("recursion_depth_limit", test_recursion_depth_limit);
     return pn_test_run ();
 }

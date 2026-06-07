@@ -86,6 +86,16 @@ typedef enum
     TOK_ERROR,
 } TokenType;
 
+/* Cap on parser recursion.  Every level of parenthesis / function-argument
+ * nesting, and every unary sign, descends through parse_factor (see the
+ * grammar below); without a limit a pathological input like ((((…)))) or a
+ * long unary-minus chain overflows the native C stack and crashes the
+ * process.  256 is far beyond any hand-written expression yet leaves the
+ * real stack comfortably untouched.  The evaluator (pn-var-store.c) recurses
+ * to the same depth, but the tree it walks can be no deeper than this, so
+ * bounding the parser bounds it too. */
+#define PN_EXPR_MAX_DEPTH 256
+
 typedef struct
 {
     const gchar *input;       /* whole source, for column reporting */
@@ -99,6 +109,7 @@ typedef struct
 
     GError     **error;       /* borrowed; may be NULL */
     gboolean     failed;      /* an error has been recorded */
+    gint         depth;       /* current parse_factor recursion depth */
 } Ctx;
 
 G_GNUC_PRINTF (3, 4)
@@ -274,9 +285,10 @@ lex_peek (Ctx *c)
 /* ------------------------------------------------------------------ */
 
 static PnExprNode *parse_expression (Ctx *c);
+static PnExprNode *parse_factor (Ctx *c);
 
 static PnExprNode *
-parse_factor (Ctx *c)
+parse_factor_body (Ctx *c)
 {
     switch (c->tok)
     {
@@ -376,6 +388,29 @@ parse_factor (Ctx *c)
                        "unexpected token at position %d", ctx_column (c));
         return NULL;
     }
+}
+
+/** Recursion-guarded wrapper around parse_factor_body.  All recursion in
+ *  the grammar — parentheses, function arguments, unary signs — passes
+ *  through here, so a single depth check on entry caps the whole tree (and
+ *  hence the native stack) without sprinkling counters across every rule. */
+static PnExprNode *
+parse_factor (Ctx *c)
+{
+    PnExprNode *n;
+
+    if (++c->depth > PN_EXPR_MAX_DEPTH)
+    {
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_SYNTAX,
+                       "expression nesting too deep (limit %d levels)",
+                       PN_EXPR_MAX_DEPTH);
+        c->depth--;
+        return NULL;
+    }
+
+    n = parse_factor_body (c);
+    c->depth--;
+    return n;
 }
 
 static PnExprNode *

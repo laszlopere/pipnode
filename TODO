@@ -1135,7 +1135,7 @@
                to match refresh_visual_state / build_endpoint.
 
          MEDIUM
-         [ ] 39.2 Expression parser has no recursion-depth limit ->
+         [x] 39.2 Expression parser has no recursion-depth limit ->
                C-stack-overflow crash on pathological nesting
                (lib/pn-expr-parser.c, the parse_factor<->parse_expression
                recursive descent). A configured expression like ((((...)))) or a
