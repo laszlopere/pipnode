@@ -25,6 +25,8 @@ pipnode_tasmota_la_SOURCES = \
 	pn-tasmota-status.h \
 	pn-tasmota-status-request.c \
 	pn-tasmota-status-request.h \
+	pn-tasmota-probe.c \
+	pn-tasmota-probe.h \
 	pn-tasmota-relay-status.c \
 	pn-tasmota-relay-status.h \
 	pn-tasmota-relay-command.c \
@@ -63,6 +65,7 @@ pnhelp_DATA = \
 	help/PnTasmotaHumidity.html \
 	help/PnTasmotaStatus.html \
 	help/PnTasmotaStatusRequest.html \
+	help/PnTasmotaProbe.html \
 	help/PnTasmotaRelayStatus.html \
 	help/PnTasmotaRelayCommand.html \
 	help/PnTasmotaSwitch.html \

@@ -17,9 +17,43 @@
 #define PN_TASMOTA_COMMON_H
 
 #include <glib.h>
+#include <glib-object.h>
 #include <json-glib/json-glib.h>
 
 G_BEGIN_DECLS
+
+/* ------------------------------------------------------------------ */
+/*  Tasmota Status <n> sections                                        */
+/*                                                                     */
+/*  Shared by every node that speaks Tasmota's `Status` command:       */
+/*  #PnTasmotaStatusRequest (the manual single-shot query) and         */
+/*  #PnTasmotaProbe (the auto-discovering poller).  The integer value  */
+/*  of each member IS the numeric argument sent on the wire, so the    */
+/*  payload is simply the stringified enum value.                      */
+/*  PN_TASMOTA_STATUS_ALL (0) is Tasmota's "report everything" form.   */
+/* ------------------------------------------------------------------ */
+typedef enum
+{
+    PN_TASMOTA_STATUS_ALL              = 0,  /* Status 0  -- everything    */
+    PN_TASMOTA_STATUS_PARAMETERS       = 1,  /* Status 1  -- device params */
+    PN_TASMOTA_STATUS_FIRMWARE         = 2,  /* Status 2  -- firmware      */
+    PN_TASMOTA_STATUS_LOGGING          = 3,  /* Status 3  -- logging/tele  */
+    PN_TASMOTA_STATUS_MEMORY           = 4,  /* Status 4  -- memory/flash  */
+    PN_TASMOTA_STATUS_NETWORK          = 5,  /* Status 5  -- network       */
+    PN_TASMOTA_STATUS_MQTT             = 6,  /* Status 6  -- MQTT          */
+    PN_TASMOTA_STATUS_TIME             = 7,  /* Status 7  -- time/location */
+    PN_TASMOTA_STATUS_CONNECTED_SENSOR = 8,  /* Status 8  -- sensors       */
+    PN_TASMOTA_STATUS_POWER_THRESHOLDS = 9,  /* Status 9  -- power limits  */
+    PN_TASMOTA_STATUS_SENSOR_DATA      = 10, /* Status 10 -- sensor data   */
+    PN_TASMOTA_STATUS_STATE            = 11, /* Status 11 -- device state  */
+} PnTasmotaStatusKind;
+
+/* Registered GEnum for #PnTasmotaStatusKind, used as the property type
+ * so the editor offers a combobox of named sections.  Registered once
+ * here; every Tasmota node that needs it shares this single GType. */
+#define PN_TYPE_TASMOTA_STATUS_KIND (pn_tasmota_status_kind_get_type ())
+
+GType     pn_tasmota_status_kind_get_type (void);
 
 /* Extract the device name from an MQTT envelope topic like
  * "tele/tasmota13/SENSOR" or "tele/tasmota13/STATE".  Tasmota uses

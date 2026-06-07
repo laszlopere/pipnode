@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasmota Probe (PnTasmotaProbe) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTasmotaProbe">Tasmota Probe</h4>
+<p>
+<em>Group:</em> Tasmota. <em>Type:</em> <code>PnTasmotaProbe</code>.
+</p>
+<p>
+The discovery half of the Tasmota concentrator. Sits between an
+<em>MQTT Source</em> and an <em>MQTT Sink</em> and turns the passive
+telemetry stream into an active, per-device status poll &mdash; with no
+external network scan. It watches every message go by, learns which
+Tasmota devices exist from the topics they publish on, and emits a
+<code>Status</code> query for each one so the device reports its
+configuration and runtime info.
+</p>
+<p>
+The replies do <strong>not</strong> come back through this node; the
+device publishes them on <code>stat/&lt;device&gt;/STATUS</code> (and
+<code>STATUS1</code> &hellip; <code>STATUS11</code>). Wire a parallel
+branch &mdash; <em>MQTT Source &rarr; Tasmota Concentrator &rarr;
+Debug</em> &mdash; to collect and present them.
+</p>
+
+<h5>Why per-device, not one broadcast</h5>
+<p>
+A command published to Tasmota's <code>tasmotas</code> group topic is
+acted on by every device, but Tasmota deliberately
+<strong>suppresses the MQTT reply for group (and fallback) topic
+commands</strong> &mdash; so a single <code>cmnd/tasmotas/Status</code>
+yields <em>zero</em> <code>stat/+/STATUS</code> responses. MQTT
+wildcards (<code>#</code>, <code>+</code>) don't help: they are illegal
+in a publish topic, and <code>*</code> is just a literal. To read
+information <em>back</em> from every device you must address each one
+individually. This node automates exactly that loop &mdash; it discovers
+the devices and fires one request per device. (The group topic
+<code>tasmotas</code> itself is never probed, for the same reason.)
+</p>
+
+<h5>How it discovers devices</h5>
+<p>
+The <code>&lt;device&gt;</code> segment is parsed out of the envelope
+topic of the three Tasmota topic families &mdash;
+<code>tele/&lt;device&gt;/&hellip;</code>,
+<code>stat/&lt;device&gt;/&hellip;</code> and
+<code>cmnd/&lt;device&gt;/&hellip;</code>. Any other traffic sharing the
+upstream <em>MQTT Source</em> is ignored. The node keeps a live set of
+every device it has ever seen:
+</p>
+<ul>
+  <li>A <strong>newly-seen</strong> device is probed
+      <strong>promptly</strong> &mdash; the first message that names it
+      triggers a probe.</li>
+  <li>An <strong>already-known</strong> device is never re-probed more
+      often than the <code>interval</code> (see below), no matter how
+      much telemetry it sends in the meantime.</li>
+</ul>
+
+<h5>What gets sent</h5>
+<p>
+For each device that is due, the inbound message is reshaped in place
+into a Tasmota command: the envelope topic becomes
+<code>cmnd/&lt;device&gt;/Status</code> and <code>data.payload</code> is
+set to the numeric section selected by the <code>request</code> property,
+so the device sees exactly <code>Status&nbsp;&lt;n&gt;</code>. This is
+the same shape <em>Tasmota Status Request</em> produces, ready for a
+downstream <em>MQTT Sink</em> to publish with no intervening
+<em>Format</em> / <em>Rewrite</em> node. A <code>Status</code> query is
+strictly <strong>read-only</strong>.
+</p>
+
+<h5>Configuration</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>request</code></td>
+      <td>Which <code>Status</code> section each discovered device is
+          asked for &mdash; <em>Everything (Status 0)</em> for the full
+          report, or one specific section (<em>Network (Status 5)</em>
+          for IP / hostname / MAC, <em>MQTT (Status 6)</em>, and so on).
+          Default: <em>Everything (Status 0)</em>.</td></tr>
+  <tr><td><code>interval</code></td>
+      <td>Minimum seconds between two probes of the <em>same</em> device.
+          A newly-seen device is always probed immediately; this only
+          rate-limits the re-probe of a device already known. Default:
+          <code>300</code> (five minutes). Set to <code>0</code> to probe
+          on every message that names the device.</td></tr>
+</table>
+
+<h5>Output shape</h5>
+<p>
+The node emits <strong>only</strong> probe commands &mdash; it never
+forwards the telemetry it observed, so its output wires straight to the
+<em>MQTT Sink</em> without echoing sensor traffic. Each emitted message
+carries:
+</p>
+<table>
+  <tr><th>Member</th><th>Value</th></tr>
+  <tr><td>envelope <code>topic</code></td>
+      <td><code>cmnd/&lt;device&gt;/Status</code></td></tr>
+  <tr><td><code>data.payload</code></td>
+      <td>String <code>"0"</code> &hellip; <code>"11"</code> &mdash; the
+          selected section, the shape <em>MQTT Sink</em>'s default
+          payload path publishes as raw bytes without quoting.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>true</code> on every emitted probe.</td></tr>
+  <tr><td><code>data.device</code></td>
+      <td>The discovered device the probe is addressed to.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, e.g.
+          <code>sonoff19: probe Status 0</code>.</td></tr>
+</table>
+
+<h5>Wiring example</h5>
+<pre>MQTT Source (topic = tele/#, stat/#)
+    &rarr; Tasmota Probe (request  = Everything (Status 0),
+                          interval = 300)
+        &rarr; MQTT Sink (url = tcp://mqtt.homelab.local:1883)
+
+MQTT Source (topic = stat/+/STATUS#)
+    &rarr; Tasmota Concentrator
+        &rarr; Debug</pre>
+<p>
+As telemetry from each device flows through the first <em>MQTT
+Source</em>, <em>Tasmota Probe</em> discovers the device and publishes
+<code>cmnd/&lt;device&gt;/Status&nbsp;0</code> via the <em>MQTT
+Sink</em>; each device answers on
+<code>stat/&lt;device&gt;/STATUS&hellip;</code>, which the parallel
+branch collects with <em>Tasmota Concentrator</em> and shows in
+<em>Debug</em>.
+</p>
+
+<h5>See also</h5>
+<ul>
+  <li><em>Tasmota Status Request</em> &mdash; the manual, single-shot
+      version: one query when triggered, for one named device (or the
+      group topic). The Probe is the auto-discovering, all-devices
+      generalisation of it.</li>
+</ul>
+
+</body>
+</html>

@@ -60,55 +60,9 @@ enum {
 
 static GParamSpec *props[N_PROPS];
 
-/* ------------------------------------------------------------------ */
-/*  Request-kind enum type                                            */
-/* ------------------------------------------------------------------ */
-
-/* The nicks (third column) are the user-visible combobox labels and the
- * tokens serialised into saved worksheets -- keep them stable.  Each
- * carries the raw "Status <n>" form so power users can map the choice
- * straight onto Tasmota's documented command. */
-#define PN_TYPE_TASMOTA_STATUS_KIND (pn_tasmota_status_kind_get_type ())
-
-static GType
-pn_tasmota_status_kind_get_type (void)
-{
-    static gsize id = 0;
-
-    if (g_once_init_enter (&id))
-    {
-        static const GEnumValue values[] = {
-            { PN_TASMOTA_STATUS_ALL,              "PN_TASMOTA_STATUS_ALL",
-              "Everything (Status 0)"           },
-            { PN_TASMOTA_STATUS_PARAMETERS,       "PN_TASMOTA_STATUS_PARAMETERS",
-              "Device parameters (Status 1)"    },
-            { PN_TASMOTA_STATUS_FIRMWARE,         "PN_TASMOTA_STATUS_FIRMWARE",
-              "Firmware version (Status 2)"     },
-            { PN_TASMOTA_STATUS_LOGGING,          "PN_TASMOTA_STATUS_LOGGING",
-              "Logging & telemetry (Status 3)"  },
-            { PN_TASMOTA_STATUS_MEMORY,           "PN_TASMOTA_STATUS_MEMORY",
-              "Memory & flash (Status 4)"       },
-            { PN_TASMOTA_STATUS_NETWORK,          "PN_TASMOTA_STATUS_NETWORK",
-              "Network (Status 5)"              },
-            { PN_TASMOTA_STATUS_MQTT,             "PN_TASMOTA_STATUS_MQTT",
-              "MQTT (Status 6)"                 },
-            { PN_TASMOTA_STATUS_TIME,             "PN_TASMOTA_STATUS_TIME",
-              "Time & location (Status 7)"      },
-            { PN_TASMOTA_STATUS_CONNECTED_SENSOR, "PN_TASMOTA_STATUS_CONNECTED_SENSOR",
-              "Connected sensors (Status 8)"    },
-            { PN_TASMOTA_STATUS_POWER_THRESHOLDS, "PN_TASMOTA_STATUS_POWER_THRESHOLDS",
-              "Power thresholds (Status 9)"     },
-            { PN_TASMOTA_STATUS_SENSOR_DATA,      "PN_TASMOTA_STATUS_SENSOR_DATA",
-              "Sensor data (Status 10)"         },
-            { PN_TASMOTA_STATUS_STATE,            "PN_TASMOTA_STATUS_STATE",
-              "Device state (Status 11)"        },
-            { 0, NULL, NULL }
-        };
-        GType t = g_enum_register_static ("PnTasmotaStatusKind", values);
-        g_once_init_leave (&id, t);
-    }
-    return id;
-}
+/* The request-kind enum #PnTasmotaStatusKind and its GType
+ * #PN_TYPE_TASMOTA_STATUS_KIND are shared, defined in
+ * pn-tasmota-common.[ch]. */
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */

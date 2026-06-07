@@ -17,6 +17,7 @@
 #define PN_TASMOTA_STATUS_REQUEST_H
 
 #include "pn-node.h"
+#include "pn-tasmota-common.h"   /* PnTasmotaStatusKind + its GType */
 
 G_BEGIN_DECLS
 
@@ -42,25 +43,9 @@ G_BEGIN_DECLS
 /*  never enters the red "needs configuration" state.                   */
 /* ------------------------------------------------------------------ */
 
-/* Which Tasmota `Status <n>` section to ask for.  The integer value of
- * each member IS the numeric argument sent on the wire, so the payload
- * is simply the stringified enum value.  PN_TASMOTA_STATUS_ALL (0) is
- * Tasmota's "report everything" form. */
-typedef enum
-{
-    PN_TASMOTA_STATUS_ALL              = 0,  /* Status 0  -- everything    */
-    PN_TASMOTA_STATUS_PARAMETERS       = 1,  /* Status 1  -- device params */
-    PN_TASMOTA_STATUS_FIRMWARE         = 2,  /* Status 2  -- firmware      */
-    PN_TASMOTA_STATUS_LOGGING          = 3,  /* Status 3  -- logging/tele  */
-    PN_TASMOTA_STATUS_MEMORY           = 4,  /* Status 4  -- memory/flash  */
-    PN_TASMOTA_STATUS_NETWORK          = 5,  /* Status 5  -- network       */
-    PN_TASMOTA_STATUS_MQTT             = 6,  /* Status 6  -- MQTT          */
-    PN_TASMOTA_STATUS_TIME             = 7,  /* Status 7  -- time/location */
-    PN_TASMOTA_STATUS_CONNECTED_SENSOR = 8,  /* Status 8  -- sensors       */
-    PN_TASMOTA_STATUS_POWER_THRESHOLDS = 9,  /* Status 9  -- power limits  */
-    PN_TASMOTA_STATUS_SENSOR_DATA      = 10, /* Status 10 -- sensor data   */
-    PN_TASMOTA_STATUS_STATE            = 11, /* Status 11 -- device state  */
-} PnTasmotaStatusKind;
+/* The Tasmota `Status <n>` section enum #PnTasmotaStatusKind and its
+ * registered GType #PN_TYPE_TASMOTA_STATUS_KIND now live in
+ * pn-tasmota-common.h, shared with #PnTasmotaProbe. */
 
 #define PN_TYPE_TASMOTA_STATUS_REQUEST (pn_tasmota_status_request_get_type ())
 

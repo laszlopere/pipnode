@@ -11,6 +11,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/lib \
 	-I$(top_srcdir)/plugins/shell \
 	-I$(top_srcdir)/plugins/host-monitoring \
+	-I$(top_srcdir)/plugins/tasmota \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(LIBSOUP_CFLAGS)
@@ -119,6 +120,7 @@ check_PROGRAMS = \
 	test-pn-mqtt-profile \
 	test-pn-mqtt-util \
 	test-pn-mqtt-resolve \
+	test-pn-tasmota-probe \
 	test-pn-node-log \
 	test-pn-node-collate \
 	test-pn-node-processing
@@ -239,5 +241,13 @@ test_pn_mqtt_sink_SOURCES    = test-pn-mqtt-sink.c    pntest.c pntest.h
 test_pn_mqtt_profile_SOURCES = test-pn-mqtt-profile.c pntest.c pntest.h
 test_pn_mqtt_util_SOURCES    = test-pn-mqtt-util.c    pntest.c pntest.h
 test_pn_mqtt_resolve_SOURCES = test-pn-mqtt-resolve.c pntest.c pntest.h
+
+# The tasmota-plugin nodes live in their own loadable module
+# (pipnode_tasmota.la), not in libpipnode, so the probe node and its
+# shared helpers reach the test binary by compiling those .c directly —
+# the same arrangement the shell / host-monitoring node tests use above.
+test_pn_tasmota_probe_SOURCES = test-pn-tasmota-probe.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-probe.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
 
 TESTS = $(check_PROGRAMS)
