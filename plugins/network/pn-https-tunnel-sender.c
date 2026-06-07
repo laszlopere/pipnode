@@ -344,10 +344,15 @@ pn_https_tunnel_sender_receive (PnNode *node, PnMessage *message)
 
     /* Hook the verification override before the request goes on the
      * wire.  When verify-tls is TRUE we leave the signal alone and
-     * let GTlsBackend run its normal path. */
+     * let GTlsBackend run its normal path.  Use _connect_object so the
+     * handler is torn down automatically if the node is finalized while
+     * the message is still in flight: today the callback is a pure
+     * `return TRUE` that never touches @self, but tying its lifetime to
+     * the node keeps it safe should it ever start to. */
     if (!self->verify_tls)
-        g_signal_connect (msg, "accept-certificate",
-                          G_CALLBACK (on_accept_certificate), self);
+        g_signal_connect_object (msg, "accept-certificate",
+                                 G_CALLBACK (on_accept_certificate), self,
+                                 0);
 
     /* Preemptive Basic auth: we set the Authorization header
      * directly instead of relying on a SoupAuthManager 401-reissue

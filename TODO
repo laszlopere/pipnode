@@ -1110,7 +1110,7 @@
        blanket ignore also hides real CP2102 modems. Touches system config --
        weigh against the minimal-invasive-packaging line.
 
-[ ] 39 Node source code-review findings (from the 2026-06-01 fan-out review of
+[x] 39 Node source code-review findings (from the 2026-06-01 fan-out review of
        every node-implementing source file -- ~70 core lib/pn-*.c nodes + 30
        -gui.c companions, the network/ollama/tasmota/sound-effects plugins, and
        the 54 plugins/image/pn-image-*.c filters). Overall the tree is in very
@@ -1263,7 +1263,7 @@
                stranded until the next inbound message (self-heals on the next
                receive). Fix: drain-retry the rest of the queue on a failed
                re-spawn.
-         [ ] 39.15 HTTPS-tunnel sender wires on_accept_certificate with
+         [x] 39.15 HTTPS-tunnel sender wires on_accept_certificate with
                g_signal_connect (not _object) and never disconnects
                (plugins/network/pn-https-tunnel-sender.c:352). Not a live UAF --
                the handler is a pure `return TRUE` that ignores user_data and
