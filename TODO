@@ -1337,3 +1337,44 @@ already-connected session; the user still presses Connect.
   [x] 47.4  Documented in DBUS-API.md; verified over busctl against a live
         instance (after pressing Connect via AT-SPI).
 
+(48) A proper, fast test/example for the error-bar Graph.  Today the only
+way to see the Graph node's "Error bars" draw-style is to leave a live feed
+running for hours: the node bins SCALAR values by wall-clock arrival time
+(g_get_monotonic_time), one sample per bin, so the box-and-whisker glyphs
+only fill in as real time passes.  That also made the single-sample case
+look like scattered dashes -- just fixed by extending each whisker halfway
+toward its neighbouring buckets' means (lib/pn-graph-gui.c collect_error_bars),
+but the fix can only be eyeballed against a slow live feed.  We want a
+deterministic, instant way to drive the same rendering from a vector so the
+look can be checked from an example worksheet and a headless test.
+
+  [ ] 48.1  New graph node that renders exactly like PnGraph but ingests its
+        data the way PnOscilloscope does -- a VECTOR on data.value is taken as
+        the whole dataset in one message (pn_message_resolve_vector, the
+        snapshot path), instead of time-binned scalar arrivals.  Feed it a
+        Ramp (PN_TYPE_RAMP emits a $pnvector on data.value) and the graph
+        fills instantly.  Sibling node mirroring PnXYGraph/PnOscilloscope:
+        core lib/pn-<name>.c/.h + gui companion lib/pn-<name>-gui.c/.h,
+        registered in pn-node-factory.c (PN_TYPE) and pn-gui.c (gui_install),
+        four entries in lib/Makefile.am, plus a help page.  REUSE the existing
+        PnGraphBin model + collect_error_bars + draw_* path so every draw-style
+        (Lines/Points/Bars/Error bars/2D/3D) works unchanged -- the node only
+        swaps the receive() front-end (vector -> bins) for PnGraph's
+        (scalar -> time bin).  DECIDED: a new SIBLING node (PnGraph left
+        untouched).  Still open: working name (PnVectorGraph? PnPlot?).
+  [ ] 48.2  Vector -> bucket mapping: DECIDED -- distribute the N vector
+        elements across M consecutive X-buckets (M = the node's bin-count
+        property), each bucket aggregating its run into real mean/sd/min/max so
+        the box-and-whisker glyphs are genuinely fat.  Setting M near N
+        collapses to ~one sample/bucket and re-exercises the new
+        neighbour-reaching whisker path, so both looks are reachable from the
+        one node by changing the bin count.
+  [ ] 48.3  Example worksheet under examples/ (Ramp [+ jitter source] -> new
+        graph in Error-bars style), committed so the look is reproducible and
+        the just-landed whisker fix is visible at a glance.
+  [ ] 48.4  Headless unit test in tests/unit/ characterising the
+        vector -> bin aggregation (mean/sd/min/max per bucket, neighbour-reach
+        whisker bounds), following the pntest harness conventions.
+  [ ] 48.5  Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
+        palette category/icon metadata.
+
