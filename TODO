@@ -1383,12 +1383,35 @@ look can be checked from an example worksheet and a headless test.
         x-buckets change.  Verified headless: vector 0..11 / M=4 -> means
         1,4,7,10 (min/max exact); M=12 -> 12 single-sample buckets.  Default
         M = 16 (fat buckets) since the dataset arrives whole, not over time.
-  [ ] 48.3  Example worksheet under examples/ (Ramp [+ jitter source] -> new
+  [x] 48.3  Example worksheet under examples/ (Ramp [+ jitter source] -> new
         graph in Error-bars style), committed so the look is reproducible and
         the just-landed whisker fix is visible at a glance.
-  [ ] 48.4  Headless unit test in tests/unit/ characterising the
+        DONE: examples/Compute/error-bars.json (next to its vector-fed sibling
+        oscilloscope.json; that dir is tracked in git but, like Clocks/crypto/
+        meshtastic, intentionally not in examples/Makefile.am, so it ships in
+        the repo not the install).  Three startup-announcing Knobs (from=0,
+        to=8pi, N=512) drive a Ramp -> Expression -> PnPlot chain, so the plot
+        fills on load with no fiddling.  The deterministic jitter is folded
+        into the Expression itself -- "sin(value) + 0.18 * sin(value * 23)" --
+        since there is no noise source node and Expression has no rand(): the
+        low-frequency sin gives the bucket-to-bucket trend (green rising / red
+        falling boxes) and the high-frequency term gives genuine within-bucket
+        spread (fat sd box + min/max whiskers).  PnPlot set to Error bars,
+        x-buckets 16, Time series.
+  [x] 48.4  Headless unit test in tests/unit/ characterising the
         vector -> bin aggregation (mean/sd/min/max per bucket, neighbour-reach
         whisker bounds), following the pntest harness conventions.
+        DONE: tests/unit/test-pn-plot.c (registered in tests/unit/Makefile.am,
+        TESTS now 97).  Pins via the GTK-free pn_plot_peek_series / PnGraphBin
+        seam: sink (never emits), defaults, scalar/empty-key no-ops, the
+        vector->bucket aggregation (12 elements / 4 buckets -> means 1,4,7,10,
+        exact min/max, sd sqrt(2/3)), live re-bucketing on an x-buckets change
+        with no fresh feed, M>N leaving trailing buckets unused (epoch
+        G_MININT64), and the raw-sample mirror for the distribution view.  The
+        actual neighbour-reach whisker STRETCH is gui/PLplot-tier
+        (pn_graph_collect_error_bars, not linkable headless), so the test pins
+        its TRIGGER condition instead: single-sample buckets (M==N) collapse to
+        count 1 / min==max / sd 0, exactly the dash case the stretch cures.
   [x] 48.5  Help page (Pn<Name>.html in data/help/ + data/Makefile.am) and
         palette category/icon metadata.
         DONE alongside 48.1: data/help/PnPlot.html (+ data/Makefile.am entry),

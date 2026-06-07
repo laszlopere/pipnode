@@ -1,0 +1,126 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "fed7e8ff-11e1-4cf8-b98f-e8884c0e999e",
+      "name" : "from",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "24b1efb8-4900-4712-8969-000c0348c590",
+      "name" : "to",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 330.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 32.0,
+        "value" : 25.132741200000001
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "b3340e0a-8448-4cb6-aa58-5a3d1d31d437",
+      "name" : "N",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "min" : 1.0,
+        "max" : 1024.0,
+        "value" : 512.0
+      }
+    },
+    {
+      "type" : "PnRamp",
+      "uuid" : "88c35d0c-74a5-4e10-ac52-6a29bd3e7033",
+      "name" : "Ramp 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 320.0
+      },
+      "properties" : {      },
+      "input-names" : {
+        "0" : "from",
+        "1" : "to",
+        "2" : "N"
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "f4c4518c-1465-44b8-8d9a-70c06245a9e6",
+      "name" : "sine + jitter",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 470.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "expression" : "sin(value) + 0.18 * sin(value * 23)"
+      }
+    },
+    {
+      "type" : "PnPlot",
+      "uuid" : "a1d6b7c2-9f04-4e8a-bf31-2c7e5d480a16",
+      "name" : "Plot 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 680.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "value-key" : "value",
+        "x-buckets" : 16,
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "show-grid" : true,
+        "y-from-zero" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "fed7e8ff-11e1-4cf8-b98f-e8884c0e999e",
+      "target_id" : "88c35d0c-74a5-4e10-ac52-6a29bd3e7033"
+    },
+    {
+      "source_id" : "24b1efb8-4900-4712-8969-000c0348c590",
+      "target_id" : "88c35d0c-74a5-4e10-ac52-6a29bd3e7033",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "b3340e0a-8448-4cb6-aa58-5a3d1d31d437",
+      "target_id" : "88c35d0c-74a5-4e10-ac52-6a29bd3e7033",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "88c35d0c-74a5-4e10-ac52-6a29bd3e7033",
+      "target_id" : "f4c4518c-1465-44b8-8d9a-70c06245a9e6"
+    },
+    {
+      "source_id" : "f4c4518c-1465-44b8-8d9a-70c06245a9e6",
+      "target_id" : "a1d6b7c2-9f04-4e8a-bf31-2c7e5d480a16"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

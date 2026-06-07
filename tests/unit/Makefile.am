@@ -75,6 +75,7 @@ check_PROGRAMS = \
 	test-pn-graph \
 	test-pn-xy-graph \
 	test-pn-oscilloscope \
+	test-pn-plot \
 	test-pn-table \
 	test-pn-chat \
 	test-pn-analog-meter \
@@ -189,6 +190,7 @@ test_pn_dial_SOURCES          = test-pn-dial.c          pntest.c pntest.h
 test_pn_graph_SOURCES         = test-pn-graph.c         pntest.c pntest.h
 test_pn_xy_graph_SOURCES      = test-pn-xy-graph.c      pntest.c pntest.h
 test_pn_oscilloscope_SOURCES  = test-pn-oscilloscope.c  pntest.c pntest.h
+test_pn_plot_SOURCES          = test-pn-plot.c          pntest.c pntest.h
 test_pn_table_SOURCES         = test-pn-table.c         pntest.c pntest.h
 test_pn_chat_SOURCES          = test-pn-chat.c          pntest.c pntest.h
 test_pn_analog_meter_SOURCES  = test-pn-analog-meter.c  pntest.c pntest.h
