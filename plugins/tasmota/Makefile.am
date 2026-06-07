@@ -1,7 +1,16 @@
 # Bundled tasmota plugin.  Same install layout as plugins/network.
+#
+# Two-tier plugin (TODO #23, Phase 8 / TODO #46): the logic module
+# pipnode_tasmota.so is GTK-free and links libpipnode-core ALONE, so a
+# headless server installs it and runs every Tasmota node under
+# pipnode-run with no GTK.  The "Tasmota Devices" discovery dialog (a
+# Devices-menu provider) ships in the companion module
+# pipnode_tasmota-gui.so, which the editor loads next to the logic .so
+# (via pn_plugin_gui_init) and a server never installs.  The core plugin
+# loader skips *-gui.so during a logic-plugin scan.
 plugindir = $(pkglibdir)/plugins
 
-plugin_LTLIBRARIES = pipnode_tasmota.la
+plugin_LTLIBRARIES = pipnode_tasmota.la pipnode_tasmota-gui.la
 
 pipnode_tasmota_la_SOURCES = \
 	pn-tasmota-plugin.c \
@@ -58,6 +67,35 @@ pipnode_tasmota_la_LDFLAGS = -module -avoid-version -shared
 pipnode_tasmota_la_LIBADD = \
 	$(top_builddir)/lib/libpipnode-core.la \
 	$(GLIB_LIBS) \
+	$(JSON_GLIB_LIBS) \
+	$(GMODULE_LIBS)
+
+# -------------------------------------------------------------------
+# Companion GUI module — links the GTK tier.  Automake canonicalises the
+# `pipnode_tasmota-gui.la` target to the `pipnode_tasmota_gui_la_` prefix.
+# Loaded by the editor only (via pn_plugin_gui_init); it registers the
+# "Tasmota Devices" Devices-menu provider.  The shared GTK-free parser
+# pn-tasmota-common.c is compiled into BOTH modules: the logic .so is
+# loaded G_MODULE_BIND_LOCAL so its symbols are invisible here, so the
+# dialog gets pn_tasmota_device_from_topic() from its own copy.
+# -------------------------------------------------------------------
+pipnode_tasmota_gui_la_SOURCES = \
+	pn-tasmota-gui.c \
+	pn-tasmota-common.c \
+	pn-tasmota-common.h
+
+pipnode_tasmota_gui_la_CFLAGS = \
+	$(GTK_CFLAGS) \
+	$(JSON_GLIB_CFLAGS) \
+	$(GMODULE_CFLAGS) \
+	-I$(top_srcdir)/lib
+
+pipnode_tasmota_gui_la_LDFLAGS = -module -avoid-version -shared
+
+pipnode_tasmota_gui_la_LIBADD = \
+	$(top_builddir)/lib/libpipnode-gui.la \
+	$(top_builddir)/lib/libpipnode-core.la \
+	$(GTK_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(GMODULE_LIBS)
 

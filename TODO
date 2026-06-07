@@ -1289,3 +1289,27 @@ enhancements that 44.3 deferred:
   [ ] 45.4  On-screen knobs / buttons.  44.x shipped display-only with no
         on-canvas controls.
 
+(46) Tasmota Devices dialog.  A "Tasmota Devices" entry in the editor's
+Devices menu, modelled on the proprietary zigbee plugin's "Zigbee Devices"
+dialog: pick an MQTT broker profile, and a hidden MQTT session discovers and
+lists every Tasmota device in the left sidebar.  Unlike Zigbee (which gets a
+retained bridge/devices inventory all at once), Tasmota discovery is poll-based
+and slow -- each device is asked `cmnd/<dev>/Status 0` and answers in its own
+time -- so the list fills PROGRESSIVELY via the incremental row API
+(pn_device_dialog_add/update_device_row), not a one-shot set_device_rows.  The
+discovery mirrors the PnTasmotaProbe + PnTasmotaConcentrator worksheet nodes
+(poll-on-sight, top-level STATUS merge), done inline in the dialog over the
+shared GTK-free parser pn-tasmota-common.c (compiled into both the logic and
+the new -gui companion).
+
+  [x] 46.1  Split plugins/tasmota into two tiers (logic pipnode_tasmota.so +
+        companion pipnode_tasmota-gui.so), following plugins/shell.
+  [x] 46.2  pn-tasmota-gui.c: provider registration, dialog shell, broker
+        combo from PnVault, hidden MQTT source/sink, progressive discovery
+        list, read-only device-info pane.
+  [ ] 46.3  Manual GUI verification against a live broker with real devices
+        (the list filling in progressively is the acceptance criterion).
+  [ ] 46.4  Possible follow-ups (deferred): relay on/off control and
+        FriendlyName/config write-back in the info pane; a dedicated menu
+        icon instead of the themed "network-wireless".
+
