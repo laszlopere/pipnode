@@ -147,6 +147,12 @@ typedef struct
     GMutex            pending_lock;
     GQueue            pending;       /* of (PnMessage *), owned */
     guint             flush_idle_id; /* 0 when no drain idle scheduled */
+    /* TRUE between deciding to schedule a drain and that drain running.
+     * Set under pending_lock so the producer can schedule the idle OUTSIDE
+     * the lock (avoiding the [pending_lock -> GMainContext-lock] order that
+     * g_idle_add would impose) while still keeping at most one drain
+     * pending and discarding a stale id if the drain races ahead. */
+    gboolean          flush_scheduled;
 } PnMqttPrivate;
 
 /* Hard cap on the pending-message queue.  Sized for a healthy retained
@@ -299,7 +305,8 @@ flush_pending_on_main (gpointer data)
     local.tail        = priv->pending.tail;
     local.length      = priv->pending.length;
     g_queue_init (&priv->pending);
-    priv->flush_idle_id = 0;
+    priv->flush_idle_id   = 0;
+    priv->flush_scheduled = FALSE;   /* this drain is running; allow the next */
     g_mutex_unlock (&priv->pending_lock);
 
     while ((msg = g_queue_pop_head (&local)) != NULL)
@@ -322,22 +329,41 @@ flush_pending_on_main (gpointer data)
 static void
 emit_message_on_main (PnMqtt *self, PnMessage *message)
 {
-    PnMqttPrivate *priv    = PRIV (self);
-    PnMessage     *dropped = NULL;
+    PnMqttPrivate *priv     = PRIV (self);
+    PnMessage     *dropped  = NULL;
+    gboolean       schedule = FALSE;
 
     g_mutex_lock (&priv->pending_lock);
     if (priv->pending.length >= PN_MQTT_PENDING_MAX)
         dropped = g_queue_pop_head (&priv->pending);
     g_queue_push_tail (&priv->pending, message);  /* transfer */
-    if (priv->flush_idle_id == 0)
+    if (!priv->flush_scheduled)
     {
-        /* g_idle_add is thread-safe: it locks the default GMainContext
-         * internally before scheduling.  We store the source id under
-         * the same mutex so flush_pending_on_main can clear it
-         * atomically with the queue swap. */
-        priv->flush_idle_id = g_idle_add (flush_pending_on_main, self);
+        priv->flush_scheduled = TRUE;
+        schedule              = TRUE;
     }
     g_mutex_unlock (&priv->pending_lock);
+
+    /* Schedule the drain OUTSIDE pending_lock.  g_idle_add locks the
+     * process-wide GMainContext internally; holding pending_lock across it
+     * would fix the producer's lock order as [pending_lock -> context-lock].
+     * A teardown on the main thread that holds the context lock while it
+     * joins this network thread would then deadlock.  flush_scheduled (set
+     * under the lock above) keeps the "one drain pending" invariant without
+     * nesting the two locks. */
+    if (schedule)
+    {
+        guint id = g_idle_add (flush_pending_on_main, self);
+
+        /* Adopt the id only if the drain has not already run on the main
+         * thread in the meantime -- if it has, flush_scheduled is back to
+         * FALSE, the source has auto-removed, and storing its (now stale,
+         * reusable) id would let dispose cancel an unrelated source. */
+        g_mutex_lock (&priv->pending_lock);
+        if (priv->flush_scheduled)
+            priv->flush_idle_id = id;
+        g_mutex_unlock (&priv->pending_lock);
+    }
 
     if (dropped != NULL)
         g_object_unref (dropped);
@@ -1037,11 +1063,14 @@ pn_mqtt_dispose (GObject *object)
     {
         PnMessage *msg;
         g_mutex_lock (&priv->pending_lock);
+        /* The network thread is joined, so flush_scheduled can no longer be
+         * mid-update: if it is set, flush_idle_id is the real pending id. */
         if (priv->flush_idle_id != 0)
         {
             g_source_remove (priv->flush_idle_id);
             priv->flush_idle_id = 0;
         }
+        priv->flush_scheduled = FALSE;
         while ((msg = g_queue_pop_head (&priv->pending)) != NULL)
             g_object_unref (msg);
         g_mutex_unlock (&priv->pending_lock);
@@ -1218,6 +1247,7 @@ pn_mqtt_init (PnMqtt *self)
     g_mutex_init (&priv->pending_lock);
     g_queue_init (&priv->pending);
     priv->flush_idle_id   = 0;
+    priv->flush_scheduled = FALSE;
 
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);
