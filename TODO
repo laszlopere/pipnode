@@ -983,10 +983,18 @@
          change.
 
          REMAINING (deferred / doc-only, not blocking):
-           - [ ] M2 Sink keeps its offline backlog across a runtime broker
-                 change, so commands buffered for broker A can flush to broker
-                 B. Decide + document; likely clear the queue when the broker
-                 identity changes.
+           - [x] M2 DONE 2026-06-07. Decided: clear the backlog on a genuine
+                 broker change so commands buffered for broker A are never
+                 misdelivered to broker B. restart_client records the resolved
+                 broker URL (priv->broker_identity) and compares it on each
+                 (re)connect via the new pure helper pn_mqtt_pending_retarget
+                 (pn-mqtt-util): a NULL prior identity (first connect, where
+                 load-time commands legitimately wait) or an unchanged identity
+                 (transient drop / vault touch to the same broker) keeps the
+                 queue; a different URL -- including clearing the broker to ""
+                 -- drops it and logs the discard count. Covered by
+                 test-pn-mqtt-util queue_retarget; documented in
+                 PnMqttSink.html.
            - [ ] M3 Profile lacks TLS CA-file / port-int / keepalive fields
                  (private-CA broker unconfigurable; keepalive hard-coded 60s).
                  Known/deferred.

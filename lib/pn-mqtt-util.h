@@ -198,6 +198,30 @@ void pn_mqtt_pending_enqueue (GQueue      *queue,
                               gint64       now_us);
 
 /**
+ * pn_mqtt_pending_retarget:
+ * @queue:        the backlog
+ * @old_identity: (nullable): the broker identity the backlog was buffered
+ *                for, or %NULL when no broker has been resolved yet (the
+ *                first connect after construction / load)
+ * @new_identity: the broker identity about to be (re)connected to
+ *
+ * The retarget policy for the offline backlog (review M2): a publish buffered
+ * for one broker must not be misdelivered to another.  When @old_identity is
+ * non-%NULL and differs from @new_identity, the whole backlog is freed — every
+ * entry was meant for a broker the node has retargeted away from.  A %NULL
+ * @old_identity (first resolve, when load-time commands are legitimately
+ * waiting for this broker's first connect) or an unchanged identity (a
+ * transient reconnect / vault touch to the same broker) leaves the backlog
+ * intact.  The identity is the resolved broker URL string; the caller records
+ * it across restarts and compares the previous against the new one.
+ *
+ * Returns: the number of entries discarded (0 when kept).
+ */
+guint pn_mqtt_pending_retarget (GQueue      *queue,
+                                const gchar *old_identity,
+                                const gchar *new_identity);
+
+/**
  * pn_mqtt_pending_collect_fresh:
  * @queue:      the backlog (drained by this call)
  * @now_us:     the current time (g_get_monotonic_time() in the node)

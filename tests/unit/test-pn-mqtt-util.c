@@ -485,6 +485,44 @@ test_queue_fifo_order (void)
     g_queue_free (q);
 }
 
+/* retarget (review M2): a backlog buffered for broker A must not flush to a
+ * different broker B.  The first resolve (old identity NULL) and a reconnect
+ * to the same broker keep the backlog; a genuine broker change clears it. */
+static void
+test_queue_retarget (void)
+{
+    GQueue *q = g_queue_new ();
+    guint   dropped;
+
+    pn_mqtt_pending_enqueue (q, "a", g_strdup ("1"), 1, 0, FALSE, 100);
+    pn_mqtt_pending_enqueue (q, "b", g_strdup ("2"), 1, 0, FALSE, 100);
+
+    /* First resolve: NULL prior identity → keep (load-time commands wait
+     * for this broker's first connect). */
+    dropped = pn_mqtt_pending_retarget (q, NULL, "tcp://a:1883");
+    PN_CHECK_CMPINT ((int) dropped, ==, 0);
+    PN_CHECK_CMPINT ((int) g_queue_get_length (q), ==, 2);
+
+    /* Reconnect to the same broker → keep (the queue's whole purpose). */
+    dropped = pn_mqtt_pending_retarget (q, "tcp://a:1883", "tcp://a:1883");
+    PN_CHECK_CMPINT ((int) dropped, ==, 0);
+    PN_CHECK_CMPINT ((int) g_queue_get_length (q), ==, 2);
+
+    /* Broker change → drop the whole backlog (it was for broker A). */
+    dropped = pn_mqtt_pending_retarget (q, "tcp://a:1883", "tcp://b:1883");
+    PN_CHECK_CMPINT ((int) dropped, ==, 2);
+    PN_CHECK_CMPINT ((int) g_queue_get_length (q), ==, 0);
+
+    /* Removing the broker (URL → "") is a distinct identity, so it clears
+     * too — a backlog with no broker to flush to is dropped. */
+    pn_mqtt_pending_enqueue (q, "c", g_strdup ("3"), 1, 0, FALSE, 100);
+    dropped = pn_mqtt_pending_retarget (q, "tcp://b:1883", "");
+    PN_CHECK_CMPINT ((int) dropped, ==, 1);
+    PN_CHECK_CMPINT ((int) g_queue_get_length (q), ==, 0);
+
+    g_queue_free (q);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -510,5 +548,6 @@ main (int argc, char **argv)
     pn_test_add ("queue_cap_eviction",   test_queue_cap_eviction);
     pn_test_add ("queue_age_filter",     test_queue_age_filter);
     pn_test_add ("queue_fifo_order",     test_queue_fifo_order);
+    pn_test_add ("queue_retarget",       test_queue_retarget);
     return pn_test_run ();
 }

@@ -140,6 +140,12 @@ typedef struct
      * Touched only on the main thread -- both the receive path and the
      * connect trampoline run there -- so it needs no locking. */
     GQueue           *pending;
+
+    /* Resolved broker URL the backlog is buffered for; NULL until the
+     * first restart resolves one.  Compared on every (re)connect so a
+     * runtime broker change drops a backlog meant for the old broker
+     * rather than misdelivering it to the new one (review M2). */
+    gchar            *broker_identity;
 } PnMqttSinkPrivate;
 
 /* Per-client network context (the user data handed to mosquitto_new): a
@@ -739,6 +745,27 @@ restart_client (PnMqttSink *self)
 
     resolve_connection (self, &url, &user, &pass, &cid);
 
+    /* Retarget guard (review M2): if the broker we are about to (re)connect
+     * to differs from the one the backlog was buffered for, those publishes
+     * were meant for a broker we have moved away from -- drop them rather
+     * than misdeliver to the new broker.  A reconnect to the *same* broker
+     * (a transient drop, or a vault edit that did not change the URL) keeps
+     * the backlog, which is what the queue is for.  The empty-URL "no broker"
+     * state is a distinct identity, so removing the broker also clears it. */
+    {
+        const gchar *new_id  = (url != NULL) ? url : "";
+        guint        dropped = pn_mqtt_pending_retarget (priv->pending,
+                                                         priv->broker_identity,
+                                                         new_id);
+        if (dropped > 0)
+            pn_node_log (PN_NODE (self), PN_LOG_LEVEL_INFO,
+                         "broker changed; discarded %u buffered publish%s "
+                         "queued for the previous broker",
+                         dropped, dropped == 1 ? "" : "es");
+        g_free (priv->broker_identity);
+        priv->broker_identity = g_strdup (new_id);
+    }
+
     if (url == NULL || *url == '\0')
         goto out;
 
@@ -1064,6 +1091,7 @@ pn_mqtt_sink_finalize (GObject *object)
     g_clear_pointer (&priv->username,         g_free);
     g_clear_pointer (&priv->password,         g_free);
     g_clear_pointer (&priv->client_id,        g_free);
+    g_clear_pointer (&priv->broker_identity,  g_free);
 
     /* Belt and suspenders: dispose's stop_client already cleared this. */
     g_clear_pointer (&priv->net_ctx,          g_free);
@@ -1271,6 +1299,7 @@ pn_mqtt_sink_init (PnMqttSink *self)
     priv->net_ctx          = NULL;
     priv->generation       = 0;
     priv->pending          = g_queue_new ();
+    priv->broker_identity  = NULL;
 
     /* Class label is pinned on PnNodeClass.class_name in class_init and
      * resolved through pn_node_get_class_name()'s class fallback; do NOT

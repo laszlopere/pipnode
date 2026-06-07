@@ -63,6 +63,17 @@ sends those still younger than 30&nbsp;seconds &mdash; a command that
 has been waiting minutes is more likely stale than useful, while one
 from the load that just happened is exactly what you want enforced.
 </p>
+<p>
+The backlog belongs to a particular broker. If you point the sink at a
+<em>different</em> broker while publishes are still queued &mdash; by
+editing the URL, picking another <code>mqtt-broker</code> profile, or
+clearing the broker entirely &mdash; the queued publishes are discarded
+rather than delivered to the new server: a command buffered for one
+broker is not silently misdelivered to another. Reconnecting to the
+<em>same</em> broker (a transient drop, or a profile edit that leaves
+the address unchanged) keeps the backlog, which is the whole point of
+the queue.
+</p>
 
 <h5>Publish topic</h5>
 <p>

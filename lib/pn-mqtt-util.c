@@ -437,6 +437,30 @@ pn_mqtt_pending_enqueue (
     g_queue_push_tail (queue, p);
 }
 
+guint
+pn_mqtt_pending_retarget (
+        GQueue      *queue,
+        const gchar *old_identity,
+        const gchar *new_identity)
+{
+    guint dropped;
+
+    g_return_val_if_fail (queue != NULL, 0);
+
+    /* First resolve (no prior identity) or a reconnect to the same broker:
+     * keep the backlog — surviving a transient drop / vault touch to the
+     * same broker is the whole reason the queue exists. */
+    if (old_identity == NULL || g_strcmp0 (old_identity, new_identity) == 0)
+        return 0;
+
+    /* The broker we are about to talk to differs from the one these
+     * publishes were buffered for: they were meant for a broker we have
+     * retargeted away from, so drop them rather than misdeliver. */
+    dropped = g_queue_get_length (queue);
+    g_queue_clear_full (queue, pn_mqtt_pending_free);
+    return dropped;
+}
+
 GPtrArray *
 pn_mqtt_pending_collect_fresh (
         GQueue *queue,
