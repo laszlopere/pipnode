@@ -1,21 +1,27 @@
 ---
 name: pipnode-nodes
-description: Detailed reference for the built-in (core) nodes shipped in the pipnode project — what each node does, when to reach for it, the message-bag fields it reads/writes, and how to configure it. Load this when you need specific knowledge about a core node's behaviour, settings, ports, or wiring (NOT for plugin nodes, which live in separate repos under plugins/).
+description: Detailed reference for the nodes shipped in the pipnode project — both the core/built-in nodes and the in-tree bundled plugins under plugins/ (e.g. tasmota) — what each node does, when to reach for it, the message-bag fields it reads/writes, and how to configure it. Load this when you need specific knowledge about a node's behaviour, settings, ports, or wiring. Only nodes from plugins in SEPARATE repositories (kodi, zigbee, rtl-sdr, ethereum) are out of scope.
 ---
 
-# Pipnode core nodes
+# Pipnode nodes (core + bundled plugins)
 
 Pipnode is a desktop visual flow editor (inspired by Node-RED). You wire
 data-processing **nodes** on a worksheet, save the diagram as JSON, and run it
 locally. This skill documents the **core / built-in** nodes — the ones
 registered in `lib/pn-node-factory.c` (`register_builtins`) and implemented in
-`lib/pn-*.c`. Nodes from the bundled plugins under `plugins/` (host-monitoring,
-network/Ping/DNS, ollama, image, tasmota, shell, sound-effects, …) are **not**
-covered here — they are separate projects.
+`lib/pn-*.c` — **plus the nodes from the in-tree bundled plugins** under
+`plugins/` (host-monitoring, network/Ping/DNS, ollama, image, tasmota, shell,
+sound-effects, …), which ship in this same repo and are part of the project.
+Each bundled plugin gets its own `reference/plugins-<name>.md` file (see the
+index below); so far **tasmota** is documented. Nodes from plugins that live in
+**separate repositories** (kodi, zigbee, rtl-sdr, ethereum, …) are **not**
+covered here — those are external projects.
 
 Use the per-category reference files for full detail. Each entry lists: purpose,
 when to use it, input/output ports, the settings-dialog fields, the message-bag
 members it reads and writes, and gotchas.
+
+Core nodes, by category:
 
 - [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Panel Input, AutoInjector, AutoRandom, Astronomical
 - [`reference/network.md`](reference/network.md) — **Network**: Http Client, MQTT Source, MQTT Sink, Weather, Meshtastic
@@ -23,6 +29,10 @@ members it reads and writes, and gotchas.
 - [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Staircase, Throttle, Watchdog, Deadline
 - [`reference/sinks.md`](reference/sinks.md) — **Sinks** (consume/visualise): Debug Print, Graph, XY Graph, Weather Report, Sun Path, Chat, Sound, Text to Speech, Notify, FileViewer, Text View, Table, Table View, Panel Display
 - [`reference/gui-displays-gauges.md`](reference/gui-displays-gauges.md) — **GUI/Displays & Gauges + indicator sinks**: Numeric, Segment16, Matrix57, DigitalClock, Label, AnalogClock, AnalogMeter, Dial, LED, Countdown
+
+Bundled-plugin nodes (in-tree, under `plugins/`):
+
+- [`reference/plugins-tasmota.md`](reference/plugins-tasmota.md) — **Tasmota** (smart plugs/switches/sensors over MQTT): Power, Current, Voltage, Apparent Power, Reactive Power, Power Factor, Temperature, Humidity, Switch, Relay Command, Relay Status, Status, Status Request, Probe, Concentrator
 
 ## The message contract (read this first)
 
