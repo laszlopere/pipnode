@@ -1,0 +1,133 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnMqtt",
+      "uuid" : "a1b2c3d4-0001-4a01-9001-0000000000a1",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "topic" : "#",
+      "position" : {
+        "x" : 100.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "subscribe-topic" : "#",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaProbe",
+      "uuid" : "a1b2c3d4-0002-4a02-9002-0000000000a2",
+      "name" : "Tasmota Probe 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "request" : "Everything (Status 0)",
+        "interval" : 300.0
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "a1b2c3d4-0003-4a03-9003-0000000000a3",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaConcentrator",
+      "uuid" : "a1b2c3d4-0004-4a04-9004-0000000000a4",
+      "name" : "Tasmota Concentrator 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "interval" : 0.0,
+        "timeout" : 0.0,
+        "merge-telemetry" : true
+      }
+    },
+    {
+      "type" : "PnQuery",
+      "uuid" : "a1b2c3d4-0005-4a05-9005-0000000000a5",
+      "name" : "Build Device Table",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "expression" : "{header: {cells: [{text: 'Name'}, {text: 'Type'}, {text: 'IP address'}]}, rows: values(@)[*].{cells: [{text: Status.FriendlyName[0] || Status.Topic || ''}, {text: StatusFWR.Hardware || (Status.Module && join('', ['Module ', to_string(Status.Module)])) || ''}, {text: StatusNET.IPAddress || ''}]}}",
+        "result-field" : "table",
+        "source-field" : "data/devices"
+      }
+    },
+    {
+      "type" : "PnTableView",
+      "uuid" : "a1b2c3d4-0006-4a06-9006-0000000000a6",
+      "name" : "Tasmota Devices",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "background-color" : "rgb(255,255,255)",
+        "header-background-color" : "rgb(235,235,235)",
+        "grid-color" : "rgb(140,140,140)",
+        "text-color" : "rgb(26,26,26)",
+        "header-text-color" : "rgb(26,26,26)",
+        "alternate-row-background" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "a1b2c3d4-0001-4a01-9001-0000000000a1",
+      "target_id" : "a1b2c3d4-0002-4a02-9002-0000000000a2"
+    },
+    {
+      "source_id" : "a1b2c3d4-0002-4a02-9002-0000000000a2",
+      "target_id" : "a1b2c3d4-0003-4a03-9003-0000000000a3"
+    },
+    {
+      "source_id" : "a1b2c3d4-0001-4a01-9001-0000000000a1",
+      "target_id" : "a1b2c3d4-0004-4a04-9004-0000000000a4"
+    },
+    {
+      "source_id" : "a1b2c3d4-0004-4a04-9004-0000000000a4",
+      "target_id" : "a1b2c3d4-0005-4a05-9005-0000000000a5"
+    },
+    {
+      "source_id" : "a1b2c3d4-0005-4a05-9005-0000000000a5",
+      "target_id" : "a1b2c3d4-0006-4a06-9006-0000000000a6"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

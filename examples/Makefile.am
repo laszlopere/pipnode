@@ -27,6 +27,7 @@ homeautomation_DATA = \
 	home-automation/power.json \
 	home-automation/power-meters.json \
 	home-automation/staircase.json \
+	home-automation/tasmota-concentrator.json \
 	home-automation/tasmota-discovery.json \
 	home-automation/tasmota-socket.json \
 	home-automation/tasmota-switch.json
