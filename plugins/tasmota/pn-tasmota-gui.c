@@ -593,6 +593,17 @@ ts_on_message (PnMqtt *source, PnMessage *message, gpointer user_data)
         return;
     }
 
+    /* The broad "#" subscription also delivers every other app sharing the
+     * broker.  Only the Tasmota families (tele/, stat/, cmnd/) name a real
+     * device -- without this gate a foreign topic like
+     * "zigbee2mqtt/bridge/state" parses to the device id "bridge" and sits
+     * forever at "Querying…" (nothing answers cmnd/bridge/Status). */
+    if (!pn_tasmota_topic_is_family (topic))
+    {
+        g_free (name);
+        return;
+    }
+
     /* The broker retains each device's last will (`tele/<name>/LWT`) and
      * replays it to every new subscriber.  So on Connect a device that has
      * been unplugged for days re-announces itself -- as "Offline".  Honour

@@ -63,6 +63,14 @@ GType     pn_tasmota_status_kind_get_type (void);
  * two segments. */
 gchar    *pn_tasmota_device_from_topic (const gchar *topic);
 
+/* TRUE iff @topic sits under one of the three roots Tasmota ever speaks
+ * on: "tele/", "stat/" or "cmnd/".  The homelab broker is shared with
+ * other MQTT apps (zigbee2mqtt, Shelly, Node-RED) whose <root>/<id>/<sub>
+ * topics would otherwise be mistaken for Tasmota devices by
+ * pn_tasmota_device_from_topic() (e.g. "zigbee2mqtt/bridge/state" parses
+ * to the device id "bridge").  Gate discovery on this first. */
+gboolean  pn_tasmota_topic_is_family   (const gchar *topic);
+
 /* Walk @payload looking for a numeric @key, first at the top level
  * and then in each direct child object (Tasmota wraps individual
  * sensor readings in a per-sensor object, e.g. AM2301.Temperature).

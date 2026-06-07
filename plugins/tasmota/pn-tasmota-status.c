@@ -39,7 +39,9 @@ G_DEFINE_TYPE (PnTasmotaStatus, pn_tasmota_status, PN_TYPE_NODE)
  *  "STATUS" followed by a digit (STATUS5 = network info, STATUS11 =
  *  state, etc.).  Matching "starts with STATUS" on the last topic
  *  segment covers every variant without listing the dozen STATUS<N>
- *  codes individually. */
+ *  codes individually — but only under the `stat/` root, so a foreign
+ *  app sharing the broker that happens to publish a `…/STATUS` topic
+ *  is not mistaken for a Tasmota reply. */
 static gboolean
 topic_is_tasmota_status (const gchar *topic)
 {
@@ -47,6 +49,8 @@ topic_is_tasmota_status (const gchar *topic)
     const gchar *last_segment;
 
     if (topic == NULL || *topic == '\0')
+        return FALSE;
+    if (!g_str_has_prefix (topic, "stat/"))
         return FALSE;
 
     last_slash   = strrchr (topic, '/');

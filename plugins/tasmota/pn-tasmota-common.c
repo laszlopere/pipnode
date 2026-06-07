@@ -92,6 +92,17 @@ pn_tasmota_device_from_topic (const gchar *topic)
     return out;
 }
 
+gboolean
+pn_tasmota_topic_is_family (const gchar *topic)
+{
+    if (topic == NULL || *topic == '\0')
+        return FALSE;
+
+    return g_str_has_prefix (topic, "tele/") ||
+           g_str_has_prefix (topic, "stat/") ||
+           g_str_has_prefix (topic, "cmnd/");
+}
+
 /* Read a JsonNode's value as a double when it holds a JSON number. */
 static gboolean
 node_as_double (JsonNode *node, gdouble *out)
