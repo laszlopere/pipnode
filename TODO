@@ -1184,12 +1184,6 @@
                Implement audio playback in-process. (on_play_done itself is safe
                -- holds a ref on self, main-thread-only state.) Sibling theme to
                #38.1.
-         [ ] 39.8 Text-to-Speech shells out extensively (lib/pn-tts.c): `sh -c
-               <cmd>` per utterance (:433-475, :1040-1095, :1171-1288),
-               g_spawn_command_line_sync for `pactl list sinks`, and `<engine>
-               --voices` enumeration -- the most subprocess use in the tree.
-               Port to in-process C. Sibling theme to #38.1.
-
          LOW / NIT
          [ ] 39.9 Numeric readout can cast an out-of-range double to gint64 (UB)
                before the overload check (lib/pn-numeric-gui.c:199-201). With
