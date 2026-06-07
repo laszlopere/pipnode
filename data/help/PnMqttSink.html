@@ -180,6 +180,13 @@ Messages are silently dropped (without warning) when:
   <li>No usable payload could be derived (no template set <em>and</em>
       no inbound <code>data.payload</code>).</li>
 </ul>
+<p>
+A payload larger than the MQTT maximum &mdash; 268,435,455&nbsp;bytes
+(~256&nbsp;MB), the ceiling the protocol's length field allows &mdash;
+is also dropped, but <em>with</em> an error in the node's Log dialog
+rather than silently: it could never be published, so the sink refuses
+it up front instead of truncating it.
+</p>
 
 </body>
 </html>

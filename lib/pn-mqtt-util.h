@@ -155,6 +155,27 @@ gboolean pn_mqtt_build_payload (const gchar *payload_template,
 /* How long a buffered publish stays meaningful (microseconds). */
 #define PN_MQTT_SINK_QUEUE_MAX_AGE_US  (30 * G_TIME_SPAN_SECOND)
 
+/* The largest MQTT application-message payload: the spec's 4-byte
+ * Remaining Length field caps a message at 268,435,455 bytes (~256 MB).
+ * libmosquitto's publish takes an int payloadlen, so a gsize past this both
+ * breaks the protocol and risks a gsize->int truncation to a bogus (often
+ * negative) length; the Sink screens against it before the cast. */
+#define PN_MQTT_MAX_PAYLOAD_BYTES      268435455u
+
+/**
+ * pn_mqtt_payload_within_limit:
+ * @payload_len: a candidate publish payload length
+ *
+ * Whether @payload_len may be published as-is, i.e. it fits both the MQTT
+ * application-message ceiling (#PN_MQTT_MAX_PAYLOAD_BYTES) and the int
+ * payloadlen parameter libmosquitto's publish takes.  The Sink checks this
+ * before narrowing gsize->int so an oversize payload is rejected cleanly
+ * (a "payload too large" error, message dropped) instead of wrapping.
+ *
+ * Returns: %TRUE when @payload_len is publishable.
+ */
+gboolean pn_mqtt_payload_within_limit (gsize payload_len);
+
 /* One buffered publish.  @topic / @payload are owned by the entry. */
 typedef struct
 {

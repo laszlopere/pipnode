@@ -437,6 +437,12 @@ pn_mqtt_pending_enqueue (
     g_queue_push_tail (queue, p);
 }
 
+gboolean
+pn_mqtt_payload_within_limit (gsize payload_len)
+{
+    return payload_len <= PN_MQTT_MAX_PAYLOAD_BYTES;
+}
+
 guint
 pn_mqtt_pending_retarget (
         GQueue      *queue,

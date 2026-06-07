@@ -340,6 +340,31 @@ enqueue_pending (
                              qos, retain, g_get_monotonic_time ());
 }
 
+/** Publish @payload_len bytes on @topic through the live client, guarding the
+ *  gsize->int narrowing mosquitto_publish requires: a payload past the MQTT
+ *  256MB ceiling (PN_MQTT_MAX_PAYLOAD_BYTES) would truncate to a bogus (often
+ *  negative) int, so it is rejected up front with MOSQ_ERR_PAYLOAD_SIZE —
+ *  exactly what libmosquitto returns for an oversize payload, so callers
+ *  surface it through their normal error path.  Otherwise returns the
+ *  mosquitto_publish result.  Requires priv->client to be live. */
+static int
+sink_publish (
+        PnMqttSink  *self,
+        const gchar *topic,
+        const gchar *payload,
+        gsize        payload_len,
+        int          qos,
+        gboolean     retain)
+{
+    PnMqttSinkPrivate *priv = PRIV (self);
+
+    if (!pn_mqtt_payload_within_limit (payload_len))
+        return MOSQ_ERR_PAYLOAD_SIZE;
+
+    return mosquitto_publish (priv->client, NULL /* mid -- not tracked */,
+                              topic, (int) payload_len, payload, qos, retain);
+}
+
 /** Publish every queued entry still younger than the freshness window,
  *  oldest first, discarding the rest.  Runs on the main thread from the
  *  connect trampoline once a session is up.  Requires priv->client to
@@ -356,11 +381,8 @@ flush_pending (PnMqttSink *self)
     for (i = 0; i < fresh->len; i++)
     {
         PnMqttPending *p   = g_ptr_array_index (fresh, i);
-        int            err = mosquitto_publish (priv->client,
-                                                NULL,  /* mid -- not tracked */
-                                                p->topic,
-                                                (int) p->payload_len, p->payload,
-                                                p->qos, p->retain);
+        int            err = sink_publish (self, p->topic, p->payload,
+                                           p->payload_len, p->qos, p->retain);
         if (err == MOSQ_ERR_SUCCESS)
             continue;   /* p is freed by the g_ptr_array_unref below */
 
@@ -653,13 +675,9 @@ pn_mqtt_sink_receive (
     if (priv->client != NULL && priv->connected)
     {
         gboolean was_error = priv->publish_error;
-        int      err       = mosquitto_publish (priv->client,
-                                     NULL,         /* mid -- we do not track */
-                                     publish_topic,
-                                     (int) payload_len,
-                                     payload,
-                                     (int) priv->qos,
-                                     priv->retain);
+        int      err       = sink_publish (self, publish_topic, payload,
+                                           payload_len, (int) priv->qos,
+                                           priv->retain);
         if (err != MOSQ_ERR_SUCCESS)
         {
             report_error (self, "publish to '%s' failed: %s",
@@ -674,6 +692,22 @@ pn_mqtt_sink_receive (
          * healthy high-rate Sink should not repaint on every publish. */
         if (priv->publish_error != was_error)
             apply_visual_state (self);
+        g_free (payload);
+    }
+    else if (!pn_mqtt_payload_within_limit (payload_len))
+    {
+        /* Oversize even before we try to send: it can never be published, so
+         * drop it now with an error rather than buffer a doomed (and possibly
+         * huge) payload that the flush would just discard on connect. */
+        report_error (self,
+                      "publish to '%s' dropped: payload %" G_GSIZE_FORMAT
+                      " bytes exceeds the %u-byte MQTT limit",
+                      publish_topic, payload_len, PN_MQTT_MAX_PAYLOAD_BYTES);
+        if (!priv->publish_error)
+        {
+            priv->publish_error = TRUE;
+            apply_visual_state (self);
+        }
         g_free (payload);
     }
     else

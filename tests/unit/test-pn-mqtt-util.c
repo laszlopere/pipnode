@@ -523,6 +523,20 @@ test_queue_retarget (void)
     g_queue_free (q);
 }
 
+/* payload limit (review M4): the gsize->int narrowing mosquitto_publish
+ * needs is guarded by this predicate.  Anything up to the MQTT 256MB ceiling
+ * is publishable; one byte past it (and anything larger) is rejected before
+ * the cast can wrap to a bogus length. */
+static void
+test_payload_within_limit (void)
+{
+    PN_CHECK (pn_mqtt_payload_within_limit (0) == TRUE);
+    PN_CHECK (pn_mqtt_payload_within_limit (1) == TRUE);
+    PN_CHECK (pn_mqtt_payload_within_limit (PN_MQTT_MAX_PAYLOAD_BYTES) == TRUE);
+    PN_CHECK (pn_mqtt_payload_within_limit (
+                  (gsize) PN_MQTT_MAX_PAYLOAD_BYTES + 1) == FALSE);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -549,5 +563,6 @@ main (int argc, char **argv)
     pn_test_add ("queue_age_filter",     test_queue_age_filter);
     pn_test_add ("queue_fifo_order",     test_queue_fifo_order);
     pn_test_add ("queue_retarget",       test_queue_retarget);
+    pn_test_add ("payload_within_limit", test_payload_within_limit);
     return pn_test_run ();
 }

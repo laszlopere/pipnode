@@ -998,9 +998,17 @@
            - [ ] M3 Profile lacks TLS CA-file / port-int / keepalive fields
                  (private-CA broker unconfigurable; keepalive hard-coded 60s).
                  Known/deferred.
-           - [ ] M4 payload_len (gsize) cast to int at the publish calls; >256MB
-                 hits MQTT's limit. Now at least surfaced via the Log dialog
-                 (C1).
+           - [x] M4 DONE 2026-06-07. The gsize->int narrowing at both publish
+                 sites is now guarded: new pure predicate
+                 pn_mqtt_payload_within_limit (pn-mqtt-util, ceiling
+                 PN_MQTT_MAX_PAYLOAD_BYTES = 268,435,455) screens the length
+                 before the cast. A live publish past the limit returns
+                 MOSQ_ERR_PAYLOAD_SIZE via the sink_publish wrapper (surfaced
+                 through the existing error path); an oversize payload arriving
+                 while offline is dropped at receive with a Log-dialog error
+                 instead of buffering a doomed (huge) payload. Covered by
+                 test-pn-mqtt-util payload_within_limit; documented in
+                 PnMqttSink.html ("What gets dropped").
            - [ ] L3 Default topic "#" + primary profile auto-subscribes the
                  whole broker (intentional footgun).
            - [ ] L4 Empty-payload publish is dropped -> cannot clear a retained
