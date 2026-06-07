@@ -708,11 +708,20 @@
        --max-messages CLI modes leaking into the GUI, no global HEXDATA/PB_POS
        state -- each PnMeshConnection holds its own.
 
-[ ] 30 MQTT node hardening (from the 2026-05-28 code review of lib/pn-mqtt.c/.h,
+[x] 30 MQTT node hardening (from the 2026-05-28 code review of lib/pn-mqtt.c/.h,
        lib/pn-mqtt-sink.c/.h, lib/pn-mqtt-profile.c/.h and
        tests/unit/test-pn-mqtt*.c). The nodes are sound and GTK-free; these are
        the findings worth fixing. NOTE: pn-mesh-page-mqtt.c is the Meshtastic
        radio's MQTT-gateway page (#29), NOT one of these nodes.
+       FULLY DONE 2026-06-08. Every finding is resolved or closed by design:
+       C1 (errors to the node Log, not stderr); H1/H2/H3 (topic-setter race,
+       stale-disconnect generation guard, flush re-queue on transient error);
+       M1 (JSON-boolean -> 0.0/1.0 mirror), M2 (transient backlog: retarget
+       guard on broker change + best-effort flush & warn on dispose), M3
+       (TLS CA/mTLS/insecure/keepalive on the broker profile), M4 (payload
+       gsize->int narrowing guarded by pn_mqtt_payload_within_limit);
+       L1/L2/L4/N1 fixed, L3 kept by design ("#" default). Covered by the
+       test-pn-mqtt* unit suite and documented in PnMqttSink.html.
 
          CRITICAL
          - [x] C1 Sink reports every failure only via g_warning/g_message ->
