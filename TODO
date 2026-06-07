@@ -1256,7 +1256,7 @@
                object" parse error when it's NULL or !JSON_NODE_HOLDS_OBJECT,
                before json_node_get_object -- no more g_critical on a blank or
                non-object body.
-         [ ] 39.14 TTS queue can stall on a failed re-spawn
+         [x] 39.14 TTS queue can stall on a failed re-spawn
                (lib/pn-tts.c:336-350): in on_speak_done, if pn_tts_speak fails
                to spawn the next utterance, self->speaking stays FALSE and
                on_speak_done never fires again, so the remaining backlog is

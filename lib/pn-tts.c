@@ -382,13 +382,22 @@ on_speak_done (
 
     g_object_unref (sub);
 
-    /* Pull the next queued utterance, if any, and speak it now that
-     * the audio device is free.  The pn_tts_speak() call sets
-     * `speaking` back to TRUE and takes its own ref on self for the
-     * follow-up callback, so the unref below balances ONLY the ref
-     * the just-completed subprocess held. */
-    PendingUtterance *next = g_queue_pop_head (self->pending);
-    if (next != NULL)
+    /* Pull queued utterances and speak the next one now that the audio
+     * device is free.  A successful pn_tts_speak() sets `speaking` back
+     * to TRUE and takes its own ref on self for the follow-up callback,
+     * so the single unref below balances ONLY the ref the just-completed
+     * subprocess held.
+     *
+     * If the re-spawn fails (engine vanished, voice unavailable, fork
+     * error) pn_tts_speak() returns with `speaking` still FALSE and
+     * WITHOUT scheduling another on_speak_done() — so nothing would ever
+     * drain the rest of the backlog and it would strand until the next
+     * inbound message.  Loop instead: keep popping and trying until one
+     * utterance actually starts or the queue runs dry.  Failed speaks
+     * take no ref, so the ref accounting is unaffected. */
+    PendingUtterance *next;
+    while (!self->speaking
+           && (next = g_queue_pop_head (self->pending)) != NULL)
     {
         pn_tts_speak (self, next->text, next->voice);
         pending_utterance_free (next);
