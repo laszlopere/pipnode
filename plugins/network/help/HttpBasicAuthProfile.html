@@ -2,19 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>HTTP Basic Auth credentials &mdash; Pipnode Help</title>
+<title>Web Service Login credentials &mdash; Pipnode Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 
 <p><a href="help-index.html">&larr; Pipnode help index</a></p>
 
-<h4>HTTP Basic Auth credentials</h4>
+<h4>Web Service Login credentials</h4>
 <p>
-An <em>HTTP Basic Auth</em> profile holds the username and password
+A <em>Web Service Login</em> profile holds the username and password
 the <em>HTTP Request</em> node and friends present when a server
 returns an <code>HTTP 401</code> challenge with
-<code>WWW-Authenticate: Basic</code>.  RFC&nbsp;7617 Basic
+<code>WWW-Authenticate: Basic</code>.  Under the hood this is
+<em>HTTP Basic authentication</em>: RFC&nbsp;7617 Basic
 authentication encodes the credentials as
 <code>base64(username:password)</code> and sends them in the
 <code>Authorization</code> header on every request &mdash; effectively

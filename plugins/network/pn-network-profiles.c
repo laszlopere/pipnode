@@ -25,7 +25,7 @@ pn_network_register_profile_types (PnNodeFactory *factory)
     g_return_if_fail (PN_IS_NODE_FACTORY (factory));
 
     http = pn_profile_schema_new (PN_NETWORK_PROFILE_HTTP_BASIC,
-                                  "HTTP Basic Auth");
+                                  "Web Service Login");
     pn_profile_schema_field (http, "username", "Username", PN_FIELD_STRING);
     pn_profile_schema_field (http, "password", "Password", PN_FIELD_SECRET);
     pn_profile_schema_set_help_page (http, "HttpBasicAuthProfile.html");
