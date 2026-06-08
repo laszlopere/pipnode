@@ -139,6 +139,72 @@ test_choices_force_enum (void)
 }
 
 static void
+test_visible_when (void)
+{
+    static const gchar *const key_only[]  = { "key-file", NULL };
+    static const gchar *const pwd_or_key[] = { "key-file", "password", NULL };
+    PnProfileSchema *s = pn_profile_schema_new ("ssh-login", "SSH Login");
+    const gchar *const *vals;
+
+    /* auth-schema (controller) + host (always) + a couple of dependents */
+    pn_profile_schema_field (s, "auth-schema", "Authentication",
+                             PN_FIELD_ENUM);
+    pn_profile_schema_field (s, "host",        "Host",     PN_FIELD_STRING);
+    pn_profile_schema_field (s, "identity",    "Key file", PN_FIELD_FILE);
+    pn_profile_schema_field (s, "username",    "Username", PN_FIELD_STRING);
+
+    pn_profile_schema_field_visible_when (s, "identity", "auth-schema", key_only);
+    pn_profile_schema_field_visible_when (s, "username", "auth-schema",
+                                          pwd_or_key);
+
+    /* Read-back: a field with no rule reports NULL. */
+    PN_CHECK (pn_profile_schema_field_get_visible_when (s, 0) == NULL);
+    PN_CHECK (pn_profile_schema_field_get_visible_when (s, 1) == NULL);
+    PN_CHECK_CMPSTR (pn_profile_schema_field_get_visible_when (s, 2), ==,
+                     "auth-schema");
+
+    vals = pn_profile_schema_field_get_visible_values (s, 2);
+    PN_CHECK (vals != NULL);
+    if (vals != NULL)
+    {
+        PN_CHECK_CMPSTR (vals[0], ==, "key-file");
+        PN_CHECK (vals[1] == NULL);
+    }
+
+    /* Evaluator: no rule -> always visible regardless of controller value. */
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 1, "anything") == TRUE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 1, NULL) == TRUE);
+
+    /* identity: only for "key-file". */
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, "key-file")  == TRUE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, "password")  == FALSE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, "passwordless-simple")
+              == FALSE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, NULL) == FALSE);
+
+    /* username: for both key-file and password. */
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 3, "key-file") == TRUE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 3, "password") == TRUE);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 3, "passwordless-simple")
+              == FALSE);
+
+    /* A NULL controller field clears the rule -> always visible again. */
+    pn_profile_schema_field_visible_when (s, "identity", NULL, NULL);
+    PN_CHECK (pn_profile_schema_field_get_visible_when (s, 2) == NULL);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, "password") == TRUE);
+
+    /* A rule with an empty value set -> never visible. */
+    pn_profile_schema_field_visible_when (s, "identity", "auth-schema", NULL);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 2, "key-file") == FALSE);
+
+    /* Out-of-range index is safe (treated as always-visible). */
+    PN_CHECK (pn_profile_schema_field_get_visible_when (s, 99) == NULL);
+    PN_CHECK (pn_profile_schema_field_visible_for (s, 99, "x") == TRUE);
+
+    pn_profile_schema_unref (s);
+}
+
+static void
 test_help_page (void)
 {
     PnProfileSchema *s = pn_profile_schema_new ("kodi-server", "Kodi Server");
@@ -184,6 +250,7 @@ main (int argc, char **argv)
     pn_test_add ("find_field", test_find_field);
     pn_test_add ("default_value", test_default_value);
     pn_test_add ("choices_force_enum", test_choices_force_enum);
+    pn_test_add ("visible_when", test_visible_when);
     pn_test_add ("help_page", test_help_page);
     pn_test_add ("refcount", test_refcount);
     return pn_test_run ();

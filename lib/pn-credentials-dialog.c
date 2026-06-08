@@ -68,6 +68,29 @@ static guint signals[N_SIGNALS];
 static void rebuild_type_page (PnCredentialsDialog *self, const gchar *type_id);
 
 /* ------------------------------------------------------------------ */
+/*  Conditional field visibility (TODO #47.8)                          */
+/*                                                                     */
+/*  One FrameCtx per profile card tracks every field row so a change   */
+/*  to a controller field (an auth-schema combobox, say) can re-run    */
+/*  the schema's visible-when rules and hide/show the dependent rows.  */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    GtkWidget *label;       /* row label   (borrowed; lives in the grid) */
+    GtkWidget *editor;      /* row editor  (borrowed; lives in the grid) */
+    guint      index;       /* schema field index */
+} RowVis;
+
+typedef struct _FrameCtx {
+    PnCredentialsDialog *self;
+    PnProfileSchema     *schema;     /* borrowed; factory-owned, stable */
+    gchar               *profile_id; /* owned */
+    GPtrArray           *rows;       /* of RowVis* (owned) */
+} FrameCtx;
+
+static void frame_apply_visibility (FrameCtx *fc);
+
+/* ------------------------------------------------------------------ */
 /*  Per-field editor state                                             */
 /* ------------------------------------------------------------------ */
 
@@ -75,6 +98,7 @@ typedef struct {
     PnCredentialsDialog *self;
     gchar               *profile_id;
     gchar               *field;
+    FrameCtx            *frame;      /* borrowed; for visible-when re-eval */
 } FieldCtx;
 
 static void
@@ -89,12 +113,14 @@ field_ctx_free (gpointer data)
 static FieldCtx *
 field_ctx_new (PnCredentialsDialog *self,
                const gchar         *profile_id,
-               const gchar         *field)
+               const gchar         *field,
+               FrameCtx            *frame)
 {
     FieldCtx *ctx = g_new0 (FieldCtx, 1);
     ctx->self       = self;
     ctx->profile_id = g_strdup (profile_id);
     ctx->field      = g_strdup (field);
+    ctx->frame      = frame;
     return ctx;
 }
 
@@ -165,6 +191,10 @@ on_field_combo_changed (GtkComboBox *combo, gpointer user_data)
         return;
     id = gtk_combo_box_get_active_id (combo);
     pn_profile_set_field (p, ctx->field, id != NULL ? id : "");
+
+    /* A combobox may be a controller for other fields' visibility. */
+    if (ctx->frame != NULL)
+        frame_apply_visibility (ctx->frame);
 }
 
 static void
@@ -198,12 +228,13 @@ static GtkWidget *
 build_field_editor (PnCredentialsDialog *self,
                     PnProfileSchema     *schema,
                     PnProfile           *p,
-                    guint                fi)
+                    guint                fi,
+                    FrameCtx            *frame)
 {
     const gchar        *field = pn_profile_schema_field_name (schema, fi);
     PnProfileFieldKind  kind  = pn_profile_schema_field_get_kind (schema, fi);
     FieldCtx           *ctx   = field_ctx_new (self, pn_profile_get_id (p),
-                                               field);
+                                               field, frame);
     GtkWidget          *w;
 
     if (kind == PN_FIELD_BOOL || kind == PN_FIELD_PERMISSION)
@@ -359,6 +390,50 @@ on_profile_delete (GtkButton *button, gpointer user_data)
 /*  Profile frame + type page rebuild                                 */
 /* ------------------------------------------------------------------ */
 
+#define FRAME_CTX_KEY "pn-cred-frame-ctx"
+
+static void
+frame_ctx_free (gpointer data)
+{
+    FrameCtx *fc = data;
+    g_ptr_array_free (fc->rows, TRUE);  /* RowVis are plain, g_free frees them */
+    g_free (fc->profile_id);
+    g_free (fc);
+}
+
+/* Re-evaluate every row's visible-when rule against the live profile and
+ * show/hide both the label and the editor accordingly. */
+static void
+frame_apply_visibility (FrameCtx *fc)
+{
+    PnProfile *p;
+    guint      i;
+
+    p = pn_vault_get_profile (pn_vault_get_default (), fc->profile_id);
+    if (p == NULL)
+        return;
+
+    for (i = 0; i < fc->rows->len; i++)
+    {
+        RowVis      *r    = g_ptr_array_index (fc->rows, i);
+        const gchar *ctrl =
+                pn_profile_schema_field_get_visible_when (fc->schema, r->index);
+        gboolean     vis;
+
+        if (ctrl == NULL)
+            vis = TRUE;                 /* no rule: always visible */
+        else
+        {
+            gchar *cv = pn_profile_get_string (p, ctrl);
+            vis = pn_profile_schema_field_visible_for (fc->schema, r->index, cv);
+            g_free (cv);
+        }
+
+        gtk_widget_set_visible (r->label,  vis);
+        gtk_widget_set_visible (r->editor, vis);
+    }
+}
+
 static GtkWidget *
 build_profile_frame (PnCredentialsDialog *self,
                      PnProfileSchema     *schema,
@@ -374,8 +449,14 @@ build_profile_frame (PnCredentialsDialog *self,
                                                        GTK_ICON_SIZE_BUTTON);
     GtkWidget  *grid  = gtk_grid_new ();
     ProfileCtx *pctx  = g_new0 (ProfileCtx, 1);
+    FrameCtx   *fctx  = g_new0 (FrameCtx, 1);
     guint       n     = pn_profile_schema_get_n_fields (schema);
     guint       i;
+
+    fctx->self       = self;
+    fctx->schema     = schema;
+    fctx->profile_id = g_strdup (pn_profile_get_id (p));
+    fctx->rows       = g_ptr_array_new_with_free_func (g_free);
 
     pctx->self       = self;
     pctx->profile_id = g_strdup (pn_profile_get_id (p));
@@ -418,6 +499,7 @@ build_profile_frame (PnCredentialsDialog *self,
         const gchar *tip   = pn_profile_schema_field_get_tooltip (schema, i);
         GtkWidget   *lab   = gtk_label_new (label);
         GtkWidget   *editor;
+        RowVis      *row;
 
         gtk_label_set_xalign (GTK_LABEL (lab), 0.0);
         gtk_widget_set_halign (lab, GTK_ALIGN_START);
@@ -425,16 +507,24 @@ build_profile_frame (PnCredentialsDialog *self,
             gtk_widget_set_tooltip_text (lab, tip);
         gtk_grid_attach (GTK_GRID (grid), lab, 0, (gint) i, 1, 1);
 
-        editor = build_field_editor (self, schema, p, i);
+        editor = build_field_editor (self, schema, p, i, fctx);
         gtk_widget_set_hexpand (editor, TRUE);
         if (tip != NULL)
             gtk_widget_set_tooltip_text (editor, tip);
         gtk_grid_attach (GTK_GRID (grid), editor, 1, (gint) i, 1, 1);
+
+        row         = g_new0 (RowVis, 1);
+        row->label  = lab;
+        row->editor = editor;
+        row->index  = i;
+        g_ptr_array_add (fctx->rows, row);
     }
     gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
 
     g_object_set_data_full (G_OBJECT (frame), PROFILE_CTX_KEY, pctx,
                             profile_ctx_free);
+    g_object_set_data_full (G_OBJECT (frame), FRAME_CTX_KEY, fctx,
+                            frame_ctx_free);
     gtk_container_add (GTK_CONTAINER (frame), box);
     return frame;
 }
@@ -485,6 +575,18 @@ rebuild_type_page (PnCredentialsDialog *self, const gchar *type_id)
     }
 
     gtk_widget_show_all (list);
+
+    /* show_all just re-showed every row; apply each card's visible-when rules
+     * on top so conditionally-hidden fields start hidden. */
+    children = gtk_container_get_children (GTK_CONTAINER (list));
+    for (l = children; l != NULL; l = l->next)
+    {
+        FrameCtx *fc = g_object_get_data (G_OBJECT (l->data), FRAME_CTX_KEY);
+        if (fc != NULL)
+            frame_apply_visibility (fc);
+    }
+    g_list_free (children);
+
     self->rebuilding = FALSE;
 }
 

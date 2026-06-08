@@ -180,6 +180,30 @@ void pn_profile_schema_field_tooltip (PnProfileSchema *self,
                                       const gchar     *name,
                                       const gchar     *tooltip);
 
+/**
+ * pn_profile_schema_field_visible_when:
+ * @self:              a schema
+ * @name:              a field added by a previous pn_profile_schema_field()
+ * @controller_field:  the name of another field whose value decides whether
+ *                     @name is shown; typically a %PN_FIELD_ENUM.  %NULL or ""
+ *                     clears any rule (@name becomes always-visible again).
+ * @controller_values: (array zero-terminated=1) (nullable): the %NULL-terminated
+ *                     list of @controller_field values for which @name is shown
+ *                     (copied).  When @controller_field equals one of these the
+ *                     field is visible; for every other value it is hidden.  A
+ *                     %NULL/empty list means "never visible".
+ *
+ * Declare that @name is conditionally visible: the credentials manager shows it
+ * only while @controller_field holds one of @controller_values, and hides BOTH
+ * its label and its editor otherwise.  A field with no such rule is always
+ * shown.  This is GTK-free schema metadata (read back with the getters below);
+ * the headless core merely carries it.
+ */
+void pn_profile_schema_field_visible_when (PnProfileSchema    *self,
+                                           const gchar        *name,
+                                           const gchar        *controller_field,
+                                           const gchar *const *controller_values);
+
 /* ---- read-back (manager, vault, tests) -------------------------- */
 
 const gchar        *pn_profile_schema_get_type_id      (PnProfileSchema *self);
@@ -197,6 +221,44 @@ const gchar        *pn_profile_schema_field_get_tooltip (PnProfileSchema *self,
                                                          guint            index);
 const gchar *const *pn_profile_schema_field_get_choices (PnProfileSchema *self,
                                                          guint            index);
+
+/**
+ * pn_profile_schema_field_get_visible_when:
+ * @self:  a schema
+ * @index: a field index
+ *
+ * Returns: (nullable): the controller field name for @index's visible-when rule,
+ *   or %NULL when the field is always visible.  Borrowed.
+ */
+const gchar        *pn_profile_schema_field_get_visible_when (PnProfileSchema *self,
+                                                             guint            index);
+
+/**
+ * pn_profile_schema_field_get_visible_values:
+ * @self:  a schema
+ * @index: a field index
+ *
+ * Returns: (nullable) (array zero-terminated=1): the %NULL-terminated controller
+ *   value list for @index's visible-when rule, or %NULL when none.  Borrowed.
+ */
+const gchar *const *pn_profile_schema_field_get_visible_values (PnProfileSchema *self,
+                                                               guint            index);
+
+/**
+ * pn_profile_schema_field_visible_for:
+ * @self:             a schema
+ * @index:            a field index
+ * @controller_value: the current value of @index's controller field (ignored
+ *                    when the field has no visible-when rule)
+ *
+ * Evaluate @index's visible-when rule.  Returns %TRUE when the field has no rule
+ * (always visible) or when @controller_value matches one of its declared
+ * controller values; %FALSE otherwise.  The pure-data half of the manager's
+ * show/hide logic, shared with the tests.
+ */
+gboolean pn_profile_schema_field_visible_for (PnProfileSchema *self,
+                                              guint            index,
+                                              const gchar     *controller_value);
 
 /**
  * pn_profile_schema_find_field:

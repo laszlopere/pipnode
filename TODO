@@ -1010,7 +1010,22 @@
                handling ("Custom settings" mode, host-from-credential); the blurb
                is worded generally (how-vs-where) so it stays accurate, and 47.11
                will revisit/supersede where they overlap.
-         [ ] 47.7 Session helper(s) to initiate AND maintain an SSH connection.
+         [-] 47.7 Session helper(s) to initiate AND maintain an SSH connection.
+               WONTFIX (2026-06-08, decided in chat): the per-fire-handshake cost
+               is real but is the SAME cross-cutting "single-owner / stateful
+               resource reused across fires" problem that MANY plugins share (the
+               #28 list: serial/MQTT/Zigbee/Meshtastic/kodi/...). Solving it once
+               here, node-by-node, with an SSH-only ControlMaster or libssh path
+               would invent a parallel lifetime model just for SSH. Nothing is
+               broken today -- it is a performance optimization, not a correctness
+               fix -- so we will NOT do an SSH-local version. The eventual fix is
+               the elaborate host-managed shared-session layer (#28, ABI v6); SSH
+               plugs into that as #28's item (e) when it lands. The decision-only
+               output of 47.7 ("(a) vs (b), defer-until-#28?") = DEFER, via #28,
+               not via a standalone SSH session helper. No code, no schema change.
+               (Closes the implementation side of 47.7; 47.8-47.11 redesign items
+               are independent and still open.)
+               --- original analysis kept for #28's eventual SSH port ---
                TODAY THERE IS NONE: every SSH node g_spawn's a fresh one-shot
                `ssh <host> <cmd>` on each fire (host-monitoring via
                g_spawn_command_line_sync, shell via g_spawn_sync), so each tick
@@ -1040,7 +1055,7 @@
          --- 2026-06-08 REDESIGN sub-items (host-bound credential + auth-schema
              combobox; see the REDESIGN paragraph in the #47 intro) ---
 
-         [ ] 47.8 Conditional field visibility in PnProfileSchema + the
+         [x] 47.8 Conditional field visibility in PnProfileSchema + the
                credentials manager. NEW CORE CAPABILITY: today every schema
                field renders unconditionally in call order (lib/pn-profile-
                schema.c) — there is no way to show a field only for certain
@@ -1058,6 +1073,33 @@
                rule stays always-visible (host, auth-schema). No ABI concern
                (schema is data, not a vfunc); add a characterization test for the
                metadata + a manager-level test if feasible.
+               DONE (2026-06-08): core seam pn_profile_schema_field_visible_when
+               (schema, field, controller_field, controller_values[]) in
+               lib/pn-profile-schema.{c,h} -- GTK-free metadata stored per field
+               (vwhen_field + vwhen_vals), NO ABI concern (boxed data, no vfunc).
+               Read-back: pn_profile_schema_field_get_visible_when (controller
+               name or NULL) + _get_visible_values (the NULL-terminated value
+               list); the pure evaluator pn_profile_schema_field_visible_for
+               (schema, index, controller_value) returns TRUE for no-rule
+               (always visible) or a matching value, FALSE otherwise (NULL/empty
+               value set -> never). Credentials manager (lib/pn-credentials-
+               dialog.c): each profile card now carries a FrameCtx (schema +
+               profile_id + a RowVis list of {label,editor,field-index}); a new
+               frame_apply_visibility() reads each row's controller value live
+               from the profile and gtk_widget_set_visible()s BOTH the label and
+               the editor (hide, not desensitise, per spec). Wired in two places:
+               (a) on_field_combo_changed re-evaluates after writing (a combobox
+               may be a controller), and (b) rebuild_type_page re-applies after
+               gtk_widget_show_all (which would otherwise re-show hidden rows) so
+               the dialog opens already collapsed to the stored value. A field
+               with no rule stays always-visible. Test: test-pn-profile-schema.c
+               new visible_when case (20 checks: read-back, no-rule, match,
+               non-match, NULL value, multi-value, clear-rule, empty-set-never,
+               out-of-range-safe). All 131 C unit tests green; full tree builds
+               clean. NOTE: no schema USES the capability yet -- it stays dormant
+               (and so there is nothing to eyeball in the running app) until 47.9
+               wires the SSH auth-schema combobox onto it; a manager-level GTK
+               test needs a display so it is deferred to that interactive check.
 
          [ ] 47.9 Reshape the SSH profile schema (lib/pn-ssh-profile.c). Add the
                required "host" field (STRING; the credentials manager must reject

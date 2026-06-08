@@ -31,6 +31,8 @@ typedef struct
     gchar              *def;         /* default value, or NULL          */
     gchar              *tooltip;     /* hover hint, or NULL             */
     gchar             **choices;     /* NULL-terminated, owned, or NULL */
+    gchar              *vwhen_field; /* controller field name, or NULL  */
+    gchar             **vwhen_vals;  /* NULL-terminated, owned, or NULL */
 } PnSchemaField;
 
 struct _PnProfileSchema
@@ -50,6 +52,8 @@ schema_field_free (PnSchemaField *f)
     g_free (f->def);
     g_free (f->tooltip);
     g_strfreev (f->choices);
+    g_free (f->vwhen_field);
+    g_strfreev (f->vwhen_vals);
     g_free (f);
 }
 
@@ -237,6 +241,38 @@ pn_profile_schema_field_tooltip (PnProfileSchema *self,
                  ? g_strdup (tooltip) : NULL;
 }
 
+void
+pn_profile_schema_field_visible_when (PnProfileSchema    *self,
+                                      const gchar        *name,
+                                      const gchar        *controller_field,
+                                      const gchar *const *controller_values)
+{
+    PnSchemaField *f;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (name != NULL);
+
+    f = schema_find (self, name);
+    if (f == NULL)
+    {
+        g_warning ("pn_profile_schema_field_visible_when: no field '%s'", name);
+        return;
+    }
+
+    g_free (f->vwhen_field);
+    g_strfreev (f->vwhen_vals);
+
+    if (controller_field == NULL || *controller_field == '\0')
+    {
+        f->vwhen_field = NULL;
+        f->vwhen_vals  = NULL;
+        return;
+    }
+
+    f->vwhen_field = g_strdup (controller_field);
+    f->vwhen_vals  = g_strdupv ((gchar **) controller_values);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Read-back accessors                                                */
 /* ------------------------------------------------------------------ */
@@ -302,6 +338,39 @@ pn_profile_schema_field_get_choices (PnProfileSchema *self, guint index)
 {
     PnSchemaField *f = schema_at (self, index);
     return f != NULL ? (const gchar *const *) f->choices : NULL;
+}
+
+const gchar *
+pn_profile_schema_field_get_visible_when (PnProfileSchema *self, guint index)
+{
+    PnSchemaField *f = schema_at (self, index);
+    return f != NULL ? f->vwhen_field : NULL;
+}
+
+const gchar *const *
+pn_profile_schema_field_get_visible_values (PnProfileSchema *self, guint index)
+{
+    PnSchemaField *f = schema_at (self, index);
+    return f != NULL ? (const gchar *const *) f->vwhen_vals : NULL;
+}
+
+gboolean
+pn_profile_schema_field_visible_for (PnProfileSchema *self,
+                                     guint            index,
+                                     const gchar     *controller_value)
+{
+    PnSchemaField *f = schema_at (self, index);
+    guint          i;
+
+    if (f == NULL || f->vwhen_field == NULL)
+        return TRUE;                    /* no rule -> always visible */
+    if (f->vwhen_vals == NULL)
+        return FALSE;                   /* rule with empty set -> never */
+
+    for (i = 0; f->vwhen_vals[i] != NULL; i++)
+        if (g_strcmp0 (f->vwhen_vals[i], controller_value) == 0)
+            return TRUE;
+    return FALSE;
 }
 
 gint
