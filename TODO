@@ -805,6 +805,45 @@
        host = WHERE, profile = HOW-TO-LOG-IN); a node with no profile keeps the
        current ambient-key behaviour for backwards compat.
 
+       REDESIGN (2026-06-08): the credential is now HOST-BOUND and the dialog
+       is driven by an auth-schema combobox. Two changes to the model above:
+
+         (1) The host moves INTO the credential. An "SSH Login" credential must
+             always name a host (hostname or IP); a hostless / generic
+             credential is forbidden. The point is a permission grant: creating
+             the credential is the user saying "nodes may ssh into THIS host
+             with these settings", never "with these settings into any host on
+             earth". So host is a required, always-visible profile field, and
+             the credentials manager refuses to save an empty one. The node's
+             own in-node "host" entry stays, but is consulted ONLY when the
+             picker is on "Custom settings" (PN_PROFILE_REF_CUSTOM) — exactly
+             the MQTT Source model: pick a profile -> host + auth come from the
+             credential; pick "Custom settings" -> the node's inline host (and
+             today's ambient key) are used. (Default / primary still works.)
+
+         (2) An auth-schema combobox is the FIRST field and DRIVES which other
+             fields are visible (hidden outright, not just disabled). The
+             schemas (Q-confirmed 2026-06-08):
+               - "passwordless simple" (DEFAULT): shows ONLY host. The user has
+                 already set up an account + passwordless (agent / default-key)
+                 ssh for themselves; everything else is hidden — local user,
+                 port 22, no key/password, accept-new. This is today's ambient
+                 login, now pinned to one host.
+               - "key file": shows host, port, username, private key, key
+                 passphrase, host-key policy (NO password).
+               - "password": shows host, port, username, password, host-key
+                 policy (NO private key / passphrase). Non-interactive feeding
+                 is still the 47.5 problem; the field is reachable regardless.
+             Field ORDER in the dialog (every schema uses this order, hiding the
+             ones it doesn't show): auth-schema combobox, host, port, username,
+             password, private key, key passphrase, host-key policy.
+
+       This redesign reworks the schema (47.1) and the per-node wiring (47.4),
+       which were built under the old "host stays in the node, profile is auth-
+       only, no Custom entry" assumption; see the new sub-items 47.8–47.11.
+       It needs one new core capability: conditional field visibility in
+       PnProfileSchema + the credentials manager (47.8).
+
          [x] 47.1 Define the SSH profile schema: username (STRING), port (INT,
                default 22), identity file (FILE -- private key path), passphrase
                (SECRET, for the key), optional password (SECRET, for password
@@ -819,6 +858,9 @@
                tests/unit/test-pn-ssh-profile.c (35 checks). Landing it in core
                (mirroring the mqtt-broker profile) answers 47.2's
                registration-home question -> "core built-in" (see 47.2).
+               REWORKED by the 2026-06-08 REDESIGN: this field set is now
+               reordered, gains a required "host" field + a driving auth-schema
+               combobox, and most fields become schema-conditional — see 47.9.
          [x] 47.2 Decide the registration home. The profile is shared by TWO
                bundled plugins (shell + host-monitoring), so it should NOT be
                registered privately inside one of them the way
@@ -911,6 +953,11 @@
                python regressions all green. No inline "Custom settings" entry
                (SSH nodes carry no inline auth, so the picker shows Default +
                profiles only). Password/passphrase feeding still 47.5.
+               REWORKED by the 2026-06-08 REDESIGN: the picker now DOES offer a
+               "Custom settings" entry whose single inline field is the node's
+               existing "host" property, so host comes from the node only in
+               Custom mode and from the credential otherwise; PnSshLogin gains a
+               host field. See 47.10.
          [ ] 47.5 Password auth: BatchMode=yes forbids any prompt, so a
                password-auth profile needs a non-interactive path (sshpass-style
                feeding or libssh). Decide whether to support password auth at all
@@ -947,4 +994,68 @@
                lands first, the SSH session pool should plug into it rather than
                invent a parallel lifetime model. Decide (a) vs (b) -- and whether
                to defer 47.7 until #28 -- before implementing.
+
+         --- 2026-06-08 REDESIGN sub-items (host-bound credential + auth-schema
+             combobox; see the REDESIGN paragraph in the #47 intro) ---
+
+         [ ] 47.8 Conditional field visibility in PnProfileSchema + the
+               credentials manager. NEW CORE CAPABILITY: today every schema
+               field renders unconditionally in call order (lib/pn-profile-
+               schema.c) — there is no way to show a field only for certain
+               values of another. Add a declarative seam, e.g.
+               pn_profile_schema_field_visible_when(schema, field,
+               controller_field, choices[]): @field is shown only while the
+               controller ENUM equals one of @choices, hidden otherwise. Keep it
+               GTK-free metadata on the schema (read back via a getter), so the
+               headless core just carries it. Then teach the credentials manager
+               (the GTK dialog that turns a schema into widgets) to (a) watch the
+               controller combobox's "changed", (b) gtk_widget_hide/show BOTH the
+               dependent row's label and its editor (hide, not set_sensitive —
+               the field must disappear, per the spec), and (c) re-evaluate on
+               dialog open from the stored value. A field with no visible-when
+               rule stays always-visible (host, auth-schema). No ABI concern
+               (schema is data, not a vfunc); add a characterization test for the
+               metadata + a manager-level test if feasible.
+
+         [ ] 47.9 Reshape the SSH profile schema (lib/pn-ssh-profile.c). Add the
+               required "host" field (STRING; the credentials manager must reject
+               an empty host on save — this is the permission grant, no generic
+               credential) and the driving "auth-schema" ENUM
+               { "passwordless-simple" (DEFAULT), "key-file", "password" } as the
+               FIRST field. Reorder the field set to: auth-schema, host, port,
+               username, password, identity-file (private key), passphrase (key
+               passphrase), host-key-policy. Wire 47.8 visibility:
+                 passwordless-simple -> host only;
+                 key-file            -> host, port, username, identity-file,
+                                        passphrase, host-key-policy;
+                 password            -> host, port, username, password,
+                                        host-key-policy.
+               (auth-schema + host are always visible.) Update the field
+               tooltips + SshProfile.html to describe the schemas, the host-as-
+               permission rule, and which fields each schema reveals. Extend the
+               characterization test (test-pn-ssh-profile.c) for the new field
+               set, defaults, choices, and visible-when metadata.
+
+         [ ] 47.10 Host from the credential + "Custom settings" on the SSH nodes.
+               Extend PnSshLogin with a `host` string and have
+               pn_ssh_login_resolve read "host" from the profile. Opt each SSH
+               node's auth-profile picker into PN_PROFILE_REF_CUSTOM via
+               pn_param_spec_set_profile_ref_inline_fields(pspec, "host"), so the
+               existing per-node "host" property becomes the Custom-mode inline
+               field (greyed + cleared when a profile/Default is chosen, used only
+               in Custom mode — the MQTT Source behaviour). Update every SSH node's
+               fire path to take the host from the resolved snapshot when a profile
+               applies, and from the inline "host" property only in Custom/no-
+               profile mode; pn_ssh_build_argv keeps taking host as a parameter.
+               Carry the auth-schema token through PnSshLogin too if the builder
+               needs it (e.g. to gate the future password path). All 13 nodes
+               (8 host-monitoring + 5 shell) are affected but the change is the
+               same shared helper wiring per node.
+
+         [ ] 47.11 Tests + help wrap-up for the redesign: a pn_ssh_login_resolve
+               case covering host-from-profile vs inline-host (Custom) vs ambient,
+               the secret-leak guard still green, and the affected node help pages
+               + SshProfile.html updated to explain that an SSH Login credential
+               is permission to reach one specific host. Fold into / supersede the
+               older 47.6 test note where they overlap.
 
