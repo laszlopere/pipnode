@@ -52,6 +52,12 @@ typedef struct _PnProfileSchema PnProfileSchema;
  * @PN_FIELD_BOOL:       plain setting, boolean toggle.
  * @PN_FIELD_ENUM:       plain setting chosen from an explicit list (see
  *                       pn_profile_schema_field_choices()).
+ * @PN_FIELD_FILE:       plain setting holding a filesystem path (a CA bundle,
+ *                       a certificate, a key file).  Resolved as a string,
+ *                       exactly like %PN_FIELD_STRING; the only difference is
+ *                       presentation — the credentials manager renders it with
+ *                       a browse button (a #PnFileChooserEntry) so the user can
+ *                       pick the file instead of typing the path.
  * @PN_FIELD_SECRET:     a credential — a password / token / API key.  The
  *                       manager masks it; it lives in the 0600 vault file
  *                       and never in a workflow file.
@@ -70,7 +76,8 @@ typedef enum
     PN_FIELD_BOOL,
     PN_FIELD_ENUM,
     PN_FIELD_SECRET,
-    PN_FIELD_PERMISSION
+    PN_FIELD_PERMISSION,
+    PN_FIELD_FILE          /* appended last to keep the prior values stable */
 } PnProfileFieldKind;
 
 GType pn_profile_schema_get_type (void) G_GNUC_CONST;

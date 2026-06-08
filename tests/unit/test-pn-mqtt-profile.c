@@ -73,8 +73,9 @@ test_fields (void)
 
     /* Nine fields, in this order: the four identity fields, then the TLS
      * trust material + keep-alive added for review M3.  The CA / mTLS paths
-     * are plain strings (filesystem paths the host trusts, not credentials),
-     * the insecure escape hatch is a bool, and keep-alive is an int. */
+     * are file fields (filesystem paths the host trusts, not credentials, but
+     * rendered with a browse button), the insecure escape hatch is a bool, and
+     * keep-alive is an int. */
     PN_CHECK_CMPINT (pn_profile_schema_get_n_fields (s), ==, 9);
 
     PN_CHECK_CMPSTR (pn_profile_schema_field_name (s, 0), ==, "url");
@@ -90,13 +91,13 @@ test_fields (void)
     PN_CHECK (pn_profile_schema_field_get_kind (s, 3) == PN_FIELD_STRING);
 
     PN_CHECK_CMPSTR (pn_profile_schema_field_name (s, 4), ==, "ca-file");
-    PN_CHECK (pn_profile_schema_field_get_kind (s, 4) == PN_FIELD_STRING);
+    PN_CHECK (pn_profile_schema_field_get_kind (s, 4) == PN_FIELD_FILE);
 
     PN_CHECK_CMPSTR (pn_profile_schema_field_name (s, 5), ==, "client-cert");
-    PN_CHECK (pn_profile_schema_field_get_kind (s, 5) == PN_FIELD_STRING);
+    PN_CHECK (pn_profile_schema_field_get_kind (s, 5) == PN_FIELD_FILE);
 
     PN_CHECK_CMPSTR (pn_profile_schema_field_name (s, 6), ==, "client-key");
-    PN_CHECK (pn_profile_schema_field_get_kind (s, 6) == PN_FIELD_STRING);
+    PN_CHECK (pn_profile_schema_field_get_kind (s, 6) == PN_FIELD_FILE);
 
     PN_CHECK_CMPSTR (pn_profile_schema_field_name (s, 7), ==, "tls-insecure");
     PN_CHECK (pn_profile_schema_field_get_kind (s, 7) == PN_FIELD_BOOL);

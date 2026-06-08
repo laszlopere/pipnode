@@ -33,6 +33,7 @@
 #include "pn-expr-parser.h"
 #include "pn-expression.h"
 #include "pn-expression2.h"
+#include "pn-file-chooser-entry.h"
 #include "pn-filedrop.h"
 #include "pn-filter.h"
 #include "pn-flow.h"

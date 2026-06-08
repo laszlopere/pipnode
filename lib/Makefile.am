@@ -310,6 +310,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-inject-gui.h \
 	pn-inline-edit-label.c \
 	pn-inline-edit-label.h \
+	pn-file-chooser-entry.c \
+	pn-file-chooser-entry.h \
 	pn-knob-gui.c \
 	pn-knob-gui.h \
 	pn-label-gui.c \
@@ -563,6 +565,7 @@ pipnode_gui_headers = \
 	pn-log-dialog.h \
 	pn-inject-gui.h \
 	pn-inline-edit-label.h \
+	pn-file-chooser-entry.h \
 	pn-knob-gui.h \
 	pn-label-gui.h \
 	pn-led-gui.h \

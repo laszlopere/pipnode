@@ -15,6 +15,7 @@
 
 #include "pn-settings-renderer.h"
 
+#include "pn-file-chooser-entry.h"
 #include "pn-node-dialog-helpers.h"
 
 #include <gtksourceview/gtksource.h>
@@ -250,118 +251,29 @@ build_code_editor (GObject    *target,
 /* ------------------------------------------------------------------ */
 /*  File-chooser editor (%PN_EDITOR_FILE)                              */
 /*                                                                     */
-/*  GtkFileChooserButton bound to a path-string property.  The button  */
-/*  exposes no bindable "filename" GObject property, so the two ends    */
-/*  are synced by hand with the same re-entrancy guard as the text      */
-/*  editor above.                                                       */
+/*  A #PnFileChooserEntry: an editable path entry with a browse button */
+/*  that opens a file chooser.  It exposes a bindable "text" string    */
+/*  property, so a path-string property binds straight to it the same  */
+/*  way the plain text editor below does -- no hand-rolled sync.       */
 /* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    GObject        *target;    /* borrowed                              */
-    const gchar    *property;  /* static, from pspec->name              */
-    GtkFileChooser *chooser;
-    gulong          notify_handler;
-    gboolean        updating;
-} PnFileBinding;
-
-static void
-file_binding_free (gpointer data)
-{
-    PnFileBinding *bind = data;
-
-    if (bind->target != NULL && bind->notify_handler != 0)
-        g_signal_handler_disconnect (bind->target, bind->notify_handler);
-
-    g_free (bind);
-}
-
-static void
-file_binding_pull (PnFileBinding *bind)
-{
-    gchar *value = NULL;
-
-    if (bind->updating)
-        return;
-
-    g_object_get (bind->target, bind->property, &value, NULL);
-
-    bind->updating = TRUE;
-    if (value != NULL && *value != '\0')
-        gtk_file_chooser_set_filename (bind->chooser, value);
-    else
-        gtk_file_chooser_unselect_all (bind->chooser);
-    bind->updating = FALSE;
-
-    g_free (value);
-}
-
-static void
-on_file_target_notify (GObject    *object G_GNUC_UNUSED,
-                       GParamSpec *pspec  G_GNUC_UNUSED,
-                       gpointer    user_data)
-{
-    file_binding_pull (user_data);
-}
-
-static void
-on_file_set (GtkFileChooserButton *button G_GNUC_UNUSED,
-             gpointer              user_data)
-{
-    PnFileBinding *bind = user_data;
-    gchar         *filename;
-
-    if (bind->updating)
-        return;
-
-    filename = gtk_file_chooser_get_filename (bind->chooser);
-
-    bind->updating = TRUE;
-    g_object_set (bind->target, bind->property,
-                  filename != NULL ? filename : "", NULL);
-    bind->updating = FALSE;
-
-    g_free (filename);
-}
 
 static GtkWidget *
 build_file_editor (GObject    *target,
                    GParamSpec *pspec)
 {
-    const gchar   *name     = pspec->name;
-    gboolean       writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
-    GtkWidget     *button   = gtk_file_chooser_button_new (
-            g_param_spec_get_nick (pspec) != NULL
-                ? g_param_spec_get_nick (pspec) : "Select File",
-            GTK_FILE_CHOOSER_ACTION_OPEN);
-    PnFileBinding *bind;
-    gchar         *signal_name;
+    gboolean      writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
+    GBindingFlags flags    = G_BINDING_SYNC_CREATE
+                             | (writable ? G_BINDING_BIDIRECTIONAL : 0);
+    const gchar  *nick     = g_param_spec_get_nick (pspec);
+    GtkWidget    *entry    = pn_file_chooser_entry_new ();
 
-    gtk_widget_set_hexpand (button, TRUE);
+    pn_file_chooser_entry_set_title (PN_FILE_CHOOSER_ENTRY (entry),
+                                     nick != NULL ? nick : "Select File");
+    gtk_widget_set_hexpand   (entry, TRUE);
+    gtk_widget_set_sensitive (entry, writable);
+    g_object_bind_property (target, pspec->name, entry, "text", flags);
 
-    bind = g_new0 (PnFileBinding, 1);
-    bind->target   = target;
-    bind->property = name;
-    bind->chooser  = GTK_FILE_CHOOSER (button);
-
-    file_binding_pull (bind);
-
-    signal_name = g_strdup_printf ("notify::%s", name);
-    bind->notify_handler = g_signal_connect (
-            target, signal_name,
-            G_CALLBACK (on_file_target_notify), bind);
-    g_free (signal_name);
-
-    if (writable)
-        g_signal_connect (button, "file-set",
-                          G_CALLBACK (on_file_set), bind);
-
-    gtk_widget_set_sensitive (button, writable);
-
-    g_object_set_data_full (G_OBJECT (button),
-                            "pn-file-binding", bind, file_binding_free);
-
-    return button;
+    return entry;
 }
 
 /* ------------------------------------------------------------------ */

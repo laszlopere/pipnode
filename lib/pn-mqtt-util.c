@@ -175,8 +175,8 @@ pn_mqtt_resolve_connection (
         {
             /* TLS material + keep-alive live only in the profile.  ca-file and
              * the mTLS cert/key are filesystem paths the host trusts, not
-             * credentials, so they are PN_FIELD_STRING (unmasked), not secrets;
-             * keepalive defaults to 60 via the schema. */
+             * credentials, so they are PN_FIELD_FILE (unmasked, resolved as
+             * strings), not secrets; keepalive defaults to 60 via the schema. */
             out_opts->ca_file      = pn_profile_get_string (profile, "ca-file");
             out_opts->client_cert  = pn_profile_get_string (profile, "client-cert");
             out_opts->client_key   = pn_profile_get_string (profile, "client-key");

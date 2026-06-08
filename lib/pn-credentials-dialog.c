@@ -19,6 +19,7 @@
 
 #include "pn-credentials-dialog.h"
 
+#include "pn-file-chooser-entry.h"
 #include "pn-help-browser.h"
 #include "pn-node-factory.h"
 #include "pn-profile-schema.h"
@@ -167,6 +168,20 @@ on_field_combo_changed (GtkComboBox *combo, gpointer user_data)
 }
 
 static void
+on_field_file_changed (PnFileChooserEntry *entry, gpointer user_data)
+{
+    FieldCtx  *ctx = user_data;
+    PnProfile *p;
+
+    if (ctx->self->rebuilding)
+        return;
+    p = field_ctx_profile (ctx);
+    if (p != NULL)
+        pn_profile_set_field (p, ctx->field,
+                              pn_file_chooser_entry_get_text (entry));
+}
+
+static void
 on_secret_icon_press (GtkEntry             *entry,
                       GtkEntryIconPosition  pos,
                       GdkEvent             *event,
@@ -201,6 +216,20 @@ build_field_editor (PnCredentialsDialog *self,
                     : pn_profile_get_bool (p, field));
         gtk_widget_set_halign (w, GTK_ALIGN_START);
         g_signal_connect (w, "toggled", G_CALLBACK (on_field_toggled), ctx);
+    }
+    else if (kind == PN_FIELD_FILE)
+    {
+        gchar *cur = pn_profile_get_string (p, field);
+
+        w = pn_file_chooser_entry_new ();
+        pn_file_chooser_entry_set_text (PN_FILE_CHOOSER_ENTRY (w), cur);
+        pn_file_chooser_entry_set_title (
+                PN_FILE_CHOOSER_ENTRY (w),
+                pn_profile_schema_field_get_label (schema, fi));
+        gtk_widget_set_hexpand (w, TRUE);
+        g_free (cur);
+        g_signal_connect (w, "changed",
+                          G_CALLBACK (on_field_file_changed), ctx);
     }
     else if (kind == PN_FIELD_ENUM)
     {

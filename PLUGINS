@@ -952,6 +952,11 @@ generated tab uses; calling it from your override delegates one
 property back to the host without recursing into your override
 again.
 
+`libpipnode-gui` also ships a couple of ready-made string editors --
+an inline-edit label and a file-path entry with a browse button --
+that save you hand-rolling the same widgets in a `build_property_editor`
+override or a `-gui.so` companion dialog.  See section 15.6.
+
 15.1 build_property_editor: take over one row
 ---------------------------------------------
 
@@ -1074,6 +1079,116 @@ slots so the dialog falls back to the host default for every
 property -- exactly the v1 behaviour.  Plugins compiled against
 ABI v2 refuse to load against an ABI v1 host (the version check
 catches the mismatch up-front and surfaces a clear `GError`).
+
+
+15.6 Reusable editor widgets
+----------------------------
+
+Building a row by hand (in a `build_property_editor` override, in a
+`build_class_tab` notebook page, or in a `-gui.so` companion dialog of
+your own) does not mean starting from a bare `GtkEntry` every time.
+Two small editor widgets ship in `libpipnode-gui`, so anything that
+already links the GTK tier can use them.  Both are plain `GtkBox`
+subclasses -- drop one into any container, give it `hexpand`, and bind
+or read it like any other widget.
+
+`<pipnode/pn-inline-edit-label.h>` -- **PnInlineEditLabel**
+
+A value that reads as a plain label with a small grey pencil beside it;
+clicking the pencil swaps in a `GtkEntry` with the text selected, and
+Enter (or moving focus away) commits while Escape cancels.  It shows a
+real label in display mode, so there is no stray caret or focus frame a
+read-only entry cannot suppress.  This is what the node dialog uses for
+the base node's name/topic rows.
+
+```c
+GtkWidget   *pn_inline_edit_label_new        (void);
+void         pn_inline_edit_label_set_text   (PnInlineEditLabel *self,
+                                              const gchar       *text);
+const gchar *pn_inline_edit_label_get_text   (PnInlineEditLabel *self);
+void         pn_inline_edit_label_set_max_length (PnInlineEditLabel *self,
+                                                  gint               max);
+/* property: "text"  (read/write)
+ * signal:   "committed" (const gchar *text) -- Enter / focus-out, not Escape;
+ *           setting :text in code updates the label WITHOUT emitting it. */
+```
+
+`<pipnode/pn-file-chooser-entry.h>` -- **PnFileChooserEntry**
+
+A freely editable entry for a filesystem path with a colour browse
+button to its right; clicking it opens a `GtkFileChooserDialog` seeded
+with the entry's current value and writes the chosen path back.  The
+entry stays directly editable, so a path on a remote/headless machine
+the chooser cannot browse can still be typed or pasted.  This is the
+exact widget the credentials manager renders for a `PN_FIELD_FILE`
+profile field (section 18), and it is the file-path counterpart of
+`PnInlineEditLabel`.
+
+```c
+GtkWidget   *pn_file_chooser_entry_new        (void);
+void         pn_file_chooser_entry_set_text   (PnFileChooserEntry *self,
+                                               const gchar        *text);
+const gchar *pn_file_chooser_entry_get_text   (PnFileChooserEntry *self);
+void         pn_file_chooser_entry_set_title  (PnFileChooserEntry *self,
+                                               const gchar        *title);
+void         pn_file_chooser_entry_set_action (PnFileChooserEntry  *self,
+                                               GtkFileChooserAction action);
+void         pn_file_chooser_entry_add_filter (PnFileChooserEntry *self,
+                                               GtkFileFilter      *filter);
+/* property: "text"  (read/write)
+ * signal:   "changed" () -- typed, pasted, OR picked via the dialog;
+ *           mirrors GtkEntry::changed, so set_text() emits it too. */
+```
+
+`_set_title` sets the chooser dialog's title (default "Select File");
+`_set_action` switches it between `GTK_FILE_CHOOSER_ACTION_OPEN` (the
+default, pick an existing file) and `..._SAVE` (name a file to write);
+`_add_filter` offers a selectable name-filter (call it more than once
+for several -- the widget sinks the floating `GtkFileFilter` ref, so you
+do not unref it).
+
+Worked example -- take over a "key file" property row with a browse
+button restricted to PEM files, from a `build_property_editor` override:
+
+```c
+static GtkWidget *
+my_node_build_property_editor (PnNode      *self,
+                               GParamSpec  *pspec,
+                               GObject     *target,
+                               GtkWindow   *parent)
+{
+    GtkWidget     *entry;
+    GtkFileFilter *pem;
+    gchar         *cur;
+
+    if (g_strcmp0 (pspec->name, "key-file") != 0)
+        return NULL;                                /* host default */
+
+    entry = pn_file_chooser_entry_new ();
+    pn_file_chooser_entry_set_title (PN_FILE_CHOOSER_ENTRY (entry),
+                                     "Select the private key");
+
+    pem = gtk_file_filter_new ();
+    gtk_file_filter_set_name (pem, "PEM files");
+    gtk_file_filter_add_pattern (pem, "*.pem");
+    pn_file_chooser_entry_add_filter (PN_FILE_CHOOSER_ENTRY (entry), pem);
+
+    g_object_get (target, "key-file", &cur, NULL);
+    pn_file_chooser_entry_set_text (PN_FILE_CHOOSER_ENTRY (entry), cur);
+    g_free (cur);
+
+    /* :text <-> the property, both ways. */
+    g_object_bind_property (entry, "text", target, "key-file",
+                            G_BINDING_BIDIRECTIONAL);
+    return entry;
+}
+```
+
+Note both widgets live in the GTK tier, so reaching for them is one of
+the things that obliges a plugin to ship a `-gui.so` companion (section
+17) rather than a single core-only `.so`; a `PN_FIELD_FILE` profile
+field (section 18) or a settings-schema editor (section 16) gives you a
+file picker with no GTK code at all, so prefer those when they fit.
 
 
 16. DECLARATIVE SETTINGS SCHEMA (THE GTK-FREE DEFAULT PATH)
@@ -1563,6 +1678,11 @@ The three pieces:
       unifies the three scopes the feature covers:
 
         PN_FIELD_STRING / _INT / _BOOL / _ENUM   plain settings
+        PN_FIELD_FILE                            a filesystem path —
+                                                 resolved as a string, but
+                                                 rendered with a browse
+                                                 button (a PnFileChooserEntry)
+                                                 so the user can pick the file
         PN_FIELD_SECRET                          a credential — masked
                                                  in the manager, kept in
                                                  the 0600 vault, never in
