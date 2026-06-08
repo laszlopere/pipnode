@@ -958,13 +958,35 @@
                existing "host" property, so host comes from the node only in
                Custom mode and from the credential otherwise; PnSshLogin gains a
                host field. See 47.10.
-         [ ] 47.5 Password auth: BatchMode=yes forbids any prompt, so a
+         [x] 47.5 Password auth: BatchMode=yes forbids any prompt, so a
                password-auth profile needs a non-interactive path (sshpass-style
                feeding or libssh). Decide whether to support password auth at all
                or restrict the type to key/agent auth in v1; if we keep
                BatchMode, document that password fields are key-passphrase only.
                (Respect the "pure C, no helper subprocess" rule -- prefer libssh
                over shelling out to sshpass if we go password-capable.)
+               DECIDED (2026-06-08, Q-confirmed): RESTRICT v1 to ssh-agent /
+               unencrypted-key auth; keep BatchMode=yes on the spawned ssh; do
+               NOT add a non-interactive feeding path. KEY REALISATION: BatchMode
+               suppresses EVERY prompt, so it blocks the encrypted-key passphrase
+               prompt as much as the password one -- under the current subprocess
+               model NEITHER stored secret can be replayed. So v1 auth is
+               agent / unencrypted-key only; an encrypted key must be unlocked via
+               ssh-add, password auth is unsupported. The "password" and
+               "passphrase" SECRET fields stay in the schema (scrubbed, vault-only)
+               so the future non-interactive path -- the libssh PnSshSession weighed
+               in 47.7 -- can adopt them without a schema change; they are simply
+               never sent today. No new dependency, no parallel connection path
+               (libssh deferred to 47.7/#28). DONE as a documented decision +
+               wording: SshProfile.html gains a "Which authentication works (v1)"
+               section + ssh-add step and corrected passphrase/password rows;
+               pn-ssh-profile.c password/passphrase tooltips + the secrets comment
+               record the decision; pn_ssh_build_argv's header doc updated. Tests
+               unchanged & green (test-pn-ssh-profile 35, test-pn-ssh-build-argv
+               215). NOTE for the REDESIGN: 47.9's "password" auth-schema choice
+               stays REACHABLE in the combobox per the redesign, but its help/
+               tooltips must carry this "not sent in v1" caveat; revisit if 47.7
+               lands the libssh path.
          [ ] 47.6 Tests + help: characterization test for pn_ssh_build_argv
                (host x profile -> exact argv), a profile-resolve test, and update
                the affected node help pages to mention the new SSH Login profile.

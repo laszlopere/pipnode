@@ -33,23 +33,48 @@ key, or a stricter host-key policy.
 
 <h5>Before you start: make key login work</h5>
 <p>
-Pipnode runs commands non-interactively, so the connection must succeed
-without ever stopping to prompt.  In practice that means key-based
-authentication (a key already loaded in your agent, or an identity file
-whose passphrase you supply below) rather than typing a password each
-time.
+Pipnode runs commands non-interactively (it spawns
+<code>ssh -o BatchMode=yes</code>), so the connection must succeed without
+ever stopping to prompt.  <strong>This means the login must already work
+without typing anything</strong> &mdash; a key loaded into your
+<code>ssh-agent</code>, or an unencrypted identity file.  Set that up first:
 </p>
 <ol>
   <li>Generate a key if you do not have one:
       <code>ssh-keygen -t ed25519</code>.</li>
   <li>Install the public half on the remote host:
       <code>ssh-copy-id <em>user</em>@<em>host</em></code>.</li>
+  <li>If the key has a passphrase, load it into your agent so SSH never has
+      to ask for it: <code>ssh-add <em>~/.ssh/id_ed25519</em></code>.</li>
   <li>Sanity-check a non-interactive login from the machine running
       Pipnode:
       <code>ssh -o BatchMode=yes <em>user</em>@<em>host</em> true &amp;&amp;
       echo OK</code>.  If that prints <code>OK</code> without prompting,
       the nodes will connect cleanly.</li>
 </ol>
+
+<h5 id="auth-v1">Which authentication works (v1)</h5>
+<p>
+Because <code>BatchMode=yes</code> disables <em>every</em> interactive
+prompt, this release supports only the auth methods that need no prompt at
+connect time:
+</p>
+<ul>
+  <li><strong>ssh-agent</strong> &mdash; a key loaded with <code>ssh-add</code>
+      (the recommended path for a passphrase-protected key).</li>
+  <li><strong>An unencrypted identity file</strong> &mdash; named in the
+      <code>Identity&nbsp;file</code> field, or one of the defaults in
+      <code>~/.ssh</code>.</li>
+</ul>
+<p>
+The <code>Key&nbsp;passphrase</code> and <code>Password</code> fields are
+<strong>not used to authenticate in this release</strong>.  Feeding a
+secret to <code>ssh</code> non-interactively would need a separate
+connection path (a future item) &mdash; until then <code>BatchMode</code>
+suppresses both the passphrase and the password prompt, so these fields are
+stored in the vault but never replayed.  Use <code>ssh-add</code> for a
+passphrase-protected key, and prefer key auth over passwords.
+</p>
 
 <h5>Filling in the profile</h5>
 <table>
@@ -68,16 +93,18 @@ time.
   your SSH agent or the default keys in <code>~/.ssh</code>.
 </td></tr>
 <tr><td><code>Key&nbsp;passphrase</code></td><td>
-  Optional.  The passphrase that unlocks the identity file above.  Stored
-  in the host vault (mode 0600 in your config directory); never written
-  into a worksheet file.
+  Optional.  The passphrase for the identity file above.  Stored in the
+  host vault (mode 0600 in your config directory) and never written into a
+  worksheet, but <strong>not replayed in this release</strong>: a
+  non-interactive login cannot be prompted for it.  Load the key with
+  <code>ssh-add</code> instead &mdash; see
+  <a href="#auth-v1">Which authentication works</a>.
 </td></tr>
 <tr><td><code>Password</code></td><td>
   Optional.  A password for password authentication, stored in the vault
-  like the passphrase.  Whether password auth is usable at all depends on
-  the connection mode (a non-interactive login cannot prompt) &mdash;
-  prefer key authentication; treat this field as a key passphrase unless
-  the release notes say otherwise.
+  like the passphrase.  <strong>Password auth is not supported in this
+  release</strong> &mdash; <code>BatchMode</code> forbids the prompt, so
+  the field is kept but never sent.  Use key / agent authentication.
 </td></tr>
 <tr><td><code>Host-key&nbsp;policy</code></td><td>
   How to treat the remote host's key:

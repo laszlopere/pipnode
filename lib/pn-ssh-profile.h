@@ -188,8 +188,12 @@ GParamSpec *pn_ssh_auth_profile_param_spec (void);
  * BatchMode=yes is kept unconditionally: it disables every interactive
  * prompt, so the connection only succeeds via a pre-installed key or the
  * agent.  The profile's passphrase / password secrets are therefore not
- * part of #PnSshLogin — feeding them needs a non-interactive path decided
- * in item 47.5.
+ * part of #PnSshLogin and are never replayed.  This is the v1 DECISION for
+ * item 47.5: auth is ssh-agent / unencrypted key only, password auth is
+ * unsupported, and an encrypted key must be unlocked via ssh-add rather
+ * than the stored passphrase.  Feeding a stored secret would need a
+ * separate non-interactive path (the libssh session weighed in 47.7); the
+ * secrets stay in the schema so that path can adopt them later.
  *
  * There is no local-host short-circuit: this always builds a remote ssh
  * argv.  The caller keeps its own local/remote test and only routes the

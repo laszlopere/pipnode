@@ -50,8 +50,13 @@ pn_ssh_register_profile_type (PnNodeFactory *factory)
 
     /* Two secrets: the passphrase that unlocks the key, and an optional
      * password for password auth.  Both are masked, scrubbed on save, and
-     * live only in the 0600 vault.  Whether the password is usable at all
-     * under BatchMode is decided in item 47.5. */
+     * live only in the 0600 vault.  DECISION (item 47.5): v1 keeps
+     * BatchMode=yes on the spawned ssh, which suppresses EVERY interactive
+     * prompt — the passphrase and the password one alike — so neither
+     * secret is replayed.  v1 auth is ssh-agent / unencrypted key only;
+     * password auth is unsupported.  Both fields are still stored (a future
+     * non-interactive path, e.g. the libssh session in 47.7, can use them)
+     * but the tooltips + SshProfile.html steer the user to ssh-add. */
     pn_profile_schema_field (schema, "passphrase",
                              "Key passphrase", PN_FIELD_SECRET);
     pn_profile_schema_field (schema, "password",
@@ -76,11 +81,14 @@ pn_ssh_register_profile_type (PnNodeFactory *factory)
             "Path to the private key to authenticate with (ssh -i). "
             "Leave empty to use the agent / default keys.");
     pn_profile_schema_field_tooltip (schema, "passphrase",
-            "Passphrase that unlocks the private key above. Stored in the "
-            "0600 vault, never in a saved worksheet.");
+            "Passphrase for the private key above. Stored in the 0600 vault, "
+            "never in a saved worksheet — but NOT used in this release: a "
+            "non-interactive login cannot be prompted for it. Load the key "
+            "with ssh-add instead. See the help page.");
     pn_profile_schema_field_tooltip (schema, "password",
-            "Password for password authentication. Whether this is usable "
-            "depends on the connection mode — see the help page.");
+            "Password for password authentication. NOT supported in this "
+            "release (BatchMode forbids the prompt) — use key / agent auth. "
+            "Stored but never sent. See the help page.");
     pn_profile_schema_field_tooltip (schema, "host-key-policy",
             "How to treat the remote host key: accept-new trusts it on first "
             "sight (default); strict refuses an unknown or changed key; off "
