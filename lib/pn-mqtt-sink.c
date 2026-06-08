@@ -420,8 +420,13 @@ flush_pending (PnMqttSink *self)
 /*                                                                     */
 /*  Same shape as PnMqtt: libmosquitto's threaded loop fires our       */
 /*  connect / disconnect callbacks on the network thread; we           */
-/*  trampoline through g_main_context_invoke_full to land on the main  */
-/*  loop before flipping the visual state.                             */
+/*  trampoline through g_idle_add to land on the main loop before      */
+/*  flipping the visual state.  It MUST be g_idle_add (queue-and-       */
+/*  return), never g_main_context_invoke_full: the latter can acquire  */
+/*  the context and run synchronously, blocking the network thread on  */
+/*  the process-wide GMainContext lock.  Since stop_client joins this  */
+/*  thread from the main thread, a marshal that waited on the main     */
+/*  loop would deadlock the join — see stop_client.                    */
 /* ------------------------------------------------------------------ */
 
 typedef struct
@@ -525,11 +530,13 @@ post_conn_state_on_main_full (PnMqttSink  *self,
         c->reason = g_strdup_vprintf (fmt, args);
         va_end (args);
     }
-    g_main_context_invoke_full (NULL,
-                                G_PRIORITY_DEFAULT,
-                                conn_state_trampoline,
-                                c,
-                                conn_state_closure_free);
+    /* Queue-and-return (see the marshalling note above): never block the
+     * network thread on the GMainContext lock.  The trampoline's generation
+     * check still drops updates from a client that has since been restarted. */
+    g_idle_add_full (G_PRIORITY_DEFAULT,
+                     conn_state_trampoline,
+                     c,
+                     conn_state_closure_free);
 }
 
 /** Convenience: state change with no Log-dialog line. */
@@ -745,10 +752,22 @@ stop_client (PnMqttSink *self)
         return;
     }
 
+    /* Ask for a clean MQTT-level disconnect first (the broker sees a
+     * DISCONNECT, not a TCP RST), then join the loop thread, then destroy.
+     *
+     * force=FALSE (graceful) is load-bearing: the disconnect above shuts the
+     * socket down, waking the loop out of any blocking read(), so the thread
+     * exits on its own at a safe point.  We must NOT force (pthread_cancel):
+     * the network thread can be mid-marshal to the main loop (post_conn_state_
+     * on_main_full's g_idle_add) momentarily holding the process-wide
+     * GMainContext lock; cancelling it there orphans that mutex and deadlocks
+     * every later main-loop operation.  This is the PnMqtt fix (see pn-mqtt.c
+     * stop_client) ported to the sink — paired with the g_idle_add marshal
+     * above, which keeps this main-thread join from blocking. */
     mosquitto_disconnect (priv->client);
     if (priv->loop_running)
     {
-        mosquitto_loop_stop (priv->client, TRUE);
+        mosquitto_loop_stop (priv->client, FALSE);
         priv->loop_running = FALSE;
     }
     mosquitto_destroy (priv->client);
