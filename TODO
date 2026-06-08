@@ -14,14 +14,6 @@
        but every step that causes visual update should take about 1 second at
        least.
 
-[ ] 20 Add an on-demand poll mechanism for Tasmota devices that piggybacks on
-       the new MQTT sink: a node (or a worksheet recipe documented in the help)
-       that publishes "cmnd/tasmotas/Status 5" to the broker and listens on
-       "stat/+/STATUS5" through an MQTT source, then surfaces each device's
-       IPAddress / Hostname / Mac from the StatusNET reply. The result is a
-       discovery feed that can be wired into the HTTPS Client (or a future plain
-       HTTP client) to drive per-device REST calls without any external scan.
-
 [ ] 26 The Text to Speech node should default to "any engine you find" + "any
        voice you find": on a fresh node, auto-detect the first available TTS
        engine (piper/espeak-ng/espeak/festival/flite on $PATH) and the first
