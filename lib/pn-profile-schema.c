@@ -33,6 +33,7 @@ typedef struct
     gchar             **choices;     /* NULL-terminated, owned, or NULL */
     gchar              *vwhen_field; /* controller field name, or NULL  */
     gchar             **vwhen_vals;  /* NULL-terminated, owned, or NULL */
+    gboolean            required;    /* must be non-empty to be valid    */
 } PnSchemaField;
 
 struct _PnProfileSchema
@@ -273,6 +274,26 @@ pn_profile_schema_field_visible_when (PnProfileSchema    *self,
     f->vwhen_vals  = g_strdupv ((gchar **) controller_values);
 }
 
+void
+pn_profile_schema_field_set_required (PnProfileSchema *self,
+                                      const gchar     *name,
+                                      gboolean         required)
+{
+    PnSchemaField *f;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (name != NULL);
+
+    f = schema_find (self, name);
+    if (f == NULL)
+    {
+        g_warning ("pn_profile_schema_field_set_required: no field '%s'", name);
+        return;
+    }
+
+    f->required = required;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Read-back accessors                                                */
 /* ------------------------------------------------------------------ */
@@ -371,6 +392,13 @@ pn_profile_schema_field_visible_for (PnProfileSchema *self,
         if (g_strcmp0 (f->vwhen_vals[i], controller_value) == 0)
             return TRUE;
     return FALSE;
+}
+
+gboolean
+pn_profile_schema_field_get_required (PnProfileSchema *self, guint index)
+{
+    PnSchemaField *f = schema_at (self, index);
+    return f != NULL ? f->required : FALSE;
 }
 
 gint

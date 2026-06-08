@@ -204,6 +204,25 @@ void pn_profile_schema_field_visible_when (PnProfileSchema    *self,
                                            const gchar        *controller_field,
                                            const gchar *const *controller_values);
 
+/**
+ * pn_profile_schema_field_set_required:
+ * @self:     a schema
+ * @name:     a field added by a previous pn_profile_schema_field()
+ * @required: %TRUE if the field must hold a non-empty value to be valid
+ *
+ * Mark @name as required.  This is GTK-free schema metadata (read back with
+ * pn_profile_schema_field_get_required()): the headless core merely carries
+ * it, while the credentials manager flags a visible required field that is
+ * left empty (an error style + a warning hint) so the user sees the profile
+ * is incomplete.  There is no hard save step in the live-commit dialog, so
+ * the flag drives presentation, not a modal block.  Used for the SSH Login
+ * "host" field, which is the permission grant — an SSH Login credential with
+ * no host grants access to nothing.
+ */
+void pn_profile_schema_field_set_required (PnProfileSchema *self,
+                                           const gchar     *name,
+                                           gboolean         required);
+
 /* ---- read-back (manager, vault, tests) -------------------------- */
 
 const gchar        *pn_profile_schema_get_type_id      (PnProfileSchema *self);
@@ -259,6 +278,17 @@ const gchar *const *pn_profile_schema_field_get_visible_values (PnProfileSchema 
 gboolean pn_profile_schema_field_visible_for (PnProfileSchema *self,
                                               guint            index,
                                               const gchar     *controller_value);
+
+/**
+ * pn_profile_schema_field_get_required:
+ * @self:  a schema
+ * @index: a field index
+ *
+ * Returns: %TRUE when @index was marked required, %FALSE otherwise (the
+ *   default, and for an out-of-range index).
+ */
+gboolean pn_profile_schema_field_get_required (PnProfileSchema *self,
+                                               guint            index);
 
 /**
  * pn_profile_schema_find_field:

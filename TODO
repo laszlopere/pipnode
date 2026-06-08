@@ -1101,7 +1101,7 @@
                wires the SSH auth-schema combobox onto it; a manager-level GTK
                test needs a display so it is deferred to that interactive check.
 
-         [ ] 47.9 Reshape the SSH profile schema (lib/pn-ssh-profile.c). Add the
+         [x] 47.9 Reshape the SSH profile schema (lib/pn-ssh-profile.c). Add the
                required "host" field (STRING; the credentials manager must reject
                an empty host on save — this is the permission grant, no generic
                credential) and the driving "auth-schema" ENUM
@@ -1119,6 +1119,34 @@
                permission rule, and which fields each schema reveals. Extend the
                characterization test (test-pn-ssh-profile.c) for the new field
                set, defaults, choices, and visible-when metadata.
+               DONE (2026-06-08): schema reshaped to the 8 fields in the order
+               above; auth-schema ENUM first (default passwordless-simple),
+               host second + REQUIRED, each conditional field wired with
+               pn_profile_schema_field_visible_when(..,"auth-schema",..) per the
+               matrix. NEW CORE SEAM: pn_profile_schema_field_set_required /
+               _get_required (lib/pn-profile-schema.{c,h}) — GTK-free per-field
+               flag, no ABI concern (boxed data). HOST ENFORCEMENT (Q-decided
+               2026-06-08): the credentials dialog has NO Save button — every
+               field commits live to the vault — so "reject on save" is realised
+               as a LIVE VISUAL FLAG, not a modal block. pn-credentials-dialog.c
+               row_apply_required() puts a GTK error style class (red border) +
+               a "dialog-warning-symbolic" icon + "Required" hint on a visible,
+               empty required field (never on a SECRET, whose 2nd icon is the
+               reveal toggle); folded into frame_apply_visibility so it re-runs
+               on combo change, on every entry commit (focus-out/activate, via a
+               new frame re-apply hook in on_field_entry_commit), and on dialog
+               open (rebuild_type_page post-show_all). Tooltips + SshProfile.html
+               rewritten: auth-schema selector, host-as-permission rule, the
+               per-schema field reveal table. Tests: test-pn-ssh-profile.c
+               reworked for the 8-field set + auth_schema + host_required +
+               visibility cases (78 checks); test-pn-profile-schema.c new
+               "required" case (6 checks). All 131 C unit tests green; core + gui
+               libs build clean. NOTE: pn_ssh_login_resolve still does NOT read
+               "host" (the hidden conditional fields keep their defaults, so a
+               passwordless-simple profile resolves to the ambient argv) — the
+               host-from-credential + per-node "Custom settings" wiring is 47.10.
+               GUI flag itself is for the user to eyeball (per the manual-GUI-
+               test convention).
 
          [ ] 47.10 Host from the credential + "Custom settings" on the SSH nodes.
                Extend PnSshLogin with a `host` string and have

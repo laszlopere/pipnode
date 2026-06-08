@@ -11,25 +11,49 @@
 
 <h4>SSH Login credentials</h4>
 <p>
-An <em>SSH Login</em> profile holds <strong>how</strong> to log into a
-remote host over SSH &mdash; the account, port, key and host-key policy
-&mdash; separately from <strong>where</strong> each node connects, which
-stays the node's own <code>host</code> field.  Several nodes run a command
-on a remote machine over SSH (the <em>Shell Command</em>, <em>df</em>,
-<em>free</em>, <em>lxc-ls</em> and <em>tmux-monitor</em> shell nodes, and
-the host-monitoring <em>CPU</em>, <em>Load</em>, <em>Memory</em>,
+An <em>SSH Login</em> profile is <strong>permission to reach one specific
+host</strong> over SSH, together with the details of how to log in there
+&mdash; the account, port, key and host-key policy.  Several nodes run a
+command on a remote machine over SSH (the <em>Shell Command</em>,
+<em>df</em>, <em>free</em>, <em>lxc-ls</em> and <em>tmux-monitor</em> shell
+nodes, and the host-monitoring <em>CPU</em>, <em>Load</em>, <em>Memory</em>,
 <em>Temperature</em>, <em>Ambient</em>, <em>Disk&nbsp;IO</em>,
 <em>Net&nbsp;IO</em> and <em>Connections</em> nodes); you fill the profile
 in once and any of them reference it by name from their <em>SSH Login</em>
-dropdown.
+dropdown, taking both the host and the login details from it.
 </p>
 <p>
-A node with <strong>no</strong> profile keeps the original behaviour: it
-logs in as the local desktop user using whatever SSH keys / agent are
-already available, trusting the host key on first sight.  Choose a profile
-only when you need a different account, a non-standard port, a specific
-key, or a stricter host-key policy.
+The <code>Host</code> field is <strong>required</strong>: a credential names
+the single machine it grants access to.  An SSH Login with no host grants
+access to nothing, so the credentials manager flags an empty host.  A node
+that picks <em>no</em> profile keeps the original behaviour: it logs in as
+the local desktop user using whatever SSH keys / agent are already
+available, trusting the host key on first sight.
 </p>
+
+<h5 id="auth-schemas">Authentication schemas</h5>
+<p>
+The first field, <code>Authentication</code>, chooses one of three login
+styles and the dialog then shows only the fields that style needs:
+</p>
+<ul>
+  <li><strong>passwordless-simple</strong> (the default) &mdash; asks for
+      <em>only the host</em>.  Use this once you have set up an account and
+      passwordless SSH for yourself (an agent key or a default key the host
+      already trusts, via <code>ssh-copy-id</code>).  This is the ambient
+      login the SSH nodes use without a profile, now pinned to one host;
+      everything else (account, port, key, host-key policy) is hidden and
+      left at its default.</li>
+  <li><strong>key-file</strong> &mdash; shows <code>Host</code>,
+      <code>Port</code>, <code>Username</code>, <code>Identity&nbsp;file</code>,
+      <code>Key&nbsp;passphrase</code> and <code>Host-key&nbsp;policy</code>.
+      Use it to name a specific private key and account.</li>
+  <li><strong>password</strong> &mdash; shows <code>Host</code>,
+      <code>Port</code>, <code>Username</code>, <code>Password</code> and
+      <code>Host-key&nbsp;policy</code>.  Note that password auth is
+      <strong>not sent in this release</strong> &mdash; see
+      <a href="#auth-v1">Which authentication works</a> below.</li>
+</ul>
 
 <h5>Before you start: make key login work</h5>
 <p>
@@ -79,6 +103,17 @@ passphrase-protected key, and prefer key auth over passwords.
 <h5>Filling in the profile</h5>
 <table>
 <tr><th>Field</th><th>What goes in it</th></tr>
+<tr><td><code>Authentication</code></td><td>
+  The login style &mdash; <code>passwordless-simple</code>,
+  <code>key-file</code> or <code>password</code>.  Picking one shows or hides
+  the rest of the fields; see
+  <a href="#auth-schemas">Authentication schemas</a> above.
+</td></tr>
+<tr><td><code>Host</code></td><td>
+  <strong>Required.</strong>  The single host this credential is allowed to
+  reach &mdash; a hostname or IP.  The SSH nodes take their host from here.
+  An empty host is rejected: the credential would grant access to nothing.
+</td></tr>
 <tr><td><code>Username</code></td><td>
   The remote login name (<code>ssh&nbsp;-l</code>).  Leave empty to log in
   as the local desktop user, the way the SSH nodes do without a profile.
@@ -125,8 +160,9 @@ passphrase-protected key, and prefer key auth over passwords.
 
 <p>
 Once the profile is filled in, drop one of the SSH-capable nodes onto a
-worksheet, set its <em>host</em> field to the machine you want to reach,
-and pick this profile from its <em>SSH Login</em> dropdown.
+worksheet and pick this profile from its <em>SSH Login</em> dropdown &mdash;
+the node reaches the host named in the credential, using the login style you
+chose.
 </p>
 
 </body>

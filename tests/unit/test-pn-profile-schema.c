@@ -204,6 +204,35 @@ test_visible_when (void)
     pn_profile_schema_unref (s);
 }
 
+/* The required flag (TODO #47.9): GTK-free metadata the credentials manager
+ * uses to flag a visible-but-empty field.  Defaults FALSE; set/clear round-
+ * trips through the getter; an out-of-range index is safe. */
+static void
+test_required (void)
+{
+    PnProfileSchema *s = pn_profile_schema_new ("ssh-login", "SSH Login");
+
+    pn_profile_schema_field (s, "host", "Host", PN_FIELD_STRING);
+    pn_profile_schema_field (s, "port", "Port", PN_FIELD_INT);
+
+    /* Default: nothing is required. */
+    PN_CHECK (pn_profile_schema_field_get_required (s, 0) == FALSE);
+    PN_CHECK (pn_profile_schema_field_get_required (s, 1) == FALSE);
+
+    pn_profile_schema_field_set_required (s, "host", TRUE);
+    PN_CHECK (pn_profile_schema_field_get_required (s, 0) == TRUE);
+    PN_CHECK (pn_profile_schema_field_get_required (s, 1) == FALSE);
+
+    /* Clearing it round-trips back. */
+    pn_profile_schema_field_set_required (s, "host", FALSE);
+    PN_CHECK (pn_profile_schema_field_get_required (s, 0) == FALSE);
+
+    /* Out-of-range index is safe (reports not-required). */
+    PN_CHECK (pn_profile_schema_field_get_required (s, 99) == FALSE);
+
+    pn_profile_schema_unref (s);
+}
+
 static void
 test_help_page (void)
 {
@@ -251,6 +280,7 @@ main (int argc, char **argv)
     pn_test_add ("default_value", test_default_value);
     pn_test_add ("choices_force_enum", test_choices_force_enum);
     pn_test_add ("visible_when", test_visible_when);
+    pn_test_add ("required", test_required);
     pn_test_add ("help_page", test_help_page);
     pn_test_add ("refcount", test_refcount);
     return pn_test_run ();

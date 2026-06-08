@@ -22,6 +22,28 @@ pn_ssh_register_profile_type (PnNodeFactory *factory)
 {
     PnProfileSchema *schema;
 
+    /* The auth-schema combobox is the FIRST field and DRIVES which other
+     * fields the credentials manager shows (item 47.9, via the 47.8
+     * visible-when seam).  Three schemas (Q-confirmed 2026-06-08):
+     *   - passwordless-simple (DEFAULT): the user has already set up an
+     *     account + passwordless (agent / default-key) ssh for themselves;
+     *     only the host is asked for — everything else is hidden.  This is
+     *     the SSH nodes' ambient login, now pinned to one host.
+     *   - key-file: host, port, username, identity file, key passphrase,
+     *     host-key policy (no password).
+     *   - password: host, port, username, password, host-key policy (no
+     *     key / passphrase).  Non-interactive feeding is still the 47.5
+     *     problem; the field is reachable regardless. */
+    static const gchar *const auth_schema_choices[] = {
+        "passwordless-simple", "key-file", "password", NULL
+    };
+    /* Controller-value sets for the visible-when rules below. */
+    static const gchar *const when_key_or_password[] = {
+        "key-file", "password", NULL
+    };
+    static const gchar *const when_key_file[]  = { "key-file", NULL };
+    static const gchar *const when_password[]  = { "password", NULL };
+
     /* Host-key policy tokens map onto OpenSSH's StrictHostKeyChecking values
      * in the argv builder (item 47.3): accept-new → accept-new (trust on
      * first use, today's default), strict → yes (refuse unknown / changed
@@ -35,43 +57,86 @@ pn_ssh_register_profile_type (PnNodeFactory *factory)
 
     schema = pn_profile_schema_new (PN_PROFILE_SSH, "SSH Login");
 
-    /* username + port say which account on which port; both override the
-     * ambient defaults (the local user, port 22).  Leaving username blank
-     * keeps today's "log in as the desktop user" behaviour. */
-    pn_profile_schema_field (schema, "username", "Username", PN_FIELD_STRING);
-    pn_profile_schema_field (schema, "port",     "Port",     PN_FIELD_INT);
-    pn_profile_schema_field_default (schema, "port", "22");
+    /* Field ORDER is fixed (item 47.9): auth-schema, host, port, username,
+     * password, identity-file, passphrase, host-key-policy.  Each schema
+     * hides the fields it does not use; auth-schema + host are always
+     * visible. */
 
-    /* The private key to authenticate with (ssh -i).  A filesystem path the
-     * host trusts, not a credential, so it is unmasked and rendered with a
-     * browse button like the MQTT TLS material. */
+    /* (1) auth-schema — the driving combobox, always visible. */
+    pn_profile_schema_field (schema, "auth-schema",
+                             "Authentication", PN_FIELD_ENUM);
+    pn_profile_schema_field_choices (schema, "auth-schema",
+                                     auth_schema_choices);
+    pn_profile_schema_field_default (schema, "auth-schema",
+                                     "passwordless-simple");
+
+    /* (2) host — the permission grant, always visible and REQUIRED.  An SSH
+     * Login credential names ONE host the workflow may reach; an empty host
+     * grants access to nothing, so the credentials manager flags it. */
+    pn_profile_schema_field (schema, "host", "Host", PN_FIELD_STRING);
+    pn_profile_schema_field_set_required (schema, "host", TRUE);
+
+    /* (3) port + (4) username — shown for key-file / password (the
+     * passwordless-simple schema uses the ambient account + port 22). */
+    pn_profile_schema_field (schema, "port", "Port", PN_FIELD_INT);
+    pn_profile_schema_field_default (schema, "port", "22");
+    pn_profile_schema_field_visible_when (schema, "port",
+                                          "auth-schema", when_key_or_password);
+
+    pn_profile_schema_field (schema, "username", "Username", PN_FIELD_STRING);
+    pn_profile_schema_field_visible_when (schema, "username",
+                                          "auth-schema", when_key_or_password);
+
+    /* (5) password — the password schema only. */
+    pn_profile_schema_field (schema, "password", "Password", PN_FIELD_SECRET);
+    pn_profile_schema_field_visible_when (schema, "password",
+                                          "auth-schema", when_password);
+
+    /* (6) identity-file + (7) passphrase — the key-file schema only.  The
+     * key path is a filesystem path the host trusts, not a credential, so
+     * it is unmasked and rendered with a browse button. */
     pn_profile_schema_field (schema, "identity-file",
                              "Identity file (private key)", PN_FIELD_FILE);
+    pn_profile_schema_field_visible_when (schema, "identity-file",
+                                          "auth-schema", when_key_file);
 
-    /* Two secrets: the passphrase that unlocks the key, and an optional
-     * password for password auth.  Both are masked, scrubbed on save, and
-     * live only in the 0600 vault.  DECISION (item 47.5): v1 keeps
-     * BatchMode=yes on the spawned ssh, which suppresses EVERY interactive
-     * prompt — the passphrase and the password one alike — so neither
-     * secret is replayed.  v1 auth is ssh-agent / unencrypted key only;
-     * password auth is unsupported.  Both fields are still stored (a future
-     * non-interactive path, e.g. the libssh session in 47.7, can use them)
-     * but the tooltips + SshProfile.html steer the user to ssh-add. */
     pn_profile_schema_field (schema, "passphrase",
                              "Key passphrase", PN_FIELD_SECRET);
-    pn_profile_schema_field (schema, "password",
-                             "Password", PN_FIELD_SECRET);
+    pn_profile_schema_field_visible_when (schema, "passphrase",
+                                          "auth-schema", when_key_file);
 
-    /* Host-key checking policy.  Defaults to accept-new to match the flags
-     * the SSH nodes hard-code today (StrictHostKeyChecking=accept-new). */
+    /* (8) host-key-policy — shown whenever the user is configuring a real
+     * remote login (key-file / password).  Defaults to accept-new to match
+     * the flags the SSH nodes hard-code today. */
     pn_profile_schema_field (schema, "host-key-policy",
                              "Host-key policy", PN_FIELD_ENUM);
     pn_profile_schema_field_choices (schema, "host-key-policy",
                                      host_key_policy_choices);
     pn_profile_schema_field_default (schema, "host-key-policy", "accept-new");
+    pn_profile_schema_field_visible_when (schema, "host-key-policy",
+                                          "auth-schema", when_key_or_password);
+
+    /* DECISION (item 47.5): v1 keeps BatchMode=yes on the spawned ssh, which
+     * suppresses EVERY interactive prompt — the passphrase and the password
+     * one alike — so neither secret is replayed.  v1 auth is ssh-agent /
+     * unencrypted key only; password auth is unsupported.  The "password"
+     * and "passphrase" SECRET fields are still stored (a future
+     * non-interactive path, e.g. the libssh session in 47.7, can use them)
+     * but the tooltips + SshProfile.html steer the user to ssh-add. */
 
     /* Hover hints shown on each field in the Credentials dialog (the full
      * reference lives in SshProfile.html). */
+    pn_profile_schema_field_tooltip (schema, "auth-schema",
+            "How this credential logs in. \"passwordless-simple\" asks only "
+            "for the host and uses your existing agent / default-key login "
+            "(set up with ssh-copy-id). \"key-file\" adds a username, port "
+            "and a private key. \"password\" adds a username, port and a "
+            "password (stored but NOT sent in this release — see the help "
+            "page).");
+    pn_profile_schema_field_tooltip (schema, "host",
+            "The single host this credential is allowed to reach (a hostname "
+            "or IP). Required — an SSH Login credential is permission to log "
+            "in to ONE host. The SSH nodes take their host from here.");
     pn_profile_schema_field_tooltip (schema, "username",
             "Remote login name (ssh -l). Leave empty to log in as the "
             "local desktop user, as the SSH nodes do today.");

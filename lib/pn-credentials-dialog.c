@@ -145,6 +145,11 @@ on_field_entry_commit (FieldCtx *ctx, GtkEntry *entry)
     p = field_ctx_profile (ctx);
     if (p != NULL)
         pn_profile_set_field (p, ctx->field, gtk_entry_get_text (entry));
+
+    /* A required field (e.g. the SSH host) re-evaluates its empty-flag when
+     * the user leaves it. */
+    if (ctx->frame != NULL)
+        frame_apply_visibility (ctx->frame);
 }
 
 static void
@@ -401,8 +406,50 @@ frame_ctx_free (gpointer data)
     g_free (fc);
 }
 
+/* Flag a required field (TODO #47.9) that is visible but empty: an error
+ * style class on the editor (a red border in most themes) plus, for a plain
+ * entry, a warning icon with a hint.  There is no Save button in this live-
+ * commit dialog, so the flag is the whole enforcement — it tells the user the
+ * profile is incomplete (an SSH Login with no host grants access to nothing).
+ * A field that is not required, not visible, or non-empty is cleared. */
+static void
+row_apply_required (FrameCtx *fc, RowVis *r, PnProfile *p, gboolean visible)
+{
+    GtkStyleContext    *ctx     = gtk_widget_get_style_context (r->editor);
+    PnProfileFieldKind  kind    = pn_profile_schema_field_get_kind (fc->schema,
+                                                                    r->index);
+    gboolean            missing = FALSE;
+
+    if (visible && pn_profile_schema_field_get_required (fc->schema, r->index))
+    {
+        const gchar *field = pn_profile_schema_field_name (fc->schema, r->index);
+        gchar       *val   = pn_profile_get_string (p, field);
+        missing = (val == NULL || *val == '\0');
+        g_free (val);
+    }
+
+    if (missing)
+        gtk_style_context_add_class (ctx, GTK_STYLE_CLASS_ERROR);
+    else
+        gtk_style_context_remove_class (ctx, GTK_STYLE_CLASS_ERROR);
+
+    /* Add a warning icon to a plain entry — but never to a SECRET field, whose
+     * secondary icon is the reveal toggle. */
+    if (GTK_IS_ENTRY (r->editor) && kind != PN_FIELD_SECRET)
+    {
+        gtk_entry_set_icon_from_icon_name (
+                GTK_ENTRY (r->editor), GTK_ENTRY_ICON_SECONDARY,
+                missing ? "dialog-warning-symbolic" : NULL);
+        if (missing)
+            gtk_entry_set_icon_tooltip_text (
+                    GTK_ENTRY (r->editor), GTK_ENTRY_ICON_SECONDARY,
+                    "Required — this field must not be empty.");
+    }
+}
+
 /* Re-evaluate every row's visible-when rule against the live profile and
- * show/hide both the label and the editor accordingly. */
+ * show/hide both the label and the editor accordingly; then flag any visible
+ * required field left empty. */
 static void
 frame_apply_visibility (FrameCtx *fc)
 {
@@ -431,6 +478,7 @@ frame_apply_visibility (FrameCtx *fc)
 
         gtk_widget_set_visible (r->label,  vis);
         gtk_widget_set_visible (r->editor, vis);
+        row_apply_required (fc, r, p, vis);
     }
 }
 
