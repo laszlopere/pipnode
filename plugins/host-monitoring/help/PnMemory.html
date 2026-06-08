@@ -70,6 +70,18 @@ human summary). When the SSH probe fails the remote stderr or the
 spawn error message is folded into <code>data.output</code> so a
 downstream <em>Debug Print</em> shows the user what went wrong.
 </p>
+<p>
+The remote login defaults to your ambient SSH setup: the local desktop
+account and whatever key your <code>ssh-agent</code> or <code>~/.ssh</code>
+already provides, trusting the host key on first sight. To reach the host as
+a different account, on a non-standard port, with a specific identity file,
+or under a stricter host-key policy, attach an
+<a href="SshProfile.html"><em>SSH&nbsp;Login</em></a> credential from the
+node's <em>SSH&nbsp;Login</em> picker (the <code>auth-profile</code>
+property). The credential says <em>how</em> to log in; the
+<code>hostname</code> field still says <em>where</em>. With none selected
+the node keeps the original passwordless-SSH behaviour.
+</p>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>hostname</code></td>
@@ -94,6 +106,14 @@ downstream <em>Debug Print</em> shows the user what went wrong.
           pointlessly hammering an SSH target with a near-static
           counter (memory pressure typically evolves on a multi-
           second timescale).</td></tr>
+  <tr><td><code>auth-profile</code></td>
+      <td>Optional <a href="SshProfile.html"><em>SSH&nbsp;Login</em></a>
+          credential supplying the remote account, port, identity file and
+          host-key policy. Empty (the default) follows the primary
+          SSH&nbsp;Login profile, or &mdash; when none is configured &mdash;
+          the node's ambient-key behaviour. Stored in the host vault, never
+          in the worksheet file. Separate from <code>hostname</code>, which
+          still selects <em>where</em> to connect.</td></tr>
 </table>
 
 </body>

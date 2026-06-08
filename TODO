@@ -987,9 +987,29 @@
                stays REACHABLE in the combobox per the redesign, but its help/
                tooltips must carry this "not sent in v1" caveat; revisit if 47.7
                lands the libssh path.
-         [ ] 47.6 Tests + help: characterization test for pn_ssh_build_argv
+         [x] 47.6 Tests + help: characterization test for pn_ssh_build_argv
                (host x profile -> exact argv), a profile-resolve test, and update
                the affected node help pages to mention the new SSH Login profile.
+               DONE: the two test deliverables already landed under 47.3/47.4 and
+               are green -- tests/unit/test-pn-ssh-build-argv.c (215 checks: the
+               host x PnSshLogin -> exact-argv characterization set + a
+               pn_ssh_login_resolve profile-resolve trio resolve_ambient /
+               resolve_follows_primary / resolve_explicit_custom, with a
+               secret-leak guard) and tests/unit/test-pn-ssh-profile.c (35 checks).
+               HELP: added a uniform "SSH Login" credential blurb to all 13 SSH
+               node help pages -- a paragraph (ambient default + when to attach a
+               credential, how-vs-where, links to SshProfile.html) plus an
+               <code>auth-profile</code> property-table row. host-monitoring (8:
+               Cpu/Load/Memory/Temp/Ambient/DiskIo/NetIo/Connections) phrase it
+               against the node's "hostname" field; shell (5: ShellCommand/Df/
+               Free/LxcLs/TmuxMonitor) against "host". Pages already existed +
+               were in pnhelp_DATA, so no Makefile.am change. Relative
+               href="SshProfile.html" resolves at runtime via the flat installed
+               help dir (same as the existing help-index.html links). NOTE: the
+               2026-06-08 REDESIGN (47.8-47.11) will rework the per-node host
+               handling ("Custom settings" mode, host-from-credential); the blurb
+               is worded generally (how-vs-where) so it stays accurate, and 47.11
+               will revisit/supersede where they overlap.
          [ ] 47.7 Session helper(s) to initiate AND maintain an SSH connection.
                TODAY THERE IS NONE: every SSH node g_spawn's a fresh one-shot
                `ssh <host> <cmd>` on each fire (host-monitoring via
