@@ -79,6 +79,38 @@ G_DECLARE_FINAL_TYPE (PnAmbient, pn_ambient, PN, AMBIENT, PnAutoTrigger)
 
 PnAmbient *pn_ambient_new (void);
 
+/* ------------------------------------------------------------------ */
+/*  Pure parse/aggregate seam (no I/O, no GTK)                          */
+/*                                                                     */
+/*  One per-sensor reading, plus the two helpers the node's trigger    */
+/*  uses to turn a remote sample into data.value.  They are exposed    */
+/*  (non-static) purely so the headless unit tests can drive the parse */
+/*  + collapse on canned text without sampling real hardware; the      */
+/*  node remains the only production caller.  Mirrors #PnTemp's seam.  */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    gchar  *label;    /* "<source>/<sensor>", owned */
+    gdouble celsius;
+} PnAmbientReading;
+
+/* Parse a remote sample (one "name|label|millidegrees" line each) into
+ * @readings, a GArray of #PnAmbientReading whose .label is freshly
+ * allocated.  Malformed lines (missing either '|') are skipped. */
+void    pn_ambient_parse_remote_lines (const gchar *blob,
+                                       GArray      *readings);
+
+/* Collapse @readings to a single value per @mode (AVERAGE or MAXIMUM),
+ * also reporting the min/max/average and the label of the hottest
+ * sensor.  An empty array yields all-zero and a NULL hot label. */
+gdouble pn_ambient_aggregate (GArray               *readings,
+                              PnAmbientAggregation   mode,
+                              gdouble              *out_min,
+                              gdouble              *out_max,
+                              gdouble              *out_avg,
+                              const gchar         **out_hot_label);
+
 G_END_DECLS
 
 #endif /* PN_AMBIENT_H */

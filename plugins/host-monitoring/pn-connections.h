@@ -41,6 +41,20 @@ G_DECLARE_FINAL_TYPE (PnConnections, pn_connections,
 
 PnConnections *pn_connections_new (void);
 
+/* ------------------------------------------------------------------ */
+/*  Pure parse seam (no I/O, no GTK)                                    */
+/*                                                                     */
+/*  Pull the leading non-negative integer out of the counting script's */
+/*  stdout, skipping leading whitespace, into @out_value.  Returns     */
+/*  FALSE when the buffer holds nothing parseable (NULL, empty, or     */
+/*  error chatter with no leading digit).  Exposed (non-static) purely */
+/*  so the headless unit tests can drive the parse on canned text      */
+/*  without spawning the counting subprocess; the node remains the     */
+/*  only production caller.                                            */
+/* ------------------------------------------------------------------ */
+
+gboolean pn_connections_parse_count (const gchar *text, guint *out_value);
+
 G_END_DECLS
 
 #endif /* PN_CONNECTIONS_H */

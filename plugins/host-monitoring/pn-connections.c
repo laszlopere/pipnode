@@ -150,8 +150,8 @@ hostname_is_local (const gchar *hostname)
 /** Pull the leading non-negative integer off @text, skipping leading
  *  whitespace.  Returns FALSE when the script gave us back something
  *  unparseable (empty buffer, error chatter, ...). */
-static gboolean
-parse_count (const gchar *text, guint *out_value)
+gboolean
+pn_connections_parse_count (const gchar *text, guint *out_value)
 {
     const gchar *p = text;
     guint64      value = 0;
@@ -205,7 +205,7 @@ sample_local (
 
     if (spawned)
     {
-        if (parse_count (stdout_text, out_total))
+        if (pn_connections_parse_count (stdout_text, out_total))
             ok = TRUE;
         else
             g_spawn_check_wait_status (exit_status, error);
@@ -258,7 +258,7 @@ sample_ssh (
      * silenced by 2>/dev/null. */
     if (spawned)
     {
-        if (parse_count (stdout_text, out_total))
+        if (pn_connections_parse_count (stdout_text, out_total))
             ok = TRUE;
         else
             g_spawn_check_wait_status (exit_status, error);
