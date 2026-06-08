@@ -817,16 +817,28 @@
                built-in pass next to pn_mqtt_register_profile_type; help page
                data/help/SshProfile.html; characterization test
                tests/unit/test-pn-ssh-profile.c (35 checks). Landing it in core
-               (mirroring the mqtt-broker profile) effectively answers 47.2's
-               registration-home question -> "core built-in"; the PLUGINS doc
-               note 47.2 asks for is still pending.
-         [ ] 47.2 Decide the registration home. The profile is shared by TWO
+               (mirroring the mqtt-broker profile) answers 47.2's
+               registration-home question -> "core built-in" (see 47.2).
+         [x] 47.2 Decide the registration home. The profile is shared by TWO
                bundled plugins (shell + host-monitoring), so it should NOT be
                registered privately inside one of them the way
                PN_NETWORK_PROFILE_HTTP_BASIC is. Either register it from a small
                shared seam both plugins call, or promote it to a core/host-
                provided built-in profile type so both reference one stable id
                (PN_PROFILE_SSH). Pick one and document it in PLUGINS.
+               DECIDED: core-owned built-in. PN_PROFILE_SSH +
+               pn_ssh_register_profile_type live in lib/ and the factory calls
+               it from register_builtins (pn-node-factory.c), so the one schema
+               is registered unconditionally on the first get_default() -- before
+               any plugin loads, in both pipnode-editor and headless
+               pipnode-run. The public header pn-ssh-profile.h is installed
+               (pipnode_core_headers), so in-tree AND out-of-tree plugins just
+               #include <pipnode/pn-ssh-profile.h> and reference PN_PROFILE_SSH;
+               no plugin registers anything. Documented in PLUGINS section 18
+               under a new "Where to register a profile type" paragraph (one
+               plugin -> private like http-basic; >1 plugin -> core built-in like
+               mqtt-broker / ssh-login, because libtool BIND_LOCAL hides a
+               plugin-private schema from sibling plugins).
          [ ] 47.3 One shared argv builder. Extract a single GTK-free helper --
                pn_ssh_build_argv(host, resolved-profile, base_argv) -- that
                turns the host + resolved SSH profile fields into the ssh argv

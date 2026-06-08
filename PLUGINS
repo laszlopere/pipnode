@@ -1784,13 +1784,35 @@ core, so headless `pipnode-run` resolves secrets from the file / env
 with no display.  Only the credentials manager and the picker are
 editor-side.
 
+Where to register a profile type.  A type used by exactly one plugin is
+registered privately from that plugin's `pn_plugin_init`, the way the
+network plugin registers `http-basic` (shared only by its own HTTPS
+Tunnel Sender / Receiver).  But a type shared by *more than one* plugin
+must not be owned by any single plugin: libtool links each plugin `.so`
+with `BIND_LOCAL`, so a schema (and the C symbol that builds it)
+registered inside plugin A is invisible to plugin B, and the two would
+either duplicate the schema under one id or race on which loads first.
+Promote such a type to a **core-owned built-in** instead: declare its
+stable id and a `pn_<x>_register_profile_type (PnNodeFactory *)` entry
+point in `lib/`, and call it from the factory's built-in registration
+pass (`register_builtins` in `lib/pn-node-factory.c`) so the one schema
+is visible to every plugin before any node is constructed.  Two core
+built-ins follow this rule: `mqtt-broker` (`lib/pn-mqtt-profile.c`,
+shared by the MQTT Source / Sink and any out-of-tree `PnMqtt` subclass)
+and `ssh-login` (`lib/pn-ssh-profile.c`, the `PN_PROFILE_SSH` "SSH Login"
+type shared by the bundled shell and host-monitoring SSH nodes).  The
+choice is the same one #PnMqtt makes for its base *class*: anything that
+must be seen across plugin `.so` boundaries lives in core.
+
 ABI version requirement.  Declaring a profile type uses the v5 factory
 contract, so a plugin that calls `pn_node_factory_register_profile_type`
 must declare `abi_version = PN_PLUGIN_ABI_VERSION` (>= 5); an older host
 refuses it rather than silently registering nothing.  See
-`plugins/network/` (the `mqtt-broker` and `http-basic` types, used by
-the MQTT and HTTPS Tunnel nodes) and `tests/plugins/vaultecho/` (a
-minimal type + referencing node) for worked examples.
+`plugins/network/` (the `http-basic` type, used by the HTTPS Tunnel
+nodes), `lib/pn-mqtt-profile.c` / `lib/pn-ssh-profile.c` (the core
+built-in `mqtt-broker` and `ssh-login` types), and
+`tests/plugins/vaultecho/` (a minimal type + referencing node) for
+worked examples.
 
 
 19. WEBSOCKET SOURCE BASE CLASS WITH OPTIONAL PROFILE BINDING (ABI v6)
