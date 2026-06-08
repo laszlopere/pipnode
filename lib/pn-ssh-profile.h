@@ -17,6 +17,7 @@
 #define PN_SSH_PROFILE_H
 
 #include "pn-node-factory.h"
+#include "pn-vault.h"
 
 G_BEGIN_DECLS
 
@@ -42,6 +43,53 @@ G_BEGIN_DECLS
  * Idempotent: re-registering is a no-op.
  */
 void pn_ssh_register_profile_type (PnNodeFactory *factory);
+
+/**
+ * pn_ssh_build_argv:
+ * @host:            the remote host to reach (passed verbatim as the ssh
+ *                   destination; the caller has already decided it is NOT
+ *                   the local machine — see pn_shell_host_is_local)
+ * @profile:         (nullable): a resolved "ssh-login" #PnProfile whose
+ *                   username / port / identity-file / host-key-policy
+ *                   fields shape the login, or %NULL to keep today's
+ *                   ambient-key behaviour (no -l/-p/-i, accept-new policy)
+ * @connect_timeout: ConnectTimeout seconds; 0 falls back to 5
+ * @base_argv:       (nullable): the NULL-terminated remote command, taken
+ *                   verbatim as the ssh tail (the caller owns its quoting)
+ *
+ * The one shared SSH argv builder (TODO #47.3).  Turns @host plus the
+ * resolved @profile into the exact `ssh` argv every SSH-using node runs:
+ *
+ *     ssh -o BatchMode=yes -o StrictHostKeyChecking=<policy>
+ *         -o ConnectTimeout=<n> [-l user] [-p port] [-i identity]
+ *         <host> <base_argv...>
+ *
+ * The host-key-policy field maps onto OpenSSH's StrictHostKeyChecking:
+ * accept-new → accept-new (today's default, trust on first use),
+ * strict → yes (refuse an unknown or changed key), off → no (accept
+ * anything).  A %NULL @profile, or a profile with the field unset, yields
+ * accept-new.  Username, port (when not the default 22) and identity-file
+ * are only added when the profile sets them, so a %NULL profile reproduces
+ * the fixed argv the nodes hard-coded before this type existed.
+ *
+ * BatchMode=yes is kept unconditionally: it disables every interactive
+ * prompt, so the connection only succeeds via a pre-installed key or the
+ * agent.  The profile's passphrase / password secrets are therefore NOT
+ * consumed here — feeding them needs a non-interactive path decided in
+ * item 47.5; until then they are ignored.
+ *
+ * There is no local-host short-circuit: this always builds a remote ssh
+ * argv.  The caller keeps its own local/remote test and only routes the
+ * remote branch through here.
+ *
+ * Returns: (transfer full): a NULL-terminated argv suitable for
+ *   g_spawn_sync() with %G_SPAWN_SEARCH_PATH.  An empty @base_argv yields
+ *   an empty (argv[0] == NULL) vector.  Free with g_strfreev().
+ */
+gchar **pn_ssh_build_argv (const gchar        *host,
+                           PnProfile          *profile,
+                           guint               connect_timeout,
+                           const gchar *const *base_argv);
 
 G_END_DECLS
 

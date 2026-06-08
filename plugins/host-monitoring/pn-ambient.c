@@ -19,6 +19,7 @@
 
 #include "pn-ambient.h"
 #include "pn-message.h"
+#include "pn-ssh-profile.h"
 
 #include <string.h>
 
@@ -456,35 +457,31 @@ sample_ssh (
         gchar       **out_stderr,
         GError      **error)
 {
-    gchar    *quoted_host;
-    gchar    *quoted_script;
-    gchar    *cmd;
-    gint      exit_status = 0;
-    gboolean  spawned;
-    gboolean  ok = FALSE;
+    /* The remote command is `sh -c <script>` as three argv words; ssh
+     * joins them with spaces on the wire and the remote shell un-quotes
+     * them back, so the script is passed verbatim with no local shell
+     * re-parse (the old command-line path g_shell_quote'd it only to
+     * survive GLib's parser, which g_spawn_sync no longer runs). */
+    const gchar *base_argv[] = { "sh", "-c", PN_AMBIENT_REMOTE_SH, NULL };
+    gchar      **argv;
+    gint         exit_status = 0;
+    gboolean     spawned;
+    gboolean     ok = FALSE;
 
-    quoted_host   = g_shell_quote (hostname);
-    quoted_script = g_shell_quote (PN_AMBIENT_REMOTE_SH);
+    /* Route through the one shared SSH argv builder (TODO #47.3); no
+     * login profile yet (item 47.4), so pass NULL for today's argv. */
+    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
 
-    cmd = g_strdup_printf (
-            "ssh -o BatchMode=yes "
-            "-o ConnectTimeout=%u "
-            "-o StrictHostKeyChecking=accept-new "
-            "%s sh -c %s",
-            timeout, quoted_host, quoted_script);
-
-    spawned = g_spawn_command_line_sync (cmd,
-                                         out_text,
-                                         out_stderr,
-                                         &exit_status,
-                                         error);
+    spawned = g_spawn_sync (NULL, argv, NULL,
+                            G_SPAWN_SEARCH_PATH,
+                            NULL, NULL,
+                            out_text, out_stderr,
+                            &exit_status, error);
 
     if (spawned)
         ok = g_spawn_check_wait_status (exit_status, error);
 
-    g_free (quoted_host);
-    g_free (quoted_script);
-    g_free (cmd);
+    g_strfreev (argv);
 
     return ok;
 }

@@ -88,21 +88,25 @@ test_wrap_argv_remote (void)
 {
     /* A remote host prepends the BatchMode ssh preamble (the load-bearing
      * flags that forbid every interactive prompt) followed by the host
-     * and then the original argv, untouched. */
+     * and then the original argv, untouched.  Since TODO #47.3 this is the
+     * shared pn_ssh_build_argv preamble, so the host-key policy is spelled
+     * out as StrictHostKeyChecking=accept-new (the no-profile default). */
     const gchar *base[] = { "echo hi", NULL };
     gchar **out = pn_shell_wrap_argv ("user@box",
                                       (const gchar *const *) base);
 
     PN_CHECK (out != NULL);
-    PN_CHECK_CMPINT (g_strv_length (out), ==, 7);
+    PN_CHECK_CMPINT (g_strv_length (out), ==, 9);
     PN_CHECK_CMPSTR (out[0], ==, "ssh");
     PN_CHECK_CMPSTR (out[1], ==, "-o");
     PN_CHECK_CMPSTR (out[2], ==, "BatchMode=yes");
     PN_CHECK_CMPSTR (out[3], ==, "-o");
-    PN_CHECK_CMPSTR (out[4], ==, "ConnectTimeout=5");
-    PN_CHECK_CMPSTR (out[5], ==, "user@box");
-    PN_CHECK_CMPSTR (out[6], ==, "echo hi");
-    PN_CHECK (out[7] == NULL);
+    PN_CHECK_CMPSTR (out[4], ==, "StrictHostKeyChecking=accept-new");
+    PN_CHECK_CMPSTR (out[5], ==, "-o");
+    PN_CHECK_CMPSTR (out[6], ==, "ConnectTimeout=5");
+    PN_CHECK_CMPSTR (out[7], ==, "user@box");
+    PN_CHECK_CMPSTR (out[8], ==, "echo hi");
+    PN_CHECK (out[9] == NULL);
 
     g_strfreev (out);
 }

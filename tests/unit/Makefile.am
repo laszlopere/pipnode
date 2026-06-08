@@ -112,6 +112,7 @@ check_PROGRAMS = \
 	test-pn-settings-schema \
 	test-pn-profile-schema \
 	test-pn-ssh-profile \
+	test-pn-ssh-build-argv \
 	test-pn-vault \
 	test-pn-secret-scrub \
 	test-pn-ws \
@@ -174,6 +175,7 @@ test_pn_message_SOURCES      = test-pn-message.c      pntest.c pntest.h
 test_pn_settings_schema_SOURCES = test-pn-settings-schema.c pntest.c pntest.h
 test_pn_profile_schema_SOURCES = test-pn-profile-schema.c pntest.c pntest.h
 test_pn_ssh_profile_SOURCES  = test-pn-ssh-profile.c  pntest.c pntest.h
+test_pn_ssh_build_argv_SOURCES = test-pn-ssh-build-argv.c pntest.c pntest.h
 test_pn_vault_SOURCES        = test-pn-vault.c        pntest.c pntest.h
 test_pn_secret_scrub_SOURCES = test-pn-secret-scrub.c pntest.c pntest.h
 test_pn_ws_SOURCES           = test-pn-ws.c           pntest.c pntest.h

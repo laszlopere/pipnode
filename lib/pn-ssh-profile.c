@@ -15,6 +15,7 @@
 
 #include "pn-ssh-profile.h"
 #include "pn-profile-schema.h"
+#include "pn-vault.h"
 
 void
 pn_ssh_register_profile_type (PnNodeFactory *factory)
@@ -88,4 +89,94 @@ pn_ssh_register_profile_type (PnNodeFactory *factory)
     pn_profile_schema_set_help_page (schema, "SshProfile.html");
 
     pn_node_factory_register_profile_type (factory, schema);
+}
+
+/* Map an "ssh-login" host-key-policy token onto the value OpenSSH expects
+ * for -o StrictHostKeyChecking=.  Anything unrecognised (or unset) falls
+ * back to accept-new — the policy the SSH nodes hard-coded before this
+ * type existed, so a node with no profile is unchanged. */
+static const gchar *
+ssh_strict_host_key_checking (const gchar *policy)
+{
+    if (g_strcmp0 (policy, "strict") == 0)
+        return "yes";
+    if (g_strcmp0 (policy, "off") == 0)
+        return "no";
+    return "accept-new";
+}
+
+gchar **
+pn_ssh_build_argv (const gchar        *host,
+                   PnProfile          *profile,
+                   guint               connect_timeout,
+                   const gchar *const *base_argv)
+{
+    GPtrArray   *out;
+    const gchar *policy_token = "accept-new";
+    gchar       *username     = NULL;
+    gchar       *identity     = NULL;
+    gint64       port         = 0;
+    guint        timeout      = (connect_timeout > 0) ? connect_timeout : 5;
+    guint        i;
+
+    if (base_argv == NULL || base_argv[0] == NULL)
+        return g_new0 (gchar *, 1);
+
+    if (profile != NULL)
+    {
+        gchar *policy = pn_profile_get_string (profile, "host-key-policy");
+
+        if (policy != NULL && *policy != '\0')
+            policy_token = ssh_strict_host_key_checking (policy);
+        g_free (policy);
+
+        username = pn_profile_get_string (profile, "username");
+        identity = pn_profile_get_string (profile, "identity-file");
+        port     = pn_profile_get_int    (profile, "port");
+    }
+
+    out = g_ptr_array_new ();
+    g_ptr_array_add (out, g_strdup ("ssh"));
+
+    /* BatchMode stays on unconditionally — no interactive prompt is ever
+     * acceptable from a node running headless behind a desktop launcher.
+     * A passphrase / password profile thus needs the 47.5 path; the
+     * secrets are deliberately not read here. */
+    g_ptr_array_add (out, g_strdup ("-o"));
+    g_ptr_array_add (out, g_strdup ("BatchMode=yes"));
+    g_ptr_array_add (out, g_strdup ("-o"));
+    g_ptr_array_add (out, g_strdup_printf ("StrictHostKeyChecking=%s",
+                                           policy_token));
+    g_ptr_array_add (out, g_strdup ("-o"));
+    g_ptr_array_add (out, g_strdup_printf ("ConnectTimeout=%u", timeout));
+
+    /* Profile-derived login bits, each emitted only when set so a NULL or
+     * empty-field profile reproduces the bare host-key argv above. */
+    if (username != NULL && *username != '\0')
+    {
+        g_ptr_array_add (out, g_strdup ("-l"));
+        g_ptr_array_add (out, g_strdup (username));
+    }
+    if (port > 0 && port != 22)
+    {
+        g_ptr_array_add (out, g_strdup ("-p"));
+        g_ptr_array_add (out, g_strdup_printf ("%" G_GINT64_FORMAT, port));
+    }
+    if (identity != NULL && *identity != '\0')
+    {
+        g_ptr_array_add (out, g_strdup ("-i"));
+        g_ptr_array_add (out, g_strdup (identity));
+    }
+
+    g_ptr_array_add (out, g_strdup (host));
+
+    for (i = 0; base_argv[i] != NULL; i++)
+        g_ptr_array_add (out, g_strdup (base_argv[i]));
+
+    g_ptr_array_add (out, NULL);
+
+    g_free (username);
+    g_free (identity);
+
+    return (gchar **) g_ptr_array_free (out, FALSE);
 }

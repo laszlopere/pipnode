@@ -48,14 +48,19 @@ gboolean pn_shell_host_is_local (const gchar *host);
  *
  *  Local: returns `g_strdupv (base_argv)`.
  *
- *  Remote: returns
- *      ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host,
+ *  Remote: a thin wrapper over the shared core builder pn_ssh_build_argv()
+ *  (TODO #47.3) with no profile, yielding
+ *      ["ssh", "-o", "BatchMode=yes",
+ *              "-o", "StrictHostKeyChecking=accept-new",
+ *              "-o", "ConnectTimeout=5", host,
  *       base_argv[0], base_argv[1], ..., NULL]
  *
  *  `BatchMode=yes` is the load-bearing flag — it disables every
  *  interactive prompt (password, passphrase, host-key confirmation),
  *  so the only way the connection succeeds is via a pre-installed
- *  passwordless key.  This matches the node's stated contract.
+ *  passwordless key.  This matches the node's stated contract.  When
+ *  item 47.4 threads an SSH-login profile through this path, the
+ *  username / port / identity / host-key-policy come from there.
  *
  *  Caller owns the result; free with `g_strfreev`. */
 gchar **pn_shell_wrap_argv (const gchar        *host,

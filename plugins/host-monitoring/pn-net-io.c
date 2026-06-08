@@ -19,6 +19,7 @@
 
 #include "pn-net-io.h"
 #include "pn-message.h"
+#include "pn-ssh-profile.h"
 
 #include <string.h>
 
@@ -418,31 +419,29 @@ sample_ssh (
         gchar       **out_stderr,
         GError      **error)
 {
-    gchar    *quoted_host;
-    gchar    *cmd;
-    gint      exit_status = 0;
-    gboolean  spawned;
-    gboolean  ok = FALSE;
+    const gchar *base_argv[] = { "cat", "/proc/net/dev", NULL };
+    gchar      **argv;
+    gint         exit_status = 0;
+    gboolean     spawned;
+    gboolean     ok = FALSE;
 
-    quoted_host = g_shell_quote (hostname);
-    cmd = g_strdup_printf (
-            "ssh -o BatchMode=yes "
-            "-o ConnectTimeout=%u "
-            "-o StrictHostKeyChecking=accept-new "
-            "%s cat /proc/net/dev",
-            timeout, quoted_host);
+    /* Route through the one shared SSH argv builder (TODO #47.3) instead
+     * of hand-rolling the ssh flag string.  No login profile is threaded
+     * through yet (item 47.4), so pass NULL — the builder then emits the
+     * same BatchMode / accept-new / ConnectTimeout argv this node used to
+     * format inline, and g_spawn_sync runs it with no shell re-parse. */
+    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
 
-    spawned = g_spawn_command_line_sync (cmd,
-                                         out_text,
-                                         out_stderr,
-                                         &exit_status,
-                                         error);
+    spawned = g_spawn_sync (NULL, argv, NULL,
+                            G_SPAWN_SEARCH_PATH,
+                            NULL, NULL,
+                            out_text, out_stderr,
+                            &exit_status, error);
 
     if (spawned)
         ok = g_spawn_check_wait_status (exit_status, error);
 
-    g_free (quoted_host);
-    g_free (cmd);
+    g_strfreev (argv);
 
     return ok;
 }

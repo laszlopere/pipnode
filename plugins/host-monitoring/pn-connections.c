@@ -19,6 +19,7 @@
 
 #include "pn-connections.h"
 #include "pn-message.h"
+#include "pn-ssh-profile.h"
 
 /* fa-link U+F0C1 — two chain links read as "open connections". */
 #define PN_CONNECTIONS_ICON           "\xef\x83\x81"
@@ -227,24 +228,23 @@ sample_ssh (
         gchar       **out_stderr,
         GError      **error)
 {
-    gchar    *connect_timeout;
-    gchar    *remote_cmd;
-    gchar    *argv[10];
-    gchar    *stdout_text = NULL;
-    gint      exit_status = 0;
-    gboolean  spawned;
-    gboolean  ok = FALSE;
+    gchar       *remote_cmd;
+    const gchar *base_argv[2];
+    gchar      **argv;
+    gchar       *stdout_text = NULL;
+    gint         exit_status = 0;
+    gboolean     spawned;
+    gboolean     ok = FALSE;
 
-    connect_timeout = g_strdup_printf ("ConnectTimeout=%u", timeout);
-    remote_cmd      = g_strdup_printf ("sh -c '%s'", PN_CONNECTIONS_SCRIPT);
+    /* The script is pre-wrapped as a single `sh -c '<script>'` word so the
+     * remote shell un-quotes it back intact; that one word is the entire
+     * ssh tail.  The ssh flags themselves come from the one shared builder
+     * (TODO #47.3) — no login profile yet (item 47.4), hence the NULL. */
+    remote_cmd   = g_strdup_printf ("sh -c '%s'", PN_CONNECTIONS_SCRIPT);
+    base_argv[0] = remote_cmd;
+    base_argv[1] = NULL;
 
-    argv[0] = "ssh";
-    argv[1] = "-o"; argv[2] = "BatchMode=yes";
-    argv[3] = "-o"; argv[4] = connect_timeout;
-    argv[5] = "-o"; argv[6] = "StrictHostKeyChecking=accept-new";
-    argv[7] = (gchar *) hostname;
-    argv[8] = remote_cmd;
-    argv[9] = NULL;
+    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
 
     spawned = g_spawn_sync (NULL, argv, NULL,
                             G_SPAWN_SEARCH_PATH,
@@ -265,7 +265,7 @@ sample_ssh (
     }
 
     g_free (stdout_text);
-    g_free (connect_timeout);
+    g_strfreev (argv);
     g_free (remote_cmd);
     return ok;
 }

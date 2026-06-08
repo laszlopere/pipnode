@@ -839,7 +839,7 @@
                plugin -> private like http-basic; >1 plugin -> core built-in like
                mqtt-broker / ssh-login, because libtool BIND_LOCAL hides a
                plugin-private schema from sibling plugins).
-         [ ] 47.3 One shared argv builder. Extract a single GTK-free helper --
+         [x] 47.3 One shared argv builder. Extract a single GTK-free helper --
                pn_ssh_build_argv(host, resolved-profile, base_argv) -- that
                turns the host + resolved SSH profile fields into the ssh argv
                (-l user, -p port, -i identity, -o options, host, cmd...).
@@ -847,6 +847,32 @@
                monitoring nodes stop hand-rolling their ssh strings and route
                through the same helper. Local-host short-circuit
                (pn_shell_host_is_local) stays.
+               DONE: pn_ssh_build_argv lives in core lib/pn-ssh-profile.{c,h}
+               (signature host, PnProfile *, connect_timeout, base_argv).
+               Always builds the REMOTE argv -- no local short-circuit inside;
+               each caller keeps its own local test and only routes the remote
+               branch through it. Emits ssh -o BatchMode=yes -o
+               StrictHostKeyChecking=<policy> -o ConnectTimeout=<n> [-l user]
+               [-p port!=22] [-i identity] <host> <base_argv...>. host-key-
+               policy tokens map accept-new->accept-new, strict->yes, off->no;
+               a NULL/empty profile yields accept-new (so a profile-less node
+               reproduces the old fixed argv). Passphrase/password are NOT
+               consumed (BatchMode forbids prompts -- deferred to 47.5).
+               pn_shell_wrap_argv now calls pn_ssh_build_argv(host,NULL,5,..);
+               this ADDS the explicit StrictHostKeyChecking=accept-new the
+               shell path omitted before, unifying it with host-monitoring
+               (which already hard-coded accept-new) per the #47 prose.
+               All 8 host-monitoring sample_ssh paths converted from
+               g_spawn_command_line_sync(shell string) to argv +
+               g_spawn_sync(G_SPAWN_SEARCH_PATH); each preserves its exact
+               effective ssh tail (cat /proc/X; temp/ambient sh -c <script> as
+               3 words; connections pre-wrapped sh -c '<script>' single word).
+               Characterization test tests/unit/test-pn-ssh-build-argv.c (168
+               checks: no-profile/timeout/empty/verbatim/full-profile/policy-
+               off/defaults-omitted/username-only + secret-leak guard).
+               test-pn-shell-command wrap_argv_remote updated for the added
+               accept-new flag (7->9 argv words). Nodes still pass NULL profile
+               -- the per-node auth-profile property + resolve is 47.4.
          [ ] 47.4 Add the optional auth-profile property + profile-ref param-spec
                to every SSH node and resolve it at fire time
                (pn_param_spec_set_profile_ref / vault lookup), mirroring the
