@@ -12,6 +12,9 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/plugins/shell \
 	-I$(top_srcdir)/plugins/host-monitoring \
 	-I$(top_srcdir)/plugins/tasmota \
+	-I$(top_srcdir)/plugins/network \
+	-I$(top_srcdir)/plugins/ollama \
+	-I$(top_srcdir)/plugins/sound-effects \
 	$(GTK_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(LIBSOUP_CFLAGS)
@@ -27,7 +30,8 @@ AM_CPPFLAGS = \
 LDADD = \
 	$(top_builddir)/lib/libpipnode-core.la \
 	$(GTK_LIBS) \
-	$(JSON_GLIB_LIBS)
+	$(JSON_GLIB_LIBS) \
+	$(LIBSOUP_LIBS)
 
 check_PROGRAMS = \
 	test-pn-expression \
@@ -126,7 +130,39 @@ check_PROGRAMS = \
 	test-pn-tasmota-topic \
 	test-pn-node-log \
 	test-pn-node-collate \
-	test-pn-node-processing
+	test-pn-node-processing \
+	test-pn-tasmota-energy-meter \
+	test-pn-tasmota-power \
+	test-pn-tasmota-voltage \
+	test-pn-tasmota-current \
+	test-pn-tasmota-apparent-power \
+	test-pn-tasmota-reactive-power \
+	test-pn-tasmota-power-factor \
+	test-pn-tasmota-humidity \
+	test-pn-tasmota-temperature \
+	test-pn-tasmota-relay-command \
+	test-pn-tasmota-relay-status \
+	test-pn-tasmota-status-request \
+	test-pn-tasmota-switch \
+	test-pn-ambient \
+	test-pn-connections \
+	test-pn-ping \
+	test-pn-dns \
+	test-pn-ollama \
+	test-pn-https-tunnel-sender \
+	test-pn-https-tunnel-receiver \
+	test-pn-shell-command \
+	test-pn-tmux-monitor \
+	test-pn-sci-fi-sound \
+	test-pn-matrix57 \
+	test-pn-segment16 \
+	test-pn-table-view \
+	test-pn-file-viewer \
+	test-pn-filedrop \
+	test-pn-sound \
+	test-pn-notify \
+	test-pn-weather-report \
+	test-pn-meshtastic
 
 test_pn_node_log_SOURCES     = test-pn-node-log.c     pntest.c pntest.h
 test_pn_node_collate_SOURCES = test-pn-node-collate.c pntest.c pntest.h
@@ -262,5 +298,118 @@ test_pn_tasmota_concentrator_SOURCES = test-pn-tasmota-concentrator.c \
 test_pn_tasmota_topic_SOURCES = test-pn-tasmota-topic.c pntest.c pntest.h \
 	$(top_srcdir)/plugins/tasmota/pn-tasmota-status.c \
 	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+
+# The tasmota energy-meter family (power / voltage / current / apparent /
+# reactive / factor) subclasses PnTasmotaEnergyMeter -> PnAnalogMeter; each
+# leaf compiles the energy-meter base + the topic/device helper in
+# pn-tasmota-common.c.  humidity / temperature subclass PnNode directly and
+# need only pn-tasmota-common.c.  Same arrangement as the probe / topic tests.
+test_pn_tasmota_energy_meter_SOURCES = test-pn-tasmota-energy-meter.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-power.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_power_SOURCES = test-pn-tasmota-power.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-power.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_voltage_SOURCES = test-pn-tasmota-voltage.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-voltage.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_current_SOURCES = test-pn-tasmota-current.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-current.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_apparent_power_SOURCES = test-pn-tasmota-apparent-power.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-apparent-power.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_reactive_power_SOURCES = test-pn-tasmota-reactive-power.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-reactive-power.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_power_factor_SOURCES = test-pn-tasmota-power-factor.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-power-factor.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-energy-meter.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_humidity_SOURCES = test-pn-tasmota-humidity.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-humidity.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_temperature_SOURCES = test-pn-tasmota-temperature.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-temperature.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_relay_command_SOURCES = test-pn-tasmota-relay-command.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-relay-command.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_relay_status_SOURCES = test-pn-tasmota-relay-status.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-relay-status.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_status_request_SOURCES = test-pn-tasmota-status-request.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-status-request.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+test_pn_tasmota_switch_SOURCES = test-pn-tasmota-switch.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-switch.c \
+	$(top_srcdir)/plugins/tasmota/pn-tasmota-common.c
+
+# host-monitoring nodes: compile the node .c directly (their parse seams
+# live in the loadable module, not libpipnode-core).
+test_pn_ambient_SOURCES       = test-pn-ambient.c       pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-ambient.c
+test_pn_connections_SOURCES   = test-pn-connections.c   pntest.c pntest.h \
+	$(top_srcdir)/plugins/host-monitoring/pn-connections.c
+
+# network-plugin nodes.  The https-tunnel pair pulls in the shared profile
+# helper (pn-network-profiles.c); the receiver additionally references
+# gnutls symbols, so it gets a per-test CPPFLAGS/LDADD override.
+test_pn_ping_SOURCES          = test-pn-ping.c          pntest.c pntest.h \
+	$(top_srcdir)/plugins/network/pn-ping.c
+test_pn_dns_SOURCES           = test-pn-dns.c           pntest.c pntest.h \
+	$(top_srcdir)/plugins/network/pn-dns.c
+test_pn_https_tunnel_sender_SOURCES = test-pn-https-tunnel-sender.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/network/pn-https-tunnel-sender.c \
+	$(top_srcdir)/plugins/network/pn-network-profiles.c
+test_pn_https_tunnel_receiver_SOURCES = test-pn-https-tunnel-receiver.c \
+	pntest.c pntest.h \
+	$(top_srcdir)/plugins/network/pn-https-tunnel-receiver.c \
+	$(top_srcdir)/plugins/network/pn-network-profiles.c
+test_pn_https_tunnel_receiver_CPPFLAGS = $(AM_CPPFLAGS) $(GNUTLS_CFLAGS)
+test_pn_https_tunnel_receiver_LDADD    = $(LDADD) $(GNUTLS_LIBS)
+
+# ollama node (request/response shaping; the gui half lives in the companion).
+test_pn_ollama_SOURCES        = test-pn-ollama.c        pntest.c pntest.h \
+	$(top_srcdir)/plugins/ollama/pn-ollama.c
+
+# shell-plugin nodes: compile the node .c plus pn-shell-host.c (argv wrap).
+test_pn_shell_command_SOURCES = test-pn-shell-command.c pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-shell-command.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c
+test_pn_tmux_monitor_SOURCES  = test-pn-tmux-monitor.c  pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-tmux-monitor.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c
+
+# sound-effects: the GTK-free clip helpers (pn-sci-fi-clips.c) plus the node.
+test_pn_sci_fi_sound_SOURCES  = test-pn-sci-fi-sound.c  pntest.c pntest.h \
+	$(top_srcdir)/plugins/sound-effects/pn-sci-fi-sound.c \
+	$(top_srcdir)/plugins/sound-effects/pn-sci-fi-clips.c
+
+# core display / sink / source nodes (in libpipnode-core; no extra .c).
+test_pn_matrix57_SOURCES      = test-pn-matrix57.c      pntest.c pntest.h
+test_pn_segment16_SOURCES     = test-pn-segment16.c     pntest.c pntest.h
+test_pn_table_view_SOURCES    = test-pn-table-view.c    pntest.c pntest.h
+test_pn_file_viewer_SOURCES   = test-pn-file-viewer.c   pntest.c pntest.h
+test_pn_filedrop_SOURCES      = test-pn-filedrop.c      pntest.c pntest.h
+test_pn_sound_SOURCES         = test-pn-sound.c         pntest.c pntest.h
+test_pn_notify_SOURCES        = test-pn-notify.c        pntest.c pntest.h
+test_pn_weather_report_SOURCES = test-pn-weather-report.c pntest.c pntest.h
+test_pn_meshtastic_SOURCES    = test-pn-meshtastic.c    pntest.c pntest.h
 
 TESTS = $(check_PROGRAMS)
