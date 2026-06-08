@@ -36,6 +36,7 @@ pn_shell_host_is_local (const gchar *host)
 
 gchar **
 pn_shell_wrap_argv (const gchar        *host,
+                    const PnSshLogin   *login,
                     const gchar *const *base_argv)
 {
     if (base_argv == NULL || base_argv[0] == NULL)
@@ -45,8 +46,8 @@ pn_shell_wrap_argv (const gchar        *host,
         return g_strdupv ((gchar **) base_argv);
 
     /* Remote: delegate to the one shared SSH argv builder (TODO #47.3).
-     * No profile is threaded through yet (item 47.4 adds the per-node
-     * auth-profile property), so pass NULL — that reproduces the fixed
-     * accept-new / ConnectTimeout=5 argv this node built inline before. */
-    return pn_ssh_build_argv (host, NULL, 5, base_argv);
+     * @login is the node's resolved SSH-Login snapshot (item 47.4); a NULL
+     * or ambient login reproduces the fixed accept-new / ConnectTimeout=5
+     * argv this node built inline before any profile existed. */
+    return pn_ssh_build_argv (host, login, 5, base_argv);
 }

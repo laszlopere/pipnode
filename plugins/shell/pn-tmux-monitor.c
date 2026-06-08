@@ -20,6 +20,8 @@
 #include "pn-tmux-monitor.h"
 #include "pn-message.h"
 #include "pn-shell-host.h"
+#include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 #include <string.h>
 
@@ -85,6 +87,14 @@ struct _PnTmuxMonitor
      * the error text changes or a capture succeeds.  Worker-thread-
      * only via @mutex; reset alongside prev_output on a target change. */
     gchar      *last_failure;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot both worker threads (enumerator + auto-trigger) read under
+     * @mutex, refreshed on the main thread when the property or the vault
+     * changes. */
+    gchar      *auth_profile;
+    PnSshLogin  ssh_login;
 };
 
 G_DEFINE_TYPE (PnTmuxMonitor, pn_tmux_monitor, PN_TYPE_AUTO_TRIGGER)
@@ -97,6 +107,7 @@ enum {
     PROP_BUSY,
     PROP_LAST_ERROR,
     PROP_SESSIONS,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -186,10 +197,12 @@ tm_get_line_limit_locked (PnTmuxMonitor *self)
 /* ------------------------------------------------------------------ */
 
 static gchar **
-tm_build_argv (const gchar *host, const gchar * const *base_argv)
+tm_build_argv (const gchar      *host,
+               const PnSshLogin *login,
+               const gchar * const *base_argv)
 {
     if (pn_shell_host_is_local (host))
-        return pn_shell_wrap_argv (host, base_argv);
+        return pn_shell_wrap_argv (host, login, base_argv);
 
     {
         GString     *cmd = g_string_new (NULL);
@@ -208,7 +221,7 @@ tm_build_argv (const gchar *host, const gchar * const *base_argv)
 
         wrap[0] = cmd->str;
         wrap[1] = NULL;
-        out = pn_shell_wrap_argv (host, wrap);
+        out = pn_shell_wrap_argv (host, login, wrap);
         g_string_free (cmd, TRUE);
         return out;
     }
@@ -390,9 +403,11 @@ enum_worker (gpointer data)
         "tmux", "list-sessions", "-F", "#S", NULL
     };
     gchar            **argv;
+    PnSshLogin         login       = { 0 };
 
     host = tm_dup_host_locked (self);
-    argv = tm_build_argv (host, base_argv);
+    pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+    argv = tm_build_argv (host, &login, base_argv);
 
     spawned = g_spawn_sync (NULL,
                             argv,
@@ -440,6 +455,7 @@ enum_worker (gpointer data)
     g_free (stderr_text);
     g_strfreev (argv);
     g_free (host);
+    pn_ssh_login_clear (&login);
 
     /* Hand the result back to the main thread.  The destroy notify
      * frees the closure (including the strong ref to @self) once the
@@ -818,6 +834,7 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     gchar           *start_arg;
     const gchar     *base_argv[9];
     gchar          **argv;
+    PnSshLogin       login       = { 0 };
 
     /* Keep hunting for sessions while the host has none yet, so one
      * the user starts after this node was created appears in the combo
@@ -855,7 +872,8 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     base_argv[7] = session;
     base_argv[8] = NULL;
 
-    argv = tm_build_argv (host, base_argv);
+    pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+    argv = tm_build_argv (host, &login, base_argv);
 
     spawned = g_spawn_sync (NULL,
                             argv,
@@ -957,6 +975,7 @@ pn_tmux_monitor_trigger (PnAutoTrigger *trigger)
     g_free (host);
     g_free (session);
     g_strfreev (argv);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1025,6 +1044,9 @@ pn_tmux_monitor_get_property (
          * between the logic .so and the separately-dlopened companion. */
         g_value_take_boxed (value, tm_dup_sessions_cache (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1050,6 +1072,12 @@ pn_tmux_monitor_set_property (
     case PROP_LINE_LIMIT:
         tm_set_line_limit (self, g_value_get_uint (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1058,6 +1086,14 @@ pn_tmux_monitor_set_property (
 /* ------------------------------------------------------------------ */
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
+
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnTmuxMonitor *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
 
 static void
 pn_tmux_monitor_finalize (GObject *object)
@@ -1076,6 +1112,8 @@ pn_tmux_monitor_finalize (GObject *object)
     g_clear_pointer (&self->sessions_cache, g_strfreev);
     g_clear_pointer (&self->prev_output,    g_free);
     g_clear_pointer (&self->last_failure,   g_free);
+    g_clear_pointer (&self->auth_profile,   g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear   (&self->mutex);
 
     G_OBJECT_CLASS (pn_tmux_monitor_parent_class)->finalize (object);
@@ -1167,6 +1205,10 @@ pn_tmux_monitor_class_init (PnTmuxMonitorClass *klass)
             G_TYPE_STRV,
             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
+    /* Optional SSH Login credential picker (item 47.4); applies to both the
+     * periodic capture and the session enumerator. */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -1184,6 +1226,15 @@ pn_tmux_monitor_init (PnTmuxMonitor *self)
     self->last_error     = NULL;
     self->enum_gen       = 0;
     self->prev_output    = NULL;
+    self->auth_profile   = g_strdup ("");
+    self->ssh_login      = (PnSshLogin){ 0 };
+
+    /* Seed the login snapshot and track vault edits before the construct-
+     * time enumerator kick below, which reads ssh_login on its worker. */
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "Tmux Monitor");
     pn_node_set_has_input  (node, FALSE);

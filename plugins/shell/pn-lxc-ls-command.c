@@ -20,6 +20,8 @@
 #include "pn-lxc-ls-command.h"
 #include "pn-message.h"
 #include "pn-shell-host.h"
+#include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 #include <json-glib/json-glib.h>
 
@@ -40,6 +42,13 @@ struct _PnLxcLsCommand
      * from the inspector. */
     GMutex  mutex;
     gchar  *host;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot the worker reads under @mutex, refreshed on the main
+     * thread when the property or the vault changes. */
+    gchar      *auth_profile;
+    PnSshLogin  ssh_login;
 };
 
 G_DEFINE_TYPE (PnLxcLsCommand, pn_lxc_ls_command, PN_TYPE_AUTO_TRIGGER)
@@ -47,6 +56,7 @@ G_DEFINE_TYPE (PnLxcLsCommand, pn_lxc_ls_command, PN_TYPE_AUTO_TRIGGER)
 enum {
     PROP_0,
     PROP_HOST,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -354,8 +364,10 @@ pn_lxc_ls_command_trigger (PnAutoTrigger *trigger)
      * ssh runs sudo non-interactively too. */
     const gchar       *base_argv[] = { "sudo", "lxc-ls", "-f", NULL };
     gchar            **argv;
+    PnSshLogin         login       = { 0 };
 
-    argv = pn_shell_wrap_argv (host, base_argv);
+    pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+    argv = pn_shell_wrap_argv (host, &login, base_argv);
 
     spawned = g_spawn_sync (NULL,
                             argv,
@@ -394,6 +406,7 @@ pn_lxc_ls_command_trigger (PnAutoTrigger *trigger)
     g_free (stderr_text);
     g_free (host);
     g_strfreev (argv);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -414,6 +427,9 @@ pn_lxc_ls_command_get_property (
     case PROP_HOST:
         g_value_take_string (value, lxc_ls_dup_host_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -433,9 +449,23 @@ pn_lxc_ls_command_set_property (
     case PROP_HOST:
         lxc_ls_set_host (self, g_value_get_string (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
+}
+
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnLxcLsCommand *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
 }
 
 static void
@@ -443,7 +473,9 @@ pn_lxc_ls_command_finalize (GObject *object)
 {
     PnLxcLsCommand *self = PN_LXC_LS_COMMAND (object);
 
-    g_clear_pointer (&self->host, g_free);
+    g_clear_pointer (&self->host,         g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_lxc_ls_command_parent_class)->finalize (object);
@@ -481,6 +513,9 @@ pn_lxc_ls_command_class_init (PnLxcLsCommandClass *klass)
      * blank, so the user sees where an empty host actually runs. */
     pn_param_spec_set_hostname_hint (props[PROP_HOST]);
 
+    /* Optional SSH Login credential picker (item 47.4). */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -491,7 +526,14 @@ pn_lxc_ls_command_init (PnLxcLsCommand *self)
     PnColor  blue = { 0.42, 0.62, 0.86, 1.0 };
 
     g_mutex_init (&self->mutex);
-    self->host = g_strdup (PN_SHELL_HOST_DEFAULT);
+    self->host         = g_strdup (PN_SHELL_HOST_DEFAULT);
+    self->auth_profile = g_strdup ("");
+    self->ssh_login    = (PnSshLogin){ 0 };
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "Lxc Ls Command");
     pn_node_set_icon       (node, PN_LXC_LS_COMMAND_ICON);

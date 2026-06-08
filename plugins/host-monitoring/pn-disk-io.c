@@ -20,6 +20,7 @@
 #include "pn-disk-io.h"
 #include "pn-message.h"
 #include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 #include <string.h>
 
@@ -70,6 +71,13 @@ struct _PnDiskIo
     guint64  prev_sectors_written;
     gint64   prev_time_us;
     gboolean have_prev;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot the worker reads under @mutex, refreshed on the main
+     * thread when the property or the vault changes. */
+    gchar      *auth_profile;
+    PnSshLogin  ssh_login;
 };
 
 G_DEFINE_TYPE (PnDiskIo, pn_disk_io, PN_TYPE_AUTO_TRIGGER)
@@ -79,6 +87,7 @@ enum {
     PROP_HOSTNAME,
     PROP_DEVICE,
     PROP_UNIT,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -497,11 +506,12 @@ sample_local (
 
 static gboolean
 sample_ssh (
-        const gchar  *hostname,
-        guint         timeout,
-        gchar       **out_text,
-        gchar       **out_stderr,
-        GError      **error)
+        const gchar      *hostname,
+        const PnSshLogin *login,
+        guint             timeout,
+        gchar           **out_text,
+        gchar           **out_stderr,
+        GError          **error)
 {
     const gchar *base_argv[] = { "cat", "/proc/diskstats", NULL };
     gchar      **argv;
@@ -514,7 +524,7 @@ sample_ssh (
      * through yet (item 47.4), so pass NULL — the builder then emits the
      * same BatchMode / accept-new / ConnectTimeout argv this node used to
      * format inline, and g_spawn_sync runs it with no shell re-parse. */
-    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
+    argv = pn_ssh_build_argv (hostname, login, timeout, base_argv);
 
     spawned = g_spawn_sync (NULL, argv, NULL,
                             G_SPAWN_SEARCH_PATH,
@@ -566,6 +576,7 @@ pn_disk_io_trigger (PnAutoTrigger *trigger)
     guint64      prev_r = 0;
     guint64      prev_w = 0;
     gint64       prev_us = 0;
+    PnSshLogin   login   = { 0 };
 
     period  = pn_auto_trigger_get_period (trigger);
     timeout = (period > 1u) ? period - 1u : 1u;
@@ -576,7 +587,8 @@ pn_disk_io_trigger (PnAutoTrigger *trigger)
     }
     else
     {
-        success = sample_ssh (hostname, timeout, &raw, &errbuf, &error);
+        pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+        success = sample_ssh (hostname, &login, timeout, &raw, &errbuf, &error);
     }
 
     if (success)
@@ -722,6 +734,7 @@ pn_disk_io_trigger (PnAutoTrigger *trigger)
     g_free (matched);
     g_free (hostname);
     g_free (device);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -748,6 +761,9 @@ pn_disk_io_get_property (
     case PROP_UNIT:
         g_value_set_enum (value, disk_io_get_unit_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -773,6 +789,12 @@ pn_disk_io_set_property (
     case PROP_UNIT:
         disk_io_set_unit (self, g_value_get_enum (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -782,13 +804,23 @@ pn_disk_io_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnDiskIo *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
+
 static void
 pn_disk_io_finalize (GObject *object)
 {
     PnDiskIo *self = PN_DISK_IO (object);
 
-    g_clear_pointer (&self->hostname, g_free);
-    g_clear_pointer (&self->device,   g_free);
+    g_clear_pointer (&self->hostname,     g_free);
+    g_clear_pointer (&self->device,       g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_disk_io_parent_class)->finalize (object);
@@ -844,6 +876,9 @@ pn_disk_io_class_init (PnDiskIoClass *klass)
             PN_DISK_IO_DEFAULT_UNIT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    /* Optional SSH Login credential picker (item 47.4). */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -854,10 +889,17 @@ pn_disk_io_init (PnDiskIo *self)
     PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
-    self->hostname  = g_strdup (PN_DISK_IO_DEFAULT_HOST);
-    self->device    = g_strdup (PN_DISK_IO_DEFAULT_DEVICE);
-    self->unit      = PN_DISK_IO_DEFAULT_UNIT;
-    self->have_prev = FALSE;
+    self->hostname     = g_strdup (PN_DISK_IO_DEFAULT_HOST);
+    self->device       = g_strdup (PN_DISK_IO_DEFAULT_DEVICE);
+    self->unit         = PN_DISK_IO_DEFAULT_UNIT;
+    self->have_prev    = FALSE;
+    self->auth_profile = g_strdup ("");
+    self->ssh_login    = (PnSshLogin){ 0 };
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "Disk I/O");
     pn_node_set_icon       (node, PN_DISK_IO_ICON);

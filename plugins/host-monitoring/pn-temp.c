@@ -20,6 +20,7 @@
 #include "pn-temp.h"
 #include "pn-message.h"
 #include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 #include <string.h>
 
@@ -48,6 +49,13 @@ struct _PnTemp
     GMutex             mutex;
     gchar             *hostname;
     PnTempAggregation  aggregation;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot the worker reads under @mutex, refreshed on the main
+     * thread when the property or the vault changes. */
+    gchar             *auth_profile;
+    PnSshLogin         ssh_login;
 };
 
 G_DEFINE_TYPE (PnTemp, pn_temp, PN_TYPE_AUTO_TRIGGER)
@@ -56,6 +64,7 @@ enum {
     PROP_0,
     PROP_HOSTNAME,
     PROP_AGGREGATION,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -449,11 +458,12 @@ sample_local (
 
 static gboolean
 sample_ssh (
-        const gchar  *hostname,
-        guint         timeout,
-        gchar       **out_text,
-        gchar       **out_stderr,
-        GError      **error)
+        const gchar      *hostname,
+        const PnSshLogin *login,
+        guint             timeout,
+        gchar           **out_text,
+        gchar           **out_stderr,
+        GError          **error)
 {
     /* The remote command is `sh -c <script>` as three argv words; ssh
      * joins them with spaces on the wire and the remote shell un-quotes
@@ -468,7 +478,7 @@ sample_ssh (
 
     /* Route through the one shared SSH argv builder (TODO #47.3); no
      * login profile yet (item 47.4), so pass NULL for today's argv. */
-    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
+    argv = pn_ssh_build_argv (hostname, login, timeout, base_argv);
 
     spawned = g_spawn_sync (NULL, argv, NULL,
                             G_SPAWN_SEARCH_PATH,
@@ -648,6 +658,7 @@ pn_temp_trigger (PnAutoTrigger *trigger)
     const gchar       *display  = local ? g_get_host_name () : hostname;
     guint              period;
     guint              timeout;
+    PnSshLogin         login    = { 0 };
 
     period  = pn_auto_trigger_get_period (trigger);
     timeout = (period > 1u) ? period - 1u : 1u;
@@ -661,7 +672,8 @@ pn_temp_trigger (PnAutoTrigger *trigger)
     }
     else
     {
-        success = sample_ssh (hostname, timeout, &raw, &errbuf, &error);
+        pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+        success = sample_ssh (hostname, &login, timeout, &raw, &errbuf, &error);
         if (success)
             pn_temp_parse_remote_lines (raw, readings);
     }
@@ -763,6 +775,7 @@ pn_temp_trigger (PnAutoTrigger *trigger)
     g_free (raw);
     g_free (errbuf);
     g_free (hostname);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -786,6 +799,9 @@ pn_temp_get_property (
     case PROP_AGGREGATION:
         g_value_set_enum (value, temp_get_aggregation_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -808,6 +824,12 @@ pn_temp_set_property (
     case PROP_AGGREGATION:
         temp_set_aggregation (self, g_value_get_enum (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -817,12 +839,22 @@ pn_temp_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnTemp *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
+
 static void
 pn_temp_finalize (GObject *object)
 {
     PnTemp *self = PN_TEMP (object);
 
-    g_clear_pointer (&self->hostname, g_free);
+    g_clear_pointer (&self->hostname,     g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_temp_parent_class)->finalize (object);
@@ -870,6 +902,9 @@ pn_temp_class_init (PnTempClass *klass)
             PN_TEMP_AVERAGE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    /* Optional SSH Login credential picker (item 47.4). */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -880,8 +915,15 @@ pn_temp_init (PnTemp *self)
     PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
-    self->hostname    = g_strdup (PN_TEMP_DEFAULT_HOST);
-    self->aggregation = PN_TEMP_AVERAGE;
+    self->hostname     = g_strdup (PN_TEMP_DEFAULT_HOST);
+    self->aggregation  = PN_TEMP_AVERAGE;
+    self->auth_profile = g_strdup ("");
+    self->ssh_login    = (PnSshLogin){ 0 };
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "CPU Temperature");
     pn_node_set_icon       (node, PN_TEMP_ICON);

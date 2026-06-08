@@ -20,6 +20,7 @@
 #include "pn-memory.h"
 #include "pn-message.h"
 #include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 #include <string.h>
 
@@ -51,6 +52,13 @@ struct _PnMemory
     GMutex        mutex;
     gchar        *hostname;
     PnMemoryUnit  unit;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot the worker reads under @mutex, refreshed on the main
+     * thread when the property or the vault changes. */
+    gchar        *auth_profile;
+    PnSshLogin    ssh_login;
 };
 
 G_DEFINE_TYPE (PnMemory, pn_memory, PN_TYPE_AUTO_TRIGGER)
@@ -59,6 +67,7 @@ enum {
     PROP_0,
     PROP_HOSTNAME,
     PROP_UNIT,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -305,11 +314,12 @@ sample_local (
 
 static gboolean
 sample_ssh (
-        const gchar  *hostname,
-        guint         timeout,
-        gchar       **out_text,
-        gchar       **out_stderr,
-        GError      **error)
+        const gchar      *hostname,
+        const PnSshLogin *login,
+        guint             timeout,
+        gchar           **out_text,
+        gchar           **out_stderr,
+        GError          **error)
 {
     const gchar *base_argv[] = { "cat", "/proc/meminfo", NULL };
     gchar      **argv;
@@ -322,7 +332,7 @@ sample_ssh (
      * through yet (item 47.4), so pass NULL — the builder then emits the
      * same BatchMode / accept-new / ConnectTimeout argv this node used to
      * format inline, and g_spawn_sync runs it with no shell re-parse. */
-    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
+    argv = pn_ssh_build_argv (hostname, login, timeout, base_argv);
 
     spawned = g_spawn_sync (NULL, argv, NULL,
                             G_SPAWN_SEARCH_PATH,
@@ -354,6 +364,7 @@ pn_memory_trigger (PnAutoTrigger *trigger)
     GError      *error     = NULL;
     PnMessage   *msg;
     gboolean     success   = FALSE;
+    PnSshLogin   login     = { 0 };
     gboolean     local     = hostname_is_local (hostname);
     /* Empty / "localhost" both resolve to the actual machine name on
      * the wire and in the summary -- same convention as #PnLoad. */
@@ -376,7 +387,8 @@ pn_memory_trigger (PnAutoTrigger *trigger)
     }
     else
     {
-        success = sample_ssh (hostname, timeout, &raw, &errbuf, &error);
+        pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+        success = sample_ssh (hostname, &login, timeout, &raw, &errbuf, &error);
     }
 
     if (success)
@@ -502,6 +514,7 @@ pn_memory_trigger (PnAutoTrigger *trigger)
     g_free (raw);
     g_free (errbuf);
     g_free (hostname);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -525,6 +538,9 @@ pn_memory_get_property (
     case PROP_UNIT:
         g_value_set_enum (value, memory_get_unit_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -547,6 +563,12 @@ pn_memory_set_property (
     case PROP_UNIT:
         memory_set_unit (self, g_value_get_enum (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -556,12 +578,22 @@ pn_memory_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnMemory *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
+
 static void
 pn_memory_finalize (GObject *object)
 {
     PnMemory *self = PN_MEMORY (object);
 
-    g_clear_pointer (&self->hostname, g_free);
+    g_clear_pointer (&self->hostname,     g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_memory_parent_class)->finalize (object);
@@ -612,6 +644,9 @@ pn_memory_class_init (PnMemoryClass *klass)
             PN_MEMORY_DEFAULT_UNIT,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    /* Optional SSH Login credential picker (item 47.4). */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -622,8 +657,15 @@ pn_memory_init (PnMemory *self)
     PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
-    self->hostname = g_strdup (PN_MEMORY_DEFAULT_HOST);
-    self->unit     = PN_MEMORY_DEFAULT_UNIT;
+    self->hostname     = g_strdup (PN_MEMORY_DEFAULT_HOST);
+    self->unit         = PN_MEMORY_DEFAULT_UNIT;
+    self->auth_profile = g_strdup ("");
+    self->ssh_login    = (PnSshLogin){ 0 };
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "Memory");
     pn_node_set_icon       (node, PN_MEMORY_ICON);

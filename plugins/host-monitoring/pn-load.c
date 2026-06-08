@@ -20,6 +20,7 @@
 #include "pn-load.h"
 #include "pn-message.h"
 #include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 /* fa-tachometer U+F0E4 — a gauge-style glyph reads as "system load". */
 #define PN_LOAD_ICON           "\xef\x83\xa4"
@@ -42,6 +43,13 @@ struct _PnLoad
      * node and freed in finalize. */
     GMutex  mutex;
     gchar  *hostname;
+
+    /* Optional SSH Login credential (item 47.4): @auth_profile is the
+     * picked profile id (main thread only); @ssh_login is the value
+     * snapshot the worker reads under @mutex, refreshed on the main
+     * thread when the property or the vault changes. */
+    gchar      *auth_profile;
+    PnSshLogin  ssh_login;
 };
 
 G_DEFINE_TYPE (PnLoad, pn_load, PN_TYPE_AUTO_TRIGGER)
@@ -49,6 +57,7 @@ G_DEFINE_TYPE (PnLoad, pn_load, PN_TYPE_AUTO_TRIGGER)
 enum {
     PROP_0,
     PROP_HOSTNAME,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -164,11 +173,12 @@ sample_local (
  *  host can stall the worker thread. */
 static gboolean
 sample_ssh (
-        const gchar  *hostname,
-        guint         timeout,
-        gchar       **out_text,
-        gchar       **out_stderr,
-        GError      **error)
+        const gchar      *hostname,
+        const PnSshLogin *login,
+        guint             timeout,
+        gchar           **out_text,
+        gchar           **out_stderr,
+        GError          **error)
 {
     const gchar *base_argv[] = { "cat", "/proc/loadavg", NULL };
     gchar      **argv;
@@ -176,12 +186,11 @@ sample_ssh (
     gboolean     spawned;
     gboolean     ok = FALSE;
 
-    /* Route through the one shared SSH argv builder (TODO #47.3) instead
-     * of hand-rolling the ssh flag string.  No login profile is threaded
-     * through yet (item 47.4), so pass NULL — the builder then emits the
-     * same BatchMode / accept-new / ConnectTimeout argv this node used to
-     * format inline, and g_spawn_sync runs it with no shell re-parse. */
-    argv = pn_ssh_build_argv (hostname, NULL, timeout, base_argv);
+    /* Route through the one shared SSH argv builder (TODO #47.3); @login is
+     * the node's resolved SSH-Login snapshot (item 47.4), NULL/ambient
+     * reproducing the pre-profile BatchMode / accept-new argv.  g_spawn_sync
+     * runs it with no shell re-parse. */
+    argv = pn_ssh_build_argv (hostname, login, timeout, base_argv);
 
     spawned = g_spawn_sync (NULL, argv, NULL,
                             G_SPAWN_SEARCH_PATH,
@@ -215,6 +224,7 @@ pn_load_trigger (PnAutoTrigger *trigger)
     GError      *error    = NULL;
     PnMessage   *msg;
     gboolean     success  = FALSE;
+    PnSshLogin   login    = { 0 };
     gdouble      l1 = 0.0, l5 = 0.0, l15 = 0.0;
     gboolean     local    = hostname_is_local (hostname);
     /* When the configured hostname is empty / "localhost" we still want
@@ -234,7 +244,8 @@ pn_load_trigger (PnAutoTrigger *trigger)
     }
     else
     {
-        success = sample_ssh (hostname, timeout, &raw, &errbuf, &error);
+        pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+        success = sample_ssh (hostname, &login, timeout, &raw, &errbuf, &error);
     }
 
     if (success)
@@ -296,6 +307,7 @@ pn_load_trigger (PnAutoTrigger *trigger)
     g_free (raw);
     g_free (errbuf);
     g_free (hostname);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -316,6 +328,9 @@ pn_load_get_property (
     case PROP_HOSTNAME:
         g_value_take_string (value, load_dup_hostname_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -335,6 +350,12 @@ pn_load_set_property (
     case PROP_HOSTNAME:
         load_set_hostname (self, g_value_get_string (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -344,12 +365,22 @@ pn_load_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* A profile changed in the vault: re-resolve our login snapshot. */
+static void
+on_vault_changed (PnLoad *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
+
 static void
 pn_load_finalize (GObject *object)
 {
     PnLoad *self = PN_LOAD (object);
 
-    g_clear_pointer (&self->hostname, g_free);
+    g_clear_pointer (&self->hostname,     g_free);
+    g_clear_pointer (&self->auth_profile, g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_load_parent_class)->finalize (object);
@@ -385,6 +416,9 @@ pn_load_class_init (PnLoadClass *klass)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_hostname_hint (props[PROP_HOSTNAME]);
 
+    /* Optional SSH Login credential picker (item 47.4). */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -395,7 +429,14 @@ pn_load_init (PnLoad *self)
     PnColor  violet = { 0.62, 0.50, 0.78, 1.0 };
 
     g_mutex_init (&self->mutex);
-    self->hostname = g_strdup (PN_LOAD_DEFAULT_HOST);
+    self->hostname     = g_strdup (PN_LOAD_DEFAULT_HOST);
+    self->auth_profile = g_strdup ("");
+    self->ssh_login    = (PnSshLogin){ 0 };
+
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "System Load");
     pn_node_set_icon       (node, PN_LOAD_ICON);

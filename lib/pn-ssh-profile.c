@@ -105,34 +105,148 @@ ssh_strict_host_key_checking (const gchar *policy)
     return "accept-new";
 }
 
+/* ------------------------------------------------------------------ */
+/*  Login snapshot (thread-safe value copy of a resolved profile)      */
+/* ------------------------------------------------------------------ */
+
+void
+pn_ssh_login_resolve (PnNode      *node,
+                      const gchar *ref_prop,
+                      PnSshLogin  *out)
+{
+    PnProfile *profile;
+
+    g_return_if_fail (PN_IS_NODE (node));
+    g_return_if_fail (ref_prop != NULL);
+    g_return_if_fail (out != NULL);
+
+    /* Resolve on the caller's (main) thread — pn_node_get_profile reads a
+     * GObject property and the mutable vault singleton, neither of which is
+     * safe off the main thread. */
+    profile = pn_node_get_profile (node, ref_prop);
+
+    out->has_profile     = (profile != NULL);
+    out->username        = profile ? pn_profile_get_string (profile, "username")
+                                   : g_strdup ("");
+    out->identity_file   = profile ? pn_profile_get_string (profile, "identity-file")
+                                   : g_strdup ("");
+    out->host_key_policy = profile ? pn_profile_get_string (profile, "host-key-policy")
+                                   : g_strdup ("");
+    out->port            = profile ? (gint) pn_profile_get_int (profile, "port")
+                                   : 0;
+}
+
+void
+pn_ssh_login_copy (PnSshLogin       *dst,
+                   const PnSshLogin *src)
+{
+    g_return_if_fail (dst != NULL);
+    g_return_if_fail (src != NULL);
+
+    dst->has_profile     = src->has_profile;
+    dst->username        = g_strdup (src->username        ? src->username        : "");
+    dst->identity_file   = g_strdup (src->identity_file   ? src->identity_file   : "");
+    dst->host_key_policy = g_strdup (src->host_key_policy ? src->host_key_policy : "");
+    dst->port            = src->port;
+}
+
+void
+pn_ssh_login_clear (PnSshLogin *login)
+{
+    if (login == NULL)
+        return;
+
+    g_clear_pointer (&login->username,        g_free);
+    g_clear_pointer (&login->identity_file,   g_free);
+    g_clear_pointer (&login->host_key_policy, g_free);
+    login->has_profile = FALSE;
+    login->port        = 0;
+}
+
+void
+pn_ssh_login_refresh (PnNode      *node,
+                      const gchar *ref_prop,
+                      GMutex      *mutex,
+                      PnSshLogin  *slot)
+{
+    PnSshLogin fresh = { 0 };
+
+    g_return_if_fail (mutex != NULL);
+    g_return_if_fail (slot != NULL);
+
+    /* Resolve outside the lock — pn_ssh_login_resolve calls g_object_get on
+     * @ref_prop, which re-enters the node's property getter; taking @mutex
+     * here would deadlock a node whose getter also locks it. */
+    pn_ssh_login_resolve (node, ref_prop, &fresh);
+
+    g_mutex_lock (mutex);
+    pn_ssh_login_clear (slot);
+    *slot = fresh;                 /* move ownership of fresh's strings */
+    g_mutex_unlock (mutex);
+}
+
+void
+pn_ssh_login_dup_locked (GMutex           *mutex,
+                         const PnSshLogin *slot,
+                         PnSshLogin       *out)
+{
+    g_return_if_fail (mutex != NULL);
+    g_return_if_fail (slot != NULL);
+    g_return_if_fail (out != NULL);
+
+    g_mutex_lock (mutex);
+    pn_ssh_login_copy (out, slot);
+    g_mutex_unlock (mutex);
+}
+
+GParamSpec *
+pn_ssh_auth_profile_param_spec (void)
+{
+    GParamSpec *pspec = g_param_spec_string (
+            "auth-profile", "Auth profile",
+            "Id of the SSH Login credential profile this node logs in with. "
+            "Empty follows the primary SSH Login profile (and, when none is "
+            "configured, keeps the node's ambient-key behaviour); pick another "
+            "to use a different username / identity / port / host-key policy. "
+            "The credentials live in the host vault, not in the workflow file. "
+            "The in-node host field stays separate — it says WHERE, the "
+            "profile says HOW to log in.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    pn_param_spec_set_profile_ref (pspec, PN_PROFILE_SSH);
+    return pspec;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Argv builder                                                       */
+/* ------------------------------------------------------------------ */
+
 gchar **
 pn_ssh_build_argv (const gchar        *host,
-                   PnProfile          *profile,
+                   const PnSshLogin   *login,
                    guint               connect_timeout,
                    const gchar *const *base_argv)
 {
     GPtrArray   *out;
     const gchar *policy_token = "accept-new";
-    gchar       *username     = NULL;
-    gchar       *identity     = NULL;
-    gint64       port         = 0;
+    const gchar *username     = NULL;
+    const gchar *identity     = NULL;
+    gint         port         = 0;
     guint        timeout      = (connect_timeout > 0) ? connect_timeout : 5;
     guint        i;
 
     if (base_argv == NULL || base_argv[0] == NULL)
         return g_new0 (gchar *, 1);
 
-    if (profile != NULL)
+    if (login != NULL && login->has_profile)
     {
-        gchar *policy = pn_profile_get_string (profile, "host-key-policy");
+        if (login->host_key_policy != NULL && *login->host_key_policy != '\0')
+            policy_token = ssh_strict_host_key_checking (login->host_key_policy);
 
-        if (policy != NULL && *policy != '\0')
-            policy_token = ssh_strict_host_key_checking (policy);
-        g_free (policy);
-
-        username = pn_profile_get_string (profile, "username");
-        identity = pn_profile_get_string (profile, "identity-file");
-        port     = pn_profile_get_int    (profile, "port");
+        username = login->username;
+        identity = login->identity_file;
+        port     = login->port;
     }
 
     out = g_ptr_array_new ();
@@ -141,7 +255,7 @@ pn_ssh_build_argv (const gchar        *host,
     /* BatchMode stays on unconditionally — no interactive prompt is ever
      * acceptable from a node running headless behind a desktop launcher.
      * A passphrase / password profile thus needs the 47.5 path; the
-     * secrets are deliberately not read here. */
+     * secrets are deliberately not part of #PnSshLogin. */
     g_ptr_array_add (out, g_strdup ("-o"));
     g_ptr_array_add (out, g_strdup ("BatchMode=yes"));
     g_ptr_array_add (out, g_strdup ("-o"));
@@ -150,8 +264,8 @@ pn_ssh_build_argv (const gchar        *host,
     g_ptr_array_add (out, g_strdup ("-o"));
     g_ptr_array_add (out, g_strdup_printf ("ConnectTimeout=%u", timeout));
 
-    /* Profile-derived login bits, each emitted only when set so a NULL or
-     * empty-field profile reproduces the bare host-key argv above. */
+    /* Login bits, each emitted only when set so an ambient (or NULL) login
+     * reproduces the bare host-key argv above. */
     if (username != NULL && *username != '\0')
     {
         g_ptr_array_add (out, g_strdup ("-l"));
@@ -160,7 +274,7 @@ pn_ssh_build_argv (const gchar        *host,
     if (port > 0 && port != 22)
     {
         g_ptr_array_add (out, g_strdup ("-p"));
-        g_ptr_array_add (out, g_strdup_printf ("%" G_GINT64_FORMAT, port));
+        g_ptr_array_add (out, g_strdup_printf ("%d", port));
     }
     if (identity != NULL && *identity != '\0')
     {
@@ -174,9 +288,6 @@ pn_ssh_build_argv (const gchar        *host,
         g_ptr_array_add (out, g_strdup (base_argv[i]));
 
     g_ptr_array_add (out, NULL);
-
-    g_free (username);
-    g_free (identity);
 
     return (gchar **) g_ptr_array_free (out, FALSE);
 }

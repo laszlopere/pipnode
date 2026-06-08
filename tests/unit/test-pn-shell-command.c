@@ -65,7 +65,8 @@ test_wrap_argv_local (void)
     /* The exact base argv the trigger builds for a local run; the local
      * branch is a verbatim copy (g_spawn_sync goes through no shell). */
     const gchar *base[] = { "/bin/sh", "-c", "echo hi", NULL };
-    gchar **out = pn_shell_wrap_argv ("", (const gchar *const *) base);
+    /* NULL login = ambient (no profile); the local branch ignores it. */
+    gchar **out = pn_shell_wrap_argv ("", NULL, (const gchar *const *) base);
 
     PN_CHECK (out != NULL);
     PN_CHECK_CMPINT (g_strv_length (out), ==, 3);
@@ -77,7 +78,7 @@ test_wrap_argv_local (void)
     g_strfreev (out);
 
     /* "localhost" is local too — same verbatim copy. */
-    out = pn_shell_wrap_argv ("localhost", (const gchar *const *) base);
+    out = pn_shell_wrap_argv ("localhost", NULL, (const gchar *const *) base);
     PN_CHECK_CMPINT (g_strv_length (out), ==, 3);
     PN_CHECK_CMPSTR (out[0], ==, "/bin/sh");
     g_strfreev (out);
@@ -92,7 +93,8 @@ test_wrap_argv_remote (void)
      * shared pn_ssh_build_argv preamble, so the host-key policy is spelled
      * out as StrictHostKeyChecking=accept-new (the no-profile default). */
     const gchar *base[] = { "echo hi", NULL };
-    gchar **out = pn_shell_wrap_argv ("user@box",
+    /* NULL login = ambient: reproduces the pre-profile accept-new argv. */
+    gchar **out = pn_shell_wrap_argv ("user@box", NULL,
                                       (const gchar *const *) base);
 
     PN_CHECK (out != NULL);

@@ -20,6 +20,8 @@
 #include "pn-shell-command.h"
 #include "pn-message.h"
 #include "pn-shell-host.h"
+#include "pn-ssh-profile.h"
+#include "pn-vault.h"
 
 /* Visual states.  The icon panel renders in white, so the body colour
  * carries the alert for the warning state. */
@@ -38,6 +40,14 @@ struct _PnShellCommand
     GMutex  mutex;
     gchar  *shell_command;
     gchar  *host;
+
+    /* The optional SSH Login credential (item 47.4).  @auth_profile is the
+     * picked profile id and is touched only on the main thread; @ssh_login
+     * is the value snapshot resolved from it, read by the worker under
+     * @mutex and refreshed on the main thread when the property or the
+     * vault changes. */
+    gchar      *auth_profile;
+    PnSshLogin  ssh_login;
 };
 
 G_DEFINE_TYPE (PnShellCommand, pn_shell_command, PN_TYPE_AUTO_TRIGGER)
@@ -46,6 +56,7 @@ enum {
     PROP_0,
     PROP_SHELL_COMMAND,
     PROP_HOST,
+    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
@@ -173,6 +184,7 @@ pn_shell_command_trigger (PnAutoTrigger *trigger)
     GSpawnFlags         spawn_flags;
     const gchar        *base_argv[4];
     gchar             **argv;
+    PnSshLogin          login       = { 0 };
 
     /* Skip work entirely while the node is in its "configuration
      * required" state.  The visual marker on the canvas already tells
@@ -210,7 +222,10 @@ pn_shell_command_trigger (PnAutoTrigger *trigger)
         spawn_flags  = G_SPAWN_SEARCH_PATH;
     }
 
-    argv = pn_shell_wrap_argv (host, base_argv);
+    /* Lift the resolved login snapshot for the worker (no-op for a local
+     * host, where wrap_argv ignores it). */
+    pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+    argv = pn_shell_wrap_argv (host, &login, base_argv);
 
     spawned = g_spawn_sync (NULL,
                             argv,
@@ -247,6 +262,7 @@ pn_shell_command_trigger (PnAutoTrigger *trigger)
     g_free (command);
     g_free (host);
     g_strfreev (argv);
+    pn_ssh_login_clear (&login);
 }
 
 /* ------------------------------------------------------------------ */
@@ -270,6 +286,9 @@ pn_shell_command_get_property (
     case PROP_HOST:
         g_value_take_string (value, shell_dup_host_locked (self));
         break;
+    case PROP_AUTH_PROFILE:
+        g_value_set_string (value, self->auth_profile);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -292,6 +311,12 @@ pn_shell_command_set_property (
     case PROP_HOST:
         shell_set_host (self, g_value_get_string (value));
         break;
+    case PROP_AUTH_PROFILE:
+        g_free (self->auth_profile);
+        self->auth_profile = g_value_dup_string (value);
+        pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                              &self->mutex, &self->ssh_login);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -301,6 +326,15 @@ pn_shell_command_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* A profile was added / edited / removed in the vault: re-resolve our
+ * login snapshot so the next sample uses the current credentials. */
+static void
+on_vault_changed (PnShellCommand *self)
+{
+    pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
+                          &self->mutex, &self->ssh_login);
+}
+
 static void
 pn_shell_command_finalize (GObject *object)
 {
@@ -308,6 +342,8 @@ pn_shell_command_finalize (GObject *object)
 
     g_clear_pointer (&self->shell_command, g_free);
     g_clear_pointer (&self->host,          g_free);
+    g_clear_pointer (&self->auth_profile,  g_free);
+    pn_ssh_login_clear (&self->ssh_login);
     g_mutex_clear (&self->mutex);
 
     G_OBJECT_CLASS (pn_shell_command_parent_class)->finalize (object);
@@ -353,6 +389,10 @@ pn_shell_command_class_init (PnShellCommandClass *klass)
      * blank, so the user sees where an empty host actually runs. */
     pn_param_spec_set_hostname_hint (props[PROP_HOST]);
 
+    /* Optional SSH Login credential picker (item 47.4); sits next to the
+     * host field — host says WHERE, this says HOW to log in. */
+    props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -364,6 +404,16 @@ pn_shell_command_init (PnShellCommand *self)
     g_mutex_init (&self->mutex);
     self->shell_command = NULL;
     self->host          = g_strdup (PN_SHELL_HOST_DEFAULT);
+    self->auth_profile  = g_strdup ("");
+    self->ssh_login     = (PnSshLogin){ 0 };
+
+    /* Keep the login snapshot current as the user edits credentials, and
+     * seed it now (default ref "" -> primary SSH Login profile, or ambient
+     * when none is configured). */
+    g_signal_connect_object (pn_vault_get_default (), "changed",
+                             G_CALLBACK (on_vault_changed), self,
+                             G_CONNECT_SWAPPED);
+    pn_ssh_login_refresh (node, "auth-profile", &self->mutex, &self->ssh_login);
 
     pn_node_set_class_name (node, "Shell Command");
     pn_node_set_has_input  (node, FALSE);

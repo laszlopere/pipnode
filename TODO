@@ -873,13 +873,44 @@
                test-pn-shell-command wrap_argv_remote updated for the added
                accept-new flag (7->9 argv words). Nodes still pass NULL profile
                -- the per-node auth-profile property + resolve is 47.4.
-         [ ] 47.4 Add the optional auth-profile property + profile-ref param-spec
+         [x] 47.4 Add the optional auth-profile property + profile-ref param-spec
                to every SSH node and resolve it at fire time
                (pn_param_spec_set_profile_ref / vault lookup), mirroring the
                https-tunnel sender/receiver. SSH nodes to convert:
                host-monitoring -- CPU, Load, Memory, Temperature, Ambient,
                Disk IO, Net IO, Connections (8); shell -- Shell Command,
                df, free, lxc-ls, tmux-monitor (5).
+               DONE: all 13 nodes carry an "auth-profile" string property
+               (default "", tagged PN_PROFILE_SSH via the shared
+               pn_ssh_auth_profile_param_spec helper), so the node dialog
+               auto-renders an SSH-Login profile picker next to the host
+               field. Default "" follows the primary SSH Login profile
+               (user-chosen "mirror" behaviour); with NONE configured it
+               resolves to ambient -> today's behaviour preserved.
+               THREAD-SAFETY: every SSH node runs its blocking ssh on a
+               PnAutoTrigger worker thread, but pn_node_get_profile reads the
+               GObject property + the mutable vault and is main-thread-only.
+               So pn_ssh_build_argv was revised (47.3 took a live PnProfile*)
+               to take a flat value snapshot PnSshLogin (username / identity /
+               host-key-policy / port; secrets NOT included). New core helpers
+               in lib/pn-ssh-profile.{c,h}: pn_ssh_login_resolve (main-thread
+               profile -> snapshot), _copy, _clear, _refresh (resolve +
+               swap-under-mutex), _dup_locked (worker reads the cached
+               snapshot), pn_ssh_auth_profile_param_spec. Each node caches a
+               PnSshLogin under its existing mutex, refreshed from the
+               property setter AND a PnVault::changed handler (live credential
+               edits), and the worker dups it before building the argv. tmux-
+               monitor threads the snapshot through tm_build_argv into both its
+               periodic-capture and session-enumerator ssh paths.
+               Tests: test-pn-ssh-build-argv reworked onto PnSshLogin (215
+               checks) + a pn_ssh_login_resolve case (tiny PnNode subclass +
+               vault profile; ambient / follow-primary / explicit-id / custom-
+               sentinel, secret-leak guard); test-pn-shell-command wrap_argv
+               calls updated for the new login param. 131 C unit tests + plugin
+               -load / gui-companion / credentials-profile / shell-companion
+               python regressions all green. No inline "Custom settings" entry
+               (SSH nodes carry no inline auth, so the picker shows Default +
+               profiles only). Password/passphrase feeding still 47.5.
          [ ] 47.5 Password auth: BatchMode=yes forbids any prompt, so a
                password-auth profile needs a non-interactive path (sshpass-style
                feeding or libssh). Decide whether to support password auth at all

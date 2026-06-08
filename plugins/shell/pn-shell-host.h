@@ -18,6 +18,8 @@
 
 #include <glib.h>
 
+#include "pn-ssh-profile.h"
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -49,21 +51,27 @@ gboolean pn_shell_host_is_local (const gchar *host);
  *  Local: returns `g_strdupv (base_argv)`.
  *
  *  Remote: a thin wrapper over the shared core builder pn_ssh_build_argv()
- *  (TODO #47.3) with no profile, yielding
+ *  (TODO #47.3) with the node's resolved SSH-Login snapshot @login (item
+ *  47.4; %NULL or an ambient snapshot keeps the pre-profile behaviour),
+ *  yielding
  *      ["ssh", "-o", "BatchMode=yes",
- *              "-o", "StrictHostKeyChecking=accept-new",
- *              "-o", "ConnectTimeout=5", host,
+ *              "-o", "StrictHostKeyChecking=<policy>",
+ *              "-o", "ConnectTimeout=5",
+ *              [-l user] [-p port] [-i identity], host,
  *       base_argv[0], base_argv[1], ..., NULL]
  *
  *  `BatchMode=yes` is the load-bearing flag — it disables every
  *  interactive prompt (password, passphrase, host-key confirmation),
- *  so the only way the connection succeeds is via a pre-installed
- *  passwordless key.  This matches the node's stated contract.  When
- *  item 47.4 threads an SSH-login profile through this path, the
- *  username / port / identity / host-key-policy come from there.
+ *  so the only way the connection succeeds is via a pre-installed key or
+ *  the agent.  This matches the node's stated contract.
+ *
+ *  @login must be a value snapshot (see #PnSshLogin) the caller lifted from
+ *  its node under the node mutex — pn_shell_wrap_argv runs on the worker
+ *  thread, so a live vault #PnProfile must never be passed here.
  *
  *  Caller owns the result; free with `g_strfreev`. */
 gchar **pn_shell_wrap_argv (const gchar        *host,
+                            const PnSshLogin   *login,
                             const gchar *const *base_argv);
 
 G_END_DECLS
