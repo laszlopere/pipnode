@@ -169,6 +169,8 @@ libpipnode_core_la_SOURCES = \
 	pn-settings-schema.h \
 	pn-sound.c \
 	pn-sound.h \
+	pn-ssh-profile.c \
+	pn-ssh-profile.h \
 	pn-staircase.c \
 	pn-staircase.h \
 	pn-stats.c \
@@ -508,6 +510,7 @@ pipnode_core_headers = \
 	pn-set.h \
 	pn-settings-schema.h \
 	pn-sound.h \
+	pn-ssh-profile.h \
 	pn-staircase.h \
 	pn-stats.h \
 	pn-subst.h \

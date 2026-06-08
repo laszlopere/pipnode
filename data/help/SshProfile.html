@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SSH Login credentials &mdash; Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4>SSH Login credentials</h4>
+<p>
+An <em>SSH Login</em> profile holds <strong>how</strong> to log into a
+remote host over SSH &mdash; the account, port, key and host-key policy
+&mdash; separately from <strong>where</strong> each node connects, which
+stays the node's own <code>host</code> field.  Several nodes run a command
+on a remote machine over SSH (the <em>Shell Command</em>, <em>df</em>,
+<em>free</em>, <em>lxc-ls</em> and <em>tmux-monitor</em> shell nodes, and
+the host-monitoring <em>CPU</em>, <em>Load</em>, <em>Memory</em>,
+<em>Temperature</em>, <em>Ambient</em>, <em>Disk&nbsp;IO</em>,
+<em>Net&nbsp;IO</em> and <em>Connections</em> nodes); you fill the profile
+in once and any of them reference it by name from their <em>SSH Login</em>
+dropdown.
+</p>
+<p>
+A node with <strong>no</strong> profile keeps the original behaviour: it
+logs in as the local desktop user using whatever SSH keys / agent are
+already available, trusting the host key on first sight.  Choose a profile
+only when you need a different account, a non-standard port, a specific
+key, or a stricter host-key policy.
+</p>
+
+<h5>Before you start: make key login work</h5>
+<p>
+Pipnode runs commands non-interactively, so the connection must succeed
+without ever stopping to prompt.  In practice that means key-based
+authentication (a key already loaded in your agent, or an identity file
+whose passphrase you supply below) rather than typing a password each
+time.
+</p>
+<ol>
+  <li>Generate a key if you do not have one:
+      <code>ssh-keygen -t ed25519</code>.</li>
+  <li>Install the public half on the remote host:
+      <code>ssh-copy-id <em>user</em>@<em>host</em></code>.</li>
+  <li>Sanity-check a non-interactive login from the machine running
+      Pipnode:
+      <code>ssh -o BatchMode=yes <em>user</em>@<em>host</em> true &amp;&amp;
+      echo OK</code>.  If that prints <code>OK</code> without prompting,
+      the nodes will connect cleanly.</li>
+</ol>
+
+<h5>Filling in the profile</h5>
+<table>
+<tr><th>Field</th><th>What goes in it</th></tr>
+<tr><td><code>Username</code></td><td>
+  The remote login name (<code>ssh&nbsp;-l</code>).  Leave empty to log in
+  as the local desktop user, the way the SSH nodes do without a profile.
+</td></tr>
+<tr><td><code>Port</code></td><td>
+  TCP port of the remote SSH server (<code>ssh&nbsp;-p</code>).  Defaults
+  to <code>22</code>.
+</td></tr>
+<tr><td><code>Identity&nbsp;file&nbsp;(private&nbsp;key)</code></td><td>
+  Optional.  Absolute path, on the machine running Pipnode, to the private
+  key to authenticate with (<code>ssh&nbsp;-i</code>).  Leave blank to use
+  your SSH agent or the default keys in <code>~/.ssh</code>.
+</td></tr>
+<tr><td><code>Key&nbsp;passphrase</code></td><td>
+  Optional.  The passphrase that unlocks the identity file above.  Stored
+  in the host vault (mode 0600 in your config directory); never written
+  into a worksheet file.
+</td></tr>
+<tr><td><code>Password</code></td><td>
+  Optional.  A password for password authentication, stored in the vault
+  like the passphrase.  Whether password auth is usable at all depends on
+  the connection mode (a non-interactive login cannot prompt) &mdash;
+  prefer key authentication; treat this field as a key passphrase unless
+  the release notes say otherwise.
+</td></tr>
+<tr><td><code>Host-key&nbsp;policy</code></td><td>
+  How to treat the remote host's key:
+  <ul>
+    <li><code>accept-new</code> &mdash; trust the key the first time the
+        host is seen and remember it; refuse only if it later
+        <em>changes</em>.  This is the default and matches how the SSH
+        nodes behave without a profile.</li>
+    <li><code>strict</code> &mdash; refuse to connect unless the host key
+        is already known (no trust-on-first-use).  Safest; requires you to
+        have the key in <code>~/.ssh/known_hosts</code> beforehand.</li>
+    <li><code>off</code> &mdash; do not check the host key at all.  This
+        defeats the protection against man-in-the-middle interception
+        &mdash; use it only on a trusted local network you control.</li>
+  </ul>
+</td></tr>
+</table>
+
+<p>
+Once the profile is filled in, drop one of the SSH-capable nodes onto a
+worksheet, set its <em>host</em> field to the machine you want to reach,
+and pick this profile from its <em>SSH Login</em> dropdown.
+</p>
+
+</body>
+</html>

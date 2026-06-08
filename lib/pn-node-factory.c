@@ -73,6 +73,7 @@
 #include "pn-segment16.h"
 #include "pn-set.h"
 #include "pn-sound.h"
+#include "pn-ssh-profile.h"
 #include "pn-staircase.h"
 #include "pn-stats.h"
 #include "pn-success.h"
@@ -327,8 +328,12 @@ register_builtins (PnNodeFactory *self)
     /* Built-in profile schemas.  Declared with the factory so the host
      * (editor or headless runner) can provision and resolve them; the
      * MQTT Source / Sink reference this type, as does any out-of-tree
-     * subclass of #PnMqtt. */
+     * subclass of #PnMqtt.  The "ssh-login" type lives here for the same
+     * reason: it is shared by the bundled shell and host-monitoring
+     * plugins, so a single core-owned id keeps them both pointing at one
+     * stable schema. */
     pn_mqtt_register_profile_type (self);
+    pn_ssh_register_profile_type (self);
 }
 
 /* ------------------------------------------------------------------ */

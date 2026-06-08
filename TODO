@@ -805,14 +805,21 @@
        host = WHERE, profile = HOW-TO-LOG-IN); a node with no profile keeps the
        current ambient-key behaviour for backwards compat.
 
-         [ ] 47.1 Define the SSH profile schema: username (STRING), port (INT,
+         [x] 47.1 Define the SSH profile schema: username (STRING), port (INT,
                default 22), identity file (FILE -- private key path), passphrase
                (SECRET, for the key), optional password (SECRET, for password
                auth), and a host-key policy choice (ENUM: accept-new / strict /
                off, default accept-new to match today). Add an "SshProfile.html"
                help page and wire the per-type Help button
                (pn_profile_schema_set_help_page), as done for the network
-               profiles.
+               profiles. DONE: lib/pn-ssh-profile.{c,h} (core, id PN_PROFILE_SSH
+               = "ssh-login", display "SSH Login"); registered from the factory
+               built-in pass next to pn_mqtt_register_profile_type; help page
+               data/help/SshProfile.html; characterization test
+               tests/unit/test-pn-ssh-profile.c (35 checks). Landing it in core
+               (mirroring the mqtt-broker profile) effectively answers 47.2's
+               registration-home question -> "core built-in"; the PLUGINS doc
+               note 47.2 asks for is still pending.
          [ ] 47.2 Decide the registration home. The profile is shared by TWO
                bundled plugins (shell + host-monitoring), so it should NOT be
                registered privately inside one of them the way

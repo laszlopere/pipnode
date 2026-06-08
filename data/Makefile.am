@@ -59,6 +59,7 @@ pnhelp_DATA = \
 	help/PnSegment16.html \
 	help/PnSet.html \
 	help/PnSound.html \
+	help/SshProfile.html \
 	help/PnStaircase.html \
 	help/PnStats.html \
 	help/PnSuccess.html \
