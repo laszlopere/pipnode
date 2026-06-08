@@ -787,3 +787,88 @@
                FriendlyName/config write-back in the info pane; a dedicated menu
                icon instead of the themed "network-wireless".
 
+[ ] 47 SSH credentials profile type (host-provisioned, ABI v5 PnProfileSchema /
+       PnVault). Several nodes open an SSH session to a remote host and run a
+       command there, but today the only "credential" they carry is a bare
+       in-node "host" entry; the actual auth is whatever the desktop user's
+       ambient SSH state happens to provide. Every such node builds the same
+       fixed argv -- `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new
+       -o ConnectTimeout=5 <host> <cmd>` (shell plugin: pn_shell_wrap_argv in
+       plugins/shell/pn-shell-host.c; host-monitoring: the same flags
+       hand-rolled into each node's command string). That means: no username
+       override (always the local user), no port, no chosen identity file, no
+       way to reach a host that isn't already key-trusted, and host-key policy
+       silently pinned to accept-new. Move the auth bits into a first-class
+       "SSH Login" credentials type the user manages in the Credentials dialog,
+       and give each SSH node an optional profile-ref alongside its existing
+       host field. Leave the in-node host entry exactly as it is (item is
+       host = WHERE, profile = HOW-TO-LOG-IN); a node with no profile keeps the
+       current ambient-key behaviour for backwards compat.
+
+         [ ] 47.1 Define the SSH profile schema: username (STRING), port (INT,
+               default 22), identity file (FILE -- private key path), passphrase
+               (SECRET, for the key), optional password (SECRET, for password
+               auth), and a host-key policy choice (ENUM: accept-new / strict /
+               off, default accept-new to match today). Add an "SshProfile.html"
+               help page and wire the per-type Help button
+               (pn_profile_schema_set_help_page), as done for the network
+               profiles.
+         [ ] 47.2 Decide the registration home. The profile is shared by TWO
+               bundled plugins (shell + host-monitoring), so it should NOT be
+               registered privately inside one of them the way
+               PN_NETWORK_PROFILE_HTTP_BASIC is. Either register it from a small
+               shared seam both plugins call, or promote it to a core/host-
+               provided built-in profile type so both reference one stable id
+               (PN_PROFILE_SSH). Pick one and document it in PLUGINS.
+         [ ] 47.3 One shared argv builder. Extract a single GTK-free helper --
+               pn_ssh_build_argv(host, resolved-profile, base_argv) -- that
+               turns the host + resolved SSH profile fields into the ssh argv
+               (-l user, -p port, -i identity, -o options, host, cmd...).
+               pn_shell_wrap_argv becomes a thin caller of it; the host-
+               monitoring nodes stop hand-rolling their ssh strings and route
+               through the same helper. Local-host short-circuit
+               (pn_shell_host_is_local) stays.
+         [ ] 47.4 Add the optional auth-profile property + profile-ref param-spec
+               to every SSH node and resolve it at fire time
+               (pn_param_spec_set_profile_ref / vault lookup), mirroring the
+               https-tunnel sender/receiver. SSH nodes to convert:
+               host-monitoring -- CPU, Load, Memory, Temperature, Ambient,
+               Disk IO, Net IO, Connections (8); shell -- Shell Command,
+               df, free, lxc-ls, tmux-monitor (5).
+         [ ] 47.5 Password auth: BatchMode=yes forbids any prompt, so a
+               password-auth profile needs a non-interactive path (sshpass-style
+               feeding or libssh). Decide whether to support password auth at all
+               or restrict the type to key/agent auth in v1; if we keep
+               BatchMode, document that password fields are key-passphrase only.
+               (Respect the "pure C, no helper subprocess" rule -- prefer libssh
+               over shelling out to sshpass if we go password-capable.)
+         [ ] 47.6 Tests + help: characterization test for pn_ssh_build_argv
+               (host x profile -> exact argv), a profile-resolve test, and update
+               the affected node help pages to mention the new SSH Login profile.
+         [ ] 47.7 Session helper(s) to initiate AND maintain an SSH connection.
+               TODAY THERE IS NONE: every SSH node g_spawn's a fresh one-shot
+               `ssh <host> <cmd>` on each fire (host-monitoring via
+               g_spawn_command_line_sync, shell via g_spawn_sync), so each tick
+               pays a full TCP + auth handshake and nothing is kept alive between
+               fires. Add a small helper API the nodes call instead of spawning
+               raw -- e.g. pn_ssh_session_open(host, profile) -> handle +
+               pn_ssh_session_run(handle, argv) -> output + pn_ssh_session_close
+               -- that owns ONE authenticated connection per (host, profile) and
+               reuses it across fires. Two viable implementations to weigh:
+                 (a) OpenSSH ControlMaster multiplexing: keep building an ssh
+                     argv but add `-o ControlMaster=auto -o ControlPersist=...`
+                     and a per-(host,profile) ControlPath socket, so the 2nd..Nth
+                     `ssh` reuse one authenticated channel. Smallest change,
+                     stays on the existing spawn path, no new dep.
+                 (b) A long-lived libssh-backed PnSshSession object held by the
+                     host (no per-fire subprocess at all -- aligns with the
+                     "pure C, no helper subprocess" rule and with the async/exec
+                     model). Heavier, adds the libssh dep, but is the clean home
+                     for keepalive + connection-state reporting.
+               This is the SSH instance of the single-owner/stateful-resource
+               problem TODO #28 (host-managed shared profile sessions, ABI v6)
+               describes for serial/MQTT; if #28's shared-session machinery
+               lands first, the SSH session pool should plug into it rather than
+               invent a parallel lifetime model. Decide (a) vs (b) -- and whether
+               to defer 47.7 until #28 -- before implementing.
+
