@@ -14,7 +14,7 @@
       "properties" : {
         "min" : 0.0,
         "max" : 90.0,
-        "value" : 45.0
+        "value" : 33.75
       }
     },
     {
@@ -29,7 +29,7 @@
       "properties" : {
         "min" : 0.0,
         "max" : 60.0,
-        "value" : 30.0
+        "value" : 40.0
       }
     },
     {
@@ -42,9 +42,9 @@
         "y" : 280.0
       },
       "properties" : {
-        "min" : 0.1,
+        "min" : 0.10000000000000001,
         "max" : 10.0,
-        "value" : 2.0
+        "value" : 2.4124999999999996
       }
     },
     {
@@ -59,7 +59,7 @@
       "properties" : {
         "min" : 0.01,
         "max" : 2.0,
-        "value" : 0.3
+        "value" : 1.0879166666666658
       }
     },
     {
@@ -74,7 +74,7 @@
       "properties" : {
         "min" : 0.0,
         "max" : 15.0,
-        "value" : 4.5
+        "value" : 5.125
       }
     },
     {
@@ -171,7 +171,13 @@
         "show-graticule" : true,
         "trace-width" : 2,
         "x-from-zero" : true,
-        "y-from-zero" : true
+        "y-from-zero" : true,
+        "x-auto" : false,
+        "x-range" : 70.401222316012763,
+        "x-offset" : 33.041027951522395,
+        "y-auto" : false,
+        "y-range" : 30.601851683438014,
+        "y-offset" : 10.589429346470752
       }
     }
   ],
@@ -198,13 +204,11 @@
     },
     {
       "source_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
-      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
-      "target_input" : 0
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5"
     },
     {
       "source_id" : "ec9f6f5c-4360-40a1-a43d-db151e4840a5",
-      "target_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
-      "target_input" : 0
+      "target_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b"
     },
     {
       "source_id" : "fdebbcdd-9407-4125-a182-0b8bdd2194b2",
@@ -218,33 +222,27 @@
     },
     {
       "source_id" : "3b247a53-a716-43b4-b627-aaf68d4b860e",
-      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
-      "target_input" : 0
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a"
     },
     {
       "source_id" : "4dc82657-5955-409f-8b8a-cd596285d0fa",
-      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
-      "target_input" : 0
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a"
     },
     {
       "source_id" : "52278fc6-e215-48fd-b211-06d804874140",
-      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
-      "target_input" : 0
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a"
     },
     {
       "source_id" : "6e23c4e5-e5dc-4c03-b7bf-8a9cc095a4ef",
-      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
-      "target_input" : 0
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a"
     },
     {
       "source_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
-      "target_id" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51",
-      "target_input" : 0
+      "target_id" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51"
     },
     {
       "source_id" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51",
-      "target_id" : "1b6352d7-244e-4559-b0cb-868c384cb436",
-      "target_input" : 0
+      "target_id" : "1b6352d7-244e-4559-b0cb-868c384cb436"
     }
   ],
   "sheets" : [
