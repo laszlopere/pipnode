@@ -74,36 +74,49 @@ look, keeping the screen's aspect ratio.
 <h5 id="knobs">The knobs</h5>
 <p>
 While the card is <strong>maximized</strong> in the zoom overlay the CRT
-retreats to the top-left corner and a small control panel appears around
-it &mdash; four rotary knobs in the column to its right and two
-<em>Auto</em> buttons in the strip below. The knobs are the classic
-bench-scope controls, two per axis:
+retreats to the top-left corner and a bench-scope control panel appears
+around it, dressed like a real instrument face: a teal section over the
+scale/position knobs, a green section over the tube knobs, six rotary
+dials and two <em>Auto</em> pushbuttons. The dials are the classic
+controls:
 </p>
 <ul>
   <li><strong>X range</strong> / <strong>Y range</strong> &mdash; the width
       of the visible window in data units (how much of the signal fits
-      across / up the screen). Drag a range knob up to zoom in (a smaller
-      window), down to zoom out.</li>
+      across / up the screen). These are <strong>dual-concentric</strong>
+      knobs (note the gold collar): the <em>outer ring</em> is a
+      <strong>coarse</strong> control and the smaller <em>inner disc</em> a
+      <strong>fine</strong> vernier for trimming the last bit. Turn a range
+      knob up to zoom in (a smaller window), down to zoom out.</li>
   <li><strong>X offset</strong> / <strong>Y offset</strong> &mdash; the
       data value at the centre of the screen, i.e. the trace's position.
-      Drag an offset knob to pan the trace; one screen-height of drag pans
+      Turn an offset knob to pan the trace; one screen-height of drag pans
       exactly one screenful.</li>
+  <li><strong>Focus</strong> / <strong>Intensity</strong> &mdash; the CRT
+      tube knobs. Focus sets the beam's sharpness (turn it down to defocus
+      the trace into a wider, softer beam); Intensity sets its brightness
+      (turn it down to dim the trace and its glow). Both rest at the top of
+      travel, where the beam draws exactly as a fresh scope always has.</li>
 </ul>
 <p>
-Each knob also responds to the <strong>mouse wheel</strong>: spin it with
-the pointer over a knob to nudge that knob up or down without the fiddly
-drag &mdash; one detent stands in for a small slice of drag in the same
-direction.
+Every dial works two ways: <strong>drag</strong> it up or down, or spin the
+<strong>mouse wheel</strong> over it &mdash; the wheel nudges the same value
+without the fiddly grab, one detent standing in for a small slice of drag.
+On a concentric range knob the wheel (and the drag) act on whichever part
+the pointer is over: the inner disc trims finely, the outer ring sweeps
+coarsely.
 </p>
 <p>
-Turning any knob switches that axis from auto-fit to a fixed
+Turning a range or offset knob switches that axis from auto-fit to a fixed
 <em>manual</em> window (<code>offset&nbsp;&plusmn;&nbsp;range/2</code>);
 while an axis is still auto-fitting its knobs are dimmed and simply mirror
-the live auto values, so the first drag grabs smoothly from where the
+the live auto values, so the first turn grabs smoothly from where the
 trace already is. To go back to auto-fit, press that axis's <em>Auto</em>
-button, or double-click any of its knobs. The four values are saved with
-the document and can also be set directly on the <strong>Scale</strong>
-tab of the settings dialog. (<code>x-from-zero</code> /
+pushbutton (it lights a green tally when on), or double-click any of its
+knobs &mdash; double-clicking a Focus or Intensity knob returns it to its
+default. All the values are saved with the document and can also be set on
+the <strong>Appearance</strong> (Focus / Intensity) and <strong>Scale</strong>
+tabs of the settings dialog. (<code>x-from-zero</code> /
 <code>y-from-zero</code> only apply while the axis is in auto mode.)
 </p>
 
@@ -152,6 +165,14 @@ across the screen as the inputs change.
   <tr><td><code>show-graticule</code></td>
       <td>Whether to draw the 10&times;8 division grid, with brighter
           centre axes and fine tick marks (default on).</td></tr>
+  <tr><td><code>focus</code></td>
+      <td>Beam sharpness, 0&ndash;1 (default 1 = tightest). Lower values
+          defocus the trace into a wider, softer beam. The maximized-view
+          <em>Focus</em> knob.</td></tr>
+  <tr><td><code>intensity</code></td>
+      <td>Beam brightness, 0&ndash;1 (default 1 = brightest). Lower values
+          dim the trace and its phosphor glow. The maximized-view
+          <em>Intensity</em> knob.</td></tr>
   <tr><td><code>x-from-zero</code></td>
       <td>Anchors the X axis at zero instead of auto-fitting it tightly
           around the data.</td></tr>

@@ -537,8 +537,8 @@ test_drag_range_multiplies (void)
     g_object_set (osc, "y-range", 10.0, "y-offset", 0.0, NULL);
     g_object_get (osc, "y-range", &r0, NULL);
 
-    /* Drag UP (dy < 0) shrinks the range → zoom in. */
-    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_RANGE, -100.0, 200.0);
+    /* Drag UP (dy < 0) on the COARSE ring shrinks the range → zoom in. */
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_RANGE, FALSE, -100.0, 200.0);
     g_object_get (osc, "y-range", &r1, NULL);
     PN_CHECK (r1 < r0);
     /* exp(-100 * 0.005) = exp(-0.5) ≈ 0.6065. */
@@ -556,14 +556,128 @@ test_drag_offset_sign (void)
     /* One CRT-extent of UP drag (dy = -extent) pans one screenful: the
      * offset drops by exactly one range, moving the trace up/right. */
     g_object_set (osc, "y-range", 10.0, "y-offset", 0.0, NULL);
-    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_OFFSET, -100.0, 100.0);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_OFFSET, FALSE, -100.0, 100.0);
     g_object_get (osc, "y-offset", &yoff, NULL);
     PN_CHECK_NEAR (yoff, -10.0, 1e-9);
 
     g_object_set (osc, "x-range", 10.0, "x-offset", 0.0, NULL);
-    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_X_OFFSET, -100.0, 100.0);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_X_OFFSET, FALSE, -100.0, 100.0);
     g_object_get (osc, "x-offset", &xoff, NULL);
     PN_CHECK_NEAR (xoff, -10.0, 1e-9);
+
+    g_object_unref (osc);
+}
+
+static void
+test_knob_classification (void)
+{
+    /* Range knobs are the concentric (coarse + fine) pair; Focus and
+     * Intensity are the level (0..1) knobs; offsets are neither. */
+    PN_CHECK (pn_oscilloscope_knob_is_concentric (PN_OSC_KNOB_X_RANGE));
+    PN_CHECK (pn_oscilloscope_knob_is_concentric (PN_OSC_KNOB_Y_RANGE));
+    PN_CHECK_FALSE (pn_oscilloscope_knob_is_concentric (PN_OSC_KNOB_X_OFFSET));
+    PN_CHECK_FALSE (pn_oscilloscope_knob_is_concentric (PN_OSC_KNOB_FOCUS));
+
+    PN_CHECK (pn_oscilloscope_knob_is_level (PN_OSC_KNOB_FOCUS));
+    PN_CHECK (pn_oscilloscope_knob_is_level (PN_OSC_KNOB_INTENSITY));
+    PN_CHECK_FALSE (pn_oscilloscope_knob_is_level (PN_OSC_KNOB_X_RANGE));
+    PN_CHECK_FALSE (pn_oscilloscope_knob_is_level (PN_OSC_KNOB_Y_OFFSET));
+}
+
+static void
+test_fine_drag_is_a_vernier (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         coarse, fine;
+
+    /* The same drag on the fine inner disc moves the range far less than on
+     * the coarse outer ring — both shrink it (dy < 0), fine the least. */
+    g_object_set (osc, "y-range", 10.0, NULL);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_RANGE, FALSE, -100.0, 200.0);
+    g_object_get (osc, "y-range", &coarse, NULL);
+
+    g_object_set (osc, "y-range", 10.0, NULL);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_RANGE, TRUE, -100.0, 200.0);
+    g_object_get (osc, "y-range", &fine, NULL);
+
+    PN_CHECK (coarse < 10.0);
+    PN_CHECK (fine   < 10.0);
+    PN_CHECK (fabs (fine - 10.0) < fabs (coarse - 10.0));
+
+    g_object_unref (osc);
+}
+
+static void
+test_level_knob_drag_and_clamp (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         f, in;
+
+    /* Focus defaults to the top of travel (1.0). */
+    g_object_get (osc, "focus", &f, NULL);
+    PN_CHECK_NEAR (f, 1.0, 1e-9);
+
+    /* Drag DOWN (dy > 0) lowers it; half a CRT extent → half the range. */
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_FOCUS, FALSE, 50.0, 100.0);
+    g_object_get (osc, "focus", &f, NULL);
+    PN_CHECK_NEAR (f, 0.5, 1e-9);
+
+    /* A big UP drag clamps at 1.0, never overshooting. */
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_FOCUS, FALSE, -500.0, 100.0);
+    g_object_get (osc, "focus", &f, NULL);
+    PN_CHECK_NEAR (f, 1.0, 1e-9);
+
+    /* Intensity is the same kind of knob. */
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_INTENSITY, FALSE, 100.0, 100.0);
+    g_object_get (osc, "intensity", &in, NULL);
+    PN_CHECK_NEAR (in, 0.0, 1e-9);
+
+    g_object_unref (osc);
+}
+
+static void
+test_hit_knob_fine_inner_vs_outer (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+    gdouble         cx, cy, r;
+
+    pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
+                            &crt, knobs, autobtn);
+
+    /* Concentric range knob: dead centre is the fine inner disc; out near
+     * the rim is the coarse ring. */
+    pn_oscilloscope_knob_dial (&knobs[PN_OSC_KNOB_X_RANGE], &cx, &cy, &r);
+    PN_CHECK (pn_oscilloscope_hit_knob_fine (knobs, PN_OSC_KNOB_X_RANGE,
+                                             cx, cy));
+    PN_CHECK_FALSE (pn_oscilloscope_hit_knob_fine (knobs, PN_OSC_KNOB_X_RANGE,
+                                                   cx, cy - r * 0.9));
+
+    /* A plain (non-concentric) knob never reports a fine hit. */
+    PN_CHECK_FALSE (pn_oscilloscope_hit_knob_fine (knobs, PN_OSC_KNOB_X_OFFSET,
+            knobs[PN_OSC_KNOB_X_OFFSET].x + knobs[PN_OSC_KNOB_X_OFFSET].w * 0.5,
+            knobs[PN_OSC_KNOB_X_OFFSET].y + knobs[PN_OSC_KNOB_X_OFFSET].h * 0.5));
+
+    g_object_unref (osc);
+}
+
+static void
+test_reset_knob_levels_and_axes (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         f;
+
+    /* Resetting a level knob restores its default (1.0). */
+    g_object_set (osc, "focus", 0.3, NULL);
+    pn_oscilloscope_reset_knob (osc, PN_OSC_KNOB_FOCUS);
+    g_object_get (osc, "focus", &f, NULL);
+    PN_CHECK_NEAR (f, 1.0, 1e-9);
+
+    /* Resetting a range/offset knob returns its axis to auto-fit. */
+    g_object_set (osc, "x-range", 4.0, NULL);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    pn_oscilloscope_reset_knob (osc, PN_OSC_KNOB_X_RANGE);
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, TRUE));
 
     g_object_unref (osc);
 }
@@ -640,6 +754,11 @@ main (int argc, char **argv)
     pn_test_add ("begin_knob_no_jump",       test_begin_knob_seeds_without_jump);
     pn_test_add ("drag_range_multiplies",    test_drag_range_multiplies);
     pn_test_add ("drag_offset_sign",         test_drag_offset_sign);
+    pn_test_add ("knob_classification",      test_knob_classification);
+    pn_test_add ("fine_drag_vernier",        test_fine_drag_is_a_vernier);
+    pn_test_add ("level_knob_drag_clamp",    test_level_knob_drag_and_clamp);
+    pn_test_add ("hit_knob_fine",            test_hit_knob_fine_inner_vs_outer);
+    pn_test_add ("reset_knob",               test_reset_knob_levels_and_axes);
     pn_test_add ("reset_axis_to_auto",       test_reset_axis_returns_to_auto);
     pn_test_add ("scale_property_roundtrip", test_scale_property_roundtrip);
     return pn_test_run ();

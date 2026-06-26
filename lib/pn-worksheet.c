@@ -258,10 +258,13 @@ struct _PnWorksheet
      *  on one of its on-screen knobs begins a value drag instead of
      *  collapsing the overlay.  #osc_knob is the grabbed #PnOscKnob,
      *  #osc_press_{x,y} the press point (click vs. drag), #osc_last_{x,y}
-     *  the previous motion sample (per-frame delta).  The node is always
-     *  #zoomed_node. */
+     *  the previous motion sample (per-frame delta).  #osc_fine is TRUE
+     *  when the grab landed on a concentric range knob's inner (fine)
+     *  disc, so the whole drag stays on the fine vernier.  The node is
+     *  always #zoomed_node. */
     gboolean osc_drag;
     int      osc_knob;
+    gboolean osc_fine;
     double   osc_press_x, osc_press_y;
     double   osc_last_x,  osc_last_y;
 
@@ -4688,8 +4691,10 @@ on_scroll (
         k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
         if (k >= 0)
         {
-            pn_oscilloscope_drag_knob (osc, k, dy * PN_OSC_WHEEL_STEP_PX,
-                                       crt.h);
+            gboolean fine = pn_oscilloscope_hit_knob_fine (knobs, k,
+                                                           event->x, event->y);
+            pn_oscilloscope_drag_knob (osc, k, fine,
+                                       dy * PN_OSC_WHEEL_STEP_PX, crt.h);
             gtk_widget_queue_draw (widget);
             return GDK_EVENT_STOP;
         }
@@ -4791,8 +4796,10 @@ on_button_press (
      * chat that has no controls. */
     if (self->zoomed_node != NULL)
     {
-        /* Double-click a maximized oscilloscope knob → return that axis to
-         * auto-fit (the same as its "Auto" button, but right on the knob). */
+        /* Double-click a maximized oscilloscope knob → reset it: a range/
+         * offset knob returns its axis to auto-fit (the same as its "Auto"
+         * button, but right on the knob); a Focus / Intensity knob returns
+         * to its default. */
         if (event->type == GDK_2BUTTON_PRESS &&
             PN_IS_OSCILLOSCOPE (self->zoomed_node) && self->zoom_dir == 0 &&
             hit_test_zoom_rect (self, event->x, event->y))
@@ -4808,10 +4815,8 @@ on_button_press (
             k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
             if (k >= 0)
             {
-                gboolean x_axis = (k == PN_OSC_KNOB_X_RANGE ||
-                                   k == PN_OSC_KNOB_X_OFFSET);
                 self->osc_drag = FALSE;   /* cancel the drag the 1st press armed */
-                pn_oscilloscope_reset_axis (osc, x_axis);
+                pn_oscilloscope_reset_knob (osc, k);
                 gtk_widget_queue_draw (widget);
             }
             return GDK_EVENT_STOP;
@@ -4901,6 +4906,8 @@ on_button_press (
                     pn_oscilloscope_begin_knob (osc, k);
                     self->osc_drag    = TRUE;
                     self->osc_knob    = k;
+                    self->osc_fine    = pn_oscilloscope_hit_knob_fine (
+                                            knobs, k, event->x, event->y);
                     self->osc_press_x = event->x;
                     self->osc_press_y = event->y;
                     self->osc_last_x  = event->x;
@@ -5191,7 +5198,8 @@ on_motion_notify (
         zoom_current_rect (self, &zx, &zy, &zw, &zh);
         pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn);
 
-        pn_oscilloscope_drag_knob (osc, self->osc_knob, dy, crt.h);
+        pn_oscilloscope_drag_knob (osc, self->osc_knob, self->osc_fine,
+                                   dy, crt.h);
         gtk_widget_queue_draw (widget);
         return GDK_EVENT_STOP;
     }

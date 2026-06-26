@@ -86,6 +86,8 @@ typedef struct
     guint     trace_width;    /* beam stroke width in pixels            */
     gboolean  x_from_zero;    /* anchor the X axis at zero              */
     gboolean  y_from_zero;    /* anchor the Y axis at zero              */
+    gdouble   focus;          /* beam sharpness 0..1 (1 = tightest)     */
+    gdouble   intensity;      /* beam brightness 0..1 (1 = brightest)   */
 } PnOscilloscopePaintState;
 
 /**
@@ -172,13 +174,18 @@ guint pn_oscilloscope_read_afterglow (PnOscilloscope *self,
 /*  shape PnKnob / PnChat use for their own in-card controls.           */
 /* ------------------------------------------------------------------ */
 
-/* The four knobs, in layout order (right column, 2×2 grid). */
+/* The maximized-view knobs, in layout order (right column, 2×3 grid).
+ * The two range knobs are dual-concentric (a coarse outer ring and a fine
+ * inner disc); Focus and Intensity are CRT-tube knobs that set the beam's
+ * sharpness and brightness rather than an axis window. */
 typedef enum
 {
     PN_OSC_KNOB_X_RANGE,
     PN_OSC_KNOB_X_OFFSET,
     PN_OSC_KNOB_Y_RANGE,
     PN_OSC_KNOB_Y_OFFSET,
+    PN_OSC_KNOB_FOCUS,
+    PN_OSC_KNOB_INTENSITY,
     PN_OSC_KNOB_N
 } PnOscKnob;
 
@@ -188,6 +195,28 @@ typedef struct
 {
     gdouble x, y, w, h;
 } PnOscRect;
+
+/* Fraction of a knob's drawn radius the inner (fine) disc of a concentric
+ * range knob occupies; the painter and the fine/coarse hit-test both key
+ * off this so a click on the inner disc always reads as fine. */
+#define PN_OSC_FINE_RADIUS_FRAC  0.55
+
+/* TRUE for the dual-concentric (coarse + fine) range knobs. */
+gboolean pn_oscilloscope_knob_is_concentric (int knob);
+
+/* TRUE for the CRT level knobs (Focus, Intensity) whose value is an
+ * absolute 0..1 setting rather than an axis range/offset. */
+gboolean pn_oscilloscope_knob_is_level (int knob);
+
+/* The absolute 0..1 value of a level knob (Focus / Intensity); 0 for any
+ * other knob. */
+gdouble pn_oscilloscope_knob_level (PnOscilloscope *self, int knob);
+
+/* The dial centre (@cx, @cy) and outer radius the painter draws for the
+ * knob occupying @cell — the single definition the painter and the
+ * fine/coarse hit-test share so they never disagree. */
+void pn_oscilloscope_knob_dial (const PnOscRect *cell,
+                                gdouble *cx, gdouble *cy, gdouble *radius);
 
 /* Mark the node maximized (lifted into the zoom overlay) or not.  Pure
  * state — never requests a repaint (it is toggled around every overlay
@@ -222,23 +251,40 @@ int pn_oscilloscope_hit_knob (const PnOscRect knobs[PN_OSC_KNOB_N],
 int pn_oscilloscope_hit_auto (const PnOscRect autobtn[2],
                               gdouble x, gdouble y);
 
-/* Begin manipulating @knob: if its axis is still in auto-fit, snapshot
- * the current effective window into the axis's range/offset and switch it
- * to manual, so the following drag grabs from where the trace already is
- * (no jump).  A no-op when the axis is already manual. */
+/* For a concentric (range) knob, TRUE when (@x, @y) is over its inner
+ * (fine) disc rather than the outer (coarse) ring.  Always FALSE for a
+ * plain single knob.  @knob must be a valid index from pn_oscilloscope_
+ * hit_knob; @knobs is the layout array it indexes. */
+gboolean pn_oscilloscope_hit_knob_fine (const PnOscRect knobs[PN_OSC_KNOB_N],
+                                        int knob, gdouble x, gdouble y);
+
+/* Begin manipulating @knob: if it is a range/offset knob whose axis is
+ * still in auto-fit, snapshot the current effective window into the axis's
+ * range/offset and switch it to manual, so the following drag grabs from
+ * where the trace already is (no jump).  A no-op when the axis is already
+ * manual or @knob is a level knob (Focus / Intensity). */
 void pn_oscilloscope_begin_knob (PnOscilloscope *self, int knob);
 
 /* Apply a vertical drag @dy (pixels, +down) to @knob.  Range knobs scale
- * multiplicatively (up = wider); offset knobs translate the window by a
- * fraction of @crt_extent (the CRT height) times the current range (up =
- * trace moves up).  Switches the axis to manual if it was not already. */
+ * multiplicatively (up = wider), at a coarse or, when @fine, a much finer
+ * vernier rate; offset knobs translate the window by a fraction of
+ * @crt_extent (the CRT height) times the current range (up = trace moves
+ * up); level knobs (Focus / Intensity) move their 0..1 value, one CRT
+ * extent of drag spanning the whole range.  Switches an axis to manual if
+ * it was not already.  @fine is ignored for non-concentric knobs. */
 void pn_oscilloscope_drag_knob (PnOscilloscope *self,
                                 int             knob,
+                                gboolean        fine,
                                 gdouble         dy,
                                 gdouble         crt_extent);
 
 /* Return @x_axis (TRUE = X) to auto-fit. */
 void pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis);
+
+/* Reset @knob to its rest state: a range/offset knob returns its axis to
+ * auto-fit; a level knob (Focus / Intensity) returns to its default.  The
+ * generic "double-click a knob" action. */
+void pn_oscilloscope_reset_knob (PnOscilloscope *self, int knob);
 
 /**
  * pn_oscilloscope_axis_window:

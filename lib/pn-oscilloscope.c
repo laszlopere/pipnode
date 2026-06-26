@@ -90,6 +90,12 @@ struct _PnOscilloscope
     gboolean  x_from_zero;
     gboolean  y_from_zero;
 
+    /* CRT-tube knobs (maximized view): beam sharpness and brightness, each
+     * 0..1.  Pure appearance — they reshape the drawn beam, never the trace
+     * store.  Serialized like the rest of the look. */
+    gdouble   focus;
+    gdouble   intensity;
+
     /* Manual scale per axis.  When *_auto is TRUE the axis auto-fits the
      * data (honouring *_from_zero) exactly as the scope always has; when
      * FALSE the visible window is [offset - range/2, offset + range/2],
@@ -158,6 +164,8 @@ enum {
     PROP_TRACE_WIDTH,
     PROP_X_FROM_ZERO,
     PROP_Y_FROM_ZERO,
+    PROP_FOCUS,
+    PROP_INTENSITY,
     PROP_X_AUTO,
     PROP_X_RANGE,
     PROP_X_OFFSET,
@@ -626,6 +634,8 @@ pn_oscilloscope_get_paint_state (
     out->trace_width    = self->trace_width;
     out->x_from_zero    = self->x_from_zero;
     out->y_from_zero    = self->y_from_zero;
+    out->focus          = self->focus;
+    out->intensity      = self->intensity;
 }
 
 guint
@@ -788,8 +798,19 @@ pn_oscilloscope_get_point_count (PnOscilloscope *self)
 #define PN_OSC_CRT_ASPECT     1.25      /* 10×8 graticule, kept square */
 
 /* Pixels-of-vertical-drag that scale a range by e (one natural-log
- * unit).  ~0.005 → ~139 px per octave, a comfortable knob feel. */
+ * unit).  ~0.005 → ~139 px per octave, a comfortable knob feel — the
+ * COARSE outer ring of the concentric range knob. */
 #define PN_OSC_RANGE_DRAG_K   0.005
+
+/* The FINE inner disc of the range knob: a slow vernier at ~1/6 the
+ * coarse rate, for trimming the last bit once the coarse ring is close. */
+#define PN_OSC_RANGE_FINE_K   (PN_OSC_RANGE_DRAG_K / 6.0)
+
+/* Defaults for the CRT level knobs.  Both rest at the top of travel so a
+ * fresh scope draws exactly as it always has (tightest, brightest beam)
+ * and the knobs only ever turn the beam DOWN from there. */
+#define PN_OSC_FOCUS_DEFAULT      1.0
+#define PN_OSC_INTENSITY_DEFAULT  1.0
 
 /** Pad a [lo, hi] range so the data never touches the frame; widen a
  *  degenerate (flat) range to something drawable.  When @from_zero the
@@ -954,13 +975,14 @@ pn_oscilloscope_layout (
         crt->h = crt_h;
     }
 
-    /* Right column → 2×2 knob grid.  Order matches PnOscKnob:
+    /* Right column → 2×3 knob grid.  Order matches PnOscKnob:
      *   (col0,row0) X range   (col1,row0) X offset
-     *   (col0,row1) Y range   (col1,row1) Y offset                     */
+     *   (col0,row1) Y range   (col1,row1) Y offset
+     *   (col0,row2) Focus     (col1,row2) Intensity                    */
     kx     = px + avail_w;
     kw     = col_w;
     cell_w = kw * 0.5;
-    cell_h = avail_h * 0.5;
+    cell_h = avail_h / 3.0;
 
     if (knobs != NULL)
     {
@@ -1036,6 +1058,68 @@ pn_oscilloscope_hit_auto (
     return hit_rect_array (autobtn, 2, x, y);
 }
 
+gboolean
+pn_oscilloscope_knob_is_concentric (int knob)
+{
+    return knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_Y_RANGE;
+}
+
+gboolean
+pn_oscilloscope_knob_is_level (int knob)
+{
+    return knob == PN_OSC_KNOB_FOCUS || knob == PN_OSC_KNOB_INTENSITY;
+}
+
+gdouble
+pn_oscilloscope_knob_level (PnOscilloscope *self, int knob)
+{
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0.0);
+
+    if (knob == PN_OSC_KNOB_FOCUS)     return self->focus;
+    if (knob == PN_OSC_KNOB_INTENSITY) return self->intensity;
+    return 0.0;
+}
+
+void
+pn_oscilloscope_knob_dial (
+        const PnOscRect *cell,
+        gdouble *cx, gdouble *cy, gdouble *radius)
+{
+    gdouble label_h, dial_cy, r;
+
+    g_return_if_fail (cell != NULL);
+
+    /* Must match draw_knob in the gui tier exactly. */
+    label_h = MIN (cell->h * 0.20, 16.0);
+    dial_cy = cell->y + label_h + 4.0
+            + (cell->h - 2.0 * label_h - 8.0) * 0.5;
+    r       = MIN (cell->w, cell->h - 2.0 * label_h) * 0.30;
+
+    if (cx)     *cx     = cell->x + cell->w * 0.5;
+    if (cy)     *cy     = dial_cy;
+    if (radius) *radius = r;
+}
+
+gboolean
+pn_oscilloscope_hit_knob_fine (
+        const PnOscRect knobs[PN_OSC_KNOB_N],
+        int knob, gdouble x, gdouble y)
+{
+    gdouble cx, cy, r, dx, dy, inner;
+
+    if (knobs == NULL || knob < 0 || knob >= PN_OSC_KNOB_N)
+        return FALSE;
+    if (!pn_oscilloscope_knob_is_concentric (knob))
+        return FALSE;
+
+    pn_oscilloscope_knob_dial (&knobs[knob], &cx, &cy, &r);
+    dx    = x - cx;
+    dy    = y - cy;
+    inner = r * PN_OSC_FINE_RADIUS_FRAC;
+
+    return (dx * dx + dy * dy) <= inner * inner;
+}
+
 /* Raw data extent of one axis, with a sane 0..1 fallback when there is
  * no trace yet, so a knob can still be grabbed on an empty screen. */
 static void
@@ -1068,6 +1152,9 @@ pn_oscilloscope_begin_knob (PnOscilloscope *self, int knob)
 
     g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
     g_return_if_fail (knob >= 0 && knob < PN_OSC_KNOB_N);
+
+    if (pn_oscilloscope_knob_is_level (knob))
+        return;                            /* Focus / Intensity: no axis */
 
     x_axis  = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_X_OFFSET);
     is_auto = x_axis ? self->x_auto : self->y_auto;
@@ -1104,6 +1191,7 @@ void
 pn_oscilloscope_drag_knob (
         PnOscilloscope *self,
         int             knob,
+        gboolean        fine,
         gdouble         dy,
         gdouble         crt_extent)
 {
@@ -1116,6 +1204,28 @@ pn_oscilloscope_drag_knob (
     if (!isfinite (dy) || dy == 0.0)
         return;
 
+    if (!isfinite (crt_extent) || crt_extent <= 0.0)
+        crt_extent = 1.0;
+
+    /* Level knobs (Focus / Intensity): move the 0..1 value directly, one
+     * CRT extent of UP drag (dy < 0) sweeping the whole range upward. */
+    if (pn_oscilloscope_knob_is_level (knob))
+    {
+        gdouble *vp = (knob == PN_OSC_KNOB_FOCUS) ? &self->focus
+                                                  : &self->intensity;
+        gdouble  nv = CLAMP (*vp - dy / crt_extent, 0.0, 1.0);
+
+        if (nv != *vp)
+        {
+            *vp = nv;
+            g_object_notify_by_pspec (G_OBJECT (self),
+                    props[(knob == PN_OSC_KNOB_FOCUS) ? PROP_FOCUS
+                                                      : PROP_INTENSITY]);
+            pn_node_request_repaint (PN_NODE (self));
+        }
+        return;
+    }
+
     x_axis   = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_X_OFFSET);
     is_range = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_Y_RANGE);
 
@@ -1125,9 +1235,11 @@ pn_oscilloscope_drag_knob (
     if (is_range)
     {
         /* Multiplicative: dragging UP (dy < 0) shrinks the range → zoom
-         * in; dragging down widens it → zoom out. */
+         * in; dragging down widens it → zoom out.  The fine inner disc
+         * turns the same way, just far more slowly (a vernier). */
+        gdouble  k  = fine ? PN_OSC_RANGE_FINE_K : PN_OSC_RANGE_DRAG_K;
         gdouble *rp = x_axis ? &self->x_range : &self->y_range;
-        gdouble  nr = *rp * exp (dy * PN_OSC_RANGE_DRAG_K);
+        gdouble  nr = *rp * exp (dy * k);
 
         if (!isfinite (nr))
             return;
@@ -1144,9 +1256,6 @@ pn_oscilloscope_drag_knob (
          * (Y) / right (X), i.e. the content follows the drag. */
         gdouble *op = x_axis ? &self->x_offset : &self->y_offset;
         gdouble  r  = x_axis ? self->x_range   : self->y_range;
-
-        if (!isfinite (crt_extent) || crt_extent <= 0.0)
-            crt_extent = 1.0;
 
         *op += (dy / crt_extent) * r;
 
@@ -1178,6 +1287,38 @@ pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis)
     }
 
     pn_node_request_repaint (PN_NODE (self));
+}
+
+void
+pn_oscilloscope_reset_knob (PnOscilloscope *self, int knob)
+{
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (knob >= 0 && knob < PN_OSC_KNOB_N);
+
+    if (knob == PN_OSC_KNOB_FOCUS)
+    {
+        if (self->focus != PN_OSC_FOCUS_DEFAULT)
+        {
+            self->focus = PN_OSC_FOCUS_DEFAULT;
+            g_object_notify_by_pspec (G_OBJECT (self), props[PROP_FOCUS]);
+            pn_node_request_repaint (PN_NODE (self));
+        }
+    }
+    else if (knob == PN_OSC_KNOB_INTENSITY)
+    {
+        if (self->intensity != PN_OSC_INTENSITY_DEFAULT)
+        {
+            self->intensity = PN_OSC_INTENSITY_DEFAULT;
+            g_object_notify_by_pspec (G_OBJECT (self), props[PROP_INTENSITY]);
+            pn_node_request_repaint (PN_NODE (self));
+        }
+    }
+    else
+    {
+        gboolean x_axis = (knob == PN_OSC_KNOB_X_RANGE ||
+                           knob == PN_OSC_KNOB_X_OFFSET);
+        pn_oscilloscope_reset_axis (self, x_axis);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1243,6 +1384,12 @@ pn_oscilloscope_get_property (
         break;
     case PROP_Y_FROM_ZERO:
         g_value_set_boolean (value, self->y_from_zero);
+        break;
+    case PROP_FOCUS:
+        g_value_set_double (value, self->focus);
+        break;
+    case PROP_INTENSITY:
+        g_value_set_double (value, self->intensity);
         break;
     case PROP_X_AUTO:
         g_value_set_boolean (value, self->x_auto);
@@ -1372,6 +1519,28 @@ pn_oscilloscope_set_property (
             {
                 self->y_from_zero = z;
                 g_object_notify_by_pspec (object, props[PROP_Y_FROM_ZERO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_FOCUS:
+        {
+            gdouble f = CLAMP (g_value_get_double (value), 0.0, 1.0);
+            if (self->focus != f)
+            {
+                self->focus = f;
+                g_object_notify_by_pspec (object, props[PROP_FOCUS]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_INTENSITY:
+        {
+            gdouble v = CLAMP (g_value_get_double (value), 0.0, 1.0);
+            if (self->intensity != v)
+            {
+                self->intensity = v;
+                g_object_notify_by_pspec (object, props[PROP_INTENSITY]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -1568,6 +1737,20 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_FOCUS] = g_param_spec_double (
+            "focus", "Focus",
+            "Beam sharpness, 0..1 (1 = tightest).  Lower values defocus the "
+            "trace into a wider, softer beam.  The maximized-view Focus knob.",
+            0.0, 1.0, PN_OSC_FOCUS_DEFAULT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_INTENSITY] = g_param_spec_double (
+            "intensity", "Intensity",
+            "Beam brightness, 0..1 (1 = brightest).  Lower values dim the "
+            "trace and its phosphor glow.  The maximized-view Intensity knob.",
+            0.0, 1.0, PN_OSC_INTENSITY_DEFAULT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_X_AUTO] = g_param_spec_boolean (
             "x-auto", "X auto-fit",
             "Auto-fit the X axis to the data.  When off, the X window is "
@@ -1623,6 +1806,8 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
         pn_settings_schema_row (schema, "screen-color",   PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "grid-color",     PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "show-graticule", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "focus",          PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "intensity",      PN_EDITOR_AUTO);
 
         pn_settings_schema_tab (schema, "Data");
         pn_settings_schema_row (schema, "x-key",       PN_EDITOR_AUTO);
@@ -1663,6 +1848,8 @@ pn_oscilloscope_init (PnOscilloscope *self)
     self->trace_width    = 2;
     self->x_from_zero    = FALSE;
     self->y_from_zero    = FALSE;
+    self->focus          = PN_OSC_FOCUS_DEFAULT;
+    self->intensity      = PN_OSC_INTENSITY_DEFAULT;
 
     self->x_auto   = TRUE;
     self->x_range  = 1.0;
