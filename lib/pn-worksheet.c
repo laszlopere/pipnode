@@ -423,6 +423,12 @@ static void zoom_current_rect (PnWorksheet *self,
 #define PN_ZOOM_MAX        4.00
 #define PN_ZOOM_STEP       1.10
 
+/* One mouse-wheel tick over a maximized oscilloscope knob stands in for
+ * this many pixels of vertical drag (the sign carries the direction), so
+ * the wheel nudges the knob the same way a drag does without the precise
+ * grab.  Sized for a noticeable-but-gentle step per detent. */
+#define PN_OSC_WHEEL_STEP_PX  14.0
+
 /* Floor for the worksheet's reported size, in widget pixels.  An
  * empty worksheet still asks for at least this much so the enclosing
  * GtkScrolledWindow has a sensible viewport even before the user
@@ -4661,6 +4667,33 @@ on_scroll (
 
     if (self->zoomed_node == NULL)
         return GDK_EVENT_PROPAGATE;
+
+    /* Maximized oscilloscope: a wheel spin over a knob nudges it, the same
+     * value change a vertical drag would make but without the fiddly grab —
+     * the knobs are awkward to drag precisely.  One wheel tick stands in for
+     * a fixed slice of drag (PN_OSC_WHEEL_STEP_PX pixels, +down), routed
+     * through the very same drag_knob seam the pointer drag uses so the wheel
+     * and the drag never disagree.  Only while the lift has settled. */
+    if (PN_IS_OSCILLOSCOPE (self->zoomed_node) && self->zoom_dir == 0 &&
+        dy != 0.0)
+    {
+        PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+        double          zx, zy, zw, zh;
+        PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+        int             k;
+
+        zoom_current_rect (self, &zx, &zy, &zw, &zh);
+        pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn);
+
+        k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
+        if (k >= 0)
+        {
+            pn_oscilloscope_drag_knob (osc, k, dy * PN_OSC_WHEEL_STEP_PX,
+                                       crt.h);
+            gtk_widget_queue_draw (widget);
+            return GDK_EVENT_STOP;
+        }
+    }
 
     klass = PN_NODE_GET_CLASS (self->zoomed_node);
     if (klass->scroll == NULL)

@@ -46,10 +46,11 @@ G_BEGIN_DECLS
 /*  When the card is MAXIMIZED into the worksheet zoom overlay the CRT  */
 /*  retreats to the top-left corner and four bench-scope knobs appear   */
 /*  in the freed space (a column to its right, a strip below): X range,  */
-/*  X offset, Y range, Y offset.  Turning a knob switches that axis      */
-/*  from auto-fit to a manual window (centre = offset, span = range);    */
-/*  an "Auto" button (or a double-click on a knob) returns it to         */
-/*  auto-fit.  At rest the small card carries no controls.               */
+/*  X offset, Y range, Y offset.  Turning a knob — by dragging it or by  */
+/*  spinning the mouse wheel over it — switches that axis from auto-fit   */
+/*  to a manual window (centre = offset, span = range); an "Auto" button  */
+/*  (or a double-click on a knob) returns it to auto-fit.  At rest the    */
+/*  small card carries no controls.                                       */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_OSCILLOSCOPE (pn_oscilloscope_get_type ())
