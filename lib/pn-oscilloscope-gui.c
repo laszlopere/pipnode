@@ -161,35 +161,6 @@ rounded_rect (
     cairo_close_path (cr);
 }
 
-/** Pad a [lo, hi] range so the data never touches the frame; widen a
- *  degenerate (flat) range to something drawable.  When @from_zero the
- *  range is first anchored at zero.  Mirrors pn-xy-graph-gui.c. */
-static void
-pad_range (
-        gdouble  *lo,
-        gdouble  *hi,
-        gboolean  from_zero)
-{
-    if (from_zero)
-    {
-        if (*lo > 0.0) *lo = 0.0;
-        if (*hi < 0.0) *hi = 0.0;
-    }
-
-    if (*hi - *lo < 1e-9)
-    {
-        gdouble pad = (fabs (*hi) > 1e-9) ? fabs (*hi) * 0.05 : 0.5;
-        *lo -= pad;
-        *hi += pad;
-    }
-    else
-    {
-        gdouble pad = (*hi - *lo) * 0.05;
-        *lo -= pad;
-        *hi += pad;
-    }
-}
-
 /* ------------------------------------------------------------------ */
 /*  Graticule                                                          */
 /* ------------------------------------------------------------------ */
@@ -257,8 +228,12 @@ paint_graticule (
 /*  Painter                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Draw the CRT instrument (bezel, phosphor screen, graticule, trace) into
+ * the rectangle (@x,@y,@w,@h).  At rest this is the whole node footprint;
+ * when maximized it is just the top-left sub-rectangle, with the knob
+ * panel painted around it by pn_oscilloscope_paint_plot. */
 static void
-pn_oscilloscope_paint_plot (
+paint_crt (
         PnNode  *node,
         cairo_t *cr,
         double   x,
@@ -365,12 +340,15 @@ pn_oscilloscope_paint_plot (
     else
     {
         double  lw = MAX (1.0, scale * (double) ps.trace_width);
-        gdouble x0 = xmin, x1 = xmax, y0 = ymin, y1 = ymax;
+        gdouble x0, x1, y0, y1;
         double  xspan, yspan;
         guint   i;
 
-        pad_range (&x0, &x1, ps.x_from_zero);
-        pad_range (&y0, &y1, ps.y_from_zero);
+        /* The visible window: auto-fit (padded) per axis, or the manual
+         * offset ± range/2 when a knob has been turned.  Single definition
+         * lives in the core so the knobs and the mapping never disagree. */
+        pn_oscilloscope_axis_window (self, TRUE,  xmin, xmax, &x0, &x1);
+        pn_oscilloscope_axis_window (self, FALSE, ymin, ymax, &y0, &y1);
         xspan = x1 - x0;
         yspan = y1 - y0;
 
@@ -489,6 +467,291 @@ pn_oscilloscope_paint_plot (
     }
 
     cairo_restore (cr);  /* screen clip */
+}
+
+/* ------------------------------------------------------------------ */
+/*  Maximized knob panel                                               */
+/* ------------------------------------------------------------------ */
+
+/* A short Pango label centred horizontally at (@cx, baseline @y_top),
+ * drawn in the phosphor-green panel ink. */
+static void
+panel_text (
+        cairo_t      *cr,
+        double        cx,
+        double        y_top,
+        double        size,
+        gboolean      bold,
+        const PnColor *ink,
+        const char   *text)
+{
+    PangoLayout          *layout = pango_cairo_create_layout (cr);
+    PangoFontDescription *desc   =
+        pango_font_description_from_string (bold ? "Sans Bold" : "Sans");
+    int pw, ph;
+
+    pango_font_description_set_absolute_size (desc, size * PANGO_SCALE);
+    pango_layout_set_font_description (layout, desc);
+    pango_font_description_free (desc);
+    pango_layout_set_text (layout, text, -1);
+    pango_layout_get_pixel_size (layout, &pw, &ph);
+
+    set_rgba (cr, ink, 1.0);
+    cairo_move_to (cr, cx - pw * 0.5, y_top);
+    pango_cairo_show_layout (cr, layout);
+    g_object_unref (layout);
+}
+
+/* Format a knob value compactly (e.g. "2.0", "1.5k", "12m"). */
+static void
+format_value (
+        char    *buf,
+        gsize    len,
+        gdouble  v)
+{
+    gdouble a = fabs (v);
+
+    if (a != 0.0 && (a >= 1e5 || a < 1e-3))
+        g_snprintf (buf, len, "%.2e", v);
+    else
+        g_snprintf (buf, len, "%.3g", v);
+}
+
+/* One rotary knob inside @r: a dark dial with a bright pointer at
+ * @angle (radians, 0 = up, +clockwise), a name above and a value below.
+ * Dimmed when @is_auto (the knob is just mirroring the live auto-fit). */
+static void
+draw_knob (
+        cairo_t        *cr,
+        const PnOscRect *r,
+        const PnColor  *ink,
+        const char     *name,
+        gdouble         value,
+        double          angle,
+        gboolean        is_auto)
+{
+    double cx     = r->x + r->w * 0.5;
+    double label_h = MIN (r->h * 0.20, 16.0);
+    double dial_cy = r->y + label_h + 4.0
+                   + (r->h - 2.0 * label_h - 8.0) * 0.5;
+    double radius  = MIN (r->w, r->h - 2.0 * label_h) * 0.30;
+    double a       = is_auto ? 0.55 : 1.0;     /* dim while auto-fitting */
+    char   vbuf[32];
+
+    if (radius < 6.0)
+        return;
+
+    /* Name above the dial. */
+    panel_text (cr, cx, r->y + 2.0, MIN (label_h, 13.0), FALSE, ink, name);
+
+    /* Dial body: a recessed metal disc. */
+    {
+        cairo_pattern_t *grad = cairo_pattern_create_radial (
+                cx, dial_cy - radius * 0.4, radius * 0.2,
+                cx, dial_cy,                radius);
+        cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.28, 0.30, 0.28);
+        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.10, 0.11, 0.10);
+        cairo_arc (cr, cx, dial_cy, radius, 0.0, 2.0 * G_PI);
+        cairo_set_source (cr, grad);
+        cairo_fill (cr);
+        cairo_pattern_destroy (grad);
+
+        cairo_arc (cr, cx, dial_cy, radius, 0.0, 2.0 * G_PI);
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.6);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+    }
+
+    /* Pointer: a glowing notch from centre toward the rim. */
+    {
+        double px = cx       + sin (angle) * radius * 0.78;
+        double py = dial_cy  - cos (angle) * radius * 0.78;
+
+        set_rgba (cr, ink, a);
+        cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_width (cr, MAX (2.0, radius * 0.16));
+        cairo_move_to (cr, cx, dial_cy);
+        cairo_line_to (cr, px, py);
+        cairo_stroke (cr);
+    }
+
+    /* Value below the dial. */
+    format_value (vbuf, sizeof vbuf, value);
+    panel_text (cr, cx, dial_cy + radius + 2.0,
+                MIN (label_h, 12.0), FALSE, ink, vbuf);
+}
+
+/* An "Auto" toggle button.  Lit (filled) when @active (axis auto-fitting),
+ * an outline otherwise — pressing it returns the axis to auto. */
+static void
+draw_auto_button (
+        cairo_t        *cr,
+        const PnOscRect *r,
+        const PnColor  *ink,
+        const char     *label,
+        gboolean        active)
+{
+    rounded_rect (cr, r->x, r->y, r->w, r->h, MIN (6.0, r->h * 0.3));
+
+    if (active)
+    {
+        set_rgba (cr, ink, 0.85);
+        cairo_fill_preserve (cr);
+        set_rgba (cr, ink, 1.0);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+    }
+    else
+    {
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.35);
+        cairo_fill_preserve (cr);
+        set_rgba (cr, ink, 0.7);
+        cairo_set_line_width (cr, 1.2);
+        cairo_stroke (cr);
+    }
+
+    {
+        PnColor textink = active ? (PnColor){ 0.05, 0.08, 0.05, 1.0 } : *ink;
+        double  th      = MIN (r->h * 0.5, 14.0);
+        panel_text (cr, r->x + r->w * 0.5, r->y + (r->h - th) * 0.5 - 1.0,
+                    th, TRUE, &textink, label);
+    }
+}
+
+/* Pointer angle for a knob, in radians (0 = up, +clockwise).  Range knobs
+ * sweep with log(range) so a decade is a fixed turn; offset knobs sweep
+ * with offset/range, clamped, so centre reads straight up. */
+static double
+knob_angle (
+        gboolean is_range,
+        gdouble  range,
+        gdouble  offset)
+{
+    if (is_range)
+    {
+        if (!(range > 0.0) || !isfinite (range))
+            return 0.0;
+        /* 90° per decade, wrapped into [-PI, PI). */
+        double a = log10 (range) * (G_PI * 0.5);
+        a = fmod (a + G_PI, 2.0 * G_PI);
+        if (a < 0.0) a += 2.0 * G_PI;
+        return a - G_PI;
+    }
+    else
+    {
+        double frac = (range > 0.0 && isfinite (range)) ? offset / range : 0.0;
+        frac = CLAMP (frac, -1.5, 1.5);
+        return frac * (G_PI * 0.66);     /* ±~120° over ±1.5 screenfuls */
+    }
+}
+
+/* The dark moulded instrument face behind the whole maximized rect. */
+static void
+paint_panel_bg (
+        cairo_t *cr,
+        double   x,
+        double   y,
+        double   w,
+        double   h)
+{
+    double r = MIN (w, h) * 0.04;
+
+    rounded_rect (cr, x, y, w, h, r);
+    {
+        cairo_pattern_t *grad = cairo_pattern_create_linear (x, y, x, y + h);
+        cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.17, 0.18, 0.17);
+        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.08, 0.09, 0.08);
+        cairo_set_source (cr, grad);
+        cairo_fill_preserve (cr);
+        cairo_pattern_destroy (grad);
+    }
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.55);
+    cairo_set_line_width (cr, 1.0);
+    cairo_stroke (cr);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Painter entry point                                                */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_oscilloscope_paint_plot (
+        PnNode  *node,
+        cairo_t *cr,
+        double   x,
+        double   y,
+        double   w,
+        double   h)
+{
+    PnOscilloscope *self = PN_OSCILLOSCOPE (node);
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+    PnColor         ink;          /* phosphor-green panel ink           */
+    gdouble         xmin, xmax, ymin, ymax;
+    gdouble         raw_x_lo, raw_x_hi, raw_y_lo, raw_y_hi;
+    int             i;
+
+    /* At rest (and during a zoom of any OTHER node) the scope is the bare
+     * CRT, exactly as before. */
+    if (!pn_oscilloscope_get_maximized (self))
+    {
+        paint_crt (node, cr, x, y, w, h);
+        return;
+    }
+
+    /* Maximized: CRT retreats to the top-left, knob panel fills the rest. */
+    pn_oscilloscope_layout (self, x, y, w, h, &crt, knobs, autobtn);
+
+    paint_panel_bg (cr, x, y, w, h);
+    paint_crt (node, cr, crt.x, crt.y, crt.w, crt.h);
+
+    /* Panel ink: a calm phosphor green that reads on the dark face. */
+    ink = (PnColor){ 0.45, 0.85, 0.55, 1.0 };
+
+    /* Raw data extent → the live (effective) range/offset shown on each
+     * knob, even while an axis is still auto-fitting.  We only need the
+     * bounds, but read_trace requires scratch output arrays. */
+    {
+        gdouble scratchx[2], scratchy[2];
+
+        pn_oscilloscope_read_trace (self, 2, scratchx, scratchy,
+                                    &xmin, &xmax, &ymin, &ymax);
+    }
+    raw_x_lo = xmin; raw_x_hi = xmax;
+    raw_y_lo = ymin; raw_y_hi = ymax;
+
+    for (i = 0; i < PN_OSC_KNOB_N; i++)
+    {
+        gboolean x_axis   = (i == PN_OSC_KNOB_X_RANGE ||
+                             i == PN_OSC_KNOB_X_OFFSET);
+        gboolean is_range = (i == PN_OSC_KNOB_X_RANGE ||
+                             i == PN_OSC_KNOB_Y_RANGE);
+        gboolean is_auto  = pn_oscilloscope_axis_is_auto (self, x_axis);
+        gdouble  raw_lo   = x_axis ? raw_x_lo : raw_y_lo;
+        gdouble  raw_hi   = x_axis ? raw_x_hi : raw_y_hi;
+        gdouble  range, offset;
+        const char *name;
+
+        pn_oscilloscope_axis_knob_values (self, x_axis, raw_lo, raw_hi,
+                                          &range, &offset);
+
+        switch (i)
+        {
+        case PN_OSC_KNOB_X_RANGE:  name = "X range";  break;
+        case PN_OSC_KNOB_X_OFFSET: name = "X offset"; break;
+        case PN_OSC_KNOB_Y_RANGE:  name = "Y range";  break;
+        default:                   name = "Y offset"; break;
+        }
+
+        draw_knob (cr, &knobs[i], &ink, name,
+                   is_range ? range : offset,
+                   knob_angle (is_range, range, offset),
+                   is_auto);
+    }
+
+    draw_auto_button (cr, &autobtn[0], &ink, "Auto X",
+                      pn_oscilloscope_axis_is_auto (self, TRUE));
+    draw_auto_button (cr, &autobtn[1], &ink, "Auto Y",
+                      pn_oscilloscope_axis_is_auto (self, FALSE));
 }
 
 /* ------------------------------------------------------------------ */

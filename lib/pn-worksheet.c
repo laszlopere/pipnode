@@ -33,6 +33,7 @@
 #include "pn-knob.h"
 #include "pn-chat.h"
 #include "pn-sun-path.h"
+#include "pn-oscilloscope.h"
 #include "pn-filedrop.h"
 #include "pn-palette.h"
 #include "pn-preferences.h"
@@ -251,6 +252,18 @@ struct _PnWorksheet
     gboolean sun_path_dragged;
     double   sun_path_press_x, sun_path_press_y;
     double   sun_path_last_x,  sun_path_last_y;
+
+    /** Knob-drag state for a lifted #PnOscilloscope card.  Mirrors the
+     *  sun-path drag above: while the scope is maximized a primary press
+     *  on one of its on-screen knobs begins a value drag instead of
+     *  collapsing the overlay.  #osc_knob is the grabbed #PnOscKnob,
+     *  #osc_press_{x,y} the press point (click vs. drag), #osc_last_{x,y}
+     *  the previous motion sample (per-frame delta).  The node is always
+     *  #zoomed_node. */
+    gboolean osc_drag;
+    int      osc_knob;
+    double   osc_press_x, osc_press_y;
+    double   osc_last_x,  osc_last_y;
 
     /** Transient "magnification" readout shown while the user spins
      *  Ctrl+wheel.  #zoom_label_shown_us is the frame-clock timestamp
@@ -2827,8 +2840,25 @@ draw_zoom_overlay (
     zoom_current_rect (self, &zx, &zy, &zw, &zh);
 
     paint_drop_shadow (cr, zx, zy, zw, zh, 0.0);
-    PN_NODE_GET_CLASS (self->zoomed_node)->paint_plot (
-            self->zoomed_node, cr, zx, zy, zw, zh);
+
+    /* Tell a #PnOscilloscope it is being painted maximized so it draws its
+     * knob panel; clear it again immediately so the at-rest in-canvas paint
+     * (and any other reader) sees the bare CRT.  This is the ONLY place a
+     * zoomed node's plot is painted, so bracketing here is sufficient — and
+     * the setter is repaint-free, so it cannot loop the frame clock. */
+    if (PN_IS_OSCILLOSCOPE (self->zoomed_node))
+    {
+        PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+        pn_oscilloscope_set_maximized (osc, TRUE);
+        PN_NODE_GET_CLASS (self->zoomed_node)->paint_plot (
+                self->zoomed_node, cr, zx, zy, zw, zh);
+        pn_oscilloscope_set_maximized (osc, FALSE);
+    }
+    else
+    {
+        PN_NODE_GET_CLASS (self->zoomed_node)->paint_plot (
+                self->zoomed_node, cr, zx, zy, zw, zh);
+    }
 }
 
 /** Paint the worksheet background, a faint reference grid, and a
@@ -3401,6 +3431,7 @@ on_node_removed_from_store (
         self->zoom_dir     = 0;
         self->sun_path_drag    = FALSE;
         self->sun_path_dragged = FALSE;
+        self->osc_drag         = FALSE;
         if (self->zoom_tick_id != 0)
         {
             gtk_widget_remove_tick_callback (GTK_WIDGET (self),
@@ -4727,6 +4758,32 @@ on_button_press (
      * chat that has no controls. */
     if (self->zoomed_node != NULL)
     {
+        /* Double-click a maximized oscilloscope knob → return that axis to
+         * auto-fit (the same as its "Auto" button, but right on the knob). */
+        if (event->type == GDK_2BUTTON_PRESS &&
+            PN_IS_OSCILLOSCOPE (self->zoomed_node) && self->zoom_dir == 0 &&
+            hit_test_zoom_rect (self, event->x, event->y))
+        {
+            PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+            double          zx, zy, zw, zh;
+            PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+            int             k;
+
+            zoom_current_rect (self, &zx, &zy, &zw, &zh);
+            pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn);
+
+            k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
+            if (k >= 0)
+            {
+                gboolean x_axis = (k == PN_OSC_KNOB_X_RANGE ||
+                                   k == PN_OSC_KNOB_X_OFFSET);
+                self->osc_drag = FALSE;   /* cancel the drag the 1st press armed */
+                pn_oscilloscope_reset_axis (osc, x_axis);
+                gtk_widget_queue_draw (widget);
+            }
+            return GDK_EVENT_STOP;
+        }
+
         if (event->type == GDK_BUTTON_PRESS &&
             hit_test_zoom_rect (self, event->x, event->y))
         {
@@ -4780,6 +4837,44 @@ on_button_press (
                 self->sun_path_last_x  = event->x;
                 self->sun_path_last_y  = event->y;
                 return GDK_EVENT_STOP;
+            }
+
+            /* Oscilloscope: a press on a knob begins a value drag; a press
+             * on an "Auto" button returns that axis to auto-fit; a press
+             * anywhere else on the lifted face collapses the overlay as
+             * usual.  Only meaningful once the lift has settled. */
+            if (PN_IS_OSCILLOSCOPE (self->zoomed_node) && self->zoom_dir == 0)
+            {
+                PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+                double          zx, zy, zw, zh;
+                PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+                int             a, k;
+
+                zoom_current_rect (self, &zx, &zy, &zw, &zh);
+                pn_oscilloscope_layout (osc, zx, zy, zw, zh,
+                                        &crt, knobs, autobtn);
+
+                a = pn_oscilloscope_hit_auto (autobtn, event->x, event->y);
+                if (a >= 0)
+                {
+                    pn_oscilloscope_reset_axis (osc, a == 0);
+                    gtk_widget_queue_draw (widget);
+                    return GDK_EVENT_STOP;
+                }
+
+                k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
+                if (k >= 0)
+                {
+                    pn_oscilloscope_begin_knob (osc, k);
+                    self->osc_drag    = TRUE;
+                    self->osc_knob    = k;
+                    self->osc_press_x = event->x;
+                    self->osc_press_y = event->y;
+                    self->osc_last_x  = event->x;
+                    self->osc_last_y  = event->y;
+                    return GDK_EVENT_STOP;
+                }
+                /* not on a control → fall through to collapse */
             }
 
             zoom_start_animation (self, -1);
@@ -5046,6 +5141,28 @@ on_motion_notify (
         return GDK_EVENT_STOP;
     }
 
+    /* Oscilloscope knob drag: feed the vertical delta to the grabbed knob.
+     * The CRT height (from the live layout) scales the offset knobs so one
+     * screen-height of drag pans exactly one screenful. */
+    if (self->osc_drag && self->zoomed_node != NULL &&
+        PN_IS_OSCILLOSCOPE (self->zoomed_node))
+    {
+        PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+        double          zx, zy, zw, zh;
+        PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+        double          dy = event->y - self->osc_last_y;
+
+        self->osc_last_x = event->x;
+        self->osc_last_y = event->y;
+
+        zoom_current_rect (self, &zx, &zy, &zw, &zh);
+        pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn);
+
+        pn_oscilloscope_drag_knob (osc, self->osc_knob, dy, crt.h);
+        gtk_widget_queue_draw (widget);
+        return GDK_EVENT_STOP;
+    }
+
     if (self->wire_source != NULL || self->wire_dest != NULL)
     {
         self->wire_cursor_x = wx;
@@ -5131,6 +5248,15 @@ on_button_release (
 
         if (!dragged && self->zoomed_node != NULL && self->zoom_dir == 0)
             zoom_start_animation (self, -1);
+        return GDK_EVENT_STOP;
+    }
+
+    /* End an oscilloscope knob drag.  The overlay stays lifted (the user is
+     * adjusting the scope, not dismissing it); a plain click elsewhere on
+     * the face still collapses it via the press handler's fall-through. */
+    if (self->osc_drag)
+    {
+        self->osc_drag = FALSE;
         return GDK_EVENT_STOP;
     }
 

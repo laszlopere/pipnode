@@ -396,6 +396,228 @@ test_missing_or_bad_value_is_noop (void)
     g_object_unref (node);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Maximized knob panel (GTK-free geometry + value maths)             */
+/* ------------------------------------------------------------------ */
+
+static void
+test_maximized_flag (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+
+    PN_CHECK_FALSE (pn_oscilloscope_get_maximized (osc));
+    pn_oscilloscope_set_maximized (osc, TRUE);
+    PN_CHECK (pn_oscilloscope_get_maximized (osc));
+    pn_oscilloscope_set_maximized (osc, FALSE);
+    PN_CHECK_FALSE (pn_oscilloscope_get_maximized (osc));
+
+    g_object_unref (osc);
+}
+
+static void
+test_layout_reserves_panel (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+
+    pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
+                            &crt, knobs, autobtn);
+
+    /* CRT anchored top-left and strictly smaller than the whole face. */
+    PN_CHECK_NEAR (crt.x, 0.0, 1e-9);
+    PN_CHECK_NEAR (crt.y, 0.0, 1e-9);
+    PN_CHECK (crt.w < 1000.0);
+    PN_CHECK (crt.h < 700.0);
+
+    /* Knob grid sits in the column to the right of the CRT, 2×2. */
+    PN_CHECK (knobs[PN_OSC_KNOB_X_RANGE].x >= crt.w - 1e-6);
+    PN_CHECK (knobs[PN_OSC_KNOB_X_OFFSET].x > knobs[PN_OSC_KNOB_X_RANGE].x);
+    PN_CHECK (knobs[PN_OSC_KNOB_Y_RANGE].y  > knobs[PN_OSC_KNOB_X_RANGE].y);
+    PN_CHECK (knobs[PN_OSC_KNOB_Y_OFFSET].x > knobs[PN_OSC_KNOB_Y_RANGE].x);
+
+    /* Auto buttons sit in the strip below the CRT. */
+    PN_CHECK (autobtn[0].y >= crt.y + crt.h - 1e-6);
+    PN_CHECK (autobtn[1].x > autobtn[0].x);
+
+    g_object_unref (osc);
+}
+
+static void
+test_hit_knob_and_auto (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+    int             i;
+
+    pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
+                            &crt, knobs, autobtn);
+
+    /* Centre of each knob hits exactly that knob. */
+    for (i = 0; i < PN_OSC_KNOB_N; i++)
+    {
+        double cx = knobs[i].x + knobs[i].w * 0.5;
+        double cy = knobs[i].y + knobs[i].h * 0.5;
+        PN_CHECK_CMPINT (pn_oscilloscope_hit_knob (knobs, cx, cy), ==, i);
+        PN_CHECK_CMPINT (pn_oscilloscope_hit_auto (autobtn, cx, cy), ==, -1);
+    }
+
+    /* A point over the CRT hits no control. */
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_knob (knobs, 50.0, 50.0), ==, -1);
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_auto (autobtn, 50.0, 50.0), ==, -1);
+
+    /* Centre of each Auto button. */
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_auto (autobtn,
+            autobtn[0].x + autobtn[0].w * 0.5,
+            autobtn[0].y + autobtn[0].h * 0.5), ==, 0);
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_auto (autobtn,
+            autobtn[1].x + autobtn[1].w * 0.5,
+            autobtn[1].y + autobtn[1].h * 0.5), ==, 1);
+
+    g_object_unref (osc);
+}
+
+static void
+test_axis_window_auto_vs_manual (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         lo, hi;
+
+    /* Default auto: pads the raw extent by 5% each side. */
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    pn_oscilloscope_axis_window (osc, TRUE, 0.0, 10.0, &lo, &hi);
+    PN_CHECK_NEAR (lo, -0.5, 1e-9);
+    PN_CHECK_NEAR (hi, 10.5, 1e-9);
+
+    /* Setting a range/offset switches the axis to manual: window is
+     * offset ± range/2, independent of the raw data extent. */
+    g_object_set (osc, "x-range", 4.0, "x-offset", 2.0, NULL);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    pn_oscilloscope_axis_window (osc, TRUE, 0.0, 10.0, &lo, &hi);
+    PN_CHECK_NEAR (lo, 0.0, 1e-9);
+    PN_CHECK_NEAR (hi, 4.0, 1e-9);
+
+    /* The Y axis is untouched — still auto. */
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    g_object_unref (osc);
+}
+
+static void
+test_begin_knob_seeds_without_jump (void)
+{
+    PnOscilloscope *osc  = pn_oscilloscope_new ();
+    PnNode         *node = PN_NODE (osc);
+    gdouble         wave[2] = { 0.0, 10.0 };
+    gdouble         lo0, hi0, lo1, hi1;
+
+    /* Vector of len 2, no X → raw X is the index 0..1, raw Y is 0..10. */
+    feed_vec_y (node, wave, 2);
+
+    /* The auto window before grabbing the X-range knob. */
+    pn_oscilloscope_axis_window (osc, TRUE, 0.0, 1.0, &lo0, &hi0);
+
+    /* Grabbing it seeds range/offset from that window and goes manual. */
+    pn_oscilloscope_begin_knob (osc, PN_OSC_KNOB_X_RANGE);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, TRUE));
+
+    /* The window is unchanged — a delta-0 grab does not move the trace. */
+    pn_oscilloscope_axis_window (osc, TRUE, 0.0, 1.0, &lo1, &hi1);
+    PN_CHECK_NEAR (lo1, lo0, 1e-9);
+    PN_CHECK_NEAR (hi1, hi0, 1e-9);
+
+    g_object_unref (node);
+}
+
+static void
+test_drag_range_multiplies (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         r0, r1;
+
+    g_object_set (osc, "y-range", 10.0, "y-offset", 0.0, NULL);
+    g_object_get (osc, "y-range", &r0, NULL);
+
+    /* Drag UP (dy < 0) shrinks the range → zoom in. */
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_RANGE, -100.0, 200.0);
+    g_object_get (osc, "y-range", &r1, NULL);
+    PN_CHECK (r1 < r0);
+    /* exp(-100 * 0.005) = exp(-0.5) ≈ 0.6065. */
+    PN_CHECK_NEAR (r1, r0 * 0.60653066, 1e-6);
+
+    g_object_unref (osc);
+}
+
+static void
+test_drag_offset_sign (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gdouble         yoff, xoff;
+
+    /* One CRT-extent of UP drag (dy = -extent) pans one screenful: the
+     * offset drops by exactly one range, moving the trace up/right. */
+    g_object_set (osc, "y-range", 10.0, "y-offset", 0.0, NULL);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_Y_OFFSET, -100.0, 100.0);
+    g_object_get (osc, "y-offset", &yoff, NULL);
+    PN_CHECK_NEAR (yoff, -10.0, 1e-9);
+
+    g_object_set (osc, "x-range", 10.0, "x-offset", 0.0, NULL);
+    pn_oscilloscope_drag_knob (osc, PN_OSC_KNOB_X_OFFSET, -100.0, 100.0);
+    g_object_get (osc, "x-offset", &xoff, NULL);
+    PN_CHECK_NEAR (xoff, -10.0, 1e-9);
+
+    g_object_unref (osc);
+}
+
+static void
+test_reset_axis_returns_to_auto (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+
+    g_object_set (osc, "x-range", 4.0, "y-range", 4.0, NULL);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    pn_oscilloscope_reset_axis (osc, TRUE);
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    pn_oscilloscope_reset_axis (osc, FALSE);
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    g_object_unref (osc);
+}
+
+static void
+test_scale_property_roundtrip (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+    gboolean        xa = TRUE, ya = TRUE;
+    gdouble         xr = 0, xo = 0, yr = 0, yo = 0;
+
+    /* Defaults: both axes auto. */
+    g_object_get (osc, "x-auto", &xa, "y-auto", &ya, NULL);
+    PN_CHECK (xa);
+    PN_CHECK (ya);
+
+    g_object_set (osc,
+                  "x-range", 3.5, "x-offset", -1.0,
+                  "y-range", 7.0, "y-offset",  2.5, NULL);
+    g_object_get (osc,
+                  "x-range", &xr, "x-offset", &xo,
+                  "y-range", &yr, "y-offset", &yo,
+                  "x-auto", &xa, "y-auto", &ya, NULL);
+
+    PN_CHECK_NEAR (xr, 3.5, 1e-9);
+    PN_CHECK_NEAR (xo, -1.0, 1e-9);
+    PN_CHECK_NEAR (yr, 7.0, 1e-9);
+    PN_CHECK_NEAR (yo, 2.5, 1e-9);
+    /* Setting a scale value implies manual mode. */
+    PN_CHECK_FALSE (xa);
+    PN_CHECK_FALSE (ya);
+
+    g_object_unref (osc);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -411,5 +633,14 @@ main (int argc, char **argv)
     pn_test_add ("vector_xy_pairs",          test_vector_xy_pairs);
     pn_test_add ("decimation_bounded",       test_decimation_bounded_and_exact_bounds);
     pn_test_add ("missing_value_noop",       test_missing_or_bad_value_is_noop);
+    pn_test_add ("maximized_flag",           test_maximized_flag);
+    pn_test_add ("layout_reserves_panel",    test_layout_reserves_panel);
+    pn_test_add ("hit_knob_and_auto",        test_hit_knob_and_auto);
+    pn_test_add ("axis_window_auto_manual",  test_axis_window_auto_vs_manual);
+    pn_test_add ("begin_knob_no_jump",       test_begin_knob_seeds_without_jump);
+    pn_test_add ("drag_range_multiplies",    test_drag_range_multiplies);
+    pn_test_add ("drag_offset_sign",         test_drag_offset_sign);
+    pn_test_add ("reset_axis_to_auto",       test_reset_axis_returns_to_auto);
+    pn_test_add ("scale_property_roundtrip", test_scale_property_roundtrip);
     return pn_test_run ();
 }

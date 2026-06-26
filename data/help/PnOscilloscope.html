@@ -18,8 +18,9 @@ A display sink styled as an old square-screen, green-phosphor CRT
 oscilloscope &mdash; the kind found on a bench around 1980&ndash;1990,
 moulded bezel, etched graticule and a glowing beam. It traces a
 <strong>Y value against an X value</strong>, both read from each incoming
-message. There are no on-screen knobs: the node simply shows the trace
-and fits it to the screen automatically.
+message. By default it fits the trace to the screen automatically; lift
+the card into the zoom overlay and four bench-scope knobs appear to set
+the scale by hand (see <a href="#knobs">The knobs</a> below).
 </p>
 <p>
 What makes it the display end of the
@@ -68,6 +69,36 @@ signal yet, a dim flat baseline sits across the centre.
 The header is the standard card; the CRT screen is painted below it.
 Clicking the screen lifts it into the centred zoom overlay for a closer
 look, keeping the screen's aspect ratio.
+</p>
+
+<h5 id="knobs">The knobs</h5>
+<p>
+While the card is <strong>maximized</strong> in the zoom overlay the CRT
+retreats to the top-left corner and a small control panel appears around
+it &mdash; four rotary knobs in the column to its right and two
+<em>Auto</em> buttons in the strip below. The knobs are the classic
+bench-scope controls, two per axis:
+</p>
+<ul>
+  <li><strong>X range</strong> / <strong>Y range</strong> &mdash; the width
+      of the visible window in data units (how much of the signal fits
+      across / up the screen). Drag a range knob up to zoom in (a smaller
+      window), down to zoom out.</li>
+  <li><strong>X offset</strong> / <strong>Y offset</strong> &mdash; the
+      data value at the centre of the screen, i.e. the trace's position.
+      Drag an offset knob to pan the trace; one screen-height of drag pans
+      exactly one screenful.</li>
+</ul>
+<p>
+Turning any knob switches that axis from auto-fit to a fixed
+<em>manual</em> window (<code>offset&nbsp;&plusmn;&nbsp;range/2</code>);
+while an axis is still auto-fitting its knobs are dimmed and simply mirror
+the live auto values, so the first drag grabs smoothly from where the
+trace already is. To go back to auto-fit, press that axis's <em>Auto</em>
+button, or double-click any of its knobs. The four values are saved with
+the document and can also be set directly on the <strong>Scale</strong>
+tab of the settings dialog. (<code>x-from-zero</code> /
+<code>y-from-zero</code> only apply while the axis is in auto mode.)
 </p>
 
 <h5>A worked example</h5>
@@ -123,17 +154,32 @@ across the screen as the inputs change.
           around the data &mdash; useful when the absolute magnitude of Y
           matters and tight auto-fit would exaggerate small
           wobbles.</td></tr>
+  <tr><td><code>x-auto</code> / <code>y-auto</code></td>
+      <td>Whether that axis auto-fits the data (default on). Turning a
+          knob, or setting a range/offset, switches it off; the
+          <em>Auto</em> button (or a double-click on a knob) switches it
+          back on.</td></tr>
+  <tr><td><code>x-range</code> / <code>y-range</code></td>
+      <td>Width of the visible window along that axis in data units, used
+          when the axis is in manual mode. Setting it switches the axis to
+          manual.</td></tr>
+  <tr><td><code>x-offset</code> / <code>y-offset</code></td>
+      <td>Data value at the centre of the screen along that axis (manual
+          mode). Setting it switches the axis to manual.</td></tr>
 </table>
 
 <p>
-In the node's settings dialog these properties are split across two tabs:
+In the node's settings dialog these properties are split across three tabs:
 <strong>Appearance</strong> collects how the trace is drawn
 (<code>trace-color</code>, <code>trace-width</code>,
 <code>screen-color</code>, <code>grid-color</code>,
-<code>show-graticule</code>), while <strong>Data</strong> collects what is
+<code>show-graticule</code>); <strong>Data</strong> collects what is
 plotted and how the axes are framed (<code>x-key</code>,
 <code>value-key</code>, <code>x-from-zero</code>,
-<code>y-from-zero</code>).
+<code>y-from-zero</code>); and <strong>Scale</strong> holds the manual
+window controls that the maximized-view knobs drive (<code>x-auto</code>,
+<code>x-range</code>, <code>x-offset</code>, <code>y-auto</code>,
+<code>y-range</code>, <code>y-offset</code>).
 </p>
 
 </body>

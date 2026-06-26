@@ -756,9 +756,19 @@
                this makes true X-Y / Lissajous mode a deliberate choice rather
                than a side effect of the data shape.
          [ ] 45.3 Bench-style controls: time/div + volts/div, plus a roll /
-               trigger model.
-         [ ] 45.4 On-screen knobs / buttons. 44.x shipped display-only with no
-               on-canvas controls.
+               trigger model. (PARTIAL: the scale half landed with 45.4 below --
+               X/Y range + offset knobs give per-axis manual windowing; roll and
+               a trigger model are still open.)
+         [x] 45.4 On-screen knobs / buttons. Maximizing the card into the zoom
+               overlay now reveals four bench-scope knobs (X/Y range + offset) in
+               a panel around a top-left CRT, plus per-axis "Auto" buttons.
+               Turning a knob switches that axis from auto-fit to a manual
+               window (offset +/- range/2), seeded from the live auto values so
+               the grab does not jump; Auto (or double-click a knob) returns it.
+               Geometry/hit/drag are GTK-free core (pn_oscilloscope_layout /
+               _hit_knob / _hit_auto / _begin_knob / _drag_knob / _reset_axis /
+               _axis_window), wired in pn-worksheet.c like the PnSunPath drag;
+               new x/y-auto,range,offset props on a "Scale" tab; no ABI bump.
 
 [ ] 46 Tasmota Devices dialog. A "Tasmota Devices" entry in the editor's Devices
        menu, modelled on the proprietary zigbee plugin's "Zigbee Devices"

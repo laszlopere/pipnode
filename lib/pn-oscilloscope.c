@@ -90,6 +90,21 @@ struct _PnOscilloscope
     gboolean  x_from_zero;
     gboolean  y_from_zero;
 
+    /* Manual scale per axis.  When *_auto is TRUE the axis auto-fits the
+     * data (honouring *_from_zero) exactly as the scope always has; when
+     * FALSE the visible window is [offset - range/2, offset + range/2],
+     * driven by the maximized-view knobs.  The values are serialized. */
+    gboolean  x_auto;
+    gdouble   x_range;
+    gdouble   x_offset;
+    gboolean  y_auto;
+    gdouble   y_range;
+    gdouble   y_offset;
+
+    /* Transient: TRUE only while this card is lifted into the worksheet
+     * zoom overlay, gating the on-screen knob panel.  Not serialized. */
+    gboolean  maximized;
+
     /* Trace store.  Exactly one of the two is live at a time:
      *   • snapshot  — vy != NULL: the vector is the trace, vx (optional)
      *     supplies per-sample X (else the sample index is used).
@@ -143,6 +158,12 @@ enum {
     PROP_TRACE_WIDTH,
     PROP_X_FROM_ZERO,
     PROP_Y_FROM_ZERO,
+    PROP_X_AUTO,
+    PROP_X_RANGE,
+    PROP_X_OFFSET,
+    PROP_Y_AUTO,
+    PROP_Y_RANGE,
+    PROP_Y_OFFSET,
     N_PROPS,
 };
 
@@ -475,6 +496,61 @@ trace_x (PnOscilloscope *self, guint k)
     return self->last_x;
 }
 
+/** Raw data extent of the live trace, before any padding or manual
+ *  window.  For a vector snapshot this is the exact extent of every
+ *  sample; for the scalar dot it is the accumulated envelope of every
+ *  point seen since the last snapshot (so a lone dot has a stable frame
+ *  to move within).  Returns FALSE when there is no trace yet. */
+static gboolean
+compute_raw_bounds (
+        PnOscilloscope *self,
+        gdouble        *xlo,
+        gdouble        *xhi,
+        gdouble        *ylo,
+        gdouble        *yhi)
+{
+    guint   n = trace_len (self);
+    guint   k;
+    gdouble lo_x = 0.0, hi_x = 0.0, lo_y = 0.0, hi_y = 0.0;
+
+    if (n == 0)
+        return FALSE;
+
+    for (k = 0; k < n; k++)
+    {
+        gdouble x = trace_x (self, k);
+        gdouble y = trace_y (self, k);
+
+        if (k == 0)
+        {
+            lo_x = hi_x = x;
+            lo_y = hi_y = y;
+        }
+        else
+        {
+            if (x < lo_x) lo_x = x;
+            if (x > hi_x) hi_x = x;
+            if (y < lo_y) lo_y = y;
+            if (y > hi_y) hi_y = y;
+        }
+    }
+
+    /* Scalar mode draws only the latest dot; frame it by the accumulated
+     * extent of every scalar point so the dot moves within the explored
+     * range instead of being pinned dead-centre. */
+    if (self->vy == NULL && self->have_bounds)
+    {
+        lo_x = self->bx_lo; hi_x = self->bx_hi;
+        lo_y = self->by_lo; hi_y = self->by_hi;
+    }
+
+    if (xlo) *xlo = lo_x;
+    if (xhi) *xhi = hi_x;
+    if (ylo) *ylo = lo_y;
+    if (yhi) *yhi = hi_y;
+    return TRUE;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
@@ -582,27 +658,9 @@ pn_oscilloscope_read_trace (
         return 0;
     }
 
-    /* Bounds over every retained sample, so the auto-fit is exact even
-     * when the trace is decimated below for drawing.  (For the scalar dot
-     * this is overridden by the accumulated envelope after the loop.) */
-    for (k = 0; k < n; k++)
-    {
-        gdouble x = trace_x (self, k);
-        gdouble y = trace_y (self, k);
-
-        if (k == 0)
-        {
-            lo_x = hi_x = x;
-            lo_y = hi_y = y;
-        }
-        else
-        {
-            if (x < lo_x) lo_x = x;
-            if (x > hi_x) hi_x = x;
-            if (y < lo_y) lo_y = y;
-            if (y > hi_y) hi_y = y;
-        }
-    }
+    /* Bounds over every retained sample (scalar-envelope aware), so the
+     * auto-fit is exact even when the trace is decimated below. */
+    compute_raw_bounds (self, &lo_x, &hi_x, &lo_y, &hi_y);
 
     if (n <= cap)
     {
@@ -660,15 +718,6 @@ pn_oscilloscope_read_trace (
         }
     }
 
-    /* Scalar mode draws only the latest dot, but auto-fitting that single
-     * point would centre it forever; frame it by the accumulated extent of
-     * every scalar point seen so the dot moves within the explored range. */
-    if (self->vy == NULL && self->have_bounds)
-    {
-        lo_x = self->bx_lo; hi_x = self->bx_hi;
-        lo_y = self->by_lo; hi_y = self->by_hi;
-    }
-
     if (xmin) *xmin = lo_x;
     if (xmax) *xmax = hi_x;
     if (ymin) *ymin = lo_y;
@@ -718,6 +767,417 @@ pn_oscilloscope_get_point_count (PnOscilloscope *self)
 {
     g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0);
     return self->have_point ? 1u : 0u;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Maximized controls — knobs (GTK-free)                             */
+/*                                                                     */
+/*  Geometry, hit-testing and value maths for the four bench-scope     */
+/*  knobs and the two "Auto" buttons that appear while the card is      */
+/*  maximized.  Kept here, GTK-free, so the painter and the worksheet   */
+/*  share one definition (mirrors PnKnob / PnChat in-card controls).    */
+/* ------------------------------------------------------------------ */
+
+/* Layout proportions of the knob panel within the maximized rect. */
+#define PN_OSC_KNOB_COL_FRAC  0.30
+#define PN_OSC_KNOB_COL_MIN   150.0
+#define PN_OSC_KNOB_COL_MAX   280.0
+#define PN_OSC_BTN_ROW_FRAC   0.16
+#define PN_OSC_BTN_ROW_MIN    54.0
+#define PN_OSC_BTN_ROW_MAX    120.0
+#define PN_OSC_CRT_ASPECT     1.25      /* 10×8 graticule, kept square */
+
+/* Pixels-of-vertical-drag that scale a range by e (one natural-log
+ * unit).  ~0.005 → ~139 px per octave, a comfortable knob feel. */
+#define PN_OSC_RANGE_DRAG_K   0.005
+
+/** Pad a [lo, hi] range so the data never touches the frame; widen a
+ *  degenerate (flat) range to something drawable.  When @from_zero the
+ *  range is first anchored at zero.  This is the auto-fit padding that
+ *  used to live in the gui tier; the painter mapping and the knob-grab
+ *  seeding now share this one copy. */
+static void
+pad_range (
+        gdouble  *lo,
+        gdouble  *hi,
+        gboolean  from_zero)
+{
+    if (from_zero)
+    {
+        if (*lo > 0.0) *lo = 0.0;
+        if (*hi < 0.0) *hi = 0.0;
+    }
+
+    if (*hi - *lo < 1e-9)
+    {
+        gdouble pad = (fabs (*hi) > 1e-9) ? fabs (*hi) * 0.05 : 0.5;
+        *lo -= pad;
+        *hi += pad;
+    }
+    else
+    {
+        gdouble pad = (*hi - *lo) * 0.05;
+        *lo -= pad;
+        *hi += pad;
+    }
+}
+
+void
+pn_oscilloscope_set_maximized (PnOscilloscope *self, gboolean on)
+{
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    /* Pure state — NO repaint: this is toggled around every overlay paint,
+     * so requesting one here would spin the frame clock forever. */
+    self->maximized = on;
+}
+
+gboolean
+pn_oscilloscope_get_maximized (PnOscilloscope *self)
+{
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), FALSE);
+    return self->maximized;
+}
+
+void
+pn_oscilloscope_axis_window (
+        PnOscilloscope *self,
+        gboolean        x_axis,
+        gdouble         raw_lo,
+        gdouble         raw_hi,
+        gdouble        *lo,
+        gdouble        *hi)
+{
+    gboolean is_auto;
+    gdouble  out_lo, out_hi;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    is_auto = x_axis ? self->x_auto : self->y_auto;
+
+    if (!is_auto)
+    {
+        gdouble c = x_axis ? self->x_offset : self->y_offset;
+        gdouble r = x_axis ? self->x_range  : self->y_range;
+
+        if (!isfinite (r) || r <= 0.0)
+            r = 1.0;                       /* guard a degenerate window */
+
+        out_lo = c - r * 0.5;
+        out_hi = c + r * 0.5;
+    }
+    else
+    {
+        out_lo = raw_lo;
+        out_hi = raw_hi;
+        pad_range (&out_lo, &out_hi,
+                   x_axis ? self->x_from_zero : self->y_from_zero);
+    }
+
+    if (lo) *lo = out_lo;
+    if (hi) *hi = out_hi;
+}
+
+void
+pn_oscilloscope_axis_knob_values (
+        PnOscilloscope *self,
+        gboolean        x_axis,
+        gdouble         raw_lo,
+        gdouble         raw_hi,
+        gdouble        *range,
+        gdouble        *offset)
+{
+    gdouble lo, hi;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    pn_oscilloscope_axis_window (self, x_axis, raw_lo, raw_hi, &lo, &hi);
+
+    if (range)  *range  = hi - lo;
+    if (offset) *offset = (lo + hi) * 0.5;
+}
+
+gboolean
+pn_oscilloscope_axis_is_auto (PnOscilloscope *self, gboolean x_axis)
+{
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), TRUE);
+    return x_axis ? self->x_auto : self->y_auto;
+}
+
+void
+pn_oscilloscope_layout (
+        PnOscilloscope *self,
+        gdouble         px,
+        gdouble         py,
+        gdouble         pw,
+        gdouble         ph,
+        PnOscRect      *crt,
+        PnOscRect       knobs[PN_OSC_KNOB_N],
+        PnOscRect       autobtn[2])
+{
+    gdouble col_w, row_h, avail_w, avail_h;
+    gdouble crt_w, crt_h;
+    gdouble kx, kw, cell_w, cell_h;
+    gdouble bx, by, bh, btn_w, btn_h, btn_y;
+    int     i;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    col_w = CLAMP (pw * PN_OSC_KNOB_COL_FRAC,
+                   PN_OSC_KNOB_COL_MIN, PN_OSC_KNOB_COL_MAX);
+    row_h = CLAMP (ph * PN_OSC_BTN_ROW_FRAC,
+                   PN_OSC_BTN_ROW_MIN, PN_OSC_BTN_ROW_MAX);
+
+    /* Never let the panels eat the whole face on a small overlay. */
+    if (col_w > pw * 0.6) col_w = pw * 0.6;
+    if (row_h > ph * 0.5) row_h = ph * 0.5;
+
+    avail_w = pw - col_w;
+    avail_h = ph - row_h;
+
+    /* CRT fitted to the graticule aspect inside the top-left area. */
+    if (avail_w / avail_h > PN_OSC_CRT_ASPECT)
+    {
+        crt_h = avail_h;
+        crt_w = crt_h * PN_OSC_CRT_ASPECT;
+    }
+    else
+    {
+        crt_w = avail_w;
+        crt_h = crt_w / PN_OSC_CRT_ASPECT;
+    }
+
+    if (crt != NULL)
+    {
+        crt->x = px;
+        crt->y = py;
+        crt->w = crt_w;
+        crt->h = crt_h;
+    }
+
+    /* Right column → 2×2 knob grid.  Order matches PnOscKnob:
+     *   (col0,row0) X range   (col1,row0) X offset
+     *   (col0,row1) Y range   (col1,row1) Y offset                     */
+    kx     = px + avail_w;
+    kw     = col_w;
+    cell_w = kw * 0.5;
+    cell_h = avail_h * 0.5;
+
+    if (knobs != NULL)
+    {
+        for (i = 0; i < PN_OSC_KNOB_N; i++)
+        {
+            int col = i % 2;
+            int row = i / 2;
+
+            knobs[i].x = kx + col * cell_w;
+            knobs[i].y = py + row * cell_h;
+            knobs[i].w = cell_w;
+            knobs[i].h = cell_h;
+        }
+    }
+
+    /* Bottom strip → two "Auto" buttons under the CRT. */
+    bx    = px;
+    by    = py + avail_h;
+    bh    = row_h;
+    btn_w = CLAMP (pw * 0.20, 80.0, 180.0);
+    btn_h = MIN (bh * 0.6, 40.0);
+    btn_y = by + (bh - btn_h) * 0.5;
+
+    if (autobtn != NULL)
+    {
+        gdouble gap = 12.0;
+
+        autobtn[0].x = bx + gap;
+        autobtn[0].y = btn_y;
+        autobtn[0].w = btn_w;
+        autobtn[0].h = btn_h;
+
+        autobtn[1].x = bx + gap + btn_w + gap;
+        autobtn[1].y = btn_y;
+        autobtn[1].w = btn_w;
+        autobtn[1].h = btn_h;
+    }
+}
+
+static int
+hit_rect_array (
+        const PnOscRect *rects,
+        int              n,
+        gdouble          x,
+        gdouble          y)
+{
+    int i;
+
+    if (rects == NULL)
+        return -1;
+
+    for (i = 0; i < n; i++)
+        if (x >= rects[i].x && x < rects[i].x + rects[i].w &&
+            y >= rects[i].y && y < rects[i].y + rects[i].h)
+            return i;
+
+    return -1;
+}
+
+int
+pn_oscilloscope_hit_knob (
+        const PnOscRect knobs[PN_OSC_KNOB_N],
+        gdouble x, gdouble y)
+{
+    return hit_rect_array (knobs, PN_OSC_KNOB_N, x, y);
+}
+
+int
+pn_oscilloscope_hit_auto (
+        const PnOscRect autobtn[2],
+        gdouble x, gdouble y)
+{
+    return hit_rect_array (autobtn, 2, x, y);
+}
+
+/* Raw data extent of one axis, with a sane 0..1 fallback when there is
+ * no trace yet, so a knob can still be grabbed on an empty screen. */
+static void
+axis_raw_bounds (
+        PnOscilloscope *self,
+        gboolean        x_axis,
+        gdouble        *raw_lo,
+        gdouble        *raw_hi)
+{
+    gdouble xlo, xhi, ylo, yhi;
+
+    if (compute_raw_bounds (self, &xlo, &xhi, &ylo, &yhi))
+    {
+        *raw_lo = x_axis ? xlo : ylo;
+        *raw_hi = x_axis ? xhi : yhi;
+    }
+    else
+    {
+        *raw_lo = 0.0;
+        *raw_hi = 1.0;
+    }
+}
+
+void
+pn_oscilloscope_begin_knob (PnOscilloscope *self, int knob)
+{
+    gboolean x_axis;
+    gboolean is_auto;
+    gdouble  raw_lo, raw_hi, range, offset;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (knob >= 0 && knob < PN_OSC_KNOB_N);
+
+    x_axis  = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_X_OFFSET);
+    is_auto = x_axis ? self->x_auto : self->y_auto;
+    if (!is_auto)
+        return;                            /* already manual — no jump */
+
+    axis_raw_bounds (self, x_axis, &raw_lo, &raw_hi);
+    pn_oscilloscope_axis_knob_values (self, x_axis, raw_lo, raw_hi,
+                                      &range, &offset);
+
+    if (x_axis)
+    {
+        self->x_range  = range;
+        self->x_offset = offset;
+        self->x_auto   = FALSE;
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_X_RANGE]);
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_X_OFFSET]);
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_X_AUTO]);
+    }
+    else
+    {
+        self->y_range  = range;
+        self->y_offset = offset;
+        self->y_auto   = FALSE;
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_Y_RANGE]);
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_Y_OFFSET]);
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_Y_AUTO]);
+    }
+
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+void
+pn_oscilloscope_drag_knob (
+        PnOscilloscope *self,
+        int             knob,
+        gdouble         dy,
+        gdouble         crt_extent)
+{
+    gboolean x_axis;
+    gboolean is_range;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (knob >= 0 && knob < PN_OSC_KNOB_N);
+
+    if (!isfinite (dy) || dy == 0.0)
+        return;
+
+    x_axis   = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_X_OFFSET);
+    is_range = (knob == PN_OSC_KNOB_X_RANGE || knob == PN_OSC_KNOB_Y_RANGE);
+
+    /* Safety: grab from the live window if this axis was never seeded. */
+    pn_oscilloscope_begin_knob (self, knob);
+
+    if (is_range)
+    {
+        /* Multiplicative: dragging UP (dy < 0) shrinks the range → zoom
+         * in; dragging down widens it → zoom out. */
+        gdouble *rp = x_axis ? &self->x_range : &self->y_range;
+        gdouble  nr = *rp * exp (dy * PN_OSC_RANGE_DRAG_K);
+
+        if (!isfinite (nr))
+            return;
+        nr = CLAMP (nr, 1e-12, 1e12);
+        *rp = nr;
+
+        g_object_notify_by_pspec (G_OBJECT (self),
+                props[x_axis ? PROP_X_RANGE : PROP_Y_RANGE]);
+    }
+    else
+    {
+        /* Additive, scaled so one CRT extent of drag pans one screenful.
+         * Dragging UP (dy < 0) lowers the offset → the trace moves up
+         * (Y) / right (X), i.e. the content follows the drag. */
+        gdouble *op = x_axis ? &self->x_offset : &self->y_offset;
+        gdouble  r  = x_axis ? self->x_range   : self->y_range;
+
+        if (!isfinite (crt_extent) || crt_extent <= 0.0)
+            crt_extent = 1.0;
+
+        *op += (dy / crt_extent) * r;
+
+        g_object_notify_by_pspec (G_OBJECT (self),
+                props[x_axis ? PROP_X_OFFSET : PROP_Y_OFFSET]);
+    }
+
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+void
+pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis)
+{
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    if (x_axis)
+    {
+        if (self->x_auto)
+            return;
+        self->x_auto = TRUE;
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_X_AUTO]);
+    }
+    else
+    {
+        if (self->y_auto)
+            return;
+        self->y_auto = TRUE;
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_Y_AUTO]);
+    }
+
+    pn_node_request_repaint (PN_NODE (self));
 }
 
 /* ------------------------------------------------------------------ */
@@ -783,6 +1243,24 @@ pn_oscilloscope_get_property (
         break;
     case PROP_Y_FROM_ZERO:
         g_value_set_boolean (value, self->y_from_zero);
+        break;
+    case PROP_X_AUTO:
+        g_value_set_boolean (value, self->x_auto);
+        break;
+    case PROP_X_RANGE:
+        g_value_set_double (value, self->x_range);
+        break;
+    case PROP_X_OFFSET:
+        g_value_set_double (value, self->x_offset);
+        break;
+    case PROP_Y_AUTO:
+        g_value_set_boolean (value, self->y_auto);
+        break;
+    case PROP_Y_RANGE:
+        g_value_set_double (value, self->y_range);
+        break;
+    case PROP_Y_OFFSET:
+        g_value_set_double (value, self->y_offset);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -894,6 +1372,80 @@ pn_oscilloscope_set_property (
             {
                 self->y_from_zero = z;
                 g_object_notify_by_pspec (object, props[PROP_Y_FROM_ZERO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_X_AUTO:
+        {
+            gboolean a = g_value_get_boolean (value);
+            if (self->x_auto != a)
+            {
+                self->x_auto = a;
+                g_object_notify_by_pspec (object, props[PROP_X_AUTO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_Y_AUTO:
+        {
+            gboolean a = g_value_get_boolean (value);
+            if (self->y_auto != a)
+            {
+                self->y_auto = a;
+                g_object_notify_by_pspec (object, props[PROP_Y_AUTO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_X_RANGE:
+        {
+            gdouble r = g_value_get_double (value);
+            if (self->x_range != r || self->x_auto)
+            {
+                self->x_range = r;
+                self->x_auto  = FALSE;
+                g_object_notify_by_pspec (object, props[PROP_X_RANGE]);
+                g_object_notify_by_pspec (object, props[PROP_X_AUTO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_X_OFFSET:
+        {
+            gdouble o = g_value_get_double (value);
+            if (self->x_offset != o || self->x_auto)
+            {
+                self->x_offset = o;
+                self->x_auto   = FALSE;
+                g_object_notify_by_pspec (object, props[PROP_X_OFFSET]);
+                g_object_notify_by_pspec (object, props[PROP_X_AUTO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_Y_RANGE:
+        {
+            gdouble r = g_value_get_double (value);
+            if (self->y_range != r || self->y_auto)
+            {
+                self->y_range = r;
+                self->y_auto  = FALSE;
+                g_object_notify_by_pspec (object, props[PROP_Y_RANGE]);
+                g_object_notify_by_pspec (object, props[PROP_Y_AUTO]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_Y_OFFSET:
+        {
+            gdouble o = g_value_get_double (value);
+            if (self->y_offset != o || self->y_auto)
+            {
+                self->y_offset = o;
+                self->y_auto   = FALSE;
+                g_object_notify_by_pspec (object, props[PROP_Y_OFFSET]);
+                g_object_notify_by_pspec (object, props[PROP_Y_AUTO]);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -1012,8 +1564,50 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
     props[PROP_Y_FROM_ZERO] = g_param_spec_boolean (
             "y-from-zero", "Y starts from 0",
             "Anchor the Y axis at zero instead of auto-fitting it tightly "
-            "around the data.",
+            "around the data.  Only applies while the Y axis is in auto mode.",
             FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_X_AUTO] = g_param_spec_boolean (
+            "x-auto", "X auto-fit",
+            "Auto-fit the X axis to the data.  When off, the X window is "
+            "x-offset ± x-range/2 (set by the X knobs).",
+            TRUE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_X_RANGE] = g_param_spec_double (
+            "x-range", "X range",
+            "Width of the visible X window in data units (manual mode).  "
+            "Setting it switches the X axis to manual.",
+            0.0, G_MAXDOUBLE, 1.0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_X_OFFSET] = g_param_spec_double (
+            "x-offset", "X offset",
+            "Data value at the centre of the screen along X (manual mode).  "
+            "Setting it switches the X axis to manual.",
+            -G_MAXDOUBLE, G_MAXDOUBLE, 0.0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_Y_AUTO] = g_param_spec_boolean (
+            "y-auto", "Y auto-fit",
+            "Auto-fit the Y axis to the data.  When off, the Y window is "
+            "y-offset ± y-range/2 (set by the Y knobs).",
+            TRUE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_Y_RANGE] = g_param_spec_double (
+            "y-range", "Y range",
+            "Height of the visible Y window in data units (manual mode).  "
+            "Setting it switches the Y axis to manual.",
+            0.0, G_MAXDOUBLE, 1.0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_Y_OFFSET] = g_param_spec_double (
+            "y-offset", "Y offset",
+            "Data value at the centre of the screen along Y (manual mode).  "
+            "Setting it switches the Y axis to manual.",
+            -G_MAXDOUBLE, G_MAXDOUBLE, 0.0,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
@@ -1035,6 +1629,14 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
         pn_settings_schema_row (schema, "value-key",   PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "x-from-zero", PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "y-from-zero", PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Scale");
+        pn_settings_schema_row (schema, "x-auto",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "x-range",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "x-offset", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "y-auto",   PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "y-range",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "y-offset", PN_EDITOR_AUTO);
 
         pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
@@ -1061,6 +1663,14 @@ pn_oscilloscope_init (PnOscilloscope *self)
     self->trace_width    = 2;
     self->x_from_zero    = FALSE;
     self->y_from_zero    = FALSE;
+
+    self->x_auto   = TRUE;
+    self->x_range  = 1.0;
+    self->x_offset = 0.0;
+    self->y_auto   = TRUE;
+    self->y_range  = 1.0;
+    self->y_offset = 0.0;
+    self->maximized = FALSE;
 
     self->vy = NULL;
     self->vx = NULL;

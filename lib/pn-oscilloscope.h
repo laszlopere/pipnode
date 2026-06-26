@@ -41,7 +41,15 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Both axes auto-range over the visible data so the curve always      */
 /*  fits the screen.  The header is the standard Node-RED card; the     */
-/*  CRT screen is painted below it.  Display only — no on-screen knobs. */
+/*  CRT screen is painted below it.                                     */
+/*                                                                     */
+/*  When the card is MAXIMIZED into the worksheet zoom overlay the CRT  */
+/*  retreats to the top-left corner and four bench-scope knobs appear   */
+/*  in the freed space (a column to its right, a strip below): X range,  */
+/*  X offset, Y range, Y offset.  Turning a knob switches that axis      */
+/*  from auto-fit to a manual window (centre = offset, span = range);    */
+/*  an "Auto" button (or a double-click on a knob) returns it to         */
+/*  auto-fit.  At rest the small card carries no controls.               */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_OSCILLOSCOPE (pn_oscilloscope_get_type ())
@@ -151,6 +159,117 @@ guint pn_oscilloscope_read_afterglow (PnOscilloscope *self,
                                       gdouble        *out_x,
                                       gdouble        *out_y,
                                       gdouble        *out_life);
+
+/* ------------------------------------------------------------------ */
+/*  Maximized controls — knobs (GTK-free seam)                         */
+/*                                                                     */
+/*  The four bench-scope knobs and the two "Auto" buttons only appear  */
+/*  while the card is maximized into the worksheet zoom overlay.  Their */
+/*  geometry, hit-testing and value maths all live here in the GTK-free */
+/*  core so the painter (pn-oscilloscope-gui.c) and the worksheet's     */
+/*  pointer handlers agree on a single source of truth — exactly the    */
+/*  shape PnKnob / PnChat use for their own in-card controls.           */
+/* ------------------------------------------------------------------ */
+
+/* The four knobs, in layout order (right column, 2×2 grid). */
+typedef enum
+{
+    PN_OSC_KNOB_X_RANGE,
+    PN_OSC_KNOB_X_OFFSET,
+    PN_OSC_KNOB_Y_RANGE,
+    PN_OSC_KNOB_Y_OFFSET,
+    PN_OSC_KNOB_N
+} PnOscKnob;
+
+/* A plain rectangle in the same coordinate space as the plot rect handed
+ * to pn_oscilloscope_layout (and to the painter's paint_plot). */
+typedef struct
+{
+    gdouble x, y, w, h;
+} PnOscRect;
+
+/* Mark the node maximized (lifted into the zoom overlay) or not.  Pure
+ * state — never requests a repaint (it is toggled around every overlay
+ * paint, so a repaint here would loop).  The painter draws the knob
+ * panel exactly when this is set. */
+void     pn_oscilloscope_set_maximized (PnOscilloscope *self, gboolean on);
+gboolean pn_oscilloscope_get_maximized (PnOscilloscope *self);
+
+/**
+ * pn_oscilloscope_layout:
+ * @px-@ph: the maximized plot rectangle (the whole instrument face).
+ * @crt:     (out): the CRT sub-rectangle, anchored top-left.
+ * @knobs:   (out caller-allocates PN_OSC_KNOB_N): the four knob cells.
+ * @autobtn: (out caller-allocates 2): the "Auto X" / "Auto Y" buttons.
+ *
+ * Single source of truth for the maximized layout, used by both the
+ * painter and the worksheet so the drawn knobs and the hit-tested ones
+ * are the same rectangles.
+ */
+void pn_oscilloscope_layout (PnOscilloscope *self,
+                             gdouble         px,
+                             gdouble         py,
+                             gdouble         pw,
+                             gdouble         ph,
+                             PnOscRect      *crt,
+                             PnOscRect       knobs[PN_OSC_KNOB_N],
+                             PnOscRect       autobtn[2]);
+
+/* Index of the knob / Auto button under (@x, @y), or -1 for none. */
+int pn_oscilloscope_hit_knob (const PnOscRect knobs[PN_OSC_KNOB_N],
+                              gdouble x, gdouble y);
+int pn_oscilloscope_hit_auto (const PnOscRect autobtn[2],
+                              gdouble x, gdouble y);
+
+/* Begin manipulating @knob: if its axis is still in auto-fit, snapshot
+ * the current effective window into the axis's range/offset and switch it
+ * to manual, so the following drag grabs from where the trace already is
+ * (no jump).  A no-op when the axis is already manual. */
+void pn_oscilloscope_begin_knob (PnOscilloscope *self, int knob);
+
+/* Apply a vertical drag @dy (pixels, +down) to @knob.  Range knobs scale
+ * multiplicatively (up = wider); offset knobs translate the window by a
+ * fraction of @crt_extent (the CRT height) times the current range (up =
+ * trace moves up).  Switches the axis to manual if it was not already. */
+void pn_oscilloscope_drag_knob (PnOscilloscope *self,
+                                int             knob,
+                                gdouble         dy,
+                                gdouble         crt_extent);
+
+/* Return @x_axis (TRUE = X) to auto-fit. */
+void pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis);
+
+/**
+ * pn_oscilloscope_axis_window:
+ * @x_axis:           TRUE for the X axis, FALSE for Y.
+ * @raw_lo/@raw_hi:   the raw data extent of that axis (from read_trace).
+ * @lo/@hi:           (out): the visible window to map the trace into.
+ *
+ * For an auto axis this pads the raw extent (honouring *-from-zero), the
+ * same auto-fit the scope has always done; for a manual axis it returns
+ * offset ± range/2.  One definition shared by the painter's data→screen
+ * mapping and the knob-grab seeding.
+ */
+void pn_oscilloscope_axis_window (PnOscilloscope *self,
+                                  gboolean        x_axis,
+                                  gdouble         raw_lo,
+                                  gdouble         raw_hi,
+                                  gdouble        *lo,
+                                  gdouble        *hi);
+
+/* The effective range/offset of an axis right now — the manual values
+ * when manual, else those derived from the padded auto window.  Used by
+ * the painter to label the knobs (and show the live auto value before the
+ * user grabs one).  @raw_lo/@raw_hi as for pn_oscilloscope_axis_window. */
+void pn_oscilloscope_axis_knob_values (PnOscilloscope *self,
+                                       gboolean        x_axis,
+                                       gdouble         raw_lo,
+                                       gdouble         raw_hi,
+                                       gdouble        *range,
+                                       gdouble        *offset);
+
+/* TRUE when the given axis is currently in auto-fit mode. */
+gboolean pn_oscilloscope_axis_is_auto (PnOscilloscope *self, gboolean x_axis);
 
 G_END_DECLS
 
