@@ -1,0 +1,254 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "3b247a53-a716-43b4-b627-aaf68d4b860e",
+      "name" : "angle (deg)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 90.0,
+        "value" : 45.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "4dc82657-5955-409f-8b8a-cd596285d0fa",
+      "name" : "speed v0 (m/s)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 60.0,
+        "value" : 30.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "52278fc6-e215-48fd-b211-06d804874140",
+      "name" : "mass (kg)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 0.1,
+        "max" : 10.0,
+        "value" : 2.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "6e23c4e5-e5dc-4c03-b7bf-8a9cc095a4ef",
+      "name" : "drag k (kg/s)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "min" : 0.01,
+        "max" : 2.0,
+        "value" : 0.3
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "fdebbcdd-9407-4125-a182-0b8bdd2194b2",
+      "name" : "t max (s)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 520.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 15.0,
+        "value" : 4.5
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "ec9f6f5c-4360-40a1-a43d-db151e4840a5",
+      "name" : "t0 = 0",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 640.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 0.0,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "name" : "re-trigger (N=256)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 560.0
+      },
+      "properties" : {
+        "expression" : "256"
+      }
+    },
+    {
+      "type" : "PnRamp",
+      "uuid" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
+      "name" : "t ramp",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 300.0
+      },
+      "properties" : {      },
+      "input-names" : {
+        "0" : "from",
+        "1" : "to",
+        "2" : "N"
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "name" : "trajectory x(t), y(t)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "inputs" : 5,
+        "expression" : "rad = angle * 0.017453293\nvx0 = v0 * cos(rad)\nvy0 = v0 * sin(rad)\ng = 9.81\ntau = mass / k\ndecay = 1 - exp(-t / tau)\nx = vx0 * tau * decay\nyraw = tau * (vy0 + g * tau) * decay - g * tau * t\ny = (yraw + abs(yraw)) / 2\ny"
+      },
+      "input-names" : {
+        "0" : "t",
+        "1" : "v0",
+        "2" : "angle",
+        "3" : "mass",
+        "4" : "k"
+      }
+    },
+    {
+      "type" : "PnSuccess",
+      "uuid" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51",
+      "name" : "vectors only",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 820.0,
+        "y" : 240.0
+      },
+      "properties" : {      }
+    },
+    {
+      "type" : "PnOscilloscope",
+      "uuid" : "1b6352d7-244e-4559-b0cb-868c384cb436",
+      "name" : "trajectory",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 1000.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "value-key" : "value",
+        "x-key" : "x",
+        "screen-color" : "rgb(0,63,2)",
+        "trace-color" : "rgb(87,255,115)",
+        "grid-color" : "rgb(56,128,77)",
+        "show-graticule" : true,
+        "trace-width" : 2,
+        "x-from-zero" : true,
+        "y-from-zero" : true
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "3b247a53-a716-43b4-b627-aaf68d4b860e",
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "4dc82657-5955-409f-8b8a-cd596285d0fa",
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "52278fc6-e215-48fd-b211-06d804874140",
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_input" : 3
+    },
+    {
+      "source_id" : "6e23c4e5-e5dc-4c03-b7bf-8a9cc095a4ef",
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_input" : 4
+    },
+    {
+      "source_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
+      "target_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "ec9f6f5c-4360-40a1-a43d-db151e4840a5",
+      "target_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "fdebbcdd-9407-4125-a182-0b8bdd2194b2",
+      "target_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "target_id" : "f6bced5e-64d3-4955-b0e6-98642dcdd42b",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "3b247a53-a716-43b4-b627-aaf68d4b860e",
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "4dc82657-5955-409f-8b8a-cd596285d0fa",
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "52278fc6-e215-48fd-b211-06d804874140",
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "6e23c4e5-e5dc-4c03-b7bf-8a9cc095a4ef",
+      "target_id" : "5e0a5bb6-bbe7-4de8-97cf-dce66dc1bc4a",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "975514c2-63b3-4ca6-8cc2-b1b6c847b4b5",
+      "target_id" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51",
+      "target_input" : 0
+    },
+    {
+      "source_id" : "21efe1f0-8d0c-45a1-9b71-c121b1dd3e51",
+      "target_id" : "1b6352d7-244e-4559-b0cb-868c384cb436",
+      "target_input" : 0
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
