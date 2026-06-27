@@ -423,9 +423,10 @@ test_layout_reserves_panel (void)
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
                             &crt, knobs, autobtn);
 
-    /* CRT anchored top-left and strictly smaller than the whole face. */
-    PN_CHECK_NEAR (crt.x, 0.0, 1e-9);
-    PN_CHECK_NEAR (crt.y, 0.0, 1e-9);
+    /* CRT inset by a uniform border margin from the top-left corner, and
+     * strictly smaller than the whole face. */
+    PN_CHECK (crt.x > 0.0);
+    PN_CHECK_NEAR (crt.x, crt.y, 1e-9);
     PN_CHECK (crt.w < 1000.0);
     PN_CHECK (crt.h < 700.0);
 
@@ -435,9 +436,10 @@ test_layout_reserves_panel (void)
     PN_CHECK (knobs[PN_OSC_KNOB_Y_RANGE].y  > knobs[PN_OSC_KNOB_X_RANGE].y);
     PN_CHECK (knobs[PN_OSC_KNOB_Y_OFFSET].x > knobs[PN_OSC_KNOB_Y_RANGE].x);
 
-    /* Auto buttons sit in the strip below the CRT. */
+    /* Auto buttons sit in the strip below the CRT, stacked vertically. */
     PN_CHECK (autobtn[0].y >= crt.y + crt.h - 1e-6);
-    PN_CHECK (autobtn[1].x > autobtn[0].x);
+    PN_CHECK_NEAR (autobtn[1].x, autobtn[0].x, 1e-9);
+    PN_CHECK (autobtn[1].y > autobtn[0].y);
 
     g_object_unref (osc);
 }
@@ -702,6 +704,33 @@ test_reset_axis_returns_to_auto (void)
 }
 
 static void
+test_toggle_axis_auto (void)
+{
+    PnOscilloscope *osc = pn_oscilloscope_new ();
+
+    /* Both axes start auto. */
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    /* Toggling a lit axis turns it off (manual), leaving the other alone. */
+    pn_oscilloscope_toggle_axis_auto (osc, TRUE);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, TRUE));
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    /* Toggling it again turns auto back on. */
+    pn_oscilloscope_toggle_axis_auto (osc, TRUE);
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, TRUE));
+
+    /* Same for the Y axis. */
+    pn_oscilloscope_toggle_axis_auto (osc, FALSE);
+    PN_CHECK_FALSE (pn_oscilloscope_axis_is_auto (osc, FALSE));
+    pn_oscilloscope_toggle_axis_auto (osc, FALSE);
+    PN_CHECK (pn_oscilloscope_axis_is_auto (osc, FALSE));
+
+    g_object_unref (osc);
+}
+
+static void
 test_scale_property_roundtrip (void)
 {
     PnOscilloscope *osc = pn_oscilloscope_new ();
@@ -760,6 +789,7 @@ main (int argc, char **argv)
     pn_test_add ("hit_knob_fine",            test_hit_knob_fine_inner_vs_outer);
     pn_test_add ("reset_knob",               test_reset_knob_levels_and_axes);
     pn_test_add ("reset_axis_to_auto",       test_reset_axis_returns_to_auto);
+    pn_test_add ("toggle_axis_auto",         test_toggle_axis_auto);
     pn_test_add ("scale_property_roundtrip", test_scale_property_roundtrip);
     return pn_test_run ();
 }

@@ -566,8 +566,9 @@ draw_group_panel (
     cairo_stroke (cr);
 }
 
-/* The dark rotary dial of radius @radius at (@cx,@cy): a top-lit metal disc
- * with a bright pointer at @angle (0 = up, +clockwise), dimmed by @ptr_a. */
+/* The light rotary dial of radius @radius at (@cx,@cy): a top-lit cream disc
+ * (the Kenwood's pale knobs) with a dark pointer at @angle (0 = up,
+ * +clockwise), dimmed by @ptr_a. */
 static void
 draw_dial (
         cairo_t *cr,
@@ -585,25 +586,25 @@ draw_dial (
     grad = cairo_pattern_create_radial (
             cx, cy - radius * 0.45, radius * 0.15,
             cx, cy,                 radius);
-    cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.30, 0.31, 0.32);
-    cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.06, 0.06, 0.07);
+    cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.94, 0.94, 0.91);
+    cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.60, 0.60, 0.56);
     cairo_arc (cr, cx, cy, radius, 0.0, 2.0 * G_PI);
     cairo_set_source (cr, grad);
     cairo_fill (cr);
     cairo_pattern_destroy (grad);
 
     cairo_arc (cr, cx, cy, radius, 0.0, 2.0 * G_PI);
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.65);
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 
-    /* Pointer: a light notch from centre to the rim (the scope's white
-     * skirt mark), dimmed when the knob is only mirroring an auto axis. */
+    /* Pointer: a dark notch from centre to the rim, reading against the pale
+     * knob; dimmed when the knob is only mirroring an auto axis. */
     {
         double pxn = cx + sin (angle) * radius * 0.80;
         double pyn = cy - cos (angle) * radius * 0.80;
 
-        cairo_set_source_rgba (cr, 0.92, 0.93, 0.88, ptr_a);
+        cairo_set_source_rgba (cr, 0.16, 0.16, 0.15, ptr_a);
         cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
         cairo_set_line_width (cr, MAX (2.0, radius * 0.18));
         cairo_move_to (cr, cx, cy);
@@ -628,7 +629,7 @@ draw_knob (
         gboolean        is_level,
         gboolean        is_auto)
 {
-    double cx, dial_cy, radius;
+    double cx, dial_cy, radius, outer;
     double label_h = MIN (r->h * 0.20, 16.0);
     double ptr_a   = is_auto ? 0.50 : 1.0;
     char   vbuf[32];
@@ -636,6 +637,11 @@ draw_knob (
     pn_oscilloscope_knob_dial (r, &cx, &dial_cy, &radius);
     if (radius < 6.0)
         return;
+
+    /* Plain knobs (the single-pointer offset / level dials) are drawn at the
+     * size of a concentric knob's FINE inner disc, so they read as the small
+     * sibling of the coarse/fine range stack rather than a full-size dial. */
+    outer = concentric ? radius : radius * PN_OSC_FINE_RADIUS_FRAC;
 
     /* Name above the dial. */
     panel_text (cr, cx, r->y + 2.0, MIN (label_h, 13.0), FALSE,
@@ -671,7 +677,7 @@ draw_knob (
     }
     else
     {
-        draw_dial (cr, cx, dial_cy, radius, angle, ptr_a);
+        draw_dial (cr, cx, dial_cy, outer, angle, ptr_a);
     }
 
     /* Value below the dial. */
@@ -679,13 +685,15 @@ draw_knob (
         format_percent (vbuf, sizeof vbuf, value);
     else
         format_value (vbuf, sizeof vbuf, value);
-    panel_text (cr, cx, dial_cy + radius + 2.0,
+    panel_text (cr, cx, dial_cy + outer + 2.0,
                 MIN (label_h, 12.0), FALSE, &KEN_INK, vbuf);
 }
 
-/* A square pushbutton (the reference's grey momentary keys).  Bevelled,
- * with a green tally LED that lights when @active (the axis is auto-
- * fitting); pressing it returns the axis to auto. */
+/* A wide bevelled momentary key in the warm panel-grey of the instrument
+ * face, with its @label legend printed ABOVE the key and a rectangular green
+ * tally LED on its LEFT edge that lights when @active (the axis is auto-
+ * fitting); pressing it returns the axis to auto.  Mirrors the small legended
+ * pushbuttons of the reference panel. */
 static void
 draw_auto_button (
         cairo_t        *cr,
@@ -693,23 +701,31 @@ draw_auto_button (
         const char     *label,
         gboolean        active)
 {
-    double rad = MIN (5.0, r->h * 0.25);
-    double led_r;
+    double rad = MIN (4.0, r->h * 0.30);
 
-    /* Bevelled grey key — slightly pressed-in when active. */
+    /* Legend ABOVE the key, centred on it. */
+    {
+        double th = MIN (r->h * 0.85, 12.0);
+        panel_text (cr, r->x + r->w * 0.5, r->y - th - 3.0, th, FALSE,
+                    &KEN_INK, label);
+    }
+
+    /* Bevelled key in the panel's warm grey — a touch lighter than the
+     * moulding so it reads as a raised key; pressed-in (inverted) when
+     * active.  Matches paint_panel_bg's beige rather than a cold grey. */
     rounded_rect (cr, r->x, r->y, r->w, r->h, rad);
     {
         cairo_pattern_t *grad =
             cairo_pattern_create_linear (r->x, r->y, r->x, r->y + r->h);
         if (active)
         {
-            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.66, 0.66, 0.62);
-            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.80, 0.80, 0.76);
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.74, 0.73, 0.66);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.88, 0.87, 0.80);
         }
         else
         {
-            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.86, 0.86, 0.82);
-            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.70, 0.70, 0.66);
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.93, 0.92, 0.86);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.78, 0.77, 0.70);
         }
         cairo_set_source (cr, grad);
         cairo_fill_preserve (cr);
@@ -719,32 +735,28 @@ draw_auto_button (
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 
-    /* Tally LED, top-left, lit green when active. */
-    led_r = MIN (r->h, r->w) * 0.10;
-    led_r = CLAMP (led_r, 2.5, 5.0);
+    /* Rectangular green LED bar to the LEFT of the key (not inside it), lit
+     * when the axis auto-fits.  Matches the layout's reserved led_w/led_gap. */
     {
-        double lx = r->x + r->w * 0.16;
-        double ly = r->y + r->h * 0.30;
+        double lw   = r->w * 0.21;          /* 150% of the old in-key width */
+        double lgap = 6.0;
+        double lx   = r->x - lgap - lw;
+        double ly   = r->y;
+        double lh   = r->h;
 
         if (active)
         {
-            cairo_set_source_rgba (cr, 0.30, 0.92, 0.36, 0.40);
-            cairo_arc (cr, lx, ly, led_r * 2.0, 0.0, 2.0 * G_PI);
+            cairo_set_source_rgba (cr, 0.30, 0.92, 0.36, 0.35);
+            rounded_rect (cr, lx - 2.0, ly - 2.0, lw + 4.0, lh + 4.0, 2.5);
             cairo_fill (cr);
             cairo_set_source_rgb (cr, 0.40, 1.0, 0.46);
         }
         else
         {
-            cairo_set_source_rgb (cr, 0.30, 0.34, 0.30);
+            cairo_set_source_rgb (cr, 0.30, 0.40, 0.30);
         }
-        cairo_arc (cr, lx, ly, led_r, 0.0, 2.0 * G_PI);
+        rounded_rect (cr, lx, ly, lw, lh, 1.5);
         cairo_fill (cr);
-    }
-
-    {
-        double th = MIN (r->h * 0.42, 13.0);
-        panel_text (cr, r->x + r->w * 0.5, r->y + (r->h - th) * 0.5 + th * 0.18,
-                    th, TRUE, &KEN_INK, label);
     }
 }
 
@@ -858,11 +870,21 @@ pn_oscilloscope_paint_plot (
                           (g.x + g.w) - f.x - 2.0 * pad,
                           (g.y + g.h) - f.y - 2.0 * pad,
                           0.64, 0.78, 0.50);                 /* green */
-        draw_group_panel (cr, autobtn[0].x - pad, autobtn[0].y - pad,
-                          (autobtn[1].x + autobtn[1].w) - autobtn[0].x
-                              + 2.0 * pad,
-                          autobtn[0].h + 2.0 * pad,
-                          0.64, 0.78, 0.50);                 /* green */
+        /* The two keys are stacked vertically with a legend above each and an
+         * LED bar to the left, so the strip spans from above the first legend,
+         * left past the LED bars, to below the second key. */
+        {
+            double lbl     = 15.0;                       /* legend room above */
+            double led_reg = autobtn[0].w * 0.21 + 6.0;  /* LED bar + gap     */
+
+            draw_group_panel (cr,
+                              autobtn[0].x - led_reg - pad,
+                              autobtn[0].y - lbl - pad,
+                              autobtn[0].w + led_reg + 2.0 * pad,
+                              (autobtn[1].y + autobtn[1].h)
+                                  - (autobtn[0].y - lbl) + 2.0 * pad,
+                              0.64, 0.78, 0.50);             /* green */
+        }
     }
 
     paint_crt (node, cr, crt.x, crt.y, crt.w, crt.h);

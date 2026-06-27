@@ -792,9 +792,9 @@ pn_oscilloscope_get_point_count (PnOscilloscope *self)
 #define PN_OSC_KNOB_COL_FRAC  0.30
 #define PN_OSC_KNOB_COL_MIN   150.0
 #define PN_OSC_KNOB_COL_MAX   280.0
-#define PN_OSC_BTN_ROW_FRAC   0.16
-#define PN_OSC_BTN_ROW_MIN    54.0
-#define PN_OSC_BTN_ROW_MAX    120.0
+#define PN_OSC_BTN_ROW_FRAC   0.18
+#define PN_OSC_BTN_ROW_MIN    70.0
+#define PN_OSC_BTN_ROW_MAX    130.0
 #define PN_OSC_CRT_ASPECT     1.25      /* 10×8 graticule, kept square */
 
 /* Pixels-of-vertical-drag that scale a range by e (one natural-log
@@ -938,10 +938,21 @@ pn_oscilloscope_layout (
     gdouble col_w, row_h, avail_w, avail_h;
     gdouble crt_w, crt_h;
     gdouble kx, kw, cell_w, cell_h;
-    gdouble bx, by, bh, btn_w, btn_h, btn_y;
+    gdouble bx, by, bh, btn_w, btn_h;
     int     i;
 
     g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    /* Inset everything by a margin so the CRT and the controls sit inside a
+     * border of bare panel face, not flush against the moulded edge. */
+    {
+        gdouble margin = CLAMP (MIN (pw, ph) * 0.04, 10.0, 32.0);
+
+        px += margin;
+        py += margin;
+        pw -= 2.0 * margin;
+        ph -= 2.0 * margin;
+    }
 
     col_w = CLAMP (pw * PN_OSC_KNOB_COL_FRAC,
                    PN_OSC_KNOB_COL_MIN, PN_OSC_KNOB_COL_MAX);
@@ -998,25 +1009,35 @@ pn_oscilloscope_layout (
         }
     }
 
-    /* Bottom strip → two "Auto" buttons under the CRT. */
+    /* Bottom strip → two wide "Auto" keys under the CRT, stacked one above
+     * the other.  Each key is a flat landscape rectangle (~4.5× as wide as
+     * it is tall); its "Auto X" / "Auto Y" legend is painted ABOVE the key,
+     * so the clickable rect is just the key. */
     bx    = px;
     by    = py + avail_h;
     bh    = row_h;
-    btn_w = CLAMP (pw * 0.20, 80.0, 180.0);
-    btn_h = MIN (bh * 0.6, 40.0);
-    btn_y = by + (bh - btn_h) * 0.5;
+    btn_h = CLAMP (bh * 0.22, 12.0, 18.0);
+    btn_w = btn_h * 4.5;                  /* a wide landscape key */
 
     if (autobtn != NULL)
     {
-        gdouble gap = 12.0;
+        gdouble gap     = 14.0;           /* panel edge → LED bar           */
+        gdouble led_w   = btn_w * 0.21;   /* the LED bar left of each key    */
+        gdouble led_gap = 6.0;            /* LED bar → key                  */
+        gdouble keyx    = bx + gap + led_w + led_gap;
+        gdouble lbl     = 13.0;           /* legend room above each key      */
+        gdouble gapv    = 5.0;            /* gap between the two keys        */
+        gdouble slot    = lbl + btn_h;    /* one key plus its legend         */
+        gdouble stack   = slot * 2.0 + gapv;
+        gdouble y0      = by + MAX (0.0, (bh - stack) * 0.5);
 
-        autobtn[0].x = bx + gap;
-        autobtn[0].y = btn_y;
+        autobtn[0].x = keyx;
+        autobtn[0].y = y0 + lbl;
         autobtn[0].w = btn_w;
         autobtn[0].h = btn_h;
 
-        autobtn[1].x = bx + gap + btn_w + gap;
-        autobtn[1].y = btn_y;
+        autobtn[1].x = keyx;
+        autobtn[1].y = y0 + slot + gapv + lbl;
         autobtn[1].w = btn_w;
         autobtn[1].h = btn_h;
     }
@@ -1287,6 +1308,26 @@ pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis)
     }
 
     pn_node_request_repaint (PN_NODE (self));
+}
+
+void
+pn_oscilloscope_toggle_axis_auto (PnOscilloscope *self, gboolean x_axis)
+{
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+
+    if (pn_oscilloscope_axis_is_auto (self, x_axis))
+    {
+        /* ON → OFF: pin the axis at its current auto-fitted window so the
+         * trace stays put, then drop out of auto.  begin_knob already does
+         * exactly this seeding (and is a no-op if somehow already manual). */
+        pn_oscilloscope_begin_knob (self,
+                x_axis ? PN_OSC_KNOB_X_RANGE : PN_OSC_KNOB_Y_RANGE);
+    }
+    else
+    {
+        /* OFF → ON: back to auto-fit. */
+        pn_oscilloscope_reset_axis (self, x_axis);
+    }
 }
 
 void

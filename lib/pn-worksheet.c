@@ -4895,7 +4895,9 @@ on_button_press (
                 a = pn_oscilloscope_hit_auto (autobtn, event->x, event->y);
                 if (a >= 0)
                 {
-                    pn_oscilloscope_reset_axis (osc, a == 0);
+                    /* Toggle: a lit "Auto" key turns its axis off (pinned at
+                     * the current view); an unlit one turns auto back on. */
+                    pn_oscilloscope_toggle_axis_auto (osc, a == 0);
                     gtk_widget_queue_draw (widget);
                     return GDK_EVENT_STOP;
                 }

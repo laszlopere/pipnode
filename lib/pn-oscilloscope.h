@@ -281,6 +281,12 @@ void pn_oscilloscope_drag_knob (PnOscilloscope *self,
 /* Return @x_axis (TRUE = X) to auto-fit. */
 void pn_oscilloscope_reset_axis (PnOscilloscope *self, gboolean x_axis);
 
+/* Toggle @x_axis (TRUE = X) between auto-fit and manual: an auto axis is
+ * pinned at its current auto-fitted window (so the trace doesn't jump) and
+ * drops out of auto; a manual axis returns to auto-fit.  The behaviour of
+ * clicking the "Auto X" / "Auto Y" key. */
+void pn_oscilloscope_toggle_axis_auto (PnOscilloscope *self, gboolean x_axis);
+
 /* Reset @knob to its rest state: a range/offset knob returns its axis to
  * auto-fit; a level knob (Focus / Intensity) returns to its default.  The
  * generic "double-click a knob" action. */
