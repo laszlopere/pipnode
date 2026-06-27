@@ -65,6 +65,17 @@ main (int argc, char **argv)
     osc  = pn_oscilloscope_new ();
     node = PN_NODE (osc);
     feed_demo_wave (node);
+
+    /* Show two vertical + two horizontal measurement cursors so the dashed
+     * green reference lines, their readouts, and the lit V/H keys are all
+     * visible in the preview.  (V1;V2;H1;H2 in data units; override with
+     * PN_OSC_CURSORS, e.g. "70;;1.6;" to leave V2/H2 hidden.) */
+    {
+        const char *cur = g_getenv ("PN_OSC_CURSORS");
+
+        g_object_set (osc, "cursors", cur ? cur : "70;185;1.6;-1.1", NULL);
+    }
+
     pn_oscilloscope_set_maximized (osc, TRUE);
 
     klass = PN_NODE_GET_CLASS (node);
