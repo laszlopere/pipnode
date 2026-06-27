@@ -992,8 +992,12 @@ pn_oscilloscope_layout (
      *   (col0,row2) Focus     (col1,row2) Intensity                    */
     kx     = px + avail_w;
     kw     = col_w;
-    cell_w = kw * 0.5;
-    cell_h = avail_h / 3.0;
+    /* Knobs sit on a tighter pitch than the full column so the cluster reads
+     * as a group with breathing room left over (room for more knobs later):
+     * the columns are pulled together and the three rows are packed toward the
+     * top, leaving bare panel at the right and bottom of the knob area. */
+    cell_w = kw * 0.42;
+    cell_h = (avail_h / 3.0) * 0.80;
 
     if (knobs != NULL)
     {
@@ -1017,7 +1021,7 @@ pn_oscilloscope_layout (
     by    = py + avail_h;
     bh    = row_h;
     btn_h = CLAMP (bh * 0.22, 12.0, 18.0);
-    btn_w = btn_h * 4.5;                  /* a wide landscape key */
+    btn_w = btn_h * 4.5 * 0.75;           /* a landscape key, ~75% of full width */
 
     if (autobtn != NULL)
     {
@@ -1114,7 +1118,7 @@ pn_oscilloscope_knob_dial (
     label_h = MIN (cell->h * 0.20, 16.0);
     dial_cy = cell->y + label_h + 4.0
             + (cell->h - 2.0 * label_h - 8.0) * 0.5;
-    r       = MIN (cell->w, cell->h - 2.0 * label_h) * 0.30;
+    r       = MIN (cell->w, cell->h - 2.0 * label_h) * 0.36;
 
     if (cx)     *cx     = cell->x + cell->w * 0.5;
     if (cy)     *cy     = dial_cy;

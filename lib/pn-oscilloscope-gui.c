@@ -493,8 +493,10 @@ panel_text (
         const char   *text)
 {
     PangoLayout          *layout = pango_cairo_create_layout (cr);
+    /* Vintage silkscreen legends: a serif face, as screened onto the
+     * crackle-paint panel of a 1960s bench instrument. */
     PangoFontDescription *desc   =
-        pango_font_description_from_string (bold ? "Sans Bold" : "Sans");
+        pango_font_description_from_string (bold ? "Serif Bold" : "Serif");
     int pw, ph;
 
     pango_font_description_set_absolute_size (desc, size * PANGO_SCALE);
@@ -502,6 +504,12 @@ panel_text (
     pango_font_description_free (desc);
     pango_layout_set_text (layout, text, -1);
     pango_layout_get_pixel_size (layout, &pw, &ph);
+
+    /* A faint dark halo under the ink so the screened legend reads as a
+     * printed mark sitting on the textured paint, not flat overlay text. */
+    cairo_set_source_rgba (cr, 0.04, 0.06, 0.04, 0.45);
+    cairo_move_to (cr, cx - pw * 0.5 + 0.7, y_top + 0.7);
+    pango_cairo_show_layout (cr, layout);
 
     set_rgba (cr, ink, 1.0);
     cairo_move_to (cr, cx - pw * 0.5, y_top);
@@ -525,15 +533,16 @@ format_value (
 }
 
 /* ------------------------------------------------------------------ */
-/*  Kenwood-style palette                                              */
+/*  Heathkit tube-scope palette                                        */
 /*                                                                     */
-/*  A warm light-grey instrument face with teal/green section groups,  */
-/*  gold knob collars and dark rotary dials — the classic bench-scope  */
-/*  bezel echoed from a Kenwood CS-series front panel.                 */
+/*  A 1960s tube-era bench scope: a hammered grey-green crackle-paint  */
+/*  panel, large black-bakelite knobs riding polished aluminium        */
+/*  pointer skirts, round ruby jewel pilot lamps, and cream silkscreen */
+/*  serif legends.  Warm, hand-built, Daystrom-Heathkit character.     */
 /* ------------------------------------------------------------------ */
 
-/* Dark ink for labels printed on the light face. */
-static const PnColor KEN_INK = { 0.14, 0.15, 0.14, 1.0 };
+/* Cream silkscreen ink for legends printed on the dark green face. */
+static const PnColor KEN_INK = { 0.91, 0.92, 0.86, 1.0 };
 
 /* Format a level knob's 0..1 value as a percentage ("80%"). */
 static void
@@ -553,22 +562,35 @@ draw_group_panel (
         double   x, double y, double w, double h,
         double   tr, double tg, double tb)
 {
-    double rad = MIN (MIN (w, h) * 0.14, 14.0);
+    double rad = MIN (MIN (w, h) * 0.14, 12.0);
+
+    (void) tr; (void) tg; (void) tb;
 
     if (w < 4.0 || h < 4.0)
         return;
 
+    /* A subtly lighter wash of the panel paint, as if this zone were masked
+     * and given an extra coat — the screened section field of the panel. */
     rounded_rect (cr, x, y, w, h, rad);
-    cairo_set_source_rgba (cr, tr, tg, tb, 0.42);
-    cairo_fill_preserve (cr);
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.16);
+    cairo_set_source_rgba (cr, 0.52, 0.58, 0.52, 0.18);
+    cairo_fill (cr);
+
+    /* Engraved silkscreen frame: a dark groove with a cream hairline just
+     * inside it, the double-rule box screened around a control cluster. */
+    rounded_rect (cr, x + 0.5, y + 0.5, w - 1.0, h - 1.0, rad);
+    cairo_set_source_rgba (cr, 0.04, 0.07, 0.05, 0.40);
+    cairo_set_line_width (cr, 1.4);
+    cairo_stroke (cr);
+
+    rounded_rect (cr, x + 3.0, y + 3.0, w - 6.0, h - 6.0, rad * 0.8);
+    cairo_set_source_rgba (cr, 0.90, 0.92, 0.84, 0.18);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 }
 
-/* The light rotary dial of radius @radius at (@cx,@cy): a top-lit cream disc
- * (the Kenwood's pale knobs) with a dark pointer at @angle (0 = up,
- * +clockwise), dimmed by @ptr_a. */
+/* A black-bakelite knob of radius @radius at (@cx,@cy), seated on a polished
+ * aluminium pointer skirt, with a cream index pointer at @angle (0 = up,
+ * +clockwise) dimmed by @ptr_a — the classic Daystrom-Heathkit control. */
 static void
 draw_dial (
         cairo_t *cr,
@@ -578,39 +600,127 @@ draw_dial (
         double   angle,
         double   ptr_a)
 {
-    cairo_pattern_t *grad;
+    double br = radius * 0.70;            /* bakelite body inside the skirt */
 
     if (radius < 3.0)
         return;
 
-    grad = cairo_pattern_create_radial (
-            cx, cy - radius * 0.45, radius * 0.15,
-            cx, cy,                 radius);
-    cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.94, 0.94, 0.91);
-    cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.60, 0.60, 0.56);
-    cairo_arc (cr, cx, cy, radius, 0.0, 2.0 * G_PI);
-    cairo_set_source (cr, grad);
-    cairo_fill (cr);
-    cairo_pattern_destroy (grad);
+    cairo_save (cr);
+    cairo_set_line_cap  (cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join (cr, CAIRO_LINE_JOIN_ROUND);
 
+    /* --- Seated drop shadow under the whole knob. --- */
+    {
+        cairo_pattern_t *sh = cairo_pattern_create_radial (
+                cx, cy + radius * 0.16, radius * 0.30,
+                cx, cy + radius * 0.16, radius * 1.30);
+        cairo_pattern_add_color_stop_rgba (sh, 0.0, 0.0, 0.0, 0.0, 0.50);
+        cairo_pattern_add_color_stop_rgba (sh, 0.7, 0.0, 0.0, 0.0, 0.32);
+        cairo_pattern_add_color_stop_rgba (sh, 1.0, 0.0, 0.0, 0.0, 0.0);
+        cairo_set_source (cr, sh);
+        cairo_arc (cr, cx, cy + radius * 0.16, radius * 1.30, 0.0, 2.0 * G_PI);
+        cairo_fill (cr);
+        cairo_pattern_destroy (sh);
+    }
+
+    /* --- Polished aluminium pointer skirt. --- */
+    {
+        cairo_pattern_t *g = cairo_pattern_create_linear (
+                cx, cy - radius, cx, cy + radius);
+        cairo_pattern_add_color_stop_rgb (g, 0.0, 0.88, 0.88, 0.86);
+        cairo_pattern_add_color_stop_rgb (g, 0.45, 0.70, 0.71, 0.69);
+        cairo_pattern_add_color_stop_rgb (g, 0.55, 0.58, 0.59, 0.57);
+        cairo_pattern_add_color_stop_rgb (g, 1.0, 0.42, 0.43, 0.41);
+        cairo_arc (cr, cx, cy, radius, 0.0, 2.0 * G_PI);
+        cairo_set_source (cr, g);
+        cairo_fill (cr);
+        cairo_pattern_destroy (g);
+    }
+
+    /* Fine milled knurl ticks around the skirt rim. */
+    {
+        int teeth = MAX (20, (int) (radius * 1.1));
+        int t;
+
+        cairo_set_line_width (cr, 0.9);
+        for (t = 0; t < teeth; t++)
+        {
+            double a  = 2.0 * G_PI * (double) t / (double) teeth;
+            double r0 = radius * 0.90;
+            double r1 = radius * 0.995;
+            cairo_move_to (cr, cx + sin (a) * r0, cy - cos (a) * r0);
+            cairo_line_to (cr, cx + sin (a) * r1, cy - cos (a) * r1);
+        }
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.28);
+        cairo_stroke (cr);
+    }
+
+    /* Skirt rim line. */
     cairo_arc (cr, cx, cy, radius, 0.0, 2.0 * G_PI);
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.50);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 
-    /* Pointer: a dark notch from centre to the rim, reading against the pale
-     * knob; dimmed when the knob is only mirroring an auto axis. */
+    /* --- Black bakelite body: a domed disc, lit from the upper left. --- */
     {
-        double pxn = cx + sin (angle) * radius * 0.80;
-        double pyn = cy - cos (angle) * radius * 0.80;
+        cairo_pattern_t *g = cairo_pattern_create_radial (
+                cx - br * 0.34, cy - br * 0.42, br * 0.10,
+                cx,             cy,             br);
+        cairo_pattern_add_color_stop_rgb (g, 0.0, 0.32, 0.32, 0.34);
+        cairo_pattern_add_color_stop_rgb (g, 0.55, 0.13, 0.13, 0.14);
+        cairo_pattern_add_color_stop_rgb (g, 1.0, 0.04, 0.04, 0.05);
+        cairo_arc (cr, cx, cy, br, 0.0, 2.0 * G_PI);
+        cairo_set_source (cr, g);
+        cairo_fill (cr);
+        cairo_pattern_destroy (g);
+    }
 
-        cairo_set_source_rgba (cr, 0.16, 0.16, 0.15, ptr_a);
-        cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
-        cairo_set_line_width (cr, MAX (2.0, radius * 0.18));
-        cairo_move_to (cr, cx, cy);
-        cairo_line_to (cr, pxn, pyn);
+    /* Glossy bakelite highlight crescent. */
+    cairo_save (cr);
+    cairo_arc (cr, cx, cy, br, 0.0, 2.0 * G_PI);
+    cairo_clip (cr);
+    {
+        cairo_pattern_t *hl = cairo_pattern_create_radial (
+                cx - br * 0.30, cy - br * 0.38, br * 0.04,
+                cx - br * 0.30, cy - br * 0.38, br * 0.85);
+        cairo_pattern_add_color_stop_rgba (hl, 0.0, 1.0, 1.0, 1.0, 0.22);
+        cairo_pattern_add_color_stop_rgba (hl, 1.0, 1.0, 1.0, 1.0, 0.0);
+        cairo_set_source (cr, hl);
+        cairo_paint (cr);
+        cairo_pattern_destroy (hl);
+    }
+    cairo_restore (cr);
+
+    /* Bakelite rim against the skirt. */
+    cairo_arc (cr, cx, cy, br, 0.0, 2.0 * G_PI);
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.60);
+    cairo_set_line_width (cr, 1.2);
+    cairo_stroke (cr);
+
+    /* --- Index pointer: a bold cream line from the bakelite edge out across
+     *     the skirt to the rim, with a dark engrave under it so it reads on
+     *     both the dark body and the bright skirt. --- */
+    {
+        double s  = sin (angle), c = cos (angle);
+        double sxp = cx + s * br * 0.45;
+        double syp = cy - c * br * 0.45;
+        double exp = cx + s * radius * 0.96;
+        double eyp = cy - c * radius * 0.96;
+
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.55 * ptr_a);
+        cairo_set_line_width (cr, MAX (3.0, radius * 0.17));
+        cairo_move_to (cr, sxp, syp);
+        cairo_line_to (cr, exp, eyp);
+        cairo_stroke (cr);
+
+        cairo_set_source_rgba (cr, 0.97, 0.97, 0.92, ptr_a);
+        cairo_set_line_width (cr, MAX (1.6, radius * 0.095));
+        cairo_move_to (cr, sxp, syp);
+        cairo_line_to (cr, exp, eyp);
         cairo_stroke (cr);
     }
+
+    cairo_restore (cr);
 }
 
 /* One panel knob inside @r.  A plain knob is a single dark dial; a
@@ -643,26 +753,24 @@ draw_knob (
      * sibling of the coarse/fine range stack rather than a full-size dial. */
     outer = concentric ? radius : radius * PN_OSC_FINE_RADIUS_FRAC;
 
-    /* Name above the dial. */
-    panel_text (cr, cx, r->y + 2.0, MIN (label_h, 13.0), FALSE,
-                &KEN_INK, name);
+    /* Name stuck just above the knob (a small gap), rather than floated up at
+     * the top of the cell — reads as a label belonging to this knob. */
+    {
+        double name_sz  = MIN (label_h, 13.0);
+        double knob_top = dial_cy - (concentric ? radius : outer);
+
+        panel_text (cr, cx, knob_top - name_sz - 6.0, name_sz, TRUE,
+                    &KEN_INK, name);
+    }
 
     if (concentric)
     {
-        /* Gold collar ring around the coarse skirt. */
-        cairo_arc (cr, cx, dial_cy, radius, 0.0, 2.0 * G_PI);
-        cairo_set_source_rgb (cr, 0.80, 0.64, 0.24);
-        cairo_fill (cr);
-        cairo_arc (cr, cx, dial_cy, radius, 0.0, 2.0 * G_PI);
-        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
-        cairo_set_line_width (cr, 1.0);
-        cairo_stroke (cr);
+        /* Coarse: the large bakelite knob on its full aluminium skirt. */
+        draw_dial (cr, cx, dial_cy, radius, angle, ptr_a);
 
-        /* Coarse skirt: dark dial just inside the collar, coarse pointer. */
-        draw_dial (cr, cx, dial_cy, radius * 0.82, angle, ptr_a);
-
-        /* Fine inner dial: a vernier turning one decade per revolution, so
-         * trimming it visibly spins the inner pointer. */
+        /* Fine: a smaller bakelite knob stacked on the coarse one — a vernier
+         * turning one decade per revolution, so trimming it visibly spins the
+         * inner pointer.  Its own seated shadow sells the coaxial stack. */
         {
             double fa = 0.0;
 
@@ -671,8 +779,7 @@ draw_knob (
                 fa = log10 (value) * (2.0 * G_PI);
                 fa = fmod (fa, 2.0 * G_PI);
             }
-            draw_dial (cr, cx, dial_cy, radius * PN_OSC_FINE_RADIUS_FRAC,
-                       fa, ptr_a);
+            draw_dial (cr, cx, dial_cy, radius * 0.46, fa, ptr_a);
         }
     }
     else
@@ -685,7 +792,7 @@ draw_knob (
         format_percent (vbuf, sizeof vbuf, value);
     else
         format_value (vbuf, sizeof vbuf, value);
-    panel_text (cr, cx, dial_cy + outer + 2.0,
+    panel_text (cr, cx, dial_cy + (concentric ? radius : outer) + 4.0,
                 MIN (label_h, 12.0), FALSE, &KEN_INK, vbuf);
 }
 
@@ -701,61 +808,128 @@ draw_auto_button (
         const char     *label,
         gboolean        active)
 {
-    double rad = MIN (4.0, r->h * 0.30);
+    double rad = MIN (5.0, r->h * 0.32);
 
     /* Legend ABOVE the key, centred on it. */
     {
         double th = MIN (r->h * 0.85, 12.0);
-        panel_text (cr, r->x + r->w * 0.5, r->y - th - 3.0, th, FALSE,
+        panel_text (cr, r->x + r->w * 0.5, r->y - th - 8.0, th, TRUE,
                     &KEN_INK, label);
     }
 
-    /* Bevelled key in the panel's warm grey — a touch lighter than the
-     * moulding so it reads as a raised key; pressed-in (inverted) when
-     * active.  Matches paint_panel_bg's beige rather than a cold grey. */
+    /* --- Raised bakelite pushbutton cap. --- */
+    /* Recessed well the cap sits in. */
+    rounded_rect (cr, r->x - 1.5, r->y - 1.5, r->w + 3.0, r->h + 3.0, rad + 1.5);
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
+    cairo_fill (cr);
+
     rounded_rect (cr, r->x, r->y, r->w, r->h, rad);
     {
         cairo_pattern_t *grad =
             cairo_pattern_create_linear (r->x, r->y, r->x, r->y + r->h);
         if (active)
         {
-            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.74, 0.73, 0.66);
-            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.88, 0.87, 0.80);
+            /* Pressed in: same ivory bakelite, but lit from below so the
+             * relief inverts — still clearly a physical cap, not a void. */
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.55, 0.54, 0.49);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.74, 0.73, 0.66);
         }
         else
         {
-            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.93, 0.92, 0.86);
-            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.78, 0.77, 0.70);
+            /* Raised cream-ivory bakelite key, lit from the top. */
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.88, 0.87, 0.80);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.64, 0.63, 0.57);
         }
         cairo_set_source (cr, grad);
         cairo_fill_preserve (cr);
         cairo_pattern_destroy (grad);
     }
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.40);
+    /* Top emboss highlight + dark base line for relief. */
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.50);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
-
-    /* Rectangular green LED bar to the LEFT of the key (not inside it), lit
-     * when the axis auto-fits.  Matches the layout's reserved led_w/led_gap. */
+    if (!active)
     {
-        double lw   = r->w * 0.21;          /* 150% of the old in-key width */
-        double lgap = 6.0;
-        double lx   = r->x - lgap - lw;
-        double ly   = r->y;
-        double lh   = r->h;
+        rounded_rect (cr, r->x + 1.2, r->y + 1.2, r->w - 2.4, r->h * 0.5, rad);
+        cairo_set_source_rgba (cr, 1.0, 1.0, 0.95, 0.30);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+    }
+    else
+    {
+        /* Inner top shadow: the cap has sunk into its well. */
+        rounded_rect (cr, r->x + 1.0, r->y + 1.0, r->w - 2.0, r->h - 2.0, rad);
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.28);
+        cairo_set_line_width (cr, 1.6);
+        cairo_stroke (cr);
+    }
 
+    /* --- Round green jewel pilot lamp in a chrome bezel, to the LEFT of the
+     *     key, glowing when the axis auto-fits.  Matches the layout's
+     *     reserved led_w/led_gap region. --- */
+    {
+        double lw   = r->w * 0.21;
+        double lgap = 6.0;
+        double reg_x = r->x - lgap - lw;
+        double jr   = MIN (lw, r->h) * 0.5;
+        double jx   = reg_x + lw * 0.5;
+        double jy   = r->y + r->h * 0.5;
+
+        /* Outer glow halo when lit. */
         if (active)
         {
-            cairo_set_source_rgba (cr, 0.30, 0.92, 0.36, 0.35);
-            rounded_rect (cr, lx - 2.0, ly - 2.0, lw + 4.0, lh + 4.0, 2.5);
+            cairo_pattern_t *halo = cairo_pattern_create_radial (
+                    jx, jy, jr * 0.4, jx, jy, jr * 2.4);
+            cairo_pattern_add_color_stop_rgba (halo, 0.0, 0.35, 1.0, 0.40, 0.55);
+            cairo_pattern_add_color_stop_rgba (halo, 1.0, 0.15, 0.90, 0.25, 0.0);
+            cairo_set_source (cr, halo);
+            cairo_arc (cr, jx, jy, jr * 2.4, 0.0, 2.0 * G_PI);
             cairo_fill (cr);
-            cairo_set_source_rgb (cr, 0.40, 1.0, 0.46);
+            cairo_pattern_destroy (halo);
         }
-        else
+
+        /* Chrome bezel ring. */
         {
-            cairo_set_source_rgb (cr, 0.30, 0.40, 0.30);
+            cairo_pattern_t *ch = cairo_pattern_create_linear (
+                    jx, jy - jr * 1.25, jx, jy + jr * 1.25);
+            cairo_pattern_add_color_stop_rgb (ch, 0.0, 0.92, 0.92, 0.90);
+            cairo_pattern_add_color_stop_rgb (ch, 0.5, 0.55, 0.55, 0.53);
+            cairo_pattern_add_color_stop_rgb (ch, 1.0, 0.80, 0.80, 0.78);
+            cairo_arc (cr, jx, jy, jr * 1.25, 0.0, 2.0 * G_PI);
+            cairo_set_source (cr, ch);
+            cairo_fill (cr);
+            cairo_pattern_destroy (ch);
         }
-        rounded_rect (cr, lx, ly, lw, lh, 1.5);
+        cairo_arc (cr, jx, jy, jr * 1.25, 0.0, 2.0 * G_PI);
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.45);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+
+        /* The ruby jewel itself. */
+        {
+            cairo_pattern_t *j = cairo_pattern_create_radial (
+                    jx - jr * 0.30, jy - jr * 0.30, jr * 0.10,
+                    jx, jy, jr);
+            if (active)
+            {
+                cairo_pattern_add_color_stop_rgb (j, 0.0, 0.80, 1.0, 0.70);
+                cairo_pattern_add_color_stop_rgb (j, 0.4, 0.32, 0.95, 0.38);
+                cairo_pattern_add_color_stop_rgb (j, 1.0, 0.06, 0.62, 0.14);
+            }
+            else
+            {
+                cairo_pattern_add_color_stop_rgb (j, 0.0, 0.10, 0.34, 0.14);
+                cairo_pattern_add_color_stop_rgb (j, 1.0, 0.05, 0.20, 0.08);
+            }
+            cairo_arc (cr, jx, jy, jr, 0.0, 2.0 * G_PI);
+            cairo_set_source (cr, j);
+            cairo_fill (cr);
+            cairo_pattern_destroy (j);
+        }
+        /* Tiny specular glint on the glass. */
+        cairo_arc (cr, jx - jr * 0.32, jy - jr * 0.34, jr * 0.22,
+                   0.0, 2.0 * G_PI);
+        cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, active ? 0.85 : 0.30);
         cairo_fill (cr);
     }
 }
@@ -795,7 +969,8 @@ level_angle (gdouble v)
     return (CLAMP (v, 0.0, 1.0) * 2.0 - 1.0) * (G_PI * 0.75);
 }
 
-/* The light moulded instrument face behind the whole maximized rect. */
+/* The hammered grey-green crackle-paint instrument face behind the whole
+ * maximized rect — the signature Heathkit wrinkle finish. */
 static void
 paint_panel_bg (
         cairo_t *cr,
@@ -806,16 +981,68 @@ paint_panel_bg (
 {
     double r = MIN (w, h) * 0.04;
 
+    cairo_save (cr);
     rounded_rect (cr, x, y, w, h, r);
+    cairo_clip_preserve (cr);
+
+    /* Base grey-green paint, very slightly lit from the top. */
     {
         cairo_pattern_t *grad = cairo_pattern_create_linear (x, y, x, y + h);
-        cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.87, 0.86, 0.80);
-        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.72, 0.71, 0.65);
+        cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.41, 0.47, 0.42);
+        cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.30, 0.35, 0.31);
         cairo_set_source (cr, grad);
-        cairo_fill_preserve (cr);
+        cairo_fill (cr);
         cairo_pattern_destroy (grad);
     }
-    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.40);
+
+    /* Hammertone / crackle mottle: a deterministic spray of tiny light and
+     * dark flecks, the way wrinkle paint catches the light unevenly. */
+    {
+        unsigned int seed  = 0x1a2b3c4du;
+        int          count = (int) (w * h / 70.0);
+        int          k;
+
+        for (k = 0; k < count; k++)
+        {
+            double rx, ry, rr;
+            int    light;
+
+            seed = seed * 1103515245u + 12345u;
+            rx   = x + (double) ((seed >> 9) % 100000) / 100000.0 * w;
+            seed = seed * 1103515245u + 12345u;
+            ry   = y + (double) ((seed >> 9) % 100000) / 100000.0 * h;
+            seed = seed * 1103515245u + 12345u;
+            rr   = 0.6 + (double) ((seed >> 9) % 100) / 100.0 * 1.7;
+            seed = seed * 1103515245u + 12345u;
+            light = ((seed >> 11) & 3) == 0;     /* ~25% light flecks */
+
+            if (light)
+                cairo_set_source_rgba (cr, 0.66, 0.72, 0.62, 0.10);
+            else
+                cairo_set_source_rgba (cr, 0.06, 0.10, 0.07, 0.13);
+            cairo_arc (cr, rx, ry, rr, 0.0, 2.0 * G_PI);
+            cairo_fill (cr);
+        }
+    }
+
+    /* A broad, soft top-down sheen so the textured face still reads curved. */
+    {
+        cairo_pattern_t *sheen = cairo_pattern_create_linear (x, y, x, y + h);
+        cairo_pattern_add_color_stop_rgba (sheen, 0.0, 1.0, 1.0, 0.95, 0.05);
+        cairo_pattern_add_color_stop_rgba (sheen, 0.4, 1.0, 1.0, 0.95, 0.0);
+        cairo_set_source (cr, sheen);
+        cairo_paint (cr);
+        cairo_pattern_destroy (sheen);
+    }
+    cairo_restore (cr);
+
+    /* Outer moulded edge: a dark groove with a thin top highlight. */
+    rounded_rect (cr, x, y, w, h, r);
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.55);
+    cairo_set_line_width (cr, 1.6);
+    cairo_stroke (cr);
+    rounded_rect (cr, x + 1.6, y + 1.6, w - 3.2, h - 3.2, r);
+    cairo_set_source_rgba (cr, 1.0, 1.0, 0.95, 0.08);
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 }
@@ -874,15 +1101,16 @@ pn_oscilloscope_paint_plot (
          * LED bar to the left, so the strip spans from above the first legend,
          * left past the LED bars, to below the second key. */
         {
-            double lbl     = 15.0;                       /* legend room above */
+            double lbl     = 17.0;                       /* legend room above */
             double led_reg = autobtn[0].w * 0.21 + 6.0;  /* LED bar + gap     */
+            double bpad    = 9.0;     /* extra border inside the button/LED frame */
 
             draw_group_panel (cr,
-                              autobtn[0].x - led_reg - pad,
-                              autobtn[0].y - lbl - pad,
-                              autobtn[0].w + led_reg + 2.0 * pad,
+                              autobtn[0].x - led_reg - bpad,
+                              autobtn[0].y - lbl - bpad,
+                              autobtn[0].w + led_reg + 2.0 * bpad,
                               (autobtn[1].y + autobtn[1].h)
-                                  - (autobtn[0].y - lbl) + 2.0 * pad,
+                                  - (autobtn[0].y - lbl) + 2.0 * bpad,
                               0.64, 0.78, 0.50);             /* green */
         }
     }
