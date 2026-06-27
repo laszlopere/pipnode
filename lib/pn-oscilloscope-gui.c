@@ -228,6 +228,16 @@ paint_graticule (
 /*  Painter                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Draw one measurement cursor (defined below paint_crt, after the value
+ * formatter it uses for the readout). */
+static void draw_cursor (cairo_t              *cr,
+                         PnOscilloscope       *self,
+                         int                   cursor,
+                         const PnColor        *green,
+                         double px, double py, double pw, double ph,
+                         double cx0, double cx1, double cy0, double cy1,
+                         double scale);
+
 /* Draw the CRT instrument (bezel, phosphor screen, graticule, trace) into
  * the rectangle (@x,@y,@w,@h).  At rest this is the whole node footprint;
  * when maximized it is just the top-left sub-rectangle, with the knob
@@ -307,13 +317,17 @@ paint_crt (
         cairo_pattern_destroy (vig);
     }
 
-    /* Plot rectangle = screen interior, leaving a small inner margin. */
+    /* Plot rectangle = screen interior, leaving a small inner margin.  The
+     * core owns the exact inset (pn_oscilloscope_plot_rect) so a cursor maps
+     * to precisely the screen position it is hit-tested and dragged at. */
     {
-        double inset = smin * 0.045;
-        px = sx + inset;
-        py = sy + inset;
-        pw = sw - 2.0 * inset;
-        ph = sh - 2.0 * inset;
+        PnOscRect crtr = { x, y, w, h }, plot;
+
+        pn_oscilloscope_plot_rect (&crtr, &plot);
+        px = plot.x;
+        py = plot.y;
+        pw = plot.w;
+        ph = plot.h;
     }
     if (pw < 2.0 || ph < 2.0)
     {
@@ -462,6 +476,26 @@ paint_crt (
     g_free (tx);
     g_free (ty);
 
+    /* --- Measurement cursors: thin dashed reference lines, each labelled
+     *     with its data value, drawn in phosphor green like a beam-traced
+     *     graticule overlay.  Positioned by the same axis window as the
+     *     trace, so a line sits exactly on its measured value. --- */
+    {
+        gdouble cx0, cx1, cy0, cy1;
+        int     c;
+
+        pn_oscilloscope_axis_window (self, TRUE,  xmin, xmax, &cx0, &cx1);
+        pn_oscilloscope_axis_window (self, FALSE, ymin, ymax, &cy0, &cy1);
+
+        for (c = 0; c < PN_OSC_CUR_N; c++)
+        {
+            if (!pn_oscilloscope_cursor_is_on (self, c))
+                continue;
+            draw_cursor (cr, self, c, &ps.trace_color,
+                         px, py, pw, ph, cx0, cx1, cy0, cy1, scale);
+        }
+    }
+
     /* --- Glass: a soft specular highlight across the top. --- */
     {
         cairo_pattern_t *gloss =
@@ -532,6 +566,121 @@ format_value (
         g_snprintf (buf, len, "%.3g", v);
 }
 
+/* A short readout drawn in glowing phosphor green at (@x_left, baseline-top
+ * @y_top): a soft wide halo stroke under a bright core fill, so the digits
+ * read like beam-drawn graticule labels rather than flat panel text. */
+static void
+draw_beam_label (
+        cairo_t       *cr,
+        const PnColor *green,
+        double         x_left,
+        double         y_top,
+        double         size,
+        const char    *text)
+{
+    PangoLayout          *layout = pango_cairo_create_layout (cr);
+    PangoFontDescription *desc   = pango_font_description_from_string ("Sans");
+
+    pango_font_description_set_absolute_size (desc, size * PANGO_SCALE);
+    pango_layout_set_font_description (layout, desc);
+    pango_font_description_free (desc);
+    pango_layout_set_text (layout, text, -1);
+
+    cairo_save (cr);
+    cairo_move_to (cr, x_left, y_top);
+    pango_cairo_layout_path (cr, layout);
+
+    /* Halo. */
+    cairo_set_line_join (cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_set_line_width (cr, 2.4);
+    set_rgba (cr, green, 0.30);
+    cairo_stroke_preserve (cr);
+
+    /* Bright core. */
+    set_rgba (cr, green, 0.95);
+    cairo_fill (cr);
+    cairo_restore (cr);
+
+    g_object_unref (layout);
+}
+
+/* One measurement cursor: a thin dashed phosphor line spanning the plot rect
+ * at the cursor's mapped screen position, with its data value printed in
+ * green beside it.  A vertical cursor (V1/V2) maps an X value to a column; a
+ * horizontal cursor (H1/H2) maps a Y value to a row.  Drawn with a soft halo
+ * pass under a bright dashed core, echoing the trace's blooming beam. */
+static void
+draw_cursor (
+        cairo_t        *cr,
+        PnOscilloscope *self,
+        int             cursor,
+        const PnColor  *green,
+        double px, double py, double pw, double ph,
+        double cx0, double cx1, double cy0, double cy1,
+        double scale)
+{
+    gboolean vert = pn_oscilloscope_cursor_is_vertical (cursor);
+    gdouble  pos  = pn_oscilloscope_cursor_pos (self, cursor);
+    double   dash[2];
+    double   lw   = MAX (0.8, scale * 1.0);
+    char     vbuf[32];
+    double   lblsz = MAX (8.0, scale * 9.0);
+
+    dash[0] = MAX (3.0, scale * 4.0);
+    dash[1] = dash[0];
+
+    format_value (vbuf, sizeof vbuf, pos);
+
+    cairo_save (cr);
+    cairo_set_line_cap (cr, CAIRO_LINE_CAP_BUTT);
+    cairo_set_dash (cr, dash, 2, 0.0);
+
+    if (vert)
+    {
+        double span = cx1 - cx0;
+        double sxp;
+
+        if (!(fabs (span) > 0.0)) { cairo_restore (cr); return; }
+        sxp = px + (pos - cx0) / span * pw;
+        if (sxp < px - 0.5 || sxp > px + pw + 0.5) { cairo_restore (cr); return; }
+
+        cairo_move_to (cr, sxp, py);
+        cairo_line_to (cr, sxp, py + ph);
+        set_rgba (cr, green, 0.22);
+        cairo_set_line_width (cr, lw * 3.0);
+        cairo_stroke_preserve (cr);
+        set_rgba (cr, green, 0.85);
+        cairo_set_line_width (cr, lw);
+        cairo_stroke (cr);
+
+        cairo_set_dash (cr, NULL, 0, 0.0);
+        draw_beam_label (cr, green, sxp + 3.0, py + 2.0, lblsz, vbuf);
+    }
+    else
+    {
+        double span = cy1 - cy0;
+        double syp;
+
+        if (!(fabs (span) > 0.0)) { cairo_restore (cr); return; }
+        syp = py + ph - (pos - cy0) / span * ph;
+        if (syp < py - 0.5 || syp > py + ph + 0.5) { cairo_restore (cr); return; }
+
+        cairo_move_to (cr, px, syp);
+        cairo_line_to (cr, px + pw, syp);
+        set_rgba (cr, green, 0.22);
+        cairo_set_line_width (cr, lw * 3.0);
+        cairo_stroke_preserve (cr);
+        set_rgba (cr, green, 0.85);
+        cairo_set_line_width (cr, lw);
+        cairo_stroke (cr);
+
+        cairo_set_dash (cr, NULL, 0, 0.0);
+        draw_beam_label (cr, green, px + 3.0, syp + 2.0, lblsz, vbuf);
+    }
+
+    cairo_restore (cr);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Heathkit tube-scope palette                                        */
 /*                                                                     */
@@ -543,6 +692,9 @@ format_value (
 
 /* Cream silkscreen ink for legends printed on the dark green face. */
 static const PnColor KEN_INK = { 0.91, 0.92, 0.86, 1.0 };
+
+/* Phosphor green for a lit cursor key's legend and glow. */
+static const PnColor CURSOR_GREEN = { 0.40, 1.0, 0.46, 1.0 };
 
 /* Format a level knob's 0..1 value as a percentage ("80%"). */
 static void
@@ -1047,6 +1199,65 @@ paint_panel_bg (
     cairo_stroke (cr);
 }
 
+/* A small bevelled cursor toggle key with its legend on the face.  Lit with
+ * a green phosphor glow and green legend when its cursor is shown; a plain
+ * dark panel key when hidden. */
+static void
+draw_cursor_button (
+        cairo_t        *cr,
+        const PnOscRect *r,
+        const char     *label,
+        gboolean        active)
+{
+    double rad = MIN (4.0, r->h * 0.3);
+
+    /* Soft green halo around a lit key. */
+    if (active)
+    {
+        rounded_rect (cr, r->x - 2.0, r->y - 2.0, r->w + 4.0, r->h + 4.0,
+                      rad + 2.0);
+        cairo_set_source_rgba (cr, 0.30, 0.95, 0.40, 0.30);
+        cairo_fill (cr);
+    }
+
+    /* Key body — a touch greener and brighter when lit. */
+    rounded_rect (cr, r->x, r->y, r->w, r->h, rad);
+    {
+        cairo_pattern_t *grad =
+            cairo_pattern_create_linear (r->x, r->y, r->x, r->y + r->h);
+        if (active)
+        {
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.18, 0.32, 0.20);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.10, 0.20, 0.12);
+        }
+        else
+        {
+            cairo_pattern_add_color_stop_rgb (grad, 0.0, 0.27, 0.31, 0.27);
+            cairo_pattern_add_color_stop_rgb (grad, 1.0, 0.15, 0.18, 0.15);
+        }
+        cairo_set_source (cr, grad);
+        cairo_fill_preserve (cr);
+        cairo_pattern_destroy (grad);
+    }
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.50);
+    cairo_set_line_width (cr, 1.0);
+    cairo_stroke (cr);
+
+    /* Thin top highlight so the key reads as raised. */
+    rounded_rect (cr, r->x + 1.0, r->y + 1.0, r->w - 2.0, r->h - 2.0, rad);
+    cairo_set_source_rgba (cr, 1.0, 1.0, 0.95, active ? 0.10 : 0.07);
+    cairo_set_line_width (cr, 1.0);
+    cairo_stroke (cr);
+
+    /* Legend centred on the key. */
+    {
+        double th = MIN (r->h * 0.58, 11.0);
+
+        panel_text (cr, r->x + r->w * 0.5, r->y + (r->h - th) * 0.5, th, TRUE,
+                    active ? &CURSOR_GREEN : &KEN_INK, label);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Painter entry point                                                */
 /* ------------------------------------------------------------------ */
@@ -1062,6 +1273,7 @@ pn_oscilloscope_paint_plot (
 {
     PnOscilloscope *self = PN_OSCILLOSCOPE (node);
     PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+    PnOscRect       curbtn[PN_OSC_CUR_N];
     gdouble         xmin, xmax, ymin, ymax;
     gdouble         raw_x_lo, raw_x_hi, raw_y_lo, raw_y_hi;
     int             i;
@@ -1075,7 +1287,7 @@ pn_oscilloscope_paint_plot (
     }
 
     /* Maximized: CRT retreats to the top-left, knob panel fills the rest. */
-    pn_oscilloscope_layout (self, x, y, w, h, &crt, knobs, autobtn);
+    pn_oscilloscope_layout (self, x, y, w, h, &crt, knobs, autobtn, curbtn);
 
     paint_panel_bg (cr, x, y, w, h);
 
@@ -1112,6 +1324,24 @@ pn_oscilloscope_paint_plot (
                               (autobtn[1].y + autobtn[1].h)
                                   - (autobtn[0].y - lbl) + 2.0 * bpad,
                               0.64, 0.78, 0.50);             /* green */
+        }
+
+        /* The cursor toggle keys sit in their own framed "CURSORS" zone, to
+         * the right of the Auto keys. */
+        {
+            double cpad = 8.0;
+            double clbl = 14.0;
+            double gx0  = curbtn[PN_OSC_CUR_V1].x;
+            double gy0  = curbtn[PN_OSC_CUR_V1].y;
+            double gx1  = curbtn[PN_OSC_CUR_H2].x + curbtn[PN_OSC_CUR_H2].w;
+            double gy1  = curbtn[PN_OSC_CUR_H2].y + curbtn[PN_OSC_CUR_H2].h;
+
+            draw_group_panel (cr, gx0 - cpad, gy0 - clbl - cpad,
+                              (gx1 - gx0) + 2.0 * cpad,
+                              (gy1 - gy0) + clbl + 2.0 * cpad,
+                              0.64, 0.78, 0.50);             /* green */
+            panel_text (cr, (gx0 + gx1) * 0.5, gy0 - clbl, 12.0, TRUE,
+                        &KEN_INK, "CURSORS");
         }
     }
 
@@ -1175,6 +1405,14 @@ pn_oscilloscope_paint_plot (
                       pn_oscilloscope_axis_is_auto (self, TRUE));
     draw_auto_button (cr, &autobtn[1], "Auto Y",
                       pn_oscilloscope_axis_is_auto (self, FALSE));
+
+    {
+        static const char *clabels[PN_OSC_CUR_N] = { "V1", "V2", "H1", "H2" };
+
+        for (i = 0; i < PN_OSC_CUR_N; i++)
+            draw_cursor_button (cr, &curbtn[i], clabels[i],
+                                pn_oscilloscope_cursor_is_on (self, i));
+    }
 }
 
 /* ------------------------------------------------------------------ */

@@ -107,6 +107,15 @@ struct _PnOscilloscope
     gdouble   y_range;
     gdouble   y_offset;
 
+    /* Measurement/reference cursors (PnOscCursor): up to two vertical and
+     * two horizontal dashed reference lines the user shows from the panel
+     * keys and drags across the screen.  A cursor's position is held in DATA
+     * units (X for a vertical line, Y for a horizontal one) so it stays glued
+     * to the same measured value as the view is panned/zoomed.  Serialized
+     * compactly through the single "cursors" string property. */
+    gboolean  cursor_on[PN_OSC_CUR_N];
+    gdouble   cursor_pos[PN_OSC_CUR_N];
+
     /* Transient: TRUE only while this card is lifted into the worksheet
      * zoom overlay, gating the on-screen knob panel.  Not serialized. */
     gboolean  maximized;
@@ -172,6 +181,7 @@ enum {
     PROP_Y_AUTO,
     PROP_Y_RANGE,
     PROP_Y_OFFSET,
+    PROP_CURSORS,
     N_PROPS,
 };
 
@@ -933,7 +943,8 @@ pn_oscilloscope_layout (
         gdouble         ph,
         PnOscRect      *crt,
         PnOscRect       knobs[PN_OSC_KNOB_N],
-        PnOscRect       autobtn[2])
+        PnOscRect       autobtn[2],
+        PnOscRect       curbtn[PN_OSC_CUR_N])
 {
     gdouble col_w, row_h, avail_w, avail_h;
     gdouble crt_w, crt_h;
@@ -1045,6 +1056,56 @@ pn_oscilloscope_layout (
         autobtn[1].w = btn_w;
         autobtn[1].h = btn_h;
     }
+
+    /* Cursor toggle keys → a 2×2 block in the bottom strip, to the RIGHT of
+     * the Auto keys: V1 V2 on the top row, H1 H2 below, under one "CURSORS"
+     * legend.  Each key is a small square-ish pushbutton. */
+    if (curbtn != NULL)
+    {
+        gdouble gap     = 14.0;            /* same panel edge → LED bar as Auto */
+        gdouble led_w   = btn_w * 0.21;
+        gdouble led_gap = 6.0;
+        gdouble keyx    = bx + gap + led_w + led_gap;   /* Auto-key left edge   */
+        gdouble cw      = btn_h * 2.0;     /* fits "V1"                         */
+        gdouble chh     = btn_h;
+        gdouble cgx     = 8.0;             /* column gap                        */
+        gdouble cgy     = 6.0;             /* row gap                           */
+        gdouble clbl    = 14.0;            /* "CURSORS" legend room above       */
+        gdouble cblockx = keyx + btn_w + 40.0;          /* clear of the Auto keys */
+        gdouble cstack  = clbl + 2.0 * chh + cgy;
+        gdouble cy0     = by + MAX (0.0, (bh - cstack) * 0.5);
+        int     ci;
+
+        for (ci = 0; ci < PN_OSC_CUR_N; ci++)
+        {
+            int ccol = ci % 2;
+            int crow = ci / 2;
+
+            curbtn[ci].x = cblockx + ccol * (cw + cgx);
+            curbtn[ci].y = cy0 + clbl + crow * (chh + cgy);
+            curbtn[ci].w = cw;
+            curbtn[ci].h = chh;
+        }
+    }
+}
+
+/* The graticule/plot sub-rectangle inside a CRT rect.  Mirrors the bezel
+ * border + inner margin the painter (paint_crt) insets by, so a cursor maps
+ * to exactly the screen position it is drawn at. */
+void
+pn_oscilloscope_plot_rect (const PnOscRect *crt, PnOscRect *plot)
+{
+    gdouble smin, m;
+
+    g_return_if_fail (crt != NULL && plot != NULL);
+
+    smin = MIN (crt->w, crt->h);
+    m    = smin * 0.030 + smin * 0.045;   /* bezel border + inner margin */
+
+    plot->x = crt->x + m;
+    plot->y = crt->y + m;
+    plot->w = crt->w - 2.0 * m;
+    plot->h = crt->h - 2.0 * m;
 }
 
 static int
@@ -1081,6 +1142,236 @@ pn_oscilloscope_hit_auto (
         gdouble x, gdouble y)
 {
     return hit_rect_array (autobtn, 2, x, y);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Measurement cursors                                                */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_oscilloscope_cursor_is_vertical (int cursor)
+{
+    return cursor == PN_OSC_CUR_V1 || cursor == PN_OSC_CUR_V2;
+}
+
+gboolean
+pn_oscilloscope_cursor_is_on (PnOscilloscope *self, int cursor)
+{
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), FALSE);
+    g_return_val_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N, FALSE);
+    return self->cursor_on[cursor];
+}
+
+gdouble
+pn_oscilloscope_cursor_pos (PnOscilloscope *self, int cursor)
+{
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0.0);
+    g_return_val_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N, 0.0);
+    return self->cursor_pos[cursor];
+}
+
+/* The visible data window for an axis right now, reading the live extent —
+ * the same window the painter maps the trace into, so a cursor's data
+ * position and its drawn screen position always agree. */
+static void
+cursor_axis_window (
+        PnOscilloscope *self,
+        gboolean        x_axis,
+        gdouble        *lo,
+        gdouble        *hi)
+{
+    gdouble sx[2], sy[2], xmin, xmax, ymin, ymax;
+
+    pn_oscilloscope_read_trace (self, 2, sx, sy, &xmin, &xmax, &ymin, &ymax);
+    if (x_axis)
+        pn_oscilloscope_axis_window (self, TRUE, xmin, xmax, lo, hi);
+    else
+        pn_oscilloscope_axis_window (self, FALSE, ymin, ymax, lo, hi);
+}
+
+void
+pn_oscilloscope_toggle_cursor (PnOscilloscope *self, int cursor)
+{
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N);
+
+    if (self->cursor_on[cursor])
+    {
+        self->cursor_on[cursor] = FALSE;
+    }
+    else
+    {
+        gboolean vert = pn_oscilloscope_cursor_is_vertical (cursor);
+        gdouble  lo, hi;
+
+        /* Seed the new line at the centre of the current view so it appears
+         * mid-screen, ready to be dragged onto a feature. */
+        cursor_axis_window (self, vert, &lo, &hi);
+        self->cursor_on[cursor]  = TRUE;
+        self->cursor_pos[cursor] = 0.5 * (lo + hi);
+    }
+
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_CURSORS]);
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+int
+pn_oscilloscope_hit_cursor_button (
+        const PnOscRect curbtn[PN_OSC_CUR_N],
+        gdouble x, gdouble y)
+{
+    return hit_rect_array (curbtn, PN_OSC_CUR_N, x, y);
+}
+
+int
+pn_oscilloscope_hit_cursor (
+        PnOscilloscope  *self,
+        const PnOscRect *crt,
+        gdouble x, gdouble y)
+{
+    const double TOL = 6.0;
+    PnOscRect    plot;
+    gdouble      x0, x1, y0, y1;
+    double       best_d = TOL;
+    int          best   = -1;
+    int          c;
+
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), -1);
+    g_return_val_if_fail (crt != NULL, -1);
+
+    pn_oscilloscope_plot_rect (crt, &plot);
+    if (plot.w < 1.0 || plot.h < 1.0)
+        return -1;
+
+    cursor_axis_window (self, TRUE,  &x0, &x1);
+    cursor_axis_window (self, FALSE, &y0, &y1);
+
+    for (c = 0; c < PN_OSC_CUR_N; c++)
+    {
+        double d;
+
+        if (!self->cursor_on[c])
+            continue;
+
+        if (pn_oscilloscope_cursor_is_vertical (c))
+        {
+            double span = x1 - x0;
+            double sxp;
+
+            if (!(fabs (span) > 0.0))
+                continue;
+            sxp = plot.x + (self->cursor_pos[c] - x0) / span * plot.w;
+            if (y < plot.y - TOL || y > plot.y + plot.h + TOL)
+                continue;
+            d = fabs (x - sxp);
+        }
+        else
+        {
+            double span = y1 - y0;
+            double syp;
+
+            if (!(fabs (span) > 0.0))
+                continue;
+            syp = plot.y + plot.h - (self->cursor_pos[c] - y0) / span * plot.h;
+            if (x < plot.x - TOL || x > plot.x + plot.w + TOL)
+                continue;
+            d = fabs (y - syp);
+        }
+
+        if (d <= best_d)
+        {
+            best_d = d;
+            best   = c;
+        }
+    }
+
+    return best;
+}
+
+void
+pn_oscilloscope_drag_cursor_to (
+        PnOscilloscope  *self,
+        int              cursor,
+        const PnOscRect *crt,
+        gdouble x, gdouble y)
+{
+    PnOscRect plot;
+    gdouble   lo, hi;
+    gboolean  vert;
+    double    f;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N);
+    g_return_if_fail (crt != NULL);
+
+    pn_oscilloscope_plot_rect (crt, &plot);
+    if (plot.w < 1.0 || plot.h < 1.0)
+        return;
+
+    vert = pn_oscilloscope_cursor_is_vertical (cursor);
+    cursor_axis_window (self, vert, &lo, &hi);
+
+    f = vert ? (x - plot.x) / plot.w
+             : (plot.y + plot.h - y) / plot.h;
+    f = CLAMP (f, 0.0, 1.0);
+
+    self->cursor_pos[cursor] = lo + f * (hi - lo);
+    self->cursor_on[cursor]  = TRUE;
+
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_CURSORS]);
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+/* ---- compact serialization of all four cursors into one string ----
+ * Four ';'-separated tokens (V1;V2;H1;H2): an empty token is "off"; a number
+ * is the data position of a shown cursor.  Locale-independent (g_ascii_*). */
+
+static gchar *
+cursors_to_string (PnOscilloscope *self)
+{
+    GString *s = g_string_new (NULL);
+    int      c;
+
+    for (c = 0; c < PN_OSC_CUR_N; c++)
+    {
+        if (c > 0)
+            g_string_append_c (s, ';');
+        if (self->cursor_on[c])
+        {
+            char buf[G_ASCII_DTOSTR_BUF_SIZE];
+
+            g_string_append (s, g_ascii_dtostr (buf, sizeof buf,
+                                                self->cursor_pos[c]));
+        }
+    }
+
+    return g_string_free (s, FALSE);
+}
+
+static void
+cursors_from_string (PnOscilloscope *self, const char *str)
+{
+    gchar **toks;
+    int     c;
+
+    for (c = 0; c < PN_OSC_CUR_N; c++)
+    {
+        self->cursor_on[c]  = FALSE;
+        self->cursor_pos[c] = 0.0;
+    }
+
+    if (str == NULL || *str == '\0')
+        return;
+
+    toks = g_strsplit (str, ";", -1);
+    for (c = 0; c < PN_OSC_CUR_N && toks[c] != NULL; c++)
+    {
+        if (toks[c][0] == '\0')
+            continue;
+        self->cursor_on[c]  = TRUE;
+        self->cursor_pos[c] = g_ascii_strtod (toks[c], NULL);
+    }
+    g_strfreev (toks);
 }
 
 gboolean
@@ -1454,6 +1745,9 @@ pn_oscilloscope_get_property (
     case PROP_Y_OFFSET:
         g_value_set_double (value, self->y_offset);
         break;
+    case PROP_CURSORS:
+        g_value_take_string (value, cursors_to_string (self));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1664,6 +1958,10 @@ pn_oscilloscope_set_property (
             }
         }
         break;
+    case PROP_CURSORS:
+        cursors_from_string (self, g_value_get_string (value));
+        pn_node_request_repaint (PN_NODE (self));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1838,6 +2136,14 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
             -G_MAXDOUBLE, G_MAXDOUBLE, 0.0,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_CURSORS] = g_param_spec_string (
+            "cursors", "Cursors",
+            "Measurement-cursor state: four ';'-separated tokens (V1;V2;H1;H2), "
+            "each empty (hidden) or the cursor's data position.  Driven by the "
+            "panel keys and drags, not edited directly.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Declarative settings schema: two themed pages (Appearance | Data),
@@ -1870,6 +2176,11 @@ pn_oscilloscope_class_init (PnOscilloscopeClass *klass)
 
         pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
+        /* Cursor state persists but is driven by the panel keys/drags, never
+         * the settings form. */
+        pn_settings_schema_row       (schema, "cursors", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "cursors", PN_ROW_FLAG_HIDDEN);
 
         pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
     }

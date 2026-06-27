@@ -189,6 +189,20 @@ typedef enum
     PN_OSC_KNOB_N
 } PnOscKnob;
 
+/* The measurement/reference cursors: at most two vertical (positioned by an
+ * X data value) and two horizontal (positioned by a Y data value).  Each is
+ * shown/hidden by its panel toggle key and dragged across the screen; its
+ * position is stored in DATA coordinates so the line stays glued to the same
+ * measured value as the view is panned/zoomed. */
+typedef enum
+{
+    PN_OSC_CUR_V1,
+    PN_OSC_CUR_V2,
+    PN_OSC_CUR_H1,
+    PN_OSC_CUR_H2,
+    PN_OSC_CUR_N
+} PnOscCursor;
+
 /* A plain rectangle in the same coordinate space as the plot rect handed
  * to pn_oscilloscope_layout (and to the painter's paint_plot). */
 typedef struct
@@ -231,6 +245,8 @@ gboolean pn_oscilloscope_get_maximized (PnOscilloscope *self);
  * @crt:     (out): the CRT sub-rectangle, anchored top-left.
  * @knobs:   (out caller-allocates PN_OSC_KNOB_N): the four knob cells.
  * @autobtn: (out caller-allocates 2): the "Auto X" / "Auto Y" buttons.
+ * @curbtn:  (out caller-allocates PN_OSC_CUR_N) (nullable): the four cursor
+ *           toggle keys (V1 V2 H1 H2); pass %NULL when not needed.
  *
  * Single source of truth for the maximized layout, used by both the
  * painter and the worksheet so the drawn knobs and the hit-tested ones
@@ -243,7 +259,44 @@ void pn_oscilloscope_layout (PnOscilloscope *self,
                              gdouble         ph,
                              PnOscRect      *crt,
                              PnOscRect       knobs[PN_OSC_KNOB_N],
-                             PnOscRect       autobtn[2]);
+                             PnOscRect       autobtn[2],
+                             PnOscRect       curbtn[PN_OSC_CUR_N]);
+
+/* The graticule/plot sub-rectangle inside a CRT rect — the region the trace
+ * (and the cursors) map into.  The single definition the painter and the
+ * cursor hit-test/drag share so a cursor lands exactly where it is drawn. */
+void pn_oscilloscope_plot_rect (const PnOscRect *crt, PnOscRect *plot);
+
+/* TRUE for the vertical cursors (V1/V2), which are positioned by an X data
+ * value; FALSE for the horizontal cursors (H1/H2), positioned by Y. */
+gboolean pn_oscilloscope_cursor_is_vertical (int cursor);
+
+/* Whether cursor @c is currently shown, and its position in DATA units (an
+ * X value for a vertical cursor, a Y value for a horizontal one). */
+gboolean pn_oscilloscope_cursor_is_on  (PnOscilloscope *self, int cursor);
+gdouble  pn_oscilloscope_cursor_pos    (PnOscilloscope *self, int cursor);
+
+/* Toggle cursor @c on/off (the panel key action).  Turning one on seeds its
+ * position at the centre of the current view so it appears mid-screen. */
+void pn_oscilloscope_toggle_cursor (PnOscilloscope *self, int cursor);
+
+/* Index of the cursor toggle key under (@x,@y), or -1 for none. */
+int pn_oscilloscope_hit_cursor_button (const PnOscRect curbtn[PN_OSC_CUR_N],
+                                       gdouble x, gdouble y);
+
+/* Index of a shown cursor LINE under (@x,@y) within the CRT rect @crt, or
+ * -1 for none — the grab test that begins a cursor drag. */
+int pn_oscilloscope_hit_cursor (PnOscilloscope  *self,
+                                const PnOscRect *crt,
+                                gdouble x, gdouble y);
+
+/* Move cursor @c so its line passes through the pointer (@x,@y) inside the
+ * CRT rect @crt: the pointer is mapped back to a data value (clamped to the
+ * visible window) and stored, so the line follows the cursor during a drag. */
+void pn_oscilloscope_drag_cursor_to (PnOscilloscope  *self,
+                                     int              cursor,
+                                     const PnOscRect *crt,
+                                     gdouble x, gdouble y);
 
 /* Index of the knob / Auto button under (@x, @y), or -1 for none. */
 int pn_oscilloscope_hit_knob (const PnOscRect knobs[PN_OSC_KNOB_N],

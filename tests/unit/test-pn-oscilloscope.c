@@ -421,7 +421,7 @@ test_layout_reserves_panel (void)
     PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn);
+                            &crt, knobs, autobtn, NULL);
 
     /* CRT inset by a uniform border margin from the top-left corner, and
      * strictly smaller than the whole face. */
@@ -452,7 +452,7 @@ test_hit_knob_and_auto (void)
     int             i;
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn);
+                            &crt, knobs, autobtn, NULL);
 
     /* Centre of each knob hits exactly that knob. */
     for (i = 0; i < PN_OSC_KNOB_N; i++)
@@ -645,7 +645,7 @@ test_hit_knob_fine_inner_vs_outer (void)
     gdouble         cx, cy, r;
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn);
+                            &crt, knobs, autobtn, NULL);
 
     /* Concentric range knob: dead centre is the fine inner disc; out near
      * the rim is the coarse ring. */
@@ -761,6 +761,113 @@ test_scale_property_roundtrip (void)
     g_object_unref (osc);
 }
 
+/* ---- measurement cursors ---- */
+
+static void
+test_cursor_classification (void)
+{
+    PN_CHECK (pn_oscilloscope_cursor_is_vertical (PN_OSC_CUR_V1));
+    PN_CHECK (pn_oscilloscope_cursor_is_vertical (PN_OSC_CUR_V2));
+    PN_CHECK (!pn_oscilloscope_cursor_is_vertical (PN_OSC_CUR_H1));
+    PN_CHECK (!pn_oscilloscope_cursor_is_vertical (PN_OSC_CUR_H2));
+}
+
+static void
+test_cursor_toggle_seeds_centre (void)
+{
+    PnOscilloscope *osc  = pn_oscilloscope_new ();
+    PnNode         *node = PN_NODE (osc);
+    gdouble         wave[4] = { 0.0, 1.0, 2.0, 3.0 };
+    gdouble         sx[2], sy[2], xmin, xmax, ymin, ymax, x0, x1;
+
+    feed_vec_y (node, wave, 4);
+
+    /* Off by default; toggling on shows it and seeds it at the view centre. */
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (osc, PN_OSC_CUR_V1));
+    pn_oscilloscope_toggle_cursor (osc, PN_OSC_CUR_V1);
+    PN_CHECK (pn_oscilloscope_cursor_is_on (osc, PN_OSC_CUR_V1));
+
+    pn_oscilloscope_read_trace (osc, 2, sx, sy, &xmin, &xmax, &ymin, &ymax);
+    pn_oscilloscope_axis_window (osc, TRUE, xmin, xmax, &x0, &x1);
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_V1),
+                   0.5 * (x0 + x1), 1e-6);
+
+    /* Toggling again hides it. */
+    pn_oscilloscope_toggle_cursor (osc, PN_OSC_CUR_V1);
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (osc, PN_OSC_CUR_V1));
+
+    g_object_unref (node);
+}
+
+static void
+test_cursor_serialization_roundtrip (void)
+{
+    PnOscilloscope *a = pn_oscilloscope_new ();
+    PnOscilloscope *b = pn_oscilloscope_new ();
+    gchar          *s = NULL;
+
+    /* V1 on at 1.5, H2 on at -0.25; V2/H1 hidden (empty tokens). */
+    g_object_set (a, "cursors", "1.5;;;-0.25", NULL);
+    PN_CHECK (pn_oscilloscope_cursor_is_on  (a, PN_OSC_CUR_V1));
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (a, PN_OSC_CUR_V2));
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (a, PN_OSC_CUR_H1));
+    PN_CHECK (pn_oscilloscope_cursor_is_on  (a, PN_OSC_CUR_H2));
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (a, PN_OSC_CUR_V1),  1.5,   1e-9);
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (a, PN_OSC_CUR_H2), -0.25,  1e-9);
+
+    /* Round-trips through the serialized string onto a fresh node. */
+    g_object_get (a, "cursors", &s, NULL);
+    g_object_set (b, "cursors", s, NULL);
+    PN_CHECK (pn_oscilloscope_cursor_is_on  (b, PN_OSC_CUR_V1));
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (b, PN_OSC_CUR_V2));
+    PN_CHECK (pn_oscilloscope_cursor_is_on  (b, PN_OSC_CUR_H2));
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (b, PN_OSC_CUR_V1),  1.5,   1e-9);
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (b, PN_OSC_CUR_H2), -0.25,  1e-9);
+
+    g_free (s);
+    g_object_unref (a);
+    g_object_unref (b);
+}
+
+static void
+test_cursor_hit_and_drag (void)
+{
+    PnOscilloscope *osc  = pn_oscilloscope_new ();
+    PnNode         *node = PN_NODE (osc);
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2], plot;
+    gdouble         wave[4] = { 0.0, 1.0, 2.0, 3.0 };
+    gdouble         sx[2], sy[2], xmin, xmax, ymin, ymax, x0, x1;
+    double          cxs, cys;
+
+    feed_vec_y (node, wave, 4);
+    pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
+                            &crt, knobs, autobtn, NULL);
+    pn_oscilloscope_plot_rect (&crt, &plot);
+
+    pn_oscilloscope_read_trace (osc, 2, sx, sy, &xmin, &xmax, &ymin, &ymax);
+    pn_oscilloscope_axis_window (osc, TRUE, xmin, xmax, &x0, &x1);
+
+    /* A shown V1 (seeded centre) is grabbed by a press on its column. */
+    pn_oscilloscope_toggle_cursor (osc, PN_OSC_CUR_V1);
+    cxs = plot.x + (pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_V1) - x0)
+                   / (x1 - x0) * plot.w;
+    cys = plot.y + plot.h * 0.5;
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_cursor (osc, &crt, cxs, cys),
+                     ==, PN_OSC_CUR_V1);
+
+    /* A press well clear of any line grabs nothing. */
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_cursor (osc, &crt, cxs + 40.0, cys),
+                     ==, -1);
+
+    /* Dragging maps the pointer back to a data value (glued to the window). */
+    pn_oscilloscope_drag_cursor_to (osc, PN_OSC_CUR_V1, &crt,
+                                    plot.x + plot.w * 0.25, cys);
+    PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_V1),
+                   x0 + 0.25 * (x1 - x0), 1e-6);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -791,5 +898,9 @@ main (int argc, char **argv)
     pn_test_add ("reset_axis_to_auto",       test_reset_axis_returns_to_auto);
     pn_test_add ("toggle_axis_auto",         test_toggle_axis_auto);
     pn_test_add ("scale_property_roundtrip", test_scale_property_roundtrip);
+    pn_test_add ("cursor_classification",    test_cursor_classification);
+    pn_test_add ("cursor_toggle_centre",     test_cursor_toggle_seeds_centre);
+    pn_test_add ("cursor_serialization",     test_cursor_serialization_roundtrip);
+    pn_test_add ("cursor_hit_and_drag",      test_cursor_hit_and_drag);
     return pn_test_run ();
 }
