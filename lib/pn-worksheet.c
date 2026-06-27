@@ -275,6 +275,17 @@ struct _PnWorksheet
     gboolean osc_cursor_drag;
     int      osc_cursor;
 
+    /** Cursor-position-knob drag state for a lifted #PnOscilloscope card:
+     *  a primary press on one of the four coarse/fine cursor knobs begins a
+     *  value drag (#osc_cknob is the grabbed #PnOscCursor, #osc_cknob_fine
+     *  TRUE when the grab landed on its inner fine disc, #osc_cknob_last_y the
+     *  previous motion sample for the per-frame delta).  The node is always
+     *  #zoomed_node. */
+    gboolean osc_cknob_drag;
+    int      osc_cknob;
+    gboolean osc_cknob_fine;
+    double   osc_cknob_last_y;
+
     /** Transient "magnification" readout shown while the user spins
      *  Ctrl+wheel.  #zoom_label_shown_us is the frame-clock timestamp
      *  of the most recent zoom step — every subsequent step re-stamps
@@ -3449,6 +3460,7 @@ on_node_removed_from_store (
         self->sun_path_dragged = FALSE;
         self->osc_drag         = FALSE;
         self->osc_cursor_drag  = FALSE;
+        self->osc_cknob_drag   = FALSE;
         if (self->zoom_tick_id != 0)
         {
             gtk_widget_remove_tick_callback (GTK_WIDGET (self),
@@ -4691,10 +4703,12 @@ on_scroll (
         PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
         double          zx, zy, zw, zh;
         PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
-        int             k;
+        PnOscRect       curknob[PN_OSC_CUR_N];
+        int             k, ck;
 
         zoom_current_rect (self, &zx, &zy, &zw, &zh);
-        pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn, NULL);
+        pn_oscilloscope_layout (osc, zx, zy, zw, zh, &crt, knobs, autobtn,
+                                NULL, curknob);
 
         k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
         if (k >= 0)
@@ -4703,6 +4717,19 @@ on_scroll (
                                                            event->x, event->y);
             pn_oscilloscope_drag_knob (osc, k, fine,
                                        dy * PN_OSC_WHEEL_STEP_PX, crt.h);
+            gtk_widget_queue_draw (widget);
+            return GDK_EVENT_STOP;
+        }
+
+        /* A wheel spin over a cursor position knob nudges that line, the same
+         * coarse/fine seam a drag uses. */
+        ck = pn_oscilloscope_hit_cursor_knob (curknob, event->x, event->y);
+        if (ck >= 0)
+        {
+            gboolean fine = pn_oscilloscope_hit_cursor_knob_fine (
+                                curknob, ck, event->x, event->y);
+            pn_oscilloscope_drag_cursor_knob (osc, ck, fine,
+                                              dy * PN_OSC_WHEEL_STEP_PX, crt.h);
             gtk_widget_queue_draw (widget);
             return GDK_EVENT_STOP;
         }
@@ -4815,17 +4842,28 @@ on_button_press (
             PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
             double          zx, zy, zw, zh;
             PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
-            int             k;
+            PnOscRect       curknob[PN_OSC_CUR_N];
+            int             k, ck;
 
             zoom_current_rect (self, &zx, &zy, &zw, &zh);
             pn_oscilloscope_layout (osc, zx, zy, zw, zh,
-                                    &crt, knobs, autobtn, NULL);
+                                    &crt, knobs, autobtn, NULL, curknob);
 
             k = pn_oscilloscope_hit_knob (knobs, event->x, event->y);
             if (k >= 0)
             {
                 self->osc_drag = FALSE;   /* cancel the drag the 1st press armed */
                 pn_oscilloscope_reset_knob (osc, k);
+                gtk_widget_queue_draw (widget);
+                return GDK_EVENT_STOP;
+            }
+
+            /* Double-clicking a cursor position knob recentres that line. */
+            ck = pn_oscilloscope_hit_cursor_knob (curknob, event->x, event->y);
+            if (ck >= 0)
+            {
+                self->osc_cknob_drag = FALSE;  /* cancel the 1st press's arm */
+                pn_oscilloscope_reset_cursor_knob (osc, ck);
                 gtk_widget_queue_draw (widget);
             }
             return GDK_EVENT_STOP;
@@ -4895,12 +4933,12 @@ on_button_press (
                 PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
                 double          zx, zy, zw, zh;
                 PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
-                PnOscRect       curbtn[PN_OSC_CUR_N];
-                int             a, k, cb, cl;
+                PnOscRect       curbtn[PN_OSC_CUR_N], curknob[PN_OSC_CUR_N];
+                int             a, k, cb, cl, ck;
 
                 zoom_current_rect (self, &zx, &zy, &zw, &zh);
                 pn_oscilloscope_layout (osc, zx, zy, zw, zh,
-                                        &crt, knobs, autobtn, curbtn);
+                                        &crt, knobs, autobtn, curbtn, curknob);
 
                 a = pn_oscilloscope_hit_auto (autobtn, event->x, event->y);
                 if (a >= 0)
@@ -4932,6 +4970,20 @@ on_button_press (
                     pn_oscilloscope_drag_cursor_to (osc, cl, &crt,
                                                     event->x, event->y);
                     gtk_widget_queue_draw (widget);
+                    return GDK_EVENT_STOP;
+                }
+
+                /* A press on a cursor POSITION knob begins a coarse/fine drag
+                 * of that line (and reveals a hidden one on the first turn). */
+                ck = pn_oscilloscope_hit_cursor_knob (curknob,
+                                                      event->x, event->y);
+                if (ck >= 0)
+                {
+                    self->osc_cknob_drag   = TRUE;
+                    self->osc_cknob        = ck;
+                    self->osc_cknob_fine   = pn_oscilloscope_hit_cursor_knob_fine (
+                                                 curknob, ck, event->x, event->y);
+                    self->osc_cknob_last_y = event->y;
                     return GDK_EVENT_STOP;
                 }
 
@@ -5227,10 +5279,32 @@ on_motion_notify (
 
         zoom_current_rect (self, &zx, &zy, &zw, &zh);
         pn_oscilloscope_layout (osc, zx, zy, zw, zh,
-                                &crt, knobs, autobtn, NULL);
+                                &crt, knobs, autobtn, NULL, NULL);
 
         pn_oscilloscope_drag_cursor_to (osc, self->osc_cursor, &crt,
                                         event->x, event->y);
+        gtk_widget_queue_draw (widget);
+        return GDK_EVENT_STOP;
+    }
+
+    /* Oscilloscope cursor-knob drag: feed the vertical delta to the grabbed
+     * cursor position knob, the coarse ring or its fine inner vernier. */
+    if (self->osc_cknob_drag && self->zoomed_node != NULL &&
+        PN_IS_OSCILLOSCOPE (self->zoomed_node))
+    {
+        PnOscilloscope *osc = PN_OSCILLOSCOPE (self->zoomed_node);
+        double          zx, zy, zw, zh;
+        PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+        double          dy = event->y - self->osc_cknob_last_y;
+
+        self->osc_cknob_last_y = event->y;
+
+        zoom_current_rect (self, &zx, &zy, &zw, &zh);
+        pn_oscilloscope_layout (osc, zx, zy, zw, zh,
+                                &crt, knobs, autobtn, NULL, NULL);
+
+        pn_oscilloscope_drag_cursor_knob (osc, self->osc_cknob,
+                                          self->osc_cknob_fine, dy, crt.h);
         gtk_widget_queue_draw (widget);
         return GDK_EVENT_STOP;
     }
@@ -5251,7 +5325,7 @@ on_motion_notify (
 
         zoom_current_rect (self, &zx, &zy, &zw, &zh);
         pn_oscilloscope_layout (osc, zx, zy, zw, zh,
-                                &crt, knobs, autobtn, NULL);
+                                &crt, knobs, autobtn, NULL, NULL);
 
         pn_oscilloscope_drag_knob (osc, self->osc_knob, self->osc_fine,
                                    dy, crt.h);
@@ -5351,6 +5425,13 @@ on_button_release (
     if (self->osc_cursor_drag)
     {
         self->osc_cursor_drag = FALSE;
+        return GDK_EVENT_STOP;
+    }
+
+    /* End an oscilloscope cursor-knob drag.  The overlay stays lifted. */
+    if (self->osc_cknob_drag)
+    {
+        self->osc_cknob_drag = FALSE;
         return GDK_EVENT_STOP;
     }
 

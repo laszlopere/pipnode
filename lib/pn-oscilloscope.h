@@ -247,6 +247,9 @@ gboolean pn_oscilloscope_get_maximized (PnOscilloscope *self);
  * @autobtn: (out caller-allocates 2): the "Auto X" / "Auto Y" buttons.
  * @curbtn:  (out caller-allocates PN_OSC_CUR_N) (nullable): the four cursor
  *           toggle keys (V1 V2 H1 H2); pass %NULL when not needed.
+ * @curknob: (out caller-allocates PN_OSC_CUR_N) (nullable): the four cursor
+ *           POSITION knobs, one directly under each toggle key; pass %NULL
+ *           when not needed.
  *
  * Single source of truth for the maximized layout, used by both the
  * painter and the worksheet so the drawn knobs and the hit-tested ones
@@ -260,7 +263,8 @@ void pn_oscilloscope_layout (PnOscilloscope *self,
                              PnOscRect      *crt,
                              PnOscRect       knobs[PN_OSC_KNOB_N],
                              PnOscRect       autobtn[2],
-                             PnOscRect       curbtn[PN_OSC_CUR_N]);
+                             PnOscRect       curbtn[PN_OSC_CUR_N],
+                             PnOscRect       curknob[PN_OSC_CUR_N]);
 
 /* The graticule/plot sub-rectangle inside a CRT rect — the region the trace
  * (and the cursors) map into.  The single definition the painter and the
@@ -297,6 +301,47 @@ void pn_oscilloscope_drag_cursor_to (PnOscilloscope  *self,
                                      int              cursor,
                                      const PnOscRect *crt,
                                      gdouble x, gdouble y);
+
+/* ------------------------------------------------------------------ */
+/*  Cursor position knobs (coarse + fine)                              */
+/*                                                                     */
+/*  Each cursor also gets a concentric position knob in the maximized  */
+/*  panel — a coarse outer ring for a quick sweep and a fine inner disc */
+/*  for trimming the line onto a feature — sitting under its V1/V2/H1/  */
+/*  H2 toggle key.  Turning a knob is an alternative to dragging the    */
+/*  dashed line directly, and reveals a hidden cursor.                  */
+/* ------------------------------------------------------------------ */
+
+/* Index of the cursor POSITION knob under (@x,@y), or -1 for none. */
+int pn_oscilloscope_hit_cursor_knob (const PnOscRect curknob[PN_OSC_CUR_N],
+                                     gdouble x, gdouble y);
+
+/* TRUE when (@x,@y) is over the fine inner disc of cursor knob @cursor
+ * (the slow vernier) rather than its coarse outer ring. */
+gboolean pn_oscilloscope_hit_cursor_knob_fine (
+                                     const PnOscRect curknob[PN_OSC_CUR_N],
+                                     int cursor, gdouble x, gdouble y);
+
+/* Apply a vertical drag @dy (pixels, +down) to cursor @cursor's position
+ * knob: the line moves across its axis window at a coarse rate, or, when
+ * @fine, a much slower vernier rate; dragging UP (dy < 0) moves the line
+ * up / right (its data value increases).  @crt_extent (the CRT height)
+ * scales the sweep so one screenful of drag spans the whole window.  Turns
+ * the cursor on (seeded at the window centre) if it was hidden. */
+void pn_oscilloscope_drag_cursor_knob (PnOscilloscope *self,
+                                       int             cursor,
+                                       gboolean        fine,
+                                       gdouble         dy,
+                                       gdouble         crt_extent);
+
+/* Cursor @cursor's position as a 0..1 fraction of its current axis window
+ * (0 = left/bottom edge, 1 = right/top), for the painter's knob pointer
+ * angle.  0.5 when the window is degenerate. */
+gdouble pn_oscilloscope_cursor_knob_frac (PnOscilloscope *self, int cursor);
+
+/* Recentre cursor @cursor in its current window — the "double-click a knob"
+ * reset for a cursor position knob.  A no-op when the cursor is hidden. */
+void pn_oscilloscope_reset_cursor_knob (PnOscilloscope *self, int cursor);
 
 /* Index of the knob / Auto button under (@x, @y), or -1 for none. */
 int pn_oscilloscope_hit_knob (const PnOscRect knobs[PN_OSC_KNOB_N],

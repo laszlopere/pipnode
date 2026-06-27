@@ -802,9 +802,12 @@ pn_oscilloscope_get_point_count (PnOscilloscope *self)
 #define PN_OSC_KNOB_COL_FRAC  0.30
 #define PN_OSC_KNOB_COL_MIN   150.0
 #define PN_OSC_KNOB_COL_MAX   280.0
+/* The bottom strip carries the two Auto keys and the CURSORS cluster.  Its
+ * base height is set here, then grown in pn_oscilloscope_layout so a row of
+ * range-knob-sized cursor knobs fits beneath the CRT. */
 #define PN_OSC_BTN_ROW_FRAC   0.18
-#define PN_OSC_BTN_ROW_MIN    70.0
-#define PN_OSC_BTN_ROW_MAX    130.0
+#define PN_OSC_BTN_ROW_MIN    110.0
+#define PN_OSC_BTN_ROW_MAX    240.0
 #define PN_OSC_CRT_ASPECT     1.25      /* 10×8 graticule, kept square */
 
 /* Pixels-of-vertical-drag that scale a range by e (one natural-log
@@ -944,7 +947,8 @@ pn_oscilloscope_layout (
         PnOscRect      *crt,
         PnOscRect       knobs[PN_OSC_KNOB_N],
         PnOscRect       autobtn[2],
-        PnOscRect       curbtn[PN_OSC_CUR_N])
+        PnOscRect       curbtn[PN_OSC_CUR_N],
+        PnOscRect       curknob[PN_OSC_CUR_N])
 {
     gdouble col_w, row_h, avail_w, avail_h;
     gdouble crt_w, crt_h;
@@ -973,6 +977,25 @@ pn_oscilloscope_layout (
     /* Never let the panels eat the whole face on a small overlay. */
     if (col_w > pw * 0.6) col_w = pw * 0.6;
     if (row_h > ph * 0.5) row_h = ph * 0.5;
+
+    /* The CURSORS row carries four position knobs drawn the SAME size as the
+     * right-column range knobs.  Grow the bottom strip so one of those knobs
+     * (plus its legend, key and readout) fits beneath the CRT.  We size it from
+     * the column cell as it stands now; growing the strip only shrinks that
+     * cell, so the final knob still fits with room to spare. */
+    {
+        PnOscRect pcell;
+        gdouble   t, prad, pcur_cw;
+
+        pcell.x = pcell.y = 0.0;
+        pcell.w = col_w * 0.42;                       /* provisional cell_w     */
+        pcell.h = ((ph - row_h) / 3.0) * 0.80;        /* provisional cell_h     */
+        pn_oscilloscope_knob_dial (&pcell, &t, &t, &prad);
+        pcur_cw = prad / 0.36;                        /* cell width for that radius */
+
+        /* legend + dial cell (knob radius·2-ish via +40) + readout pad */
+        row_h = MIN (MAX (row_h, 18.0 + (pcur_cw + 40.0) + 12.0), ph * 0.5);
+    }
 
     avail_w = pw - col_w;
     avail_h = ph - row_h;
@@ -1057,34 +1080,69 @@ pn_oscilloscope_layout (
         autobtn[1].h = btn_h;
     }
 
-    /* Cursor toggle keys → a 2×2 block in the bottom strip, to the RIGHT of
-     * the Auto keys: V1 V2 on the top row, H1 H2 below, under one "CURSORS"
-     * legend.  Each key is a small square-ish pushbutton. */
-    if (curbtn != NULL)
+    /* Cursor controls → a single ROW of four toggle KEYS (V1 V2 H1 H2), each
+     * with its coarse/fine POSITION KNOB beneath it, in the bottom strip to the
+     * right of the Auto keys, under one "CURSORS" legend.  Each knob is sized to
+     * the SAME drawn radius as the right-column RANGE knobs and drawn the same
+     * concentric way, so the two clusters match.  The cell width is backed out
+     * of that radius (cw = radius / 0.36) and the toggle key is floated just
+     * above the dial, exactly where a range knob's name label sits. */
+    if (curbtn != NULL || curknob != NULL)
     {
-        gdouble gap     = 14.0;            /* same panel edge → LED bar as Auto */
-        gdouble led_w   = btn_w * 0.21;
-        gdouble led_gap = 6.0;
-        gdouble keyx    = bx + gap + led_w + led_gap;   /* Auto-key left edge   */
-        gdouble cw      = btn_h * 2.0;     /* fits "V1"                         */
-        gdouble chh     = btn_h;
-        gdouble cgx     = 8.0;             /* column gap                        */
-        gdouble cgy     = 6.0;             /* row gap                           */
-        gdouble clbl    = 14.0;            /* "CURSORS" legend room above       */
-        gdouble cblockx = keyx + btn_w + 40.0;          /* clear of the Auto keys */
-        gdouble cstack  = clbl + 2.0 * chh + cgy;
-        gdouble cy0     = by + MAX (0.0, (bh - cstack) * 0.5);
-        int     ci;
+        gdouble   gap     = 14.0;          /* same panel edge → LED bar as Auto */
+        gdouble   led_w   = btn_w * 0.21;
+        gdouble   led_gap = 6.0;
+        gdouble   keyx    = bx + gap + led_w + led_gap;   /* Auto-key left edge  */
+        gdouble   keyH    = btn_h;
+        gdouble   kgap    = 4.0;            /* key → the dial below it           */
+        gdouble   cgx     = 10.0;           /* column gap                        */
+        gdouble   clbl    = 18.0;           /* "CURSORS" legend room above       */
+        gdouble   cblockx = keyx + btn_w + 28.0;        /* clear of the Auto keys */
+        PnOscRect rcell;
+        gdouble   t, rrad, cw, knobH, cstack, cy0;
+        int       ci;
+
+        /* The range knob's drawn radius (a right-column cell, via the shared
+         * knob_dial), then the cell width that reproduces it. */
+        rcell.x = rcell.y = 0.0;
+        rcell.w = cell_w;
+        rcell.h = cell_h;
+        pn_oscilloscope_knob_dial (&rcell, &t, &t, &rrad);
+        cw     = rrad / 0.36;
+        knobH  = cw + 40.0;                 /* dial centred, readout below it    */
+        cstack = clbl + knobH;              /* the key floats inside the cell    */
+        cy0    = by + MAX (0.0, (bh - cstack) * 0.5);
 
         for (ci = 0; ci < PN_OSC_CUR_N; ci++)
         {
-            int ccol = ci % 2;
-            int crow = ci / 2;
+            gdouble colx = cblockx + ci * (cw + cgx);
 
-            curbtn[ci].x = cblockx + ccol * (cw + cgx);
-            curbtn[ci].y = cy0 + clbl + crow * (chh + cgy);
-            curbtn[ci].w = cw;
-            curbtn[ci].h = chh;
+            if (curknob != NULL)
+            {
+                curknob[ci].x = colx;
+                curknob[ci].y = cy0 + clbl;
+                curknob[ci].w = cw;
+                curknob[ci].h = knobH;
+            }
+            if (curbtn != NULL)
+            {
+                /* Float the key just above the dial — same place a range knob's
+                 * name label sits — using the dial geometry of this very cell. */
+                PnOscRect kcell;
+                gdouble   dcx, dcy, drad, keyW;
+
+                kcell.x = colx;
+                kcell.y = cy0 + clbl;
+                kcell.w = cw;
+                kcell.h = knobH;
+                pn_oscilloscope_knob_dial (&kcell, &dcx, &dcy, &drad);
+
+                keyW = MIN (cw, btn_h * 2.6);
+                curbtn[ci].x = dcx - keyW * 0.5;
+                curbtn[ci].y = (dcy - drad) - kgap - keyH;
+                curbtn[ci].w = keyW;
+                curbtn[ci].h = keyH;
+            }
         }
     }
 }
@@ -1317,6 +1375,121 @@ pn_oscilloscope_drag_cursor_to (
 
     self->cursor_pos[cursor] = lo + f * (hi - lo);
     self->cursor_on[cursor]  = TRUE;
+
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_CURSORS]);
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cursor position knobs (coarse + fine)                              */
+/* ------------------------------------------------------------------ */
+
+int
+pn_oscilloscope_hit_cursor_knob (
+        const PnOscRect curknob[PN_OSC_CUR_N],
+        gdouble x, gdouble y)
+{
+    return hit_rect_array (curknob, PN_OSC_CUR_N, x, y);
+}
+
+gboolean
+pn_oscilloscope_hit_cursor_knob_fine (
+        const PnOscRect curknob[PN_OSC_CUR_N],
+        int cursor, gdouble x, gdouble y)
+{
+    gdouble cx, cy, r, dx, dy, inner;
+
+    if (curknob == NULL || cursor < 0 || cursor >= PN_OSC_CUR_N)
+        return FALSE;
+
+    /* Every cursor knob is concentric (coarse ring + fine disc), so unlike
+     * pn_oscilloscope_hit_knob_fine there is no is-concentric gate. */
+    pn_oscilloscope_knob_dial (&curknob[cursor], &cx, &cy, &r);
+    dx    = x - cx;
+    dy    = y - cy;
+    inner = r * PN_OSC_FINE_RADIUS_FRAC;
+
+    return (dx * dx + dy * dy) <= inner * inner;
+}
+
+void
+pn_oscilloscope_drag_cursor_knob (
+        PnOscilloscope *self,
+        int             cursor,
+        gboolean        fine,
+        gdouble         dy,
+        gdouble         crt_extent)
+{
+    gboolean vert;
+    gdouble  lo, hi, span, rate, pos;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N);
+
+    if (!isfinite (dy) || dy == 0.0)
+        return;
+    if (!isfinite (crt_extent) || crt_extent <= 0.0)
+        crt_extent = 1.0;
+
+    vert = pn_oscilloscope_cursor_is_vertical (cursor);
+    cursor_axis_window (self, vert, &lo, &hi);
+    span = hi - lo;
+    if (!(fabs (span) > 0.0))
+        return;
+
+    /* Turning a hidden cursor's knob reveals it, seeded mid-window so it
+     * appears under the knob rather than jumping from an off-screen value. */
+    if (!self->cursor_on[cursor])
+    {
+        self->cursor_on[cursor]  = TRUE;
+        self->cursor_pos[cursor] = 0.5 * (lo + hi);
+    }
+
+    /* Dragging UP (dy < 0) moves the line up / right (value increases).  The
+     * coarse ring sweeps one full window per CRT extent of drag; the fine
+     * inner disc is a slow vernier at ~1/6 that, for trimming onto a feature. */
+    rate = fine ? (1.0 / 6.0) : 1.0;
+    pos  = self->cursor_pos[cursor] - (dy / crt_extent) * span * rate;
+    pos  = CLAMP (pos, MIN (lo, hi), MAX (lo, hi));
+    self->cursor_pos[cursor] = pos;
+
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_CURSORS]);
+    pn_node_request_repaint (PN_NODE (self));
+}
+
+gdouble
+pn_oscilloscope_cursor_knob_frac (PnOscilloscope *self, int cursor)
+{
+    gboolean vert;
+    gdouble  lo, hi, span;
+
+    g_return_val_if_fail (PN_IS_OSCILLOSCOPE (self), 0.5);
+    g_return_val_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N, 0.5);
+
+    vert = pn_oscilloscope_cursor_is_vertical (cursor);
+    cursor_axis_window (self, vert, &lo, &hi);
+    span = hi - lo;
+    if (!(fabs (span) > 0.0))
+        return 0.5;
+
+    return CLAMP ((self->cursor_pos[cursor] - lo) / span, 0.0, 1.0);
+}
+
+void
+pn_oscilloscope_reset_cursor_knob (PnOscilloscope *self, int cursor)
+{
+    gboolean vert;
+    gdouble  lo, hi;
+
+    g_return_if_fail (PN_IS_OSCILLOSCOPE (self));
+    g_return_if_fail (cursor >= 0 && cursor < PN_OSC_CUR_N);
+
+    if (!self->cursor_on[cursor])
+        return;
+
+    vert = pn_oscilloscope_cursor_is_vertical (cursor);
+    cursor_axis_window (self, vert, &lo, &hi);
+    self->cursor_pos[cursor] = 0.5 * (lo + hi);
 
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_CURSORS]);
     pn_node_request_repaint (PN_NODE (self));

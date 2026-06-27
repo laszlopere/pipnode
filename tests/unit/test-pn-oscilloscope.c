@@ -421,7 +421,7 @@ test_layout_reserves_panel (void)
     PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn, NULL);
+                            &crt, knobs, autobtn, NULL, NULL);
 
     /* CRT inset by a uniform border margin from the top-left corner, and
      * strictly smaller than the whole face. */
@@ -452,7 +452,7 @@ test_hit_knob_and_auto (void)
     int             i;
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn, NULL);
+                            &crt, knobs, autobtn, NULL, NULL);
 
     /* Centre of each knob hits exactly that knob. */
     for (i = 0; i < PN_OSC_KNOB_N; i++)
@@ -645,7 +645,7 @@ test_hit_knob_fine_inner_vs_outer (void)
     gdouble         cx, cy, r;
 
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn, NULL);
+                            &crt, knobs, autobtn, NULL, NULL);
 
     /* Concentric range knob: dead centre is the fine inner disc; out near
      * the rim is the coarse ring. */
@@ -841,7 +841,7 @@ test_cursor_hit_and_drag (void)
 
     feed_vec_y (node, wave, 4);
     pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
-                            &crt, knobs, autobtn, NULL);
+                            &crt, knobs, autobtn, NULL, NULL);
     pn_oscilloscope_plot_rect (&crt, &plot);
 
     pn_oscilloscope_read_trace (osc, 2, sx, sy, &xmin, &xmax, &ymin, &ymax);
@@ -864,6 +864,69 @@ test_cursor_hit_and_drag (void)
                                     plot.x + plot.w * 0.25, cys);
     PN_CHECK_NEAR (pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_V1),
                    x0 + 0.25 * (x1 - x0), 1e-6);
+
+    g_object_unref (node);
+}
+
+/* The coarse/fine cursor POSITION knobs: hit-testing, reveal-on-turn, the
+ * up-drag sign, and that the fine inner disc is a slow vernier. */
+static void
+test_cursor_knob_hit_and_drag (void)
+{
+    PnOscilloscope *osc  = pn_oscilloscope_new ();
+    PnNode         *node = PN_NODE (osc);
+    PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
+    PnOscRect       curbtn[PN_OSC_CUR_N], curknob[PN_OSC_CUR_N];
+    gdouble         wave[4] = { 0.0, 1.0, 2.0, 3.0 };
+    gdouble         cx, cy, r, p0, dcoarse, dfine, f;
+    int             i;
+
+    feed_vec_y (node, wave, 4);
+    pn_oscilloscope_layout (osc, 0.0, 0.0, 1000.0, 700.0,
+                            &crt, knobs, autobtn, curbtn, curknob);
+
+    /* Centre of each cursor knob hits exactly that cursor's knob. */
+    for (i = 0; i < PN_OSC_CUR_N; i++)
+    {
+        double kx = curknob[i].x + curknob[i].w * 0.5;
+        double ky = curknob[i].y + curknob[i].h * 0.5;
+        PN_CHECK_CMPINT (pn_oscilloscope_hit_cursor_knob (curknob, kx, ky),
+                         ==, i);
+    }
+    /* The CRT proper hits no cursor knob. */
+    PN_CHECK_CMPINT (pn_oscilloscope_hit_cursor_knob (curknob, 50.0, 50.0),
+                     ==, -1);
+
+    /* Dead centre is the fine inner disc; out near the rim is the coarse ring. */
+    pn_oscilloscope_knob_dial (&curknob[PN_OSC_CUR_V1], &cx, &cy, &r);
+    PN_CHECK (pn_oscilloscope_hit_cursor_knob_fine (curknob, PN_OSC_CUR_V1,
+                                                    cx, cy));
+    PN_CHECK (!pn_oscilloscope_hit_cursor_knob_fine (curknob, PN_OSC_CUR_V1,
+                                                     cx + r * 0.9, cy));
+
+    /* Turning a hidden cursor's knob reveals it. */
+    PN_CHECK (!pn_oscilloscope_cursor_is_on (osc, PN_OSC_CUR_H1));
+    pn_oscilloscope_drag_cursor_knob (osc, PN_OSC_CUR_H1, FALSE, -30.0, crt.h);
+    PN_CHECK (pn_oscilloscope_cursor_is_on (osc, PN_OSC_CUR_H1));
+
+    /* From a recentred start, an UP coarse drag (dy < 0) raises the value;
+     * the same fine drag moves much less (the vernier). */
+    pn_oscilloscope_reset_cursor_knob (osc, PN_OSC_CUR_H1);
+    p0      = pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_H1);
+    pn_oscilloscope_drag_cursor_knob (osc, PN_OSC_CUR_H1, FALSE, -30.0, crt.h);
+    dcoarse = pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_H1) - p0;
+    PN_CHECK (dcoarse > 0.0);
+
+    pn_oscilloscope_reset_cursor_knob (osc, PN_OSC_CUR_H1);
+    p0    = pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_H1);
+    pn_oscilloscope_drag_cursor_knob (osc, PN_OSC_CUR_H1, TRUE, -30.0, crt.h);
+    dfine = pn_oscilloscope_cursor_pos (osc, PN_OSC_CUR_H1) - p0;
+    PN_CHECK (dfine > 0.0);
+    PN_CHECK (ABS (dfine) < ABS (dcoarse));
+
+    /* The reported window fraction stays normalised. */
+    f = pn_oscilloscope_cursor_knob_frac (osc, PN_OSC_CUR_H1);
+    PN_CHECK (f >= 0.0 && f <= 1.0);
 
     g_object_unref (node);
 }
@@ -902,5 +965,6 @@ main (int argc, char **argv)
     pn_test_add ("cursor_toggle_centre",     test_cursor_toggle_seeds_centre);
     pn_test_add ("cursor_serialization",     test_cursor_serialization_roundtrip);
     pn_test_add ("cursor_hit_and_drag",      test_cursor_hit_and_drag);
+    pn_test_add ("cursor_knob_hit_and_drag", test_cursor_knob_hit_and_drag);
     return pn_test_run ();
 }

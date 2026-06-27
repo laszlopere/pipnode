@@ -551,6 +551,37 @@ panel_text (
     g_object_unref (layout);
 }
 
+/* Draw @text centred both horizontally and vertically within the rectangle
+ * (@x,@y,@w,@h), using the label's TRUE rendered height — panel_text alone
+ * places the baseline from the font size, which under-estimates the real
+ * glyph box and leaves a centred-by-eye label sitting low. */
+static void
+panel_text_box (
+        cairo_t       *cr,
+        double         x,
+        double         y,
+        double         w,
+        double         h,
+        double         size,
+        gboolean       bold,
+        const PnColor *ink,
+        const char    *text)
+{
+    PangoLayout          *layout = pango_cairo_create_layout (cr);
+    PangoFontDescription *desc   =
+        pango_font_description_from_string (bold ? "Serif Bold" : "Serif");
+    int pw, ph;
+
+    pango_font_description_set_absolute_size (desc, size * PANGO_SCALE);
+    pango_layout_set_font_description (layout, desc);
+    pango_font_description_free (desc);
+    pango_layout_set_text (layout, text, -1);
+    pango_layout_get_pixel_size (layout, &pw, &ph);
+    g_object_unref (layout);
+
+    panel_text (cr, x + w * 0.5, y + (h - ph) * 0.5, size, bold, ink, text);
+}
+
 /* Format a knob value compactly (e.g. "2.0", "1.5k", "12m"). */
 static void
 format_value (
@@ -1249,12 +1280,54 @@ draw_cursor_button (
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 
-    /* Legend centred on the key. */
+    /* Legend centred — both ways — on the key. */
     {
         double th = MIN (r->h * 0.58, 11.0);
 
-        panel_text (cr, r->x + r->w * 0.5, r->y + (r->h - th) * 0.5, th, TRUE,
-                    active ? &CURSOR_GREEN : &KEN_INK, label);
+        panel_text_box (cr, r->x, r->y, r->w, r->h, th, TRUE,
+                        active ? &CURSOR_GREEN : &KEN_INK, label);
+    }
+}
+
+/* One cursor POSITION knob: a small concentric coarse-ring + fine-disc dial
+ * (the same coaxial stack the X/Y range knobs use) sitting under its V1/V2/
+ * H1/H2 toggle key.  @frac is the line's 0..1 position in its axis window —
+ * the coarse pointer sweeps ±135° across it; the fine inner pointer spins a
+ * few turns over the same travel to sell the vernier.  When the cursor is
+ * @on the dial is fully lit and its data value is printed in phosphor green
+ * below; when off the pointers are dimmed and no value is shown. */
+static void
+draw_cursor_knob (
+        cairo_t        *cr,
+        const PnOscRect *cell,
+        gdouble         frac,
+        gboolean        on,
+        gdouble         value)
+{
+    gdouble cx, cy, radius;
+    double  ptr_a = on ? 1.0 : 0.40;
+    double  a, fa;
+
+    pn_oscilloscope_knob_dial (cell, &cx, &cy, &radius);
+    if (radius < 4.0)
+        return;
+
+    /* Coarse outer dial: ±135° across the window (left/bottom = −135°). */
+    a = (CLAMP (frac, 0.0, 1.0) * 2.0 - 1.0) * (G_PI * 0.75);
+    draw_dial (cr, cx, cy, radius, a, ptr_a);
+
+    /* Fine inner disc: several turns over the same travel, so trimming it
+     * visibly spins the inner pointer like a vernier. */
+    fa = fmod (frac * 6.0 * (2.0 * G_PI), 2.0 * G_PI);
+    draw_dial (cr, cx, cy, radius * 0.46, fa, ptr_a);
+
+    if (on)
+    {
+        char   vbuf[32];
+        double sz = MIN (cell->h * 0.22, 11.0);
+
+        format_value (vbuf, sizeof vbuf, value);
+        panel_text (cr, cx, cy + radius + 3.0, sz, FALSE, &CURSOR_GREEN, vbuf);
     }
 }
 
@@ -1273,7 +1346,7 @@ pn_oscilloscope_paint_plot (
 {
     PnOscilloscope *self = PN_OSCILLOSCOPE (node);
     PnOscRect       crt, knobs[PN_OSC_KNOB_N], autobtn[2];
-    PnOscRect       curbtn[PN_OSC_CUR_N];
+    PnOscRect       curbtn[PN_OSC_CUR_N], curknob[PN_OSC_CUR_N];
     gdouble         xmin, xmax, ymin, ymax;
     gdouble         raw_x_lo, raw_x_hi, raw_y_lo, raw_y_hi;
     int             i;
@@ -1287,7 +1360,8 @@ pn_oscilloscope_paint_plot (
     }
 
     /* Maximized: CRT retreats to the top-left, knob panel fills the rest. */
-    pn_oscilloscope_layout (self, x, y, w, h, &crt, knobs, autobtn, curbtn);
+    pn_oscilloscope_layout (self, x, y, w, h, &crt, knobs, autobtn,
+                            curbtn, curknob);
 
     paint_panel_bg (cr, x, y, w, h);
 
@@ -1326,15 +1400,19 @@ pn_oscilloscope_paint_plot (
                               0.64, 0.78, 0.50);             /* green */
         }
 
-        /* The cursor toggle keys sit in their own framed "CURSORS" zone, to
-         * the right of the Auto keys. */
+        /* The cursor toggle keys and their position knobs sit in their own
+         * framed "CURSORS" zone, to the right of the Auto keys.  The knob
+         * columns (wider than the keys centred over them) set the left/right
+         * bounds; the frame runs from the key row down to the knob bottoms. */
         {
             double cpad = 8.0;
-            double clbl = 14.0;
-            double gx0  = curbtn[PN_OSC_CUR_V1].x;
+            /* Legend sits this far above the key tops — enough that the
+             * ~16px "CURSORS" glyph box clears the keys with breathing room. */
+            double clbl = 26.0;
+            double gx0  = curknob[PN_OSC_CUR_V1].x;
             double gy0  = curbtn[PN_OSC_CUR_V1].y;
-            double gx1  = curbtn[PN_OSC_CUR_H2].x + curbtn[PN_OSC_CUR_H2].w;
-            double gy1  = curbtn[PN_OSC_CUR_H2].y + curbtn[PN_OSC_CUR_H2].h;
+            double gx1  = curknob[PN_OSC_CUR_H2].x + curknob[PN_OSC_CUR_H2].w;
+            double gy1  = curknob[PN_OSC_CUR_H2].y + curknob[PN_OSC_CUR_H2].h;
 
             draw_group_panel (cr, gx0 - cpad, gy0 - clbl - cpad,
                               (gx1 - gx0) + 2.0 * cpad,
@@ -1410,8 +1488,15 @@ pn_oscilloscope_paint_plot (
         static const char *clabels[PN_OSC_CUR_N] = { "V1", "V2", "H1", "H2" };
 
         for (i = 0; i < PN_OSC_CUR_N; i++)
-            draw_cursor_button (cr, &curbtn[i], clabels[i],
-                                pn_oscilloscope_cursor_is_on (self, i));
+        {
+            gboolean on = pn_oscilloscope_cursor_is_on (self, i);
+
+            draw_cursor_button (cr, &curbtn[i], clabels[i], on);
+            draw_cursor_knob (cr, &curknob[i],
+                              pn_oscilloscope_cursor_knob_frac (self, i),
+                              on,
+                              pn_oscilloscope_cursor_pos (self, i));
+        }
     }
 }
 
