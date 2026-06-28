@@ -54,6 +54,7 @@
 #include "pn-mesh-page-region.h"
 #include "pn-mesh-page-security.h"
 #include "pn-mesh-page-share.h"
+#include "pn-mesh-page-store-forward.h"
 #include "pn-mesh-page-telemetry.h"
 #include "pn-mesh-page-test.h"
 
@@ -81,6 +82,7 @@ typedef struct
     GtkWidget        *known_nodes_page;
     GtkWidget        *ext_notification_page;
     GtkWidget        *ambient_lighting_page;
+    GtkWidget        *store_forward_page;
     GtkWidget        *mqtt_page;
     GtkWidget        *gps_page;
     GtkWidget        *position_page;
@@ -295,6 +297,7 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_known_nodes_set_state      (ctx->known_nodes_page,      NULL);
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
     pn_mesh_page_ambient_lighting_set_state (ctx->ambient_lighting_page, NULL, NULL);
+    pn_mesh_page_store_forward_set_state    (ctx->store_forward_page,    NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
     pn_mesh_page_gps_set_state              (ctx->gps_page,              NULL, NULL);
     pn_mesh_page_position_set_state         (ctx->position_page,         NULL, NULL);
@@ -404,6 +407,10 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_ambient_lighting_set_state (
             ctx->ambient_lighting_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_store_forward_set_state (
+            ctx->store_forward_page,
             pn_mesh_connection_get_state (conn),
             conn);
     pn_mesh_page_mqtt_set_state (
@@ -674,6 +681,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->known_nodes_page      = pn_mesh_page_known_nodes_new ();
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
         ctx->ambient_lighting_page = pn_mesh_page_ambient_lighting_new ();
+        ctx->store_forward_page    = pn_mesh_page_store_forward_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
         ctx->gps_page              = pn_mesh_page_gps_new ();
         ctx->position_page         = pn_mesh_page_position_new ();
@@ -697,6 +705,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ext_notification_page, on_page_status, ctx);
         pn_mesh_page_ambient_lighting_set_status_callback (
                 ctx->ambient_lighting_page, on_page_status, ctx);
+        pn_mesh_page_store_forward_set_status_callback (
+                ctx->store_forward_page,    on_page_status, ctx);
         pn_mesh_page_mqtt_set_status_callback (
                 ctx->mqtt_page,             on_page_status, ctx);
         pn_mesh_page_gps_set_status_callback (
@@ -737,6 +747,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ext_notification_page, on_page_busy, ctx);
         pn_mesh_page_ambient_lighting_set_busy_callback (
                 ctx->ambient_lighting_page, on_page_busy, ctx);
+        pn_mesh_page_store_forward_set_busy_callback (
+                ctx->store_forward_page,    on_page_busy, ctx);
         pn_mesh_page_mqtt_set_busy_callback (
                 ctx->mqtt_page,             on_page_busy, ctx);
         pn_mesh_page_gps_set_busy_callback (
@@ -904,7 +916,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_dialog_append_page (ctx->shell, tab, "Telemetry");
         }
 
-        /* Tab 6: Mesh tools  (Display now; the rest land in Phase 11). */
+        /* Tab 6: Mesh tools  (Display + Store & Forward now; the rest land
+         * in later phases). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "Display",
@@ -914,10 +927,16 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                     "writes the whole DisplayConfig block at once; the compass "
                     "orientation is kept verbatim from the device.",
                     ctx->display_page);
+            pn_device_form_add_section (inner, "Store & Forward",
+                    "Let a mains-powered, always-on node buffer mesh traffic "
+                    "and replay it on request, so nodes that were asleep or "
+                    "out of range can catch up.  Enable the module, then turn "
+                    "on Is server to make this node the store; the server "
+                    "knobs below bound how much it keeps and replays.",
+                    ctx->store_forward_page);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
-                        "Store & Forward, Traffic Management, Remote "
-                        "Hardware and TAK land in Phase 11."),
+                        "Remote Hardware lands in a later phase."),
                     FALSE, FALSE, 0);
             pn_device_dialog_append_page (ctx->shell, tab, "Mesh tools");
         }

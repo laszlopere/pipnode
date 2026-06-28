@@ -193,6 +193,23 @@ typedef struct
     guint32     al_green;
     guint32     al_blue;
 
+    /* From FromRadio.moduleConfig (field 9) = ModuleConfig {
+     *     store_forward (4) = StoreForwardConfig }.  Lets a mains-powered
+     * node act as a message relay/replay server: it buffers mesh traffic
+     * and replays it on request so nodes that were asleep / out of range
+     * can catch up.  enabled is the master gate; is_server promotes this
+     * node from a plain client to the storing server; heartbeat makes the
+     * server advertise itself periodically; records caps how many messages
+     * it buffers; history_return_max / _window bound a single history
+     * replay (count and time span). */
+    gboolean    have_store_forward;
+    gboolean    sf_enabled;
+    gboolean    sf_heartbeat;
+    guint32     sf_records;
+    guint32     sf_history_return_max;
+    guint32     sf_history_return_window;
+    gboolean    sf_is_server;
+
     /* From FromRadio.config(PositionConfig).  Same FALSE-means-unseen
      * contract as have_lora_config.  Every scalar that the firmware
      * sends is parsed so the writer can ship them back verbatim --
@@ -575,6 +592,40 @@ void     pn_mesh_connection_set_ambient_lighting_async (
 gboolean pn_mesh_connection_set_ambient_lighting_finish (
         GAsyncResult                           *result,
         GError                                **error);
+
+/* ------------------------------------------------------------------ */
+/*  Store & Forward (ModuleConfig) — Phase 11 (TODO #48.2)             */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of StoreForwardConfig.  No sub-messages, so no
+ * opaque round-trip needed; just every typed field.  Same proto3-
+ * defaults contract as the other module writers: ship them all every
+ * time or the device resets the omitted ones to zero on its next save. */
+typedef struct
+{
+    gboolean enabled;
+    gboolean heartbeat;
+    guint32  records;
+    guint32  history_return_max;
+    guint32  history_return_window;
+    gboolean is_server;
+} PnMeshStoreForwardConfigWrite;
+
+gboolean pn_mesh_connection_set_store_forward_sync (
+        PnMeshConnection                    *self,
+        const PnMeshStoreForwardConfigWrite *cfg,
+        GError                             **error);
+
+void     pn_mesh_connection_set_store_forward_async (
+        PnMeshConnection                    *self,
+        const PnMeshStoreForwardConfigWrite *cfg,
+        GCancellable                        *cancellable,
+        GAsyncReadyCallback                  callback,
+        gpointer                             user_data);
+
+gboolean pn_mesh_connection_set_store_forward_finish (
+        GAsyncResult                        *result,
+        GError                             **error);
 
 /* ------------------------------------------------------------------ */
 /*  Position (Config sub-block) — Phase 12                              */

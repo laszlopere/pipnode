@@ -1268,9 +1268,23 @@
          [ ] 48.1 Serial (oneof 2). Expose the UART bridge so the device can talk
                to wired peripherals: enabled, mode, rx/tx GPIO, baud, timeout,
                echo. Network (or Device) tab.
-         [ ] 48.2 Store & Forward (oneof 4). Let a mains-powered node act as a
+         [x] 48.2 Store & Forward (oneof 4). Let a mains-powered node act as a
                message relay/replay server: enabled, is_server, records,
                history_return_max/window. Mesh tools tab.
+               DONE: MC_STORE_FORWARD=4 + SF_* field defines (enabled 1,
+               heartbeat 2, records 3, history_return_max 4, window 5,
+               is_server 6 — heartbeat exposed too so the all-fields write
+               doesn't reset it), parse_store_forward + dispatch +
+               clear_state, send_set_store_forward + sync/async/finish in
+               pn-mesh-connection.[ch] (PnMeshStoreForwardConfigWrite +
+               have_store_forward / sf_* PnMeshState fields). New
+               pn-mesh-page-store-forward.{c,h}: three-level cascade gating
+               (Enabled gates everything, Is server gates the server knobs,
+               heartbeat/records/history-max/window sensitive only when
+               server), clone of the ambient-lighting page minus the hw note.
+               Wired into the Mesh tools tab beside Display; placeholder
+               trimmed to Remote Hardware only. Build clean, 132 unit tests
+               green. No ABI bump (PnMeshState dialog-internal).
          [ ] 48.3 Range Test (oneof 5). Drive the built-in range-test sender/
                receiver: enabled, sender interval, save-to-storage flag. Telemetry
                (or Mesh tools) tab.

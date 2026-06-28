@@ -307,6 +307,7 @@
 /* ModuleConfig oneof cases. */
 #define MC_MQTT                  1
 #define MC_EXTERNAL_NOTIFICATION 3
+#define MC_STORE_FORWARD         4
 #define MC_TELEMETRY             6
 #define MC_AMBIENT_LIGHTING     11
 
@@ -365,6 +366,14 @@
 #define TEL_HEALTH_SCREEN_ENABLED         13
 #define TEL_DEVICE_TELEMETRY_ENABLED      14
 #define TEL_AIR_QUALITY_SCREEN_ENABLED    15
+
+/* StoreForwardConfig fields. */
+#define SF_ENABLED                         1
+#define SF_HEARTBEAT                       2
+#define SF_RECORDS                         3
+#define SF_HISTORY_RETURN_MAX              4
+#define SF_HISTORY_RETURN_WINDOW           5
+#define SF_IS_SERVER                       6
 
 /* AmbientLightingConfig fields. */
 #define AL_LED_STATE                       1
@@ -1627,6 +1636,54 @@ parse_telemetry (PnMeshConnection *self,
     }
 }
 
+/* Parse a StoreForwardConfig into the connection state. */
+static void
+parse_store_forward (PnMeshConnection *self,
+                     const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_store_forward = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case SF_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_enabled = v != 0;
+            break;
+        case SF_HEARTBEAT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_heartbeat = v != 0;
+            break;
+        case SF_RECORDS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_records = (guint32) v;
+            break;
+        case SF_HISTORY_RETURN_MAX:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_history_return_max = (guint32) v;
+            break;
+        case SF_HISTORY_RETURN_WINDOW:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_history_return_window = (guint32) v;
+            break;
+        case SF_IS_SERVER:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.sf_is_server = v != 0;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse an AmbientLightingConfig into the connection state. */
 static void
 parse_ambient_lighting (PnMeshConnection *self,
@@ -1698,6 +1755,13 @@ parse_module_config (PnMeshConnection *self,
             const guint8 *p; gsize s;
             if (pn_mesh_pb_read_length (&r, &p, &s))
                 parse_ext_notification (self, p, s);
+            break;
+        }
+        case MC_STORE_FORWARD:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_store_forward (self, p, s);
             break;
         }
         case MC_TELEMETRY:
@@ -2414,6 +2478,14 @@ clear_state (PnMeshConnection *self)
     self->state.tel_health_measurement_enabled       = FALSE;
     self->state.tel_health_update_interval           = 0;
     self->state.tel_health_screen_enabled            = FALSE;
+
+    self->state.have_store_forward                   = FALSE;
+    self->state.sf_enabled                           = FALSE;
+    self->state.sf_heartbeat                         = FALSE;
+    self->state.sf_records                           = 0;
+    self->state.sf_history_return_max                = 0;
+    self->state.sf_history_return_window             = 0;
+    self->state.sf_is_server                         = FALSE;
 
     self->state.have_ambient_lighting                = FALSE;
     self->state.al_led_state                         = FALSE;
@@ -4492,6 +4564,162 @@ pn_mesh_connection_set_telemetry_config_async (
 gboolean
 pn_mesh_connection_set_telemetry_config_finish (GAsyncResult *result,
                                                 GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_store_forward — Phase 11 (TODO #48.2)                           */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_module_config (35) = ModuleConfig {
+ *     store_forward (4) = StoreForwardConfig {…} } }
+ *
+ * Same proto3-defaults caveat as the other module writers: ship every
+ * field every time or the device resets the omitted ones to zero on
+ * its next save. */
+static gboolean
+send_set_store_forward (PnMeshConnection                    *self,
+                        const PnMeshStoreForwardConfigWrite *cfg,
+                        GError                             **error)
+{
+    PnMeshPbWriter sf_w, mc_w, admin_w;
+    GBytes        *sf_bytes, *mc_bytes, *admin_bytes;
+    const guint8  *sf_b, *mc_b, *admin_b;
+    gsize          sf_n,  mc_n,  admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&sf_w);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_ENABLED,
+                                   cfg->enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_HEARTBEAT,
+                                   cfg->heartbeat ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_RECORDS, cfg->records);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_HISTORY_RETURN_MAX,
+                                   cfg->history_return_max);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_HISTORY_RETURN_WINDOW,
+                                   cfg->history_return_window);
+    pn_mesh_pb_write_varint_field (&sf_w, SF_IS_SERVER,
+                                   cfg->is_server ? 1 : 0);
+    sf_bytes = pn_mesh_pb_writer_take_bytes (&sf_w);
+    pn_mesh_pb_writer_clear (&sf_w);
+    sf_b = g_bytes_get_data (sf_bytes, &sf_n);
+
+    /* ModuleConfig { store_forward (4) = StoreForwardConfig } */
+    pn_mesh_pb_writer_init (&mc_w);
+    pn_mesh_pb_write_embedded_field (&mc_w, MC_STORE_FORWARD, sf_b, sf_n);
+    mc_bytes = pn_mesh_pb_writer_take_bytes (&mc_w);
+    pn_mesh_pb_writer_clear (&mc_w);
+    g_bytes_unref (sf_bytes);
+    mc_b = g_bytes_get_data (mc_bytes, &mc_n);
+
+    /* AdminMessage { set_module_config (35) = ModuleConfig } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_MODULE_CONFIG,
+                                     mc_b, mc_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (mc_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_store_forward_sync (
+        PnMeshConnection                    *self,
+        const PnMeshStoreForwardConfigWrite *cfg,
+        GError                             **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_store_forward (self, cfg, error))
+        return FALSE;
+
+    /* set_module_config writes do not reboot the device; settle 0.5s
+     * and re-handshake so the page repaints from authoritative state. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection              *conn;
+    PnMeshStoreForwardConfigWrite  cfg;
+} SetStoreForwardCall;
+
+static void
+set_store_forward_call_free (gpointer data)
+{
+    g_slice_free (SetStoreForwardCall, data);
+}
+
+static void
+set_store_forward_thread_func (GTask *task, gpointer source,
+                               gpointer task_data,
+                               GCancellable *cancellable)
+{
+    SetStoreForwardCall *c   = task_data;
+    GError              *err = NULL;
+    gboolean             ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_store_forward_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_store_forward_async (
+        PnMeshConnection                    *self,
+        const PnMeshStoreForwardConfigWrite *cfg,
+        GCancellable                        *cancellable,
+        GAsyncReadyCallback                  callback,
+        gpointer                             user_data)
+{
+    GTask               *task;
+    SetStoreForwardCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetStoreForwardCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_store_forward_async);
+    g_task_set_task_data  (task, c, set_store_forward_call_free);
+    g_task_run_in_thread  (task, set_store_forward_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_store_forward_finish (GAsyncResult *result,
+                                             GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

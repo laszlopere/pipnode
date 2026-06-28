@@ -361,6 +361,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-page-security.h \
 	pn-mesh-page-share.c \
 	pn-mesh-page-share.h \
+	pn-mesh-page-store-forward.c \
+	pn-mesh-page-store-forward.h \
 	pn-mesh-page-telemetry.c \
 	pn-mesh-page-telemetry.h \
 	pn-mesh-page-test.c \
