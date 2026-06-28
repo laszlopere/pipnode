@@ -70,6 +70,7 @@ check_PROGRAMS = \
 	test-pn-deadline \
 	test-pn-watchdog \
 	test-pn-flow \
+	test-pn-history \
 	test-pn-debug \
 	test-pn-logger \
 	test-pn-text-view \
@@ -221,6 +222,7 @@ test_pn_rtc_SOURCES           = test-pn-rtc.c           pntest.c pntest.h pntime
 test_pn_deadline_SOURCES      = test-pn-deadline.c      pntest.c pntest.h pntimer.h
 test_pn_watchdog_SOURCES      = test-pn-watchdog.c      pntest.c pntest.h pntimer.h
 test_pn_flow_SOURCES          = test-pn-flow.c          pntest.c pntest.h
+test_pn_history_SOURCES       = test-pn-history.c       pntest.c pntest.h
 test_pn_debug_SOURCES         = test-pn-debug.c         pntest.c pntest.h
 test_pn_logger_SOURCES        = test-pn-logger.c        pntest.c pntest.h
 test_pn_text_view_SOURCES     = test-pn-text-view.c     pntest.c pntest.h

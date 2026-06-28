@@ -21,6 +21,7 @@
 #include "pn-node-store.h"
 #include "pn-wire-store.h"
 #include "pn-subst.h"
+#include "pn-history.h"
 
 G_BEGIN_DECLS
 
@@ -409,6 +410,26 @@ gboolean pn_flow_is_modified (PnFlow *self);
  * success.  Emits "modified-changed" on a real transition.
  */
 void pn_flow_set_modified (PnFlow *self, gboolean modified);
+
+/**
+ * pn_flow_get_history:
+ *
+ * Returns: (transfer none): the document's undo/redo history, created
+ *   with the flow and living as long as it.  Hosts drive undo/redo and
+ *   subscribe to its "changed" signal through this handle.
+ */
+PnHistory *pn_flow_get_history (PnFlow *self);
+
+/**
+ * pn_flow_history_freeze:
+ * pn_flow_history_thaw:
+ *
+ * Convenience wrappers that bracket a long-lived interaction (a node
+ * drag, a property-dialog session) so every intermediate edit collapses
+ * into a single undo step.  Each freeze must be balanced by a thaw.
+ */
+void pn_flow_history_freeze (PnFlow *self);
+void pn_flow_history_thaw   (PnFlow *self);
 
 /**
  * pn_flow_paste_from_string:

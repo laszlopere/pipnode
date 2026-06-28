@@ -1726,6 +1726,32 @@ action_edit_stub (
     status_set (self, gtk_menu_item_get_label (item));
 }
 
+/* Undo/Redo.  The widget argument is ignored so the same handler serves
+ * both the menu item ("activate") and the toolbar button ("clicked"). */
+static void
+action_undo (
+        GtkWidget *widget,
+        gpointer   user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) widget;
+
+    if (self->flow != NULL)
+        pn_history_undo (pn_flow_get_history (self->flow));
+}
+
+static void
+action_redo (
+        GtkWidget *widget,
+        gpointer   user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) widget;
+
+    if (self->flow != NULL)
+        pn_history_redo (pn_flow_get_history (self->flow));
+}
+
 static void
 action_cut (
         GtkMenuItem *item,
@@ -2736,14 +2762,14 @@ create_menubar (PnWindow *self)
     self->menu_undo = create_image_menu_item (
             "edit-undo", "_Undo", accel_group,
             GDK_KEY_z, GDK_CONTROL_MASK,
-            G_CALLBACK (action_edit_stub), self);
+            G_CALLBACK (action_undo), self);
     gtk_widget_set_sensitive (self->menu_undo, FALSE);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), self->menu_undo);
 
     self->menu_redo = create_image_menu_item (
             "edit-redo", "_Redo", accel_group,
             GDK_KEY_z, GDK_CONTROL_MASK | GDK_SHIFT_MASK,
-            G_CALLBACK (action_edit_stub), self);
+            G_CALLBACK (action_redo), self);
     gtk_widget_set_sensitive (self->menu_redo, FALSE);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), self->menu_redo);
 
@@ -2973,14 +2999,14 @@ create_toolbar (PnWindow *self)
 
     self->btn_undo = create_toolbar_button (
             "edit-undo", "Undo",
-            G_CALLBACK (on_tb_stub), self);
+            G_CALLBACK (action_undo), self);
     gtk_widget_set_sensitive (self->btn_undo, FALSE);
     gtk_box_pack_start (GTK_BOX (toolbar), self->btn_undo,
                         FALSE, FALSE, 0);
 
     self->btn_redo = create_toolbar_button (
             "edit-redo", "Redo",
-            G_CALLBACK (on_tb_stub), self);
+            G_CALLBACK (action_redo), self);
     gtk_widget_set_sensitive (self->btn_redo, FALSE);
     gtk_box_pack_start (GTK_BOX (toolbar), self->btn_redo,
                         FALSE, FALSE, 0);
@@ -4304,6 +4330,27 @@ on_flow_modified_changed (
     update_window_title (self);
 }
 
+/* Keep the Undo/Redo menu items and toolbar buttons in step with the
+ * document's history stacks. */
+static void
+on_history_changed (
+        PnHistory *history,
+        gpointer   user_data)
+{
+    PnWindow *self      = PN_WINDOW (user_data);
+    gboolean  can_undo  = pn_history_can_undo (history);
+    gboolean  can_redo  = pn_history_can_redo (history);
+
+    if (self->menu_undo != NULL)
+        gtk_widget_set_sensitive (self->menu_undo, can_undo);
+    if (self->btn_undo != NULL)
+        gtk_widget_set_sensitive (self->btn_undo, can_undo);
+    if (self->menu_redo != NULL)
+        gtk_widget_set_sensitive (self->menu_redo, can_redo);
+    if (self->btn_redo != NULL)
+        gtk_widget_set_sensitive (self->btn_redo, can_redo);
+}
+
 /* Guard against losing unsaved work.  Connected to "delete-event",
  * which fires for both the window-manager close button and
  * gtk_window_close() (File -> Quit, Ctrl+Q).  Returning %TRUE vetoes
@@ -4442,6 +4489,11 @@ pn_window_constructed (GObject *object)
                       G_CALLBACK (on_flow_modified_changed), self);
     g_signal_connect (self->flow, "panel-editor-visible-changed",
                       G_CALLBACK (on_flow_panel_editor_visible), self);
+
+    /* Keep Undo/Redo enablement in step with the document history (the
+     * same history object survives File→New/Open, which only clear it). */
+    g_signal_connect (pn_flow_get_history (self->flow), "changed",
+                      G_CALLBACK (on_history_changed), self);
 
     self->debug_pane = create_debug_pane (self);
     gtk_paned_pack2 (GTK_PANED (self->debug_paned),

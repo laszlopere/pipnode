@@ -77,6 +77,8 @@ libpipnode_core_la_SOURCES = \
 	pn-filter.h \
 	pn-flow.c \
 	pn-flow.h \
+	pn-history.c \
+	pn-history.h \
 	pn-format.c \
 	pn-format.h \
 	pn-geocode.c \
@@ -465,6 +467,7 @@ pipnode_core_headers = \
 	pn-filedrop.h \
 	pn-filter.h \
 	pn-flow.h \
+	pn-history.h \
 	pn-format.h \
 	pn-geocode.h \
 	pn-graph.h \

@@ -3916,6 +3916,33 @@ pn_worksheet_delete_node (
     pn_node_store_remove (self->nodes, node);
 }
 
+/* Thaw the history freeze a property dialog opened, once it is gone. */
+static void
+node_dialog_thaw_on_destroy (GtkWidget *dialog, gpointer flow)
+{
+    (void) dialog;
+    pn_flow_history_thaw (PN_FLOW (flow));
+}
+
+/* Bracket a node property-dialog session into a single undo step: freeze
+ * the history now and thaw it when @dialog is destroyed, however it
+ * closes.  The flow is ref'd for the dialog's lifetime so a worksheet
+ * torn down while the dialog is still open cannot leave a dangling
+ * thaw. */
+static void
+node_dialog_track_history (GtkWidget *dialog, PnWorksheet *self)
+{
+    if (self == NULL || self->flow == NULL)
+        return;
+
+    pn_flow_history_freeze (self->flow);
+    g_signal_connect_data (dialog, "destroy",
+                           G_CALLBACK (node_dialog_thaw_on_destroy),
+                           g_object_ref (self->flow),
+                           (GClosureNotify) g_object_unref,
+                           0);
+}
+
 static void
 on_node_menu_configure (
         GtkMenuItem *item,
@@ -3929,6 +3956,9 @@ on_node_menu_configure (
     GtkWindow   *parent   = (toplevel != NULL && GTK_IS_WINDOW (toplevel))
                                 ? GTK_WINDOW (toplevel) : NULL;
     GtkWidget   *dialog   = pn_node_dialog_new (parent, node);
+
+    if (attached != NULL && PN_IS_WORKSHEET (attached))
+        node_dialog_track_history (dialog, PN_WORKSHEET (attached));
 
     g_signal_connect_swapped (dialog, "response",
                               G_CALLBACK (gtk_widget_destroy),
@@ -4492,6 +4522,14 @@ drag_begin (PnWorksheet *self, PnNode *pivot, double cx, double cy)
 
     p = pn_node_get_position (pivot);
 
+    /* Coalesce the whole drag into one undo step: freeze on entering the
+     * active-drag state, thaw in drag_end on leaving it.  Gating on the
+     * pivot transition keeps the pair balanced even though drag_end may
+     * run more than once (e.g. a double-click cancels then the release
+     * fires it again). */
+    if (self->drag_pivot == NULL)
+        pn_flow_history_freeze (self->flow);
+
     g_clear_object (&self->drag_pivot);
     self->drag_pivot    = g_object_ref (pivot);
     self->drag_offset_x = cx - p->x;
@@ -4513,8 +4551,16 @@ drag_begin (PnWorksheet *self, PnNode *pivot, double cx, double cy)
 static void
 drag_end (PnWorksheet *self)
 {
+    gboolean was_active = (self->drag_pivot != NULL);
+
     g_clear_object  (&self->drag_pivot);
     g_clear_pointer (&self->drag_anchors, g_array_unref);
+
+    /* Close the undo span opened in drag_begin, but only if a drag was
+     * actually in progress — a no-op end (no pivot) must not thaw a
+     * freeze it never took. */
+    if (was_active)
+        pn_flow_history_thaw (self->flow);
 }
 
 /** Normalise a marquee rectangle so x0/y0 is the top-left corner and
@@ -5161,6 +5207,8 @@ on_button_press (
             GtkWindow *parent   = GTK_IS_WINDOW (toplevel)
                                       ? GTK_WINDOW (toplevel) : NULL;
             GtkWidget *dialog   = pn_node_dialog_new (parent, hit);
+
+            node_dialog_track_history (dialog, self);
 
             /* The single-press that preceded this double-click may
              * have armed a drag; cancel it so releasing the dialog

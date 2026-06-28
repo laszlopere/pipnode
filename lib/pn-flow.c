@@ -88,6 +88,11 @@ struct _PnFlow
      * document so reopening a file restores the editor the way the user
      * left it.  See [[pn-panel-editor]]. */
     gboolean     panel_editor_open;
+
+    /* Undo/redo for this document.  Created with the flow and owned by
+     * it; the funnel below feeds it edits and the clear/load paths reset
+     * it (skipping the work while it is replaying a snapshot). */
+    PnHistory   *history;
 };
 
 /* A stored panel-editor placement; see @panel_layout above. */
@@ -264,10 +269,41 @@ pn_flow_is_modified (PnFlow *self)
     return self->modified;
 }
 
+PnHistory *
+pn_flow_get_history (PnFlow *self)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), NULL);
+    return self->history;
+}
+
+void
+pn_flow_history_freeze (PnFlow *self)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+    if (self->history != NULL)
+        pn_history_freeze (self->history);
+}
+
+void
+pn_flow_history_thaw (PnFlow *self)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+    if (self->history != NULL)
+        pn_history_thaw (self->history);
+}
+
 static void
 on_store_changed_mark_modified (gpointer user_data)
 {
-    pn_flow_set_modified (PN_FLOW (user_data), TRUE);
+    PnFlow *self = PN_FLOW (user_data);
+
+    pn_flow_set_modified (self, TRUE);
+
+    /* Feed the undo history.  Skip while a file is being applied (the
+     * load cascade is not a user edit); pn_history_record itself also
+     * ignores the call while frozen or replaying a snapshot. */
+    if (!self->loading && self->history != NULL)
+        pn_history_record (self->history);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1352,6 +1388,13 @@ pn_flow_clear (PnFlow *self)
         self->modified = FALSE;
         g_signal_emit (self, signals[SIG_MODIFIED_CHANGED], 0, FALSE);
     }
+
+    /* Reset the undo history to this empty slate (File→New).  A load
+     * runs pn_flow_clear as its first step then repopulates; that path
+     * re-baselines again at the end, so resetting here is harmless for
+     * it.  A snapshot replay must keep its history, hence the guard. */
+    if (self->history != NULL && !pn_history_is_restoring (self->history))
+        pn_history_clear (self->history);
 }
 
 void
@@ -1949,6 +1992,14 @@ flow_load_from_object (
     g_ptr_array_unref  (new_nodes);
     g_hash_table_destroy (by_name);
     g_hash_table_destroy (by_uuid);
+
+    /* A genuine load (File→Open, or a whole-document replace over D-Bus)
+     * starts a clean undo history baselined on the just-loaded content.
+     * A snapshot replay (undo/redo) reuses this same path but manages
+     * its own baseline, so leave the history alone while restoring. */
+    if (self->history != NULL && !pn_history_is_restoring (self->history))
+        pn_history_clear (self->history);
+
     return TRUE;
 
 fail:
@@ -2253,9 +2304,15 @@ pn_flow_save_to_file (
     json_node_free (root);
 
     /* Persisting back to disk reconciles in-memory and on-disk state:
-     * flip the dirty flag so the host's Save UI can grey out again. */
+     * flip the dirty flag so the host's Save UI can grey out again, and
+     * record this as the history's saved point so undoing back to it
+     * reports the document clean. */
     if (ok)
+    {
         pn_flow_set_modified (self, FALSE);
+        if (self->history != NULL)
+            pn_history_mark_saved (self->history);
+    }
 
     return ok;
 }
@@ -2513,6 +2570,7 @@ pn_flow_finalize (GObject *object)
 {
     PnFlow *self = PN_FLOW (object);
 
+    g_clear_object (&self->history);
     g_clear_object (&self->nodes);
     g_clear_object (&self->wires);
 
@@ -2658,6 +2716,10 @@ pn_flow_init (PnFlow *self)
                       G_CALLBACK (on_wire_store_wire_added_mark), self);
     g_signal_connect (self->wires, "wire-removed",
                       G_CALLBACK (on_wire_store_wire_removed_mark), self);
+
+    /* Undo/redo, seeded with this empty document as its baseline.  Built
+     * last so the stores and sheet list it serialises already exist. */
+    self->history = pn_history_new (self);
 }
 
 PnFlow *
