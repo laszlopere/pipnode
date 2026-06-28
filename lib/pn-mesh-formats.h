@@ -48,6 +48,31 @@ PnMeshAmbientLed pn_mesh_hw_ambient_led (guint32 id);
  * not free.  Phrased to slot into "... has <note> ...". */
 const gchar *pn_mesh_hw_led_note (guint32 id);
 
+/* GPS hardware class for a board, same curated/best-effort caveats as
+ * the LED data above (cross-checked against the firmware variant.h GPS
+ * defines -- GPS_UBLOX / GPS_L76K / GNSS_AIROHA / HAS_GPS and the
+ * GPS_RX_PIN / GPS_TX_PIN / PIN_GPS_EN pins). */
+typedef enum
+{
+    PN_MESH_GPS_UNKNOWN = 0,
+    PN_MESH_GPS_NONE,     /* no GPS and no practical GPS header        */
+    PN_MESH_GPS_HEADER,   /* no onboard chip, but a UART for an ext one */
+    PN_MESH_GPS_BUILTIN,  /* soldered-on GPS module                     */
+} PnMeshGps;
+
+PnMeshGps    pn_mesh_hw_gps (guint32 id);
+
+/* A short GPS descriptor, e.g. "a built-in u-blox GPS" or "no GPS".
+ * NULL for ids not in the table; static -- do not free. */
+const gchar *pn_mesh_hw_gps_note (guint32 id);
+
+/* The GPIO wiring that makes the GPS work on this board (UART RX/TX,
+ * the power-enable pin, baud), e.g. "UART RX 34 / TX 12, powered by the
+ * PMU (no enable pin)".  NULL when the board has no pre-wired GPS pins
+ * (a generic header where the user picks the GPIO) or no GPS at all.
+ * Static -- do not free. */
+const gchar *pn_mesh_hw_gps_gpio (guint32 id);
+
 /* Pretty-print a Meshtastic DeviceRole enum value as the upstream
  * symbolic name ("CLIENT", "ROUTER", ...).  Returns NULL for unknown
  * ids; callers fall back to a numeric label of their choice. */
