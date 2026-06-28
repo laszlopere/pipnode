@@ -326,6 +326,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-matrix57-gui.h \
 	pn-mesh-dialog.c \
 	pn-mesh-dialog.h \
+	pn-mesh-page-ambient-lighting.c \
+	pn-mesh-page-ambient-lighting.h \
 	pn-mesh-page-channels.c \
 	pn-mesh-page-channels.h \
 	pn-mesh-page-ext-notification.c \

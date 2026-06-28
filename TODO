@@ -1212,8 +1212,23 @@
                tab; advanced.
          [ ] 48.7 Neighbor Info (oneof 10). Periodic neighbour-table broadcast:
                enabled, update interval, transmit-over-MQTT flag. Telemetry tab.
-         [ ] 48.8 Ambient Lighting (oneof 11). RGB status-LED control: led_state,
+         [x] 48.8 Ambient Lighting (oneof 11). RGB status-LED control: led_state,
                current, red/green/blue. Notifications tab; hardware-specific/niche.
+               DONE: MC_AMBIENT_LIGHTING=11 + AL_* defines, parse_ambient_lighting
+               + dispatch + clear_state, send_set_ambient_lighting + sync/async/
+               finish in pn-mesh-connection.[ch]; pn-mesh-page-ambient-lighting.
+               {c,h} (master "LED on" toggle gating current/red/green/blue 0-255
+               spinners, clone of the ext-notification page); wired into the
+               Notifications tab beside External Notification. Build clean, 132
+               unit tests green. No ABI bump (PnMeshState dialog-internal).
+               Also: per-board LED capability surfaced. pn-mesh-formats.[ch]
+               HW_MODELS[] gained an ambient-LED class + short LED descriptor
+               (cross-checked vs meshtastic/firmware variant.h: only RAK4631,
+               HELTEC_MESH_NODE_T114, WISMESH_TAP actually drive an RGB LED);
+               new pn_mesh_hw_ambient_led()/pn_mesh_hw_led_note(). The page shows
+               a device-specific "according to internet sources ... may be wrong"
+               note continuing the section help, derived from the connected
+               hw_model, saying whether THIS board's LED can be driven.
          [ ] 48.9 Detection Sensor (oneof 12). Turn a GPIO into a mesh-announcing
                sensor: enabled, name, monitor GPIO + pull, trigger type, broadcast/
                state-broadcast intervals. Telemetry tab.

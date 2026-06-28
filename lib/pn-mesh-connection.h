@@ -181,6 +181,18 @@ typedef struct
     guint32     tel_health_update_interval;
     gboolean    tel_health_screen_enabled;
 
+    /* From FromRadio.moduleConfig (field 9) = ModuleConfig {
+     *     ambient_lighting (11) = AmbientLightingConfig }.  Drives an
+     * addressable RGB status LED (NeoPixel / WS2812).  led_state is the
+     * master on/off; current sets the per-channel drive level and
+     * red/green/blue are 0-255 colour components. */
+    gboolean    have_ambient_lighting;
+    gboolean    al_led_state;
+    guint32     al_current;
+    guint32     al_red;
+    guint32     al_green;
+    guint32     al_blue;
+
     /* From FromRadio.config(PositionConfig).  Same FALSE-means-unseen
      * contract as have_lora_config.  Every scalar that the firmware
      * sends is parsed so the writer can ship them back verbatim --
@@ -491,6 +503,38 @@ void     pn_mesh_connection_set_telemetry_config_async (
 gboolean pn_mesh_connection_set_telemetry_config_finish (
         GAsyncResult                      *result,
         GError                           **error);
+
+/* ------------------------------------------------------------------ */
+/*  Ambient Lighting (ModuleConfig) — Phase 11 (TODO #48.8)            */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of AmbientLightingConfig.  No sub-messages here,
+ * so no opaque round-trip needed; just every typed field.  Same
+ * proto3-defaults contract as the other writers: ship them all. */
+typedef struct
+{
+    gboolean led_state;
+    guint32  current;
+    guint32  red;
+    guint32  green;
+    guint32  blue;
+} PnMeshAmbientLightingConfigWrite;
+
+gboolean pn_mesh_connection_set_ambient_lighting_sync (
+        PnMeshConnection                       *self,
+        const PnMeshAmbientLightingConfigWrite *cfg,
+        GError                                **error);
+
+void     pn_mesh_connection_set_ambient_lighting_async (
+        PnMeshConnection                       *self,
+        const PnMeshAmbientLightingConfigWrite *cfg,
+        GCancellable                           *cancellable,
+        GAsyncReadyCallback                     callback,
+        gpointer                                user_data);
+
+gboolean pn_mesh_connection_set_ambient_lighting_finish (
+        GAsyncResult                           *result,
+        GError                                **error);
 
 /* ------------------------------------------------------------------ */
 /*  Position (Config sub-block) — Phase 12                              */

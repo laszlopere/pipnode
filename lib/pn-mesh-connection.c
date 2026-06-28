@@ -275,6 +275,7 @@
 #define MC_MQTT                  1
 #define MC_EXTERNAL_NOTIFICATION 3
 #define MC_TELEMETRY             6
+#define MC_AMBIENT_LIGHTING     11
 
 /* ExternalNotificationConfig fields.  Numbering jumps because the
  * proto's per-output triplet (message / vibra / buzzer) was added in
@@ -331,6 +332,13 @@
 #define TEL_HEALTH_SCREEN_ENABLED         13
 #define TEL_DEVICE_TELEMETRY_ENABLED      14
 #define TEL_AIR_QUALITY_SCREEN_ENABLED    15
+
+/* AmbientLightingConfig fields. */
+#define AL_LED_STATE                       1
+#define AL_CURRENT                         2
+#define AL_RED                             3
+#define AL_GREEN                           4
+#define AL_BLUE                            5
 
 /* ------------------------------------------------------------------ */
 /*  Channel helper                                                      */
@@ -1410,6 +1418,50 @@ parse_telemetry (PnMeshConnection *self,
     }
 }
 
+/* Parse an AmbientLightingConfig into the connection state. */
+static void
+parse_ambient_lighting (PnMeshConnection *self,
+                        const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_ambient_lighting = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case AL_LED_STATE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.al_led_state = v != 0;
+            break;
+        case AL_CURRENT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.al_current = (guint32) v;
+            break;
+        case AL_RED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.al_red = (guint32) v;
+            break;
+        case AL_GREEN:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.al_green = (guint32) v;
+            break;
+        case AL_BLUE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.al_blue = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a ModuleConfig message, dispatching to the per-module
  * parser for the field that is set.  Modules not yet wired (Phases
  * 11+) are skipped silently. */
@@ -1444,6 +1496,13 @@ parse_module_config (PnMeshConnection *self,
             const guint8 *p; gsize s;
             if (pn_mesh_pb_read_length (&r, &p, &s))
                 parse_telemetry (self, p, s);
+            break;
+        }
+        case MC_AMBIENT_LIGHTING:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_ambient_lighting (self, p, s);
             break;
         }
         default:
@@ -2103,6 +2162,13 @@ clear_state (PnMeshConnection *self)
     self->state.tel_health_measurement_enabled       = FALSE;
     self->state.tel_health_update_interval           = 0;
     self->state.tel_health_screen_enabled            = FALSE;
+
+    self->state.have_ambient_lighting                = FALSE;
+    self->state.al_led_state                         = FALSE;
+    self->state.al_current                           = 0;
+    self->state.al_red                               = 0;
+    self->state.al_green                             = 0;
+    self->state.al_blue                              = 0;
 
     g_ptr_array_set_size (self->state.channels, 0);
     g_ptr_array_set_size (self->state.nodes,    0);
@@ -3861,6 +3927,157 @@ pn_mesh_connection_set_telemetry_config_async (
 
 gboolean
 pn_mesh_connection_set_telemetry_config_finish (GAsyncResult *result,
+                                                GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_ambient_lighting — Phase 11 (TODO #48.8)                        */
+/* ------------------------------------------------------------------ */
+
+/* AdminMessage { set_module_config (35) = ModuleConfig {
+ *     ambient_lighting (11) = AmbientLightingConfig {…} } }
+ *
+ * Same proto3-defaults caveat as the other module writers: ship every
+ * field every time or the device resets the omitted ones to zero on
+ * its next save. */
+static gboolean
+send_set_ambient_lighting (PnMeshConnection                       *self,
+                           const PnMeshAmbientLightingConfigWrite *cfg,
+                           GError                                **error)
+{
+    PnMeshPbWriter al_w, mc_w, admin_w;
+    GBytes        *al_bytes, *mc_bytes, *admin_bytes;
+    const guint8  *al_b, *mc_b, *admin_b;
+    gsize          al_n,  mc_n,  admin_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&al_w);
+    pn_mesh_pb_write_varint_field (&al_w, AL_LED_STATE,
+                                   cfg->led_state ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&al_w, AL_CURRENT, cfg->current);
+    pn_mesh_pb_write_varint_field (&al_w, AL_RED,     cfg->red);
+    pn_mesh_pb_write_varint_field (&al_w, AL_GREEN,   cfg->green);
+    pn_mesh_pb_write_varint_field (&al_w, AL_BLUE,    cfg->blue);
+    al_bytes = pn_mesh_pb_writer_take_bytes (&al_w);
+    pn_mesh_pb_writer_clear (&al_w);
+    al_b = g_bytes_get_data (al_bytes, &al_n);
+
+    /* ModuleConfig { ambient_lighting (11) = AmbientLightingConfig } */
+    pn_mesh_pb_writer_init (&mc_w);
+    pn_mesh_pb_write_embedded_field (&mc_w, MC_AMBIENT_LIGHTING, al_b, al_n);
+    mc_bytes = pn_mesh_pb_writer_take_bytes (&mc_w);
+    pn_mesh_pb_writer_clear (&mc_w);
+    g_bytes_unref (al_bytes);
+    mc_b = g_bytes_get_data (mc_bytes, &mc_n);
+
+    /* AdminMessage { set_module_config (35) = ModuleConfig } */
+    pn_mesh_pb_writer_init (&admin_w);
+    pn_mesh_pb_write_embedded_field (&admin_w, AM_SET_MODULE_CONFIG,
+                                     mc_b, mc_n);
+    admin_bytes = pn_mesh_pb_writer_take_bytes (&admin_w);
+    pn_mesh_pb_writer_clear (&admin_w);
+    g_bytes_unref (mc_bytes);
+    admin_b = g_bytes_get_data (admin_bytes, &admin_n);
+
+    ok = send_admin (self, admin_b, admin_n, /*want_response=*/FALSE, error);
+    g_bytes_unref (admin_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_ambient_lighting_sync (
+        PnMeshConnection                       *self,
+        const PnMeshAmbientLightingConfigWrite *cfg,
+        GError                                **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_ambient_lighting (self, cfg, error))
+        return FALSE;
+
+    /* set_module_config writes do not reboot the device; settle 0.5s
+     * and re-handshake so the page repaints from authoritative state. */
+    g_usleep ((gulong) POST_WRITE_SETTLE_MS * 1000);
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    if (!run_handshake (self, error))
+    {
+        if (error != NULL && *error == NULL)
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                         "Device did not respond to the post-write "
+                         "verification handshake within %d ms.",
+                         HANDSHAKE_TOTAL_MS);
+        return FALSE;
+    }
+
+    if (self->state.my_node_num != 0)
+        request_device_metadata (self);
+
+    return TRUE;
+}
+
+typedef struct
+{
+    PnMeshConnection                 *conn;
+    PnMeshAmbientLightingConfigWrite  cfg;
+} SetAmbientLightingCall;
+
+static void
+set_ambient_lighting_call_free (gpointer data)
+{
+    g_slice_free (SetAmbientLightingCall, data);
+}
+
+static void
+set_ambient_lighting_thread_func (GTask *task, gpointer source,
+                                  gpointer task_data,
+                                  GCancellable *cancellable)
+{
+    SetAmbientLightingCall *c   = task_data;
+    GError                 *err = NULL;
+    gboolean                ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_ambient_lighting_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_ambient_lighting_async (
+        PnMeshConnection                       *self,
+        const PnMeshAmbientLightingConfigWrite *cfg,
+        GCancellable                           *cancellable,
+        GAsyncReadyCallback                     callback,
+        gpointer                                user_data)
+{
+    GTask                  *task;
+    SetAmbientLightingCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetAmbientLightingCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_ambient_lighting_async);
+    g_task_set_task_data  (task, c, set_ambient_lighting_call_free);
+    g_task_run_in_thread  (task, set_ambient_lighting_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_ambient_lighting_finish (GAsyncResult *result,
                                                 GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);

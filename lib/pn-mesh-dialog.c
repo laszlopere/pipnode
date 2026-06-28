@@ -37,6 +37,7 @@
 #include "pn-foldable.h"
 #include "pn-mesh-connection.h"
 #include "pn-mesh-discover.h"
+#include "pn-mesh-page-ambient-lighting.h"
 #include "pn-mesh-page-channels.h"
 #include "pn-mesh-page-device.h"
 #include "pn-mesh-page-ext-notification.h"
@@ -76,6 +77,7 @@ typedef struct
     GtkWidget        *share_page;
     GtkWidget        *known_nodes_page;
     GtkWidget        *ext_notification_page;
+    GtkWidget        *ambient_lighting_page;
     GtkWidget        *mqtt_page;
     GtkWidget        *position_page;
     GtkWidget        *power_page;
@@ -276,6 +278,7 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_share_set_state            (ctx->share_page,            NULL);
     pn_mesh_page_known_nodes_set_state      (ctx->known_nodes_page,      NULL);
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
+    pn_mesh_page_ambient_lighting_set_state (ctx->ambient_lighting_page, NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
     pn_mesh_page_position_set_state         (ctx->position_page,         NULL, NULL);
     pn_mesh_page_power_set_state            (ctx->power_page,            NULL, NULL);
@@ -378,6 +381,10 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             pn_mesh_connection_get_state (conn));
     pn_mesh_page_ext_notification_set_state (
             ctx->ext_notification_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_ambient_lighting_set_state (
+            ctx->ambient_lighting_page,
             pn_mesh_connection_get_state (conn),
             conn);
     pn_mesh_page_mqtt_set_state (
@@ -635,6 +642,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->share_page            = pn_mesh_page_share_new ();
         ctx->known_nodes_page      = pn_mesh_page_known_nodes_new ();
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
+        ctx->ambient_lighting_page = pn_mesh_page_ambient_lighting_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
         ctx->position_page         = pn_mesh_page_position_new ();
         ctx->power_page            = pn_mesh_page_power_new ();
@@ -653,6 +661,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->channels_page,         on_page_status, ctx);
         pn_mesh_page_ext_notification_set_status_callback (
                 ctx->ext_notification_page, on_page_status, ctx);
+        pn_mesh_page_ambient_lighting_set_status_callback (
+                ctx->ambient_lighting_page, on_page_status, ctx);
         pn_mesh_page_mqtt_set_status_callback (
                 ctx->mqtt_page,             on_page_status, ctx);
         pn_mesh_page_position_set_status_callback (
@@ -685,6 +695,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->channels_page,         on_channels_changed, ctx);
         pn_mesh_page_ext_notification_set_busy_callback (
                 ctx->ext_notification_page, on_page_busy, ctx);
+        pn_mesh_page_ambient_lighting_set_busy_callback (
+                ctx->ambient_lighting_page, on_page_busy, ctx);
         pn_mesh_page_mqtt_set_busy_callback (
                 ctx->mqtt_page,             on_page_busy, ctx);
         pn_mesh_page_position_set_busy_callback (
@@ -793,8 +805,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_dialog_append_page (ctx->shell, tab, "Network");
         }
 
-        /* Tab 4: Notifications  (External Notification now; Canned / Status /
-         * Audio / Ambient Lighting in Phase 10/11). */
+        /* Tab 4: Notifications  (External Notification + Ambient Lighting;
+         * Canned Message / Audio in Phase 11+). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "External Notification",
@@ -802,6 +814,11 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                     "motor on incoming traffic.  Set Nag timeout to 0 to "
                     "stop the device repeating notifications.",
                     ctx->ext_notification_page);
+            pn_device_form_add_section (inner, "Ambient Lighting",
+                    "Drives an addressable RGB status LED (NeoPixel / "
+                    "WS2812).  Turn the LED on and pick a colour + drive "
+                    "current.",
+                    ctx->ambient_lighting_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Notifications");
         }
 
