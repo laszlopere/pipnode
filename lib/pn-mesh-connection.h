@@ -214,6 +214,18 @@ typedef struct
     guint32     pos_gps_en_gpio;
     guint32     pos_gps_mode;                  /* GpsMode enum */
 
+    /* LIVE GPS readout (not a setting): the local node's own
+     * NodeInfo.position, captured for the is_us node during the
+     * handshake.  Distinct from the pos_* PositionConfig settings above
+     * -- these are what the GPS is actually reporting right now and back
+     * the "test the GPS after applying settings" flow.  @gps_have_live_
+     * position is FALSE until the device sends a Position for itself
+     * (no GPS data yet / GPS still warming up). */
+    gboolean    gps_have_live_position;
+    guint32     gps_live_time;                 /* GPS fix unix time, 0 = none */
+    guint32     gps_live_fix_type;             /* u-blox fix type, 0 = no fix */
+    guint32     gps_live_sats_in_view;         /* satellites the GPS can see */
+
     /* From FromRadio.config(PowerConfig).  Same contract as the other
      * Config sub-blocks. */
     gboolean    have_power;
@@ -573,6 +585,42 @@ void     pn_mesh_connection_set_position_config_async (
 
 gboolean pn_mesh_connection_set_position_config_finish (
         GAsyncResult                     *result,
+        GError                          **error);
+
+/* ------------------------------------------------------------------ */
+/*  Live GPS probe — Phase 15                                           */
+/* ------------------------------------------------------------------ */
+
+/* One snapshot of the device's own live position, used to test whether
+ * the GPS is present and communicating after applying GPS settings.
+ * @device_responded is FALSE when the device stayed silent (e.g. still
+ * rebooting after the config write) -- the caller should retry rather
+ * than treat it as a failure.  @have_position is FALSE when the device
+ * answered but has not produced any position for itself yet (GPS still
+ * acquiring).  A GPS that is wired and talking will report
+ * @sats_in_view > 0 well before it gets a @fix_type fix. */
+typedef struct
+{
+    gboolean device_responded;
+    gboolean have_position;
+    guint32  time;            /* GPS fix unix time, 0 = none */
+    guint32  fix_type;        /* u-blox fix type, 0 = no fix */
+    guint32  sats_in_view;
+} PnMeshGpsProbe;
+
+/* Re-read the device's node database and snapshot the local node's live
+ * position.  Runs on a worker thread (it owns the serial fd for the
+ * duration, same as the set_*_config writers), so the dialog's monitor
+ * pump must be quiesced (push the busy overlay) while it is in flight. */
+void     pn_mesh_connection_probe_gps_async (
+        PnMeshConnection                 *self,
+        GCancellable                     *cancellable,
+        GAsyncReadyCallback               callback,
+        gpointer                          user_data);
+
+gboolean pn_mesh_connection_probe_gps_finish (
+        GAsyncResult                     *result,
+        PnMeshGpsProbe                   *out,
         GError                          **error);
 
 /* ------------------------------------------------------------------ */

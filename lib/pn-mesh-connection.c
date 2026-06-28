@@ -90,10 +90,18 @@
 /* NodeInfo */
 #define NI_NUM                  1
 #define NI_USER                 2
+#define NI_POSITION             3   /* embedded Position              */
 #define NI_SNR                  4   /* float, wire type 5 (fixed32)   */
 #define NI_LAST_HEARD           5   /* fixed32                        */
 #define NI_DEVICE_METRICS       6   /* embedded DeviceMetrics         */
 #define NI_HOPS_AWAY            9   /* uint32                         */
+
+/* Position (NodeInfo subfield).  Only the fields the GPS test needs;
+ * field numbers confirmed against the pip-mesh 2.0.3 donor.  time is a
+ * fixed32 Unix timestamp; fix_type and sats_in_view are varints. */
+#define PMSG_TIME               4
+#define PMSG_FIX_TYPE          18
+#define PMSG_SATS_IN_VIEW      19
 
 /* User */
 #define U_ID                    1
@@ -405,6 +413,10 @@ typedef struct
     guint32 hops_away;
     guint32 battery_level;
     gfloat  voltage;
+    gboolean have_position;
+    guint32 pos_time;
+    guint32 fix_type;
+    guint32 sats_in_view;
 } SeenNode;
 
 static void
@@ -513,6 +525,48 @@ parse_device_metrics (const guint8 *data, gsize size, SeenNode *out)
     }
 }
 
+/* Position is the per-NodeInfo GPS reading (NodeInfo field 3).  We pull
+ * only the three fields the GPS test needs: the fix timestamp, the fix
+ * type and the satellites-in-view count.  Everything else (lat/lon/alt,
+ * DOP, speed, heading) is skipped -- the test only asks "is the GPS
+ * present and talking", which sats_in_view answers before any fix. */
+static void
+parse_position (const guint8 *data, gsize size, SeenNode *out)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    out->have_position = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        switch (field)
+        {
+        case PMSG_TIME:
+            pn_mesh_pb_read_fixed32 (&r, &out->pos_time);
+            break;
+        case PMSG_FIX_TYPE:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->fix_type = (guint32) v;
+            break;
+        }
+        case PMSG_SATS_IN_VIEW:
+        {
+            guint64 v;
+            if (pn_mesh_pb_read_varint (&r, &v))
+                out->sats_in_view = (guint32) v;
+            break;
+        }
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 static void
 parse_node_info (PnMeshConnection *self, const guint8 *data, gsize size)
 {
@@ -540,6 +594,14 @@ parse_node_info (PnMeshConnection *self, const guint8 *data, gsize size)
             gsize         user_size;
             if (pn_mesh_pb_read_length (&r, &user_data, &user_size))
                 parse_user (self, user_data, user_size, &node);
+            break;
+        }
+        case NI_POSITION:
+        {
+            const guint8 *p_data;
+            gsize         p_size;
+            if (pn_mesh_pb_read_length (&r, &p_data, &p_size))
+                parse_position (p_data, p_size, &node);
             break;
         }
         case NI_SNR:
@@ -1773,6 +1835,14 @@ resolve_owner (PnMeshConnection *self)
 
     g_ptr_array_set_size (self->state.nodes, 0);
 
+    /* Recomputed below from the local node's Position, if any.  Reset
+     * every pass so a handshake that no longer carries a self-Position
+     * (GPS turned off / not acquiring) clears a stale reading. */
+    self->state.gps_have_live_position = FALSE;
+    self->state.gps_live_time          = 0;
+    self->state.gps_live_fix_type      = 0;
+    self->state.gps_live_sats_in_view  = 0;
+
     for (i = 0; i < self->seen_nodes->len; i++)
     {
         SeenNode   *n = &g_array_index (self->seen_nodes, SeenNode, i);
@@ -1808,6 +1878,17 @@ resolve_owner (PnMeshConnection *self)
             self->state.owner_long_name  = n->long_name;  n->long_name  = NULL;
             self->state.owner_short_name = n->short_name; n->short_name = NULL;
             self->state.owner_hw_model   = n->hw_model;
+        }
+
+        /* Capture the local node's live GPS reading for the GPS test.
+         * Separate from the owner_* block above (which only fires once):
+         * the position should track the latest is_us NodeInfo. */
+        if (node->is_us && n->have_position)
+        {
+            self->state.gps_have_live_position = TRUE;
+            self->state.gps_live_time          = n->pos_time;
+            self->state.gps_live_fix_type      = n->fix_type;
+            self->state.gps_live_sats_in_view  = n->sats_in_view;
         }
     }
 }
@@ -2100,6 +2181,11 @@ clear_state (PnMeshConnection *self)
     self->state.pos_broadcast_smart_min_interval_secs        = 0;
     self->state.pos_gps_en_gpio                              = 0;
     self->state.pos_gps_mode                                 = 0;
+
+    self->state.gps_have_live_position                       = FALSE;
+    self->state.gps_live_time                                = 0;
+    self->state.gps_live_fix_type                            = 0;
+    self->state.gps_live_sats_in_view                        = 0;
 
     self->state.have_power                          = FALSE;
     self->state.pow_is_power_saving                 = FALSE;
@@ -2832,6 +2918,96 @@ pn_mesh_connection_set_position_config_finish (GAsyncResult *result,
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ----- Live GPS probe (Phase 15) ----------------------------------- */
+
+/* Re-read the node database (drain + clear + handshake, like the verify
+ * tail of a config write but without the settle sleep or the metadata
+ * fetch) and snapshot the local node's live position.  A silent device
+ * -- still rebooting after the GPS write -- is NOT an error: run_handshake
+ * returns FALSE with no GError, and we report device_responded=FALSE so
+ * the caller retries. */
+static gboolean
+probe_gps_sync (PnMeshConnection *self, PnMeshGpsProbe *out, GError **error)
+{
+    GError   *local = NULL;
+    gboolean  got;
+
+    pn_mesh_serial_drain (self->serial, 50);
+    clear_state (self);
+
+    got = run_handshake (self, &local);
+    if (!got && local != NULL)
+    {
+        g_propagate_error (error, local);
+        return FALSE;
+    }
+    g_clear_error (&local);
+
+    out->device_responded = got;
+    out->have_position    = self->state.gps_have_live_position;
+    out->time             = self->state.gps_live_time;
+    out->fix_type         = self->state.gps_live_fix_type;
+    out->sats_in_view     = self->state.gps_live_sats_in_view;
+    return TRUE;
+}
+
+static void
+probe_gps_thread_func (GTask *task, gpointer source,
+                       gpointer task_data, GCancellable *cancellable)
+{
+    PnMeshConnection *self = task_data;
+    PnMeshGpsProbe   *probe;
+    GError           *err = NULL;
+
+    (void) source;
+    (void) cancellable;
+
+    probe = g_new0 (PnMeshGpsProbe, 1);
+    if (probe_gps_sync (self, probe, &err))
+        g_task_return_pointer (task, probe, g_free);
+    else
+    {
+        g_free (probe);
+        g_task_return_error (task, err);
+    }
+}
+
+void
+pn_mesh_connection_probe_gps_async (PnMeshConnection    *self,
+                                    GCancellable        *cancellable,
+                                    GAsyncReadyCallback  callback,
+                                    gpointer             user_data)
+{
+    GTask *task;
+
+    g_return_if_fail (self != NULL);
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_probe_gps_async);
+    g_task_set_task_data  (task, self, NULL);
+    g_task_run_in_thread  (task, probe_gps_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_probe_gps_finish (GAsyncResult   *result,
+                                     PnMeshGpsProbe *out,
+                                     GError        **error)
+{
+    PnMeshGpsProbe *probe;
+
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+
+    probe = g_task_propagate_pointer (G_TASK (result), error);
+    if (probe == NULL)
+        return FALSE;
+
+    if (out != NULL)
+        *out = *probe;
+    g_free (probe);
+    return TRUE;
 }
 
 /* ----- Power ------------------------------------------------------- */

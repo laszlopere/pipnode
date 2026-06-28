@@ -14,18 +14,23 @@
  */
 
 /* ------------------------------------------------------------------ */
-/*  Position page — Phase 12.                                          */
+/*  Position page -- the broadcast-behaviour half of PositionConfig.   */
 /*                                                                     */
-/*  Combo for GPS mode, switches for fixed position + smart            */
-/*  broadcast, spinners for the interval / distance / GPS update       */
-/*  thresholds, single Apply button at the bottom.  Fields the UI      */
-/*  does not expose (position_flags, the GPIO assignments, the         */
-/*  legacy gps_enabled boolean) are mirrored at set_state-time and     */
-/*  shipped back verbatim on Apply -- proto3-zeroing them would lose   */
-/*  whatever board-specific GPS wiring the firmware had baked in.      */
+/*  Switches for fixed position + smart broadcast, spinners for the    */
+/*  broadcast interval and the smart-broadcast distance / interval     */
+/*  thresholds, a single Apply button at the bottom.                   */
 /*                                                                     */
-/*  gps_mode supersedes the deprecated gps_enabled boolean upstream;   */
-/*  Apply syncs them (mode=ENABLED -> enabled=TRUE) so older firmware  */
+/*  PositionConfig is one protobuf message but its settings are split   */
+/*  across two sibling pages: the GPS Settings page (above) owns the    */
+/*  GPS-hardware fields (gps_mode, the GPIO pins, the update interval,  */
+/*  the position-report flags), this page owns the broadcast-behaviour */
+/*  fields.  Each page mirrors the OTHER page's fields at set_state-    */
+/*  time and ships them back verbatim on Apply -- proto3-zeroing them   */
+/*  would clobber the half the user did not touch.  After either Apply  */
+/*  the connection re-handshakes and set_state runs on both pages.      */
+/*                                                                     */
+/*  gps_mode supersedes the deprecated gps_enabled boolean upstream;    */
+/*  Apply syncs them (mode=ENABLED -> enabled=TRUE) so older firmware   */
 /*  still sees a consistent pair.                                       */
 /* ------------------------------------------------------------------ */
 
@@ -35,34 +40,27 @@
 
 #include "pn-mesh-page-position.h"
 #include "pn-action-button.h"
-#include "pn-mesh-formats.h"
 
-#include "pn-device-combo.h"
 #include "pn-device-spin.h"
 
 #define PN_MESH_POSITION_CTX_QDATA "pn-mesh-page-position-ctx"
 
 typedef struct
 {
-    GtkComboBoxText *gps_mode_combo;
     GtkSwitch       *fixed_position_switch;
     GtkSwitch       *smart_broadcast_switch;
     GtkSpinButton   *broadcast_secs_spin;
-    GtkSpinButton   *gps_update_secs_spin;
     GtkSpinButton   *smart_min_distance_spin;
     GtkSpinButton   *smart_min_interval_spin;
     GtkButton       *apply_button;
 
-    /* Device-specific "does this board have GPS, and what GPIO makes it
-     * work" note, derived from the connected hardware model.  Continues
-     * the section help text; hidden until a device connects. */
-    GtkLabel        *gps_note_label;
-
     /* Borrowed; the dialog owns it. */
     PnMeshConnection *connection;
 
-    /* Mirrored at set_state-time so Apply ships them back unchanged.
-     * The dialog does not surface these as controls in this phase. */
+    /* The GPS Settings page's fields, mirrored at set_state-time so this
+     * page's Apply ships them back unchanged. */
+    guint32          last_gps_mode;
+    guint32          last_gps_update_interval;
     guint32          last_position_flags;
     guint32          last_rx_gpio;
     guint32          last_tx_gpio;
@@ -84,68 +82,6 @@ position_ctx_free (gpointer data)
 }
 
 /* ------------------------------------------------------------------ */
-/*  GPS mode enum                                                       */
-/* ------------------------------------------------------------------ */
-
-typedef struct { guint32 id; const char *name; } EnumEntry;
-
-/* Meshtastic GpsMode.  DISABLED is the "no GPS, do not try" mode;
- * NOT_PRESENT is for boards that have no GPS hardware at all (the
- * firmware uses it to suppress the on-screen "no fix" diagnostics). */
-static const EnumEntry GPS_MODES[] = {
-    { 0, "DISABLED" },
-    { 1, "ENABLED" },
-    { 2, "NOT_PRESENT" },
-};
-
-static void
-fill_combo (GtkComboBoxText *combo,
-            const EnumEntry *table, gsize n)
-{
-    gsize i;
-    for (i = 0; i < n; i++)
-    {
-        gchar id[12];
-        g_snprintf (id, sizeof id, "%u", table[i].id);
-        gtk_combo_box_text_append (combo, id, table[i].name);
-    }
-}
-
-static void
-select_combo_by_id (GtkComboBoxText *combo,
-                    const EnumEntry *table, gsize n,
-                    guint32 value)
-{
-    gchar id[12];
-    gsize i;
-
-    for (i = 0; i < n; i++)
-        if (table[i].id == value)
-        {
-            g_snprintf (id, sizeof id, "%u", value);
-            gtk_combo_box_set_active_id (GTK_COMBO_BOX (combo), id);
-            return;
-        }
-
-    g_snprintf (id, sizeof id, "%u", value);
-    {
-        gchar *label = g_strdup_printf ("(unknown #%u)", value);
-        gtk_combo_box_text_append (combo, id, label);
-        g_free (label);
-    }
-    gtk_combo_box_set_active_id (GTK_COMBO_BOX (combo), id);
-}
-
-static guint32
-get_combo_id (GtkComboBoxText *combo, guint32 fallback)
-{
-    const gchar *id = gtk_combo_box_get_active_id (GTK_COMBO_BOX (combo));
-    if (id == NULL)
-        return fallback;
-    return (guint32) g_ascii_strtoull (id, NULL, 10);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Status + writing flag                                               */
 /* ------------------------------------------------------------------ */
 
@@ -156,101 +92,15 @@ emit_status (PositionCtx *ctx, const gchar *msg)
         ctx->status_cb (msg, ctx->status_ud);
 }
 
-/* Set the device-specific GPS note from the connected hardware model:
- * whether THIS board has GPS and the GPIO wiring that makes it work.
- * Best-effort "internet sources" data (firmware variant.h), openly
- * flagged as possibly wrong.  Hidden when no device is connected. */
-static void
-update_gps_note (PositionCtx *ctx, const PnMeshState *state)
-{
-    guint32      hw;
-    gchar       *model;
-    const gchar *note;
-    const gchar *gpio;
-    gchar       *text;
-
-    if (state == NULL)
-    {
-        gtk_widget_hide (GTK_WIDGET (ctx->gps_note_label));
-        return;
-    }
-
-    /* Same resolution the Identity page uses: prefer DeviceMetadata's
-     * hw_model, fall back to the owner User record's. */
-    hw = state->have_metadata && state->hw_model != 0
-            ? state->hw_model : state->owner_hw_model;
-    if (hw == 0)
-    {
-        gtk_widget_hide (GTK_WIDGET (ctx->gps_note_label));
-        return;
-    }
-
-    model = pn_mesh_format_hw_model (hw);
-    note  = pn_mesh_hw_gps_note (hw);
-    gpio  = pn_mesh_hw_gps_gpio (hw);
-
-    switch (pn_mesh_hw_gps (hw))
-    {
-    case PN_MESH_GPS_BUILTIN:
-        text = g_strdup_printf (
-                "According to internet sources, this device (%s) has %s. For "
-                "the GPS to work the firmware drives %s; leave the GPS GPIO "
-                "settings in the device config at 0 to keep these defaults. "
-                "Internet sources can be wrong.",
-                model, note, gpio != NULL ? gpio : "its built-in GPS pins");
-        break;
-    case PN_MESH_GPS_HEADER:
-        if (gpio != NULL)
-            text = g_strdup_printf (
-                    "According to internet sources, this device (%s) has %s — "
-                    "no GPS chip is soldered on, but you can attach an external "
-                    "module. The board pre-wires %s; otherwise set the GPS "
-                    "RX/TX GPIO in the device config to match your wiring. "
-                    "Internet sources can be wrong.",
-                    model, note, gpio);
-        else
-            text = g_strdup_printf (
-                    "According to internet sources, this device (%s) has %s — "
-                    "no GPS chip is soldered on. Attach an external GPS module "
-                    "and set the GPS RX/TX GPIO in the device config to match "
-                    "your wiring. Internet sources can be wrong.",
-                    model, note);
-        break;
-    case PN_MESH_GPS_NONE:
-        text = g_strdup_printf (
-                "According to internet sources, this device (%s) has %s, so "
-                "live GPS positioning is not available — only a manually set "
-                "fixed position will work. Internet sources can be wrong.",
-                model, note);
-        break;
-    case PN_MESH_GPS_UNKNOWN:
-    default:
-        text = g_strdup_printf (
-                "Whether this device (%s) has GPS, and which GPIO pins it "
-                "uses, could not be determined from internet sources, which "
-                "can be wrong.",
-                model);
-        break;
-    }
-
-    gtk_label_set_text (ctx->gps_note_label, text);
-    gtk_widget_show (GTK_WIDGET (ctx->gps_note_label));
-
-    g_free (text);
-    g_free (model);
-}
-
 static void
 set_writing (PositionCtx *ctx, gboolean writing)
 {
     gboolean enable     = !writing && ctx->connection != NULL;
     gboolean transition = (ctx->writing != writing);
     ctx->writing = writing;
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->gps_mode_combo),         enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->fixed_position_switch),  enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->smart_broadcast_switch), enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->broadcast_secs_spin),    enable);
-    gtk_widget_set_sensitive (GTK_WIDGET (ctx->gps_update_secs_spin),   enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->smart_min_distance_spin),enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->smart_min_interval_spin),enable);
     gtk_widget_set_sensitive (GTK_WIDGET (ctx->apply_button),           enable);
@@ -308,33 +158,32 @@ on_apply_clicked (GtkButton *button, gpointer user_data)
     PositionCtx                *ctx  = g_object_get_data (G_OBJECT (page),
                                                           PN_MESH_POSITION_CTX_QDATA);
     PnMeshPositionConfigWrite   cfg;
-    guint32                     mode;
 
     (void) button;
     if (ctx == NULL || ctx->connection == NULL || ctx->writing)
         return;
 
-    mode = get_combo_id (ctx->gps_mode_combo, 1 /* ENABLED */);
-
+    /* Broadcast-behaviour fields owned by this page. */
     cfg.position_broadcast_smart_enabled =
             gtk_switch_get_active (ctx->smart_broadcast_switch);
     cfg.fixed_position = gtk_switch_get_active (ctx->fixed_position_switch);
-    /* Keep the legacy gps_enabled boolean in sync with the modern
-     * gps_mode: ENABLED -> TRUE, DISABLED/NOT_PRESENT -> FALSE. */
-    cfg.gps_enabled = (mode == 1);
-    cfg.gps_update_interval =
-            (guint32) gtk_spin_button_get_value_as_int (ctx->gps_update_secs_spin);
     cfg.position_broadcast_secs =
             (guint32) gtk_spin_button_get_value_as_int (ctx->broadcast_secs_spin);
-    cfg.position_flags = ctx->last_position_flags;
-    cfg.rx_gpio        = ctx->last_rx_gpio;
-    cfg.tx_gpio        = ctx->last_tx_gpio;
     cfg.broadcast_smart_min_distance =
             gtk_spin_button_get_value_as_int (ctx->smart_min_distance_spin);
     cfg.broadcast_smart_min_interval_secs =
             (guint32) gtk_spin_button_get_value_as_int (ctx->smart_min_interval_spin);
-    cfg.gps_en_gpio = ctx->last_gps_en_gpio;
-    cfg.gps_mode    = mode;
+
+    /* GPS-hardware fields owned by the GPS Settings page -- shipped back
+     * verbatim.  Keep the legacy gps_enabled boolean in sync with the
+     * mirrored gps_mode (ENABLED -> TRUE). */
+    cfg.gps_mode            = ctx->last_gps_mode;
+    cfg.gps_enabled         = (ctx->last_gps_mode == 1);
+    cfg.gps_update_interval = ctx->last_gps_update_interval;
+    cfg.position_flags      = ctx->last_position_flags;
+    cfg.rx_gpio             = ctx->last_rx_gpio;
+    cfg.tx_gpio             = ctx->last_tx_gpio;
+    cfg.gps_en_gpio         = ctx->last_gps_en_gpio;
 
     emit_status (ctx, "Applying position settings…");
     set_writing (ctx, TRUE);
@@ -355,10 +204,10 @@ on_cell_realize (GtkWidget *cell, gpointer user_data)
     GtkSizeGroup *sg = user_data;
     GList        *children = gtk_container_get_children (GTK_CONTAINER (cell));
 
-    /* Combos, spin buttons and entries share a common width via the
-     * size group so the value column lines up.  A switch is naturally
-     * narrow and already left-aligned (halign START), so leave it out
-     * -- otherwise the size group stretches it to the widest control. */
+    /* Spin buttons share a common width via the size group so the value
+     * column lines up.  A switch is naturally narrow and already
+     * left-aligned (halign START), so leave it out -- otherwise the
+     * size group stretches it to the widest control. */
     if (children != NULL && !GTK_IS_SWITCH (children->data)) {
         GtkWidget *first = children->data;
         gtk_widget_set_size_request (first, VALUE_MIN_WIDTH, -1);
@@ -421,16 +270,13 @@ pn_mesh_page_position_new (void)
     GtkWidget   *page;
     GtkWidget   *grid;
     GtkWidget   *cell;
-    GtkWidget   *gps_mode;
     GtkWidget   *fixed_position;
     GtkWidget   *smart_broadcast;
     GtkWidget   *broadcast_secs;
-    GtkWidget   *gps_update_secs;
     GtkWidget   *smart_min_distance;
     GtkWidget   *smart_min_interval;
     GtkWidget   *apply_box;
     GtkWidget   *apply;
-    GtkWidget   *gps_note;
     PositionCtx *ctx;
     gint         row = 0;
 
@@ -442,49 +288,10 @@ pn_mesh_page_position_new (void)
 
     ctx = g_slice_new0 (PositionCtx);
 
-    /* Device-specific GPS note -- continues the section's help text.
-     * Filled in by update_gps_note() once a device connects; starts
-     * hidden so it doesn't show a stale line before the handshake. */
-    gps_note = gtk_label_new (NULL);
-    gtk_label_set_xalign    (GTK_LABEL (gps_note), 0.0);
-    gtk_label_set_line_wrap (GTK_LABEL (gps_note), TRUE);
-    {
-        GtkStyleContext *sc = gtk_widget_get_style_context (gps_note);
-        gtk_style_context_add_class (sc, "dim-label");
-    }
-    gtk_widget_set_no_show_all (gps_note, TRUE);
-    gtk_box_pack_start (GTK_BOX (page), gps_note, FALSE, FALSE, 0);
-    ctx->gps_note_label = GTK_LABEL (gps_note);
-
     grid = gtk_grid_new ();
     gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
     gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
-    gtk_widget_set_margin_top   (grid, 12);
     gtk_box_pack_start (GTK_BOX (page), grid, FALSE, FALSE, 0);
-
-    cell = add_row (GTK_GRID (grid), row++, "GPS mode");
-    gps_mode = pn_device_combo_new ();
-    gtk_widget_set_tooltip_text (gps_mode,
-            "ENABLED keeps the GPS running and uses real fixes; "
-            "DISABLED turns it off; NOT_PRESENT tells the firmware "
-            "the board has no GPS hardware (suppresses on-screen "
-            "fix diagnostics).");
-    fill_combo (GTK_COMBO_BOX_TEXT (gps_mode),
-                GPS_MODES, G_N_ELEMENTS (GPS_MODES));
-    gtk_box_pack_start (GTK_BOX (cell), gps_mode, FALSE, FALSE, 0);
-    ctx->gps_mode_combo = GTK_COMBO_BOX_TEXT (gps_mode);
-
-    cell = add_row (GTK_GRID (grid), row++, "GPS update interval");
-    /* 0 = device default; cap at 86400 (one day) -- the firmware
-     * accepts any uint32 but anything past a few hours is functionally
-     * equivalent to "off" and confuses users. */
-    gps_update_secs = pn_device_spin_new_with_range (0, 86400, 30);
-    gtk_widget_set_tooltip_text (gps_update_secs,
-            "Seconds between GPS sampling attempts.  0 lets the "
-            "firmware pick its default.");
-    gtk_box_pack_start (GTK_BOX (cell), gps_update_secs, FALSE, FALSE, 0);
-    attach_unit (cell, " s");
-    ctx->gps_update_secs_spin = GTK_SPIN_BUTTON (gps_update_secs);
 
     cell = add_row (GTK_GRID (grid), row++, "Fixed position");
     fixed_position = gtk_switch_new ();
@@ -576,35 +383,32 @@ pn_mesh_page_position_set_state (GtkWidget         *page,
 
     ctx->connection = connection;
 
-    /* The GPS note depends only on the hardware model, which arrives
-     * with the handshake even when no PositionConfig has streamed yet. */
-    update_gps_note (ctx, state);
-
     if (state == NULL || !state->have_position)
     {
-        ctx->last_position_flags = 0;
-        ctx->last_rx_gpio        = 0;
-        ctx->last_tx_gpio        = 0;
-        ctx->last_gps_en_gpio    = 0;
+        ctx->last_gps_mode            = 0;
+        ctx->last_gps_update_interval = 0;
+        ctx->last_position_flags      = 0;
+        ctx->last_rx_gpio             = 0;
+        ctx->last_tx_gpio             = 0;
+        ctx->last_gps_en_gpio         = 0;
         set_writing (ctx, FALSE);
         return;
     }
 
-    ctx->last_position_flags = state->pos_position_flags;
-    ctx->last_rx_gpio        = state->pos_rx_gpio;
-    ctx->last_tx_gpio        = state->pos_tx_gpio;
-    ctx->last_gps_en_gpio    = state->pos_gps_en_gpio;
+    /* Mirror the GPS Settings page's fields for verbatim round-trip. */
+    ctx->last_gps_mode            = state->pos_gps_mode;
+    ctx->last_gps_update_interval = state->pos_gps_update_interval;
+    ctx->last_position_flags      = state->pos_position_flags;
+    ctx->last_rx_gpio             = state->pos_rx_gpio;
+    ctx->last_tx_gpio             = state->pos_tx_gpio;
+    ctx->last_gps_en_gpio         = state->pos_gps_en_gpio;
 
-    select_combo_by_id (ctx->gps_mode_combo, GPS_MODES,
-                        G_N_ELEMENTS (GPS_MODES), state->pos_gps_mode);
     gtk_switch_set_active (ctx->fixed_position_switch,
                            state->pos_fixed_position);
     gtk_switch_set_active (ctx->smart_broadcast_switch,
                            state->pos_position_broadcast_smart_enabled);
     gtk_spin_button_set_value (ctx->broadcast_secs_spin,
                                (gdouble) state->pos_position_broadcast_secs);
-    gtk_spin_button_set_value (ctx->gps_update_secs_spin,
-                               (gdouble) state->pos_gps_update_interval);
     gtk_spin_button_set_value (ctx->smart_min_distance_spin,
                                (gdouble) state->pos_broadcast_smart_min_distance);
     gtk_spin_button_set_value (ctx->smart_min_interval_spin,

@@ -42,6 +42,7 @@
 #include "pn-mesh-page-device.h"
 #include "pn-mesh-page-ext-notification.h"
 #include "pn-mesh-page-firmware.h"
+#include "pn-mesh-page-gps.h"
 #include "pn-mesh-page-identity.h"
 #include "pn-mesh-page-known-nodes.h"
 #include "pn-mesh-page-mqtt.h"
@@ -79,6 +80,7 @@ typedef struct
     GtkWidget        *ext_notification_page;
     GtkWidget        *ambient_lighting_page;
     GtkWidget        *mqtt_page;
+    GtkWidget        *gps_page;
     GtkWidget        *position_page;
     GtkWidget        *power_page;
     GtkWidget        *telemetry_page;
@@ -280,6 +282,7 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_ext_notification_set_state (ctx->ext_notification_page, NULL, NULL);
     pn_mesh_page_ambient_lighting_set_state (ctx->ambient_lighting_page, NULL, NULL);
     pn_mesh_page_mqtt_set_state             (ctx->mqtt_page,             NULL, NULL);
+    pn_mesh_page_gps_set_state              (ctx->gps_page,              NULL, NULL);
     pn_mesh_page_position_set_state         (ctx->position_page,         NULL, NULL);
     pn_mesh_page_power_set_state            (ctx->power_page,            NULL, NULL);
     pn_mesh_page_telemetry_set_state        (ctx->telemetry_page,        NULL, NULL);
@@ -389,6 +392,10 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_mqtt_set_state (
             ctx->mqtt_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_gps_set_state (
+            ctx->gps_page,
             pn_mesh_connection_get_state (conn),
             conn);
     pn_mesh_page_position_set_state (
@@ -644,6 +651,7 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->ext_notification_page = pn_mesh_page_ext_notification_new ();
         ctx->ambient_lighting_page = pn_mesh_page_ambient_lighting_new ();
         ctx->mqtt_page             = pn_mesh_page_mqtt_new ();
+        ctx->gps_page              = pn_mesh_page_gps_new ();
         ctx->position_page         = pn_mesh_page_position_new ();
         ctx->power_page            = pn_mesh_page_power_new ();
         ctx->telemetry_page        = pn_mesh_page_telemetry_new ();
@@ -665,6 +673,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ambient_lighting_page, on_page_status, ctx);
         pn_mesh_page_mqtt_set_status_callback (
                 ctx->mqtt_page,             on_page_status, ctx);
+        pn_mesh_page_gps_set_status_callback (
+                ctx->gps_page,              on_page_status, ctx);
         pn_mesh_page_position_set_status_callback (
                 ctx->position_page,         on_page_status, ctx);
         pn_mesh_page_power_set_status_callback (
@@ -699,6 +709,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->ambient_lighting_page, on_page_busy, ctx);
         pn_mesh_page_mqtt_set_busy_callback (
                 ctx->mqtt_page,             on_page_busy, ctx);
+        pn_mesh_page_gps_set_busy_callback (
+                ctx->gps_page,              on_page_busy, ctx);
         pn_mesh_page_position_set_busy_callback (
                 ctx->position_page,         on_page_busy, ctx);
         pn_mesh_page_power_set_busy_callback (
@@ -778,11 +790,22 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_form_add_section (inner, "Share",
                     "Share this node's channel set with others via a URL or "
                     "QR code.", ctx->share_page);
+            pn_device_form_add_section (inner, "GPS Settings",
+                    "How this device's GPS is set up: GPS mode, how often it "
+                    "samples a fix, the RX/TX/enable GPIO pins that wire the "
+                    "GPS module, and which fields each position report "
+                    "carries.  A device-specific note above says whether this "
+                    "board has GPS and which pins drive it.  Apply writes the "
+                    "whole PositionConfig block at once; the broadcast "
+                    "settings below are kept verbatim from the device.",
+                    ctx->gps_page);
             pn_device_form_add_section (inner, "Position",
-                    "GPS mode and how often the device broadcasts its "
-                    "position on the mesh.  Apply writes the whole "
-                    "PositionConfig block at once; GPIO assignments and "
-                    "position flags are kept verbatim from the device.",
+                    "How often the device broadcasts its position on the "
+                    "mesh: the broadcast interval, smart broadcast and its "
+                    "movement thresholds, and whether to use a fixed "
+                    "position.  Apply writes the whole PositionConfig block "
+                    "at once; the GPS settings above are kept verbatim from "
+                    "the device.",
                     ctx->position_page);
             pn_device_dialog_append_page (ctx->shell, tab, "Radio");
         }

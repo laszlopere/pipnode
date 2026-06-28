@@ -678,6 +678,37 @@
                         would let a user accidentally re-Apply a stale config
                         after a handshake gave fresh data.
 
+           [ ] Phase 15 GPS Settings split + live GPS test. Splits the Phase 12
+                        Position expander into two Radio-tab sections: a new
+                        "GPS Settings" (GPS mode, update interval, RX/TX/enable
+                        GPIO spinners, the 10 PositionFlags checkboxes, the
+                        per-board "internet sources" GPS note) ABOVE a trimmed
+                        "Position" (broadcast behaviour only). Both write the one
+                        PositionConfig protobuf; each mirrors the other's fields
+                        and ships them back verbatim (the established
+                        round-trip-unseen-fields pattern). New
+                        lib/pn-mesh-page-gps.{c,h}; pn-mesh-page-position.c
+                        trimmed; wiring in pn-mesh-dialog.c + lib/Makefile.am.
+
+                        Live GPS test: pressing "Apply GPS settings" saves, then
+                        opens a MODAL dialog that polls the device "until a fix
+                        or satellites appear, or the user cancels", proving the
+                        GPS hardware is present and communicating (no sky-view
+                        fix required -- sats-in-view is enough). Wire side: parse
+                        NodeInfo.position (NI_POSITION=3) -> Position{ time=4
+                        fixed32, fix_type=18 varint, sats_in_view=19 varint },
+                        field numbers confirmed against the pip-mesh 2.0.3 donor.
+                        New live fields on PnMeshState (gps_live_*), captured for
+                        the is_us node in resolve_owner. New probe primitive
+                        pn_mesh_connection_probe_gps_async/_finish ->
+                        PnMeshGpsProbe: a worker-thread drain+clear_state+
+                        run_handshake snapshot (same serial-ownership rules as
+                        the set_config writers, so the dialog monitor pump backs
+                        off while busy). GUI holds the page busy callback for the
+                        whole modal so the 300 ms pump never races the probe
+                        threads. NOTE: heuristic test (the API exposes no direct
+                        "GPS UART OK" flag); needs on-hardware verification.
+
        Phase 8 (Plugin extraction) is no longer tracked under TODO #29 -- moved
        out 2026-05-28: it is its own cross-cutting project (Devices menu becomes
        plugin-driven via a new PnDeviceProvider core API; the meshtastic dialog
