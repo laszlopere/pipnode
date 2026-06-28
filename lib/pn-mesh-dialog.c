@@ -274,6 +274,16 @@ drop_connection (MeshDialogCtx *ctx)
     }
     g_clear_pointer (&ctx->connection_kind, g_free);
     g_clear_pointer (&ctx->connection_tty,  g_free);
+
+    /* Repaint the pages to their "no device" placeholders -- but only
+     * while the dialog is live.  On final teardown mesh_dialog_ctx_free
+     * NULLs ctx->shell *before* calling us, and by then GTK has already
+     * destroyed the page widgets; calling set_state on those freed
+     * pointers just spams GTK_IS_WIDGET criticals (the connection close
+     * above is the only part that must still run at teardown). */
+    if (ctx->shell == NULL)
+        return;
+
     pn_mesh_page_identity_set_state         (ctx->identity_page,         NULL, NULL, NULL, NULL);
     pn_mesh_page_region_set_state           (ctx->region_page,           NULL, NULL);
     pn_mesh_page_channels_set_state         (ctx->channels_page,         NULL, NULL);
