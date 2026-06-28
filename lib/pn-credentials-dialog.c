@@ -1045,6 +1045,14 @@ pn_credentials_dialog_present (GtkWindow *parent, const gchar *select_type_id)
         gtk_window_set_modal (GTK_WINDOW (dialog), FALSE);
     }
 
+    /* Realise the whole dialog FIRST, then refill the type pages.  A
+     * dialog-level show_all would re-show every conditionally-hidden field
+     * row, clobbering the visible-when pass rebuild_type_page applies at its
+     * tail — so the rebuild (which show_alls its own list and then re-hides)
+     * must run LAST, or the cards open with every field visible until the
+     * first focus change re-evaluates the rules. */
+    gtk_widget_show_all (GTK_WIDGET (dialog));
+
     /* Refill every type page from the current vault state (profiles may have
      * been added by a legacy-credentials import since this was last shown). */
     g_hash_table_iter_init (&it, dialog->lists);
@@ -1053,7 +1061,6 @@ pn_credentials_dialog_present (GtkWindow *parent, const gchar *select_type_id)
 
     select_category (dialog, select_type_id);
 
-    gtk_widget_show_all (GTK_WIDGET (dialog));
     gtk_window_present (GTK_WINDOW (dialog));
     return GTK_WIDGET (dialog);
 }
