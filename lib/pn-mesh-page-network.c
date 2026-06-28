@@ -29,6 +29,7 @@
 
 #include "pn-mesh-page-network.h"
 #include "pn-action-button.h"
+#include "pn-mesh-formats.h"
 
 #define PN_MESH_NETWORK_CTX_QDATA "pn-mesh-page-network-ctx"
 
@@ -40,6 +41,11 @@ typedef struct
     GtkSwitch *eth_switch;
     GtkSwitch *ipv6_switch;
     GtkButton *apply_button;
+
+    /* Device-specific capability note, derived from the connected
+     * hardware model; continues the section help text.  Hidden until a
+     * device with a known hw_model is connected. */
+    GtkLabel  *hw_note_label;
 
     PnMeshConnection *connection;
 
@@ -79,6 +85,105 @@ emit_status (NetworkCtx *ctx, const gchar *msg)
 {
     if (ctx->status_cb != NULL)
         ctx->status_cb (msg, ctx->status_ud);
+}
+
+/* Set the device-specific WiFi/Ethernet note from the connected
+ * hardware model: whether THIS board actually carries a WiFi radio
+ * and/or a wired Ethernet port, so the user knows up front whether the
+ * switches below will do anything.  Best-effort "internet sources" data
+ * (the board's MCU family + firmware variant.h), openly flagged as
+ * possibly wrong.  Hidden when no device with a known model is
+ * connected. */
+static void
+update_hw_note (NetworkCtx *ctx, const PnMeshState *state)
+{
+    guint32       hw;
+    gchar        *model;
+    PnMeshNetCap  wifi;
+    PnMeshNetCap  eth;
+    const gchar  *wifi_clause;
+    const gchar  *eth_clause;
+    gchar        *text;
+
+    if (state == NULL)
+    {
+        gtk_widget_hide (GTK_WIDGET (ctx->hw_note_label));
+        return;
+    }
+
+    /* Same resolution the Identity / GPS pages use: prefer
+     * DeviceMetadata's hw_model, fall back to the owner User record's. */
+    hw = state->have_metadata && state->hw_model != 0
+            ? state->hw_model : state->owner_hw_model;
+    if (hw == 0)
+    {
+        gtk_widget_hide (GTK_WIDGET (ctx->hw_note_label));
+        return;
+    }
+
+    model = pn_mesh_format_hw_model (hw);
+    wifi  = pn_mesh_hw_wifi (hw);
+    eth   = pn_mesh_hw_eth (hw);
+
+    if (wifi == PN_MESH_NET_HOST)
+    {
+        /* Native (Portduino) build -- networking is the Linux host's,
+         * not the firmware's, so neither switch is meaningful. */
+        text = g_strdup_printf (
+                "According to internet sources, this device (%s) is a native "
+                "Linux build: its networking is provided by the host machine, "
+                "so the WiFi and Ethernet settings below do not apply. "
+                "Internet sources can be wrong.",
+                model);
+        gtk_label_set_text (ctx->hw_note_label, text);
+        gtk_widget_show (GTK_WIDGET (ctx->hw_note_label));
+        g_free (text);
+        g_free (model);
+        return;
+    }
+
+    switch (wifi)
+    {
+    case PN_MESH_NET_YES:
+        wifi_clause = "has a WiFi radio — the WiFi switch, SSID and password "
+                      "fields below apply to it";
+        break;
+    case PN_MESH_NET_NO:
+        wifi_clause = "has no WiFi radio (it reaches the phone app over "
+                      "Bluetooth or USB serial), so the WiFi fields below "
+                      "have no effect";
+        break;
+    case PN_MESH_NET_UNKNOWN:
+    default:
+        wifi_clause = "may or may not have a WiFi radio";
+        break;
+    }
+
+    switch (eth)
+    {
+    case PN_MESH_NET_YES:
+        eth_clause = ", and a built-in Ethernet port the Ethernet switch "
+                     "enables";
+        break;
+    case PN_MESH_NET_NO:
+        eth_clause = ", and no wired Ethernet port";
+        break;
+    case PN_MESH_NET_UNKNOWN:
+    default:
+        eth_clause = "";
+        break;
+    }
+
+    text = g_strdup_printf (
+            "According to internet sources, this device (%s) %s%s. "
+            "Internet sources can be wrong.",
+            model, wifi_clause, eth_clause);
+
+    gtk_label_set_text (ctx->hw_note_label, text);
+    gtk_widget_show (GTK_WIDGET (ctx->hw_note_label));
+
+    g_free (text);
+    g_free (model);
 }
 
 static void
@@ -282,13 +387,29 @@ pn_mesh_page_network_new (void)
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
 
+    ctx = g_slice_new0 (NetworkCtx);
+
+    /* Device-specific WiFi/Ethernet note -- continues the section's help
+     * text.  Filled in by update_hw_note() once a device connects; starts
+     * hidden so it doesn't show a stale line before the handshake. */
+    {
+        GtkWidget *hw_note = gtk_label_new (NULL);
+        gtk_label_set_xalign    (GTK_LABEL (hw_note), 0.0);
+        gtk_label_set_line_wrap (GTK_LABEL (hw_note), TRUE);
+        {
+            GtkStyleContext *sc = gtk_widget_get_style_context (hw_note);
+            gtk_style_context_add_class (sc, "dim-label");
+        }
+        gtk_widget_set_no_show_all (hw_note, TRUE);
+        gtk_box_pack_start (GTK_BOX (page), hw_note, FALSE, FALSE, 0);
+        ctx->hw_note_label = GTK_LABEL (hw_note);
+    }
+
     grid = gtk_grid_new ();
     gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
     gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
     gtk_widget_set_margin_top   (grid, 12);
     gtk_box_pack_start (GTK_BOX (page), grid, FALSE, FALSE, 0);
-
-    ctx = g_slice_new0 (NetworkCtx);
 
     cell = add_row (GTK_GRID (grid), row++, "WiFi");
     wifi_switch = gtk_switch_new ();
@@ -376,6 +497,11 @@ pn_mesh_page_network_set_state (GtkWidget         *page,
     g_return_if_fail (ctx != NULL);
 
     ctx->connection = connection;
+
+    /* The capability note depends only on the hardware model, which
+     * arrives with the handshake even when no NetworkConfig has streamed
+     * yet -- update it before the early return below. */
+    update_hw_note (ctx, state);
 
     if (state == NULL || !state->have_network)
     {

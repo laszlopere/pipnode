@@ -73,6 +73,27 @@ const gchar *pn_mesh_hw_gps_note (guint32 id);
  * Static -- do not free. */
 const gchar *pn_mesh_hw_gps_gpio (guint32 id);
 
+/* Whether a board carries a WiFi radio and/or a wired Ethernet port,
+ * so the WiFi/Ethernet section can tell the user up front whether the
+ * switches there will do anything.  Same curated/best-effort caveats as
+ * the LED/GPS data above: derived from the board's MCU family and the
+ * firmware variant.h network defines (ESP32 parts have WiFi; nRF52 and
+ * RP2040 parts do not; HAS_ETHERNET marks the handful of boards with a
+ * soldered-on Ethernet PHY).  HOST is the native (Portduino) build,
+ * whose networking belongs to the Linux host rather than the firmware.
+ * UNKNOWN covers ids missing from the table and boards that could not
+ * be pinned down. */
+typedef enum
+{
+    PN_MESH_NET_UNKNOWN = 0,
+    PN_MESH_NET_NO,       /* no such radio/port on this board          */
+    PN_MESH_NET_YES,      /* present and firmware-driven                */
+    PN_MESH_NET_HOST,     /* native build: provided by the host OS      */
+} PnMeshNetCap;
+
+PnMeshNetCap pn_mesh_hw_wifi (guint32 id);
+PnMeshNetCap pn_mesh_hw_eth  (guint32 id);
+
 /* Pretty-print a Meshtastic DeviceRole enum value as the upstream
  * symbolic name ("CLIENT", "ROUTER", ...).  Returns NULL for unknown
  * ids; callers fall back to a numeric label of their choice. */
