@@ -190,7 +190,9 @@
 #define CFG_POSITION            2
 #define CFG_POWER               3
 #define CFG_NETWORK             4
+#define CFG_DISPLAY             5
 #define CFG_LORA                6
+#define CFG_BLUETOOTH           7
 #define CFG_SECURITY            8
 
 /* LoRaConfig.  Numbering jumps from 2 -> 7 because the upstream
@@ -278,6 +280,29 @@
 #define SEC_SERIAL_ENABLED                5
 #define SEC_DEBUG_LOG_API_ENABLED         6
 #define SEC_ADMIN_CHANNEL_ENABLED         8
+
+/* DisplayConfig fields.  The full upstream DisplayConfig.proto, parsed
+ * in its entirety so the writer can ship every field back verbatim --
+ * compass_orientation (11) is the only one the UI does not surface, and
+ * it is round-tripped unchanged.  oled (7) and compass_orientation are
+ * board / mount specific; the rest are user-facing screen preferences. */
+#define DISP_SCREEN_ON_SECS               1
+#define DISP_GPS_FORMAT                   2
+#define DISP_AUTO_SCREEN_CAROUSEL_SECS    3
+#define DISP_COMPASS_NORTH_TOP            4
+#define DISP_FLIP_SCREEN                  5
+#define DISP_UNITS                        6
+#define DISP_OLED                         7
+#define DISP_DISPLAYMODE                  8
+#define DISP_HEADING_BOLD                 9
+#define DISP_WAKE_ON_TAP_OR_MOTION       10
+#define DISP_COMPASS_ORIENTATION         11
+#define DISP_USE_12H_CLOCK               12
+
+/* BluetoothConfig fields.  All three are surfaced in the UI. */
+#define BT_ENABLED                        1
+#define BT_MODE                           2
+#define BT_FIXED_PIN                      3
 
 /* ModuleConfig oneof cases. */
 #define MC_MQTT                  1
@@ -1035,6 +1060,114 @@ parse_device_config (PnMeshConnection *self,
     }
 }
 
+/* Parse a DisplayConfig embedded message into the connection state. */
+static void
+parse_display_config (PnMeshConnection *self,
+                      const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_display = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case DISP_SCREEN_ON_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_screen_on_secs = (guint32) v;
+            break;
+        case DISP_GPS_FORMAT:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_gps_format = (guint32) v;
+            break;
+        case DISP_AUTO_SCREEN_CAROUSEL_SECS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_auto_screen_carousel_secs = (guint32) v;
+            break;
+        case DISP_COMPASS_NORTH_TOP:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_compass_north_top = v != 0;
+            break;
+        case DISP_FLIP_SCREEN:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_flip_screen = v != 0;
+            break;
+        case DISP_UNITS:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_units = (guint32) v;
+            break;
+        case DISP_OLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_oled = (guint32) v;
+            break;
+        case DISP_DISPLAYMODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_displaymode = (guint32) v;
+            break;
+        case DISP_HEADING_BOLD:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_heading_bold = v != 0;
+            break;
+        case DISP_WAKE_ON_TAP_OR_MOTION:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_wake_on_tap_or_motion = v != 0;
+            break;
+        case DISP_COMPASS_ORIENTATION:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_compass_orientation = (guint32) v;
+            break;
+        case DISP_USE_12H_CLOCK:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.disp_use_12h_clock = v != 0;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
+/* Parse a BluetoothConfig embedded message into the connection state. */
+static void
+parse_bluetooth_config (PnMeshConnection *self,
+                        const guint8 *data, gsize size)
+{
+    PnMeshPbReader r;
+    guint32        field, wire;
+
+    self->state.have_bluetooth_config = TRUE;
+
+    pn_mesh_pb_reader_init (&r, data, size);
+    while (pn_mesh_pb_read_tag (&r, &field, &wire))
+    {
+        guint64 v;
+
+        switch (field)
+        {
+        case BT_ENABLED:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.bt_enabled = v != 0;
+            break;
+        case BT_MODE:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.bt_mode = (guint32) v;
+            break;
+        case BT_FIXED_PIN:
+            if (pn_mesh_pb_read_varint (&r, &v))
+                self->state.bt_fixed_pin = (guint32) v;
+            break;
+        default:
+            pn_mesh_pb_skip_field (&r, wire);
+            break;
+        }
+    }
+}
+
 /* Parse a NetworkConfig embedded message into the connection state.
  * ipv4_config (field 8) is captured as opaque bytes so the writer can
  * ship the static-IP sub-fields back verbatim. */
@@ -1180,9 +1313,9 @@ parse_security_config (PnMeshConnection *self,
 }
 
 /* Parse a Config message, dispatching to the per-subconfig parser
- * for the field that is set.  Device, Position, Power, Network, LoRa
- * and Security are wired; Display (5) and Bluetooth (7) are skipped
- * silently -- their phases (13) were postponed. */
+ * for the field that is set.  Every Config sub-block the firmware
+ * streams -- Device, Position, Power, Network, Display, LoRa,
+ * Bluetooth and Security -- is wired. */
 static void
 parse_config (PnMeshConnection *self,
               const guint8 *data, gsize size)
@@ -1228,6 +1361,20 @@ parse_config (PnMeshConnection *self,
             const guint8 *p; gsize s;
             if (pn_mesh_pb_read_length (&r, &p, &s))
                 parse_network_config (self, p, s);
+            break;
+        }
+        case CFG_DISPLAY:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_display_config (self, p, s);
+            break;
+        }
+        case CFG_BLUETOOTH:
+        {
+            const guint8 *p; gsize s;
+            if (pn_mesh_pb_read_length (&r, &p, &s))
+                parse_bluetooth_config (self, p, s);
             break;
         }
         case CFG_SECURITY:
@@ -2222,6 +2369,25 @@ clear_state (PnMeshConnection *self)
     self->state.net_address_mode                    = 0;
     self->state.net_enabled_protocols               = 0;
     self->state.net_ipv6_enabled                    = FALSE;
+
+    self->state.have_display                         = FALSE;
+    self->state.disp_screen_on_secs                  = 0;
+    self->state.disp_gps_format                      = 0;
+    self->state.disp_auto_screen_carousel_secs       = 0;
+    self->state.disp_compass_north_top               = FALSE;
+    self->state.disp_flip_screen                     = FALSE;
+    self->state.disp_units                           = 0;
+    self->state.disp_oled                            = 0;
+    self->state.disp_displaymode                     = 0;
+    self->state.disp_heading_bold                    = FALSE;
+    self->state.disp_wake_on_tap_or_motion           = FALSE;
+    self->state.disp_compass_orientation             = 0;
+    self->state.disp_use_12h_clock                   = FALSE;
+
+    self->state.have_bluetooth_config                = FALSE;
+    self->state.bt_enabled                           = FALSE;
+    self->state.bt_mode                              = 0;
+    self->state.bt_fixed_pin                         = 0;
 
     self->state.have_security                       = FALSE;
     g_clear_pointer (&self->state.sec_public_key,  g_bytes_unref);
@@ -3550,6 +3716,228 @@ pn_mesh_connection_set_security_config_async (PnMeshConnection                 *
 gboolean
 pn_mesh_connection_set_security_config_finish (GAsyncResult *result,
                                                GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  set_display_config / set_bluetooth_config — Phase 13 write paths    */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+send_set_display_config (PnMeshConnection                *self,
+                         const PnMeshDisplayConfigWrite  *cfg,
+                         GError                         **error)
+{
+    PnMeshPbWriter disp_w;
+    GBytes        *disp_bytes;
+    const guint8  *disp_b;
+    gsize          disp_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&disp_w);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_SCREEN_ON_SECS,
+                                   cfg->screen_on_secs);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_GPS_FORMAT,
+                                   cfg->gps_format);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_AUTO_SCREEN_CAROUSEL_SECS,
+                                   cfg->auto_screen_carousel_secs);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_COMPASS_NORTH_TOP,
+                                   cfg->compass_north_top ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_FLIP_SCREEN,
+                                   cfg->flip_screen ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_UNITS, cfg->units);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_OLED, cfg->oled);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_DISPLAYMODE, cfg->displaymode);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_HEADING_BOLD,
+                                   cfg->heading_bold ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_WAKE_ON_TAP_OR_MOTION,
+                                   cfg->wake_on_tap_or_motion ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_COMPASS_ORIENTATION,
+                                   cfg->compass_orientation);
+    pn_mesh_pb_write_varint_field (&disp_w, DISP_USE_12H_CLOCK,
+                                   cfg->use_12h_clock ? 1 : 0);
+    disp_bytes = pn_mesh_pb_writer_take_bytes (&disp_w);
+    pn_mesh_pb_writer_clear (&disp_w);
+    disp_b = g_bytes_get_data (disp_bytes, &disp_n);
+
+    ok = send_set_config_subblock (self, CFG_DISPLAY, disp_b, disp_n, error);
+    g_bytes_unref (disp_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_display_config_sync (PnMeshConnection                *self,
+                                            const PnMeshDisplayConfigWrite  *cfg,
+                                            GError                         **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_display_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection         *conn;
+    PnMeshDisplayConfigWrite  cfg;
+} SetDisplayConfigCall;
+
+static void
+set_display_config_call_free (gpointer data)
+{
+    g_slice_free (SetDisplayConfigCall, data);
+}
+
+static void
+set_display_config_thread_func (GTask *task, gpointer source,
+                                gpointer task_data,
+                                GCancellable *cancellable)
+{
+    SetDisplayConfigCall *c   = task_data;
+    GError               *err = NULL;
+    gboolean              ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_display_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_display_config_async (PnMeshConnection                *self,
+                                             const PnMeshDisplayConfigWrite  *cfg,
+                                             GCancellable                    *cancellable,
+                                             GAsyncReadyCallback              callback,
+                                             gpointer                         user_data)
+{
+    GTask                *task;
+    SetDisplayConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetDisplayConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_display_config_async);
+    g_task_set_task_data  (task, c, set_display_config_call_free);
+    g_task_run_in_thread  (task, set_display_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_display_config_finish (GAsyncResult *result,
+                                              GError      **error)
+{
+    g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
+    return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ----- Bluetooth --------------------------------------------------- */
+
+static gboolean
+send_set_bluetooth_config (PnMeshConnection                  *self,
+                           const PnMeshBluetoothConfigWrite  *cfg,
+                           GError                           **error)
+{
+    PnMeshPbWriter bt_w;
+    GBytes        *bt_bytes;
+    const guint8  *bt_b;
+    gsize          bt_n;
+    gboolean       ok;
+
+    pn_mesh_pb_writer_init (&bt_w);
+    pn_mesh_pb_write_varint_field (&bt_w, BT_ENABLED, cfg->enabled ? 1 : 0);
+    pn_mesh_pb_write_varint_field (&bt_w, BT_MODE, cfg->mode);
+    pn_mesh_pb_write_varint_field (&bt_w, BT_FIXED_PIN, cfg->fixed_pin);
+    bt_bytes = pn_mesh_pb_writer_take_bytes (&bt_w);
+    pn_mesh_pb_writer_clear (&bt_w);
+    bt_b = g_bytes_get_data (bt_bytes, &bt_n);
+
+    ok = send_set_config_subblock (self, CFG_BLUETOOTH, bt_b, bt_n, error);
+    g_bytes_unref (bt_bytes);
+    return ok;
+}
+
+gboolean
+pn_mesh_connection_set_bluetooth_config_sync (PnMeshConnection                  *self,
+                                              const PnMeshBluetoothConfigWrite  *cfg,
+                                              GError                           **error)
+{
+    g_return_val_if_fail (self != NULL && cfg != NULL, FALSE);
+
+    if (!send_set_bluetooth_config (self, cfg, error))
+        return FALSE;
+
+    return finish_set_config (self, error);
+}
+
+typedef struct
+{
+    PnMeshConnection           *conn;
+    PnMeshBluetoothConfigWrite  cfg;
+} SetBluetoothConfigCall;
+
+static void
+set_bluetooth_config_call_free (gpointer data)
+{
+    g_slice_free (SetBluetoothConfigCall, data);
+}
+
+static void
+set_bluetooth_config_thread_func (GTask *task, gpointer source,
+                                  gpointer task_data,
+                                  GCancellable *cancellable)
+{
+    SetBluetoothConfigCall *c   = task_data;
+    GError                 *err = NULL;
+    gboolean                ok;
+
+    (void) source;
+    (void) cancellable;
+
+    ok = pn_mesh_connection_set_bluetooth_config_sync (c->conn, &c->cfg, &err);
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_error   (task, err);
+}
+
+void
+pn_mesh_connection_set_bluetooth_config_async (PnMeshConnection                  *self,
+                                               const PnMeshBluetoothConfigWrite  *cfg,
+                                               GCancellable                      *cancellable,
+                                               GAsyncReadyCallback                callback,
+                                               gpointer                           user_data)
+{
+    GTask                  *task;
+    SetBluetoothConfigCall *c;
+
+    g_return_if_fail (self != NULL && cfg != NULL);
+
+    c = g_slice_new0 (SetBluetoothConfigCall);
+    c->conn = self;
+    c->cfg  = *cfg;
+
+    task = g_task_new (NULL, cancellable, callback, user_data);
+    g_task_set_source_tag (task, pn_mesh_connection_set_bluetooth_config_async);
+    g_task_set_task_data  (task, c, set_bluetooth_config_call_free);
+    g_task_run_in_thread  (task, set_bluetooth_config_thread_func);
+    g_object_unref (task);
+}
+
+gboolean
+pn_mesh_connection_set_bluetooth_config_finish (GAsyncResult *result,
+                                                GError      **error)
 {
     g_return_val_if_fail (g_task_is_valid (result, NULL), FALSE);
     return g_task_propagate_boolean (G_TASK (result), error);

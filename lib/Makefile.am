@@ -328,8 +328,12 @@ libpipnode_gui_la_SOURCES = \
 	pn-mesh-dialog.h \
 	pn-mesh-page-ambient-lighting.c \
 	pn-mesh-page-ambient-lighting.h \
+	pn-mesh-page-bluetooth.c \
+	pn-mesh-page-bluetooth.h \
 	pn-mesh-page-channels.c \
 	pn-mesh-page-channels.h \
+	pn-mesh-page-display.c \
+	pn-mesh-page-display.h \
 	pn-mesh-page-ext-notification.c \
 	pn-mesh-page-ext-notification.h \
 	pn-mesh-page-firmware.c \

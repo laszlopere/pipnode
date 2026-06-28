@@ -591,13 +591,55 @@
                         board-specific / advanced settings intact without
                         bloating the page.
 
-           [-] Phase 13 Display + Bluetooth config tabs. POSTPONED to a later
-                        revision (decided 2026-05-28) -- lower payoff than
-                        Phases 7/12/14 for the unbox flow; revisit alongside any
-                        Phase 11 module work. DisplayConfig (13 fields:
-                        screen_on_secs, flip_screen, units, use_12h_clock, ...)
-                        and BluetoothConfig (3 fields: enabled, mode,
-                        fixed_pin).
+           [x] Phase 13 Display + Bluetooth config tabs. Two new pages on the
+                        established set_config_subblock pattern (parse the whole
+                        sub-block during the handshake, ship every typed field
+                        back at once via AM_SET_CONFIG=34 wrapped in
+                        Config{<sub>}, reuse send_set_config_subblock +
+                        finish_set_config from Phase 12).  Placed where the
+                        codebase already earmarked them: Bluetooth on the Network
+                        tab (the "Serial / Bluetooth deferred" note), Display on
+                        the Mesh tools tab (the placeholder's "Display config").
+
+                        Wire side (pn-mesh-connection.[ch]): CFG_DISPLAY=5 /
+                        CFG_BLUETOOTH=7 dispatch in parse_config; DISP_*/BT_*
+                        field defines mirror the upstream Config.proto (field
+                        numbers cross-checked against the pip-mesh 2.0.3 donor:
+                        Display 1=screen_on_secs / 6=units / 7=oled, Bluetooth
+                        1=enabled / 2=mode / 3=fixed_pin).  parse_display_config /
+                        parse_bluetooth_config follow parse_device_config's
+                        shape; all-varint (no floats / bytes / strings this
+                        time).  PnMeshState gains 12 disp_* + 3 bt_* fields plus
+                        have_display / have_bluetooth_config flags -- the config-
+                        presence flag is named have_bluetooth_config to stay
+                        distinct from the existing has_bluetooth metadata
+                        capability bit.  Two writer pairs
+                        (PnMeshDisplayConfigWrite + set_display_config_*,
+                        PnMeshBluetoothConfigWrite + set_bluetooth_config_*) use
+                        the shared subblock helpers.
+
+                        Display page (pn-mesh-page-display.[c,h], cloned from the
+                        Device page): screen-timeout + auto-carousel spinners,
+                        units / coordinate-format / display-mode / OLED-driver
+                        combos, and 12h-clock / flip-screen / compass-north /
+                        bold-heading / wake-on-tap switches.  compass_orientation
+                        is board/mount specific and NOT surfaced -- stashed in
+                        ctx at set_state and shipped back verbatim (the round-
+                        trip-unseen-fields pattern).
+
+                        Bluetooth page (pn-mesh-page-bluetooth.[c,h], cloned from
+                        the Power page): enabled switch, pairing-mode combo
+                        (RANDOM_PIN / FIXED_PIN / NO_PIN) and the 6-digit fixed-
+                        PIN spinner, which follows the switch+combo (only
+                        sensitive when enabled AND mode==FIXED_PIN) the same way
+                        Power's sleep spinners follow the power-saving switch.
+
+                        Files shipped: lib/pn-mesh-page-display.{c,h},
+                        lib/pn-mesh-page-bluetooth.{c,h}; deltas in
+                        lib/pn-mesh-connection.{c,h}, lib/pn-mesh-dialog.c,
+                        lib/Makefile.am.  Tab placeholders trimmed (Network drops
+                        the Bluetooth-deferred note, Mesh tools drops Display from
+                        its "land in Phase 11" list).  All 132 C unit tests green.
 
            [x] Phase 14 Device + Network + Security config tabs. Three new pages
                         following the LoRa/Position/Power set_config_subblock
@@ -1221,7 +1263,7 @@
        from the upstream Meshtastic ModuleConfig.proto, and unexposed sub-messages
        ride the opaque-GBytes round-trip introduced in Phase 10. "TAK" is dropped
        (it is the ATAK portnum, not a ModuleConfig member); Display/Bluetooth are
-       Config sub-blocks still tracked under the postponed Phase 13.
+       Config sub-blocks shipped under TODO #29 Phase 13 (done), not ModuleConfig.
 
          [ ] 48.1 Serial (oneof 2). Expose the UART bridge so the device can talk
                to wired peripherals: enabled, mode, rx/tx GPIO, baud, timeout,

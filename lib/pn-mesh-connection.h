@@ -287,6 +287,34 @@ typedef struct
     gboolean    sec_serial_enabled;
     gboolean    sec_debug_log_api_enabled;
     gboolean    sec_admin_channel_enabled;
+
+    /* From FromRadio.config(DisplayConfig).  Same FALSE-means-unseen
+     * contract as the other Config sub-blocks; every field is parsed so
+     * the writer can ship them back verbatim.  @disp_compass_orientation
+     * is the only field the UI does not surface (board/mount specific);
+     * it is round-tripped unchanged. */
+    gboolean    have_display;
+    guint32     disp_screen_on_secs;                     /* 0 = always on */
+    guint32     disp_gps_format;                         /* GpsCoordinateFormat enum */
+    guint32     disp_auto_screen_carousel_secs;          /* 0 = no carousel */
+    gboolean    disp_compass_north_top;
+    gboolean    disp_flip_screen;
+    guint32     disp_units;                              /* DisplayUnits enum */
+    guint32     disp_oled;                               /* OledType enum */
+    guint32     disp_displaymode;                        /* DisplayMode enum */
+    gboolean    disp_heading_bold;
+    gboolean    disp_wake_on_tap_or_motion;
+    guint32     disp_compass_orientation;                /* CompassOrientation enum */
+    gboolean    disp_use_12h_clock;
+
+    /* From FromRadio.config(BluetoothConfig).  Same contract.  Named
+     * @have_bluetooth_config to keep it distinct from @has_bluetooth,
+     * which is the device-metadata capability flag (does the hardware
+     * have a BT radio at all). */
+    gboolean    have_bluetooth_config;
+    gboolean    bt_enabled;
+    guint32     bt_mode;                                 /* PairingMode enum */
+    guint32     bt_fixed_pin;                            /* 6-digit PIN for FIXED_PIN */
 } PnMeshState;
 
 /* A live session to one device: an open serial fd plus the state
@@ -772,6 +800,77 @@ void     pn_mesh_connection_set_security_config_async (
 gboolean pn_mesh_connection_set_security_config_finish (
         GAsyncResult                     *result,
         GError                          **error);
+
+/* ------------------------------------------------------------------ */
+/*  Display (Config sub-block) — Phase 13                               */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of DisplayConfig.  Same proto3-defaults contract as
+ * the other Config writers: ship every field every time or the device
+ * resets the omitted ones to zero on its next save.  @compass_orientation
+ * is read back from PnMeshState->disp_compass_orientation and re-shipped
+ * verbatim -- the dialog does not expose it. */
+typedef struct
+{
+    guint32  screen_on_secs;
+    guint32  gps_format;
+    guint32  auto_screen_carousel_secs;
+    gboolean compass_north_top;
+    gboolean flip_screen;
+    guint32  units;
+    guint32  oled;
+    guint32  displaymode;
+    gboolean heading_bold;
+    gboolean wake_on_tap_or_motion;
+    guint32  compass_orientation;       /* round-trip only */
+    gboolean use_12h_clock;
+} PnMeshDisplayConfigWrite;
+
+gboolean pn_mesh_connection_set_display_config_sync (
+        PnMeshConnection                *self,
+        const PnMeshDisplayConfigWrite  *cfg,
+        GError                         **error);
+
+void     pn_mesh_connection_set_display_config_async (
+        PnMeshConnection                *self,
+        const PnMeshDisplayConfigWrite  *cfg,
+        GCancellable                    *cancellable,
+        GAsyncReadyCallback              callback,
+        gpointer                         user_data);
+
+gboolean pn_mesh_connection_set_display_config_finish (
+        GAsyncResult                    *result,
+        GError                         **error);
+
+/* ------------------------------------------------------------------ */
+/*  Bluetooth (Config sub-block) — Phase 13                             */
+/* ------------------------------------------------------------------ */
+
+/* All-at-once write of BluetoothConfig.  @mode is the PairingMode enum
+ * (0 = RANDOM_PIN, 1 = FIXED_PIN, 2 = NO_PIN); @fixed_pin is only used
+ * by the device when @mode == FIXED_PIN but is shipped regardless. */
+typedef struct
+{
+    gboolean enabled;
+    guint32  mode;
+    guint32  fixed_pin;
+} PnMeshBluetoothConfigWrite;
+
+gboolean pn_mesh_connection_set_bluetooth_config_sync (
+        PnMeshConnection                  *self,
+        const PnMeshBluetoothConfigWrite  *cfg,
+        GError                           **error);
+
+void     pn_mesh_connection_set_bluetooth_config_async (
+        PnMeshConnection                  *self,
+        const PnMeshBluetoothConfigWrite  *cfg,
+        GCancellable                      *cancellable,
+        GAsyncReadyCallback                callback,
+        gpointer                           user_data);
+
+gboolean pn_mesh_connection_set_bluetooth_config_finish (
+        GAsyncResult                      *result,
+        GError                           **error);
 
 /* ------------------------------------------------------------------ */
 /*  Channels                                                            */

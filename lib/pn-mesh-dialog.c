@@ -38,8 +38,10 @@
 #include "pn-mesh-connection.h"
 #include "pn-mesh-discover.h"
 #include "pn-mesh-page-ambient-lighting.h"
+#include "pn-mesh-page-bluetooth.h"
 #include "pn-mesh-page-channels.h"
 #include "pn-mesh-page-device.h"
+#include "pn-mesh-page-display.h"
 #include "pn-mesh-page-ext-notification.h"
 #include "pn-mesh-page-firmware.h"
 #include "pn-mesh-page-gps.h"
@@ -87,6 +89,8 @@ typedef struct
     GtkWidget        *test_page;
     GtkWidget        *device_page;
     GtkWidget        *network_page;
+    GtkWidget        *bluetooth_page;
+    GtkWidget        *display_page;
     GtkWidget        *security_page;
     GtkWidget        *firmware_page;
 
@@ -299,6 +303,8 @@ drop_connection (MeshDialogCtx *ctx)
     pn_mesh_page_test_set_state             (ctx->test_page,             NULL, NULL);
     pn_mesh_page_device_set_state           (ctx->device_page,           NULL, NULL);
     pn_mesh_page_network_set_state          (ctx->network_page,          NULL, NULL);
+    pn_mesh_page_bluetooth_set_state        (ctx->bluetooth_page,        NULL, NULL);
+    pn_mesh_page_display_set_state          (ctx->display_page,          NULL, NULL);
     pn_mesh_page_security_set_state         (ctx->security_page,         NULL, NULL);
     pn_mesh_page_firmware_set_state         (ctx->firmware_page,         NULL);
     /* Grey out the notebook (tabs + content) until a device connects.
@@ -430,6 +436,14 @@ on_connection_ready (GObject *source, GAsyncResult *res, gpointer user_data)
             conn);
     pn_mesh_page_network_set_state (
             ctx->network_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_bluetooth_set_state (
+            ctx->bluetooth_page,
+            pn_mesh_connection_get_state (conn),
+            conn);
+    pn_mesh_page_display_set_state (
+            ctx->display_page,
             pn_mesh_connection_get_state (conn),
             conn);
     pn_mesh_page_security_set_state (
@@ -668,6 +682,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
         ctx->test_page             = pn_mesh_page_test_new ();
         ctx->device_page           = pn_mesh_page_device_new ();
         ctx->network_page          = pn_mesh_page_network_new ();
+        ctx->bluetooth_page        = pn_mesh_page_bluetooth_new ();
+        ctx->display_page          = pn_mesh_page_display_new ();
         ctx->security_page         = pn_mesh_page_security_new ();
         ctx->firmware_page         = pn_mesh_page_firmware_new ();
 
@@ -695,6 +711,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->device_page,           on_page_status, ctx);
         pn_mesh_page_network_set_status_callback (
                 ctx->network_page,          on_page_status, ctx);
+        pn_mesh_page_bluetooth_set_status_callback (
+                ctx->bluetooth_page,        on_page_status, ctx);
+        pn_mesh_page_display_set_status_callback (
+                ctx->display_page,          on_page_status, ctx);
         pn_mesh_page_security_set_status_callback (
                 ctx->security_page,         on_page_status, ctx);
 
@@ -733,6 +753,10 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                 ctx->device_page,           on_page_busy, ctx);
         pn_mesh_page_network_set_busy_callback (
                 ctx->network_page,          on_page_busy, ctx);
+        pn_mesh_page_bluetooth_set_busy_callback (
+                ctx->bluetooth_page,        on_page_busy, ctx);
+        pn_mesh_page_display_set_busy_callback (
+                ctx->display_page,          on_page_busy, ctx);
         pn_mesh_page_security_set_busy_callback (
                 ctx->security_page,         on_page_busy, ctx);
         /* Firmware page hands the serial port to the browser flasher;
@@ -820,8 +844,8 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_dialog_append_page (ctx->shell, tab, "Radio");
         }
 
-        /* Tab 3: Network  (WiFi / Ethernet / IPv6 + MQTT).  Serial /
-         * Bluetooth deferred to Phase 11/13 (no donor code). */
+        /* Tab 3: Network  (WiFi / Ethernet / IPv6 + Bluetooth + MQTT).
+         * Serial deferred to Phase 11 (no donor code). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
             pn_device_form_add_section (inner, "WiFi, Ethernet & IPv6",
@@ -830,6 +854,13 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
                     "the whole NetworkConfig block; NTP / syslog / static IP "
                     "settings are kept verbatim from the device.",
                     ctx->network_page);
+            pn_device_form_add_section (inner, "Bluetooth",
+                    "How phones and apps pair with the device over Bluetooth.  "
+                    "RANDOM_PIN shows a fresh PIN on the screen each time, "
+                    "FIXED_PIN always uses the PIN you set, NO_PIN pairs without "
+                    "confirmation.  Apply writes the whole BluetoothConfig block "
+                    "at once.",
+                    ctx->bluetooth_page);
             pn_device_form_add_section (inner, "MQTT",
                     "Bridges the device's mesh traffic to an MQTT broker so "
                     "internet-connected nodes can forward messages off-radio.  "
@@ -873,14 +904,20 @@ build_dialog (GtkWindow *parent, MeshDialogCtx *ctx)
             pn_device_dialog_append_page (ctx->shell, tab, "Telemetry");
         }
 
-        /* Tab 6: Mesh tools  (Phase 11/13). */
+        /* Tab 6: Mesh tools  (Display now; the rest land in Phase 11). */
         {
             GtkWidget *inner, *tab = pn_device_form_new_tab (&inner);
+            pn_device_form_add_section (inner, "Display",
+                    "On-device screen behaviour: screen timeout, the auto "
+                    "carousel, units and coordinate format, display mode and "
+                    "OLED driver, plus the orientation and wake toggles.  Apply "
+                    "writes the whole DisplayConfig block at once; the compass "
+                    "orientation is kept verbatim from the device.",
+                    ctx->display_page);
             gtk_box_pack_start (GTK_BOX (inner),
                     build_placeholder (
                         "Store & Forward, Traffic Management, Remote "
-                        "Hardware, Display config, and TAK land in "
-                        "Phase 11/13."),
+                        "Hardware and TAK land in Phase 11."),
                     FALSE, FALSE, 0);
             pn_device_dialog_append_page (ctx->shell, tab, "Mesh tools");
         }
