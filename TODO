@@ -678,7 +678,7 @@
                         would let a user accidentally re-Apply a stale config
                         after a handshake gave fresh data.
 
-           [ ] Phase 15 GPS Settings split + live GPS test. Splits the Phase 12
+           [x] Phase 15 GPS Settings split + live GPS test. Splits the Phase 12
                         Position expander into two Radio-tab sections: a new
                         "GPS Settings" (GPS mode, update interval, RX/TX/enable
                         GPIO spinners, the 10 PositionFlags checkboxes, the
