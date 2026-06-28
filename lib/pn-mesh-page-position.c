@@ -35,6 +35,7 @@
 
 #include "pn-mesh-page-position.h"
 #include "pn-action-button.h"
+#include "pn-mesh-formats.h"
 
 #include "pn-device-combo.h"
 #include "pn-device-spin.h"
@@ -51,6 +52,11 @@ typedef struct
     GtkSpinButton   *smart_min_distance_spin;
     GtkSpinButton   *smart_min_interval_spin;
     GtkButton       *apply_button;
+
+    /* Device-specific "does this board have GPS, and what GPIO makes it
+     * work" note, derived from the connected hardware model.  Continues
+     * the section help text; hidden until a device connects. */
+    GtkLabel        *gps_note_label;
 
     /* Borrowed; the dialog owns it. */
     PnMeshConnection *connection;
@@ -148,6 +154,90 @@ emit_status (PositionCtx *ctx, const gchar *msg)
 {
     if (ctx->status_cb != NULL)
         ctx->status_cb (msg, ctx->status_ud);
+}
+
+/* Set the device-specific GPS note from the connected hardware model:
+ * whether THIS board has GPS and the GPIO wiring that makes it work.
+ * Best-effort "internet sources" data (firmware variant.h), openly
+ * flagged as possibly wrong.  Hidden when no device is connected. */
+static void
+update_gps_note (PositionCtx *ctx, const PnMeshState *state)
+{
+    guint32      hw;
+    gchar       *model;
+    const gchar *note;
+    const gchar *gpio;
+    gchar       *text;
+
+    if (state == NULL)
+    {
+        gtk_widget_hide (GTK_WIDGET (ctx->gps_note_label));
+        return;
+    }
+
+    /* Same resolution the Identity page uses: prefer DeviceMetadata's
+     * hw_model, fall back to the owner User record's. */
+    hw = state->have_metadata && state->hw_model != 0
+            ? state->hw_model : state->owner_hw_model;
+    if (hw == 0)
+    {
+        gtk_widget_hide (GTK_WIDGET (ctx->gps_note_label));
+        return;
+    }
+
+    model = pn_mesh_format_hw_model (hw);
+    note  = pn_mesh_hw_gps_note (hw);
+    gpio  = pn_mesh_hw_gps_gpio (hw);
+
+    switch (pn_mesh_hw_gps (hw))
+    {
+    case PN_MESH_GPS_BUILTIN:
+        text = g_strdup_printf (
+                "According to internet sources, this device (%s) has %s. For "
+                "the GPS to work the firmware drives %s; leave the GPS GPIO "
+                "settings in the device config at 0 to keep these defaults. "
+                "Internet sources can be wrong.",
+                model, note, gpio != NULL ? gpio : "its built-in GPS pins");
+        break;
+    case PN_MESH_GPS_HEADER:
+        if (gpio != NULL)
+            text = g_strdup_printf (
+                    "According to internet sources, this device (%s) has %s — "
+                    "no GPS chip is soldered on, but you can attach an external "
+                    "module. The board pre-wires %s; otherwise set the GPS "
+                    "RX/TX GPIO in the device config to match your wiring. "
+                    "Internet sources can be wrong.",
+                    model, note, gpio);
+        else
+            text = g_strdup_printf (
+                    "According to internet sources, this device (%s) has %s — "
+                    "no GPS chip is soldered on. Attach an external GPS module "
+                    "and set the GPS RX/TX GPIO in the device config to match "
+                    "your wiring. Internet sources can be wrong.",
+                    model, note);
+        break;
+    case PN_MESH_GPS_NONE:
+        text = g_strdup_printf (
+                "According to internet sources, this device (%s) has %s, so "
+                "live GPS positioning is not available — only a manually set "
+                "fixed position will work. Internet sources can be wrong.",
+                model, note);
+        break;
+    case PN_MESH_GPS_UNKNOWN:
+    default:
+        text = g_strdup_printf (
+                "Whether this device (%s) has GPS, and which GPIO pins it "
+                "uses, could not be determined from internet sources, which "
+                "can be wrong.",
+                model);
+        break;
+    }
+
+    gtk_label_set_text (ctx->gps_note_label, text);
+    gtk_widget_show (GTK_WIDGET (ctx->gps_note_label));
+
+    g_free (text);
+    g_free (model);
 }
 
 static void
@@ -340,6 +430,7 @@ pn_mesh_page_position_new (void)
     GtkWidget   *smart_min_interval;
     GtkWidget   *apply_box;
     GtkWidget   *apply;
+    GtkWidget   *gps_note;
     PositionCtx *ctx;
     gint         row = 0;
 
@@ -349,13 +440,27 @@ pn_mesh_page_position_new (void)
     gtk_widget_set_margin_top    (page, 6);
     gtk_widget_set_margin_bottom (page, 6);
 
+    ctx = g_slice_new0 (PositionCtx);
+
+    /* Device-specific GPS note -- continues the section's help text.
+     * Filled in by update_gps_note() once a device connects; starts
+     * hidden so it doesn't show a stale line before the handshake. */
+    gps_note = gtk_label_new (NULL);
+    gtk_label_set_xalign    (GTK_LABEL (gps_note), 0.0);
+    gtk_label_set_line_wrap (GTK_LABEL (gps_note), TRUE);
+    {
+        GtkStyleContext *sc = gtk_widget_get_style_context (gps_note);
+        gtk_style_context_add_class (sc, "dim-label");
+    }
+    gtk_widget_set_no_show_all (gps_note, TRUE);
+    gtk_box_pack_start (GTK_BOX (page), gps_note, FALSE, FALSE, 0);
+    ctx->gps_note_label = GTK_LABEL (gps_note);
+
     grid = gtk_grid_new ();
     gtk_grid_set_row_spacing    (GTK_GRID (grid), 8);
     gtk_grid_set_column_spacing (GTK_GRID (grid), 12);
     gtk_widget_set_margin_top   (grid, 12);
     gtk_box_pack_start (GTK_BOX (page), grid, FALSE, FALSE, 0);
-
-    ctx = g_slice_new0 (PositionCtx);
 
     cell = add_row (GTK_GRID (grid), row++, "GPS mode");
     gps_mode = pn_device_combo_new ();
@@ -470,6 +575,10 @@ pn_mesh_page_position_set_state (GtkWidget         *page,
     g_return_if_fail (ctx != NULL);
 
     ctx->connection = connection;
+
+    /* The GPS note depends only on the hardware model, which arrives
+     * with the handshake even when no PositionConfig has streamed yet. */
+    update_gps_note (ctx, state);
 
     if (state == NULL || !state->have_position)
     {
