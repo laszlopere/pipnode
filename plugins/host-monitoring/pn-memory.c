@@ -65,9 +65,9 @@ G_DEFINE_TYPE (PnMemory, pn_memory, PN_TYPE_AUTO_TRIGGER)
 
 enum {
     PROP_0,
+    PROP_AUTH_PROFILE,
     PROP_HOSTNAME,
     PROP_UNIT,
-    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 

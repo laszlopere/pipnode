@@ -84,10 +84,10 @@ G_DEFINE_TYPE (PnDiskIo, pn_disk_io, PN_TYPE_AUTO_TRIGGER)
 
 enum {
     PROP_0,
+    PROP_AUTH_PROFILE,
     PROP_HOSTNAME,
     PROP_DEVICE,
     PROP_UNIT,
-    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 

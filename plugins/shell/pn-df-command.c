@@ -69,8 +69,8 @@ G_DEFINE_TYPE (PnDfCommand, pn_df_command, PN_TYPE_AUTO_TRIGGER)
 
 enum {
     PROP_0,
-    PROP_HOST,
     PROP_AUTH_PROFILE,
+    PROP_HOST,
     N_PROPS,
 };
 

@@ -55,8 +55,8 @@ G_DEFINE_TYPE (PnShellCommand, pn_shell_command, PN_TYPE_AUTO_TRIGGER)
 enum {
     PROP_0,
     PROP_SHELL_COMMAND,
-    PROP_HOST,
     PROP_AUTH_PROFILE,
+    PROP_HOST,
     N_PROPS,
 };
 

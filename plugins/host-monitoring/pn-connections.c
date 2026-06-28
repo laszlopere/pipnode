@@ -99,8 +99,8 @@ G_DEFINE_TYPE (PnConnections, pn_connections, PN_TYPE_AUTO_TRIGGER)
 
 enum {
     PROP_0,
-    PROP_HOSTNAME,
     PROP_AUTH_PROFILE,
+    PROP_HOSTNAME,
     N_PROPS,
 };
 

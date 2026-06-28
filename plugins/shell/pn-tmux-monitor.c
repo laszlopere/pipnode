@@ -101,13 +101,13 @@ G_DEFINE_TYPE (PnTmuxMonitor, pn_tmux_monitor, PN_TYPE_AUTO_TRIGGER)
 
 enum {
     PROP_0,
+    PROP_AUTH_PROFILE,
     PROP_HOST,
     PROP_TMUX_SESSION,
     PROP_LINE_LIMIT,
     PROP_BUSY,
     PROP_LAST_ERROR,
     PROP_SESSIONS,
-    PROP_AUTH_PROFILE,
     N_PROPS,
 };
 
