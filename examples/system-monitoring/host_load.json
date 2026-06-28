@@ -5,7 +5,7 @@
     {
       "type" : "PnLoad",
       "uuid" : "47bf7256-103e-4e3f-b140-92dbbd33a3ef",
-      "name" : "Load",
+      "name" : "mini02 Load",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 20.0,
@@ -13,7 +13,8 @@
       },
       "properties" : {
         "period" : 2,
-        "hostname" : "eth4"
+        "hostname" : "mini02",
+        "auth-profile" : ""
       }
     },
     {
@@ -82,7 +83,7 @@
     {
       "type" : "PnDial",
       "uuid" : "9c17a636-9e90-4068-a6d1-72b4e5465ac1",
-      "name" : "CPU temp",
+      "name" : "CPU",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 520.0,
@@ -96,7 +97,7 @@
         "end-angle" : 120.0,
         "major-ticks" : 13,
         "minor-ticks-per-major" : 5,
-        "label" : "CPU Temp.",
+        "label" : "CPU",
         "unit" : "°C",
         "green-start" : 0.0,
         "green-end" : 60.0,
@@ -124,8 +125,9 @@
       },
       "properties" : {
         "period" : 5,
-        "hostname" : "",
-        "aggregation" : "maximum"
+        "hostname" : "mini02",
+        "aggregation" : "maximum",
+        "auth-profile" : ""
       }
     },
     {
@@ -140,13 +142,14 @@
       "properties" : {
         "period" : 5,
         "hostname" : "",
-        "aggregation" : "average"
+        "aggregation" : "average",
+        "auth-profile" : ""
       }
     },
     {
       "type" : "PnDial",
       "uuid" : "e4ceac82-52de-4aa9-92d3-e917c89b9a6e",
-      "name" : "Dial 1",
+      "name" : "Ambient",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 780.0,
@@ -160,7 +163,7 @@
         "end-angle" : 120.0,
         "major-ticks" : 13,
         "minor-ticks-per-major" : 5,
-        "label" : "CPU Temp.",
+        "label" : "Ambient",
         "unit" : "°C",
         "green-start" : 0.0,
         "green-end" : 60.0,
