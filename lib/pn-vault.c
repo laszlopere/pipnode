@@ -866,18 +866,34 @@ pn_node_get_profile (PnNode *self, const gchar *ref_prop_name)
     g_object_get (self, ref_prop_name, &ref, NULL);
     vault = pn_vault_get_default ();
 
-    /* The "Custom settings" sentinel means "no profile — use the node's own
-     * inline settings": resolve to NULL with no primary fallback. */
-    if (g_strcmp0 (ref, PN_PROFILE_REF_CUSTOM) == 0)
+    /* The "Custom settings" and "No credentials" sentinels both mean "no
+     * profile" with no primary fallback: @custom resolves to the node's inline
+     * settings, @none to a credential-less connection. */
+    if (g_strcmp0 (ref, PN_PROFILE_REF_CUSTOM) == 0 ||
+        g_strcmp0 (ref, PN_PROFILE_REF_NONE) == 0)
     {
         g_free (ref);
         return NULL;
     }
 
     if (ref != NULL && *ref != '\0')
+    {
         profile = pn_vault_get_profile (vault, ref);
 
-    /* Empty reference — or a dangling one — follows the type's primary. */
+        /* A non-empty reference that names no vault profile is dangling — e.g. a
+         * worksheet authored on another machine.  On a property that offers "No
+         * credentials" this degrades to exactly that (no primary fallback): the
+         * named-but-missing credential becomes credential-less rather than
+         * silently borrowing the type's primary profile. */
+        if (profile == NULL && pn_param_spec_get_profile_ref_allow_none (pspec))
+        {
+            g_free (ref);
+            return NULL;
+        }
+    }
+
+    /* Empty reference — or a dangling one on a property without "No credentials"
+     * — follows the type's primary. */
     if (profile == NULL)
     {
         const gchar *type_id = pn_param_spec_get_profile_ref (pspec);

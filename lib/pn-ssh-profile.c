@@ -288,6 +288,12 @@ pn_ssh_auth_profile_param_spec (void)
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     pn_param_spec_set_profile_ref (pspec, PN_PROFILE_SSH);
+
+    /* Offer a "No credentials" entry: the host field already says WHERE, so a
+     * profile-less node can still attempt a passwordless login.  This also makes
+     * a dangling reference (a profile absent from this machine's vault) degrade
+     * to passwordless rather than borrowing the primary SSH profile. */
+    pn_param_spec_set_profile_ref_allow_none (pspec);
     return pspec;
 }
 

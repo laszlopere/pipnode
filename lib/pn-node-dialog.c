@@ -605,6 +605,7 @@ typedef struct {
     gchar           *type_id;        /* owned    */
     gchar           *inline_fields;  /* owned, NULL = no "Custom settings";
                                       * else comma-separated inline prop names */
+    gboolean         allow_none;     /* offer a "No credentials" entry */
     GtkComboBoxText *combo;          /* borrowed */
     gboolean         syncing;
 } ProfileRefBinding;
@@ -697,6 +698,12 @@ profile_ref_populate (ProfileRefBinding *b)
     gtk_combo_box_text_append (b->combo, "", def_label);
     g_free (def_label);
 
+    /* "No credentials" — connect without a stored profile (PN_PROFILE_REF_NONE).
+     * Listed right after Default, since both are non-profile choices. */
+    if (b->allow_none)
+        gtk_combo_box_text_append (b->combo, PN_PROFILE_REF_NONE,
+                                   "No credentials");
+
     profiles = pn_vault_list_profiles (vault, b->type_id);
     for (l = profiles; l != NULL; l = l->next)
     {
@@ -714,7 +721,18 @@ profile_ref_populate (ProfileRefBinding *b)
 
     if (current == NULL ||
         !gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), current))
-        gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), "");
+    {
+        /* The stored value is not in the list.  A non-empty value that resolves
+         * to nothing is a dangling reference (its profile is absent from this
+         * machine's vault); on a property that offers "No credentials" we land
+         * there rather than on Default, matching how pn_node_get_profile()
+         * resolves it.  Otherwise fall back to Default (empty id).  The property
+         * itself is left untouched, so re-adding the profile re-links it. */
+        const gchar *fallback = "";
+        if (b->allow_none && current != NULL && *current != '\0')
+            fallback = PN_PROFILE_REF_NONE;
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX (b->combo), fallback);
+    }
 
     g_free (current);
     b->syncing = FALSE;
@@ -813,6 +831,7 @@ build_profile_ref_editor (GObject     *target,
     b->type_id = g_strdup (type_id);
     b->inline_fields =
         g_strdup (pn_param_spec_get_profile_ref_inline_fields (pspec));
+    b->allow_none = pn_param_spec_get_profile_ref_allow_none (pspec);
     b->combo   = GTK_COMBO_BOX_TEXT (combo);
 
     gtk_widget_set_hexpand (combo, TRUE);

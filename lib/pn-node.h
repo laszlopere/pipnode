@@ -1346,6 +1346,43 @@ const gchar *pn_param_spec_get_profile_ref (GParamSpec *pspec);
 #define PN_PROFILE_REF_CUSTOM "@custom"
 
 /**
+ * PN_PROFILE_REF_NONE:
+ *
+ * Reserved profile-ref value meaning "no credentials": the node connects
+ * without a stored credential profile (for an SSH node, a passwordless login to
+ * the host named by its own hostname property).  pn_node_get_profile() returns
+ * %NULL for it with NO primary fallback, exactly as if no profile existed.  Only
+ * profile-ref properties tagged with pn_param_spec_set_profile_ref_allow_none()
+ * offer this value; for those, a *dangling* reference (a non-empty id that names
+ * a profile absent from the vault — e.g. a worksheet authored on another machine)
+ * resolves the same way, so a missing credential degrades to "no credentials"
+ * rather than silently borrowing the type's primary profile.  The leading '@'
+ * keeps it from colliding with a real vault profile id.
+ */
+#define PN_PROFILE_REF_NONE "@none"
+
+/**
+ * pn_param_spec_set_profile_ref_allow_none:
+ * @pspec: a string #GParamSpec already tagged with pn_param_spec_set_profile_ref()
+ *
+ * Opts a profile-ref property into offering a "No credentials"
+ * (#PN_PROFILE_REF_NONE) entry in its picker.  Suitable for profile types where
+ * the connection target lives outside the profile (e.g. an SSH login, whose host
+ * is the node's own hostname property) so that "no profile" is a meaningful,
+ * usable state.  Tag once in `_class_init`, after pn_param_spec_set_profile_ref().
+ */
+void         pn_param_spec_set_profile_ref_allow_none (GParamSpec *pspec);
+
+/**
+ * pn_param_spec_get_profile_ref_allow_none:
+ * @pspec: a #GParamSpec
+ *
+ * Returns: whether @pspec was tagged via pn_param_spec_set_profile_ref_allow_none().
+ *   %FALSE for an untagged or %NULL param spec.
+ */
+gboolean     pn_param_spec_get_profile_ref_allow_none (GParamSpec *pspec);
+
+/**
  * pn_param_spec_set_profile_ref_inline_fields:
  * @pspec:  a string #GParamSpec already tagged with pn_param_spec_set_profile_ref()
  * @fields: comma-separated list of sibling inline property names that make up the

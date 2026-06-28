@@ -2430,6 +2430,36 @@ pn_param_spec_get_profile_ref_inline_fields (GParamSpec *pspec)
 }
 
 static GQuark
+pn_param_spec_profile_ref_allow_none_quark (void)
+{
+    /* Same single-threaded lazy cache as the quarks above. */
+    static GQuark q = 0;
+    if (q == 0)
+        q = g_quark_from_static_string ("pn-param-spec-profile-ref-allow-none");
+    return q;
+}
+
+void
+pn_param_spec_set_profile_ref_allow_none (GParamSpec *pspec)
+{
+    g_return_if_fail (G_IS_PARAM_SPEC (pspec));
+
+    /* Boolean tag — presence means TRUE (cf. the hostname-hint quark). */
+    g_param_spec_set_qdata (pspec,
+                            pn_param_spec_profile_ref_allow_none_quark (),
+                            pspec);
+}
+
+gboolean
+pn_param_spec_get_profile_ref_allow_none (GParamSpec *pspec)
+{
+    if (pspec == NULL)
+        return FALSE;
+    return g_param_spec_get_qdata (
+                   pspec, pn_param_spec_profile_ref_allow_none_quark ()) != NULL;
+}
+
+static GQuark
 pn_param_spec_secret_quark (void)
 {
     /* Same single-threaded lazy cache as the hint quarks above. */

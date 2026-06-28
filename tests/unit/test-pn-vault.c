@@ -41,11 +41,12 @@ struct _TestNode
 {
     PnNode  parent_instance;
     gchar  *broker;
+    gchar  *creds;    /* a profile-ref that offers "No credentials" */
 };
 
 G_DEFINE_TYPE (TestNode, test_node, PN_TYPE_NODE)
 
-enum { PROP_0, PROP_BROKER, N_PROPS };
+enum { PROP_0, PROP_BROKER, PROP_CREDS, N_PROPS };
 static GParamSpec *test_node_props[N_PROPS];
 
 static void
@@ -54,6 +55,8 @@ test_node_get_property (GObject *o, guint id, GValue *v, GParamSpec *p)
     TestNode *self = TEST_NODE (o);
     if (id == PROP_BROKER)
         g_value_set_string (v, self->broker);
+    else if (id == PROP_CREDS)
+        g_value_set_string (v, self->creds);
     else
         G_OBJECT_WARN_INVALID_PROPERTY_ID (o, id, p);
 }
@@ -67,6 +70,11 @@ test_node_set_property (GObject *o, guint id, const GValue *v, GParamSpec *p)
         g_free (self->broker);
         self->broker = g_value_dup_string (v);
     }
+    else if (id == PROP_CREDS)
+    {
+        g_free (self->creds);
+        self->creds = g_value_dup_string (v);
+    }
     else
         G_OBJECT_WARN_INVALID_PROPERTY_ID (o, id, p);
 }
@@ -75,6 +83,7 @@ static void
 test_node_finalize (GObject *o)
 {
     g_free (TEST_NODE (o)->broker);
+    g_free (TEST_NODE (o)->creds);
     G_OBJECT_CLASS (test_node_parent_class)->finalize (o);
 }
 
@@ -94,12 +103,22 @@ test_node_class_init (TestNodeClass *klass)
                                     test_node_props[PROP_BROKER]);
 
     pn_param_spec_set_profile_ref (test_node_props[PROP_BROKER], "test-broker");
+
+    test_node_props[PROP_CREDS] = g_param_spec_string (
+            "creds", "Creds", "Referenced test-broker profile id, none-capable.",
+            "", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    g_object_class_install_property (oc, PROP_CREDS,
+                                    test_node_props[PROP_CREDS]);
+
+    pn_param_spec_set_profile_ref (test_node_props[PROP_CREDS], "test-broker");
+    pn_param_spec_set_profile_ref_allow_none (test_node_props[PROP_CREDS]);
 }
 
 static void
 test_node_init (TestNode *self)
 {
     self->broker = g_strdup ("");
+    self->creds  = g_strdup ("");
 }
 
 /* --- shared temp store ---------------------------------------------- */
@@ -300,6 +319,37 @@ test_node_ref_resolution (void)
     g_object_unref (n);
 }
 
+/* A profile-ref tagged pn_param_spec_set_profile_ref_allow_none() (the SSH
+ * "auth-profile" case): "@none" and a dangling reference both resolve to no
+ * profile, NOT the primary, so a missing credential becomes "no credentials". */
+static void
+test_node_ref_allow_none (void)
+{
+    PnVault   *v    = pn_vault_get_default ();
+    PnProfile *home = pn_vault_get_default_profile (v, "test-broker");
+    PnProfile *work = pn_vault_create_profile (v, "test-broker", "AllowNone");
+    TestNode  *n    = g_object_new (TEST_TYPE_NODE, NULL);
+
+    PN_CHECK (home != NULL);
+
+    /* empty ref still follows the type's primary, like any profile-ref */
+    PN_CHECK (pn_node_get_profile (PN_NODE (n), "creds") == home);
+
+    /* explicit, existing ref -> that specific profile */
+    g_object_set (n, "creds", pn_profile_get_id (work), NULL);
+    PN_CHECK (pn_node_get_profile (PN_NODE (n), "creds") == work);
+
+    /* the "No credentials" sentinel -> NULL, no primary fallback */
+    g_object_set (n, "creds", PN_PROFILE_REF_NONE, NULL);
+    PN_CHECK (pn_node_get_profile (PN_NODE (n), "creds") == NULL);
+
+    /* a dangling ref -> NULL too (degrades to "no credentials", unlike broker) */
+    g_object_set (n, "creds", "does-not-exist", NULL);
+    PN_CHECK (pn_node_get_profile (PN_NODE (n), "creds") == NULL);
+
+    g_object_unref (n);
+}
+
 static void
 register_test_schema (void)
 {
@@ -339,5 +389,6 @@ main (int argc, char **argv)
     pn_test_add ("roundtrip", test_roundtrip);
     pn_test_add ("default_profile", test_default_profile);
     pn_test_add ("node_ref_resolution", test_node_ref_resolution);
+    pn_test_add ("node_ref_allow_none", test_node_ref_allow_none);
     return pn_test_run ();
 }
