@@ -1181,3 +1181,43 @@
                is permission to reach one specific host. Fold into / supersede the
                older 47.6 test note where they overlap.
 
+[ ] 48 Meshtastic remaining ModuleConfig pages (revives TODO #29 Phase 11,
+       postponed 2026-05-28). Each is a fresh dialog page cloning the Phase 10
+       MQTT / Phase 9 External Notification pattern: ModuleConfig oneof parse +
+       AdminMessage.set_module_config (35) writer (sync/async/finish) + typed
+       PnMeshState fields + have_* flag + a pn-mesh-page-<mod>.{c,h} form wired
+       into the right dialog tab. No donor code in pip-mesh; field numbers come
+       from the upstream Meshtastic ModuleConfig.proto, and unexposed sub-messages
+       ride the opaque-GBytes round-trip introduced in Phase 10. "TAK" is dropped
+       (it is the ATAK portnum, not a ModuleConfig member); Display/Bluetooth are
+       Config sub-blocks still tracked under the postponed Phase 13.
+
+         [ ] 48.1 Serial (oneof 2). Expose the UART bridge so the device can talk
+               to wired peripherals: enabled, mode, rx/tx GPIO, baud, timeout,
+               echo. Network (or Device) tab.
+         [ ] 48.2 Store & Forward (oneof 4). Let a mains-powered node act as a
+               message relay/replay server: enabled, is_server, records,
+               history_return_max/window. Mesh tools tab.
+         [ ] 48.3 Range Test (oneof 5). Drive the built-in range-test sender/
+               receiver: enabled, sender interval, save-to-storage flag. Telemetry
+               (or Mesh tools) tab.
+         [ ] 48.4 Canned Message (oneof 7). Configure pre-set quick-reply input
+               (rotary / up-down-select, GPIO pins, enabled); the message strings
+               themselves go via the separate admin canned-message set. Notifications tab.
+         [ ] 48.5 Audio (oneof 8). codec2 push-to-talk voice over the mesh:
+               enabled, PTT GPIO, bitrate, i2s pins. Notifications tab; hardware-
+               specific/niche.
+         [ ] 48.6 Remote Hardware (oneof 9). Remote GPIO read/write/watch:
+               enabled, allow_undefined_pin_access, available_pins list. Mesh tools
+               tab; advanced.
+         [ ] 48.7 Neighbor Info (oneof 10). Periodic neighbour-table broadcast:
+               enabled, update interval, transmit-over-MQTT flag. Telemetry tab.
+         [ ] 48.8 Ambient Lighting (oneof 11). RGB status-LED control: led_state,
+               current, red/green/blue. Notifications tab; hardware-specific/niche.
+         [ ] 48.9 Detection Sensor (oneof 12). Turn a GPIO into a mesh-announcing
+               sensor: enabled, name, monitor GPIO + pull, trigger type, broadcast/
+               state-broadcast intervals. Telemetry tab.
+         [ ] 48.10 Paxcounter (oneof 13). People-counter via WiFi/BLE sniffing:
+               enabled, update interval, wifi/ble RSSI thresholds. Telemetry tab;
+               niche.
+
