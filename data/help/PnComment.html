@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Comment (PnComment) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnComment">Comment</h4>
+<p>
+<em>Group:</em> Annotation. <em>Type:</em> <code>PnComment</code>.
+</p>
+<p>
+A free-text annotation box you drop on the worksheet to document a flow
+&mdash; a white, resizable rectangle with a grey frame holding a few
+paragraphs of wrapped text. It is <strong>not</strong> part of the
+message graph: a comment has no input or output ports, never receives or
+forwards a message, and never fires. It exists purely to label and
+explain the worksheet around it.
+</p>
+<p>
+Add one by right-clicking an empty spot on the canvas and choosing
+<strong>Add note</strong> (the box appears under the cursor), or by
+dragging the <strong>Comment</strong> entry from the node palette. Like
+any node it can be selected, moved, copied, pasted and deleted, lives on
+a single sheet, and is saved with the document (so it round-trips through
+save / load and undo / redo).
+</p>
+<p>
+<strong>Resizing.</strong> Select a comment and drag one of the eight
+square handles on its edges and corners; the box grows or shrinks and the
+text re-wraps to fit. The frame keeps a small minimum size so it can
+never collapse to nothing.
+</p>
+<p>
+<strong>Editing.</strong> Double-click the box (or right-click &rarr;
+<em>Configure</em>) to open its dialog. The <em>Text</em> tab holds the
+multi-line text editor and the font size; the <em>Colours</em> tab lets
+you recolour the fill, the frame and the text. Text that overflows the
+box is cropped rather than spilling out &mdash; make the box bigger or the
+font smaller to reveal it.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>text</code></td>
+      <td>The comment body. May contain several paragraphs; the text
+          wraps to the box width.</td></tr>
+  <tr><td><code>text-size</code></td>
+      <td>Font size of the text, in pixels.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the box &mdash; white by default. Set its alpha
+          to zero for a frame-only, transparent note.</td></tr>
+  <tr><td><code>frame-color</code></td>
+      <td>Colour of the box outline &mdash; grey by default.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the text &mdash; a dark slate by default.</td></tr>
+  <tr><td><code>width</code>, <code>height</code></td>
+      <td>The box footprint in pixels. Normally set by dragging the
+          resize handles rather than typed in.</td></tr>
+</table>
+
+</body>
+</html>

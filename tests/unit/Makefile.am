@@ -37,6 +37,7 @@ check_PROGRAMS = \
 	test-pn-expression \
 	test-pn-format \
 	test-pn-comparator \
+	test-pn-comment \
 	test-pn-dedup \
 	test-pn-delay \
 	test-pn-threshold \
@@ -191,6 +192,7 @@ test_pn_mesh_node_SOURCES    = test-pn-mesh-node.c    pntest.c pntest.h
 test_pn_expression_SOURCES   = test-pn-expression.c   pntest.c pntest.h
 test_pn_format_SOURCES       = test-pn-format.c       pntest.c pntest.h
 test_pn_comparator_SOURCES   = test-pn-comparator.c   pntest.c pntest.h
+test_pn_comment_SOURCES      = test-pn-comment.c      pntest.c pntest.h
 test_pn_ramp_SOURCES         = test-pn-ramp.c         pntest.c pntest.h
 test_pn_reduce_SOURCES       = test-pn-reduce.c       pntest.c pntest.h
 test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
