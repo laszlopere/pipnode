@@ -41,6 +41,8 @@ libpipnode_core_la_SOURCES = \
 	pn-chat.h \
 	pn-color.c \
 	pn-color.h \
+	pn-comment.c \
+	pn-comment.h \
 	pn-comparator.c \
 	pn-comparator.h \
 	pn-countdown.c \
@@ -462,6 +464,7 @@ pipnode_core_headers = \
 	pn-auto-trigger.h \
 	pn-chat.h \
 	pn-color.h \
+	pn-comment.h \
 	pn-comparator.h \
 	pn-countdown.h \
 	pn-debug.h \

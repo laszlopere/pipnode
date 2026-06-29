@@ -51,6 +51,7 @@
 #include "pn-xy-graph.h"
 #include "pn-oscilloscope.h"
 #include "pn-http.h"
+#include "pn-comment.h"
 #include "pn-inject.h"
 #include "pn-knob.h"
 #include "pn-label.h"
@@ -315,6 +316,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_DIGITAL_CLOCK);
     pn_node_factory_register (self, PN_TYPE_ANALOG_CLOCK);
     pn_node_factory_register (self, PN_TYPE_LABEL);
+    pn_node_factory_register (self, PN_TYPE_COMMENT);
     pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
     pn_node_factory_register (self, PN_TYPE_TABLE);
     pn_node_factory_register (self, PN_TYPE_TABLE_VIEW);
