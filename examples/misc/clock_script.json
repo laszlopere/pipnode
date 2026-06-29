@@ -5,7 +5,7 @@
     {
       "type" : "PnShellScript",
       "uuid" : "918f207f-0603-4546-a607-aa2cfa05404c",
-      "name" : "Shell Script 1",
+      "name" : "Shell Script",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 40.0,
@@ -22,7 +22,7 @@
     {
       "type" : "PnDebug",
       "uuid" : "00201761-0d4d-4151-a117-5aec17150e28",
-      "name" : "Debug Print 1",
+      "name" : "Debug Print",
       "worksheet" : "Worksheet",
       "disabled" : true,
       "position" : {
@@ -37,7 +37,7 @@
     {
       "type" : "PnAnalogClock",
       "uuid" : "f28774a9-46c7-404d-94c3-cbbc33d1e356",
-      "name" : "AnalogClock 1",
+      "name" : "AnalogClock",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 220.0,
