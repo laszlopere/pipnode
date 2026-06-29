@@ -451,8 +451,8 @@ pn_shell_script_class_init (PnShellScriptClass *klass)
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Declarative settings schema, split across two tabs: a "Settings"
-     * tab with the output mode and the where/how-to-connect fields
-     * (output-format, host, SSH login), then a "Script" tab that is the
+     * tab with the where/how-to-connect fields and the output mode
+     * (SSH login, host, output-format), then a "Script" tab that is the
      * script body alone in a full-width GtkSourceView code editor with
      * `sh` syntax highlighting.  The editor gets its own last tab so it
      * can use the whole page; the tabs render in declaration order,
@@ -468,9 +468,9 @@ pn_shell_script_class_init (PnShellScriptClass *klass)
         PnSettingsSchema *schema = pn_settings_schema_new ();
 
         pn_settings_schema_tab (schema, "Settings");
-        pn_settings_schema_row (schema, "output-format", PN_EDITOR_AUTO);
-        pn_settings_schema_row (schema, "host",          PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "auth-profile",  PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "host",          PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "output-format", PN_EDITOR_AUTO);
 
         pn_settings_schema_tab (schema, "Script");
         pn_settings_schema_row (schema, "shell-script", PN_EDITOR_CODE);
