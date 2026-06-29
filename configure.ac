@@ -66,6 +66,22 @@ PKG_CHECK_MODULES([GNUTLS], [gnutls >= 3.0])
 # output of the Stats filter.
 PKG_CHECK_MODULES([PLPLOT], [plplot >= 5.15])
 
+# Check for MathGL (libmgl).  Used by the gui tier only, to render the
+# multi-series 3D graph views of the Graph node (PLplot has no
+# grid-of-towers 3D bar primitive).  Debian/Ubuntu package libmgl-dev
+# ships no .pc file, so probe the header + library manually rather than
+# with PKG_CHECK_MODULES.  The C entry points are exported with C
+# linkage (extern "C"), so a plain C probe resolves them; the library's
+# own NEEDED entries pull in libstdc++ transitively at link time.
+AC_CHECK_HEADER([mgl2/mgl_cf.h], [],
+    [AC_MSG_ERROR([MathGL headers not found; install libmgl-dev (or equivalent)])])
+AC_CHECK_LIB([mgl], [mgl_create_graph],
+    [MGL_LIBS="-lmgl"
+     MGL_CFLAGS=""],
+    [AC_MSG_ERROR([MathGL runtime not found; install libmgl (or equivalent)])])
+AC_SUBST([MGL_CFLAGS])
+AC_SUBST([MGL_LIBS])
+
 # Check for libmosquitto (MQTT C client).  Used by the bundled
 # network plugin's MQTT Source node.  Debian/Ubuntu package
 # libmosquitto-dev does not ship a .pc file, so we fall back to a

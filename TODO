@@ -573,3 +573,45 @@
                + SshProfile.html updated to explain that an SSH Login credential
                is permission to reach one specific host. Fold into / supersede the
                older 47.6 test note where they overlap.
+
+[ ] 48 Use MathGL for the 3D graph views (multi-series PnGraph). PLplot has no
+       grid-of-towers 3D bar primitive, so the current 3D code in
+       lib/pn-graph-gui.c (paint_histogram_3d / paint_line_3d) sets up PLplot's
+       plw3d/plbox3 axis box and then HAND-ROLLS the bar projection (Pn3DProj /
+       proj_xy / proj_depth / fill_3d_quad + painter's-algorithm depth sort) on
+       top -- that hand-rolled projection fighting PLplot's axis projection is
+       why the 3D bars never looked right. Leave the 2D views on PLplot for now;
+       only the multi-series 3D paths move to MathGL. (If MathGL proves itself we
+       may later move 2D too.)
+       DONE (integration complete; pending user visual sign-off in the editor).
+       FEASIBILITY was proven with tools/mgl-graph-preview.c; the integrated path
+       is verified end-to-end with tools/graph-preview.c (drives the REAL node
+       paint_plot vfunc -> PNG). Real vertical towers come from per-series
+       mgl_bars_xyz (x=bin, y=series-index, z=count) -- NOT mgl_bars(matrix),
+       which is a 2D grouped-bar concept that lies flat under rotation. Lines use
+       per-series mgl_plot_xyz. Solid 3D bars are built from MathGL FACE
+       primitives (mgl_facez top + mgl_facex/facey sides -> mgl_draw_bar_box),
+       NOT mgl_bars_xyz (which draws flat zero-depth blades = "2D bars in a 3D
+       scene"); mgl_set_light is required so the faces shade by normal.
+       [x] 48.1 configure.ac: detect MathGL. NO pkg-config .pc file ships (Ubuntu
+                libmgl-dev 8.0.1); link is just -lmgl (lib in /usr, header
+                <mgl2/mgl_cf.h>). Use AC_CHECK_HEADER + AC_CHECK_LIB, export
+                MGL_CFLAGS/MGL_LIBS. GOTCHA: mreal is double ONLY when
+                MGL_USE_DOUBLE=1, which the installed config.h sets and define.h
+                picks up via #include "mgl2/config.h"; our compile already sees
+                sizeof(mreal)==8, so no -D needed -- but if a build ever sees
+                mreal=float against a double-built lib, every mgl_data_set_value
+                silently corrupts (passes 8 bytes into a 4-byte slot).
+       [x] 48.2 lib/Makefile.am: add MGL_CFLAGS/MGL_LIBS to libpipnode-gui
+                (3D painters live in the gui tier; core stays MathGL-free).
+       [x] 48.3 Replace paint_histogram_3d + paint_line_3d in pn-graph-gui.c with
+                MathGL renderers + the mgl_get_rgba -> cairo ARGB32 bridge (swap
+                R<->B; opaque so no premultiply). Map the node's configurable
+                background_color/axis_color + per-series color_for_series wheel
+                into MathGL (mgl_clf_rgb + per-series pen). Reuse the existing
+                GTK-free collect_* ring readers. Delete the now-dead hand-rolled
+                Pn3DProj/proj_*/fill_3d_quad/bar-sort helpers.
+       [x] 48.4 Build, clear LSP diagnostics, run make check (test-pn-graph is
+                headless/core so untouched) + a visual check via the running
+                editor. PLUGINS/packaging note: MathGL is a new gui-tier runtime
+                dep (pipnode-gui package), document alongside PLplot.

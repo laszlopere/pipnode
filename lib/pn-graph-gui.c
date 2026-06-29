@@ -43,6 +43,7 @@
 #include <gtk/gtk.h>
 #include <math.h>
 #include <plplot/plplot.h>
+#include <mgl2/mgl_cf.h>
 
 /* ------------------------------------------------------------------ */
 /*  Geometry (painter-side copy)                                       */
@@ -57,15 +58,18 @@
 /* Number of value bins drawn in 3D histogram mode. */
 #define PN_GRAPH_3D_HIST_BINS  12
 
-/* Fraction of a bin's X-width occupied by the bar itself. */
+/* MathGL view rotation for the 3D plots (TetX about the screen X axis,
+ * TetZ about the vertical). */
+#define PN_GRAPH_3D_ROT_X      50.0
+#define PN_GRAPH_3D_ROT_Z      60.0
+
+/* Bar footprint, expressed as a fraction of the *tighter* of the two
+ * horizontal axes' (equal-length) cube edges.  Sizing the value-extent
+ * and the series-depth from one shared edge-fraction makes the bar's top
+ * face read as a square column regardless of how the bin count and the
+ * series count differ; clamping to the tighter axis keeps neighbours
+ * from overlapping.  0.8 leaves a small gap between adjacent bars. */
 #define PN_GRAPH_3D_BAR_FILL  0.8
-
-/* Half-width of each topic ribbon in world Y-units. */
-#define PN_GRAPH_3D_RIBBON_HALF  0.20
-
-/* Viewing angles for the 3D projection. */
-#define PN_GRAPH_3D_ALT  45.0
-#define PN_GRAPH_3D_AZ   300.0
 
 /* GObject data key holding the per-instance PLplot stream id (boxed in a
  * heap PLINT so a destroy-notify can run plend1 at finalize). */
@@ -111,6 +115,137 @@ pn_graph_plstream (PnGraph *self)
     }
 
     return *id;
+}
+
+/* ------------------------------------------------------------------ */
+/*  MathGL helpers (multi-series 3D painters)                          */
+/*                                                                     */
+/*  The two multi-series 3D views are rendered with MathGL rather than  */
+/*  PLplot.  PLplot has no grid-of-towers 3D bar primitive, so the bars */
+/*  used to be hand-projected onto PLplot's 2D world (see git history), */
+/*  which never lined up with its axis box.  MathGL draws true 3D bars  */
+/*  and curves into its own RGBA buffer; we blit that onto the node's   */
+/*  cairo context.  Each paint builds a throw-away HMGL — MathGL keeps  */
+/*  no process-wide stream table, so (unlike PLplot) there is nothing   */
+/*  per-instance to own.                                                */
+/* ------------------------------------------------------------------ */
+
+/* Format @c as a MathGL hex colour spec "{xRRGGBB}" into @out (needs
+ * >= 11 bytes).  MathGL pen/style strings accept this form for an
+ * arbitrary RGB, so the node's configurable colours drive the box,
+ * axes and per-series bars/curves directly. */
+static void
+mgl_hex_color (const PnColor *c, char out[11])
+{
+    g_snprintf (out, 11, "{x%02x%02x%02x}",
+                (guint) (c->red   * 255.0 + 0.5),
+                (guint) (c->green * 255.0 + 0.5),
+                (guint) (c->blue  * 255.0 + 0.5));
+}
+
+/* Blit MathGL's current RGBA bitmap onto @cr at (0,0).  @cr is already
+ * translated to the plot origin and clipped to w×h by the dispatcher,
+ * and the graph was created at exactly that pixel size, so the image
+ * lands registered with the plot area.  MathGL hands back top-down RGBA
+ * (R,G,B,A at 4*i + 4*W*j); cairo's ARGB32 is native-endian B,G,R,A.
+ * We render onto an opaque background, so alpha is 255 everywhere and
+ * no premultiplication is needed — just swap R<->B per pixel. */
+static void
+mgl_blit_to_cairo (HMGL gr, cairo_t *cr)
+{
+    int                  w   = mgl_get_width  (gr);
+    int                  h   = mgl_get_height (gr);
+    const unsigned char *src = mgl_get_rgba (gr);
+    cairo_surface_t     *surf;
+    unsigned char       *dst;
+    int                  stride, x, y;
+
+    if (src == NULL || w <= 0 || h <= 0)
+        return;
+
+    surf   = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+    dst    = cairo_image_surface_get_data (surf);
+    stride = cairo_image_surface_get_stride (surf);
+
+    for (y = 0; y < h; y++)
+    {
+        const unsigned char *s = src + (gsize) 4 * w * y;
+        unsigned char       *d = dst + (gsize) stride * y;
+
+        for (x = 0; x < w; x++, s += 4, d += 4)
+        {
+            d[0] = s[2];   /* B */
+            d[1] = s[1];   /* G */
+            d[2] = s[0];   /* R */
+            d[3] = s[3];   /* A */
+        }
+    }
+    cairo_surface_mark_dirty (surf);
+
+    cairo_set_source_surface (cr, surf, 0, 0);
+    cairo_paint (cr);
+    cairo_surface_destroy (surf);
+}
+
+/* Common MathGL page setup for the 3D painters: a graph sized to the
+ * plot area, cleared to the node background, rotated to the standard
+ * view, with the bounding box, ticks, optional grid and axes drawn in
+ * the node's axis colour. */
+static HMGL
+mgl_setup_3d (const PnGraphPaintState *ps,
+              double w, double h,
+              double x1, double x2,
+              double y1, double y2,
+              double z1, double z2)
+{
+    HMGL gr = mgl_create_graph ((int) w, (int) h);
+    char axis_hex[11];
+
+    mgl_clf_rgb (gr,
+                 ps->background_color.red,
+                 ps->background_color.green,
+                 ps->background_color.blue);
+
+    mgl_set_font_size (gr, (w > PN_GRAPH_WIDTH * 1.2) ? 2.6 : 4.5);
+    mgl_set_ranges (gr, x1, x2, y1, y2, z1, z2);
+    mgl_rotate (gr, PN_GRAPH_3D_ROT_X, PN_GRAPH_3D_ROT_Z, 0.0);
+
+    /* Light the scene so the 3D bars read as solid, shaded boxes (their
+     * top/side faces pick up distinct brightness) rather than flat
+     * unlit blades.  Harmless for the line view (polylines are not
+     * lit). */
+    mgl_set_light (gr, 1);
+    mgl_add_light (gr, 0, 1.0, 0.0, 3.0);
+
+    mgl_hex_color (&ps->axis_color, axis_hex);
+    mgl_box_str (gr, axis_hex, 1);
+    if (ps->show_grid)
+        mgl_axis_grid (gr, "xyz", axis_hex, "");
+    mgl_axis (gr, "xyz", axis_hex, "");
+
+    return gr;
+}
+
+/* Draw one solid 3D bar as a lit box rooted on the z=0 plane: the top
+ * face plus the four side faces (the bottom sits on the floor and is
+ * hidden).  The box spans [x0, x0+dx] × [y0, y0+dy] × [0, height].
+ * MathGL projects and z-sorts the faces and the active light shades each
+ * by its normal, so the bar reads as a real tower with depth — unlike
+ * mgl_bars_xyz, which only draws a flat, zero-depth blade. */
+static void
+mgl_draw_bar_box (HMGL        gr,
+                  double      x0,
+                  double      y0,
+                  double      dx,
+                  double      dy,
+                  double      height,
+                  const char *fill)
+{
+    mgl_facez (gr, x0,      y0,      height, dx, dy,     fill, 0, 0);
+    mgl_facey (gr, x0,      y0,      0.0,    dx, height, fill, 0, 0);
+    mgl_facey (gr, x0,      y0 + dy, 0.0,    dx, height, fill, 0, 0);
+    mgl_facex (gr, x0,      y0,      0.0,    dy, height, fill, 0, 0);
+    mgl_facex (gr, x0 + dx, y0,      0.0,    dy, height, fill, 0, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -480,164 +615,6 @@ paint_set_cmap0 (
              (PLINT) (rgba->blue  * 255.0 + 0.5));
 }
 
-/** Re-shade an RGB triple in HLS space: keep hue and saturation, set
- *  lightness to @target (clamped). */
-static PnColor
-shade_l (
-        PnColor c,
-        gdouble target_l)
-{
-    PLFLT h, l, s;
-    PLFLT r, g, b;
-    PnColor out;
-
-    plrgbhls ((PLFLT) c.red, (PLFLT) c.green, (PLFLT) c.blue, &h, &l, &s);
-
-    if (target_l < 0.0) target_l = 0.0;
-    if (target_l > 1.0) target_l = 1.0;
-
-    if (s < 0.55) s = 0.55;
-
-    plhlsrgb (h, (PLFLT) target_l, s, &r, &g, &b);
-
-    out.red   = r;
-    out.green = g;
-    out.blue  = b;
-    out.alpha = c.alpha;
-    return out;
-}
-
-/* ------------------------------------------------------------------ */
-/*  3D projection helper                                               */
-/* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    PLFLT basex, basey, height;
-    PLFLT xmin, xmax;
-    PLFLT ymin, ymax;
-    PLFLT zmin, zmax;
-    PLFLT caz, saz, calt, salt;
-} Pn3DProj;
-
-static void
-proj_init (
-        Pn3DProj *p,
-        PLFLT     basex,
-        PLFLT     basey,
-        PLFLT     height,
-        PLFLT     xmin,
-        PLFLT     xmax,
-        PLFLT     ymin,
-        PLFLT     ymax,
-        PLFLT     zmin,
-        PLFLT     zmax,
-        PLFLT     alt_deg,
-        PLFLT     az_deg)
-{
-    p->basex  = basex;  p->basey  = basey;  p->height = height;
-    p->xmin   = xmin;   p->xmax   = xmax;
-    p->ymin   = ymin;   p->ymax   = ymax;
-    p->zmin   = zmin;   p->zmax   = zmax;
-    p->caz    = (PLFLT) cos (M_PI * az_deg  / 180.0);
-    p->saz    = (PLFLT) sin (M_PI * az_deg  / 180.0);
-    p->calt   = (PLFLT) cos (M_PI * alt_deg / 180.0);
-    p->salt   = (PLFLT) sin (M_PI * alt_deg / 180.0);
-}
-
-static inline void
-proj_xy (
-        const Pn3DProj *p,
-        PLFLT           x,
-        PLFLT           y,
-        PLFLT           z,
-        PLFLT          *sx,
-        PLFLT          *sy)
-{
-    PLFLT xn = (x - p->xmin) / (p->xmax - p->xmin) * p->basex - p->basex * 0.5f;
-    PLFLT yn = (y - p->ymin) / (p->ymax - p->ymin) * p->basey - p->basey * 0.5f;
-    PLFLT zn = (z - p->zmin) / (p->zmax - p->zmin) * p->height;
-
-    *sx = xn * p->caz + yn * p->saz;
-    *sy = -xn * p->saz * p->salt + yn * p->caz * p->salt + zn * p->calt;
-}
-
-/** Depth of a 3D point under the projection: higher means further from
- *  the viewer (drawn first by the painter's algorithm). */
-static inline PLFLT
-proj_depth (
-        const Pn3DProj *p,
-        PLFLT           x,
-        PLFLT           y,
-        PLFLT           z)
-{
-    PLFLT xn = (x - p->xmin) / (p->xmax - p->xmin) * p->basex - p->basex * 0.5f;
-    PLFLT yn = (y - p->ymin) / (p->ymax - p->ymin) * p->basey - p->basey * 0.5f;
-    PLFLT zn = (z - p->zmin) / (p->zmax - p->zmin) * p->height;
-
-    return xn * p->saz * p->calt - yn * p->caz * p->calt - zn * p->salt;
-}
-
-/** Project four 3D corners and fill the resulting 2D quadrilateral with
- *  @fill, then stroke its outline with @stroke. */
-static void
-fill_3d_quad (
-        const Pn3DProj *p,
-        const PLFLT     x[4],
-        const PLFLT     y[4],
-        const PLFLT     z[4],
-        const PnColor  *fill,
-        const PnColor  *stroke)
-{
-    PLFLT xs[4], ys[4];
-    PLFLT ox[5], oy[5];
-    guint i;
-
-    for (i = 0; i < 4; i++)
-        proj_xy (p, x[i], y[i], z[i], &xs[i], &ys[i]);
-
-    paint_set_cmap0 (3, fill);
-    plcol0 (3);
-    plfill (4, xs, ys);
-
-    for (i = 0; i < 4; i++)
-    {
-        ox[i] = xs[i];
-        oy[i] = ys[i];
-    }
-    ox[4] = xs[0];
-    oy[4] = ys[0];
-
-    paint_set_cmap0 (4, stroke);
-    plcol0 (4);
-    plline (5, ox, oy);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Bar sorting helper                                                 */
-/* ------------------------------------------------------------------ */
-
-typedef struct
-{
-    PLFLT    xl, xr;        /* X (value) bin edges */
-    PLFLT    y0, y1;        /* Y (series) ribbon edges */
-    PLFLT    zb, zt;        /* Z (count) base and top */
-    guint    series_idx;    /* index into views[] for colour lookup */
-    PLFLT    depth;         /* center-depth for back-to-front sort */
-} PnGraph3DBar;
-
-static gint
-bar_depth_cmp (
-        gconstpointer a,
-        gconstpointer b)
-{
-    const PnGraph3DBar *pa = a;
-    const PnGraph3DBar *pb = b;
-    if (pa->depth < pb->depth) return  1;
-    if (pa->depth > pb->depth) return -1;
-    return 0;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Line-mode painters                                                 */
 /* ------------------------------------------------------------------ */
@@ -853,10 +830,10 @@ paint_timeseries_2d (
     plend1 ();
 }
 
-/** 3D line painter — one polyline per series, stacked along Y. */
+/** 3D line painter (MathGL) — one curve per series, stacked along Y at
+ *  its arrival-order depth, height = value, X = time. */
 static void
 paint_line_3d (
-        PLINT                    plstream,
         const PnGraphPaintState *ps,
         cairo_t                 *cr,
         double                   w,
@@ -871,10 +848,11 @@ paint_line_3d (
     gdouble   zmin = 0.0, zmax = 1.0;
     gboolean  have_range = FALSE;
     guint     i;
+    HMGL      gr;
 
-    PLFLT  *all_xs = g_new (PLFLT, nseries * n_bins);
-    PLFLT  *all_ys = g_new (PLFLT, nseries * n_bins);
-    PLFLT  *all_zs = g_new (PLFLT, nseries * n_bins);
+    PLFLT  *all_xs = g_new (PLFLT, nseries * n_bins);   /* time (s, <=0) */
+    PLFLT  *all_ys = g_new (PLFLT, nseries * n_bins);   /* series index  */
+    PLFLT  *all_zs = g_new (PLFLT, nseries * n_bins);   /* value         */
     guint  *counts = g_new0 (guint, nseries);
 
     for (i = 0; i < nseries; i++)
@@ -912,61 +890,55 @@ paint_line_3d (
         zmax += pad;
     }
 
-    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
-
-    plvpor (0.05, 0.97, 0.10, 0.95);
-
-    plwind (-1.0f, 1.0f, -0.9f, 1.1f);
-
-    plw3d (1.0, 0.8, 1.0,
-           (PLFLT) -(gdouble) pn_graph_resolution_seconds (ps->resolution),
-           0.0f,
-           -0.5f, (PLFLT) nseries - 0.5f,
-           (PLFLT) zmin, (PLFLT) zmax,
-           PN_GRAPH_3D_ALT, PN_GRAPH_3D_AZ);
-
-    plslabelfunc (graph_label_format, (PLPointer) ps);
-    plcol0  (2);
-    plwidth (1);
+    if (ps->y_from_zero)
     {
-        const char *xopts = ps->show_grid ? "bnstugo" : "bnstuo";
-        const char *yopts = "bnstu";
-        const char *zopts = ps->show_grid ? "bcdmnstuvo" : "bcdmnstuvo";
-        plbox3 (xopts, "", 0.0, 0,
-                yopts, "", 1.0, 0,
-                zopts, "", 0.0, 0);
+        if (zmin > 0.0) zmin = 0.0;
+        if (zmax < 0.0) zmax = 0.0;
     }
-    plslabelfunc (NULL, NULL);
 
-    plwidth ((PLINT) ps->line_width);
-
-    /* Per-series colours land in cmap0 slots 8..8+nseries-1, but the
-     * default cmap0 holds only 16 entries (0-15); with 9+ series the high
-     * slots fall off the end and render in a stale colour.  Grow the map to
-     * fit before writing them.  Slots 0-2 (used by the box above) are
-     * preserved across the resize. */
-    plscmap0n (8 + (PLINT) nseries);
+    gr = mgl_setup_3d (ps, w, h,
+                       -(gdouble) pn_graph_resolution_seconds (ps->resolution), 0.0,
+                       -0.5, (gdouble) nseries - 0.5,
+                       zmin, zmax);
 
     for (i = 0; i < nseries; i++)
     {
         PnColor c;
+        char    hex[11];
+        char    pen[16];
+        HMDT    X, Y, Z;
+        guint   j;
+
         if (counts[i] < 2)
             continue;
 
         color_for_series (ps, i, &c);
-        paint_set_cmap0 (8 + (PLINT) i, &c);
-        plcol0 (8 + (PLINT) i);
+        mgl_hex_color (&c, hex);
+        /* hex colour + a width digit (MathGL takes 1..9). */
+        g_snprintf (pen, sizeof pen, "%s%u", hex, CLAMP (ps->line_width, 1u, 9u));
 
-        plline3 ((PLINT) counts[i],
-                 all_xs + i * n_bins,
-                 all_ys + i * n_bins,
-                 all_zs + i * n_bins);
+        X = mgl_create_data_size ((long) counts[i], 1, 1);
+        Y = mgl_create_data_size ((long) counts[i], 1, 1);
+        Z = mgl_create_data_size ((long) counts[i], 1, 1);
+
+        for (j = 0; j < counts[i]; j++)
+        {
+            mgl_data_set_value (X, all_xs[i * n_bins + j], (long) j, 0, 0);
+            mgl_data_set_value (Y, all_ys[i * n_bins + j], (long) j, 0, 0);
+            mgl_data_set_value (Z, all_zs[i * n_bins + j], (long) j, 0, 0);
+        }
+
+        mgl_plot_xyz (gr, X, Y, Z, pen, "");
+
+        mgl_delete_data (X);
+        mgl_delete_data (Y);
+        mgl_delete_data (Z);
     }
 
-    g_free (all_xs); g_free (all_ys); g_free (all_zs); g_free (counts);
+    mgl_blit_to_cairo (gr, cr);
+    mgl_delete_graph (gr);
 
-    pleop  ();
-    plend1 ();
+    g_free (all_xs); g_free (all_ys); g_free (all_zs); g_free (counts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1122,10 +1094,10 @@ pn_graph_paint_distribution_2d (
     plend1 ();
 }
 
-/** 3D histogram painter — one ribbon of bars per series. */
+/** 3D histogram painter (MathGL) — one ribbon of bar towers per series:
+ *  X = value bin, Y = series depth, Z (height) = count. */
 static void
 paint_histogram_3d (
-        PLINT                    plstream,
         const PnGraphPaintState *ps,
         cairo_t                 *cr,
         double                   w,
@@ -1193,147 +1165,64 @@ paint_histogram_3d (
         return;
     }
 
-    pn_graph_paint_setup_page (plstream, ps, cr, w, h);
-
     {
-        const PLFLT  zbot = ps->log_y
-                          ? (PLFLT) log10 (0.5)
-                          : 0.0f;
-        const PLFLT  ztop = ps->log_y
-                          ? (PLFLT) log10 ((gdouble) max_count * 1.1 + 1.0)
-                          : (PLFLT) ((gdouble) max_count * 1.1 + 1.0);
-        const PLFLT  ymin = -0.5f;
-        const PLFLT  ymax = (PLFLT) nseries - 0.5f;
-        Pn3DProj     proj;
-        GArray      *bars;
-        guint        b;
+        const gdouble zbot = ps->log_y ? log10 (0.5) : 0.0;
+        const gdouble ztop = ps->log_y
+                           ? log10 ((gdouble) max_count * 1.1 + 1.0)
+                           : (gdouble) max_count * 1.05;
+        HMGL gr;
 
-        plvpor (0.05, 0.97, 0.10, 0.95);
-        plwind (-1.0f, 1.0f, -0.9f, 1.1f);
-        plw3d (1.0, 0.6, 1.0,
-               (PLFLT) vmin, (PLFLT) vmax,
-               ymin, ymax,
-               zbot, ztop,
-               PN_GRAPH_3D_ALT, PN_GRAPH_3D_AZ);
+        /* Square footprint: take the same fraction of each horizontal
+         * cube edge (x spans vmax-vmin, y spans nseries), clamped to the
+         * tighter axis so bars never overlap their neighbours. */
+        const gdouble edge_frac = PN_GRAPH_3D_BAR_FILL
+                                * MIN (1.0 / (gdouble) PN_GRAPH_3D_HIST_BINS,
+                                       1.0 / (gdouble) nseries);
+        const gdouble dx = edge_frac * (vmax - vmin);
+        const gdouble dy = edge_frac * (gdouble) nseries;
 
-        proj_init (&proj, 1.0, 0.6, 1.0,
-                   (PLFLT) vmin, (PLFLT) vmax,
-                   ymin, ymax,
-                   zbot, ztop,
-                   PN_GRAPH_3D_ALT, PN_GRAPH_3D_AZ);
+        gr = mgl_setup_3d (ps, w, h,
+                           vmin, vmax,
+                           -0.5, (gdouble) nseries - 0.5,
+                           zbot, ztop);
 
-        {
-            const PnColor floor = { 0.92, 0.92, 0.92, 1.0 };
-            PLFLT fx[4] = { (PLFLT) vmin, (PLFLT) vmax,
-                            (PLFLT) vmax, (PLFLT) vmin };
-            PLFLT fy[4] = { ymin, ymin, ymax, ymax };
-            PLFLT fz[4] = { zbot, zbot, zbot, zbot };
-            PLFLT sx[4], sy[4];
-            guint k;
-
-            for (k = 0; k < 4; k++)
-                proj_xy (&proj, fx[k], fy[k], fz[k], &sx[k], &sy[k]);
-            paint_set_cmap0 (5, &floor);
-            plcol0 (5);
-            plfill (4, sx, sy);
-        }
-
-        plslabelfunc (graph_label_format, (PLPointer) ps);
-        plcol0  (2);
-        plwidth (1);
-        {
-            const char *xopts = ps->show_grid ? "bcnstugo" : "bcnstuo";
-            const char *yopts = ps->show_grid ? "bcnstug"  : "bcnstu";
-            const char *zopts;
-            if (ps->log_y)
-                zopts = ps->show_grid ? "bcdnstuvl" : "bcdnstuvl";
-            else
-                zopts = ps->show_grid ? "bcdnstuvo" : "bcdnstuvo";
-            plbox3 (xopts, "", 0.0, 0,
-                    yopts, "", 1.0, 0,
-                    zopts, "", 0.0, 0);
-        }
-        plslabelfunc (NULL, NULL);
-
-        bars = g_array_new (FALSE, FALSE, sizeof (PnGraph3DBar));
         for (i = 0; i < nseries; i++)
         {
-            const PLFLT y0 = (PLFLT) i - (PLFLT) PN_GRAPH_3D_RIBBON_HALF;
-            const PLFLT y1 = (PLFLT) i + (PLFLT) PN_GRAPH_3D_RIBBON_HALF;
-            const gdouble gap_half = (1.0 - PN_GRAPH_3D_BAR_FILL) * 0.5;
-            guint      *cs = all_counts + i * PN_GRAPH_3D_HIST_BINS;
+            guint   *cs = all_counts + i * PN_GRAPH_3D_HIST_BINS;
+            PnColor  c;
+            char     hex[11];
+            gdouble  y0 = (gdouble) i - dy * 0.5;
 
+            if (per_series_n[i] == 0)
+                continue;
+
+            color_for_series (ps, i, &c);
+            mgl_hex_color (&c, hex);
+
+            /* One solid lit box per occupied value bin.  Faces (not
+             * mgl_bars_xyz) so the bars have real depth in the series
+             * direction instead of being flat 2D blades. */
             for (j = 0; j < PN_GRAPH_3D_HIST_BINS; j++)
             {
-                PnGraph3DBar bar;
-                PLFLT        xc, yc;
+                gdouble xc, x0, height;
 
                 if (cs[j] == 0)
                     continue;
 
-                bar.xl = (PLFLT) (vmin + ((gdouble) j + gap_half) * bin_w);
-                bar.xr = (PLFLT) (vmin + ((gdouble) (j + 1) - gap_half) * bin_w);
-                bar.y0 = y0;
-                bar.y1 = y1;
-                bar.zb = zbot;
-                bar.zt = ps->log_y
-                       ? (PLFLT) log10 ((gdouble) cs[j])
-                       : (PLFLT) cs[j];
-                bar.series_idx = i;
+                xc     = vmin + ((gdouble) j + 0.5) * bin_w;
+                x0     = xc - dx * 0.5;
+                height = ps->log_y ? log10 ((gdouble) cs[j])
+                                   : (gdouble) cs[j];
 
-                xc = (bar.xl + bar.xr) * 0.5f;
-                yc = (bar.y0 + bar.y1) * 0.5f;
-                bar.depth = proj_depth (&proj, xc, yc,
-                                        (bar.zb + bar.zt) * 0.5f);
-
-                g_array_append_val (bars, bar);
+                mgl_draw_bar_box (gr, x0, y0, dx, dy, height, hex);
             }
         }
 
-        g_array_sort (bars, bar_depth_cmp);
-
-        plwidth (1);
-        for (b = 0; b < bars->len; b++)
-        {
-            const PnGraph3DBar *bar = &g_array_index (bars, PnGraph3DBar, b);
-            PnColor             base;
-            PnColor             c_top, c_yface, c_right;
-
-            color_for_series (ps, bar->series_idx, &base);
-            c_top   = shade_l (base, 0.75);
-            c_yface = shade_l (base, 0.55);
-            c_right = shade_l (base, 0.40);
-
-            /* Right face (x = xr). */
-            {
-                PLFLT fx[4] = { bar->xr, bar->xr, bar->xr, bar->xr };
-                PLFLT fy[4] = { bar->y0, bar->y1, bar->y1, bar->y0 };
-                PLFLT fz[4] = { bar->zb, bar->zb, bar->zt, bar->zt };
-                fill_3d_quad (&proj, fx, fy, fz, &c_right, &ps->axis_color);
-            }
-            /* Y-max face (y = y1). */
-            {
-                PLFLT fx[4] = { bar->xl, bar->xr, bar->xr, bar->xl };
-                PLFLT fy[4] = { bar->y1, bar->y1, bar->y1, bar->y1 };
-                PLFLT fz[4] = { bar->zb, bar->zb, bar->zt, bar->zt };
-                fill_3d_quad (&proj, fx, fy, fz, &c_yface, &ps->axis_color);
-            }
-            /* Top face (z = zt). */
-            {
-                PLFLT fx[4] = { bar->xl, bar->xr, bar->xr, bar->xl };
-                PLFLT fy[4] = { bar->y0, bar->y0, bar->y1, bar->y1 };
-                PLFLT fz[4] = { bar->zt, bar->zt, bar->zt, bar->zt };
-                fill_3d_quad (&proj, fx, fy, fz, &c_top, &ps->axis_color);
-            }
-        }
-
-        g_array_unref (bars);
+        mgl_blit_to_cairo (gr, cr);
+        mgl_delete_graph (gr);
     }
 
     g_free (per_series_data); g_free (per_series_n); g_free (all_counts);
-
-    pleop  ();
-    plend1 ();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1387,7 +1276,7 @@ pn_graph_paint_plot (
         if (nseries == 1)
             pn_graph_paint_distribution_2d (plstream, &ps, cr, w, h, views[0].series);
         else
-            paint_histogram_3d (plstream, &ps, cr, w, h, views, nseries);
+            paint_histogram_3d (&ps, cr, w, h, views, nseries);
         break;
     case PN_GRAPH_VIEW_TIME_SERIES:
     default:
@@ -1395,7 +1284,7 @@ pn_graph_paint_plot (
             paint_timeseries_2d (plstream, &ps, cr, w, h, width,
                                  views[0].series);
         else
-            paint_line_3d (plstream, &ps, cr, w, h, width, views, nseries);
+            paint_line_3d (&ps, cr, w, h, width, views, nseries);
         break;
     }
 

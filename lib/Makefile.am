@@ -419,6 +419,7 @@ libpipnode_gui_la_CFLAGS = \
 	$(LIBSOUP_CFLAGS) \
 	$(GDK_PIXBUF_CFLAGS) \
 	$(PLPLOT_CFLAGS) \
+	$(MGL_CFLAGS) \
 	$(WEBKIT2GTK_CFLAGS) \
 	$(QRENCODE_CFLAGS) \
 	$(GMODULE_CFLAGS) \
@@ -436,6 +437,7 @@ libpipnode_gui_la_LIBADD = \
 	$(LIBSOUP_LIBS) \
 	$(GDK_PIXBUF_LIBS) \
 	$(PLPLOT_LIBS) \
+	$(MGL_LIBS) \
 	$(WEBKIT2GTK_LIBS) \
 	$(QRENCODE_LIBS) \
 	$(GMODULE_LIBS) \
