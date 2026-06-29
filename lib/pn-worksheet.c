@@ -32,6 +32,7 @@
 #include "pn-switch.h"
 #include "pn-knob.h"
 #include "pn-chat.h"
+#include "pn-comment.h"
 #include "pn-sun-path.h"
 #include "pn-oscilloscope.h"
 #include "pn-filedrop.h"
@@ -133,6 +134,19 @@ struct _PnWorksheet
     double  drag_offset_x;
     double  drag_offset_y;
     GArray *drag_anchors;
+
+    /** Comment-box resize state.  %resize_comment is %NULL when no resize
+     *  is in progress; otherwise it owns a reference to the #PnComment
+     *  whose corner is being dragged.  %resize_edge records which
+     *  handle was grabbed; %resize_press_{x,y} is the world-space press
+     *  point and %resize_anchor_{x,y,w,h} the box geometry at press, so
+     *  motion can apply a uniform delta.  The undo history is frozen for
+     *  the duration so the whole resize coalesces into one step. */
+    PnNode  *resize_comment;
+    int      resize_edge;
+    double   resize_press_x, resize_press_y;
+    double   resize_anchor_x, resize_anchor_y;
+    double   resize_anchor_w, resize_anchor_h;
 
     /** Palette drag-preview state.  While a palette item is dragged
      *  over this worksheet, the painter traces a thin red wireframe of
@@ -695,6 +709,151 @@ paint_drop_shadow (
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Comment box (PnComment) — chromeless free-text annotation.         */
+/* ------------------------------------------------------------------ */
+
+/* Resize-edge bitmask: which box edges a grabbed handle moves. */
+enum
+{
+    PN_RESIZE_NONE   = 0,
+    PN_RESIZE_LEFT   = 1 << 0,
+    PN_RESIZE_RIGHT  = 1 << 1,
+    PN_RESIZE_TOP    = 1 << 2,
+    PN_RESIZE_BOTTOM = 1 << 3,
+};
+
+static void     selection_clear    (PnWorksheet *self);
+static void     selection_add      (PnWorksheet *self, PnNode *node);
+static gboolean selection_contains (PnWorksheet *self, PnNode *node);
+
+/* Fill @cx/@cy (length 8) with the world-space centres of a comment
+ * box's resize handles and @mask with the edge bitmask each handle
+ * drives, for a box at top-left (@x,@y) with size @w×@h.  Order:
+ * NW, N, NE, E, SE, S, SW, W. */
+static void
+comment_handle_geometry (double x, double y, double w, double h,
+                         double cx[8], double cy[8], int mask[8])
+{
+    const double mx = x + w * 0.5, my = y + h * 0.5;
+    const double rx = x + w,       by = y + h;
+
+    cx[0] = x;  cy[0] = y;  mask[0] = PN_RESIZE_TOP    | PN_RESIZE_LEFT;
+    cx[1] = mx; cy[1] = y;  mask[1] = PN_RESIZE_TOP;
+    cx[2] = rx; cy[2] = y;  mask[2] = PN_RESIZE_TOP    | PN_RESIZE_RIGHT;
+    cx[3] = rx; cy[3] = my; mask[3] = PN_RESIZE_RIGHT;
+    cx[4] = rx; cy[4] = by; mask[4] = PN_RESIZE_BOTTOM | PN_RESIZE_RIGHT;
+    cx[5] = mx; cy[5] = by; mask[5] = PN_RESIZE_BOTTOM;
+    cx[6] = x;  cy[6] = by; mask[6] = PN_RESIZE_BOTTOM | PN_RESIZE_LEFT;
+    cx[7] = x;  cy[7] = my; mask[7] = PN_RESIZE_LEFT;
+}
+
+/* Return the resize-edge bitmask of the comment handle at (@wx,@wy), or
+ * %PN_RESIZE_NONE.  Only meaningful while @comment is selected. */
+static int
+hit_test_comment_handle (PnComment *comment, double wx, double wy)
+{
+    const PnPoint        *p = pn_node_get_position (PN_NODE (comment));
+    PnCommentPaintState   st;
+    double                cx[8], cy[8];
+    int                   mask[8], i;
+    const double          hs = PN_COMMENT_HANDLE_SIZE;
+
+    pn_comment_get_paint_state (comment, &st);
+    comment_handle_geometry (p->x, p->y, st.width, st.height, cx, cy, mask);
+    for (i = 0; i < 8; i++)
+        if (fabs (wx - cx[i]) <= hs * 0.5 && fabs (wy - cy[i]) <= hs * 0.5)
+            return mask[i];
+    return PN_RESIZE_NONE;
+}
+
+/** Paint a comment box: a filled, framed rounded rectangle with wrapped
+ *  multi-line text clipped inside, plus eight resize handles when it is
+ *  selected.  Reads the GTK-free snapshot pn_comment_get_paint_state. */
+static void
+draw_comment_box (cairo_t *cr, PnNode *node, PnWorksheet *self)
+{
+    const PnPoint        *pos = pn_node_get_position (node);
+    PnCommentPaintState   st;
+    const double          x = pos->x, y = pos->y;
+    double                ix, iy, iw, ih;
+
+    pn_comment_get_paint_state (PN_COMMENT (node), &st);
+
+    /* Drop shadow, then the white (configured) fill and grey (configured)
+     * frame — matching how node bodies sit above the canvas. */
+    paint_drop_shadow (cr, x, y, st.width, st.height,
+                       PN_COMMENT_CORNER_RADIUS);
+
+    rounded_rect_path (cr, x, y, st.width, st.height,
+                       PN_COMMENT_CORNER_RADIUS);
+    cairo_set_source_rgba (cr, st.background_color.red,
+                           st.background_color.green,
+                           st.background_color.blue,
+                           st.background_color.alpha);
+    cairo_fill_preserve (cr);
+    cairo_set_source_rgba (cr, st.frame_color.red, st.frame_color.green,
+                           st.frame_color.blue, st.frame_color.alpha);
+    cairo_set_line_width (cr, 1.0);
+    cairo_stroke (cr);
+
+    /* Wrapped text inside the padded inner rect, top-left anchored and
+     * clipped so overflow is cropped rather than spilling out. */
+    ix = x + PN_COMMENT_PADDING;
+    iy = y + PN_COMMENT_PADDING;
+    iw = st.width  - 2.0 * PN_COMMENT_PADDING;
+    ih = st.height - 2.0 * PN_COMMENT_PADDING;
+
+    if (iw >= 1.0 && ih >= 1.0 && st.text != NULL && *st.text != '\0')
+    {
+        PangoLayout          *layout;
+        PangoFontDescription *fd;
+        double                size = st.text_size > 1.0 ? st.text_size : 1.0;
+
+        cairo_save (cr);
+        cairo_rectangle (cr, ix, iy, iw, ih);
+        cairo_clip (cr);
+
+        layout = pango_cairo_create_layout (cr);
+        fd     = pango_font_description_from_string ("Sans");
+        pango_font_description_set_absolute_size (fd, size * PANGO_SCALE);
+        pango_layout_set_font_description (layout, fd);
+        pango_font_description_free (fd);
+
+        pango_layout_set_width (layout, (int) (iw * PANGO_SCALE));
+        pango_layout_set_wrap  (layout, PANGO_WRAP_WORD_CHAR);
+        pango_layout_set_text  (layout, st.text, -1);
+
+        cairo_set_source_rgba (cr, st.text_color.red, st.text_color.green,
+                               st.text_color.blue, st.text_color.alpha);
+        cairo_move_to (cr, floor (ix + 0.5), floor (iy + 0.5));
+        pango_cairo_show_layout (cr, layout);
+        g_object_unref (layout);
+        cairo_restore (cr);
+    }
+
+    /* Resize handles when selected: small white squares with a frame-
+     * coloured outline at the eight edge / corner points. */
+    if (self != NULL && selection_contains (self, node))
+    {
+        double       cx[8], cy[8];
+        int          mask[8], i;
+        const double hs = PN_COMMENT_HANDLE_SIZE;
+
+        comment_handle_geometry (x, y, st.width, st.height, cx, cy, mask);
+        for (i = 0; i < 8; i++)
+        {
+            cairo_rectangle (cr, cx[i] - hs * 0.5, cy[i] - hs * 0.5, hs, hs);
+            cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+            cairo_fill_preserve (cr);
+            cairo_set_source_rgb (cr, st.frame_color.red,
+                                  st.frame_color.green, st.frame_color.blue);
+            cairo_set_line_width (cr, 1.0);
+            cairo_stroke (cr);
+        }
+    }
+}
+
 /** Paint a single Node-RED-style node, reading all visual attributes
  *  from a #PnNode instance.  The icon is rendered large and white
  *  inside the darker left panel, mirroring how Node-RED shows its
@@ -706,6 +865,15 @@ draw_node (
         PnNode      *node,
         PnWorksheet *self)
 {
+    /* A comment box is a chromeless annotation, not a Node-RED node: it
+     * has no icon panel, header, ports or label.  Paint it on its own and
+     * skip the whole node-chrome path below. */
+    if (PN_IS_COMMENT (node))
+    {
+        draw_comment_box (cr, node, self);
+        return;
+    }
+
     const PnPoint *pos       = pn_node_get_position   (node);
     /* PnColor is layout-identical to GdkRGBA (see pn-color.h). */
     const GdkRGBA *col       = (const GdkRGBA *) pn_node_get_color (node);
@@ -3373,6 +3541,17 @@ on_node_added_to_store (
     g_signal_connect (node, "notify::position",
                       G_CALLBACK (on_node_notify_position),
                       user_data);
+    /* A comment box is user-resizable, so its width/height change at
+     * runtime — re-measure the canvas extents on those too.  Only the
+     * comment owns these properties; the shared disconnect-by-func below
+     * unhooks every detail of on_node_notify_position at removal. */
+    if (PN_IS_COMMENT (node))
+    {
+        g_signal_connect (node, "notify::width",
+                          G_CALLBACK (on_node_notify_position), user_data);
+        g_signal_connect (node, "notify::height",
+                          G_CALLBACK (on_node_notify_position), user_data);
+    }
     g_signal_connect (node, "repaint-needed",
                       G_CALLBACK (on_node_repaint_needed),
                       user_data);
@@ -3443,6 +3622,15 @@ on_node_removed_from_store (
 
     if (self->drag_pivot == node)
         g_clear_object (&self->drag_pivot);
+
+    /* A comment deleted mid-resize: drop the borrowed ref and balance the
+     * undo freeze opened when the resize began. */
+    if (self->resize_comment == node)
+    {
+        g_clear_object (&self->resize_comment);
+        self->resize_edge = PN_RESIZE_NONE;
+        pn_flow_history_thaw (self->flow);
+    }
 
     if ((PnNode *) self->pressed_inject == node)
         g_clear_object (&self->pressed_inject);
@@ -4203,6 +4391,46 @@ show_node_popup (
 }
 
 static void
+on_canvas_menu_add_note (
+        GtkMenuItem *item,
+        gpointer     user_data)
+{
+    GtkWidget   *attached = gtk_menu_get_attach_widget (
+            GTK_MENU (gtk_widget_get_parent (GTK_WIDGET (item))));
+    PnWorksheet *self;
+    PnComment   *comment;
+    PnNode      *node;
+    PnPoint      pos;
+
+    (void) user_data;
+    if (attached == NULL || !PN_IS_WORKSHEET (attached))
+        return;
+
+    self    = PN_WORKSHEET (attached);
+    comment = pn_comment_new ();
+    node    = PN_NODE (comment);
+
+    /* Place the box with its top-left at the right-click point (the
+     * world-coords stashed by show_canvas_popup), snapped to the grid. */
+    pos.x = snap_to_grid (self->paste_target_x);
+    pos.y = snap_to_grid (self->paste_target_y);
+    pn_node_set_position (node, &pos);
+
+    if (self->sheet_name != NULL)
+        pn_node_set_worksheet (node, self->sheet_name);
+
+    pn_flow_add_node (self->flow, node);
+
+    /* Select the fresh note so its resize handles show immediately and a
+     * double-click straight away edits its text. */
+    selection_clear (self);
+    selection_add   (self, node);
+
+    g_object_unref (comment);
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+static void
 on_canvas_menu_paste (
         GtkMenuItem *item,
         gpointer     user_data)
@@ -4235,11 +4463,14 @@ show_canvas_popup (
     GtkWidget *cut   = make_icon_menu_item ("edit-cut",   "Cut");
     GtkWidget *copy  = make_icon_menu_item ("edit-copy",  "Copy");
     GtkWidget *paste = make_icon_menu_item ("edit-paste", "Paste");
+    GtkWidget *sep   = gtk_separator_menu_item_new ();
+    GtkWidget *note  = make_icon_menu_item ("insert-text", "Add note");
 
     gtk_menu_attach_to_widget (GTK_MENU (menu), GTK_WIDGET (self), NULL);
 
-    /* Stash the world-coords paste target on the worksheet so the
-     * Paste handler doesn't need to thread it through user_data. */
+    /* Stash the world-coords paste / insert target on the worksheet so the
+     * Paste and Add-note handlers don't need to thread it through
+     * user_data. */
     self->paste_target_x = wx;
     self->paste_target_y = wy;
 
@@ -4248,10 +4479,14 @@ show_canvas_popup (
 
     g_signal_connect (paste, "activate",
                       G_CALLBACK (on_canvas_menu_paste), NULL);
+    g_signal_connect (note, "activate",
+                      G_CALLBACK (on_canvas_menu_add_note), NULL);
 
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), cut);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), copy);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), paste);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), sep);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), note);
     gtk_widget_show_all (menu);
 
     gtk_menu_popup_at_pointer (GTK_MENU (menu), (GdkEvent *) event);
@@ -4561,6 +4796,20 @@ drag_end (PnWorksheet *self)
      * freeze it never took. */
     if (was_active)
         pn_flow_history_thaw (self->flow);
+}
+
+/** End a comment-box resize, thawing the undo span opened when it began
+ *  so the whole drag coalesces into one step.  A no-op when no resize is
+ *  in progress, so it is safe to call on every button release. */
+static void
+resize_end (PnWorksheet *self)
+{
+    if (self->resize_comment == NULL)
+        return;
+
+    g_clear_object (&self->resize_comment);
+    self->resize_edge = PN_RESIZE_NONE;
+    pn_flow_history_thaw (self->flow);
 }
 
 /** Normalise a marquee rectangle so x0/y0 is the top-left corner and
@@ -5253,6 +5502,48 @@ on_button_press (
         }
     }
 
+    /* Comment-box resize: a press on a selected comment's handle starts a
+     * resize drag instead of selecting / moving.  Search front-to-back so
+     * the topmost selected comment wins; only selected comments draw
+     * handles, so only those are resizable. */
+    {
+        const guint count = pn_node_store_get_length (self->nodes);
+        gint        i;
+
+        for (i = (gint) count - 1; i >= 0; i--)
+        {
+            PnNode *n = pn_node_store_get_node (self->nodes, (guint) i);
+            int     edge;
+
+            if (!PN_IS_COMMENT (n) || !node_on_sheet (self, n)
+                || !selection_contains (self, n))
+                continue;
+
+            edge = hit_test_comment_handle (PN_COMMENT (n), wx, wy);
+            if (edge == PN_RESIZE_NONE)
+                continue;
+
+            {
+                const PnPoint *p = pn_node_get_position (n);
+                double         w, h;
+
+                pn_node_get_size (n, &w, &h);
+                g_clear_object (&self->resize_comment);
+                self->resize_comment  = g_object_ref (n);
+                self->resize_edge     = edge;
+                self->resize_press_x  = wx;
+                self->resize_press_y  = wy;
+                self->resize_anchor_x = p->x;
+                self->resize_anchor_y = p->y;
+                self->resize_anchor_w = w;
+                self->resize_anchor_h = h;
+                /* Coalesce the whole resize into one undo step. */
+                pn_flow_history_freeze (self->flow);
+            }
+            return GDK_EVENT_STOP;
+        }
+    }
+
     body_hit = hit_test_node (self, wx, wy);
     if (body_hit == NULL)
     {
@@ -5381,6 +5672,62 @@ on_motion_notify (
         return GDK_EVENT_STOP;
     }
 
+    /* Comment-box resize drag: recompute the box geometry from the
+     * anchor (its footprint at press) plus the pointer delta.  The
+     * dragged edge moves; the opposite edge stays put.  Left / top edges
+     * also move the box origin.  Everything is grid-snapped and clamped
+     * to the minimum size. */
+    if (self->resize_comment != NULL)
+    {
+        const int    edge = self->resize_edge;
+        const double dx   = wx - self->resize_press_x;
+        const double dy   = wy - self->resize_press_y;
+        const double ax   = self->resize_anchor_x;
+        const double ay   = self->resize_anchor_y;
+        const double aw   = self->resize_anchor_w;
+        const double ah   = self->resize_anchor_h;
+        double       nx = ax, ny = ay, nw = aw, nh = ah;
+        PnComment   *comment = PN_COMMENT (self->resize_comment);
+        PnPoint      pos;
+
+        if (edge & PN_RESIZE_RIGHT)
+            nw = snap_to_grid (ax + aw + dx) - ax;
+        if (edge & PN_RESIZE_BOTTOM)
+            nh = snap_to_grid (ay + ah + dy) - ay;
+        if (edge & PN_RESIZE_LEFT)
+        {
+            nx = snap_to_grid (ax + dx);
+            nw = (ax + aw) - nx;
+        }
+        if (edge & PN_RESIZE_TOP)
+        {
+            ny = snap_to_grid (ay + dy);
+            nh = (ay + ah) - ny;
+        }
+
+        /* Clamp to the minimum size; a shrunk left/top edge stops at the
+         * fixed opposite edge rather than crossing it. */
+        if (nw < PN_COMMENT_MIN_WIDTH)
+        {
+            if (edge & PN_RESIZE_LEFT)
+                nx = (ax + aw) - PN_COMMENT_MIN_WIDTH;
+            nw = PN_COMMENT_MIN_WIDTH;
+        }
+        if (nh < PN_COMMENT_MIN_HEIGHT)
+        {
+            if (edge & PN_RESIZE_TOP)
+                ny = (ay + ah) - PN_COMMENT_MIN_HEIGHT;
+            nh = PN_COMMENT_MIN_HEIGHT;
+        }
+
+        pos.x = nx;
+        pos.y = ny;
+        pn_node_set_position (PN_NODE (comment), &pos);
+        pn_comment_set_size (comment, nw, nh);
+        gtk_widget_queue_draw (widget);
+        return GDK_EVENT_STOP;
+    }
+
     if (self->wire_source != NULL || self->wire_dest != NULL)
     {
         self->wire_cursor_x = wx;
@@ -5489,6 +5836,14 @@ on_button_release (
     if (self->osc_drag)
     {
         self->osc_drag = FALSE;
+        return GDK_EVENT_STOP;
+    }
+
+    /* End a comment-box resize: close the coalesced undo span. */
+    if (self->resize_comment != NULL)
+    {
+        resize_end (self);
+        gtk_widget_queue_draw (widget);
         return GDK_EVENT_STOP;
     }
 
@@ -6351,6 +6706,7 @@ pn_worksheet_finalize (GObject *object)
     PnWorksheet *self = PN_WORKSHEET (object);
 
     g_clear_object  (&self->drag_pivot);
+    g_clear_object  (&self->resize_comment);
     g_clear_object  (&self->drag_preview_node);
     g_clear_object  (&self->wire_source);
     g_clear_object  (&self->wire_dest);
