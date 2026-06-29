@@ -141,6 +141,28 @@ test_choices (void)
     pn_settings_schema_unref (s);
 }
 
+/* A named source language is stored on the row, defaults to NULL (the
+ * renderer's "json" fallback), and implies a code editor for an AUTO row. */
+static void
+test_code_language (void)
+{
+    PnSettingsSchema *s = pn_settings_schema_new ();
+
+    /* No language set → NULL (renderer falls back to "json"). */
+    pn_settings_schema_row (s, "template", PN_EDITOR_CODE);
+    PN_CHECK (pn_settings_schema_row_code_language (s, 0, 0) == NULL);
+
+    /* Naming a language on an AUTO row promotes it to a code editor. */
+    pn_settings_schema_row           (s, "body", PN_EDITOR_AUTO);
+    pn_settings_schema_code_language (s, "body", "sh");
+    PN_CHECK_CMPINT (pn_settings_schema_row_kind (s, 0, 1),
+                     ==, PN_EDITOR_CODE);
+    PN_CHECK_CMPSTR (pn_settings_schema_row_code_language (s, 0, 1),
+                     ==, "sh");
+
+    pn_settings_schema_unref (s);
+}
+
 static void
 test_flags (void)
 {
@@ -290,6 +312,7 @@ main (int argc, char **argv)
     pn_test_add ("default_tab",    test_default_tab);
     pn_test_add ("named_tabs",     test_named_tabs);
     pn_test_add ("choices",        test_choices);
+    pn_test_add ("code_language",  test_code_language);
     pn_test_add ("flags",          test_flags);
     pn_test_add ("conditions",     test_conditions);
     pn_test_add ("out_of_range",   test_out_of_range);

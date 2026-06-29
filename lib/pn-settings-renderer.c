@@ -180,17 +180,22 @@ build_multiline_editor (GObject    *target,
 /* ------------------------------------------------------------------ */
 
 static GtkWidget *
-build_code_editor (GObject    *target,
-                   GParamSpec *pspec)
+build_code_editor (GObject     *target,
+                   GParamSpec  *pspec,
+                   const gchar *language)
 {
     const gchar              *name     = pspec->name;
     gboolean                  writable = (pspec->flags & G_PARAM_WRITABLE) != 0;
     GtkSourceLanguageManager *langs    =
             gtk_source_language_manager_get_default ();
-    GtkSourceLanguage        *json     =
-            gtk_source_language_manager_get_language (langs, "json");
+    /* The schema may name a language (e.g. "sh" for a shell script); fall
+     * back to JSON, the original behaviour the Rewrite node relies on. */
+    GtkSourceLanguage        *lang     =
+            gtk_source_language_manager_get_language (
+                    langs, (language != NULL && *language != '\0')
+                           ? language : "json");
     GtkSourceBuffer          *buffer   =
-            gtk_source_buffer_new_with_language (json);
+            gtk_source_buffer_new_with_language (lang);
     GtkWidget                *view;
     GtkWidget                *scrolled = gtk_scrolled_window_new (NULL, NULL);
     PnTextBinding            *bind;
@@ -549,6 +554,7 @@ build_row_editor (GObject            *target,
                   GParamSpec         *pspec,
                   PnEditorKind        kind,
                   const gchar *const *choices,
+                  const gchar        *code_language,
                   PnRowFlags          flags,
                   const gchar        *when_prop,
                   const gchar        *when_value)
@@ -567,7 +573,7 @@ build_row_editor (GObject            *target,
         editor = build_multiline_editor (target, pspec);
         break;
     case PN_EDITOR_CODE:
-        editor = build_code_editor (target, pspec);
+        editor = build_code_editor (target, pspec, code_language);
         break;
     case PN_EDITOR_COMBO:
         editor = (choices != NULL)
@@ -664,11 +670,12 @@ pn_settings_render_editor (GObject          *target,
     {
         return build_row_editor (
                 target, pspec,
-                pn_settings_schema_row_kind       (schema, tab, row),
-                pn_settings_schema_row_choices    (schema, tab, row),
-                pn_settings_schema_row_get_flags  (schema, tab, row),
-                pn_settings_schema_row_when_prop  (schema, tab, row),
-                pn_settings_schema_row_when_value (schema, tab, row));
+                pn_settings_schema_row_kind          (schema, tab, row),
+                pn_settings_schema_row_choices       (schema, tab, row),
+                pn_settings_schema_row_code_language (schema, tab, row),
+                pn_settings_schema_row_get_flags     (schema, tab, row),
+                pn_settings_schema_row_when_prop     (schema, tab, row),
+                pn_settings_schema_row_when_value    (schema, tab, row));
     }
 
     /* No schema, or no row for this property: exactly the default. */
@@ -716,11 +723,12 @@ build_tab_grid (PnSettingsSchema *schema,
 
         editor = build_row_editor (
                 G_OBJECT (node), pspec,
-                pn_settings_schema_row_kind       (schema, tab, r),
-                pn_settings_schema_row_choices    (schema, tab, r),
+                pn_settings_schema_row_kind          (schema, tab, r),
+                pn_settings_schema_row_choices       (schema, tab, r),
+                pn_settings_schema_row_code_language (schema, tab, r),
                 flags,
-                pn_settings_schema_row_when_prop  (schema, tab, r),
-                pn_settings_schema_row_when_value (schema, tab, r));
+                pn_settings_schema_row_when_prop     (schema, tab, r),
+                pn_settings_schema_row_when_value    (schema, tab, r));
 
         if ((flags & PN_ROW_FLAG_FULL_WIDTH) != 0)
         {

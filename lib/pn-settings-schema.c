@@ -32,6 +32,8 @@ typedef struct
     gchar       **choices;     /* NULL-terminated, owned, or NULL        */
     gchar        *when_prop;   /* controller property, or NULL           */
     gchar        *when_value;  /* equality target, or NULL == truthy     */
+    gchar        *code_lang;   /* GtkSourceView language id for a         */
+                               /* PN_EDITOR_CODE row, or NULL == "json"   */
 } PnSchemaRow;
 
 typedef struct
@@ -58,6 +60,7 @@ schema_row_free (PnSchemaRow *row)
     g_strfreev (row->choices);
     g_free (row->when_prop);
     g_free (row->when_value);
+    g_free (row->code_lang);
     g_free (row);
 }
 
@@ -236,6 +239,31 @@ pn_settings_schema_choices (PnSettingsSchema   *self,
     /* An explicit choice list implies a combo. */
     if (row->kind == PN_EDITOR_AUTO)
         row->kind = PN_EDITOR_COMBO;
+}
+
+void
+pn_settings_schema_code_language (PnSettingsSchema *self,
+                                  const gchar      *prop,
+                                  const gchar      *language)
+{
+    PnSchemaRow *row;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (prop != NULL);
+
+    row = schema_find_row (self, prop);
+    if (row == NULL)
+    {
+        g_warning ("pn_settings_schema_code_language: no row for "
+                   "property '%s'", prop);
+        return;
+    }
+
+    g_free (row->code_lang);
+    row->code_lang = g_strdup (language);
+    /* Naming a source language implies a code editor. */
+    if (row->kind == PN_EDITOR_AUTO)
+        row->kind = PN_EDITOR_CODE;
 }
 
 void
@@ -495,6 +523,15 @@ pn_settings_schema_row_choices (PnSettingsSchema *self,
 {
     PnSchemaRow *r = schema_row_at (self, tab, row);
     return r != NULL ? (const gchar *const *) r->choices : NULL;
+}
+
+const gchar *
+pn_settings_schema_row_code_language (PnSettingsSchema *self,
+                                      guint             tab,
+                                      guint             row)
+{
+    PnSchemaRow *r = schema_row_at (self, tab, row);
+    return r != NULL ? r->code_lang : NULL;
 }
 
 const gchar *

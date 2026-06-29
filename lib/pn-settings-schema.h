@@ -167,6 +167,24 @@ void pn_settings_schema_choices (PnSettingsSchema   *self,
                                  const gchar *const *choices);
 
 /**
+ * pn_settings_schema_code_language:
+ * @self:     a schema
+ * @prop:     the property a previous pn_settings_schema_row() added
+ * @language: (nullable): a GtkSourceView language id (e.g. "sh", "json",
+ *            "python"), or %NULL to fall back to the default ("json")
+ *
+ * Set the syntax-highlighting language for @prop's %PN_EDITOR_CODE editor.
+ * Naming a language on an as-yet %PN_EDITOR_AUTO row also forces it to a
+ * code editor, mirroring how pn_settings_schema_choices() implies a combo.
+ * The id is resolved against the GtkSourceView language manager at render
+ * time; an unknown id simply yields no highlighting.  Purely a GTK-free
+ * hint stored on the row — the renderer in the GUI tier reads it back.
+ */
+void pn_settings_schema_code_language (PnSettingsSchema *self,
+                                       const gchar      *prop,
+                                       const gchar      *language);
+
+/**
  * pn_settings_schema_row_flags:
  * @self:  a schema
  * @prop:  the property a previous pn_settings_schema_row() added
@@ -267,6 +285,11 @@ PnRowFlags          pn_settings_schema_row_get_flags   (PnSettingsSchema *self,
 const gchar *const *pn_settings_schema_row_choices     (PnSettingsSchema *self,
                                                         guint             tab,
                                                         guint             row);
+/* The PN_EDITOR_CODE source language for the row, or %NULL for the
+ * renderer's default ("json"). */
+const gchar        *pn_settings_schema_row_code_language (PnSettingsSchema *self,
+                                                          guint             tab,
+                                                          guint             row);
 const gchar        *pn_settings_schema_row_when_prop   (PnSettingsSchema *self,
                                                         guint             tab,
                                                         guint             row);
