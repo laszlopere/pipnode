@@ -13,8 +13,8 @@
       },
       "properties" : {
         "period" : 2,
-        "hostname" : "mini02",
-        "auth-profile" : ""
+        "auth-profile" : "",
+        "hostname" : "mini02"
       }
     },
     {
@@ -125,9 +125,9 @@
       },
       "properties" : {
         "period" : 5,
+        "auth-profile" : "",
         "hostname" : "mini02",
-        "aggregation" : "maximum",
-        "auth-profile" : ""
+        "aggregation" : "maximum"
       }
     },
     {
@@ -141,9 +141,9 @@
       },
       "properties" : {
         "period" : 5,
+        "auth-profile" : "",
         "hostname" : "",
-        "aggregation" : "average",
-        "auth-profile" : ""
+        "aggregation" : "average"
       }
     },
     {
@@ -179,6 +179,21 @@
         "yellow-color" : "rgba(242,204,38,0.85)",
         "red-color" : "rgba(217,51,38,0.85)"
       }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "4edf232b-aa97-44a6-8d42-c848f315c412",
+      "name" : "mini05 Load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "period" : 2,
+        "auth-profile" : "@none",
+        "hostname" : "mini05"
+      }
     }
   ],
   "connections" : [
@@ -201,6 +216,14 @@
     {
       "source_id" : "acff7b03-8dc3-4dc7-b569-2ce932348863",
       "target_id" : "004af386-283c-41be-b08d-b412cc9a7233"
+    },
+    {
+      "source_id" : "4edf232b-aa97-44a6-8d42-c848f315c412",
+      "target_id" : "19c18bb0-76cf-4442-acd9-64b83bf36f2e"
+    },
+    {
+      "source_id" : "4edf232b-aa97-44a6-8d42-c848f315c412",
+      "target_id" : "b6c25f8f-3c51-44c9-a34b-addb51386f0a"
     }
   ],
   "sheets" : [
