@@ -23,7 +23,7 @@
       "name" : "Graph 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 200.0,
+        "x" : 220.0,
         "y" : 100.0
       },
       "properties" : {
@@ -47,7 +47,7 @@
       "name" : "Graph 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 200.0,
+        "x" : 220.0,
         "y" : 340.0
       },
       "properties" : {
@@ -72,7 +72,7 @@
       "worksheet" : "Worksheet",
       "disabled" : true,
       "position" : {
-        "x" : 800.0,
+        "x" : 960.0,
         "y" : 20.0
       },
       "properties" : {
@@ -86,7 +86,7 @@
       "name" : "CPU",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 520.0,
+        "x" : 680.0,
         "y" : 100.0
       },
       "properties" : {
@@ -120,7 +120,7 @@
       "name" : "CPU Temp.",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 340.0,
+        "x" : 540.0,
         "y" : 20.0
       },
       "properties" : {
@@ -136,7 +136,7 @@
       "name" : "Ambient Temperature 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 600.0,
+        "x" : 760.0,
         "y" : 20.0
       },
       "properties" : {
@@ -152,7 +152,7 @@
       "name" : "Ambient",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 780.0,
+        "x" : 940.0,
         "y" : 100.0
       },
       "properties" : {
@@ -194,6 +194,30 @@
         "auth-profile" : "@none",
         "hostname" : "mini05"
       }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "8959959b-aa89-44d3-868b-ad392119b310",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 600.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "x-buckets" : 200,
+        "data-view" : "Time series",
+        "draw-style" : "Lines",
+        "line-color" : "rgb(129,61,156)",
+        "line-width" : 1,
+        "axis-color" : "rgb(154,153,150)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : false
+      }
     }
   ],
   "connections" : [
@@ -224,6 +248,10 @@
     {
       "source_id" : "4edf232b-aa97-44a6-8d42-c848f315c412",
       "target_id" : "b6c25f8f-3c51-44c9-a34b-addb51386f0a"
+    },
+    {
+      "source_id" : "4edf232b-aa97-44a6-8d42-c848f315c412",
+      "target_id" : "8959959b-aa89-44d3-868b-ad392119b310"
     }
   ],
   "sheets" : [
