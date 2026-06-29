@@ -25,6 +25,8 @@ pipnode_shell_la_SOURCES = \
 	pn-shell-host.h \
 	pn-shell-command.c \
 	pn-shell-command.h \
+	pn-shell-script.c \
+	pn-shell-script.h \
 	pn-free-command.c \
 	pn-free-command.h \
 	pn-df-command.c \
@@ -75,6 +77,7 @@ pipnode_shell_gui_la_LIBADD = \
 pnhelpdir = $(pkgdatadir)/help
 pnhelp_DATA = \
 	help/PnShellCommand.html \
+	help/PnShellScript.html \
 	help/PnFreeCommand.html \
 	help/PnDfCommand.html \
 	help/PnLxcLsCommand.html \

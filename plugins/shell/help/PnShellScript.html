@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shell Script (PnShellScript) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnShellScript">Shell Script</h4>
+<p>
+<em>Group:</em> Shell. <em>Type:</em> <code>PnShellScript</code>.
+</p>
+<p>
+The multi-line sibling of
+<a href="PnShellCommand.html"><em>Shell&nbsp;Command</em></a>:
+an auto-triggered runner that executes a whole shell <em>script</em>
+every <code>period</code> seconds and emits one message per run on its
+output port. Runtime behaviour is identical to Shell&nbsp;Command &mdash;
+the script is fed to <code>/bin/sh -c</code> on a worker thread so the
+GUI never blocks on a slow run, and functions, loops, here-documents,
+pipes, redirections and shell variable expansion all work as they would
+in a saved <code>.sh</code> file. The only difference is the editor: the
+settings dialog presents the body in a full-width <em>GtkSourceView</em>
+code editor with <code>sh</code> syntax highlighting, line numbers and
+bracket matching, so a longer script reads and edits comfortably.
+</p>
+<p>
+The emitted message carries:
+</p>
+<ul>
+  <li><code>data.success</code> &mdash; <code>true</code> when the
+      script exited with status&nbsp;0, <code>false</code>
+      otherwise.</li>
+  <li><code>data.output</code> &mdash; the combined stdout and
+      stderr of the run, verbatim. JSON serialisation of the message
+      escapes embedded newlines as the standard <code>\n</code>
+      sequence on its own, so the value survives transport as one
+      logical string; a downstream <em>Debug Print</em> node in
+      <em>text</em> mode renders multi-line output across multiple
+      lines.</li>
+</ul>
+<p>
+While <code>shell-script</code> is empty the node turns red, shows a
+warning glyph, and skips its triggers entirely.
+</p>
+<p>
+The script may embed the node variables <code>${nodeclass}</code>,
+<code>${nodename}</code>, and <code>${hostname}</code>, which Pipnode
+substitutes before the script runs. Any other <code>${...}</code> is
+left untouched, so ordinary shell variables such as <code>${HOME}</code>
+are still expanded by the shell itself.
+</p>
+<p>
+The remote login defaults to your ambient SSH setup: the local desktop
+account and whatever key your <code>ssh-agent</code> or <code>~/.ssh</code>
+already provides, trusting the host key on first sight. To reach the host as
+a different account, on a non-standard port, with a specific identity file,
+or under a stricter host-key policy, attach an
+<a href="SshProfile.html"><em>SSH&nbsp;Login</em></a> credential from the
+node's <em>SSH&nbsp;Login</em> picker (the <code>auth-profile</code>
+property). The credential says <em>how</em> to log in; the
+<code>host</code> field still says <em>where</em>. With none selected
+the node keeps the original passwordless-SSH behaviour.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>shell-script</code></td>
+      <td>Multi-line shell script to execute. Required. Edited in a
+          code editor with <code>sh</code> highlighting.
+          <code>${nodeclass}</code> / <code>${nodename}</code> /
+          <code>${hostname}</code> are substituted; any other
+          <code>${...}</code> is left for the shell.</td></tr>
+  <tr><td><code>host</code></td>
+      <td>Where to run the script.  Default: the empty string &mdash;
+          the local machine, whose name appears as a grey hint in the
+          settings entry.  An empty value, <code>localhost</code>,
+          <code>127.0.0.1</code> and <code>::1</code> all run locally
+          (clearing the field leaves it empty rather than reverting to
+          <code>localhost</code>).  Any other value (a hostname
+          or <code>user@host</code>) routes the run through
+          <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
+          working passwordless key for that host is required since
+          BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between executions.</td></tr>
+  <tr><td><code>auth-profile</code></td>
+      <td>Optional <a href="SshProfile.html"><em>SSH&nbsp;Login</em></a>
+          credential supplying the remote account, port, identity file and
+          host-key policy. Empty (the default) follows the primary
+          SSH&nbsp;Login profile, or &mdash; when none is configured &mdash;
+          the node's ambient-key behaviour. Stored in the host vault, never
+          in the worksheet file. Separate from <code>host</code>, which
+          still selects <em>where</em> to connect.</td></tr>
+</table>
+
+</body>
+</html>

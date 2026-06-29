@@ -35,6 +35,7 @@
 #include "pn-plugin.h"
 
 #include "pn-shell-command.h"
+#include "pn-shell-script.h"
 #include "pn-free-command.h"
 #include "pn-df-command.h"
 #include "pn-lxc-ls-command.h"
@@ -46,9 +47,11 @@ pn_plugin_init (PnNodeFactory *factory)
     static const PnPluginInfo info = {
         .abi_version = PN_PLUGIN_ABI_VERSION,
         .name        = "pipnode-shell",
-        .version     = "1.5.0",
+        .version     = "1.6.0",
         .description = "Bundled shell nodes: Shell Command (periodic "
-                       "one-line shell command runner), Free Command "
+                       "one-line shell command runner), Shell Script "
+                       "(the same for a multi-line script, edited in a "
+                       "GtkSourceView code editor), Free Command "
                        "(periodic `free` runner emitting a parsed table), "
                        "Df Command (the same for `df`), Lxc Ls Command "
                        "(the same for `sudo lxc-ls -f`) and Tmux Monitor "
@@ -62,6 +65,7 @@ pn_plugin_init (PnNodeFactory *factory)
     };
 
     pn_node_factory_register (factory, PN_TYPE_SHELL_COMMAND);
+    pn_node_factory_register (factory, PN_TYPE_SHELL_SCRIPT);
     pn_node_factory_register (factory, PN_TYPE_FREE_COMMAND);
     pn_node_factory_register (factory, PN_TYPE_DF_COMMAND);
     pn_node_factory_register (factory, PN_TYPE_LXC_LS_COMMAND);

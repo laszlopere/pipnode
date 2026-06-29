@@ -1,6 +1,6 @@
 # Shell (bundled plugin)
 
-Nodes from the in-tree **`plugins/shell`** plugin (logic module `pipnode_shell.so`). Unlike the rest of pipnode's nodes, these **deliberately spawn external programs**: each one is a periodic `PnAutoTrigger` source that shells out via `g_spawn_sync()` on a background worker thread and reshapes the captured stdout/stderr into a `PnMessage`. This is the documented exception to the project's "pure C, no helper subprocesses" rule — the whole *point* of these nodes is to run real CLI tools (`df`, `free`, `lxc-ls`, `tmux`, or an arbitrary one-liner), so there is no protocol to port into C. All five register in `pn-shell-plugin.c:64-68`.
+Nodes from the in-tree **`plugins/shell`** plugin (logic module `pipnode_shell.so`). Unlike the rest of pipnode's nodes, these **deliberately spawn external programs**: each one is a periodic `PnAutoTrigger` source that shells out via `g_spawn_sync()` on a background worker thread and reshapes the captured stdout/stderr into a `PnMessage`. This is the documented exception to the project's "pure C, no helper subprocesses" rule — the whole *point* of these nodes is to run real CLI tools (`df`, `free`, `lxc-ls`, `tmux`, or an arbitrary command/script), so there is no protocol to port into C. All six register in `pn-shell-plugin.c` (`pn_plugin_init`).
 
 Common shape across all five:
 - **Base class** — every node subclasses core **`PnAutoTrigger`**, inheriting the background worker thread plus `period` (uint seconds, 1–3600) and `autostart` (bool, CONSTRUCT_ONLY, default TRUE). Default `period` is **5 s** for all five (`PN_*_DEFAULT_PERIOD`).
@@ -23,6 +23,18 @@ Common shape across all five:
 - inherited `period` (default **5 s**, `:28`) and `autostart`.
 **Emits / consumes** — Timer-driven source (no input). Each tick spawns **`/bin/sh -c <command>` locally** (so pipes/redirections/`$VAR` work without tokenising), or remote: the command string is handed to ssh as one argv element so the *remote* login shell interprets it (`:198-211`, spawn `:215`). `${nodeclass}`/`${nodename}`/`${hostname}` are interpolated first via `pn_node_expand_vars` (`:189`); other `${…}` is left for the shell. Writes only **`data.success`** (exit status == 0) and **`data.output`** (stdout+stderr concatenated) (`:238-240`). **Writes no `data.value`.**
 **Gotchas** — **This node executes arbitrary shell code** by design — `/bin/sh -c` on whatever string is configured, on a 5 s timer, with the user's full privileges (and on the remote host's shell when routed via ssh). Treat the `shell-command` field as code, not data. Spawn failures (e.g. ssh down) land the error text in `output` with `success=FALSE`. fa-terminal icon (U+F120).
+
+## Shell Script
+**Purpose** — The multi-line sibling of Shell Command: every `period` seconds it spawns one user-supplied **shell script** and emits the combined output. `PnAutoTrigger` subclass (`pn-shell-script.c`); trigger spawns `/bin/sh -c <script>`.
+**When to use** — Same as Shell Command, but when the body is a whole script (functions, loops, here-docs, multiple statements) rather than a one-liner. Reach for this when you want to author/edit the body comfortably in a code editor instead of a single-line entry.
+**Ports** — `has_input=FALSE`, `has_output=TRUE`.
+**Settings** —
+- `shell-script` (string, default `NULL`/empty) — the multi-line script. While empty the node is red "configuration required" and **emits nothing**. **Edited in a full-width GtkSourceView code editor with `sh` syntax highlighting** (line numbers, bracket matching) on a tab named "Shell Script" — declared via the GTK-free `PnSettingsSchema` (`PN_EDITOR_CODE` + the per-row code-language hint `pn_settings_schema_code_language(...,"sh")`), so the node has **no GUI companion** and still runs headless under `pipnode-run`. This is the same declarative-editor pattern the core Rewrite node uses, generalised so the editor's highlight language is configurable (Rewrite stays `json`).
+- `host` (string, default `""`) — local, or remote via ssh, identical to Shell Command (hostname hint, `BatchMode=yes`, ssh-as-single-argv so the *remote* login shell interprets the script).
+- `auth-profile` — optional SSH Login credential (item 47.4), same as Shell Command.
+- inherited `period` (default **5 s**) / `autostart`.
+**Emits / consumes** — Timer-driven source (no input). Each tick spawns `/bin/sh -c <script>` locally (or hands the script to the remote shell over ssh). `${nodeclass}`/`${nodename}`/`${hostname}` are interpolated first via `pn_node_expand_vars`; other `${…}` is left for the shell. Writes only **`data.success`** (exit status == 0) and **`data.output`** (stdout+stderr concatenated). **Writes no `data.value`.** Logically identical to Shell Command — the only differences are cosmetic (own icon `fa-file-code-o` U+F1C9 / palette name) and the code-editor dialog.
+**Gotchas** — Same as Shell Command: **executes arbitrary shell code** by design with the user's full privileges on a timer; treat the `shell-script` field as code. Spawn failures land the error text in `output` with `success=FALSE`.
 
 ## Df Command
 **Purpose** — Periodic `df` runner that also pre-parses the output into a structured table. `PnAutoTrigger` subclass (`pn-df-command.c:59`); trigger `:361`, table builder `:216`.
