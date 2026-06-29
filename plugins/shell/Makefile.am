@@ -23,6 +23,8 @@ pipnode_shell_la_SOURCES = \
 	pn-shell-plugin.c \
 	pn-shell-host.c \
 	pn-shell-host.h \
+	pn-shell-output.c \
+	pn-shell-output.h \
 	pn-shell-command.c \
 	pn-shell-command.h \
 	pn-shell-script.c \

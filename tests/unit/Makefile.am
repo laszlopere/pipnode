@@ -156,6 +156,7 @@ check_PROGRAMS = \
 	test-pn-https-tunnel-receiver \
 	test-pn-shell-command \
 	test-pn-shell-script \
+	test-pn-shell-output \
 	test-pn-tmux-monitor \
 	test-pn-sci-fi-sound \
 	test-pn-matrix57 \
@@ -398,9 +399,17 @@ test_pn_ollama_SOURCES        = test-pn-ollama.c        pntest.c pntest.h \
 # shell-plugin nodes: compile the node .c plus pn-shell-host.c (argv wrap).
 test_pn_shell_command_SOURCES = test-pn-shell-command.c pntest.c pntest.h \
 	$(top_srcdir)/plugins/shell/pn-shell-command.c \
-	$(top_srcdir)/plugins/shell/pn-shell-host.c
+	$(top_srcdir)/plugins/shell/pn-shell-host.c \
+	$(top_srcdir)/plugins/shell/pn-shell-output.c
 test_pn_shell_script_SOURCES  = test-pn-shell-script.c  pntest.c pntest.h \
 	$(top_srcdir)/plugins/shell/pn-shell-script.c \
+	$(top_srcdir)/plugins/shell/pn-shell-host.c \
+	$(top_srcdir)/plugins/shell/pn-shell-output.c
+# output-shaping helper: needs a PnNode to source a message, so it pulls
+# the shell-command node (+ its host helper) in alongside the helper.
+test_pn_shell_output_SOURCES  = test-pn-shell-output.c  pntest.c pntest.h \
+	$(top_srcdir)/plugins/shell/pn-shell-output.c \
+	$(top_srcdir)/plugins/shell/pn-shell-command.c \
 	$(top_srcdir)/plugins/shell/pn-shell-host.c
 test_pn_tmux_monitor_SOURCES  = test-pn-tmux-monitor.c  pntest.c pntest.h \
 	$(top_srcdir)/plugins/shell/pn-tmux-monitor.c \

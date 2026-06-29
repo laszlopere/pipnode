@@ -38,6 +38,7 @@
 #include "pn-node.h"
 #include "pn-shell-command.h"
 #include "pn-shell-host.h"
+#include "pn-shell-output.h"
 
 /* ---- host classification (pure helper) --------------------------- */
 
@@ -192,6 +193,23 @@ test_is_a_source (void)
 }
 
 static void
+test_output_format_round_trip (void)
+{
+    PnShellCommand     *cmd = pn_shell_command_new ();
+    PnShellOutputFormat fmt;
+
+    /* Defaults to Text (the historical behaviour). */
+    g_object_get (cmd, "output-format", &fmt, NULL);
+    PN_CHECK_CMPINT (fmt, ==, PN_SHELL_OUTPUT_TEXT);
+
+    g_object_set (cmd, "output-format", PN_SHELL_OUTPUT_JSON, NULL);
+    g_object_get (cmd, "output-format", &fmt, NULL);
+    PN_CHECK_CMPINT (fmt, ==, PN_SHELL_OUTPUT_JSON);
+
+    g_object_unref (cmd);
+}
+
+static void
 test_expand_vars (void)
 {
     /* The trigger runs the command through pn_node_expand_vars before
@@ -230,6 +248,7 @@ main (int argc, char **argv)
     pn_test_add ("command_round_trip",  test_command_round_trip);
     pn_test_add ("has_error_gate",      test_has_error_gate);
     pn_test_add ("is_a_source",         test_is_a_source);
+    pn_test_add ("output_format_round_trip", test_output_format_round_trip);
     pn_test_add ("expand_vars",         test_expand_vars);
     return pn_test_run ();
 }

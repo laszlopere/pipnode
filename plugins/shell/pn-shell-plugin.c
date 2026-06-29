@@ -47,11 +47,13 @@ pn_plugin_init (PnNodeFactory *factory)
     static const PnPluginInfo info = {
         .abi_version = PN_PLUGIN_ABI_VERSION,
         .name        = "pipnode-shell",
-        .version     = "1.6.0",
+        .version     = "1.7.0",
         .description = "Bundled shell nodes: Shell Command (periodic "
                        "one-line shell command runner), Shell Script "
                        "(the same for a multi-line script, edited in a "
-                       "GtkSourceView code editor), Free Command "
+                       "GtkSourceView code editor; both can parse their "
+                       "stdout as JSON into the message via output-format), "
+                       "Free Command "
                        "(periodic `free` runner emitting a parsed table), "
                        "Df Command (the same for `df`), Lxc Ls Command "
                        "(the same for `sudo lxc-ls -f`) and Tmux Monitor "

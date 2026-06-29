@@ -37,6 +37,7 @@
 #include "pntest.h"
 #include "pn-node.h"
 #include "pn-settings-schema.h"
+#include "pn-shell-output.h"
 #include "pn-shell-script.h"
 
 /* ---- properties -------------------------------------------------- */
@@ -151,15 +152,32 @@ test_expand_vars (void)
     g_object_unref (s);
 }
 
+static void
+test_output_format_round_trip (void)
+{
+    PnShellScript      *s   = pn_shell_script_new ();
+    PnShellOutputFormat fmt;
+
+    /* Defaults to Text (the historical behaviour). */
+    g_object_get (s, "output-format", &fmt, NULL);
+    PN_CHECK_CMPINT (fmt, ==, PN_SHELL_OUTPUT_TEXT);
+
+    g_object_set (s, "output-format", PN_SHELL_OUTPUT_JSON, NULL);
+    g_object_get (s, "output-format", &fmt, NULL);
+    PN_CHECK_CMPINT (fmt, ==, PN_SHELL_OUTPUT_JSON);
+
+    g_object_unref (s);
+}
+
 /* ---- settings schema (GTK-free description) ---------------------- */
 
 static void
 test_schema_code_editor (void)
 {
-    /* The class declares two tabs: a "Host" tab (host + SSH login) first,
-     * then a "Script" tab whose sole row edits the body as a full-width
-     * `sh`-highlighted code editor — its own last page.  The schema is
-     * GTK-free data, so this assertion needs no GUI. */
+    /* The class declares two tabs: a "Settings" tab (output mode +
+     * host + SSH login) first, then a "Script" tab whose sole row edits
+     * the body as a full-width `sh`-highlighted code editor — its own
+     * last page.  The schema is GTK-free data, so this needs no GUI. */
     PnShellScript    *s      = pn_shell_script_new ();
     PnNodeClass      *klass  = PN_NODE_GET_CLASS (s);
     PnSettingsSchema *schema = pn_node_class_get_settings_schema (klass);
@@ -168,12 +186,14 @@ test_schema_code_editor (void)
     PN_CHECK (pn_settings_schema_has_tabs (schema));
     PN_CHECK_CMPINT (pn_settings_schema_get_n_tabs (schema), ==, 2);
 
-    /* Tab 0 — "Host": where/how to connect, no script body here. */
+    /* Tab 0 — "Settings": output mode + where/how to connect. */
     PN_CHECK_CMPSTR (pn_settings_schema_get_tab_title (schema, 0),
-                     ==, "Host");
+                     ==, "Settings");
     PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 0),
-                     ==, "host");
+                     ==, "output-format");
     PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 1),
+                     ==, "host");
+    PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 2),
                      ==, "auth-profile");
 
     /* Tab 1 — "Script": the code editor alone, full width, `sh`-lit. */
@@ -200,6 +220,7 @@ main (int argc, char **argv)
     pn_test_add ("has_error_gate",    test_has_error_gate);
     pn_test_add ("is_a_source",       test_is_a_source);
     pn_test_add ("expand_vars",       test_expand_vars);
+    pn_test_add ("output_format_round_trip", test_output_format_round_trip);
     pn_test_add ("schema_code_editor", test_schema_code_editor);
     return pn_test_run ();
 }

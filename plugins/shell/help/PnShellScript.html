@@ -46,6 +46,38 @@ The emitted message carries:
 While <code>shell-script</code> is empty the node turns red, shows a
 warning glyph, and skips its triggers entirely.
 </p>
+<h5>Output format</h5>
+<p>
+The <code>output-format</code> property controls how the run becomes the
+outgoing message:
+</p>
+<ul>
+  <li><strong>Text</strong> (default) &mdash; the combined stdout and
+      stderr land verbatim in <code>data.output</code>; nothing is put in
+      <code>data.value</code>. This is the original behaviour.</li>
+  <li><strong>JSON</strong> &mdash; the script's <em>stdout</em> is parsed
+      as JSON so the script can define the message payload directly (the
+      way a downstream gauge or clock expects it):
+    <ul>
+      <li>a JSON <em>object</em> is merged member-by-member into the
+          <code>data</code> bag, so
+          <code>echo '{ "value": 42, "label": "ok" }'</code> yields
+          <code>data.value&nbsp;=&nbsp;42</code> and
+          <code>data.label&nbsp;=&nbsp;"ok"</code>. An object may set its
+          own <code>success</code> / <code>output</code> members to
+          override the defaults;</li>
+      <li>a bare <em>number / boolean / string</em> goes straight to
+          <code>data.value</code>, so a script that simply prints
+          <code>date +%s</code> feeds a Unix epoch into
+          <code>data.value</code> with no wrapping (a boolean becomes the
+          bag's <code>1.0</code>/<code>0.0</code>);</li>
+      <li>if stdout is not valid JSON, the message is marked
+          <code>success&nbsp;=&nbsp;false</code> and the raw text is placed
+          in <code>data.output</code> so the problem is visible downstream
+          rather than lost to an invisible stderr.</li>
+    </ul>
+  </li>
+</ul>
 <p>
 The script may embed the node variables <code>${nodeclass}</code>,
 <code>${nodename}</code>, and <code>${hostname}</code>, which Pipnode
@@ -84,6 +116,13 @@ the node keeps the original passwordless-SSH behaviour.
           <code>ssh -o BatchMode=yes -o ConnectTimeout=5</code>; a
           working passwordless key for that host is required since
           BatchMode disables every interactive prompt.</td></tr>
+  <tr><td><code>output-format</code></td>
+      <td><code>Text</code> (default) writes the combined stdout+stderr to
+          <code>data.output</code>. <code>JSON</code> parses stdout: an
+          object merges into the data bag, a bare value goes to
+          <code>data.value</code>, invalid JSON becomes a
+          <code>success=false</code> message. See <em>Output format</em>
+          above.</td></tr>
   <tr><td><code>period</code></td>
       <td>Seconds between executions.</td></tr>
   <tr><td><code>auth-profile</code></td>

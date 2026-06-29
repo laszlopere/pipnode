@@ -36,6 +36,7 @@
 #include "pn-message.h"
 #include "pn-settings-schema.h"
 #include "pn-shell-host.h"
+#include "pn-shell-output.h"
 #include "pn-ssh-profile.h"
 #include "pn-vault.h"
 
@@ -57,6 +58,11 @@ struct _PnShellScript
     gchar  *shell_script;
     gchar  *host;
 
+    /* How the script's output becomes the message: Text (output+success)
+     * or JSON (parse stdout into the data bag).  Read on the worker
+     * thread under @mutex, written on the main thread. */
+    PnShellOutputFormat output_format;
+
     /* The optional SSH Login credential (item 47.4).  @auth_profile is the
      * picked profile id and is touched only on the main thread; @ssh_login
      * is the value snapshot resolved from it, read by the worker under
@@ -73,6 +79,7 @@ enum {
     PROP_SHELL_SCRIPT,
     PROP_AUTH_PROFILE,
     PROP_HOST,
+    PROP_OUTPUT_FORMAT,
     N_PROPS,
 };
 
@@ -172,6 +179,18 @@ shell_set_host (
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_HOST]);
 }
 
+static PnShellOutputFormat
+shell_get_output_format_locked (PnShellScript *self)
+{
+    PnShellOutputFormat fmt;
+
+    g_mutex_lock (&self->mutex);
+    fmt = self->output_format;
+    g_mutex_unlock (&self->mutex);
+
+    return fmt;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Trigger                                                            */
 /*                                                                     */
@@ -189,9 +208,10 @@ pn_shell_script_trigger (PnAutoTrigger *trigger)
     gchar              *script_raw  = shell_dup_script_locked (self);
     gchar              *script;
     gchar              *host        = shell_dup_host_locked (self);
+    PnShellOutputFormat fmt         = shell_get_output_format_locked (self);
     gchar              *stdout_text = NULL;
     gchar              *stderr_text = NULL;
-    gchar              *combined;
+    gchar              *spawn_err   = NULL;
     gint                exit_status = 0;
     GError             *error       = NULL;
     PnMessage          *msg;
@@ -255,24 +275,25 @@ pn_shell_script_trigger (PnAutoTrigger *trigger)
 
     if (!spawned)
     {
-        combined = g_strdup (error ? error->message : "spawn failed");
+        /* No streams on spawn failure: route the error text through the
+         * stderr slot so Text mode shows it and JSON mode reports the
+         * failure with that text. */
+        spawn_err = g_strdup (error ? error->message : "spawn failed");
         g_clear_error (&error);
     }
     else
     {
-        success  = g_spawn_check_wait_status (exit_status, NULL);
-        combined = g_strconcat (stdout_text ? stdout_text : "",
-                                stderr_text ? stderr_text : "",
-                                NULL);
+        success = g_spawn_check_wait_status (exit_status, NULL);
     }
 
     msg = pn_message_new (node, NULL);
-    pn_message_set_boolean (msg, "success", success);
-    pn_message_set_string  (msg, "output",  combined);
+    pn_shell_output_apply (msg, fmt, success,
+                           spawned ? stdout_text : NULL,
+                           spawned ? stderr_text : spawn_err);
 
     pn_auto_trigger_emit_on_main (trigger, msg);
 
-    g_free (combined);
+    g_free (spawn_err);
     g_free (stdout_text);
     g_free (stderr_text);
     g_free (script);
@@ -305,6 +326,9 @@ pn_shell_script_get_property (
     case PROP_AUTH_PROFILE:
         g_value_set_string (value, self->auth_profile);
         break;
+    case PROP_OUTPUT_FORMAT:
+        g_value_set_enum (value, shell_get_output_format_locked (self));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -332,6 +356,11 @@ pn_shell_script_set_property (
         self->auth_profile = g_value_dup_string (value);
         pn_ssh_login_refresh (PN_NODE (self), "auth-profile",
                               &self->mutex, &self->ssh_login);
+        break;
+    case PROP_OUTPUT_FORMAT:
+        g_mutex_lock (&self->mutex);
+        self->output_format = g_value_get_enum (value);
+        g_mutex_unlock (&self->mutex);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -409,27 +438,39 @@ pn_shell_script_class_init (PnShellScriptClass *klass)
      * host field — host says WHERE, this says HOW to log in. */
     props[PROP_AUTH_PROFILE] = pn_ssh_auth_profile_param_spec ();
 
+    props[PROP_OUTPUT_FORMAT] = g_param_spec_enum (
+            "output-format", "Output Format",
+            "How the script's output becomes the message.  Text: the "
+            "combined stdout+stderr lands in data.output.  JSON: stdout "
+            "is parsed — a JSON object merges into the data bag (the "
+            "script defines the payload), a bare number/value lands in "
+            "data.value.",
+            PN_TYPE_SHELL_OUTPUT_FORMAT, PN_SHELL_OUTPUT_TEXT,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 
-    /* Declarative settings schema, split across two tabs: a "Host" tab
-     * with the where/how-to-connect fields (host + SSH login), then a
-     * "Script" tab that is the script body alone in a full-width
-     * GtkSourceView code editor with `sh` syntax highlighting.  The
-     * editor gets its own last tab so it can use the whole page; the
-     * tabs render in declaration order, after PnAutoTrigger's own
-     * `period` tab, so "Script" is the rightmost.
+    /* Declarative settings schema, split across two tabs: a "Settings"
+     * tab with the output mode and the where/how-to-connect fields
+     * (output-format, host, SSH login), then a "Script" tab that is the
+     * script body alone in a full-width GtkSourceView code editor with
+     * `sh` syntax highlighting.  The editor gets its own last tab so it
+     * can use the whole page; the tabs render in declaration order,
+     * after PnAutoTrigger's own `period` tab, so "Script" is the
+     * rightmost.
      *
      * Declaring named tabs makes the renderer own this class's settings
-     * pages (the auto tab is skipped), so host + auth-profile are listed
-     * explicitly here.  The editor lives entirely in the GUI tier's
-     * renderer, so this GTK-free description keeps the node headless —
-     * no companion. */
+     * pages (the auto tab is skipped), so the non-script properties are
+     * listed explicitly here.  The editor lives entirely in the GUI
+     * tier's renderer, so this GTK-free description keeps the node
+     * headless — no companion. */
     {
         PnSettingsSchema *schema = pn_settings_schema_new ();
 
-        pn_settings_schema_tab (schema, "Host");
-        pn_settings_schema_row (schema, "host",         PN_EDITOR_AUTO);
-        pn_settings_schema_row (schema, "auth-profile", PN_EDITOR_AUTO);
+        pn_settings_schema_tab (schema, "Settings");
+        pn_settings_schema_row (schema, "output-format", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "host",          PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "auth-profile",  PN_EDITOR_AUTO);
 
         pn_settings_schema_tab (schema, "Script");
         pn_settings_schema_row (schema, "shell-script", PN_EDITOR_CODE);
@@ -447,10 +488,11 @@ pn_shell_script_init (PnShellScript *self)
     PnNode *node = PN_NODE (self);
 
     g_mutex_init (&self->mutex);
-    self->shell_script = NULL;
-    self->host         = g_strdup (PN_SHELL_HOST_DEFAULT);
-    self->auth_profile = g_strdup ("");
-    self->ssh_login    = (PnSshLogin){ 0 };
+    self->shell_script  = NULL;
+    self->host          = g_strdup (PN_SHELL_HOST_DEFAULT);
+    self->auth_profile  = g_strdup ("");
+    self->ssh_login     = (PnSshLogin){ 0 };
+    self->output_format = PN_SHELL_OUTPUT_TEXT;
 
     /* Keep the login snapshot current as the user edits credentials, and
      * seed it now (default ref "" -> primary SSH Login profile, or ambient
