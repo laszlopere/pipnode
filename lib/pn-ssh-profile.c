@@ -207,6 +207,8 @@ pn_ssh_login_resolve (PnNode      *node,
                                    : g_strdup ("");
     out->port            = profile ? (gint) pn_profile_get_int (profile, "port")
                                    : 0;
+    out->host            = profile ? pn_profile_get_string (profile, "host")
+                                   : g_strdup ("");
 }
 
 void
@@ -221,6 +223,7 @@ pn_ssh_login_copy (PnSshLogin       *dst,
     dst->identity_file   = g_strdup (src->identity_file   ? src->identity_file   : "");
     dst->host_key_policy = g_strdup (src->host_key_policy ? src->host_key_policy : "");
     dst->port            = src->port;
+    dst->host            = g_strdup (src->host            ? src->host            : "");
 }
 
 void
@@ -232,6 +235,7 @@ pn_ssh_login_clear (PnSshLogin *login)
     g_clear_pointer (&login->username,        g_free);
     g_clear_pointer (&login->identity_file,   g_free);
     g_clear_pointer (&login->host_key_policy, g_free);
+    g_clear_pointer (&login->host,            g_free);
     login->has_profile = FALSE;
     login->port        = 0;
 }
@@ -311,6 +315,7 @@ pn_ssh_build_argv (const gchar        *host,
     const gchar *policy_token = "accept-new";
     const gchar *username     = NULL;
     const gchar *identity     = NULL;
+    const gchar *target       = host;
     gint         port         = 0;
     guint        timeout      = (connect_timeout > 0) ? connect_timeout : 5;
     guint        i;
@@ -326,6 +331,13 @@ pn_ssh_build_argv (const gchar        *host,
         username = login->username;
         identity = login->identity_file;
         port     = login->port;
+
+        /* The profile's own host wins over the node's host argument: an SSH
+         * Login credential names the one host it may reach, so attaching it
+         * pins the node to that host (the dialog shows it, read-only).  The
+         * node's host is the fallback for the credential-less case. */
+        if (login->host != NULL && *login->host != '\0')
+            target = login->host;
     }
 
     out = g_ptr_array_new ();
@@ -361,7 +373,7 @@ pn_ssh_build_argv (const gchar        *host,
         g_ptr_array_add (out, g_strdup (identity));
     }
 
-    g_ptr_array_add (out, g_strdup (host));
+    g_ptr_array_add (out, g_strdup (target));
 
     for (i = 0; base_argv[i] != NULL; i++)
         g_ptr_array_add (out, g_strdup (base_argv[i]));

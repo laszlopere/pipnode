@@ -53,6 +53,11 @@ void pn_ssh_register_profile_type (PnNodeFactory *factory);
  * @host_key_policy: the "ssh-login" host-key-policy token; never %NULL,
  *                   "" treated as accept-new
  * @port:            TCP port; only emitted (as -p) when it is not 22
+ * @host:            the host the profile is for (its required "host" field);
+ *                   never %NULL, "" when the profile leaves it blank.  When
+ *                   non-empty it is the connection target — #pn_ssh_build_argv
+ *                   uses it in place of the node's own host argument, so the
+ *                   profile both says WHERE and HOW to log in.
  *
  * A flat, value-only snapshot of the login fields resolved from an
  * "ssh-login" profile.  #PnProfile is owned by the vault and only safe to
@@ -69,6 +74,7 @@ typedef struct {
     gchar    *identity_file;
     gchar    *host_key_policy;
     gint      port;
+    gchar    *host;
 } PnSshLogin;
 
 /**

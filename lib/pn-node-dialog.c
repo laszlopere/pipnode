@@ -597,6 +597,59 @@ pn_rgba_to_color_value (
 /*  credentials manager.                                               */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  Host-field lock                                                    */
+/*                                                                     */
+/*  An SSH "auth-profile" picker can pin the node's sibling host entry */
+/*  to the selected profile's required host: when a profile carries a  */
+/*  host the entry shows it read-only (the credential says WHERE as    */
+/*  well as HOW), and releases back to free editing for "No            */
+/*  credentials" or a host-less profile.  The host property itself is  */
+/*  never overwritten — locking unbinds the entry<->property binding   */
+/*  so the node keeps its own host for the credential-less case, and   */
+/*  unlocking re-creates it (SYNC_CREATE pulls that host back in).      */
+/* ------------------------------------------------------------------ */
+
+#define HOST_FIELD_LOCK_KEY "pn-host-field-lock"
+
+typedef struct {
+    GObject       *target;    /* borrowed node */
+    gchar         *prop;      /* owned: the host property name */
+    GBindingFlags  flags;     /* the original entry<->property binding flags */
+    gboolean       writable;
+    GBinding      *binding;   /* live binding, or NULL while locked */
+} HostFieldLock;
+
+static void
+host_field_lock_free (gpointer data)
+{
+    HostFieldLock *hl = data;
+    g_free (hl->prop);
+    g_free (hl);
+}
+
+static void
+host_field_set_locked (GtkWidget *entry, gboolean locked, const gchar *host)
+{
+    HostFieldLock *hl = g_object_get_data (G_OBJECT (entry), HOST_FIELD_LOCK_KEY);
+    if (hl == NULL)
+        return;
+
+    if (locked)
+    {
+        g_clear_pointer (&hl->binding, g_binding_unbind);
+        gtk_entry_set_text (GTK_ENTRY (entry), host != NULL ? host : "");
+        gtk_widget_set_sensitive (entry, FALSE);
+    }
+    else
+    {
+        gtk_widget_set_sensitive (entry, hl->writable);
+        if (hl->binding == NULL)
+            hl->binding = g_object_bind_property (hl->target, hl->prop,
+                                                  entry, "text", hl->flags);
+    }
+}
+
 #define PROFILE_REF_KEY "pn-profile-ref-binding"
 
 typedef struct {
@@ -606,6 +659,8 @@ typedef struct {
     gchar           *inline_fields;  /* owned, NULL = no "Custom settings";
                                       * else comma-separated inline prop names */
     gboolean         allow_none;     /* offer a "No credentials" entry */
+    gchar           *host_field;     /* owned, NULL = governs no host entry;
+                                      * else the sibling host property name */
     GtkComboBoxText *combo;          /* borrowed */
     gboolean         syncing;
 } ProfileRefBinding;
@@ -617,7 +672,27 @@ profile_ref_binding_free (gpointer data)
     g_free (b->prop);
     g_free (b->type_id);
     g_free (b->inline_fields);
+    g_free (b->host_field);
     g_free (b);
+}
+
+/* The node's host entry to pin: its sole string property opted into the
+ * local-hostname hint (pn_param_spec_set_hostname_hint) — the SSH nodes' host
+ * field.  Returns an owned name, or NULL when the node has no such field. */
+static gchar *
+find_hostname_hint_field (GObject *target)
+{
+    GParamSpec **pspecs;
+    guint        n, i;
+    gchar       *out = NULL;
+
+    pspecs = g_object_class_list_properties (G_OBJECT_GET_CLASS (target), &n);
+    for (i = 0; i < n && out == NULL; i++)
+        if (G_IS_PARAM_SPEC_STRING (pspecs[i]) &&
+            pn_param_spec_get_hostname_hint (pspecs[i]))
+            out = g_strdup (pspecs[i]->name);
+    g_free (pspecs);
+    return out;
 }
 
 /* Recursively locate a descendant widget whose name matches @name. */
@@ -674,6 +749,40 @@ profile_ref_apply_sensitivity (ProfileRefBinding *b)
         g_free (wname);
     }
     g_strfreev (fields);
+}
+
+/* Pin (or release) the sibling host entry named by b->host_field according to
+ * the currently-resolved profile: a profile carrying a non-empty host locks the
+ * entry to it, anything else (No credentials, dangling, host-less profile) frees
+ * it.  Resolves through pn_node_get_profile() so it matches the runtime. */
+static void
+profile_ref_apply_host_lock (ProfileRefBinding *b)
+{
+    GtkWidget *grid  = GTK_WIDGET (b->combo);
+    GtkWidget *entry;
+    gchar     *wname;
+    PnProfile *profile = NULL;
+    gchar     *host    = NULL;
+
+    if (b->host_field == NULL || !PN_IS_NODE (b->target))
+        return;
+    while (grid != NULL && !GTK_IS_GRID (grid))
+        grid = gtk_widget_get_parent (grid);
+    if (grid == NULL)
+        return;
+
+    wname = g_strconcat ("pn-prop-", b->host_field, NULL);
+    entry = find_descendant_by_name (grid, wname);
+    g_free (wname);
+    if (entry == NULL)
+        return;
+
+    profile = pn_node_get_profile (PN_NODE (b->target), b->prop);
+    if (profile != NULL)
+        host = pn_profile_get_string (profile, "host");
+
+    host_field_set_locked (entry, host != NULL && *host != '\0', host);
+    g_free (host);
 }
 
 /* Refill the combo from the current vault state and select the property's
@@ -739,6 +848,9 @@ profile_ref_populate (ProfileRefBinding *b)
 
     /* Keep the inline-field editors greyed unless "Custom settings" is active. */
     profile_ref_apply_sensitivity (b);
+
+    /* Pin/release the sibling host entry to the resolved profile's host. */
+    profile_ref_apply_host_lock (b);
 }
 
 static void
@@ -770,9 +882,10 @@ static void
 on_profile_ref_combo_map (GtkWidget *combo, gpointer user_data)
 {
     (void) combo;
-    /* Initial grey-out pass, once the whole tab (and the inline-field editors)
-     * has been built and the combo is attached under its grid. */
+    /* Initial pass, once the whole tab (and the sibling host / inline-field
+     * editors) has been built and the combo is attached under its grid. */
     profile_ref_apply_sensitivity (user_data);
+    profile_ref_apply_host_lock (user_data);
 }
 
 /* Target property changed elsewhere (e.g. the legacy-credentials import set
@@ -832,6 +945,7 @@ build_profile_ref_editor (GObject     *target,
     b->inline_fields =
         g_strdup (pn_param_spec_get_profile_ref_inline_fields (pspec));
     b->allow_none = pn_param_spec_get_profile_ref_allow_none (pspec);
+    b->host_field = find_hostname_hint_field (target);
     b->combo   = GTK_COMBO_BOX_TEXT (combo);
 
     gtk_widget_set_hexpand (combo, TRUE);
@@ -856,10 +970,10 @@ build_profile_ref_editor (GObject     *target,
                              combo, 0);
     g_free (sig);
 
-    /* When the picker offers "Custom settings", grey out the inline-field
-     * editors unless it is selected.  Done on "map" because the sibling editors
-     * are built after this combo, so they do not exist at build time. */
-    if (b->inline_fields != NULL)
+    /* The sibling host / inline-field editors are built after this combo (the
+     * auth-profile row sits above them), so they do not exist at build time —
+     * run the first pin/grey-out pass on "map" once the whole tab is up. */
+    if (b->inline_fields != NULL || b->host_field != NULL)
         g_signal_connect (combo, "map",
                           G_CALLBACK (on_profile_ref_combo_map), b);
 
@@ -926,8 +1040,27 @@ default_editor_impl (
          * (entry's own draw ran first), it just blinks "inside" the
          * first character of the hint, matching GTK4's behaviour. */
         if (pn_param_spec_get_hostname_hint (pspec))
+        {
+            HostFieldLock *hl = g_new0 (HostFieldLock, 1);
+
             pn_node_dialog_attach_hostname_hint (GTK_ENTRY (entry));
-        g_object_bind_property (target, name, entry, "text", flags);
+
+            /* A hostname-hint field is the SSH nodes' host entry: stash a lock
+             * handle so an auth-profile picker sibling can pin it to (and
+             * release it from) the selected profile's host. */
+            hl->target   = target;
+            hl->prop     = g_strdup (name);
+            hl->flags    = flags;
+            hl->writable = writable;
+            hl->binding  = g_object_bind_property (target, name, entry,
+                                                   "text", flags);
+            g_object_set_data_full (G_OBJECT (entry), HOST_FIELD_LOCK_KEY, hl,
+                                    host_field_lock_free);
+        }
+        else
+        {
+            g_object_bind_property (target, name, entry, "text", flags);
+        }
         return entry;
     }
 

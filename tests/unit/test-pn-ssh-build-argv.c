@@ -354,6 +354,52 @@ test_login_username_only (void)
     g_strfreev (argv);
 }
 
+/* A login carrying a host (the profile's required host field) replaces the
+ * node's own host argument: the credential says WHERE as well as HOW. */
+static void
+test_login_host_overrides_arg (void)
+{
+    const gchar *base[]     = { "cat", "/proc/stat", NULL };
+    const gchar *expected[] = {
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=5",
+        "profile.example",
+        "cat", "/proc/stat",
+        NULL
+    };
+    PnSshLogin login = { .has_profile = TRUE,
+                         .username = (gchar *) "",
+                         .identity_file = (gchar *) "",
+                         .host_key_policy = (gchar *) "",
+                         .port = 22,
+                         .host = (gchar *) "profile.example" };
+    gchar **argv = pn_ssh_build_argv ("node.host", &login, 5, base);
+
+    check_argv (argv, expected);
+    g_strfreev (argv);
+}
+
+/* A blank profile host leaves the node's own host argument in place. */
+static void
+test_login_blank_host_keeps_arg (void)
+{
+    const gchar *base[] = { "cat", "/proc/stat", NULL };
+    PnSshLogin login = { .has_profile = TRUE,
+                         .username = (gchar *) "",
+                         .identity_file = (gchar *) "",
+                         .host_key_policy = (gchar *) "",
+                         .port = 22,
+                         .host = (gchar *) "" };
+    gchar **argv = pn_ssh_build_argv ("node.host", &login, 5, base);
+
+    PN_CHECK (argv != NULL);
+    if (argv != NULL)
+        PN_CHECK_CMPSTR (argv[7], ==, "node.host");
+    g_strfreev (argv);
+}
+
 /* ---- pn_ssh_login_resolve -------------------------------------------- */
 
 /* With no SSH Login profile configured, "" resolves to an ambient snapshot
@@ -373,6 +419,43 @@ test_resolve_ambient (void)
     PN_CHECK_CMPSTR (login.identity_file, ==, "");
     PN_CHECK_CMPSTR (login.host_key_policy, ==, "");
     PN_CHECK_CMPINT (login.port, ==, 0);
+    PN_CHECK_CMPSTR (login.host, ==, "");
+
+    pn_ssh_login_clear (&login);
+    g_object_unref (node);
+}
+
+/* The profile's host field lands in the snapshot and, through the builder,
+ * becomes the connection target in place of the node's own host argument. */
+static void
+test_resolve_host_drives_target (void)
+{
+    PnVault     *v = pn_vault_get_default ();
+    PnProfile   *p = pn_vault_create_profile (v, PN_PROFILE_SSH, "Hosted");
+    TestSshNode *node = g_object_new (TEST_TYPE_SSH_NODE, NULL);
+    PnSshLogin   login = { 0 };
+    const gchar *base[] = { "uptime", NULL };
+    gchar      **argv;
+
+    PN_CHECK (p != NULL);
+    if (p == NULL)
+    {
+        g_object_unref (node);
+        return;
+    }
+
+    pn_profile_set_field (p, "host", "box.internal");
+    g_object_set (node, "auth-profile", pn_profile_get_id (p), NULL);
+
+    pn_ssh_login_resolve (PN_NODE (node), "auth-profile", &login);
+    PN_CHECK (login.has_profile == TRUE);
+    PN_CHECK_CMPSTR (login.host, ==, "box.internal");
+
+    argv = pn_ssh_build_argv ("typed.host", &login, 5, base);
+    PN_CHECK (argv != NULL);
+    if (argv != NULL)
+        PN_CHECK_CMPSTR (argv[7], ==, "box.internal");
+    g_strfreev (argv);
 
     pn_ssh_login_clear (&login);
     g_object_unref (node);
@@ -505,11 +588,14 @@ main (int argc, char **argv)
     pn_test_add ("login_policy_off",          test_login_policy_off);
     pn_test_add ("login_defaults_omitted",    test_login_defaults_omitted);
     pn_test_add ("login_username_only",       test_login_username_only);
+    pn_test_add ("login_host_overrides_arg",  test_login_host_overrides_arg);
+    pn_test_add ("login_blank_host_keeps_arg", test_login_blank_host_keeps_arg);
 
     /* resolve — ambient case MUST run before any profile is created. */
     pn_test_add ("resolve_ambient",           test_resolve_ambient);
     pn_test_add ("resolve_follows_primary",   test_resolve_follows_primary);
     pn_test_add ("resolve_explicit_custom",   test_resolve_explicit_and_custom);
+    pn_test_add ("resolve_host_drives_target", test_resolve_host_drives_target);
 
     rc = pn_test_run ();
 
