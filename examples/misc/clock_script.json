@@ -1,0 +1,72 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnShellScript",
+      "uuid" : "918f207f-0603-4546-a607-aa2cfa05404c",
+      "name" : "Shell Script 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 240.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 1,
+        "shell-script" : "#! /bin/bash\n\necho \"{ \\\"value\\\": $(date +%s) }\"",
+        "auth-profile" : "",
+        "host" : "",
+        "output-format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "00201761-0d4d-4151-a117-5aec17150e28",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnAnalogClock",
+      "uuid" : "f28774a9-46c7-404d-94c3-cbbc33d1e356",
+      "name" : "AnalogClock 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "text" : "",
+        "show-seconds" : true,
+        "timezone" : "Not Set",
+        "face-color" : "rgb(247,247,245)",
+        "marker-color" : "rgb(20,20,23)",
+        "hour-hand-color" : "rgb(20,20,23)",
+        "minute-hand-color" : "rgb(20,20,23)",
+        "second-hand-color" : "rgb(217,31,26)",
+        "text-color" : "rgb(51,51,56)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "918f207f-0603-4546-a607-aa2cfa05404c",
+      "target_id" : "00201761-0d4d-4151-a117-5aec17150e28"
+    },
+    {
+      "source_id" : "918f207f-0603-4546-a607-aa2cfa05404c",
+      "target_id" : "f28774a9-46c7-404d-94c3-cbbc33d1e356"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
