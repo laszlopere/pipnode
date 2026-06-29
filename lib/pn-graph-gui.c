@@ -846,6 +846,7 @@ paint_line_3d (
     gint64    cur_epoch         = g_get_monotonic_time () / width;
     gint64    oldest_valid      = cur_epoch - (gint64) n_bins + 1;
     gdouble   zmin = 0.0, zmax = 1.0;
+    gdouble   xmin = 0.0;       /* oldest (most negative) plotted time */
     gboolean  have_range = FALSE;
     guint     i;
     HMGL      gr;
@@ -868,7 +869,11 @@ paint_line_3d (
                                  &zmin, &zmax, &have_range);
         counts[i] = n;
         for (j = 0; j < n; j++)
+        {
             ys[j] = (PLFLT) i;
+            if (xs[j] < xmin)
+                xmin = xs[j];
+        }
     }
 
     if (!have_range)
@@ -896,16 +901,32 @@ paint_line_3d (
         if (zmax < 0.0) zmax = 0.0;
     }
 
-    gr = mgl_setup_3d (ps, w, h,
-                       -(gdouble) pn_graph_resolution_seconds (ps->resolution), 0.0,
-                       -0.5, (gdouble) nseries - 0.5,
-                       zmin, zmax);
+    /* Fit the time axis to the data actually collected (anchored at
+     * now = 0 on the right) rather than the full resolution window.  A
+     * fresh or sparse feed only fills the most-recent bins; ranging to
+     * the whole window would squash it into an unreadable sliver near
+     * x = 0 — the histogram view fills because it fits its axis to the
+     * data's value range, and the line view now does the same for time.
+     * As history accrues, xmin walks out to -window and the view scrolls
+     * exactly as before. */
+    {
+        gdouble xfloor;
+
+        if (xmin > -1e-9)        /* everything in the current bin */
+            xfloor = -(gdouble) width / (gdouble) G_TIME_SPAN_SECOND;
+        else
+            xfloor = xmin * 1.02;   /* small left pad off the axis wall */
+
+        gr = mgl_setup_3d (ps, w, h,
+                           xfloor, 0.0,
+                           -0.5, (gdouble) nseries - 0.5,
+                           zmin, zmax);
+    }
 
     for (i = 0; i < nseries; i++)
     {
         PnColor c;
-        char    hex[11];
-        char    pen[16];
+        char    pen[8];
         HMDT    X, Y, Z;
         guint   j;
 
@@ -913,9 +934,18 @@ paint_line_3d (
             continue;
 
         color_for_series (ps, i, &c);
-        mgl_hex_color (&c, hex);
-        /* hex colour + a width digit (MathGL takes 1..9). */
-        g_snprintf (pen, sizeof pen, "%s%u", hex, CLAMP (ps->line_width, 1u, 9u));
+        /* mgl_plot's pen-string parser silently drops the colour for some
+         * {xRRGGBB} values (e.g. d2302d) — the curve then vanishes even
+         * though the data is valid.  Define the colour into a palette slot
+         * and reference it by id instead, which is reliable for any RGB.
+         * (The histogram view is unaffected: its bars are mgl_face* fills,
+         * a different colour-parsing path that does honour {xRRGGBB}.) */
+        mgl_set_color ('q', c.red, c.green, c.blue);
+        /* MathGL's pen widths read thinner than the 2D PLplot strokes at
+         * the same setting, and a single curve adrift in the 3D box wants
+         * a touch more weight to stay legible — bump it one step over the
+         * configured width (still clamped to MathGL's 1..9). */
+        g_snprintf (pen, sizeof pen, "q%u", CLAMP (ps->line_width + 1u, 1u, 9u));
 
         X = mgl_create_data_size ((long) counts[i], 1, 1);
         Y = mgl_create_data_size ((long) counts[i], 1, 1);
