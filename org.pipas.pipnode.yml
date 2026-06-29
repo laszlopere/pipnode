@@ -7,8 +7,8 @@
 #       --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 #
 # Runtime note: the GNOME runtime provides GTK3, libsoup-3.0, json-glib,
-# gnutls and gdk-pixbuf. gtksourceview-4, plplot and libmosquitto are NOT in
-# any runtime and are built below. The in-app HTML help browser uses
+# gnutls and gdk-pixbuf. gtksourceview-4, plplot, mathgl and libmosquitto are
+# NOT in any runtime and are built below. The in-app HTML help browser uses
 # webkit2gtk-4.1 *if the chosen runtime ships it* (`--with-webview=auto`); if
 # not, it transparently falls back to a GtkTextView renderer and the build
 # still succeeds. To check whether this runtime has WebKit for GTK3, run:
@@ -122,6 +122,37 @@ modules:
       - type: archive
         url: https://downloads.sourceforge.net/project/plplot/plplot/5.15.0%20Source/plplot-5.15.0.tar.gz
         sha256: b92de4d8f626a9b20c84fc94f4f6a9976edd76e33fb1eae44f6804bdcc628c7b
+
+  # MathGL — renders the multi-series 3D graph views.  Build the bare
+  # double-precision core only: every GUI front-end, language binding and
+  # optional format/data backend is turned off so the module pulls in no
+  # extra runtime deps (we consume it purely through the in-memory RGBA
+  # buffer, mgl_get_rgba).  enable-double=ON must match how pipnode's
+  # source assumes mreal == double.
+  - name: mathgl
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -Denable-double=ON
+      - -Denable-openmp=OFF
+      - -Denable-png=OFF
+      - -Denable-jpeg=OFF
+      - -Denable-gif=OFF
+      - -Denable-hdf5=OFF
+      - -Denable-gsl=OFF
+      - -Denable-zlib=ON
+      - -Denable-qt5=OFF
+      - -Denable-qt6=OFF
+      - -Denable-glut=OFF
+      - -Denable-fltk=OFF
+      - -Denable-wx=OFF
+      - -Denable-opengl=OFF
+      - -Denable-python=OFF
+      - -Denable-lua=OFF
+    sources:
+      - type: archive
+        url: https://downloads.sourceforge.net/project/mathgl/mathgl/mathgl%208.0/mathgl-8.0.1.tar.gz
+        sha256: ca84bf9480c39ed3112e920c16ce3d8f2898698f62896f3a57714128622a55aa
 
   # Pipnode itself + all 7 bundled open-source plugins.
   - name: pipnode

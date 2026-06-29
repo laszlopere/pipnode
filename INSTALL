@@ -138,7 +138,8 @@ Two libraries:
                        renderer, every node's cairo drawing, the settings
                        dialogs, GtkSourceView and (optional) WebKit.
                        This is the tier that needs GTK, cairo, pango,
-                       PLplot, GtkSourceView.
+                       PLplot, MathGL (libmgl, for the multi-series 3D
+                       graph views), GtkSourceView.
 
 pipnode-run links libpipnode-core ALONE; verify with:
 
@@ -164,9 +165,9 @@ One GTK-equipped build can be cut into:
                      server needs.
   * pipnode-gui   -- pipnode-editor, libpipnode-gui, and the companion
                      "<plugin>-gui.so" modules.  Depends on pipnode-core
-                     plus GTK 3, GtkSourceView, PLplot and (optionally)
-                     WebKit2GTK.  Pulls in fonts-font-awesome for the
-                     node glyphs.
+                     plus GTK 3, GtkSourceView, PLplot, MathGL (libmgl)
+                     and (optionally) WebKit2GTK.  Pulls in
+                     fonts-font-awesome for the node glyphs.
 
 Bundled plugins follow the same rule.  A plugin is either:
 
@@ -214,8 +215,8 @@ Flatpak (community edition)
 Besides distro packaging, Pipnode ships a sandboxed Flatpak community
 edition built from org.pipas.pipnode.yml in the repository root.  It
 targets the org.gnome.Platform//50 runtime and bundles the libraries that
-no runtime provides (gtksourceview-4, libmosquitto, PLplot) plus the
-FontAwesome glyph font.  See FLATPAK.md for the full build, bundle and run
+no runtime provides (gtksourceview-4, libmosquitto, PLplot, MathGL) plus
+the FontAwesome glyph font.  See FLATPAK.md for the full build, bundle and run
 instructions.  Note the sandbox runs the shell and host-monitoring nodes
 inside the sandbox rather than against the host; a native build (above)
 has no such restriction.

@@ -47,7 +47,8 @@ sudo make install        # optional
 ```
 
 Main dependencies: GTK 3 (≥ 3.22), GLib/GModule, GtkSourceView 4, JSON-GLib,
-libsoup 3, GnuTLS, PLplot, and libmosquitto; WebKit2GTK is optional. Exact
+libsoup 3, GnuTLS, PLplot, MathGL (libmgl), and libmosquitto; WebKit2GTK is
+optional. Exact
 version requirements live in `configure.ac`, and `INSTALL` has notes on
 optional voice/TTS data.
 

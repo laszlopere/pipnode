@@ -8,9 +8,10 @@ covers building it, turning it into a single distributable file, and running it.
 - Runtime: `org.gnome.Platform` / `org.gnome.Sdk` version **50**
 
 The GNOME runtime provides GTK 3, libsoup 3, json-glib, GnuTLS, gdk-pixbuf and
-webkit2gtk-4.1. Three libraries Pipnode needs are **not** in any runtime and are
-built as modules by the manifest: **gtksourceview-4**, **libmosquitto** and
-**PLplot**. The manifest also bundles **FontAwesome 4.7** (the node glyph font).
+webkit2gtk-4.1. Four libraries Pipnode needs are **not** in any runtime and are
+built as modules by the manifest: **gtksourceview-4**, **libmosquitto**,
+**PLplot** and **MathGL** (the multi-series 3D graph views). The manifest also
+bundles **FontAwesome 4.7** (the node glyph font).
 
 ---
 
