@@ -8,8 +8,8 @@
       "name" : "Shell Script 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 240.0,
-        "y" : 120.0
+        "x" : 40.0,
+        "y" : 140.0
       },
       "properties" : {
         "period" : 1,
@@ -24,9 +24,10 @@
       "uuid" : "00201761-0d4d-4151-a117-5aec17150e28",
       "name" : "Debug Print 1",
       "worksheet" : "Worksheet",
+      "disabled" : true,
       "position" : {
-        "x" : 420.0,
-        "y" : 120.0
+        "x" : 220.0,
+        "y" : 140.0
       },
       "properties" : {
         "target" : "Standard Error",
@@ -39,8 +40,8 @@
       "name" : "AnalogClock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 420.0,
-        "y" : 180.0
+        "x" : 220.0,
+        "y" : 200.0
       },
       "properties" : {
         "text" : "",
@@ -52,6 +53,25 @@
         "minute-hand-color" : "rgb(20,20,23)",
         "second-hand-color" : "rgb(217,31,26)",
         "text-color" : "rgb(51,51,56)"
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "0e3b953f-f5c3-4b2d-86bb-700ca52e623c",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "Here we execute a BASH script in every second, put the UNIX EPOCH time into the JSON output and feed that to the analog clock node that actually shows the time, updating every second.",
+        "width" : 400.0,
+        "height" : 80.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
       }
     }
   ],
