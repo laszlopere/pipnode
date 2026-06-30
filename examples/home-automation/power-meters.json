@@ -8,8 +8,8 @@
       "name" : "Tasmota Voltage 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 120.0,
-        "y" : 140.0
+        "x" : 260.0,
+        "y" : 160.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/Voltage",
@@ -36,8 +36,8 @@
       "name" : "Tasmota Current 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 140.0
+        "x" : 420.0,
+        "y" : 160.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/Current",
@@ -64,8 +64,8 @@
       "name" : "Tasmota Power Factor 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 620.0,
-        "y" : 140.0
+        "x" : 580.0,
+        "y" : 160.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/Factor",
@@ -92,8 +92,8 @@
       "name" : "Tasmota Reactive Power 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 120.0,
-        "y" : 420.0
+        "x" : 260.0,
+        "y" : 360.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/ReactivePower",
@@ -120,8 +120,8 @@
       "name" : "Tasmota Apparent Power 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 420.0
+        "x" : 420.0,
+        "y" : 360.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/ApparentPower",
@@ -148,8 +148,8 @@
       "name" : "Tasmota Power 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 620.0,
-        "y" : 420.0
+        "x" : 580.0,
+        "y" : 360.0
       },
       "properties" : {
         "key" : "data/payload/ENERGY/Power",
@@ -177,16 +177,35 @@
       "worksheet" : "Worksheet",
       "topic" : "#",
       "position" : {
-        "x" : 20.0,
+        "x" : 80.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "broker-profile" : "@custom",
+        "url" : "tcp://mqtt.homelab.local:1883",
+        "username" : "",
+        "client-id" : "",
+        "subscribe-topic" : "#",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "7560e98a-0349-493e-928f-ed3688b2bce2",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
         "y" : 20.0
       },
       "properties" : {
-        "url" : "tcp://mqtt.homelab.local:1883",
-        "topic" : "#",
-        "username" : "",
-        "password" : "",
-        "client-id" : "",
-        "qos" : 0
+        "text" : "This is just a simple demo for the Tasmota meters. A simple workflow, the MQTT source is simply connected to some meters and they show various measurements. No special settings, no configuration, only the name of the Tasmota node has to be set, so the meters know which device to measure.",
+        "width" : 460.0,
+        "height" : 120.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
       }
     }
   ],
