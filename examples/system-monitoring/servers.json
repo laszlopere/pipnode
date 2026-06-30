@@ -1,0 +1,107 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnDebug",
+      "uuid" : "0b2f60d5-3d01-4575-89b5-6dc7b5981d9f",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "47215acd-2ce0-4c26-9bdc-3229ab987621",
+      "name" : "Graph 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 hour",
+        "x-buckets" : 200,
+        "data-view" : "Distribution",
+        "draw-style" : "Bars",
+        "line-color" : "rgb(30,60,140)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : false,
+        "log-y" : false,
+        "y-from-zero" : true
+      }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "e94e5aa7-95ec-4f5a-9852-0dd68f033005",
+      "name" : "Fsn1 Load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 5,
+        "auth-profile" : "ssh-login-2",
+        "hostname" : ""
+      }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "c03ff1d5-2374-4413-b9d4-f7fbed416cdb",
+      "name" : "Eth4 Load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "period" : 5,
+        "auth-profile" : "ssh-login-3",
+        "hostname" : ""
+      }
+    },
+    {
+      "type" : "PnLoad",
+      "uuid" : "ca458dda-14fb-44bb-a6f3-831a78cb9ca2",
+      "name" : "Eth5 Load",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "period" : 5,
+        "auth-profile" : "ssh-login-4",
+        "hostname" : ""
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "e94e5aa7-95ec-4f5a-9852-0dd68f033005",
+      "target_id" : "47215acd-2ce0-4c26-9bdc-3229ab987621"
+    },
+    {
+      "source_id" : "c03ff1d5-2374-4413-b9d4-f7fbed416cdb",
+      "target_id" : "47215acd-2ce0-4c26-9bdc-3229ab987621"
+    },
+    {
+      "source_id" : "ca458dda-14fb-44bb-a6f3-831a78cb9ca2",
+      "target_id" : "47215acd-2ce0-4c26-9bdc-3229ab987621"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
