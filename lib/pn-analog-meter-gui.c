@@ -37,6 +37,14 @@
 #include <gtk/gtk.h>
 #include <math.h>
 
+/* Reference face side the cosmetic pixel constants below were tuned
+ * at.  The painter divides the live face side by this to get a scale
+ * factor, so every fixed dimension -- bezel inset, corner radii,
+ * hairline widths, the pivot bearing, badge font sizes and offsets --
+ * shrinks in proportion when the node is rendered at the compact
+ * 140-px footprint instead of the original 220-px one. */
+#define PN_AMG_REF_FACE 220.0
+
 /* ------------------------------------------------------------------ */
 /*  Angle helpers                                                      */
 /*                                                                     */
@@ -110,9 +118,10 @@ rounded_rect_path (cairo_t *cr,
  *  so the bezel still reads as a distinct moulded frame around the
  *  dial face. */
 static void
-paint_case (cairo_t *cr, double w, double h, const PnColor *frame)
+paint_case (cairo_t *cr, double w, double h, const PnColor *frame,
+            double scale)
 {
-    double r = 8.0;
+    double r = 8.0 * scale;
 
     /* Body. */
     cairo_set_source_rgba (cr, frame->red, frame->green, frame->blue,
@@ -128,8 +137,8 @@ paint_case (cairo_t *cr, double w, double h, const PnColor *frame)
      * both of which match the way a moulded plastic case actually
      * catches light from the upper-left of the worksheet. */
     cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.65);
-    cairo_set_line_width (cr, 1.2);
-    rounded_rect_path (cr, w - 3.0, h - 3.0, r - 1.0);
+    cairo_set_line_width (cr, 1.2 * scale);
+    rounded_rect_path (cr, w - 3.0 * scale, h - 3.0 * scale, r - 1.0 * scale);
     cairo_stroke (cr);
 
     /* Outer hairline: a thin dark stroke on the very outside so the
@@ -138,7 +147,7 @@ paint_case (cairo_t *cr, double w, double h, const PnColor *frame)
      * grey, a beige, ...) would otherwise dissolve into the surrounding
      * canvas at typical zoom levels. */
     cairo_set_source_rgba (cr, 0.20, 0.20, 0.22, 0.85);
-    cairo_set_line_width (cr, 0.8);
+    cairo_set_line_width (cr, 0.8 * scale);
     rounded_rect_path (cr, w, h, r);
     cairo_stroke (cr);
 }
@@ -150,18 +159,19 @@ paint_case (cairo_t *cr, double w, double h, const PnColor *frame)
  *  rim is darkened with a thin dark line so the face reads as a
  *  recessed paper card under the bezel. */
 static void
-paint_inner (cairo_t *cr, double w, double h, const PnColor *face)
+paint_inner (cairo_t *cr, double w, double h, const PnColor *face,
+             double scale)
 {
-    double iw = w - 16.0;
-    double ih = h - 16.0;
-    double r  = 4.0;
+    double iw = w - 16.0 * scale;
+    double ih = h - 16.0 * scale;
+    double r  = 4.0 * scale;
 
     /* Soft shadow inset to suggest the face sits below the bezel
      * surface; one translucent dark stroke just outside the inner
      * rect, then the rect itself in @face_color. */
     cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.25);
-    cairo_set_line_width (cr, 1.6);
-    rounded_rect_path (cr, iw + 2.0, ih + 2.0, r + 1.0);
+    cairo_set_line_width (cr, 1.6 * scale);
+    rounded_rect_path (cr, iw + 2.0 * scale, ih + 2.0 * scale, r + 1.0 * scale);
     cairo_stroke (cr);
 
     cairo_set_source_rgba (cr, face->red, face->green, face->blue,
@@ -308,7 +318,8 @@ format_tick_label (gchar *buf, gsize sz, double val, double step)
  *  nice step ({1, 2, 5} × 10^n) derived from the user's `major-ticks`
  *  property, the same way #PnDial picks them.                         */
 static void
-paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius)
+paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius,
+             double scale)
 {
     double                r_outer      = radius * 1.00;  /* outer end of major ticks                       */
     double                r_minor      = radius * 0.965; /* inner end of minor ticks (30% shorter than 5%) */
@@ -350,7 +361,7 @@ paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius)
      * pretends to ride along, which every old analog meter prints to
      * sell the reading as continuous between the labelled major
      * ticks. */
-    cairo_set_line_width (cr, 1.2);
+    cairo_set_line_width (cr, 1.2 * scale);
     cairo_new_sub_path (cr);
     cairo_arc (cr, 0.0, 0.0, r_outer,
                clock_to_cairo (st->start_angle),
@@ -361,7 +372,7 @@ paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius)
      * positions (including the implicit boundary at min_value / first
      * and at last / max_value).  Drawn first so the bolder major
      * ticks overpaint any antialias seam. */
-    cairo_set_line_width (cr, 0.8);
+    cairo_set_line_width (cr, 0.8 * scale);
     cairo_set_line_cap (cr, CAIRO_LINE_CAP_BUTT);
     have_prev = FALSE;
     prev_v    = st->min_value;
@@ -414,7 +425,7 @@ paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius)
      * step stub of unlabelled minors instead of a defined extremum
      * (the "the 5000 isn't drawn" case the user sees on a 0-5000
      * range with the heuristic's 2000 step). */
-    cairo_set_line_width (cr, 1.8);
+    cairo_set_line_width (cr, 1.8 * scale);
     {
         double last_v   = st->min_value;
         gboolean had_min = FALSE;
@@ -452,7 +463,12 @@ paint_ticks (cairo_t *cr, const PnAnalogMeterPaintState *st, double radius)
      * whose max isn't a step multiple ends with a clearly labelled
      * extremum instead of a labelless arc terminus. */
     layout = pango_cairo_create_layout (cr);
-    fd     = pango_font_description_from_string ("Sans 11");
+    {
+        gchar *digit_font = g_strdup_printf ("Sans %d",
+                                             (gint) lround (11.0 * scale));
+        fd = pango_font_description_from_string (digit_font);
+        g_free (digit_font);
+    }
     pango_layout_set_font_description (layout, fd);
     pango_font_description_free (fd);
 
@@ -665,16 +681,17 @@ paint_centered_text (cairo_t       *cr,
 static void
 paint_ac_glyph (cairo_t       *cr,
                 const PnColor *color,
-                double         y_center)
+                double         y_center,
+                double         scale)
 {
-    double w = 22.0;          /* total glyph width */
-    double h = 4.0;           /* peak-to-peak amplitude / 2 */
+    double w = 22.0 * scale;  /* total glyph width */
+    double h = 4.0 * scale;   /* peak-to-peak amplitude / 2 */
     int    samples = 24;
     int    i;
 
     cairo_set_source_rgba (cr, color->red, color->green, color->blue,
                            color->alpha);
-    cairo_set_line_width (cr, 1.5);
+    cairo_set_line_width (cr, 1.5 * scale);
     cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
 
     cairo_new_sub_path (cr);
@@ -700,14 +717,15 @@ paint_ac_glyph (cairo_t       *cr,
 static void
 paint_dc_glyph (cairo_t       *cr,
                 const PnColor *color,
-                double         y_center)
+                double         y_center,
+                double         scale)
 {
-    double w   = 22.0;
-    double sep = 4.0;            /* vertical gap between the two rows */
+    double w   = 22.0 * scale;
+    double sep = 4.0 * scale;    /* vertical gap between the two rows */
 
     cairo_set_source_rgba (cr, color->red, color->green, color->blue,
                            color->alpha);
-    cairo_set_line_width (cr, 1.5);
+    cairo_set_line_width (cr, 1.5 * scale);
     cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
 
     /* Solid line on top. */
@@ -744,21 +762,23 @@ paint_dc_glyph (cairo_t       *cr,
  *  so the same routine can serve every choice of pivot position the
  *  user might pick via start-angle / end-angle.                       */
 static void
-paint_pivot_bearing (cairo_t *cr, double cx, double cy)
+paint_pivot_bearing (cairo_t *cr, double cx, double cy, double scale)
 {
-    /* Bearing diameter ≈ 26 px on the canonical 220-px face.  About
-     * 1.6× the size of a typical zero-adjust screw -- chunky enough
-     * to read as the moving-coil's mechanical pivot at the worksheet
-     * zoom levels the editor actually renders at, but small enough
-     * that it does not crowd the lower-right-corner ticks.            */
-    double           r = 13.0;
+    /* Bearing diameter ≈ 26 px on the canonical 220-px face, scaled
+     * down with the face.  About 1.6× the size of a typical zero-
+     * adjust screw -- chunky enough to read as the moving-coil's
+     * mechanical pivot at the worksheet zoom levels the editor
+     * actually renders at, but small enough that it does not crowd
+     * the lower-right-corner ticks.                                   */
+    double           r = 13.0 * scale;
     cairo_pattern_t *grad;
 
     /* Recessed ring around the bearing.  Offset scales with the
      * bearing radius so the shadow gap stays visible at the new
      * doubled diameter. */
     cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.40);
-    cairo_arc (cr, cx + 1.5, cy + 1.5, r + 1.0, 0.0, 2.0 * M_PI);
+    cairo_arc (cr, cx + 1.5 * scale, cy + 1.5 * scale, r + 1.0 * scale,
+               0.0, 2.0 * M_PI);
     cairo_fill (cr);
 
     /* Head body: dark radial gradient. */
@@ -779,7 +799,7 @@ paint_pivot_bearing (cairo_t *cr, double cx, double cy)
     cairo_translate (cr, cx, cy);
     cairo_rotate (cr, M_PI / 6.0);
     cairo_set_source_rgba (cr, 0.85, 0.85, 0.87, 0.95);
-    cairo_set_line_width (cr, 2.0);
+    cairo_set_line_width (cr, 2.0 * scale);
     cairo_set_line_cap (cr, CAIRO_LINE_CAP_BUTT);
     cairo_move_to (cr, -r * 0.78, 0.0);
     cairo_line_to (cr, +r * 0.78, 0.0);
@@ -795,17 +815,21 @@ static void
 paint_accuracy_class (cairo_t       *cr,
                       const gchar   *text,
                       const PnColor *color,
-                      double         face_h)
+                      double         face_h,
+                      double         scale)
 {
     PangoLayout          *layout;
     PangoFontDescription *fd;
+    gchar                *font;
     int                   pw, ph;
 
     if (text == NULL || *text == '\0')
         return;
 
     layout = pango_cairo_create_layout (cr);
-    fd     = pango_font_description_from_string ("Sans 9");
+    font   = g_strdup_printf ("Sans %d", (gint) lround (9.0 * scale));
+    fd     = pango_font_description_from_string (font);
+    g_free (font);
     pango_layout_set_font_description (layout, fd);
     pango_font_description_free (fd);
     pango_layout_set_text (layout, text, -1);
@@ -813,7 +837,7 @@ paint_accuracy_class (cairo_t       *cr,
 
     cairo_set_source_rgba (cr, color->red, color->green, color->blue,
                            color->alpha);
-    cairo_move_to (cr, 16.0, face_h - 22.0 - ph * 0.5);
+    cairo_move_to (cr, 16.0 * scale, face_h - 22.0 * scale - ph * 0.5);
     pango_cairo_show_layout (cr, layout);
 
     g_object_unref (layout);
@@ -832,6 +856,12 @@ pn_analog_meter_paint_plot (
     PnAnalogMeterPaintState  st;
     double                   face_w  = w;
     double                   face_h  = h;
+    /* Cosmetic-detail scale: 1.0 at the original 220-px face, ~0.64
+     * at the compact 140-px footprint.  Every fixed pixel dimension
+     * below (and inside the paint_* helpers) is multiplied by this so
+     * the bezel, bearing, hairlines and label fonts shrink in step
+     * with the face instead of staying large on the smaller node. */
+    double                   scale   = face_w / PN_AMG_REF_FACE;
     /* Pivot at the lower-right corner of the face.  The default scale
      * runs lower-left (start-angle = -90, the needle pointing
      * horizontally left) up through the top to upper-right (end-angle
@@ -843,8 +873,8 @@ pn_analog_meter_paint_plot (
      * there is no separate centre-of-face dome on top of the needle
      * the way #PnDial has, because the bearing already sits where the
      * needle's stub would otherwise be.                                */
-    double         pivot_x = face_w - 30.0;
-    double         pivot_y = face_h - 30.0;
+    double         pivot_x = face_w - 30.0 * scale;
+    double         pivot_y = face_h - 30.0 * scale;
 
     pn_analog_meter_get_paint_state (self, &st);
 
@@ -880,14 +910,14 @@ pn_analog_meter_paint_plot (
             if (c < min_cos) min_cos = c;
         }
     }
-    double         margin = 16.0;
-    double         top_pad = 14.0;
+    double         margin = 16.0 * scale;
+    double         top_pad = 14.0 * scale;
     double         radius  = 1e9;
     if (max_sin >  0.01) radius = fmin (radius, (face_w - margin - pivot_x) / max_sin);
     if (min_sin < -0.01) radius = fmin (radius, (pivot_x - margin) / (-min_sin));
     if (max_cos >  0.01) radius = fmin (radius, (pivot_y - top_pad) / max_cos);
     if (min_cos < -0.01) radius = fmin (radius, (face_h - margin - pivot_y) / (-min_cos));
-    if (radius < 40.0)  radius = 40.0;
+    if (radius < 40.0 * scale)  radius = 40.0 * scale;
 
     cairo_save (cr);
     cairo_translate (cr, x, y);
@@ -895,8 +925,8 @@ pn_analog_meter_paint_plot (
     /* Plastic case + inset face. */
     cairo_save (cr);
     cairo_translate (cr, face_w * 0.5, face_h * 0.5);
-    paint_case  (cr, face_w, face_h, &st.frame_color);
-    paint_inner (cr, face_w, face_h, &st.face_color);
+    paint_case  (cr, face_w, face_h, &st.frame_color, scale);
+    paint_inner (cr, face_w, face_h, &st.face_color, scale);
     cairo_restore (cr);
 
     /* Unit + AC/DC glyph stacked in the UPPER-LEFT corner of the
@@ -922,18 +952,21 @@ pn_analog_meter_paint_plot (
          * "mbar") trip paint_centered_text's shrink-to-fit fallback,
          * which scales the font down until the run lands inside the
          * badge area. */
+        gchar *unit_font = g_strdup_printf ("Sans Bold %d",
+                                            (gint) lround (22.0 * scale));
         paint_centered_text (cr,
-                             st.unit, "Sans Bold 22",
+                             st.unit, unit_font,
                              &st.label_color,
-                             30.0,
+                             30.0 * scale,
                              face_w * 0.22);
+        g_free (unit_font);
         switch (st.mode)
         {
         case PN_ANALOG_METER_MODE_AC:
-            paint_ac_glyph (cr, &st.label_color, 56.0);
+            paint_ac_glyph (cr, &st.label_color, 56.0 * scale, scale);
             break;
         case PN_ANALOG_METER_MODE_DC:
-            paint_dc_glyph (cr, &st.label_color, 56.0);
+            paint_dc_glyph (cr, &st.label_color, 56.0 * scale, scale);
             break;
         case PN_ANALOG_METER_MODE_NONE:
         default:
@@ -945,7 +978,7 @@ pn_analog_meter_paint_plot (
         cairo_restore (cr);
     }
     paint_accuracy_class (cr, st.accuracy_class,
-                          &st.label_color, face_h);
+                          &st.label_color, face_h, scale);
 
     /* Scale + needle, in pivot-local coords.  The pivot bearing disc
      * is painted AFTER the needle (in face-local coords) so it sits
@@ -953,11 +986,11 @@ pn_analog_meter_paint_plot (
      * mechanical pivot the needle swings out from.                    */
     cairo_save (cr);
     cairo_translate (cr, pivot_x, pivot_y);
-    paint_ticks  (cr, &st, radius);
+    paint_ticks  (cr, &st, radius, scale);
     paint_needle (cr, &st, radius);
     cairo_restore (cr);
 
-    paint_pivot_bearing (cr, pivot_x, pivot_y);
+    paint_pivot_bearing (cr, pivot_x, pivot_y, scale);
 
     cairo_restore (cr);
 }

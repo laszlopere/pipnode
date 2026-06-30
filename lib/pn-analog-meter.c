@@ -42,16 +42,19 @@
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
 /*                                                                     */
-/*  Square footprint matching #PnDial: 220-px-wide header + 220-px     */
-/*  square face below.  The face hosts a flat panel-meter look -- a    */
-/*  rounded-corner plastic case, a bright inset face, and a needle    */
-/*  pivoted at the bottom centre that sweeps the upper arc.            */
+/*  Compact footprint: a standard 140-px-wide node header (matching    */
+/*  the canonical Node-RED rectangle every other node uses) with a     */
+/*  140-px square face below.  The face hosts a flat panel-meter look  */
+/*  -- a rounded-corner plastic case, a bright inset face, and a       */
+/*  needle pivoted at the bottom centre that sweeps the upper arc.     */
+/*  The face side scales with the width so the client area stays       */
+/*  proportional to the slimmer header.                                */
 /* ------------------------------------------------------------------ */
 
-#define PN_AM_WIDTH         220.0
+#define PN_AM_WIDTH         140.0
 #define PN_AM_HEADER_HEIGHT  40.0
 #define PN_AM_GAP             4.0
-#define PN_AM_FACE_SIZE     220.0
+#define PN_AM_FACE_SIZE     140.0
 #define PN_AM_TOTAL_HEIGHT  (PN_AM_HEADER_HEIGHT + PN_AM_GAP + PN_AM_FACE_SIZE)
 
 /* Repaint throttle: cap incoming-message-driven repaints at 30 Hz so
