@@ -3,20 +3,6 @@
   "version" : 1,
   "nodes" : [
     {
-      "type" : "PnDebug",
-      "uuid" : "0b2f60d5-3d01-4575-89b5-6dc7b5981d9f",
-      "name" : "Debug Print 1",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 620.0,
-        "y" : 120.0
-      },
-      "properties" : {
-        "target" : "Standard Error",
-        "format" : "JSON"
-      }
-    },
-    {
       "type" : "PnGraph",
       "uuid" : "47215acd-2ce0-4c26-9bdc-3229ab987621",
       "name" : "Graph 1",
@@ -83,6 +69,25 @@
         "period" : 5,
         "auth-profile" : "ssh-login-4",
         "hostname" : ""
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "d01c0d21-0f83-48d9-8b60-1bc0e9727f08",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "text" : "Monitoring the load on three servers. The names/IPs of the servers are not saved into the worksheet, they come from the credentials saved separately. The menu Edit -> Credentials holds the actual server names.",
+        "width" : 500.0,
+        "height" : 80.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
       }
     }
   ],
