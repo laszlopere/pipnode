@@ -151,6 +151,30 @@ void pn_ssh_login_dup_locked (GMutex           *mutex,
                               PnSshLogin       *out);
 
 /**
+ * pn_ssh_login_effective_host:
+ * @login:     (nullable): a resolved login snapshot, or %NULL / an ambient
+ *             ({0}) one
+ * @node_host: (nullable): the node's own "host" field (may be "" or %NULL)
+ *
+ * Returns which host a sampling node should actually reach.  A profile that
+ * carries a non-empty "host" pins the target there — exactly as
+ * #pn_ssh_build_argv lets the credential's host win over the node's host
+ * argument — so a node whose own host is blank but which points at such a
+ * credential resolves to the credential's host rather than to the local
+ * machine.  In every other case (@login %NULL/ambient, or a host-less
+ * profile) @node_host is returned verbatim.
+ *
+ * Sampling nodes call this BEFORE deciding the local-vs-SSH path, so a
+ * blank node host + a host-carrying profile no longer falls through to the
+ * local file.  The returned pointer is borrowed from @login or @node_host
+ * and is valid only as long as they are.
+ *
+ * Returns: (nullable) (transfer none): the host to reach.
+ */
+const gchar *pn_ssh_login_effective_host (const PnSshLogin *login,
+                                          const gchar      *node_host);
+
+/**
  * pn_ssh_auth_profile_param_spec:
  *
  * Builds the standard "auth-profile" #GParamSpec every SSH node installs: a

@@ -276,6 +276,20 @@ pn_ssh_login_dup_locked (GMutex           *mutex,
     g_mutex_unlock (mutex);
 }
 
+const gchar *
+pn_ssh_login_effective_host (const PnSshLogin *login,
+                             const gchar      *node_host)
+{
+    /* Keep this in lockstep with pn_ssh_build_argv's host override below: a
+     * credential that names a host is the connection target, so a node left
+     * blank still samples that host instead of falling through to local. */
+    if (login != NULL && login->has_profile &&
+        login->host != NULL && *login->host != '\0')
+        return login->host;
+
+    return node_host;
+}
+
 GParamSpec *
 pn_ssh_auth_profile_param_spec (void)
 {

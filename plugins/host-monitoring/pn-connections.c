@@ -296,25 +296,30 @@ pn_connections_trigger (PnAutoTrigger *trigger)
     gboolean       success  = FALSE;
     guint          total    = 0;
     PnSshLogin     login    = { 0 };
-    gboolean       local    = hostname_is_local (hostname);
+    const gchar   *effective;
+    gboolean       local;
     /* Empty / "localhost" both resolve to the actual machine name on
      * the wire and in the summary -- same convention as #PnLoad. */
-    const gchar   *display  = local ? g_get_host_name () : hostname;
+    const gchar   *display;
     guint          period;
     guint          timeout;
+
+    /* Resolve the SSH-Login snapshot up front: a profile carrying its own
+     * host pins WHERE we sample (mirroring pn_ssh_build_argv), so a node
+     * left blank but pointing at such a credential reaches that host rather
+     * than falling through to the local count. */
+    pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
+    effective = pn_ssh_login_effective_host (&login, hostname);
+    local     = hostname_is_local (effective);
+    display   = local ? g_get_host_name () : effective;
 
     period  = pn_auto_trigger_get_period (trigger);
     timeout = (period > 1u) ? period - 1u : 1u;
 
     if (local)
-    {
         success = sample_local (&total, &errbuf, &error);
-    }
     else
-    {
-        pn_ssh_login_dup_locked (&self->mutex, &self->ssh_login, &login);
-        success = sample_ssh (hostname, &login, timeout, &total, &errbuf, &error);
-    }
+        success = sample_ssh (effective, &login, timeout, &total, &errbuf, &error);
 
     msg = pn_message_new (node, NULL);
     pn_message_set_string  (msg, "host",

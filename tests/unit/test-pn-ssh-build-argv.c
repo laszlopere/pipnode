@@ -400,6 +400,43 @@ test_login_blank_host_keeps_arg (void)
     g_strfreev (argv);
 }
 
+/* ---- pn_ssh_login_effective_host ------------------------------------- */
+/* The local-vs-SSH gate the sampling nodes apply before reading /proc must
+ * agree with the host the builder above ultimately dials: a profile that
+ * names a host is the connection target even when the node's own host is
+ * left blank (the dialog locks it that way).  Before this helper a blank
+ * node host fell straight through to the local file regardless of the
+ * profile, so e.g. three Load nodes pointing at three hosts via three
+ * profiles all read the local machine and rendered identically. */
+
+/* A host-carrying profile wins over the node's (blank) host. */
+static void
+test_effective_host_profile_wins (void)
+{
+    PnSshLogin login = { .has_profile = TRUE, .host = (gchar *) "box.internal" };
+
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&login, ""),     ==, "box.internal");
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&login, NULL),   ==, "box.internal");
+    /* It even overrides a non-blank node host, matching pn_ssh_build_argv. */
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&login, "typed"), ==, "box.internal");
+}
+
+/* A blank / absent / ambient profile leaves the node's own host in place. */
+static void
+test_effective_host_falls_back_to_node (void)
+{
+    PnSshLogin blank_host = { .has_profile = TRUE, .host = (gchar *) "" };
+    PnSshLogin null_host  = { .has_profile = TRUE, .host = NULL };
+    PnSshLogin ambient    = { .has_profile = FALSE, .host = (gchar *) "ignored" };
+
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&blank_host, "node.host"), ==, "node.host");
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&null_host,  "node.host"), ==, "node.host");
+    /* has_profile FALSE: even a populated host field is ignored. */
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (&ambient,    "node.host"), ==, "node.host");
+    /* A NULL login is treated as ambient too. */
+    PN_CHECK_CMPSTR (pn_ssh_login_effective_host (NULL,        "node.host"), ==, "node.host");
+}
+
 /* ---- pn_ssh_login_resolve -------------------------------------------- */
 
 /* With no SSH Login profile configured, "" resolves to an ambient snapshot
@@ -590,6 +627,10 @@ main (int argc, char **argv)
     pn_test_add ("login_username_only",       test_login_username_only);
     pn_test_add ("login_host_overrides_arg",  test_login_host_overrides_arg);
     pn_test_add ("login_blank_host_keeps_arg", test_login_blank_host_keeps_arg);
+
+    /* effective_host — the gate that mirrors the host override above. */
+    pn_test_add ("effective_host_profile_wins", test_effective_host_profile_wins);
+    pn_test_add ("effective_host_node_fallback", test_effective_host_falls_back_to_node);
 
     /* resolve — ambient case MUST run before any profile is created. */
     pn_test_add ("resolve_ambient",           test_resolve_ambient);
