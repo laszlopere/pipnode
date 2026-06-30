@@ -90,6 +90,34 @@ test_series_per_topic (void)
 }
 
 static void
+test_series_from_label (void)
+{
+    PnGraph           *graph = pn_graph_new ();
+    PnNode            *node  = PN_NODE (graph);
+    PnNode            *src   = PN_NODE (pn_graph_new ());
+    PnMessage         *msg;
+    PnGraphSeriesView *views;
+    guint              n     = 0;
+
+    /* The series records the feeding node's name as its "from" label
+     * (used to caption the colour key in the 3D views). */
+    pn_node_set_name (src, "Eth5 Load");
+
+    msg = pn_message_new (src, "alpha");
+    pn_message_set_double (msg, "value", 1.0);
+    pn_node_receive_message (node, msg);
+    g_object_unref (msg);
+
+    views = pn_graph_collect_series_sorted (graph, &n);
+    PN_CHECK_CMPINT (n, ==, 1u);
+    PN_CHECK_CMPSTR (views[0].from, ==, "Eth5 Load");
+    g_free (views);
+
+    g_object_unref (src);
+    g_object_unref (node);
+}
+
+static void
 test_empty_key_is_noop (void)
 {
     PnGraph *graph = pn_graph_new ();
@@ -145,6 +173,7 @@ main (int argc, char **argv)
     pn_test_add ("is_a_sink",               test_is_a_sink);
     pn_test_add ("key_default",             test_key_default);
     pn_test_add ("series_per_topic",        test_series_per_topic);
+    pn_test_add ("series_from_label",       test_series_from_label);
     pn_test_add ("empty_key_is_noop",       test_empty_key_is_noop);
     pn_test_add ("missing_value_is_noop",   test_missing_value_is_noop);
     pn_test_add ("series_fan_out_capped",   test_series_fan_out_is_capped);

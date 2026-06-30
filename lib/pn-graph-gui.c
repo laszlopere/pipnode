@@ -291,6 +291,114 @@ color_for_series (
     }
 }
 
+/** The text shown for series @v in the colour key: its message "from"
+ *  label (the feeding node's name) when known, falling back to the topic
+ *  and finally a placeholder so every swatch is captioned. */
+static const gchar *
+legend_label (const PnGraphSeriesView *v)
+{
+    if (v->from != NULL && *v->from != '\0')
+        return v->from;
+    if (v->topic != NULL && *v->topic != '\0')
+        return v->topic;
+    return "(unnamed)";
+}
+
+/** Draw a colour key in the top-right of the plot area mapping each
+ *  series' auto-assigned colour to its "from" label.  Drawn in cairo on
+ *  top of the blitted MathGL image so the captions use the UI font; only
+ *  the multi-series 3D views call it, where colour and depth-order alone
+ *  otherwise leave the towers/curves unidentifiable.  @cr is already
+ *  translated to the plot origin and clipped to the w×h plot area. */
+static void
+draw_series_legend (
+        cairo_t                 *cr,
+        const PnGraphPaintState *ps,
+        const PnGraphSeriesView *views,
+        guint                    nseries,
+        double                   w,
+        double                   h)
+{
+    const double margin = 8.0;
+    const double pad    = 6.0;
+    const double fs     = CLAMP (h * 0.045, 9.0, 15.0);
+    const double swatch = fs;
+    const double gap    = 5.0;          /* swatch → caption */
+    const double line_h = fs + 5.0;
+    double       max_label = 0.0;
+    double       box_w, box_h, bx, by;
+    GdkRGBA      ink;
+    guint        i;
+
+    if (nseries == 0 || w < 60.0 || h < 40.0)
+        return;
+
+    cairo_save (cr);
+    cairo_select_font_face (cr, "Sans", CAIRO_FONT_SLANT_NORMAL,
+                            CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size (cr, fs);
+
+    for (i = 0; i < nseries; i++)
+    {
+        cairo_text_extents_t ext;
+        cairo_text_extents (cr, legend_label (&views[i]), &ext);
+        if (ext.width > max_label)
+            max_label = ext.width;
+    }
+
+    box_w = pad + swatch + gap + max_label + pad;
+    /* Never let a long caption push the key wider than the plot. */
+    box_w = MIN (box_w, w - 2.0 * margin);
+    box_h = 2.0 * pad + (double) nseries * line_h;
+    box_h = MIN (box_h, h - 2.0 * margin);
+
+    bx = w - margin - box_w;
+    by = margin;
+    if (bx < margin) bx = margin;
+
+    /* Translucent panel in the node background colour, framed in the axis
+     * colour, so the key sits legibly over the 3D scene. */
+    cairo_rectangle (cr, bx, by, box_w, box_h);
+    cairo_set_source_rgba (cr,
+                           ps->background_color.red,
+                           ps->background_color.green,
+                           ps->background_color.blue,
+                           0.82);
+    cairo_fill_preserve (cr);
+    gdk_cairo_set_source_rgba (cr, (const GdkRGBA *) &ps->axis_color);
+    cairo_set_line_width (cr, 1.0);
+    cairo_stroke (cr);
+
+    /* Clip captions to the panel so an over-long fallback (topic) can't
+     * spill past the frame. */
+    cairo_rectangle (cr, bx + pad, by, box_w - pad, box_h);
+    cairo_clip (cr);
+
+    ink       = *(const GdkRGBA *) &ps->axis_color;
+    ink.alpha = 1.0;
+
+    for (i = 0; i < nseries; i++)
+    {
+        PnColor c;
+        double  row = by + pad + (double) i * line_h;
+
+        color_for_series (ps, i, &c);
+
+        cairo_rectangle (cr, bx + pad, row, swatch, swatch);
+        cairo_set_source_rgba (cr, c.red, c.green, c.blue, 1.0);
+        cairo_fill_preserve (cr);
+        gdk_cairo_set_source_rgba (cr, &ink);
+        cairo_set_line_width (cr, 0.75);
+        cairo_stroke (cr);
+
+        gdk_cairo_set_source_rgba (cr, &ink);
+        cairo_move_to (cr, bx + pad + swatch + gap, row + swatch - 1.5);
+        cairo_show_text (cr, legend_label (&views[i]));
+    }
+
+    cairo_restore (cr);
+}
+
 /** Format @value into @label as inline scientific notation when its
  *  magnitude is far enough from 1 that "%g" would otherwise emit
  *  "1e+17" or trigger PLplot's multiplier extraction. */
@@ -968,6 +1076,8 @@ paint_line_3d (
     mgl_blit_to_cairo (gr, cr);
     mgl_delete_graph (gr);
 
+    draw_series_legend (cr, ps, views, nseries, w, h);
+
     g_free (all_xs); g_free (all_ys); g_free (all_zs); g_free (counts);
 }
 
@@ -1251,6 +1361,8 @@ paint_histogram_3d (
         mgl_blit_to_cairo (gr, cr);
         mgl_delete_graph (gr);
     }
+
+    draw_series_legend (cr, ps, views, nseries, w, h);
 
     g_free (per_series_data); g_free (per_series_n); g_free (all_counts);
 }

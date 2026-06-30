@@ -304,7 +304,11 @@ series_new (guint arrival_idx)
 static void
 series_free (gpointer data)
 {
-    g_free (data);
+    PnGraphSeries *s = data;
+
+    if (s != NULL)
+        g_free (s->from);
+    g_free (s);
 }
 
 /** Lookup an existing series for @topic, or create one on first
@@ -374,6 +378,7 @@ pn_graph_collect_series_sorted (
     {
         out[i].topic  = (const gchar *)         k;
         out[i].series = (const PnGraphSeries *) v;
+        out[i].from   = ((const PnGraphSeries *) v)->from;
         i += 1;
     }
 
@@ -630,6 +635,29 @@ pn_graph_receive (
     series = series_get_or_create (self, topic);
     if (series == NULL)
         return;  /* PN_GRAPH_MAX_SERIES cap hit; drop silently. */
+
+    /* Track the message's "from" label for the colour key.  This is the
+     * feeding node's name (its class name when unnamed), the same value
+     * pn_message_serialize writes into the top-level "from" field.  A
+     * topic is normally fed by a single source; if that ever changes we
+     * simply keep the most recent label. */
+    {
+        PnNode *source = pn_message_get_source (message);
+
+        if (source != NULL)
+        {
+            const gchar *name = pn_node_get_name (source);
+
+            if (name == NULL || *name == '\0')
+                name = pn_node_get_class_name (source);
+
+            if (g_strcmp0 (series->from, name) != 0)
+            {
+                g_free (series->from);
+                series->from = g_strdup (name);
+            }
+        }
+    }
 
     now_us    = g_get_monotonic_time ();
     width     = pn_graph_bin_width_us (self);

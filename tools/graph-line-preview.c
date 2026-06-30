@@ -18,9 +18,9 @@
 #include "pn-graph-gui.h"
 
 static void
-feed (PnNode *node, const char *topic, double value)
+feed (PnNode *node, PnNode *source, const char *topic, double value)
 {
-    PnMessage *msg = pn_message_new (NULL, topic);
+    PnMessage *msg = pn_message_new (source, topic);
     pn_message_set_double (msg, "value", value);
     pn_node_receive_message (node, msg);
     g_object_unref (msg);
@@ -53,10 +53,15 @@ main (int argc, char **argv)
     g_print ("bin_width = %" G_GINT64_FORMAT " us, window = %u s\n",
              binw, pn_graph_resolution_seconds (PN_GRAPH_RES_MINUTE));
 
+    PnNode *src_k = PN_NODE (pn_graph_new ());
+    PnNode *src_l = PN_NODE (pn_graph_new ());
+    pn_node_set_name (src_k, "Eth5 Load");
+    pn_node_set_name (src_l, "Mini06 CPU");
+
     for (i = 0; i < rounds; i++)
     {
-        feed (node, "kitchen", 20.0 + 4.0 * sin (i * 0.5));
-        feed (node, "living",  60.0 + 5.0 * cos (i * 0.4));
+        feed (node, src_k, "kitchen", 20.0 + 4.0 * sin (i * 0.5));
+        feed (node, src_l, "living",  60.0 + 5.0 * cos (i * 0.4));
         g_usleep (binw);          /* advance one time bin */
     }
 
@@ -77,6 +82,8 @@ main (int argc, char **argv)
     cairo_surface_flush (surf);
     cairo_surface_write_to_png (surf, out);
     cairo_surface_destroy (surf);
+    g_object_unref (src_k);
+    g_object_unref (src_l);
     g_object_unref (node);
     g_print ("wrote %s (%dx%d), %d rounds\n", out, w, h, rounds);
     return 0;

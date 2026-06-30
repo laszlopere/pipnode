@@ -31,9 +31,9 @@
 #include "pn-graph-gui.h"
 
 static void
-feed (PnNode *node, const char *topic, double value)
+feed (PnNode *node, PnNode *source, const char *topic, double value)
 {
-    PnMessage *msg = pn_message_new (NULL, topic);
+    PnMessage *msg = pn_message_new (source, topic);
     pn_message_set_double (msg, "value", value);
     pn_node_receive_message (node, msg);
     g_object_unref (msg);
@@ -46,8 +46,11 @@ main (int argc, char **argv)
     int          w   = (argc > 2) ? atoi (argv[2]) : 900;
     int          h   = (argc > 3) ? atoi (argv[3]) : 640;
     const char  *topics[4] = { "kitchen", "living", "outdoor", "attic" };
+    const char  *froms[4]  = { "Eth5 Load", "Mini06 CPU", "Outdoor Temp",
+                               "Attic Humidity" };
     const double mean[4]   = { 20.0, 26.0, 12.0, 18.0 };
     const double sd[4]     = {  2.0,  3.0,  1.5,  4.0 };
+    PnNode          *srcs[4];
     PnGraph         *g;
     PnNode          *node;
     PnNodeClass     *klass;
@@ -68,6 +71,14 @@ main (int argc, char **argv)
         const char *ns = g_getenv ("PN_GRAPH_NSAMPLES");
         int nsamples = ns ? atoi (ns) : 180;
 
+    /* A distinctly-named source node per topic so each series gets a real
+     * message "from" label for the colour key. */
+    for (t = 0; t < 4; t++)
+    {
+        srcs[t] = PN_NODE (pn_graph_new ());
+        pn_node_set_name (srcs[t], froms[t]);
+    }
+
     r = g_rand_new_with_seed (12345);
     for (t = 0; t < 4; t++)
         for (i = 0; i < nsamples; i++)
@@ -75,7 +86,7 @@ main (int argc, char **argv)
             double u1 = g_rand_double (r) + 1e-12;
             double u2 = g_rand_double (r);
             double z  = sqrt (-2.0 * log (u1)) * cos (2.0 * G_PI * u2);
-            feed (node, topics[t], mean[t] + sd[t] * z);
+            feed (node, srcs[t], topics[t], mean[t] + sd[t] * z);
         }
     g_rand_free (r);
     }
@@ -103,6 +114,8 @@ main (int argc, char **argv)
     }
     cairo_surface_destroy (surf);
 
+    for (t = 0; t < 4; t++)
+        g_object_unref (srcs[t]);
     g_object_unref (node);
     g_print ("wrote %s (%dx%d)\n", out, w, h);
     return 0;

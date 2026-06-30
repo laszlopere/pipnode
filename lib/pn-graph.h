@@ -192,13 +192,22 @@ typedef struct
     guint          sample_count;
 
     guint          arrival_idx;
+
+    /* The "from" label carried on the most recent message routed to this
+     * series — the feeding node's display name (its class name when it
+     * has no name set), exactly as serialized into a message's top-level
+     * "from" field.  Owned by the series; NULL until a message arrives.
+     * Used to label the colour key in the multi-series 3D views. */
+    gchar         *from;
 } PnGraphSeries;
 
 /* A (topic, series) pair, used to walk the series in arrival order on
- * every paint.  Both pointers are borrowed from the node's hashtable. */
+ * every paint.  Both pointers are borrowed from the node's hashtable.
+ * @from mirrors the series' source label (see #PnGraphSeries.from). */
 typedef struct
 {
     const gchar         *topic;
+    const gchar         *from;
     const PnGraphSeries *series;
 } PnGraphSeriesView;
 
