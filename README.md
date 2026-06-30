@@ -33,6 +33,7 @@ plugin system so the node catalogue can grow without forking the core.
   <img src="screenshots/temperature.png" width="32%" alt="Temperature graph">
   <img src="screenshots/ollama.png" width="32%" alt="Ollama node">
   <img src="screenshots/meshtastic.png" width="32%" alt="Meshtastic node">
+  <img src="screenshots/3d-graph.png" width="32%" alt="3D multi-series graph with colour key">
 </p>
 
 ## Building
