@@ -36,6 +36,8 @@ plugin system so the node catalogue can grow without forking the core.
   <img src="screenshots/3d-graph.png" width="32%" alt="3D multi-series graph with colour key">
 </p>
 
+![Displays](screenshots/displays.png)
+
 ## Building
 
 Pipnode uses GNU autotools:
