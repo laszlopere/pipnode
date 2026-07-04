@@ -8,8 +8,8 @@
       "name" : "Segment16 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 200.0
+        "x" : 860.0,
+        "y" : 280.0
       },
       "properties" : {
         "cells" : 8,
@@ -24,8 +24,8 @@
       "name" : "Injector 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 100.0,
-        "y" : 40.0
+        "x" : 680.0,
+        "y" : 120.0
       },
       "properties" : {
         "text" : "Clean 16",
@@ -40,8 +40,8 @@
       "name" : "Matrix57 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 360.0
+        "x" : 860.0,
+        "y" : 440.0
       },
       "properties" : {
         "cells" : 14,
@@ -58,8 +58,8 @@
       "name" : "Label 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 40.0
+        "x" : 860.0,
+        "y" : 120.0
       },
       "properties" : {
         "lines" : 2,
@@ -74,8 +74,8 @@
       "name" : "DigitalClock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 520.0
+        "x" : 400.0,
+        "y" : 120.0
       },
       "properties" : {
         "show-labels" : true,
@@ -92,8 +92,8 @@
       "name" : "Countdown 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 680.0
+        "x" : 400.0,
+        "y" : 280.0
       },
       "properties" : {
         "day-digits" : 3,
@@ -110,26 +110,11 @@
       "name" : "Clock 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 20.0,
-        "y" : 520.0
+        "x" : 40.0,
+        "y" : 280.0
       },
       "properties" : {
         "period" : 1
-      }
-    },
-    {
-      "type" : "PnDebug",
-      "uuid" : "2783575d-e4e9-4afb-a9f4-f10d513d13d3",
-      "name" : "Debug Print 1",
-      "worksheet" : "Worksheet",
-      "disabled" : true,
-      "position" : {
-        "x" : 200.0,
-        "y" : 460.0
-      },
-      "properties" : {
-        "target" : "Debug View",
-        "format" : "JSON"
       }
     },
     {
@@ -138,11 +123,11 @@
       "name" : "Deadline 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 200.0,
-        "y" : 680.0
+        "x" : 220.0,
+        "y" : 280.0
       },
       "properties" : {
-        "target" : "2026-05-27 19:30:00",
+        "target" : "2026-07-06 11:30:00",
         "timezone" : "Not Set"
       }
     },
@@ -152,16 +137,17 @@
       "name" : "BNB -> USD",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 200.0,
-        "y" : 840.0
+        "x" : 220.0,
+        "y" : 440.0
       },
       "properties" : {
         "period" : 600,
         "url" : "https://api.coingecko.com/api/v3/simple/price",
         "from" : "BNB",
         "to" : "USD",
-        "rate" : 653.46000000000004,
-        "last-update" : "2026-05-27T11:42:21.827966+02"
+        "rate" : 565.25999999999999,
+        "last-update" : "2026-07-03T13:41:58.991978+02",
+        "status" : "OK"
       }
     },
     {
@@ -170,8 +156,8 @@
       "name" : "AutoInjector 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 20.0,
-        "y" : 840.0
+        "x" : 40.0,
+        "y" : 440.0
       },
       "properties" : {
         "period" : 600,
@@ -186,8 +172,8 @@
       "name" : "Numeric 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 840.0
+        "x" : 400.0,
+        "y" : 440.0
       },
       "properties" : {
         "digits" : 6,
@@ -195,6 +181,25 @@
         "background-color" : "rgb(10,10,13)",
         "segment-color" : "rgb(28,113,216)",
         "unlit-segment-color" : "rgb(4,1,82)"
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "44d3cb35-721e-4264-9978-7bfac59caea9",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "A set of displays, that are available to be used in the panel of the Xfce Desktop Environment controlled by an arbitrary Pipnode worksheet.",
+        "width" : 680.0,
+        "height" : 60.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
       }
     }
   ],
@@ -214,10 +219,6 @@
     {
       "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
       "target_id" : "6625b06c-3341-403c-a887-54b81e3d4c23"
-    },
-    {
-      "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
-      "target_id" : "2783575d-e4e9-4afb-a9f4-f10d513d13d3"
     },
     {
       "source_id" : "8513e391-6b51-465e-8d1a-3adeaed66557",
