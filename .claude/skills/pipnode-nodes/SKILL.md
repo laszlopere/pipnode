@@ -25,7 +25,7 @@ Core nodes, by category:
 
 - [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Panel Input, AutoInjector, AutoRandom, Astronomical
 - [`reference/network.md`](reference/network.md) — **Network**: Http Client, MQTT Source, MQTT Sink, Weather, Meshtastic
-- [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI**: Comparator, Dedup, Edge, Filter, Success, Failure, Threshold, Calculator, Calculator 2, JMESPath, FX Converter, Throughput
+- [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI**: Comparator, Dedup, Edge, Filter, Success, Failure, Threshold, Calculator, Calculator 2, JMESPath, Parse JSON, FX Converter, Throughput
 - [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, PROM, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Staircase, Throttle, Watchdog, Deadline
 - [`reference/sinks.md`](reference/sinks.md) — **Sinks** (consume/visualise): Debug Print, Graph, XY Graph, Weather Report, Sun Path, Chat, Sound, Text to Speech, Notify, FileViewer, Text View, Table, Table View, Panel Display
 - [`reference/gui-displays-gauges.md`](reference/gui-displays-gauges.md) — **GUI/Displays & Gauges + indicator sinks**: Numeric, Segment16, Matrix57, DigitalClock, Label, AnalogClock, AnalogMeter, Dial, LED, Countdown

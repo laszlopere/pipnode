@@ -1,6 +1,6 @@
 # Filters — Gate, Expressions, Compute & AI
 
-Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `has_input` and `has_output`, so a message arrives, the node transforms or gates it, and (usually) one message goes out the other side. Three sub-categories appear under the palette's **Filters** group: **Filters/Gate** nodes decide pass/block (and some rewrite `data.value` to a clean 0.0/1.0 boolean), **Filters/Expressions** nodes recompute the bag (Calculator, Calculator 2, JMESPath), and **Filters/Compute & AI** nodes derive new values (FX Converter, Throughput). Every node forwards the *received* topic unchanged unless noted (Throughput is the exception — it mints a fresh `stats` message). Each output wire receives a deep copy. The message contract: envelope `topic`/`id`/`created` plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical number; boolean = 0.0/1.0, test `> 0.5`), `data.output` (human summary) and `data.success` (boolean).
+Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `has_input` and `has_output`, so a message arrives, the node transforms or gates it, and (usually) one message goes out the other side. Three sub-categories appear under the palette's **Filters** group: **Filters/Gate** nodes decide pass/block (and some rewrite `data.value` to a clean 0.0/1.0 boolean), **Filters/Expressions** nodes recompute the bag (Calculator, Calculator 2, JMESPath, Parse JSON), and **Filters/Compute & AI** nodes derive new values (FX Converter, Throughput). Every node forwards the *received* topic unchanged unless noted (Throughput is the exception — it mints a fresh `stats` message). Each output wire receives a deep copy. The message contract: envelope `topic`/`id`/`created` plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical number; boolean = 0.0/1.0, test `> 0.5`), `data.output` (human summary) and `data.success` (boolean).
 
 ---
 
@@ -190,6 +190,26 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 **Writes** — Sets `result-field` (or rewrites the whole `data` bag). On parse/type/no-match failure sets `data.error` and a JSON-null result; **always emits** (failures never drop the message). Does not touch `data.success`/`data.output`.
 
 **Gotchas** — `result-field` = `""` or `"data"` is destructive (drops all other bag members) — picking `"data"` literally would otherwise nest `data.data`, hence the special-case. Teal body, fa-crosshairs icon.
+
+---
+
+## Parse JSON
+
+**Purpose** — Parses a JSON *string* held in one data-bag member into real structure, so the rest of the pipeline can address it (never drops). (`lib/pn-parse.c:149` receive.)
+
+**When to use** — Between **Http Client** and **JMESPath**. Http Client leaves its response body as an opaque string in `data.output`; JMESPath runs against the message *tree*, where that body is still one long string, so none of its fields are reachable. This node is the bridge. Also for JSON arriving as text over MQTT, a file read, or a shell command's stdout.
+
+**Ports** — `has_input` + `has_output`, single each.
+
+**Settings**
+- `source-field` (string, default **`"data/output"`**): `/`-separated JSON pointer to the string to parse. Must resolve, and must address a string.
+- `result-field` (string, default **`"result"`**): where the parsed document goes. Same semantics as JMESPath's: a non-empty name writes that one member, leaving siblings (including the raw body) in place; **`""`** or the literal **`"data"`** replace the *entire* data bag with the document, wrapping a non-object document under `value`.
+
+**Behaviour** — Copies the source string out *before* touching the bag (the lookup root references the live bag, which a replace-the-bag result then clears). Parses with `JsonParser`. On success writes `result-field`, removes any stale `data.error`, and clears the node's error lamp.
+
+**Writes** — Sets `result-field` (or rewrites the whole `data` bag). On failure sets `data.error` and `pn_node_set_has_error(TRUE)`; **always emits**. Does not touch `data.success`/`data.output`.
+
+**Gotchas** — Failure is deliberately **non-destructive**: the bag is forwarded unchanged apart from `data.error`, so the body you could not parse survives for inspection. (This differs from JMESPath, which on a bag-replacing failure clears the bag and writes a null `value`.) Error strings: `source-field is empty`, `no such field`, `field is not a string` (already-structured data needs no parsing), `empty document` (whitespace only), else the JSON parser's own message. Blue body, fa-code icon.
 
 ---
 
