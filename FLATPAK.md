@@ -8,10 +8,11 @@ covers building it, turning it into a single distributable file, and running it.
 - Runtime: `org.gnome.Platform` / `org.gnome.Sdk` version **50**
 
 The GNOME runtime provides GTK 3, libsoup 3, json-glib, GnuTLS, gdk-pixbuf and
-webkit2gtk-4.1. Four libraries Pipnode needs are **not** in any runtime and are
+webkit2gtk-4.1. Five libraries Pipnode needs are **not** in any runtime and are
 built as modules by the manifest: **gtksourceview-4**, **libmosquitto**,
-**PLplot** and **MathGL** (the multi-series 3D graph views). The manifest also
-bundles **FontAwesome 4.7** (the node glyph font).
+**PLplot**, **MathGL** (the multi-series 3D graph views) and **GtkSheet** (the
+spreadsheet widget). The manifest also bundles **FontAwesome 4.7** (the node
+glyph font).
 
 ---
 
@@ -148,6 +149,7 @@ e.g. `flatpak run --env=GTK_THEME=Adwaita org.pipas.pipnode`.
 | `gtksourceview4` | meson | `--libdir=lib`; GNOME runtime ships gtksourceview-5 (GTK4), so 4.x is bundled |
 | `libmosquitto`   | cmake | client library only (`-DWITH_BROKER=OFF …`, `-DDOCUMENTATION=OFF`, `-DCMAKE_INSTALL_LIBDIR=lib`) |
 | `plplot`         | cmake | double-precision C core + cairo drivers only; all language bindings off |
+| `gtksheet`       | autotools | release tarball ships a pregenerated `configure`; `--disable-tests --disable-gtk-doc` |
 | `pipnode`        | autotools | the app + all 7 bundled plugins; `--with-webview=auto` |
 | `font-awesome`   | simple | installs FontAwesome 4.7 into `/app/share/fonts` |
 

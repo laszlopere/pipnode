@@ -12,6 +12,6 @@ aclocaldir=${datadir}/aclocal
 Name: pipnode-gui
 Description: Pipnode GTK GUI library (worksheet, dialogs, drawing) for plugin developers
 Version: @VERSION@
-Requires: pipnode-core >= @VERSION@ gtk+-3.0 >= 3.22 gtksourceview-4 >= 4.0
+Requires: pipnode-core >= @VERSION@ gtk+-3.0 >= 3.22 gtksourceview-4 >= 4.0 gtksheet-4.0 >= 4.3.12
 Libs: -L${libdir} -lpipnode-gui
 Cflags: -I${includedir} -I${includedir}/pipnode

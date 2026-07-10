@@ -39,6 +39,13 @@ PKG_CHECK_MODULES([GTK], [gtk+-3.0 >= 3.22])
 # use, dropped in for one row inside our own dialog.
 PKG_CHECK_MODULES([GTKSOURCEVIEW], [gtksourceview-4 >= 4.0])
 
+# Check for GtkSheet 4 (the maintained fork of the widget that used to
+# live in Gtk+-Extra; upstream is fpaquet/gtksheet).  Provides the
+# spreadsheet-style cell matrix used by the gui tier.  LGPL-2+, so it
+# stays linkable from proprietary plugins as well as the GPL core --
+# unlike GNU spread-sheet-widget, which is GPLv3+.
+PKG_CHECK_MODULES([GTKSHEET], [gtksheet-4.0 >= 4.3.12])
+
 # Check for JSON-GLib
 PKG_CHECK_MODULES([JSON_GLIB], [json-glib-1.0 >= 1.0])
 

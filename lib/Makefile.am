@@ -431,6 +431,7 @@ libpipnode_gui_la_CFLAGS = \
 	-I$(top_srcdir)/panel-widgets \
 	$(GTK_CFLAGS) \
 	$(GTKSOURCEVIEW_CFLAGS) \
+	$(GTKSHEET_CFLAGS) \
 	$(JSON_GLIB_CFLAGS) \
 	$(LIBSOUP_CFLAGS) \
 	$(GDK_PIXBUF_CFLAGS) \
@@ -449,6 +450,7 @@ libpipnode_gui_la_LIBADD = \
 	$(top_builddir)/panel-widgets/libpipnode-panel-widgets.la \
 	$(GTK_LIBS) \
 	$(GTKSOURCEVIEW_LIBS) \
+	$(GTKSHEET_LIBS) \
 	$(JSON_GLIB_LIBS) \
 	$(LIBSOUP_LIBS) \
 	$(GDK_PIXBUF_LIBS) \

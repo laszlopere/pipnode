@@ -154,6 +154,21 @@ modules:
         url: https://downloads.sourceforge.net/project/mathgl/mathgl/mathgl%208.0/mathgl-8.0.1.tar.gz
         sha256: ca84bf9480c39ed3112e920c16ce3d8f2898698f62896f3a57714128622a55aa
 
+  # GtkSheet — the spreadsheet-style cell matrix widget.  No runtime ships
+  # it.  The release tarball carries a pregenerated configure, so plain
+  # autotools works with no autogen step.  glade, introspection and man
+  # pages already default to off upstream; tests and gtk-doc do not, and
+  # both would drag in build-only deps we have no use for.
+  - name: gtksheet
+    buildsystem: autotools
+    config-opts:
+      - --disable-tests
+      - --disable-gtk-doc
+    sources:
+      - type: archive
+        url: https://github.com/fpaquet/gtksheet/archive/refs/tags/V4.3.14.tar.gz
+        sha256: ab269d17bcda73f0fcd237f4e3d25feaf901af0716820895de64db8434537834
+
   # Pipnode itself + all 7 bundled open-source plugins.
   - name: pipnode
     buildsystem: autotools
