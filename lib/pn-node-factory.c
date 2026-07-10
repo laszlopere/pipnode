@@ -30,6 +30,7 @@
 #include "pn-chat.h"
 #include "pn-comparator.h"
 #include "pn-countdown.h"
+#include "pn-daily-timer.h"
 #include "pn-analog-clock.h"
 #include "pn-digital-clock.h"
 #include "pn-deadline.h"
@@ -237,6 +238,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_AUTO_INJECTOR);
     pn_node_factory_register (self, PN_TYPE_AUTO_RANDOM);
     pn_node_factory_register (self, PN_TYPE_ASTRONOMICAL);
+    pn_node_factory_register (self, PN_TYPE_DAILY_TIMER);
 
     /* Host monitoring.  System Load, Net Connections, Disk I/O,
      * Network I/O, CPU, CPU Temperature, Ambient Temperature and

@@ -21,6 +21,7 @@
 #include "pn-auto-random.h"
 #include "pn-auto-trigger.h"
 #include "pn-analog-meter.h"
+#include "pn-daily-timer.h"
 #include "pn-debug.h"
 #include "pn-dedup.h"
 #include "pn-device-combo.h"

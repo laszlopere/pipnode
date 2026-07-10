@@ -47,6 +47,8 @@ libpipnode_core_la_SOURCES = \
 	pn-comparator.h \
 	pn-countdown.c \
 	pn-countdown.h \
+	pn-daily-timer.c \
+	pn-daily-timer.h \
 	pn-deadline.c \
 	pn-deadline.h \
 	pn-debug.c \
@@ -291,6 +293,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-chat-gui.h \
 	pn-countdown-gui.c \
 	pn-countdown-gui.h \
+	pn-daily-timer-gui.c \
+	pn-daily-timer-gui.h \
 	pn-analog-clock-gui.c \
 	pn-analog-clock-gui.h \
 	pn-dial-gui.c \
@@ -477,6 +481,7 @@ pipnode_core_headers = \
 	pn-comment.h \
 	pn-comparator.h \
 	pn-countdown.h \
+	pn-daily-timer.h \
 	pn-debug.h \
 	pn-dedup.h \
 	pn-delay.h \
@@ -584,6 +589,7 @@ pipnode_gui_headers = \
 	pn-analog-meter-gui.h \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \
+	pn-daily-timer-gui.h \
 	pn-credentials-dialog.h \
 	pn-analog-clock-gui.h \
 	pn-dial-gui.h \

@@ -18,6 +18,7 @@ pnhelp_DATA = \
 	help/PnComment.html \
 	help/PnComparator.html \
 	help/PnCountdown.html \
+	help/PnDailyTimer.html \
 	help/PnDeadline.html \
 	help/PnDebug.html \
 	help/PnDedup.html \

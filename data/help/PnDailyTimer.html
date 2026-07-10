@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Daily Timer (PnDailyTimer) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnDailyTimer">Daily Timer</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnDailyTimer</code>.
+</p>
+<p>
+A weekly on/off schedule.  Open the node's settings dialog and build a
+list of intervals &mdash; each one a day of the week (or
+<em>Every&nbsp;day</em>), an <em>on</em> time and an <em>off</em> time.
+The node watches the local wall clock and emits a message with
+<code>data.value = 1.0</code> when the time enters any interval, and
+<code>data.value = 0.0</code> when it leaves the last one.
+<code>data.success</code> mirrors the same state as a boolean and
+<code>data.output</code> carries the word <code>on</code> or
+<code>off</code>, so the tick plugs straight into a Tasmota relay, an
+LED, a Debug view or a text-to-speech sink.
+</p>
+<p>
+Only the <em>transitions</em> are emitted.  The node polls once a
+second but stays silent while the computed state is unchanged, so a
+downstream relay sees one message per switch-over rather than one per
+second.
+</p>
+<p>
+The very first poll after the worksheet loads always emits, whichever
+state it finds.  Opening a worksheet at 08:00 with an
+07:00&nbsp;&ndash;&nbsp;09:00 interval leaves the heating <em>on</em>;
+opening it at 10:00 leaves it <em>off</em>.  Without that announce the
+relay would sit in whatever state it happened to be in until the next
+edge came around &mdash; possibly the next morning.  Editing the
+schedule re-announces for the same reason: the rules changed, so the
+verdict is re-sent even if it happens to be the same one.
+</p>
+<p>
+Interval bounds are half-open: the timer switches on <em>during</em>
+the on minute and off <em>during</em> the off minute.  Back-to-back
+intervals (06:00&nbsp;&ndash;&nbsp;08:00 followed by
+08:00&nbsp;&ndash;&nbsp;10:00) therefore neither overlap nor leave a
+one-minute gap where the relay drops out.  Overlapping intervals union
+rather than fight &mdash; the timer is on whenever <em>any</em>
+interval matches.
+</p>
+<p>
+An off time at or before its on time <strong>wraps past
+midnight</strong> into the following day: a Friday
+22:00&nbsp;&ndash;&nbsp;06:00 interval is in force on Friday evening
+<em>and</em> through Saturday morning, ending at Saturday's 06:00.  An
+interval whose two times are equal is degenerate &mdash; a zero-length
+window and an all-day window are equally defensible readings of it, so
+neither is guessed at and the row is ignored.
+</p>
+<p>
+The state is recomputed from the clock on every poll rather than
+tracked incrementally, so a suspend/resume, an NTP step or a daylight-
+saving changeover lands the node on the state its schedule implies for
+the new time, instead of on whatever the missed edges would have left
+behind.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>schedule</code></td>
+      <td>JSON array of
+          <code>{day, on_hour, on_minute, off_hour, off_minute}</code>
+          intervals, normally edited through the dialog's row editor.
+          <code>day</code> is 1 (Monday) through 7 (Sunday), or
+          <code>-1</code> for every day.  A hand-edited file with an
+          out-of-range day falls back to every day; out-of-range times
+          clamp.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Inherited poll interval in seconds (default 1).  The schedule
+          has minute resolution, so this only controls how promptly a
+          transition is noticed.</td></tr>
+</table>
+
+</body>
+</html>

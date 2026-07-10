@@ -50,6 +50,7 @@ check_PROGRAMS = \
 	test-pn-success \
 	test-pn-failure \
 	test-pn-switch \
+	test-pn-daily-timer \
 	test-pn-panel-input \
 	test-pn-panel-display \
 	test-pn-set \
@@ -213,6 +214,7 @@ test_pn_switch_SOURCES       = test-pn-switch.c       pntest.c pntest.h
 test_pn_panel_input_SOURCES  = test-pn-panel-input.c  pntest.c pntest.h
 test_pn_panel_display_SOURCES = test-pn-panel-display.c pntest.c pntest.h
 test_pn_set_SOURCES          = test-pn-set.c          pntest.c pntest.h
+test_pn_daily_timer_SOURCES  = test-pn-daily-timer.c  pntest.c pntest.h
 test_pn_text_SOURCES         = test-pn-text.c         pntest.c pntest.h
 test_pn_topic_SOURCES        = test-pn-topic.c        pntest.c pntest.h
 test_pn_value_SOURCES        = test-pn-value.c        pntest.c pntest.h
