@@ -23,6 +23,8 @@
 #include "pn-flow.h"
 #include "pn-node-store.h"
 
+#include <math.h>
+
 /* ------------------------------------------------------------------ */
 /*  Geometry                                                           */
 /* ------------------------------------------------------------------ */
@@ -42,7 +44,15 @@ pn_jump_measure (
     const double want = PN_JUMP_POINT + 2.0 * PN_JUMP_PADDING + text;
 
     if (out_width != NULL)
-        *out_width = MAX (PN_JUMP_MIN_WIDTH, want);
+    {
+        /* Round the text-derived width UP to a whole grid step.  The
+         * output port sits at pos->x + width, so a fractional width
+         * would park a Jump Out's tip between grid lines and no amount
+         * of snapping the node's origin could recover it. */
+        const double snapped = ceil (want / PN_JUMP_GRID) * PN_JUMP_GRID;
+
+        *out_width = MAX (PN_JUMP_MIN_WIDTH, snapped);
+    }
     if (out_height != NULL)
         *out_height = PN_JUMP_HEIGHT;
 }

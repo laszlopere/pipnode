@@ -904,7 +904,11 @@ jump_flag_path (
  *  makes a long-range connection read as a label rather than a box.
  *  The error state (an unmatched or untagged flag, see
  *  pn_jump_refresh_errors) recolours the outline and fill rather than
- *  swapping in the ❗ glyph, since there is no icon slot to swap. */
+ *  swapping in the ❗ glyph, since there is no icon slot to swap.
+ *
+ *  The pennant is drawn slimmer than the node's footprint and centred
+ *  in it: the footprint is grid-sized so the tip lands on a grid line
+ *  (see pn-jump.h), while the shape keeps a label's proportions. */
 static void
 draw_jump_flag (cairo_t *cr, PnNode *node, PnWorksheet *self)
 {
@@ -916,6 +920,9 @@ draw_jump_flag (cairo_t *cr, PnNode *node, PnWorksheet *self)
     const gboolean disabled = pn_node_get_disabled  (node);
     const gboolean error    = pn_node_get_has_error (node);
     const double   x = pos->x, y = pos->y;
+    /* Inset that centres the drawn shape in the grid-sized footprint. */
+    const double   inset = (PN_JUMP_HEIGHT - PN_JUMP_SHAPE_HEIGHT) * 0.5;
+    const double   sy = y + inset;
     double         w, h, tx, tw;
 
     PangoLayout          *layout;
@@ -934,7 +941,7 @@ draw_jump_flag (cairo_t *cr, PnNode *node, PnWorksheet *self)
 
     pn_jump_measure (tag, &w, &h);
 
-    jump_flag_path (cr, x, y, w, h, is_in);
+    jump_flag_path (cr, x, sy, w, PN_JUMP_SHAPE_HEIGHT, is_in);
 
     /* A near-white fill rather than the node's own colour: the pennant
      * is mostly text, and dark-on-light keeps a long tag legible. */
@@ -976,7 +983,8 @@ draw_jump_flag (cairo_t *cr, PnNode *node, PnWorksheet *self)
     pango_layout_set_text      (layout, tag, -1);
     pango_layout_get_pixel_size (layout, NULL, &lh);
 
-    cairo_move_to (cr, floor (tx + 0.5), floor (y + (h - lh) * 0.5 + 0.5));
+    cairo_move_to (cr, floor (tx + 0.5),
+                   floor (sy + (PN_JUMP_SHAPE_HEIGHT - lh) * 0.5 + 0.5));
     pango_cairo_show_layout (cr, layout);
     g_object_unref (layout);
 }

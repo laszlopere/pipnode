@@ -22,6 +22,7 @@
 #endif
 
 #include "pntest.h"
+#include "pn-jump.h"
 #include "pn-jump-in.h"
 #include "pn-jump-out.h"
 #include "pn-flow.h"
@@ -297,6 +298,53 @@ test_tag_cycle_terminates (void)
     g_object_unref (flow);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Geometry                                                           */
+/* ------------------------------------------------------------------ */
+
+/* The ports are derived from the footprint — input_port_y() gives
+ * pos->y + header_height/2 and the output port sits at pos->x + width —
+ * so a flag's connection point is on the grid only if the footprint is a
+ * whole number of grid steps wide and an even number tall.  Check that
+ * for tag lengths that would otherwise produce fractional widths. */
+static void
+test_footprint_is_grid_aligned (void)
+{
+    const gchar *tags[] = { "", "a", "ab", "temp", "a-long-ish-tag-name",
+                            "\xc3\xa1\xc3\xa9\xc5\x91\xc5\xb1" };  /* UTF-8: 4 chars, 8 bytes */
+    guint i;
+
+    for (i = 0; i < G_N_ELEMENTS (tags); i++)
+    {
+        double w = 0.0, h = 0.0;
+
+        pn_jump_measure (tags[i], &w, &h);
+
+        /* Integer arithmetic on purpose: no libm in the test harness, and
+         * these are exact multiples or the geometry is wrong anyway. */
+        const gint step = (gint) PN_JUMP_GRID;
+        const gint wi   = (gint) (w + 0.5);
+        const gint hi   = (gint) (h + 0.5);
+
+        /* Width: a whole number of grid steps, never below the minimum. */
+        PN_CHECK_CMPINT (wi % step, ==, 0);
+        PN_CHECK (w >= PN_JUMP_MIN_WIDTH);
+
+        /* Height: an EVEN number of steps, so header_height/2 — where the
+         * port sits — is itself a whole step. */
+        PN_CHECK_CMPINT (hi % (2 * step), ==, 0);
+        PN_CHECK_CMPINT ((hi / 2) % step, ==, 0);
+    }
+}
+
+/* The drawn pennant must fit inside the footprint it is centred in. */
+static void
+test_shape_fits_footprint (void)
+{
+    PN_CHECK (PN_JUMP_SHAPE_HEIGHT <= PN_JUMP_HEIGHT);
+    PN_CHECK (PN_JUMP_POINT + 2.0 * PN_JUMP_PADDING < PN_JUMP_MIN_WIDTH);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -311,5 +359,7 @@ main (int argc, char **argv)
     pn_test_add ("retag_restrands_partner",   test_retag_restrands_partner);
     pn_test_add ("remove_strands_survivor",   test_removing_partner_strands_survivor);
     pn_test_add ("tag_cycle_terminates",      test_tag_cycle_terminates);
+    pn_test_add ("footprint_grid_aligned",    test_footprint_is_grid_aligned);
+    pn_test_add ("shape_fits_footprint",      test_shape_fits_footprint);
     return pn_test_run ();
 }
