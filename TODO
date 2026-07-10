@@ -741,3 +741,33 @@
        capability. Deadband (forward only when the value moves beyond a band) and
        Schedule (fire at 07:00 on weekdays) would each make headless pipnode-run
        materially more self-sufficient.
+
+[x] 57 Daily Timer node -- weekly on/off schedule (the "Schedule" node the #56
+       note called out as making headless pipnode-run materially more
+       self-sufficient). Core PnDailyTimer subclasses PnAutoTrigger; a
+       canonical "schedule" JSON string property carries a list of
+       {day, on_hour, on_minute, off_hour, off_minute} intervals, compiled once
+       into minute-of-day pairs. The gui tier installs a build_class_tab row
+       editor (day combo + four spin buttons + Add/Remove), same shape as the
+       Set and Filter rule editors. No ABI bump -- no new vfunc.
+       [x] 57.1 Core node: compile/containment/trigger. Half-open [on, off)
+             bounds; off <= on wraps past midnight into the next day (checks
+             the previous day's wrapping rows, Sunday->Monday included);
+             on == off is degenerate and dropped. State recomputed from the
+             clock every tick, so suspend/resume, NTP steps and DST self-heal.
+       [x] 57.2 Edge-only emission + startup announce. Emits value=1.0/0.0
+             (plus success, output) only when the state changes; last_state is
+             a tri-state (-1 until the first poll) so the first tick after
+             load always announces, and setting "schedule" resets it so an
+             edit re-announces instead of waiting for the next edge.
+       [x] 57.3 Schedule editor tab (pn-daily-timer-gui.c), factory
+             registration, help page, pipnode-nodes skill reference.
+       [x] 57.4 Unit tests (tests/unit/test-pn-daily-timer.c): containment via
+             the pure pn_daily_timer_state_at() seam (no clock), emission via
+             pn_auto_trigger_run_once_sync() asserting only the
+             clock-independent contract.
+       [ ] 57.5 Deferred: no on-canvas indication of the current state -- the
+             user wires an LED. A body-colour or header-slider tell (the way
+             PnSwitch paints its latch) would save that hop, but it needs a
+             gui-tier paint vfunc and a decision about whether a *schedule*
+             should look like a *switch*.
