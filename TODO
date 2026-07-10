@@ -615,3 +615,118 @@
                 headless/core so untouched) + a visual check via the running
                 editor. PLUGINS/packaging note: MathGL is a new gui-tier runtime
                 dep (pipnode-gui package), document alongside PLplot.
+
+[ ] 49 HTTP Request node -- react to a message and POST. Core, headless, medium.
+       The existing Http Client (lib/pn-http.c:402) is a timer-driven GET with
+       has_input=FALSE and no method selection, so you cannot make a request in
+       response to an event, nor POST/PUT a body. The only outbound HTTP in the
+       tree is the bespoke plugins/network/pn-https-tunnel-sender.c. Reuse the
+       existing libsoup 3 plumbing (configure.ac:56; NO curl anywhere in the
+       tree): pn-http.c:191 already builds its request as
+       soup_message_new (SOUP_METHOD_GET, expanded) with the method as a plain
+       argument, so the method becomes a property and a body attaches via
+       soup_message_set_request_body_from_bytes. Template URL/body with
+       ${path/to/field}; write data.output, data.status, data.success.
+
+[ ] 50 Parse JSON node -- make response bodies addressable. Core, headless,
+       small. Http Client hands the body back as a STRING in data.output, and
+       pn-http.c never parses it, so JMESPath (which runs against the message
+       tree) cannot reach a single field of a REST response. json-glib is already
+       a dependency. Cheapest node on this list, and it is what makes #49 useful.
+
+[ ] 51 Columns-to-Table node -- one generic text parser instead of N bespoke
+       ones. Shell plugin, headless, medium. plugins/shell/pn-df-command.c,
+       pn-lxc-ls-command.c and pn-free-command.c are three hand-written nodes
+       whose only job is "run one fixed command, parse its columns into
+       data.table"; TODO #12 asks for a fourth (pidstat|awk). Read data.output,
+       write data.table, split by whitespace / delimiter / regex. Would let
+       ShellCommand -> ColumnsToTable replace all of them and close #12 and #13
+       without new C.
+
+[ ] 52 Rolling Statistics node -- a sliding window over VALUES. Core, headless,
+       medium. Throughput/Stats counts message ARRIVALS, not the values they
+       carry, and Reduce folds one message's $pnvector without seeing a stream --
+       so mean / min / max / stddev / rate-of-change exist nowhere. Every real
+       sensor feed (rtl_433 temperature, Tasmota ENERGY.Power, System Load) is
+       noisy and there is nothing to put between it and an AnalogMeter needle.
+
+[ ] 53 Scale / Map-Range node -- retire the most-repeated idiom in the examples.
+       Core, headless, small. examples/controls-and-logic/animation-test.json
+       chains Expression("value * 10") -> Expression("value + 100"): two nodes
+       for one affine map. Same pattern in examples/networking/crypto-price.json
+       ("value + 12.0") and examples/controls-and-logic/knob.json. Four bounds
+       in->out, plus clamp and round.
+
+[ ] 54 Collect node -- turn a stream into a vector. Core, headless, medium. Only
+       Ramp, Expression and Expression2 ever call pn_message_set_vector, so the
+       ONLY way to obtain a vector is to synthesize one; nothing accumulates live
+       readings for Reduce or Plot to consume. A hole in the analog-computer
+       story: the scope shipped, but the only thing it can be fed is a signal we
+       made up. Buffer data.value per message, flush on count / timeout / a
+       second trigger input, emit one $pnvector.
+
+[ ] 55 Function / Signal Generator node -- sine / square / triangle / sawtooth /
+       sweep / noise. Core, headless, small. Subclass PnAutoTrigger for the
+       sample tick; fields waveform, frequency, amplitude, offset, phase. The
+       natural other half of the Oscilloscope (#44/#45) and a stimulus source for
+       exercising a flow's Deadband/Stats/Threshold wiring with no live hardware.
+       Sources today are Clock (time), AutoInjector (constant), AutoRandom
+       (noise) and Ramp (vector) -- no deterministic time-varying waveform.
+
+       OUTPUT SHAPE (decided): a MODE switch, scalar or vector. The consumers
+       force this -- neither shape serves both halves of the node's purpose:
+
+         [ ] 55.1 mode=sample (DEFAULT) -- one scalar per PnAutoTrigger tick on
+               data.value. Feeds AnalogMeter / Dial / Numeric / Threshold /
+               Deadband / the Sound chain, all of which read data.value as a
+               double. This is the mode that serves the stimulus-source purpose
+               above; a vector is meaningless to them.
+         [ ] 55.2 mode=sweep -- one frame of N samples per tick as a SINGLE
+               vector on data.value. Feeds Oscilloscope / Plot / Reduce, and is
+               the synthetic counterpart of Collect (#54). Required, because a
+               scalar stream cannot draw a waveform: the scope has exactly two
+               states (pn-oscilloscope.c:124-127) -- snapshot (vy is the trace,
+               vx an optional X vector) and point (vy==NULL: "the single latest
+               (x,y) scalar, drawn as a dot. No history is kept"). Plot
+               (pn-plot.c:294) and Reduce (pn-reduce.c:179) likewise resolve a
+               vector or nothing.
+         [ ] 55.3 ONE vector, not two. In sweep mode emit Y on data.value (the
+               "universal slot", per pn-ramp.c:150-153 -- Ramp emits a vector
+               there, AutoRandom a scalar, so both shapes on one key are already
+               idiomatic). Make the X (time) vector OPTIONAL, under a
+               configurable key the scope's x_key can point at: the scope already
+               treats vx as optional and falls back to sample index, which is
+               correct for a uniformly-sampled waveform, so an X vector buys only
+               a real-seconds time axis. Cheap either way (pn_message_set_vector
+               stores a $pnvector handle by reference, not a copy).
+               NOT for X-Y: Lissajous needs two DIFFERENT signals, x=sin(at) and
+               y=sin(bt+phi) -- two generators combined downstream, as
+               examples/Compute/lissajous.json already does with Expression2. One
+               node emitting x=time alongside y=sin(t) is a time-domain trace,
+               not a Lissajous figure.
+         [ ] 55.4 Known rough edge: in sample mode, wiring the generator straight
+               into the Oscilloscope looks broken -- a dot crawling across the
+               screen with an afterglow trail. That is the scope's missing roll /
+               sweep mode (#45.3), NOT something this node should paper over by
+               inventing its own history buffer.
+
+[ ] 56 N-way Router -- ARCHITECTURAL, needs a design spike before any code. One
+       input, N outputs, each message leaving by the output whose rule (topic
+       glob / value test / success) matches. This is the highest-recurrence
+       pattern in the tree: examples/home-automation/power.json fans one PnMqtt
+       source into THREE identical PnFilter nodes just to branch on topic; also
+       examples/home-automation/tasmota-socket.json (2 topic filters) and
+       examples/networking/network_test.json (a complementary OnlySuccess /
+       OnlyFail pair). But the graph model is single-output today: connections
+       are {source_id, target_id, target_input} with no source-port index, and
+       pn_node_emit_message fans one output to every wire. Multi-output ports
+       would touch the port model, worksheet wiring and serialization. Decide the
+       port model first; the node falls out of it.
+
+       Related, deliberately NOT split out as entries: the expression language
+       has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
+       logical-not", so a boolean AND is only expressible as the arithmetic trick
+       (a>0.5)*(b>0.5). A Logic Gate node would be discoverability, not new
+       capability. Deadband (forward only when the value moves beyond a band) and
+       Schedule (fire at 07:00 on weekdays) would each make headless pipnode-run
+       materially more self-sufficient.
