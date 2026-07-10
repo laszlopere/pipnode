@@ -331,3 +331,51 @@ zone (falls back to UTC if the geocoder didn't supply one); sunrise/sunset are
 for the UTC calendar day of the queried instant. `sun_up` uses the −0.833°
 refraction-corrected horizon so it agrees with the reported times. `fa-sun-o`
 icon.
+
+## Daily Timer
+
+**Purpose** — A weekly on/off schedule. The user builds a list of intervals —
+each a day of the week (or "Every day"), an on time and an off time — and the
+node emits `value` = 1.0 when local wall-clock time enters any interval and
+0.0 when it leaves the last one (`lib/pn-daily-timer.c`).
+
+**When to use** — Time-of-day automation: heating windows, lights on at dusk
+hours, a relay that must be on 07:00–09:00 on weekdays. Wire straight into a
+Tasmota Switch, an LED, or any `value > 0.5` consumer. Differs from Clock
+(which emits the live time every tick) and from AutoInjector (a fixed payload
+on a period): the Daily Timer emits *only at transitions*, and its payload is
+the schedule's verdict.
+
+**Ports** — `has_input = FALSE`, `has_output = TRUE`.
+
+**Settings** — plus inherited `period`:
+- `schedule` (string, default `"[]"`) — canonical JSON array of
+  `{day, on_hour, on_minute, off_hour, off_minute}` objects. `day` is 1
+  (Monday) … 7 (Sunday) matching `g_date_time_get_day_of_week()`, or `-1` for
+  every day. Normally edited through the dialog's row editor (day combo + four
+  spin buttons + Add/Remove), a `build_class_tab` override installed by the
+  gui tier (`pn-daily-timer-gui.c`) in the same shape as the Set and Filter
+  rule editors.
+
+**Emits** — Only on a state *change*, from the `PnAutoTrigger` worker tick.
+Topic: default. Writes `value` (1.0 / 0.0), `success` (boolean, same state) and
+`output` (`"on"` / `"off"`).
+
+**Startup announce** — The first poll after construction always emits,
+whichever state it finds; `last_state` is a tri-state (-1 until first poll).
+`PnAutoTrigger` clamps that first tick to one second after construction, by
+which time the loader has wired the graph and applied `schedule`, so the
+announce reaches downstream. Setting `schedule` resets `last_state` to -1, so a
+schedule edit re-announces rather than waiting for the next edge.
+
+**Gotchas** — Interval bounds are half-open `[on, off)`, so back-to-back
+intervals neither overlap nor leave a one-minute gap. An off time **at or
+before** the on time wraps past midnight into the next day (Friday 22:00–06:00
+is on through Saturday morning); the containment test therefore also checks the
+*previous* day's wrapping rows, and the previous-day lookup wraps Sunday→Monday.
+`on == off` is degenerate and the row is dropped at compile time. State is
+recomputed from the clock every tick (never tracked incrementally), so
+suspend/resume, NTP steps and DST changeovers self-heal. The compiled interval
+cache and `last_state` are guarded by a `GMutex` because the trigger reads them
+on the worker thread while the dialog writes `schedule` from the main thread.
+`fa-calendar` icon (FontAwesome 4.7).
