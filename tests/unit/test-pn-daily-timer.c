@@ -59,11 +59,29 @@ make_timer (const gchar *schedule)
 static void
 test_empty_schedule_is_always_off (void)
 {
-    PnDailyTimer *timer = make_timer (NULL);
+    /* Explicitly empty: the default schedule is a worked example, not
+     * an empty array. */
+    PnDailyTimer *timer = make_timer ("[]");
 
     PN_CHECK_FALSE (pn_daily_timer_state_at (timer, MON,  0,  0));
     PN_CHECK_FALSE (pn_daily_timer_state_at (timer, WED, 12, 30));
     PN_CHECK_FALSE (pn_daily_timer_state_at (timer, SUN, 23, 59));
+
+    g_object_unref (timer);
+}
+
+/* A freshly constructed node carries one example interval -- every day,
+ * 07:00 to 09:00 -- so dropping a Daily Timer onto a sheet and opening
+ * it shows what an interval looks like instead of a blank grid. */
+static void
+test_default_schedule_is_example_interval (void)
+{
+    PnDailyTimer *timer = make_timer (NULL);
+
+    PN_CHECK_FALSE (pn_daily_timer_state_at (timer, MON,  6, 59));
+    PN_CHECK       (pn_daily_timer_state_at (timer, MON,  7,  0));
+    PN_CHECK       (pn_daily_timer_state_at (timer, SUN,  8, 30));
+    PN_CHECK_FALSE (pn_daily_timer_state_at (timer, SUN,  9,  0));
 
     g_object_unref (timer);
 }
@@ -362,6 +380,7 @@ main (int argc, char **argv)
 {
     pn_test_init (&argc, &argv, "pn-daily-timer");
     pn_test_add ("empty_always_off",     test_empty_schedule_is_always_off);
+    pn_test_add ("default_is_example",   test_default_schedule_is_example_interval);
     pn_test_add ("bounds_half_open",     test_interval_bounds_are_half_open);
     pn_test_add ("every_day_matches",    test_every_day_matches_all_weekdays);
     pn_test_add ("wraps_past_midnight",  test_interval_wraps_past_midnight);

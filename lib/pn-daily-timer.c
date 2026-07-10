@@ -44,6 +44,14 @@
  * g_date_time_get_day_of_week() without a lookup table. */
 #define PN_DAILY_TIMER_EVERY_DAY  (-1)
 
+/* A new node ships with one worked example rather than an empty
+ * schedule: dropping a Daily Timer and opening it should show what an
+ * interval looks like, not a blank grid.  Clearing every row leaves
+ * "[]", which is always off. */
+#define PN_DAILY_TIMER_DEFAULT_SCHEDULE \
+    "[{\"day\":-1,\"on_hour\":7,\"on_minute\":0," \
+    "\"off_hour\":9,\"off_minute\":0}]"
+
 #define MINUTES_PER_DAY  1440
 
 /* ------------------------------------------------------------------ */
@@ -455,8 +463,10 @@ pn_daily_timer_class_init (PnDailyTimerClass *klass)
             "JSON array of {day, on_hour, on_minute, off_hour, off_minute} "
             "intervals.  \"day\" is 1 (Monday) to 7 (Sunday), or -1 for "
             "every day.  The node emits data.value = 1.0 on entering any "
-            "interval and 0.0 on leaving the last one.",
-            "[]",
+            "interval and 0.0 on leaving the last one.  Defaults to one "
+            "example interval so a freshly dropped node has something to "
+            "read and edit; an empty array \"[]\" is always off.",
+            PN_DAILY_TIMER_DEFAULT_SCHEDULE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (object_class, N_PROPS, props);
@@ -470,9 +480,12 @@ pn_daily_timer_init (PnDailyTimer *self)
 
     g_mutex_init (&self->lock);
 
-    self->schedule_json = g_strdup ("[]");
-    self->compiled      = g_array_new (FALSE, FALSE,
-                                       sizeof (CompiledInterval));
+    /* GObject never calls set_property for a non-construct property's
+     * default, so the pspec default has to be mirrored here -- and
+     * compiled, or a node that is never assigned a schedule would read
+     * as having one while behaving as if it had none. */
+    self->schedule_json = g_strdup (PN_DAILY_TIMER_DEFAULT_SCHEDULE);
+    self->compiled      = compile_schedule (self->schedule_json);
     self->last_state    = -1;
 
     pn_node_set_class_name (node, "Daily Timer");
