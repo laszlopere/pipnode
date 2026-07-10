@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jump Out (PnJumpOut) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnJumpOut">Jump Out</h4>
+<p>
+<em>Group:</em> Routing. <em>Type:</em> <code>PnJumpOut</code>.
+</p>
+<p>
+The exit end of a named connection. Whatever arrives at any
+<em>Jump In</em> whose <strong>tag</strong> matches this one is emitted
+from this flag's output port, anywhere in the document. See
+<a href="PnJumpIn.html">Jump In</a> for the full contract &mdash; the two
+nodes are one feature.
+</p>
+<p>
+The flag has no input: it is driven only by its partners, never by a
+wire. Disabling it drops the messages destined for it without disturbing
+the other flags on the same tag.
+</p>
+<p>
+A flag with no tag, or one whose tag no <em>Jump In</em> feeds, is
+painted red with a warning mark &mdash; an output nobody drives is
+almost always a typo in the tag.
+</p>
+
+</body>
+</html>

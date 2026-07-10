@@ -1,0 +1,282 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "8f3bb3fb-583e-483e-98e4-367c64f6423e",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.0,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "3984d4cb-9406-44b4-bc28-e22eaab8fb86",
+      "name" : "Jump In 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 280.0,
+        "y" : 92.0
+      },
+      "properties" : {
+        "tag" : "temp"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "b3aa166b-79e2-409f-bcf3-fc55791c3d09",
+      "name" : "Jump Out 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "tag" : "temp"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "bba3eb4e-9098-434b-88df-7c4dc3efb89c",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 208.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "c11b10bd-fb67-490e-b243-79e154075115",
+      "name" : "Jump Out 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 300.0
+      },
+      "properties" : {
+        "tag" : "temp"
+      }
+    },
+    {
+      "type" : "PnLed",
+      "uuid" : "0d90a249-2d43-4c01-bcad-eacdb2a0fc4e",
+      "name" : "LED 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 288.0
+      },
+      "properties" : {
+        "color" : "rgb(51,217,77)",
+        "hold-ms" : 250,
+        "mode" : "Flash"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "d10ca8f9-4638-46bd-b5f0-552e09c1d9d7",
+      "name" : "Jump Out 3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 390.0
+      },
+      "properties" : {
+        "tag" : "typo"
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "7479a488-9f95-49a1-a46a-eb8e70cf9f29",
+      "name" : "Jump In 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 390.0
+      },
+      "properties" : {
+        "tag" : ""
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "b922e179-58a0-4c22-8c42-570f54f67c95",
+      "name" : "Jump Out 4",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 80.0,
+        "y" : 100.0
+      },
+      "properties" : {
+        "tag" : "temp"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "4ce210c5-262c-410a-9f5a-4abf6150243d",
+      "name" : "Debug Print 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 88.0
+      },
+      "properties" : {
+        "target" : "Standard Error",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "2fae2a0d-e7be-4c27-b40b-1767077a6146",
+      "name" : "Jump Out 5",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 420.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "tag" : "Test"
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "41b3563a-3f78-4690-92b6-78d0e4c0ccc8",
+      "name" : "Jump In 3",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 260.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "tag" : "Test"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "8e5562cf-7db0-4045-8a33-a3b930b5f79c",
+      "name" : "Knob 2",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 120.0,
+        "value" : 50.0
+      }
+    },
+    {
+      "type" : "PnDial",
+      "uuid" : "bbd4e80c-9851-401d-8b0c-32f708fa99a9",
+      "name" : "Dial 1",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 520.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "min-value" : 0.0,
+        "max-value" : 120.0,
+        "start-angle" : -120.0,
+        "end-angle" : 120.0,
+        "major-ticks" : 13,
+        "minor-ticks-per-major" : 5,
+        "label" : "",
+        "unit" : "",
+        "green-start" : 0.0,
+        "green-end" : 60.0,
+        "yellow-start" : 60.0,
+        "yellow-end" : 90.0,
+        "red-start" : 90.0,
+        "red-end" : 120.0,
+        "face-color" : "rgb(232,232,232)",
+        "scale-color" : "rgb(179,26,26)",
+        "needle-color" : "rgb(204,26,26)",
+        "label-color" : "rgb(38,38,38)",
+        "green-color" : "rgba(51,166,64,0.85)",
+        "yellow-color" : "rgba(242,204,38,0.85)",
+        "red-color" : "rgba(217,51,38,0.85)"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "c2e8b876-ae6c-442b-b29c-22600fe8ff5f",
+      "name" : "Numeric 1",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 520.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "9d6f7be1-cc0b-4ddb-b693-43dd000ec0ba",
+      "name" : "Jump Out 5",
+      "worksheet" : "Sheet 2",
+      "position" : {
+        "x" : 420.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "tag" : "Test"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "8f3bb3fb-583e-483e-98e4-367c64f6423e",
+      "target_id" : "3984d4cb-9406-44b4-bc28-e22eaab8fb86"
+    },
+    {
+      "source_id" : "b3aa166b-79e2-409f-bcf3-fc55791c3d09",
+      "target_id" : "bba3eb4e-9098-434b-88df-7c4dc3efb89c"
+    },
+    {
+      "source_id" : "c11b10bd-fb67-490e-b243-79e154075115",
+      "target_id" : "0d90a249-2d43-4c01-bcad-eacdb2a0fc4e"
+    },
+    {
+      "source_id" : "b922e179-58a0-4c22-8c42-570f54f67c95",
+      "target_id" : "4ce210c5-262c-410a-9f5a-4abf6150243d"
+    },
+    {
+      "source_id" : "8e5562cf-7db0-4045-8a33-a3b930b5f79c",
+      "target_id" : "41b3563a-3f78-4690-92b6-78d0e4c0ccc8"
+    },
+    {
+      "source_id" : "2fae2a0d-e7be-4c27-b40b-1767077a6146",
+      "target_id" : "bbd4e80c-9851-401d-8b0c-32f708fa99a9"
+    },
+    {
+      "source_id" : "9d6f7be1-cc0b-4ddb-b693-43dd000ec0ba",
+      "target_id" : "c2e8b876-ae6c-442b-b29c-22600fe8ff5f"
+    }
+  ],
+  "sheets" : [
+    "Worksheet",
+    "Sheet 2"
+  ],
+  "active_sheet" : "Sheet 2"
+}

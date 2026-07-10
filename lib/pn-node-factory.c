@@ -53,6 +53,8 @@
 #include "pn-http.h"
 #include "pn-comment.h"
 #include "pn-inject.h"
+#include "pn-jump-in.h"
+#include "pn-jump-out.h"
 #include "pn-knob.h"
 #include "pn-label.h"
 #include "pn-led.h"
@@ -317,6 +319,13 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_ANALOG_CLOCK);
     pn_node_factory_register (self, PN_TYPE_LABEL);
     pn_node_factory_register (self, PN_TYPE_COMMENT);
+
+    /* Routing.  The jump flags are a wireless connection by name — see
+     * pn-jump.h.  They register with the sinks because that is where the
+     * palette groups the port-less decorations they resemble, but they
+     * are the one "annotation" that actually moves messages. */
+    pn_node_factory_register (self, PN_TYPE_JUMP_IN);
+    pn_node_factory_register (self, PN_TYPE_JUMP_OUT);
     pn_node_factory_register (self, PN_TYPE_PANEL_DISPLAY);
     pn_node_factory_register (self, PN_TYPE_TABLE);
     pn_node_factory_register (self, PN_TYPE_TABLE_VIEW);

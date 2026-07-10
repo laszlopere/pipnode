@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jump In (PnJumpIn) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnJumpIn">Jump In</h4>
+<p>
+<em>Group:</em> Routing. <em>Type:</em> <code>PnJumpIn</code>.
+</p>
+<p>
+The entry end of a named connection that carries messages without a
+wire. Give the flag a <strong>tag</strong>, and every <em>Jump Out</em>
+carrying the same tag receives whatever arrives here &mdash; the way a
+schematic uses a global label instead of dragging a net across the page.
+</p>
+<p>
+Matching is exact and case-sensitive, and it spans the <strong>whole
+document</strong>, not just the sheet the flag sits on. That is the
+point of the node: a wire cannot cross sheets, so jump flags are the
+supported way to route a signal between them. Reach for a pair when a
+wire would have to travel most of the way across a worksheet, or when
+the source and the consumer live on different sheets.
+</p>
+<p>
+Fan-out and merging both work. Several <em>Jump Out</em> flags sharing
+one tag each receive their own independent copy of the message, exactly
+as if they hung off the same output port; several <em>Jump In</em> flags
+sharing one tag merge onto the same connection. Each delivered copy is a
+deep clone, so one branch mutating its data bag cannot disturb another.
+</p>
+<p>
+A flag with no tag, or one whose tag no <em>Jump Out</em> answers, is
+painted red with a warning mark: it would otherwise swallow messages in
+silence. Fix it by setting the tag or by adding the missing partner.
+</p>
+<p>
+Feedback is allowed &mdash; a <em>Jump Out</em> may wire back round to a
+<em>Jump In</em> with the same tag &mdash; but a loop that never settles
+is stopped by the same dispatch-depth limit that guards a wired loop, and
+the message is dropped.
+</p>
+
+</body>
+</html>

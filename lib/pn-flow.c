@@ -24,6 +24,9 @@
 #include "pn-node-store.h"
 #include "pn-wire.h"
 #include "pn-wire-store.h"
+#include "pn-jump.h"
+#include "pn-jump-in.h"
+#include "pn-jump-out.h"
 #include "pn-debug.h"
 
 #include <json-glib/json-glib.h>
@@ -623,6 +626,7 @@ on_node_store_node_added_mark (
         gpointer     user_data)
 {
     (void) store; (void) node; (void) index;
+    pn_jump_refresh_errors (PN_FLOW (user_data));
     on_store_changed_mark_modified (user_data);
 }
 
@@ -634,6 +638,9 @@ on_node_store_node_removed_mark (
         gpointer     user_data)
 {
     (void) store; (void) node; (void) index;
+    /* Deleting one half of a pair strands the other: re-check after the
+     * node is out of the store, so the survivor lights up. */
+    pn_jump_refresh_errors (PN_FLOW (user_data));
     on_store_changed_mark_modified (user_data);
 }
 
@@ -695,7 +702,14 @@ on_node_any_notify_mark (
         GParamSpec *pspec,
         gpointer    user_data)
 {
-    (void) object;
+    /* Retagging a jump flag re-forms connections document-wide: the old
+     * partner may be stranded and a new one adopted.  Gate on the flag
+     * types so an unrelated node's "tag" property cannot trigger the
+     * sweep, and on the property name so the has-error notification this
+     * very sweep emits does not recurse back into it. */
+    if (g_strcmp0 (pspec->name, "tag") == 0 &&
+        (PN_IS_JUMP_IN (object) || PN_IS_JUMP_OUT (object)))
+        pn_jump_refresh_errors (PN_FLOW (user_data));
 
     /* Ignore purely cosmetic / live-status notifications so a node
      * settling into its runtime appearance after load does not flag the

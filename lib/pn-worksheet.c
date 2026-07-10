@@ -33,6 +33,9 @@
 #include "pn-knob.h"
 #include "pn-chat.h"
 #include "pn-comment.h"
+#include "pn-jump.h"
+#include "pn-jump-in.h"
+#include "pn-jump-out.h"
 #include "pn-sun-path.h"
 #include "pn-oscilloscope.h"
 #include "pn-filedrop.h"
@@ -854,6 +857,130 @@ draw_comment_box (cairo_t *cr, PnNode *node, PnWorksheet *self)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Jump flags                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Trace the pennant outline: a rectangle with one end drawn to a
+ *  point.  @points_left puts the tip on the left (a #PnJumpIn, whose
+ *  input port sits there) and otherwise on the right (a #PnJumpOut).
+ *  The tip lands exactly on the port coordinate the wire renderer and
+ *  the port hit-test compute, so a wire meets the point of the flag. */
+static void
+jump_flag_path (
+        cairo_t *cr,
+        double   x,
+        double   y,
+        double   w,
+        double   h,
+        gboolean points_left)
+{
+    const double p  = PN_JUMP_POINT;
+    const double my = y + h * 0.5;
+
+    if (points_left)
+    {
+        cairo_move_to (cr, x,         my);
+        cairo_line_to (cr, x + p,     y);
+        cairo_line_to (cr, x + w,     y);
+        cairo_line_to (cr, x + w,     y + h);
+        cairo_line_to (cr, x + p,     y + h);
+    }
+    else
+    {
+        cairo_move_to (cr, x,         y);
+        cairo_line_to (cr, x + w - p, y);
+        cairo_line_to (cr, x + w,     my);
+        cairo_line_to (cr, x + w - p, y + h);
+        cairo_line_to (cr, x,         y + h);
+    }
+
+    cairo_close_path (cr);
+}
+
+/** Paint a jump flag: a schematic-style global label, not a Node-RED
+ *  node.  No icon panel, header, port tabs or drop shadow — the tag
+ *  text inside an outlined pennant is the whole of it, which is what
+ *  makes a long-range connection read as a label rather than a box.
+ *  The error state (an unmatched or untagged flag, see
+ *  pn_jump_refresh_errors) recolours the outline and fill rather than
+ *  swapping in the ❗ glyph, since there is no icon slot to swap. */
+static void
+draw_jump_flag (cairo_t *cr, PnNode *node, PnWorksheet *self)
+{
+    const PnPoint *pos      = pn_node_get_position (node);
+    const gboolean is_in    = PN_IS_JUMP_IN (node);
+    const gchar   *tag      = is_in
+                                  ? pn_jump_in_get_tag  (PN_JUMP_IN  (node))
+                                  : pn_jump_out_get_tag (PN_JUMP_OUT (node));
+    const gboolean disabled = pn_node_get_disabled  (node);
+    const gboolean error    = pn_node_get_has_error (node);
+    const double   x = pos->x, y = pos->y;
+    double         w, h, tx, tw;
+
+    PangoLayout          *layout;
+    PangoFontDescription *fd;
+    int                   lh;
+
+    /* Disabled wins over error, as everywhere else: a flag the user
+     * turned off is inert, not broken. */
+    const GdkRGBA grey   = { 0.62, 0.62, 0.62, 1.0 };
+    const GdkRGBA errcol = { 0.86, 0.30, 0.28, 1.0 };
+    const GdkRGBA *ink   = disabled ? &grey
+                         : error    ? &errcol
+                                    : (const GdkRGBA *) pn_node_get_color (node);
+
+    (void) self;
+
+    pn_jump_measure (tag, &w, &h);
+
+    jump_flag_path (cr, x, y, w, h, is_in);
+
+    /* A near-white fill rather than the node's own colour: the pennant
+     * is mostly text, and dark-on-light keeps a long tag legible. */
+    if (disabled)
+        cairo_set_source_rgb (cr, 0.95, 0.95, 0.95);
+    else if (error)
+        cairo_set_source_rgb (cr, 1.00, 0.93, 0.93);
+    else
+        cairo_set_source_rgb (cr, 0.99, 0.97, 0.97);
+    cairo_fill_preserve (cr);
+
+    cairo_set_source_rgb (cr, ink->red, ink->green, ink->blue);
+    cairo_set_line_width (cr, 2.0);
+    cairo_stroke (cr);
+
+    /* Tag text, centred in the rectangular part (the pointed end is not
+     * usable width).  An untagged flag shows a placeholder so the shape
+     * never collapses to an empty outline the user cannot aim at. */
+    if (tag == NULL || *tag == '\0')
+        tag = "?";
+
+    tx = is_in ? x + PN_JUMP_POINT + PN_JUMP_PADDING
+               : x + PN_JUMP_PADDING;
+    tw = w - PN_JUMP_POINT - 2.0 * PN_JUMP_PADDING;
+    if (tw < 1.0)
+        return;
+
+    layout = pango_cairo_create_layout (cr);
+    fd     = pango_font_description_from_string ("Sans");
+    pango_font_description_set_absolute_size (fd, PN_JUMP_FONT_SIZE * PANGO_SCALE);
+    pango_layout_set_font_description (layout, fd);
+    pango_font_description_free (fd);
+
+    /* pn_jump_measure sizes the pennant from a nominal character advance,
+     * so a wide face can overrun it: ellipsize instead of spilling. */
+    pango_layout_set_width     (layout, (int) (tw * PANGO_SCALE));
+    pango_layout_set_ellipsize (layout, PANGO_ELLIPSIZE_END);
+    pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
+    pango_layout_set_text      (layout, tag, -1);
+    pango_layout_get_pixel_size (layout, NULL, &lh);
+
+    cairo_move_to (cr, floor (tx + 0.5), floor (y + (h - lh) * 0.5 + 0.5));
+    pango_cairo_show_layout (cr, layout);
+    g_object_unref (layout);
+}
+
 /** Paint a single Node-RED-style node, reading all visual attributes
  *  from a #PnNode instance.  The icon is rendered large and white
  *  inside the darker left panel, mirroring how Node-RED shows its
@@ -871,6 +998,14 @@ draw_node (
     if (PN_IS_COMMENT (node))
     {
         draw_comment_box (cr, node, self);
+        return;
+    }
+
+    /* A jump flag is a schematic global label, not a node box: it draws
+     * as a pennant whose tip is its port.  Same escape hatch. */
+    if (PN_IS_JUMP_IN (node) || PN_IS_JUMP_OUT (node))
+    {
+        draw_jump_flag (cr, node, self);
         return;
     }
 

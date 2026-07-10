@@ -63,6 +63,8 @@ pnhelp_DATA = \
 	help/SshProfile.html \
 	help/PnStaircase.html \
 	help/PnStats.html \
+	help/PnJumpIn.html \
+	help/PnJumpOut.html \
 	help/PnSuccess.html \
 	help/PnSunPath.html \
 	help/PnSwitch.html \

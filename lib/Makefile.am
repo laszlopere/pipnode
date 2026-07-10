@@ -103,6 +103,12 @@ libpipnode_core_la_SOURCES = \
 	pn-jmespath.h \
 	pn-json-path.c \
 	pn-json-path.h \
+	pn-jump.c \
+	pn-jump.h \
+	pn-jump-in.c \
+	pn-jump-in.h \
+	pn-jump-out.c \
+	pn-jump-out.h \
 	pn-knob.c \
 	pn-knob.h \
 	pn-label.c \
@@ -494,6 +500,9 @@ pipnode_core_headers = \
 	pn-inject.h \
 	pn-jmespath.h \
 	pn-json-path.h \
+	pn-jump.h \
+	pn-jump-in.h \
+	pn-jump-out.h \
 	pn-knob.h \
 	pn-label.h \
 	pn-led.h \

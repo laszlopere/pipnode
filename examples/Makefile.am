@@ -52,6 +52,7 @@ controlsandlogic_DATA = \
 	controls-and-logic/animation-test.json \
 	controls-and-logic/comparator-test.json \
 	controls-and-logic/filter-examples.json \
+	controls-and-logic/jumps.json \
 	controls-and-logic/knob.json \
 	controls-and-logic/notify-test.json
 
