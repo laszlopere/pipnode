@@ -1,6 +1,6 @@
 # Filters — Reshape, Timing & Deadline
 
-Filter nodes sit mid-flow with both an input and an output port: they receive a `PnMessage` and (usually) forward a transformed or time-shifted copy. Every wire carries the same envelope (`topic`/`id`/`created`) plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical numeric; booleans encoded as `0.0`/`1.0`), `data.output` (human-readable summary string), and `data.success` (boolean). The **reshape** filters here mutate one part of that message in place and re-emit it (Format/Text rewrite `data.output`; Value rewrites `data.value`; Set/Rewrite rewrite bag members; Topic rewrites the envelope topic; Table Model attaches `data.table`). The **timing** filters (Delay, Staircase, Throttle, Watchdog, Deadline) shape *when* and *whether* messages flow rather than their content. All forward the received topic unchanged except Topic (which overwrites it), Staircase's synthetic turn-off (which reuses the trigger's topic), and Rewrite (which may set it from the template).
+Filter nodes sit mid-flow with both an input and an output port: they receive a `PnMessage` and (usually) forward a transformed or time-shifted copy. Every wire carries the same envelope (`topic`/`id`/`created`) plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical numeric; booleans encoded as `0.0`/`1.0`), `data.output` (human-readable summary string), and `data.success` (boolean). The **reshape** filters here mutate one part of that message in place and re-emit it (Format/Text rewrite `data.output`; Value rewrites `data.value`; PROM rewrites `data.value` by looking the old one up as an address in a table; Set/Rewrite rewrite bag members; Topic rewrites the envelope topic; Table Model attaches `data.table`). The **timing** filters (Delay, Staircase, Throttle, Watchdog, Deadline) shape *when* and *whether* messages flow rather than their content. All forward the received topic unchanged except Topic (which overwrites it), Staircase's synthetic turn-off (which reuses the trigger's topic), and Rewrite (which may set it from the template).
 
 ## Format
 
@@ -21,6 +21,25 @@ Filter nodes sit mid-flow with both an input and an output port: they receive a 
 **Writes** — `data.output` only. Topic, id, value, success and all other members untouched.
 
 **Gotchas** — A missing/non-boolean `data.success` is treated as failure, so the failure template runs. An empty template writes `""` to `data.output` (it does not skip the write).
+
+## PROM
+
+**Purpose** — A programmable read-only memory: a lookup table from address to stored word. The incoming `data.value` is the address; it is rounded to the nearest whole cell, and the word programmed at that address replaces `data.value`. (`lib/pn-prom.c:199`)
+
+**When to use** — Map a small set of discrete numeric inputs onto arbitrary output values without writing an expression: a mode number → a setpoint, a sensor code → a scale factor, a step index → a waveform sample. Distinct from **Value** (one constant, ignores the input) and from **Calculator** (an algebraic formula over the input); PROM is a literal table with no arithmetic between entries — an address either was burnt or reads back as zero.
+
+**Ports** — `has_input` = TRUE, `has_output` = TRUE.
+
+**Settings**
+- `contents` (string, default `"0x0000 0xff\n0x0001 0x1a\n"`) — the whole memory image, one `<address> <word>` pair per line. Rendered as a full-width `PN_EDITOR_MULTILINE` editor on its own "Contents" tab via the declarative settings schema (no `-gui.so` companion, no caption label). (`lib/pn-prom.c:306`, schema at `lib/pn-prom.c:326`)
+
+**Image syntax** — One pair per line, columns separated by spaces/tabs. Either column may be hexadecimal (`0x…`/`0X…`, optionally signed) or decimal; the word may be fractional or negative (`2 1.5`, `0x0b -2`). A bare leading zero is *not* octal — `010` is ten. Blank lines and `#`-comments (whole-line or trailing) are skipped. A later line for the same address reprograms that cell (last wins). (`parse_number`, `lib/pn-prom.c:67`; `prom_recompile`, `lib/pn-prom.c:120`)
+
+**Behaviour** — Reads `data.value`; a message whose `value` is missing or non-numeric (string/bool/object) drives no address line and is **dropped** without emitting. Otherwise the address is rounded with `llround` — nearest whole cell, halves away from zero (`0.49`→0, `0.5`→1, `1.5`→2) — and looked up in the compiled table. A hit yields the stored word; a **miss yields `0.0`**, the way an unburnt PROM cell reads `0x00`. A miss still emits. (`address_of`, `lib/pn-prom.c:97`; `read_address`, `lib/pn-prom.c:182`)
+
+**Writes** — `data.value` (the word read out) and `data.address` (the decoded integer address, as a double, so a downstream Debug/Format can show which cell was read). Topic, id, output, success and all other members pass through untouched.
+
+**Gotchas** — A malformed line (not exactly two parseable columns) puts the node into the generic error state — `pn_node_set_has_error`, painted red with ❗ on the worksheet — while the lines that *did* parse keep working; fixing the image clears it. Because a miss and a genuinely-stored `0` are indistinguishable on the wire, don't use `data.value == 0` to test "was this address programmed". The image is parsed at property-set time, not per message, so large tables cost nothing per message (`GHashTable` lookup).
 
 ## Rewrite
 
