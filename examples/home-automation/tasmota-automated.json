@@ -1,0 +1,266 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnTasmotaSwitch",
+      "uuid" : "f4b6dab5-7834-4fdd-b4c7-325d662957ab",
+      "name" : "Tasmota Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "on" : true,
+        "switch-name" : "sonoff19",
+        "enforce-on-startup" : true
+      }
+    },
+    {
+      "type" : "PnMqtt",
+      "uuid" : "7c7e4139-47f6-415f-80f1-9a40a4ed94db",
+      "name" : "MQTT Source 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "subscribe-topic" : "#",
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnMqttSink",
+      "uuid" : "400f0b6f-5275-47e2-851a-3127f5a70608",
+      "name" : "MQTT Sink 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 1020.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "broker-profile" : "",
+        "url" : "",
+        "username" : "",
+        "client-id" : "",
+        "topic-template" : "",
+        "payload" : "",
+        "retain" : false,
+        "qos" : 0
+      }
+    },
+    {
+      "type" : "PnTasmotaRelayCommand",
+      "uuid" : "486de4c8-228b-41d3-810e-3fbe574368a9",
+      "name" : "Tasmota Relay Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "switch-name" : "sonoff17"
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "b2ffdd8b-62a5-4ee9-9d93-bba1b0a22d81",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 1.0,
+        "success" : true,
+        "button-icon" : ""
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "81e883d4-8320-4368-86ce-85a66d1c721e",
+      "name" : "Injector 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true,
+        "button-icon" : ""
+      }
+    },
+    {
+      "type" : "PnTasmotaSwitch",
+      "uuid" : "e6954698-4faf-4118-880e-43381b29efa9",
+      "name" : "Tasmota Switch 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "on" : true,
+        "switch-name" : "sonoff17",
+        "enforce-on-startup" : true
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "2fffecb8-9c82-4ec1-bda5-98c8f8f81a76",
+      "name" : "Jump In 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "tag" : "MQTT"
+      }
+    },
+    {
+      "type" : "PnJumpOut",
+      "uuid" : "7ca03ae1-2cc3-4c39-a1ab-e8c9ed63f10f",
+      "name" : "Jump Out 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 920.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "tag" : "MQTT"
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "db40e691-a920-4c6a-a3c1-275eedbb7d59",
+      "name" : "Jump In 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "tag" : "MQTT"
+      }
+    },
+    {
+      "type" : "PnTasmotaRelayCommand",
+      "uuid" : "cbcf9477-fe29-45f6-a296-3d01f33570d3",
+      "name" : "Tasmota Relay Command 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "switch-name" : "sonoff19"
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "9a0b9c59-a55b-4776-bb73-a5dfe8de88c4",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 1.0,
+        "success" : true,
+        "button-icon" : ""
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "d28c2517-6fd3-4eb0-ae3b-ccad4db69d8d",
+      "name" : "Injector 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 140.0,
+        "y" : 480.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true,
+        "button-icon" : ""
+      }
+    },
+    {
+      "type" : "PnJumpIn",
+      "uuid" : "6b244a33-2bfc-42f5-ad47-aa810475f6f1",
+      "name" : "Jump In 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 520.0,
+        "y" : 420.0
+      },
+      "properties" : {
+        "tag" : "MQTT"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "7c7e4139-47f6-415f-80f1-9a40a4ed94db",
+      "target_id" : "f4b6dab5-7834-4fdd-b4c7-325d662957ab"
+    },
+    {
+      "source_id" : "b2ffdd8b-62a5-4ee9-9d93-bba1b0a22d81",
+      "target_id" : "486de4c8-228b-41d3-810e-3fbe574368a9"
+    },
+    {
+      "source_id" : "81e883d4-8320-4368-86ce-85a66d1c721e",
+      "target_id" : "486de4c8-228b-41d3-810e-3fbe574368a9"
+    },
+    {
+      "source_id" : "7c7e4139-47f6-415f-80f1-9a40a4ed94db",
+      "target_id" : "e6954698-4faf-4118-880e-43381b29efa9"
+    },
+    {
+      "source_id" : "7ca03ae1-2cc3-4c39-a1ab-e8c9ed63f10f",
+      "target_id" : "400f0b6f-5275-47e2-851a-3127f5a70608"
+    },
+    {
+      "source_id" : "486de4c8-228b-41d3-810e-3fbe574368a9",
+      "target_id" : "db40e691-a920-4c6a-a3c1-275eedbb7d59"
+    },
+    {
+      "source_id" : "e6954698-4faf-4118-880e-43381b29efa9",
+      "target_id" : "2fffecb8-9c82-4ec1-bda5-98c8f8f81a76"
+    },
+    {
+      "source_id" : "f4b6dab5-7834-4fdd-b4c7-325d662957ab",
+      "target_id" : "2fffecb8-9c82-4ec1-bda5-98c8f8f81a76"
+    },
+    {
+      "source_id" : "9a0b9c59-a55b-4776-bb73-a5dfe8de88c4",
+      "target_id" : "cbcf9477-fe29-45f6-a296-3d01f33570d3"
+    },
+    {
+      "source_id" : "d28c2517-6fd3-4eb0-ae3b-ccad4db69d8d",
+      "target_id" : "cbcf9477-fe29-45f6-a296-3d01f33570d3"
+    },
+    {
+      "source_id" : "cbcf9477-fe29-45f6-a296-3d01f33570d3",
+      "target_id" : "6b244a33-2bfc-42f5-ad47-aa810475f6f1"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
