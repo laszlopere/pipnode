@@ -34,6 +34,7 @@ pnhelp_DATA = \
 	help/PnFormat.html \
 	help/PnGraph.html \
 	help/PnPlot.html \
+	help/PnProm.html \
 	help/PnXYGraph.html \
 	help/PnOscilloscope.html \
 	help/PnHttp.html \

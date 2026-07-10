@@ -42,6 +42,7 @@ check_PROGRAMS = \
 	test-pn-delay \
 	test-pn-threshold \
 	test-pn-throttle \
+	test-pn-prom \
 	test-pn-query \
 	test-pn-edge \
 	test-pn-jump \
@@ -200,6 +201,7 @@ test_pn_dedup_SOURCES        = test-pn-dedup.c        pntest.c pntest.h
 test_pn_delay_SOURCES        = test-pn-delay.c        pntest.c pntest.h
 test_pn_threshold_SOURCES    = test-pn-threshold.c    pntest.c pntest.h
 test_pn_throttle_SOURCES     = test-pn-throttle.c     pntest.c pntest.h
+test_pn_prom_SOURCES         = test-pn-prom.c         pntest.c pntest.h
 test_pn_query_SOURCES        = test-pn-query.c        pntest.c pntest.h
 test_pn_edge_SOURCES         = test-pn-edge.c         pntest.c pntest.h
 test_pn_jump_SOURCES         = test-pn-jump.c         pntest.c pntest.h

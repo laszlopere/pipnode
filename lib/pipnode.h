@@ -56,6 +56,7 @@
 #include "pn-plugin.h"
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
+#include "pn-prom.h"
 #include "pn-query.h"
 #include "pn-rtc.h"
 #include "pn-stats.h"

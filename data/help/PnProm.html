@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROM (PnProm) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnProm">PROM</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnProm</code>.
+</p>
+<p>
+A programmable read-only memory: a lookup table from address to
+stored word. The arriving <code>data.value</code> is the address.
+It is rounded to the nearest whole cell &mdash; the way a real PROM
+decodes its address lines &mdash; the word programmed at that
+address replaces <code>data.value</code>, and the message is
+forwarded. An address that appears nowhere in the image reads back
+as <code>0.00</code>, just as an unburnt cell reads <code>0x00</code>.
+The decoded address is also written to <code>data.address</code>, so
+a downstream <em>Debug</em> or <em>Format</em> can show which cell was
+read. Messages without a numeric <code>data.value</code> drive no
+address line and are dropped.
+</p>
+<p>
+The memory image is one <code>&lt;address&gt; &lt;word&gt;</code> pair
+per line. Either column may be written in hexadecimal
+(<code>0x</code>&hellip;) or decimal, the word may be fractional or
+negative, blank lines and <code>#</code>-comments are ignored, and a
+later line for an address reprograms that cell. A line that is not a
+valid pair puts the node into the error state (painted red with
+&#10071; on the worksheet) while the lines that did parse keep working.
+</p>
+<pre>
+# address  word
+0x0000     0xff
+0x0001     0x1a
+2          1.5
+</pre>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>contents</code></td>
+      <td>The whole memory image, edited in a multiline text box on the
+          dialog's <em>Contents</em> tab. Defaults to the two-cell
+          example above.</td></tr>
+</table>
+
+</body>
+</html>
