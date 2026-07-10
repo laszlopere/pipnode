@@ -574,7 +574,7 @@
                is permission to reach one specific host. Fold into / supersede the
                older 47.6 test note where they overlap.
 
-[ ] 48 Use MathGL for the 3D graph views (multi-series PnGraph). PLplot has no
+[x] 48 Use MathGL for the 3D graph views (multi-series PnGraph). PLplot has no
        grid-of-towers 3D bar primitive, so the current 3D code in
        lib/pn-graph-gui.c (paint_histogram_3d / paint_line_3d) sets up PLplot's
        plw3d/plbox3 axis box and then HAND-ROLLS the bar projection (Pn3DProj /
@@ -583,7 +583,7 @@
        why the 3D bars never looked right. Leave the 2D views on PLplot for now;
        only the multi-series 3D paths move to MathGL. (If MathGL proves itself we
        may later move 2D too.)
-       DONE (integration complete; pending user visual sign-off in the editor).
+       DONE (integration complete; user visual sign-off given 2026-07-10).
        FEASIBILITY was proven with tools/mgl-graph-preview.c; the integrated path
        is verified end-to-end with tools/graph-preview.c (drives the REAL node
        paint_plot vfunc -> PNG). Real vertical towers come from per-series
@@ -628,11 +628,22 @@
        soup_message_set_request_body_from_bytes. Template URL/body with
        ${path/to/field}; write data.output, data.status, data.success.
 
-[ ] 50 Parse JSON node -- make response bodies addressable. Core, headless,
+[x] 50 Parse JSON node -- make response bodies addressable. Core, headless,
        small. Http Client hands the body back as a STRING in data.output, and
        pn-http.c never parses it, so JMESPath (which runs against the message
        tree) cannot reach a single field of a REST response. json-glib is already
        a dependency. Cheapest node on this list, and it is what makes #49 useful.
+       DONE (2026-07-10). PnParse in lib/pn-parse.[ch], registered in the factory,
+       category Filters/Expressions, fa-code icon. Props source-field (default
+       "data/output") + result-field (default "result", ""/"data" replace the
+       bag) -- deliberately the same shape as PnQuery so the pair reads alike.
+       Failure is NON-destructive (unlike PnQuery's bag-replacing failure): the
+       bag is forwarded untouched apart from data.error, so the body you could
+       not parse survives for inspection; the node also lights pn_node_set_has_error.
+       7 unit tests (tests/unit/test-pn-parse.c, 23 checks). Verified end-to-end
+       headless: python http.server -> PnHttp -> PnParse -> PnQuery -> PnDebug
+       yielded data.value = 21.5 out of a nested body. Help page data/help/PnParse.html;
+       skill reference filters-gate-compute.md updated.
 
 [ ] 51 Columns-to-Table node -- one generic text parser instead of N bespoke
        ones. Shell plugin, headless, medium. plugins/shell/pn-df-command.c,
