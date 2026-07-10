@@ -66,6 +66,7 @@
 #include "pn-numeric.h"
 #include "pn-panel-display.h"
 #include "pn-panel-input.h"
+#include "pn-parse.h"
 #include "pn-prom.h"
 #include "pn-query.h"
 #include "pn-ramp.h"
@@ -277,6 +278,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_FAILURE);
     pn_node_factory_register (self, PN_TYPE_FILTER);
     pn_node_factory_register (self, PN_TYPE_FORMAT);
+    pn_node_factory_register (self, PN_TYPE_PARSE);
     pn_node_factory_register (self, PN_TYPE_PROM);
     pn_node_factory_register (self, PN_TYPE_QUERY);
     pn_node_factory_register (self, PN_TYPE_RAMP);

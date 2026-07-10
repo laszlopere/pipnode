@@ -157,6 +157,8 @@ libpipnode_core_la_SOURCES = \
 	pn-panel-display.h \
 	pn-panel-input.c \
 	pn-panel-input.h \
+	pn-parse.c \
+	pn-parse.h \
 	pn-profile-schema.c \
 	pn-profile-schema.h \
 	pn-prom.c \
@@ -528,6 +530,7 @@ pipnode_core_headers = \
 	pn-numeric.h \
 	pn-panel-display.h \
 	pn-panel-input.h \
+	pn-parse.h \
 	pn-profile-schema.h \
 	pn-prom.h \
 	pn-query.h \

@@ -52,6 +52,7 @@ pnhelp_DATA = \
 	help/PnNumeric.html \
 	help/PnPanelDisplay.html \
 	help/PnPanelInput.html \
+	help/PnParse.html \
 	help/PnQuery.html \
 	help/PnRamp.html \
 	help/PnRate.html \

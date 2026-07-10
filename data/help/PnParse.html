@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parse JSON (PnParse) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnParse">Parse JSON</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnParse</code>.
+</p>
+<p>
+Turns a JSON <em>string</em> held in one member of the message into real
+structure, so the rest of the pipeline can address it. The
+<a href="PnHttp.html">Http Client</a> hands its response body back as an
+opaque string in <code>data.output</code>; a
+<a href="PnQuery.html">JMESPath</a> expression runs against the message
+tree, where that body is still one long string and none of its fields are
+reachable. This node is the bridge between the two.
+</p>
+<p>
+A message is never dropped, and a failure is never destructive: when the
+text cannot be parsed the data bag is forwarded <em>exactly as it
+arrived</em> &mdash; the unparsed body is still there to look at &mdash;
+with the reason added as <code>data.error</code>. The node also lights its
+error lamp on the worksheet, and clears it again on the next message that
+parses.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>source-field</code></td>
+      <td>Slash-separated path to the string that should be parsed. The
+          default <code>data/output</code> is where Http Client leaves a
+          response body. It is an error for the path to be missing or to
+          address something that is not a string.</td></tr>
+  <tr><td><code>result-field</code></td>
+      <td>Where to put the parsed document. A non-empty name (default
+          <code>result</code>) writes to that member of the data bag,
+          leaving the surrounding members &mdash; including the raw body
+          &mdash; in place. The empty string or the literal
+          <code>data</code> mean the document <em>is</em> the new data bag:
+          existing members are dropped, and a non-object document (a bare
+          number, string, or array) is wrapped under a <code>value</code>
+          key so the bag stays a well-formed object.</td></tr>
+</table>
+
+<h5>Typical wiring</h5>
+<p>
+Fetch a REST endpoint and read one field out of the response:
+</p>
+<pre>
+Http Client  &rarr;  Parse JSON  &rarr;  JMESPath  &rarr;  Numeric
+             body      result       result.sensor.temp
+</pre>
+<p>
+With <code>result-field</code> left at <code>result</code>, the JMESPath
+node should use <code>source-field = data</code> and an expression like
+<code>result.sensor.temp</code>. Setting <code>result-field</code> to the
+empty string instead makes the response body <em>become</em> the data bag,
+so the same expression shortens to <code>sensor.temp</code> &mdash; at the
+cost of discarding <code>data.status</code>, <code>data.url</code>, and the
+raw body along with it.
+</p>
+
+<h5>Errors</h5>
+<table>
+  <tr><th><code>data.error</code></th><th>Cause</th></tr>
+  <tr><td><code>source-field is empty</code></td>
+      <td>No path configured.</td></tr>
+  <tr><td><code>no such field</code></td>
+      <td>The path does not resolve in the incoming message.</td></tr>
+  <tr><td><code>field is not a string</code></td>
+      <td>The path resolves to a number, object, array, or null. Already
+          structured data needs no parsing.</td></tr>
+  <tr><td><code>empty document</code></td>
+      <td>The string held nothing but whitespace.</td></tr>
+  <tr><td>(parser message)</td>
+      <td>The text is not valid JSON; the message comes from the JSON
+          parser and names the offending line.</td></tr>
+</table>
+
+</body>
+</html>
