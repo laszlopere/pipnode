@@ -1,0 +1,104 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnExpression2",
+      "uuid" : "01282d7a-c712-4748-8a0c-70f4b9578cc7",
+      "name" : "Calculator 2 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 420.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "inputs" : 2,
+        "expression" : "value1"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "db52dd8b-16ca-49ee-bd1b-7b6a501fee51",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 860.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "835cea05-6209-41ec-b0f0-1e2950160dfd",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 10.0,
+        "value" : 0.0
+      }
+    },
+    {
+      "type" : "PnInject",
+      "uuid" : "06f76682-f63e-49bf-8139-d123a965f1cc",
+      "name" : "Injector 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 180.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "text" : "Injector activated.",
+        "value" : 0.0,
+        "success" : true,
+        "button-icon" : ""
+      }
+    },
+    {
+      "type" : "PnProm",
+      "uuid" : "5f1b61d2-f5f1-49c5-9087-2c4be8bca7cb",
+      "name" : "PROM 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 620.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "contents" : "0x0000 0xff\n0x0001 0x1a\n0x0002 0x01"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "835cea05-6209-41ec-b0f0-1e2950160dfd",
+      "target_id" : "01282d7a-c712-4748-8a0c-70f4b9578cc7"
+    },
+    {
+      "source_id" : "06f76682-f63e-49bf-8139-d123a965f1cc",
+      "target_id" : "01282d7a-c712-4748-8a0c-70f4b9578cc7",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "01282d7a-c712-4748-8a0c-70f4b9578cc7",
+      "target_id" : "5f1b61d2-f5f1-49c5-9087-2c4be8bca7cb"
+    },
+    {
+      "source_id" : "5f1b61d2-f5f1-49c5-9087-2c4be8bca7cb",
+      "target_id" : "db52dd8b-16ca-49ee-bd1b-7b6a501fee51"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
