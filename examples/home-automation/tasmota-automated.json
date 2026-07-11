@@ -12,7 +12,7 @@
         "y" : 80.0
       },
       "properties" : {
-        "on" : true,
+        "on" : false,
         "switch-name" : "sonoff19",
         "enforce-on-startup" : true
       }
@@ -74,7 +74,7 @@
       "name" : "Injector 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 140.0,
+        "x" : 120.0,
         "y" : 260.0
       },
       "properties" : {
@@ -90,7 +90,7 @@
       "name" : "Injector 2",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 140.0,
+        "x" : 120.0,
         "y" : 320.0
       },
       "properties" : {
@@ -110,7 +110,7 @@
         "y" : 160.0
       },
       "properties" : {
-        "on" : true,
+        "on" : false,
         "switch-name" : "sonoff17",
         "enforce-on-startup" : true
       }
@@ -161,7 +161,7 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 320.0,
-        "y" : 420.0
+        "y" : 480.0
       },
       "properties" : {
         "switch-name" : "sonoff19"
@@ -173,8 +173,8 @@
       "name" : "Injector 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 140.0,
-        "y" : 420.0
+        "x" : 120.0,
+        "y" : 480.0
       },
       "properties" : {
         "text" : "Injector activated.",
@@ -189,8 +189,8 @@
       "name" : "Injector 2",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 140.0,
-        "y" : 480.0
+        "x" : 120.0,
+        "y" : 540.0
       },
       "properties" : {
         "text" : "Injector activated.",
@@ -206,10 +206,24 @@
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 520.0,
-        "y" : 420.0
+        "y" : 480.0
       },
       "properties" : {
         "tag" : "MQTT"
+      }
+    },
+    {
+      "type" : "PnDailyTimer",
+      "uuid" : "7230e88e-3125-4a4e-ba49-6d33db81a298",
+      "name" : "Daily Timer 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "period" : 1,
+        "schedule" : "[{\"day\":-1,\"on_hour\":6,\"on_minute\":56,\"off_hour\":6,\"off_minute\":57}]"
       }
     }
   ],
@@ -257,6 +271,14 @@
     {
       "source_id" : "cbcf9477-fe29-45f6-a296-3d01f33570d3",
       "target_id" : "6b244a33-2bfc-42f5-ad47-aa810475f6f1"
+    },
+    {
+      "source_id" : "7230e88e-3125-4a4e-ba49-6d33db81a298",
+      "target_id" : "cbcf9477-fe29-45f6-a296-3d01f33570d3"
+    },
+    {
+      "source_id" : "7230e88e-3125-4a4e-ba49-6d33db81a298",
+      "target_id" : "486de4c8-228b-41d3-810e-3fbe574368a9"
     }
   ],
   "sheets" : [
