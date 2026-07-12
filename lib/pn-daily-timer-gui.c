@@ -117,15 +117,16 @@ static const gchar *const dt_day_names[7] = {
 
 typedef struct
 {
-    GObject   *target;               /* borrowed PnDailyTimer */
-    GtkSheet  *sheet;
-    GtkWidget *del_btn;              /* borrowed; sensitivity follows the target row */
-    gulong     notify_handler;
-    gboolean   updating;             /* our own writes; skip our handlers */
-    guint      idle_id;              /* pending dt_idle_sync, or 0 */
-    gint       canon_row;            /* cell to canonicalise, or -1 */
-    gint       canon_col;
-    gint       active_row;           /* last ::activate / ::select-row row, or -1 */
+    GObject            *target;      /* borrowed PnDailyTimer */
+    GtkSheet           *sheet;
+    GtkWidget          *del_btn;     /* borrowed; sensitivity follows the target row */
+    GtkEntryCompletion *day_compl;   /* owned; day-name popup, Day column only */
+    gulong              notify_handler;
+    gboolean            updating;    /* our own writes; skip our handlers */
+    guint               idle_id;     /* pending dt_idle_sync, or 0 */
+    gint                canon_row;   /* cell to canonicalise, or -1 */
+    gint                canon_col;
+    gint                active_row;  /* last ::activate / ::select-row row, or -1 */
 } PnDailyTimerBinding;
 
 static void dt_serialise             (PnDailyTimerBinding *bind);
@@ -143,6 +144,8 @@ dt_binding_free (gpointer data)
 
     if (bind->target != NULL && bind->notify_handler != 0)
         g_signal_handler_disconnect (bind->target, bind->notify_handler);
+
+    g_clear_object (&bind->day_compl);
 
     g_free (bind);
 }
@@ -411,6 +414,43 @@ dt_day_text (gint day)
         return dt_day_names[day - 1];
 
     return "Every day";
+}
+
+/* Type-ahead popup of the eight day choices, shown while a Day cell is
+ * being edited.  This is a completion on the cell's own GtkEntry, not a
+ * combo box: GtkSheet cannot host a combo (it is not a GtkEditable, and
+ * the sheet's own get_entry() cannot reach a combo-with-entry's inner
+ * entry), whereas the default GtkDataEntry editor takes a completion
+ * natively.  It suggests but does not restrict -- "*" and free text
+ * still work and are normalised on commit like before. */
+static GtkEntryCompletion *
+dt_make_day_completion (void)
+{
+    GtkListStore       *store = gtk_list_store_new (1, G_TYPE_STRING);
+    GtkEntryCompletion *compl_;
+    GtkTreeIter         iter;
+    gint                i;
+
+    gtk_list_store_append (store, &iter);
+    gtk_list_store_set (store, &iter, 0, "Every day", -1);
+    for (i = 0; i < 7; i++)
+    {
+        gtk_list_store_append (store, &iter);
+        gtk_list_store_set (store, &iter, 0, dt_day_names[i], -1);
+    }
+
+    compl_ = gtk_entry_completion_new ();
+    gtk_entry_completion_set_model (compl_, GTK_TREE_MODEL (store));
+    gtk_entry_completion_set_text_column (compl_, 0);
+    gtk_entry_completion_set_popup_completion (compl_, TRUE);
+    gtk_entry_completion_set_popup_single_match (compl_, TRUE);
+    /* Show the list from the first character rather than the default
+     * three -- with only eight short entries there is nothing to gain
+     * by waiting. */
+    gtk_entry_completion_set_minimum_key_length (compl_, 1);
+    g_object_unref (store);
+
+    return compl_;   /* the caller owns the initial (non-floating) ref */
 }
 
 /* ------------------------------------------------------------------ */
@@ -760,7 +800,11 @@ on_dt_sheet_deactivate (
 }
 
 /* gtk_sheet_get_active_cell() is unreliable once focus has moved to a
- * button, so remember the row while the sheet still has it. */
+ * button, so remember the row while the sheet still has it.  This is
+ * also where the day-name completion is switched on and off: the cell
+ * editor is a single GtkEntry reused across every column, so the
+ * completion is attached only while a Day cell is active and cleared
+ * for the On/Off columns. */
 static gboolean
 on_dt_sheet_activate (
         GtkSheet *sheet,
@@ -768,13 +812,16 @@ on_dt_sheet_activate (
         gint      col,
         gpointer  user_data)
 {
-    PnDailyTimerBinding *bind = user_data;
-
-    (void) sheet;
-    (void) col;
+    PnDailyTimerBinding *bind  = user_data;
+    GtkWidget           *entry = gtk_sheet_get_entry (sheet);
 
     if (row >= 0)
         bind->active_row = row;
+
+    if (GTK_IS_ENTRY (entry))
+        gtk_entry_set_completion (
+                GTK_ENTRY (entry),
+                (col == DT_COL_DAY) ? bind->day_compl : NULL);
 
     dt_update_remove_sensitivity (bind);
 
@@ -922,7 +969,8 @@ dt_build_sheet (PnDailyTimerBinding *bind)
     gtk_sheet_show_grid (s, TRUE);
     gtk_sheet_set_selection_mode (s, GTK_SELECTION_BROWSE);
 
-    bind->sheet = s;
+    bind->sheet     = s;
+    bind->day_compl = dt_make_day_completion ();   /* attached per Day cell */
     return sheet;
 }
 
