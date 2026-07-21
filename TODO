@@ -771,3 +771,49 @@
              PnSwitch paints its latch) would save that hop, but it needs a
              gui-tier paint vfunc and a decision about whether a *schedule*
              should look like a *switch*.
+
+[x] 58 CPU building-block nodes -- a minimal kit for wiring an ultra-primitive
+       clocked CPU (fetch/decode/execute) on a worksheet. Decode/dispatch reuses
+       existing Filters (each node has only one output port); the ALU stays
+       PnExpression/PnExpression2. Four new GTK-free core nodes in a "CPU"
+       palette group, no ABI bump (leaf nodes only). Key correctness rule: the
+       write/load/reset ports are SILENT (latch, emit nothing), so a register or
+       counter can sit in a feedback loop without forming a *synchronous* cycle
+       -- the value is read back on the next clock tick, keeping each machine
+       cycle well under PN_NODE_MAX_DISPATCH_DEPTH (256).
+       [x] 58.1 PnRegister (lib/pn-register.c) -- wire-writable value latch
+             (accumulator / register / flag store). Inputs 0 write (silent),
+             1 read/clock (emits stored value + output/success), 2 reset. The
+             "initial" property also seeds the stored latch.
+       [x] 58.2 PnCounter (lib/pn-counter.c) -- self-advancing register, the
+             program counter. Inputs 0 tick (emit then advance by step, wrap at
+             modulo), 1 load (JUMP target, silent), 2 reset. A load landing
+             during a tick's synchronous emit overrides that cycle's advance
+             (pending-write applied after the emit unwinds), so a decoded JMP
+             takes effect on the next tick.
+       [x] 58.3 PnRam (lib/pn-ram.c) -- addressable read/write memory, PROM-
+             compatible addressing (data.value = address). data.write true
+             stores data.word (silent); otherwise reads the word onto
+             data.value and echoes data.address. Reuses PROM's image parser for
+             the optional "contents" seed.
+       [x] 58.4 PnMux (lib/pn-mux.c) -- value-selected multiplexer. Input 0
+             select (0-based, clamped) plus 2..8 collated data inputs
+             in1..inN; forwards the selected line's value when the selector
+             changes or the selected line updates.
+       [x] 58.5 Factory registration (pn-node-factory.c), lib + data
+             Makefile.am, per-node help pages
+             (data/help/Pn{Register,Counter,Ram,Mux}.html).
+       [x] 58.6 Unit tests (tests/unit/test-pn-{register,counter,ram,mux}.c):
+             latch/read/reset; tick/advance/modulo + JUMP-during-tick; RAM
+             write/read/miss/seed; mux routing/clamp/resize.
+       [x] 58.7 Runnable example
+             (examples/controls-and-logic/toy-cpu-accumulator.json): an
+             accumulator machine -- Clock -> PC(Counter) -> Program(PROM) ->
+             decode(Calculator) -> opcode Filters -> ACC(Register)/ALU/RAM,
+             with LOAD/ADD/OUT/JMP/STO/LDM. Runs under pipnode-run printing
+             13,5,13,5,... (proves the JMP feedback loop and RAM store/load
+             live, with no dispatch-loop warning).
+       [ ] 58.8 Deferred: pipnode-nodes skill reference for the CPU group; a
+             multi-output Router node (needs a framework output-port
+             extension) and bitwise/% operators in the Calculator language,
+             both intentionally left out of the minimal kit.
