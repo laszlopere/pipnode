@@ -29,6 +29,7 @@
 #include "pn-auto-random.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
+#include "pn-counter.h"
 #include "pn-countdown.h"
 #include "pn-daily-timer.h"
 #include "pn-analog-clock.h"
@@ -62,6 +63,7 @@
 #include "pn-meshtastic.h"
 #include "pn-mqtt.h"
 #include "pn-mqtt-sink.h"
+#include "pn-mux.h"
 #include "pn-mqtt-profile.h"
 #include "pn-notify.h"
 #include "pn-numeric.h"
@@ -70,9 +72,11 @@
 #include "pn-parse.h"
 #include "pn-prom.h"
 #include "pn-query.h"
+#include "pn-ram.h"
 #include "pn-ramp.h"
 #include "pn-rate.h"
 #include "pn-reduce.h"
+#include "pn-register.h"
 #include "pn-rewrite.h"
 #include "pn-rtc.h"
 #include "pn-matrix57.h"
@@ -298,6 +302,16 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_THRESHOLD);
     pn_node_factory_register (self, PN_TYPE_THROTTLE);
     pn_node_factory_register (self, PN_TYPE_WATCHDOG);
+
+    /* CPU building blocks — a wire-writable register, a self-advancing
+     * counter (the program counter), a read/write RAM, and a value-
+     * selected multiplexer.  Enough, with PROM (program), Calculator
+     * (ALU) and Filter (opcode dispatch), to wire an ultra-primitive
+     * clocked CPU on a worksheet. */
+    pn_node_factory_register (self, PN_TYPE_REGISTER);
+    pn_node_factory_register (self, PN_TYPE_COUNTER);
+    pn_node_factory_register (self, PN_TYPE_RAM);
+    pn_node_factory_register (self, PN_TYPE_MUX);
 
     /* Ollama (the LLM filter) has moved out of the host binary into the
      * bundled "pipnode-ollama" plugin under plugins/ollama — a two-tier

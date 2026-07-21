@@ -45,6 +45,8 @@ libpipnode_core_la_SOURCES = \
 	pn-comment.h \
 	pn-comparator.c \
 	pn-comparator.h \
+	pn-counter.c \
+	pn-counter.h \
 	pn-countdown.c \
 	pn-countdown.h \
 	pn-daily-timer.c \
@@ -145,6 +147,8 @@ libpipnode_core_la_SOURCES = \
 	pn-mqtt-profile.h \
 	pn-mqtt-util.c \
 	pn-mqtt-util.h \
+	pn-mux.c \
+	pn-mux.h \
 	pn-node.c \
 	pn-node.h \
 	pn-node-factory.c \
@@ -167,12 +171,16 @@ libpipnode_core_la_SOURCES = \
 	pn-prom.h \
 	pn-query.c \
 	pn-query.h \
+	pn-ram.c \
+	pn-ram.h \
 	pn-ramp.c \
 	pn-ramp.h \
 	pn-rate.c \
 	pn-rate.h \
 	pn-reduce.c \
 	pn-reduce.h \
+	pn-register.c \
+	pn-register.h \
 	pn-rewrite.c \
 	pn-rewrite.h \
 	pn-rtc.c \
@@ -482,6 +490,7 @@ pipnode_core_headers = \
 	pn-color.h \
 	pn-comment.h \
 	pn-comparator.h \
+	pn-counter.h \
 	pn-countdown.h \
 	pn-daily-timer.h \
 	pn-debug.h \
@@ -530,6 +539,7 @@ pipnode_core_headers = \
 	pn-mqtt.h \
 	pn-mqtt-sink.h \
 	pn-mqtt-profile.h \
+	pn-mux.h \
 	pn-node.h \
 	pn-node-factory.h \
 	pn-node-store.h \
@@ -541,9 +551,11 @@ pipnode_core_headers = \
 	pn-profile-schema.h \
 	pn-prom.h \
 	pn-query.h \
+	pn-ram.h \
 	pn-ramp.h \
 	pn-rate.h \
 	pn-reduce.h \
+	pn-register.h \
 	pn-rewrite.h \
 	pn-rtc.h \
 	pn-segment16.h \
