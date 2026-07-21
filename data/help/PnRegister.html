@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Register (PnRegister) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRegister">Register</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnRegister</code>.
+</p>
+<p>
+A wire-writable value latch &mdash; the accumulator, a general
+register, or a flag store in a toy-CPU worksheet. It holds one number
+and has three inputs:
+</p>
+<table>
+  <tr><th>Input</th><th>Effect</th></tr>
+  <tr><td><code>write</code> (0)</td>
+      <td>Latch the arriving <code>data.value</code>. <strong>Emits
+          nothing.</strong> A message with no usable number is ignored.</td></tr>
+  <tr><td><code>read</code> (1)</td>
+      <td>Emit the stored word on <code>data.value</code> (also filling
+          <code>data.output</code> and <code>data.success</code>), reusing
+          the incoming message as the carrier. This is the clock strobe.</td></tr>
+  <tr><td><code>reset</code> (2)</td>
+      <td>Store <code>initial</code>. <strong>Emits nothing.</strong></td></tr>
+</table>
+<p>
+The write and reset ports are deliberately silent: a store cannot
+re-trigger the graph, so a register wired into a feedback loop
+&mdash; a write-back into the same accumulator, a jump target into a
+program counter &mdash; never forms a <em>synchronous</em> cycle. The
+new value is read back out on the next clock tick instead, which is
+what keeps a CPU worksheet under the engine's synchronous-dispatch
+recursion limit. Drive the <code>read</code> input from a
+<em>Clock</em> or <em>Injector</em> to step the machine.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>initial</code></td>
+      <td>Value restored by the reset input, and read out before the
+          first write. Default <code>0</code>.</td></tr>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mux (PnMux) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnMux">Mux</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnMux</code>.
+</p>
+<p>
+A value-selected multiplexer &mdash; the bus / operand-source selector of
+a toy-CPU worksheet. It has one <code>select</code> input followed by
+<code>inputs</code> data lines (<code>in1</code>&hellip;<code>inN</code>,
+2&ndash;8 of them). The core latches each line's last
+<code>data.value</code>, and the node forwards the value of the currently
+selected line on <code>data.value</code>.
+</p>
+<table>
+  <tr><th>Input</th><th>Effect</th></tr>
+  <tr><td><code>select</code> (0)</td>
+      <td>Latch the selector <em>k</em> &mdash; 0 chooses <code>in1</code>,
+          1 chooses <code>in2</code>, &hellip; clamped into range. Emits
+          the newly selected line's value.</td></tr>
+  <tr><td><code>in1</code>&hellip;<code>inN</code></td>
+      <td>Data lines. An update on the <em>selected</em> line is
+          forwarded; an update on any other line is latched silently.</td></tr>
+</table>
+<p>
+So a message leaves the node whenever the selector changes or the
+selected data line updates. The selector defaults to <code>0</code>
+(<code>in1</code>) until the <code>select</code> line has carried a
+number.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>inputs</code></td>
+      <td>How many data inputs the multiplexer has, 2&ndash;8, set with a
+          spin button on the <em>Inputs</em> tab. The node always has one
+          extra leading <code>select</code> input on top of these. Default
+          <code>2</code>.</td></tr>
+</table>
+
+</body>
+</html>

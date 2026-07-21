@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RAM (PnRam) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRam">RAM</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnRam</code>.
+</p>
+<p>
+Addressable read/write memory &mdash; a <a href="PnProm.html">PROM</a>
+you can write at runtime. It shares PROM's addressing, so the two are
+drop-in on the read path: the arriving <code>data.value</code> is the
+address, rounded to the nearest whole cell.
+</p>
+<table>
+  <tr><th>When</th><th>Effect</th></tr>
+  <tr><td><code>data.write</code> absent or false</td>
+      <td><strong>Read.</strong> The stored word replaces
+          <code>data.value</code> (cells never written read back
+          <code>0.0</code>), the decoded cell is echoed on
+          <code>data.address</code>, and the message is forwarded
+          &mdash; exactly what PROM emits.</td></tr>
+  <tr><td><code>data.write</code> true (a boolean, or a number
+          past&nbsp;0.5)</td>
+      <td><strong>Write.</strong> Store <code>data.word</code> (a missing
+          word stores <code>0</code>) at the address. <strong>Emits
+          nothing</strong> &mdash; a store cannot re-trigger the graph, so
+          RAM can sit in a feedback loop without forming a synchronous
+          cycle.</td></tr>
+</table>
+<p>
+A message with no numeric <code>data.value</code> drives no address line
+and is dropped. To write from a worksheet, stamp the three fields with a
+<em>Set</em> node (for example <code>value</code>&nbsp;=&nbsp;address,
+<code>word</code>&nbsp;=&nbsp;the datum, <code>write</code>&nbsp;=&nbsp;
+<code>true</code>).
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>contents</code></td>
+      <td>Optional seed image in the same
+          <code>&lt;address&gt; &lt;word&gt;</code> text format as PROM
+          (hex <code>0x</code>&hellip; or decimal, one pair per line,
+          <code>#</code>-comments ignored). Empty by default; runtime
+          writes accumulate on top of it.</td></tr>
+</table>
+
+</body>
+</html>

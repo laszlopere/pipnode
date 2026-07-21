@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Counter (PnCounter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnCounter">Counter</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnCounter</code>.
+</p>
+<p>
+A self-advancing value register &mdash; the program counter of a
+toy-CPU worksheet. It holds one number and has three inputs:
+</p>
+<table>
+  <tr><th>Input</th><th>Effect</th></tr>
+  <tr><td><code>tick</code> (0)</td>
+      <td>Emit the current value on <code>data.value</code>, then advance
+          it by <code>step</code> (wrapping at <code>modulo</code> when
+          that is non-zero). Drive this from a <em>Clock</em> or
+          <em>Injector</em>.</td></tr>
+  <tr><td><code>load</code> (1)</td>
+      <td>Store the arriving <code>data.value</code> &mdash; a JUMP
+          target. <strong>Emits nothing.</strong></td></tr>
+  <tr><td><code>reset</code> (2)</td>
+      <td>Store <code>initial</code>. <strong>Emits nothing.</strong></td></tr>
+</table>
+<p>
+A <code>load</code> that arrives <em>while a tick's downstream chain is
+still running</em> &mdash; a jump decoded from the very instruction the
+tick just fetched &mdash; wins over that cycle's implicit advance, so the
+jump target is what the next tick emits. Because the load and reset ports
+are silent (like <a href="PnRegister.html">Register</a>), the counter can
+sit in the fetch/execute feedback loop without forming a synchronous
+cycle.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>initial</code></td>
+      <td>Value the counter starts at and the reset input restores.
+          Default <code>0</code>.</td></tr>
+  <tr><td><code>step</code></td>
+      <td>Amount added after each tick. Default <code>1</code>.</td></tr>
+  <tr><td><code>modulo</code></td>
+      <td>When greater than zero, the advanced value wraps into
+          <code>[0, modulo)</code>; <code>0</code> disables wrapping. An
+          explicit load or reset target is stored unchanged. Default
+          <code>0</code>.</td></tr>
+</table>
+
+</body>
+</html>

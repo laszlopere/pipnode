@@ -18,6 +18,7 @@ pnhelp_DATA = \
 	help/PnComment.html \
 	help/PnComparator.html \
 	help/PnCountdown.html \
+	help/PnCounter.html \
 	help/PnDailyTimer.html \
 	help/PnDeadline.html \
 	help/PnDebug.html \
@@ -46,6 +47,7 @@ pnhelp_DATA = \
 	help/PnLogger.html \
 	help/PnMatrix57.html \
 	help/PnMeshtastic.html \
+	help/PnMux.html \
 	help/PnMqtt.html \
 	help/PnMqttSink.html \
 	help/MqttBrokerProfile.html \
@@ -55,9 +57,11 @@ pnhelp_DATA = \
 	help/PnPanelInput.html \
 	help/PnParse.html \
 	help/PnQuery.html \
+	help/PnRam.html \
 	help/PnRamp.html \
 	help/PnRate.html \
 	help/PnReduce.html \
+	help/PnRegister.html \
 	help/PnRewrite.html \
 	help/PnRtc.html \
 	help/PnSegment16.html \
