@@ -1,0 +1,547 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnAutoInjector",
+      "uuid": "9385a427-0a83-4a4b-9d55-dc08d384e54f",
+      "name": "Clock",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "period": 1,
+        "value": 1.0
+      }
+    },
+    {
+      "type": "PnCounter",
+      "uuid": "dac2053f-766c-44a1-b59e-56a64b0c2e9a",
+      "name": "PC",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 240.0,
+        "y": 40.0
+      },
+      "properties": {
+        "initial": 0.0,
+        "step": 1.0
+      }
+    },
+    {
+      "type": "PnProm",
+      "uuid": "37d43597-a821-4beb-892e-6dc6be42540d",
+      "name": "Program",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 440.0,
+        "y": 40.0
+      },
+      "properties": {
+        "contents": "0 5\n1 66\n2 10\n3 19\n4 32\n5 82\n6 32\n7 48\n"
+      }
+    },
+    {
+      "type": "PnExpression",
+      "uuid": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "name": "Decode",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 640.0,
+        "y": 40.0
+      },
+      "properties": {
+        "expression": "op = floor(value / 16)\narg = value - 16 * op\narg"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "f233386e-0673-47ad-8ef6-2948272b343e",
+      "name": "LOAD?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 20.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 0.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "bf4a620c-1b9e-4845-bb99-06e5b8fd8a5c",
+      "name": "ADD?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 90.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 1.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "a21ea52b-0891-4928-83d0-10440158ad48",
+      "name": "OUT?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 160.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 2.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "2bec91db-a926-42ef-8580-e8b3d3938378",
+      "name": "JMP?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 230.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 3.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "7d31a1a3-d1d1-4965-b55c-6e04869f436f",
+      "name": "STO?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 300.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 4.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "df284b5f-ba27-46ea-9a87-fdb10ad7cdaf",
+      "name": "LDM?",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 860.0,
+        "y": 370.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 5.0}]"
+      }
+    },
+    {
+      "type": "PnRegister",
+      "uuid": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "name": "ACC",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1120.0,
+        "y": 120.0
+      },
+      "properties": {
+        "initial": 0.0
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "bc2ad1a5-8948-4053-ae5c-b3e6391b83ba",
+      "name": "ADD",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1360.0,
+        "y": 90.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 1.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "a814e9ac-3fdf-4d24-8be5-f0b372c6dd46",
+      "name": "OUT",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1360.0,
+        "y": 160.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 2.0}]"
+      }
+    },
+    {
+      "type": "PnFilter",
+      "uuid": "ae39815a-64e2-47b2-96bd-21e629643917",
+      "name": "STO",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1360.0,
+        "y": 300.0
+      },
+      "properties": {
+        "rules": "[{\"path\": \"op\", \"op\": \"==\", \"literal\": 4.0}]"
+      }
+    },
+    {
+      "type": "PnExpression",
+      "uuid": "7a5d5fc6-e40a-4794-be50-5910391f327d",
+      "name": "ALU +",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1560.0,
+        "y": 90.0
+      },
+      "properties": {
+        "expression": "value + arg"
+      }
+    },
+    {
+      "type": "PnExpression",
+      "uuid": "f41e14db-8969-491d-a9d7-cfd2b9a49412",
+      "name": "STO shape",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1560.0,
+        "y": 300.0
+      },
+      "properties": {
+        "expression": "word = value\narg"
+      }
+    },
+    {
+      "type": "PnSet",
+      "uuid": "ea79d562-7284-46c3-97cd-4c2b03dc24ed",
+      "name": "STO write",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1760.0,
+        "y": 300.0
+      },
+      "properties": {
+        "props": "[{\"path\": \"write\", \"literal\": true}]"
+      }
+    },
+    {
+      "type": "PnRam",
+      "uuid": "f5b11424-1777-40dd-910c-75ad71b05cc6",
+      "name": "RAM",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1980.0,
+        "y": 300.0
+      },
+      "properties": {}
+    },
+    {
+      "type": "PnDebug",
+      "uuid": "a456b8df-2e56-475b-bae7-28b31699d3e9",
+      "name": "Output",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1560.0,
+        "y": 160.0
+      },
+      "properties": {}
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "a3585482-c1a2-4511-907b-11d939e6cfdd",
+      "name": "PC",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 240.0,
+        "y": 560.0
+      },
+      "properties": {
+        "digits": 4,
+        "decimal-places": 0
+      }
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "1cfd3a3c-fde8-4e20-8586-f914acf3591c",
+      "name": "Instruction",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 440.0,
+        "y": 560.0
+      },
+      "properties": {
+        "digits": 4,
+        "decimal-places": 0
+      }
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "a7081372-09f8-4b99-8687-134eeee6ecbf",
+      "name": "ACC",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1120.0,
+        "y": 560.0
+      },
+      "properties": {
+        "digits": 4,
+        "decimal-places": 0
+      }
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "edb99bc9-6117-4f7b-8394-9c3125492602",
+      "name": "Output",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1560.0,
+        "y": 560.0
+      },
+      "properties": {
+        "digits": 4,
+        "decimal-places": 0
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "245ed888-8f3c-4cb5-957e-23f5af9e8a53",
+      "name": "LOAD",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 200.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(28,113,216)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "25ab2123-e047-4abf-ae4b-fe2d71697cf8",
+      "name": "ADD",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 380.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(38,162,105)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "6bb4a6c1-a74e-43a6-8edb-2a4261f6bb08",
+      "name": "OUT",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 560.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(246,211,45)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "7c7ebf0a-7d51-4a7c-9a05-749513530a6e",
+      "name": "JMP",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 740.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(224,27,36)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "48020108-74ae-4761-9159-88e558e98a8b",
+      "name": "STO",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 920.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(146,84,222)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "2dda3df6-b87b-4a4c-9ba5-247c98505911",
+      "name": "LDM",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 1100.0,
+        "y": 700.0
+      },
+      "properties": {
+        "color": "rgb(51,199,222)",
+        "hold-ms": 250,
+        "mode": "Flash"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "9385a427-0a83-4a4b-9d55-dc08d384e54f",
+      "target_id": "dac2053f-766c-44a1-b59e-56a64b0c2e9a"
+    },
+    {
+      "source_id": "dac2053f-766c-44a1-b59e-56a64b0c2e9a",
+      "target_id": "37d43597-a821-4beb-892e-6dc6be42540d"
+    },
+    {
+      "source_id": "37d43597-a821-4beb-892e-6dc6be42540d",
+      "target_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "f233386e-0673-47ad-8ef6-2948272b343e"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "bf4a620c-1b9e-4845-bb99-06e5b8fd8a5c"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "a21ea52b-0891-4928-83d0-10440158ad48"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "2bec91db-a926-42ef-8580-e8b3d3938378"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "7d31a1a3-d1d1-4965-b55c-6e04869f436f"
+    },
+    {
+      "source_id": "81440eb6-bab7-4480-ad59-8e00e5d4fb63",
+      "target_id": "df284b5f-ba27-46ea-9a87-fdb10ad7cdaf"
+    },
+    {
+      "source_id": "f233386e-0673-47ad-8ef6-2948272b343e",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51"
+    },
+    {
+      "source_id": "bf4a620c-1b9e-4845-bb99-06e5b8fd8a5c",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_input": 1
+    },
+    {
+      "source_id": "a21ea52b-0891-4928-83d0-10440158ad48",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_input": 1
+    },
+    {
+      "source_id": "7d31a1a3-d1d1-4965-b55c-6e04869f436f",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_input": 1
+    },
+    {
+      "source_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_id": "bc2ad1a5-8948-4053-ae5c-b3e6391b83ba"
+    },
+    {
+      "source_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_id": "a814e9ac-3fdf-4d24-8be5-f0b372c6dd46"
+    },
+    {
+      "source_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_id": "ae39815a-64e2-47b2-96bd-21e629643917"
+    },
+    {
+      "source_id": "bc2ad1a5-8948-4053-ae5c-b3e6391b83ba",
+      "target_id": "7a5d5fc6-e40a-4794-be50-5910391f327d"
+    },
+    {
+      "source_id": "7a5d5fc6-e40a-4794-be50-5910391f327d",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51"
+    },
+    {
+      "source_id": "a814e9ac-3fdf-4d24-8be5-f0b372c6dd46",
+      "target_id": "a456b8df-2e56-475b-bae7-28b31699d3e9"
+    },
+    {
+      "source_id": "ae39815a-64e2-47b2-96bd-21e629643917",
+      "target_id": "f41e14db-8969-491d-a9d7-cfd2b9a49412"
+    },
+    {
+      "source_id": "f41e14db-8969-491d-a9d7-cfd2b9a49412",
+      "target_id": "ea79d562-7284-46c3-97cd-4c2b03dc24ed"
+    },
+    {
+      "source_id": "ea79d562-7284-46c3-97cd-4c2b03dc24ed",
+      "target_id": "f5b11424-1777-40dd-910c-75ad71b05cc6"
+    },
+    {
+      "source_id": "2bec91db-a926-42ef-8580-e8b3d3938378",
+      "target_id": "dac2053f-766c-44a1-b59e-56a64b0c2e9a",
+      "target_input": 1
+    },
+    {
+      "source_id": "df284b5f-ba27-46ea-9a87-fdb10ad7cdaf",
+      "target_id": "f5b11424-1777-40dd-910c-75ad71b05cc6"
+    },
+    {
+      "source_id": "f5b11424-1777-40dd-910c-75ad71b05cc6",
+      "target_id": "063b18bc-d54a-4554-9218-ef70ff93cb51"
+    },
+    {
+      "source_id": "dac2053f-766c-44a1-b59e-56a64b0c2e9a",
+      "target_id": "a3585482-c1a2-4511-907b-11d939e6cfdd"
+    },
+    {
+      "source_id": "37d43597-a821-4beb-892e-6dc6be42540d",
+      "target_id": "1cfd3a3c-fde8-4e20-8586-f914acf3591c"
+    },
+    {
+      "source_id": "063b18bc-d54a-4554-9218-ef70ff93cb51",
+      "target_id": "a7081372-09f8-4b99-8687-134eeee6ecbf"
+    },
+    {
+      "source_id": "a814e9ac-3fdf-4d24-8be5-f0b372c6dd46",
+      "target_id": "edb99bc9-6117-4f7b-8394-9c3125492602"
+    },
+    {
+      "source_id": "f233386e-0673-47ad-8ef6-2948272b343e",
+      "target_id": "245ed888-8f3c-4cb5-957e-23f5af9e8a53"
+    },
+    {
+      "source_id": "bf4a620c-1b9e-4845-bb99-06e5b8fd8a5c",
+      "target_id": "25ab2123-e047-4abf-ae4b-fe2d71697cf8"
+    },
+    {
+      "source_id": "a21ea52b-0891-4928-83d0-10440158ad48",
+      "target_id": "6bb4a6c1-a74e-43a6-8edb-2a4261f6bb08"
+    },
+    {
+      "source_id": "2bec91db-a926-42ef-8580-e8b3d3938378",
+      "target_id": "7c7ebf0a-7d51-4a7c-9a05-749513530a6e"
+    },
+    {
+      "source_id": "7d31a1a3-d1d1-4965-b55c-6e04869f436f",
+      "target_id": "48020108-74ae-4761-9159-88e558e98a8b"
+    },
+    {
+      "source_id": "df284b5f-ba27-46ea-9a87-fdb10ad7cdaf",
+      "target_id": "2dda3df6-b87b-4a4c-9ba5-247c98505911"
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
