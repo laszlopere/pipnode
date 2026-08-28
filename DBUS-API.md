@@ -139,7 +139,7 @@ org.pipas.pipnode.Worksheet.Error.<Code>
 
 | Code | Raised when |
 |------|-------------|
-| `NoActiveSheet` | A `.Worksheet` call arrived but there is no active worksheet (e.g. the panel-editor tab is selected). |
+| `NoActiveSheet` | A `.Worksheet` call arrived but there is no active worksheet (e.g. a GUI layout editor tab is selected). |
 | `NoActiveWindow` | An `.Editor` call arrived but there is no editor window at all. |
 | `NodeNotFound` | A node UUID does not resolve on the active sheet. |
 | `WireNotFound` | A wire UUID does not resolve. |

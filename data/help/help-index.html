@@ -45,6 +45,7 @@ node's output to another node's input.
       <li><a href="#panel-applets-adding">Adding an applet to the panel</a></li>
     </ul>
   </li>
+  <li><a href="#desktop-layout">Desktop layouts</a></li>
   <li><a href="#visual-aids">Visualising message flow and node activity</a></li>
   <li><a href="#tips">Tips and troubleshooting</a></li>
 </ul>
@@ -1126,6 +1127,74 @@ applet more than once and each copy gets its own independent
 worksheet, so the same panel can host several unrelated flows side by
 side.
 </p>
+
+<h2 id="desktop-layout">Desktop layouts</h2>
+
+<p>
+The panel band is not the only surface a flow can drive. Click the
+&ldquo;+&rdquo; button at the right of the tab strip and choose
+<em>Add&nbsp;Desktop&nbsp;Layout</em> to open the second GUI layout
+editor: a plain application window you arrange the same widgets in.
+Where the panel applet squeezes a row of readouts into a strip a few
+dozen pixels tall, a desktop layout is a window you size yourself,
+meant for a wall display, a spare monitor or a kiosk screen.
+</p>
+
+<p>
+Both editors are the same kind of tab &mdash; a layout, not a worksheet
+sheet. Each document can hold one of each, they open from the same
+&ldquo;+&rdquo; menu, and each carries a &ldquo;&#x2715;&rdquo; close
+button in its tab label. Closing one does <em>not</em> discard the
+arrangement: the placements are document data and are saved with the
+worksheet, so reopening the layout brings it back exactly as you left
+it.
+</p>
+
+<p>
+The editor shows the window as an outlined rectangle with a mock title
+bar. Drag any widget into it and it sticks to whichever edge or centre
+line it comes close to, so rows line up flush or centred without
+pixel-hunting; widgets cannot be dragged outside the window, because a
+widget the application would never show is not a placement worth
+keeping. Above the canvas, the bar sets the two things the application
+needs to build its window:
+</p>
+
+<ul>
+  <li><strong>Window title</strong> &mdash; the title the application
+      gives the window. Left empty it falls back to the document's own
+      name.</li>
+  <li><strong>Size</strong> &mdash; the window's width and height in
+      pixels. Resizing it never moves the widgets; anything left
+      outside a shrunken window keeps its coordinates and reappears
+      when the window grows again.</li>
+</ul>
+
+<p>
+The two layouts are entirely independent maps. The same Countdown node
+can sit at the left of the panel band and dead centre of the desktop
+window, and a node placed on one surface need not appear on the other
+at all &mdash; each layout stores only the nodes you actually dragged
+into it. The same node kinds are representable on both: Countdown,
+Digital Clock, Label, Matrix 5&times;7, Numeric, LED, Switch and
+Inject. Widgets are drawn larger here than on the panel, since a window
+has the room for it.
+</p>
+
+<p>
+Placements are stored relative to the window's content area, so the
+saved coordinates are exactly what a window needs to paint with. In the
+saved worksheet they live under <code>desktop_layout</code>, keyed by
+node UUID, alongside <code>desktop_window</code> (width, height and
+title).
+</p>
+
+<div class="note">
+The desktop <em>application</em> that shows a finished layout &mdash; a
+simple window that displays the widgets where you put them, with no
+editor around it &mdash; is still to be written. What the editor
+produces today is the layout it will read.
+</div>
 
 <h2 id="visual-aids">Visualising message flow and node activity</h2>
 
