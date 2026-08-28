@@ -40,6 +40,7 @@
 #include "pn-switch.h"
 #include "pn-color.h"
 #include "pn-panel-geometry.h"
+#include "pn-desktop-geometry.h"
 
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -3351,13 +3352,18 @@ static GDBusNodeInfo *editor_introspection_data = NULL;
 /*  that one node by UUID (ActivateWidget), which flips it.            */
 /*                                                                     */
 /*  The display side mirrors the visual layout editor (PnLayoutEditor) */
-/*  headlessly: every PnCountdown / PnLed the user snapped onto the    */
-/*  panel band becomes a counterpart widget in the real applet.  The   */
-/*  applet asks for the widget set and order (GetLayout) and follows   */
-/*  it (LayoutChanged); each node's live state is pushed per widget,    */
-/*  keyed by node UUID (WidgetChanged), as JSON.  The older single-    */
-/*  value PnPanelDisplay bridge (GetDisplayValue + ValueChanged) is    */
-/*  kept as a legacy channel alongside it.                             */
+/*  headlessly, once per surface it lays out for:                       */
+/*    - GetLayout / LayoutChanged carry the PANEL band — every          */
+/*      PnCountdown / PnLed the user snapped onto it, in band order;    */
+/*    - GetDesktopLayout / DesktopLayoutChanged carry the DESKTOP       */
+/*      window — the widgets placed inside it, each at its own          */
+/*      window-relative (x, y), plus the window's size and title.       */
+/*  Both are consumed by dumb viewers (the XFCE applet, the standalone  */
+/*  pipnode-desktop) through the shared PnWidgetMirror.  Each node's    */
+/*  live state is pushed per widget, keyed by node UUID (WidgetChanged) */
+/*  as JSON, and serves both surfaces.  The older single-value          */
+/*  PnPanelDisplay bridge (GetDisplayValue + ValueChanged) is kept as a */
+/*  legacy channel alongside them.                                      */
 /* ================================================================== */
 
 static const gchar engine_introspection_xml[] =
@@ -3372,6 +3378,10 @@ static const gchar engine_introspection_xml[] =
     "      <arg type='s' name='value' direction='out'/>"
     "    </method>"
     "    <method name='GetLayout'>"
+    "      <arg type='s' name='path'   direction='in'/>"
+    "      <arg type='s' name='layout' direction='out'/>"
+    "    </method>"
+    "    <method name='GetDesktopLayout'>"
     "      <arg type='s' name='path'   direction='in'/>"
     "      <arg type='s' name='layout' direction='out'/>"
     "    </method>"
@@ -3400,6 +3410,10 @@ static const gchar engine_introspection_xml[] =
     "      <arg type='s' name='value'/>"
     "    </signal>"
     "    <signal name='LayoutChanged'>"
+    "      <arg type='s' name='path'/>"
+    "      <arg type='s' name='layout'/>"
+    "    </signal>"
+    "    <signal name='DesktopLayoutChanged'>"
     "      <arg type='s' name='path'/>"
     "      <arg type='s' name='layout'/>"
     "    </signal>"
@@ -3884,12 +3898,15 @@ engine_widget_state_json (PnNode *node)
     return engine_builder_to_string (b);
 }
 
-/* One representable node placed for the layout, with the x it sorts by. */
+/* One representable node placed for a layout.  The panel builder sorts by
+ * @x and leaves @y at 0; the desktop builder fills both with the node's
+ * window-relative placement. */
 typedef struct
 {
     PnNode      *node;
     const gchar *uuid;
     gdouble      x;
+    gdouble      y;
 } EngineLayoutEntry;
 
 /** Left-to-right by x; ties broken by UUID so the order is stable. */
@@ -3966,6 +3983,7 @@ engine_build_layout_json (PnWindow *win)
         e.node = node;
         e.uuid = pn_node_get_uuid (node);
         e.x    = x;
+        e.y    = 0.0;          /* unused on the panel: the band fixes y */
         g_array_append_val (entries, e);
     }
 
@@ -4008,6 +4026,135 @@ engine_build_layout_json (PnWindow *win)
     return engine_builder_to_string (b);
 }
 
+/** The desktop viewer's widget set for @win, as JSON:
+ *    { "positioned": <bool>,
+ *      "window": { "width", "height", "title", "widget_height" },
+ *      "widgets": [ { "uuid", "order", "x", "y", "state": {…} }, … ] }
+ *
+ *  The desktop twin of engine_build_layout_json above.  Membership is
+ *  simpler than the panel's band test: a node is in the window iff the
+ *  desktop layout editor stored a placement for it, and "x"/"y" are that
+ *  placement verbatim — window-relative, so the viewer paints with them
+ *  directly.  When the document carries no desktop layout at all (never
+ *  arranged), fall back to every representable node cascaded down the
+ *  window the way the editor would place them, with "positioned" %FALSE,
+ *  so a viewer opened on an unarranged worksheet is not blank.
+ *
+ *  "title" is what the document set, or "" — the viewer falls back to the
+ *  worksheet's own file name, which is what the editor's placeholder
+ *  promises. */
+static gchar *
+engine_build_desktop_layout_json (PnWindow *win)
+{
+    PnFlow      *flow = win != NULL ? pn_window_get_flow (win) : NULL;
+    PnNodeStore *nodes;
+    GArray      *entries;
+    GList       *placed;
+    gboolean     have_layout;
+    JsonBuilder *b;
+    gint         win_w = PN_DE_WINDOW_DEFAULT_WIDTH;
+    gint         win_h = PN_DE_WINDOW_DEFAULT_HEIGHT;
+    guint        i, n;
+    guint        cascade = 0;
+
+    if (flow == NULL)
+        return g_strdup ("{\"widgets\":[]}");
+
+    nodes = pn_flow_get_nodes (flow);
+    pn_flow_get_desktop_window (flow, &win_w, &win_h);
+
+    placed      = pn_flow_list_desktop_positions (flow);
+    have_layout = (placed != NULL);
+    g_list_free_full (placed, g_free);
+
+    entries = g_array_new (FALSE, FALSE, sizeof (EngineLayoutEntry));
+    n       = pn_node_store_get_length (nodes);
+    for (i = 0; i < n; i++)
+    {
+        PnNode           *node = pn_node_store_get_node (nodes, i);
+        EngineLayoutEntry e;
+        gdouble           x = 0.0, y = 0.0;
+
+        if (!engine_is_widget_node (node))
+            continue;
+
+        if (have_layout)
+        {
+            /* In the window iff the desktop editor placed it there. */
+            if (!pn_flow_get_desktop_position (flow, pn_node_get_uuid (node),
+                                               &x, &y))
+                continue;
+        }
+        else
+        {
+            /* The editor's own cascade: down a column, wrapping to the
+             * next once one fills, so the fallback matches what opening
+             * the Desktop Layout tab would show. */
+            const gint step_y  = PN_DE_WIDGET_HEIGHT + 28;
+            const gint step_x  = 170;
+            gint       per_col = MAX (1, win_h / step_y);
+
+            x = (cascade / per_col) * step_x;
+            y = (cascade % per_col) * step_y;
+            cascade++;
+        }
+
+        e.node = node;
+        e.uuid = pn_node_get_uuid (node);
+        e.x    = x;
+        e.y    = y;
+        g_array_append_val (entries, e);
+    }
+
+    b = json_builder_new ();
+    json_builder_begin_object (b);
+    json_builder_set_member_name (b, "positioned");
+    json_builder_add_boolean_value (b, have_layout);
+
+    json_builder_set_member_name (b, "window");
+    json_builder_begin_object (b);
+    json_builder_set_member_name (b, "width");
+    json_builder_add_int_value (b, win_w);
+    json_builder_set_member_name (b, "height");
+    json_builder_add_int_value (b, win_h);
+    json_builder_set_member_name (b, "title");
+    json_builder_add_string_value (b, pn_flow_get_desktop_title (flow));
+    /* The height every widget is drawn at.  Published rather than shared
+     * as a header constant so the viewer stays a pure protocol client with
+     * no pipnode headers at all — and it cannot drift from the editor,
+     * which places widgets at this same size. */
+    json_builder_set_member_name (b, "widget_height");
+    json_builder_add_int_value (b, PN_DE_WIDGET_HEIGHT);
+    json_builder_end_object (b);
+
+    json_builder_set_member_name (b, "widgets");
+    json_builder_begin_array (b);
+    for (i = 0; i < entries->len; i++)
+    {
+        EngineLayoutEntry *e = &g_array_index (entries, EngineLayoutEntry, i);
+
+        json_builder_begin_object (b);
+        json_builder_set_member_name (b, "uuid");
+        json_builder_add_string_value (b, e->uuid);
+        json_builder_set_member_name (b, "order");
+        json_builder_add_int_value (b, i);
+        json_builder_set_member_name (b, "x");
+        json_builder_add_double_value (b, e->x);
+        json_builder_set_member_name (b, "y");
+        json_builder_add_double_value (b, e->y);
+        json_builder_set_member_name (b, "state");
+        json_builder_begin_object (b);
+        engine_add_widget_state (b, e->node);
+        json_builder_end_object (b);
+        json_builder_end_object (b);
+    }
+    json_builder_end_array (b);
+    json_builder_end_object (b);
+
+    g_array_free (entries, TRUE);
+    return engine_builder_to_string (b);
+}
+
 /** repaint-needed on a widget node → push its fresh state to the applet. */
 static void
 on_panel_widget_repaint (PnNode *node, gpointer user_data)
@@ -4028,6 +4175,17 @@ engine_emit_layout_changed (EngineWidgetCtx *ctx)
     gchar *json = engine_build_layout_json (ctx->win);
 
     engine_emit_signal (ctx->app, "LayoutChanged",
+                        g_variant_new ("(ss)", ctx->path, json));
+    g_free (json);
+}
+
+/** Re-publish the whole desktop layout for ctx's worksheet to any viewer. */
+static void
+engine_emit_desktop_layout_changed (EngineWidgetCtx *ctx)
+{
+    gchar *json = engine_build_desktop_layout_json (ctx->win);
+
+    engine_emit_signal (ctx->app, "DesktopLayoutChanged",
                         g_variant_new ("(ss)", ctx->path, json));
     g_free (json);
 }
@@ -4054,6 +4212,7 @@ on_engine_node_added (PnNodeStore *store,
         return;
     engine_wire_widget_node (ctx, node);
     engine_emit_layout_changed (ctx);
+    engine_emit_desktop_layout_changed (ctx);
 }
 
 /* A node went away: its repaint handler dies with it; refresh the layout. */
@@ -4069,6 +4228,7 @@ on_engine_node_removed (PnNodeStore *store,
     if (!engine_is_widget_node (node))
         return;
     engine_emit_layout_changed (ctx);
+    engine_emit_desktop_layout_changed (ctx);
 }
 
 /* The user dragged a widget in the presented editor (it shares this same
@@ -4080,8 +4240,19 @@ on_engine_panel_layout_changed (PnFlow *flow, gpointer user_data)
     engine_emit_layout_changed ((EngineWidgetCtx *) user_data);
 }
 
-/** Wire @win so the applet mirrors it: per-node widget state, layout
- *  changes, plus the legacy single-value Panel Display channel. */
+/* The desktop window changed in the presented editor (it shares this same
+ * hidden flow): a widget moved, or the window was resized or retitled.
+ * Re-publish the desktop layout. */
+static void
+on_engine_desktop_layout_changed (PnFlow *flow, gpointer user_data)
+{
+    (void) flow;
+    engine_emit_desktop_layout_changed ((EngineWidgetCtx *) user_data);
+}
+
+/** Wire @win so every viewer mirrors it: per-node widget state, both
+ *  surfaces' layout changes, plus the legacy single-value Panel Display
+ *  channel. */
 static void
 engine_wire_panel_widgets (
         PnApplication *self,
@@ -4122,6 +4293,8 @@ engine_wire_panel_widgets (
                       G_CALLBACK (on_engine_node_removed), ctx);
     g_signal_connect (flow, "panel-layout-changed",
                       G_CALLBACK (on_engine_panel_layout_changed), ctx);
+    g_signal_connect (flow, "desktop-layout-changed",
+                      G_CALLBACK (on_engine_desktop_layout_changed), ctx);
 
     g_signal_connect (win, "destroy",
                       G_CALLBACK (on_engine_window_destroy), NULL);
@@ -4253,6 +4426,18 @@ handle_engine_method_call (
         g_variant_get (parameters, "(&s)", &path);
         win    = g_hash_table_lookup (self->worksheets, path);
         layout = engine_build_layout_json (win);
+        g_dbus_method_invocation_return_value (
+                invocation, g_variant_new ("(s)", layout));
+        g_free (layout);
+    }
+    else if (g_strcmp0 (method_name, "GetDesktopLayout") == 0)
+    {
+        PnWindow *win;
+        gchar    *layout;
+
+        g_variant_get (parameters, "(&s)", &path);
+        win    = g_hash_table_lookup (self->worksheets, path);
+        layout = engine_build_desktop_layout_json (win);
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(s)", layout));
         g_free (layout);
