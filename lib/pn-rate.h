@@ -24,7 +24,7 @@ G_BEGIN_DECLS
 /*  PnRate                                                             */
 /*                                                                     */
 /*  Crypto/fiat exchange-rate converter.  Inherits the periodic fetch  */
-/*  + curl plumbing from #PnHttp and adds an input port: every         */
+/*  + HTTP plumbing from #PnHttp and adds an input port: every         */
 /*  incoming message has its `data.value` multiplied by the most       */
 /*  recently fetched rate (from → to) and is forwarded on the output. */
 /*                                                                     */
