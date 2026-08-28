@@ -911,3 +911,74 @@
              per provider is the whole cost); a reverse quote ("how much PLS
              for 1 BNB"); and an alert path -- Comparator on data.rate would
              already do it, but a worked example worksheet would help.
+
+   (TODO #60) Bridge Converter node -- the input-driven sibling of Bridge Quote.
+       Send it an amount and it asks a real bridge what it would actually pay
+       out for exactly that; the answer comes back on the message that asked,
+       a network round-trip later. Bridge pricing is amount-sensitive (a flat
+       network fee dominates a small swap), so a cached rate cannot honestly
+       be re-scaled -- the node has to ask again for every amount, and it only
+       has an amount when a message arrives. Hence no autotrigger.
+       [x] 60.1 Extracted the shared provider back-ends into
+             lib/pn-bridge-common.[ch]: the provider + ticker tables, the
+             PnBridge GType, PulseLN's fee arithmetic, ChangeNOW's error
+             vocabulary and its range lookup. No PnNode in the file -- every
+             function takes a PnBridgeRequest and fills a PnBridgeResult, so
+             the parse path can be driven from a test with a captured body.
+             pn-bridge-quote.c shrank from 1766 to ~1150 lines and now folds a
+             result into its cache instead of parsing inline; its 113-check
+             suite passed unchanged, which is what made the refactor safe to
+             do first.
+       [x] 60.2 lib/pn-bridge-converter.[ch] (core tier). has_input=TRUE.
+             receive() reads data.value as the amount, parks the message
+             itself, and kicks the inherited auto-trigger worker; the trigger
+             override moves the parked request into flight and chains to
+             PnHttp::trigger; the reply is stamped onto that same message, so
+             upstream fields survive the round trip the way PnRate's do.
+             The auto-trigger machinery is used purely as a worker thread --
+             an idle tick finds the pending slot empty and returns, so the
+             node never polls.
+       [x] 60.3 At most one request in flight. A newer amount replaces a
+             parked one (logged at INFO) rather than queueing behind it:
+             a converter fed faster than the network answers should quote the
+             newest amount, not work through a backlog of stale ones. That
+             also bounds the request rate to one per round-trip whatever the
+             input does. A message with no numeric data.value, or one <= 0, is
+             failed locally and emitted with success=FALSE rather than
+             spending a request on a rejection.
+       [x] 60.4 `period` is meaningless on a node with no schedule, so it is
+             pinned to 30 s by a notify hook and hidden from the dialog with a
+             PnSettingsSchema row carrying PN_ROW_FLAG_HIDDEN. It survives
+             only as the per-request socket timeout PnHttp derives from it.
+             `amount` is published when the request goes OUT, not when it
+             comes back, so a failed conversion still says what was asked --
+             and that doubles as the headless test seam.
+       [x] 60.5 Never having converted anything is NOT an error state here.
+             Bridge Quote paints itself red while its cache is deprecated,
+             which is what made TODO #59.9 possible; a converter with nothing
+             wired into it yet is idle, not broken, so has-error is only set
+             after a conversion actually failed. No settle-idle needed.
+       [x] 60.6 gui tier lib/pn-bridge-converter-gui.[ch] (read-only rows for
+             every result field, icon+ticker combos for from/to), registration
+             in pn-node-factory.c / pn-gui.c / lib/Makefile.am (4 lists) /
+             data/Makefile.am / tests/unit/Makefile.am.
+       [x] 60.7 Tests (tests/unit/test-pn-bridge-converter.c, 83 checks,
+             headless). Three seams keep it off the network: autostart=FALSE
+             (no worker thread), an empty url (a hand-driven trigger stops
+             before the socket), and driving emit_message directly with the
+             same captured provider bodies the Bridge Quote suite uses.
+       [x] 60.8 Docs: data/help/PnBridgeConverter.html, a cross-link from
+             PnBridgeQuote.html, the widened data.amount / data.swappable /
+             data.deprecated notes in data/help-index.html, and a Bridge
+             Converter section in the pipnode-nodes skill reference.
+       [x] 60.9 Verified live through pipnode-run (Knob -> Bridge Converter ->
+             Debug): 5M PLS -> 0.088632 BNB on PulseLN (fee 0.014, band
+             77843..122602888) and -> 0.0796228 BNB on ChangeNOW (band
+             21369..7505000, forecast "10-60"), both in the same minute --
+             PulseLN ~11% better on this route, the same ordering TODO #59
+             measured. A 1 PLS input came back "quoted nothing ... below the
+             network fee", which is the amount-sensitivity this node exists
+             for, stated in words.
+       [ ] 60.10 Deferred: a worked example worksheet (Knob -> Bridge
+             Converter -> Numeric, and the two providers side by side for one
+             amount).
