@@ -985,9 +985,8 @@
 
 [x] 61 Desktop Layout view -- a second GUI layout editor, beside the existing
        Panel Applet Layout, where the user arranges the same widgets inside a
-       plain application window. A "desktop application" that simply shows
-       those widgets in that window is to be written later (61.7); this entry
-       covers the editor and the document format it produces.
+       plain application window, plus the application that shows the result
+       (viewers/pipnode-desktop, 61.7).
 
        [x] 61.1 Generalise the editor. lib/pn-panel-editor.[ch] was already
              documented as "the first of a planned family of GUI-layout
@@ -1031,9 +1030,41 @@
              through the document flag exactly like the panel tab. Tests
              (6 new cases in tests/unit/test-pn-flow.c) and a "Desktop
              layouts" section in data/help/help-index.html.
-       [ ] 61.7 The desktop application itself -- a simple window that reads
-             desktop_window / desktop_layout out of a worksheet and shows the
-             widgets where they were placed, with no editor around it. Wants
-             the same dumb-face panel-widgets library the applet uses, and can
-             reuse the engine (pipnode-editor --gapplication-service) the same
-             way the XFCE applet does rather than running its own flow.
+       [x] 61.7 The desktop application itself -- viewers/pipnode-desktop, a
+             plain window that shows one worksheet's desktop layout and
+             nothing else. Engineered exactly like the XFCE applet: a pure
+             D-Bus client of the same background engine, linking GTK / GLib /
+             json-glib and the GTK-only panel-widgets library but NO pipnode
+             runtime, so a node or engine crash cannot take it down; it
+             self-heals across an engine restart by watching the bus name.
+             Takes a worksheet path either positionally or via --file/-f,
+             with the same precedence pipnode-editor applies (--file wins,
+             two positionals is an error), and a file chooser when given
+             neither; ships its own desktop entry. Interaction mirrors the applet one
+             for one: ActivateWidget for Switch/Inject, SendEvent for a
+             background click, PresentEditor from the right-click menu.
+             Closing the window stops the worksheet (CloseWorksheet) -- the
+             one deliberate difference from the applet, whose worksheet is
+             meant to outlive any one view of it.
+       [x] 61.8 Engine support: GetDesktopLayout + DesktopLayoutChanged
+             beside the panel's GetLayout + LayoutChanged, sharing the
+             per-node WidgetChanged channel. Membership is simpler than the
+             panel's band test -- a node is in the window iff the desktop
+             editor placed it -- and x/y are published verbatim
+             (window-relative), so the viewer paints with them directly. The
+             window block carries width/height/title plus widget_height, so
+             the viewer needs no pipnode header to size widgets and cannot
+             drift from the editor.
+       [x] 61.9 Extracted the applet's widget mirroring into
+             panel-widgets/pn-widget-mirror.[ch] (PnWidgetMirror): the client
+             half of the layout protocol -- create/destroy/update widgets
+             from layout JSON -- shared by the applet and the viewer, with
+             PLACEMENT left to the host, which is the one thing the two
+             surfaces genuinely differ on. Cut ~300 duplicated lines and
+             keeps a new widget kind a one-file change. New top-level
+             viewers/ tree for the family (web and mobile next).
+       [x] 61.10 Tests: tests/test_desktop_engine_run.py pins the engine half
+             end to end (window block, verbatim placements, panel/desktop
+             independence in one document, live WidgetChanged, unarranged
+             fallback). The panel engine test still passes unchanged, which
+             is what covers the mirror extraction.
