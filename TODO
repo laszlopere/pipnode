@@ -817,3 +817,97 @@
              multi-output Router node (needs a framework output-port
              extension) and bitwise/% operators in the Calculator language,
              both intentionally left out of the minimal kit.
+
+[x] 59 Bridge Quote node (PnBridgeQuote) -- monitor real swap rates on crypto
+       bridges. The FX Converter (PnRate) reports a CoinGecko mid-market price;
+       that says nothing about what a swap actually pays out, where a 1-3%
+       spread, a flat network fee and per-pair min/max limits all bite. This
+       node asks a real bridge for a quote on a concrete amount and emits it
+       every tick. A PnHttp subclass in core with a -gui companion, mirroring
+       PnRate; no PnNodeClass vfunc added, so no plugin ABI bump. Two providers
+       in v1, selected by a `bridge` enum so two nodes can compare the same pair
+       side by side on one graph. Currencies reuse PN_TYPE_CURRENCY, so the
+       dialog gets the FX Converter's icon+ticker picker for free; a pair the
+       selected provider does not list marks the node unconfigured rather than
+       failing at fetch time.
+       [x] 59.1 PulseLN back-end. One keyless GET to api.pulseln.com/c/prices
+             returns the whole cross-rate matrix; there is no per-amount quote
+             endpoint, so pulseln_parse() reproduces the swap page's own
+             formula (cross-rate, minus the flat network fee, minus the DLN
+             fee for the assets in DLN_LIST, minus the PF[FROMTO]/F
+             percentage), and gates on STATUS[from] and PS[to] both being
+             "online". The site scales the network term by
+             grn(DIFF) = |random()*DIFF - 100| / 100, which is 0.9999..1.0 --
+             cosmetic jitter, so the C code uses 1.0 and stays deterministic.
+             UNDOCUMENTED, UNVERSIONED endpoint: it can change or be locked
+             without notice, and a shape change must surface as a readable
+             status, never a crash.
+       [x] 59.2 ChangeNOW back-end. v1 only: /exchange-amount quotes directly
+             and /exchange-range supplies the limits in a second request
+             issued from emit_message. v1 needs no API key; v2's
+             estimated-amount answers 401 without one, and a v2 key is granted
+             only on request. If a key is ever wanted it belongs in a
+             host-provisioned profile (PnProfileSchema + PnVault,
+             PN_FIELD_SECRET), never in a node property.
+       [x] 59.3 Source shape, unlike PnRate. No input port; emits one message
+             per tick. The trigger override still emits when the freshness gate
+             skips the fetch -- staying silent (as PnRate does) would leave a
+             reopened worksheet's displays blank. Failures emit too, with
+             success=FALSE and a human-readable output. quote/rate/fee/limits
+             and last-update persist with the worksheet, so a reopened flow
+             repaints from cache without touching the provider.
+       [x] 59.4 Registration + build: lib/Makefile.am (4 lists),
+             pn-node-factory.c, pn-gui.c, data/Makefile.am (help page),
+             tests/unit/Makefile.am. Also registered examples/crypto/ in
+             examples/Makefile.am -- the whole directory was missing, so
+             exchange-monitor.json and exchange-rates.json were never
+             installed or distributed either.
+       [x] 59.5 Shared gui helper lib/pn-currency-editors.[ch] (noinst, gui
+             tier): the icon+ticker currency combo and the read-only monospace
+             row, lifted out of pn-rate-gui.c rather than copied. pn-rate-gui.c
+             shrank from 417 to 90 lines; both nodes now use the same editors.
+       [x] 59.6 Tests (tests/unit/test-pn-bridge-quote.c, 97 checks, headless).
+             Bodies trimmed from real provider replies are fed straight to the
+             PnHttp emit_message vfunc, so the quote arithmetic is checked
+             against numbers the providers actually returned. Verified live:
+             100M PLS -> 1.792 BNB on PulseLN; 5M PLS -> 0.0793 BNB on
+             ChangeNOW (PulseLN ~13% better on this route).
+       [x] 59.7 Docs: data/help/PnBridgeQuote.html, new bag members
+             (data.amount/from/to/bridge/fee/min_amount/max_amount/deprecated)
+             in data/help-index.html, and a Bridge Quote section in the
+             pipnode-nodes skill reference. Drive-by: network.md and
+             pn-rate.h still described the pre-libsoup curl plumbing and a
+             `build_command` vfunc that no longer exists -- corrected.
+       [x] 59.9 Load-time false error state (reported: node red after loading a
+             worksheet that had saved fine). pn-flow.c applies saved properties
+             one at a time in file order, so reacting to bridge/from/to/amount
+             synchronously judged the node deprecated before `last-update` had
+             been restored, painted the error marker, and nothing repainted it
+             afterwards -- red for good, despite a valid cached quote. The
+             repaint and the refresh-kick now defer to a coalescing idle
+             (bridge_quote_schedule_settle) that runs once the property batch
+             is complete, and the kick is gated on cache_is_fresh so reopening
+             a worksheet costs the provider nothing. Regression test
+             load_order_no_error (verified failing without the fix).
+             NOTE: PnRate has the IDENTICAL bug -- examples/crypto/
+             exchange-rates.json loads red with status "Never updated" despite
+             a saved rate + timestamp. Not fixed here; same shape of fix.
+       [x] 59.10 Priced != swappable. The first cut hard-failed when PulseLN's
+             STATUS[from]/PS[to] said a pool was closed. Verified against the
+             live swap page: it gates only its *button* on PS[to] (outPool) and
+             still displays the rate, saying "Swaps To BNB Temporarily Offline";
+             same for an out-of-band amount ("Max Limit Exceeded"). A monitor
+             that blanked its history whenever a pool drained would be useless
+             exactly when it mattered, so the node now prices the route anyway,
+             keeps success=TRUE, and reports the closure on `swappable` +
+             `warning` + the status line. Limits float (PulseLN derives them
+             from a USD band divided by the live price -- currently "$1 MIN,
+             $1000 MAX"), so a node drifts in and out of range unattended;
+             an out-of-band amount sets swappable=FALSE too.
+             Rate verified against the rendered UI: the page showed 1.773281
+             BNB for 100M PLS, the node computed 1.773277 in the same minute
+             (0.0002% apart -- price drift, not formula error).
+       [ ] 59.8 Deferred: more bridges (the enum + a build_request/parse branch
+             per provider is the whole cost); a reverse quote ("how much PLS
+             for 1 BNB"); and an alert path -- Comparator on data.rate would
+             already do it, but a worked example worksheet would help.
