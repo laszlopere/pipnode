@@ -30,7 +30,13 @@ TESTS = \
 
 # pndbus.py is the shared reference client the D-Bus tests import, not a
 # test itself, so it ships in the tarball but is not in TESTS.
-EXTRA_DIST = $(TESTS) pndbus.py
+#
+# The two engine tests drive a background service and its viewers over a
+# private bus name; they are run by hand rather than by `make check`, but
+# they ship all the same.
+EXTRA_DIST = $(TESTS) pndbus.py \
+	test_panel_engine_run.py \
+	test_desktop_engine_run.py
 
 # Point the test at the in-tree binary regardless of where automake's
 # test driver runs us from (in-tree vs VPATH builds).
