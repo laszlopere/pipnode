@@ -982,3 +982,58 @@
        [ ] 60.10 Deferred: a worked example worksheet (Knob -> Bridge
              Converter -> Numeric, and the two providers side by side for one
              amount).
+
+[x] 61 Desktop Layout view -- a second GUI layout editor, beside the existing
+       Panel Applet Layout, where the user arranges the same widgets inside a
+       plain application window. A "desktop application" that simply shows
+       those widgets in that window is to be written later (61.7); this entry
+       covers the editor and the document format it produces.
+
+       [x] 61.1 Generalise the editor. lib/pn-panel-editor.[ch] was already
+             documented as "the first of a planned family of GUI-layout
+             editors (panel, desktop, web, mobile)", and the whole node ->
+             widget mirroring half of it is surface-independent, so it became
+             lib/pn-layout-editor.[ch]: one PnLayoutEditor parameterised by a
+             PnLayoutEditorKind (PANEL / DESKTOP). The kind selects four
+             things and nothing else -- the widget height, the guide drawn
+             behind the widgets, the snapping rule, and which pair of PnFlow
+             accessors placements are saved through. Adding the planned web
+             and mobile surfaces is now a kind plus those four hooks.
+       [x] 61.2 Flow storage. A desktop_layout map (node UUID -> window-
+             relative x/y) entirely separate from panel_layout, so the same
+             node can sit in a different place on each surface; plus the
+             window itself (desktop_width / desktop_height / desktop_title)
+             and a desktop_editor_open view-state flag. New signals
+             desktop-layout-changed and desktop-editor-visible-changed mirror
+             the panel pair. The panel and desktop paths share three new
+             static primitives (layout_get/set_position, layout_list_positions)
+             and two JSON helpers, so the second surface added no duplicated
+             serialisation code.
+       [x] 61.3 On-disk format: "desktop_layout" (UUID -> {x, y}),
+             "desktop_window" ({width, height, title}) and
+             "desktop_editor_open", all omitted while untouched -- a document
+             that never opened the desktop layout saves byte-identically to
+             before (covered by a test).
+       [x] 61.4 Editor surface. The window is drawn as an outlined rectangle
+             with a mock title bar sitting just ABOVE it, so the framed area
+             is exactly the content area a stored (x, y) is relative to and
+             the desktop app needs no chrome correction. Widgets are clamped
+             inside the frame and sticky-snap to three guides per axis (both
+             edges and the centre line), reusing the panel band's GRAB/BREAK
+             hysteresis through one shared layout_snap_axis(). Widgets are
+             drawn at PN_DE_WIDGET_HEIGHT (48) rather than the panel's 36.
+       [x] 61.5 Window properties bar above the canvas: title entry (empty =
+             fall back to the document name) and width/height spins. They edit
+             the flow; the flow's desktop-layout-changed signal pushes values
+             back, so load and undo need no second code path.
+       [x] 61.6 Window plumbing: "Add _Desktop Layout" in the "+" tab menu,
+             one instance at a time, closable "X" tab, opened and closed
+             through the document flag exactly like the panel tab. Tests
+             (6 new cases in tests/unit/test-pn-flow.c) and a "Desktop
+             layouts" section in data/help/help-index.html.
+       [ ] 61.7 The desktop application itself -- a simple window that reads
+             desktop_window / desktop_layout out of a worksheet and shows the
+             widgets where they were placed, with no editor around it. Wants
+             the same dumb-face panel-widgets library the applet uses, and can
+             reuse the engine (pipnode-editor --gapplication-service) the same
+             way the XFCE applet does rather than running its own flow.
