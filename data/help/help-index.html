@@ -45,7 +45,11 @@ node's output to another node's input.
       <li><a href="#panel-applets-adding">Adding an applet to the panel</a></li>
     </ul>
   </li>
-  <li><a href="#desktop-layout">Desktop layouts</a></li>
+  <li><a href="#desktop-layout">Desktop layouts</a>
+    <ul>
+      <li><a href="#desktop-viewer">The desktop viewer</a></li>
+    </ul>
+  </li>
   <li><a href="#visual-aids">Visualising message flow and node activity</a></li>
   <li><a href="#tips">Tips and troubleshooting</a></li>
 </ul>
@@ -1189,11 +1193,70 @@ node UUID, alongside <code>desktop_window</code> (width, height and
 title).
 </p>
 
+<h3 id="desktop-viewer">The desktop viewer</h3>
+
+<p>
+A finished layout is shown by <code>pipnode-desktop</code>, a small
+application that opens exactly the window the editor described &mdash;
+same size, same title, every widget at the position you dragged it to
+&mdash; and nothing else. Point it at a worksheet:
+</p>
+
+<pre>pipnode-desktop ~/worksheets/kitchen.json
+pipnode-desktop --file ~/worksheets/kitchen.json</pre>
+
+<p>
+The worksheet can be named either way &mdash; as a plain argument or with
+<code>--file</code> (<code>-f</code>), which takes precedence, exactly as
+in <code>pipnode-editor</code>. Launched with neither (from a menu, say)
+it asks which worksheet to open. It also has a desktop entry of its own,
+<em>Pipnode Desktop</em>, so a worksheet can be opened straight from a
+file manager.
+</p>
+
+<p>
+The viewer is built exactly the way the panel applet is, and for the same
+reason. It does not run the worksheet: the flow runs in the same
+background <a href="#panel-applets-engine">engine</a> the applet uses
+(<code>pipnode-editor</code> as a D-Bus service, auto-started on first
+use), which holds it in a hidden window whose flow ticks for as long as
+the viewer is up. The viewer asks the engine for the layout and follows
+it live, so it links GTK, GLib and json-glib only and embeds <em>no</em>
+pipnode runtime library &mdash; a misbehaving node or plugin can never
+take the window down with it. If the engine is restarted the viewer
+notices, re-runs the worksheet and rebuilds itself.
+</p>
+
+<p>
+Because the flow is the live one, the window is not just a picture of it:
+</p>
+
+<ul>
+  <li>a click on a <strong>Switch</strong> toggle or an
+      <strong>Inject</strong> button acts on that node, exactly as it
+      would on the panel;</li>
+  <li>a click anywhere else reaches the worksheet's <strong>Panel
+      Input</strong> node(s) as a <code>click</code> event tagged with the
+      button &mdash; the same event the applet sends, so one worksheet can
+      drive both surfaces;</li>
+  <li>right-click &rarr; <em>Edit Worksheet</em> opens that
+      <em>same running</em> worksheet in the editor. Rearrange the Desktop
+      Layout tab and the window follows as you drag &mdash; including a
+      change of window size or title.</li>
+</ul>
+
+<p>
+Closing the window stops the worksheet in the engine (autosaving it
+first). That is the one place the viewer deliberately differs from the
+applet, whose worksheet is meant to keep running for as long as the panel
+is up.
+</p>
+
 <div class="note">
-The desktop <em>application</em> that shows a finished layout &mdash; a
-simple window that displays the widgets where you put them, with no
-editor around it &mdash; is still to be written. What the editor
-produces today is the layout it will read.
+Both viewers share the same widget faces and the same client half of the
+engine's layout protocol, so a node kind that appears on the panel appears
+in the window too, drawn identically &mdash; just larger, since a window
+has the room for it.
 </div>
 
 <h2 id="visual-aids">Visualising message flow and node activity</h2>

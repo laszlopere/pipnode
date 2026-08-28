@@ -80,11 +80,13 @@ per process.
 `--dbus-name` must be a valid D-Bus / GApplication application id (reverse-DNS
 dotted form). An invalid name aborts startup with an error.
 
-> The background **panel engine** (`pipnode-editor --gapplication-service`,
-> used by the XFCE applet) also takes the well-known name and serves a
-> *third* interface, `org.pipas.pipnode.Engine`, on the same object. That
-> interface is for the panel applet, not for worksheet authoring, and is out
-> of scope here.
+> The background **engine** (`pipnode-editor --gapplication-service`, used by
+> the XFCE applet and by `pipnode-desktop`) also takes the well-known name and
+> serves a *third* interface, `org.pipas.pipnode.Engine`, on the same object.
+> That interface is how a dumb viewer mirrors a running worksheet's GUI
+> layout — the panel band (`GetLayout` / `LayoutChanged`) or the desktop
+> window (`GetDesktopLayout` / `DesktopLayoutChanged`), with per-node state on
+> `WidgetChanged`. It is not for worksheet authoring and is out of scope here.
 
 ---
 

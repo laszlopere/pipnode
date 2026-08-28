@@ -70,6 +70,19 @@ pipnode-run my-flow.json            # run until interrupted
 pipnode-run --timeout=30 my-flow.json
 ```
 
+A third binary, `pipnode-desktop`, shows one worksheet's **desktop layout**
+— the widgets arranged in the editor's Desktop Layout tab — in a plain
+window and nothing else:
+
+```sh
+pipnode-desktop my-flow.json
+```
+
+It executes nothing itself: the flow runs in the background engine
+(`pipnode-editor` as a D-Bus service, auto-started), which the viewer
+mirrors live. Like the XFCE panel applet it links no pipnode runtime
+library, so a misbehaving node can never take the window down.
+
 Pipnode is built as two libraries: a GTK-free **core** (`libpipnode-core`)
 with the flow engine and all node logic, and a **GUI** tier
 (`libpipnode-gui`) with the editor, canvas rendering and dialogs.
