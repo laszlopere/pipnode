@@ -12,7 +12,7 @@
         "y" : 80.0
       },
       "properties" : {
-        "text" : "Monitoring the bridge.",
+        "text" : "Monitoring the bridges from PLS to BNB.",
         "width" : 620.0,
         "height" : 110.0,
         "text-size" : 13.0,
@@ -36,14 +36,14 @@
         "bridge" : "PulseLN",
         "from" : "PLS",
         "to" : "BNB",
-        "amount" : 100000000.0,
-        "quote" : 1.767541,
-        "rate" : 1.7675409999999999e-08,
+        "amount" : 1000000.0,
+        "quote" : 0.017826999999999999,
+        "rate" : 1.7826999999999998e-08,
         "fee" : 0.014,
-        "min-amount" : 77605.215026000005,
-        "max-amount" : 77605215.026372999,
-        "last-update" : "2026-08-28T10:26:26.676734+02",
-        "status" : "OK"
+        "min-amount" : 77035.474071999997,
+        "max-amount" : 77035474.071502998,
+        "last-update" : "2026-08-28T10:44:22.730171+02",
+        "status" : "OK — PulseLN swaps to BNB are temporarily offline"
       }
     },
     {
@@ -86,6 +86,72 @@
         "log-y" : false,
         "y-from-zero" : false
       }
+    },
+    {
+      "type" : "PnBridgeQuote",
+      "uuid" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
+      "name" : "ChangeNow",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 180.0,
+        "y" : 660.0
+      },
+      "properties" : {
+        "period" : 300,
+        "url" : "https://api.changenow.io/v1/exchange-amount",
+        "bridge" : "ChangeNOW",
+        "from" : "PLS",
+        "to" : "BNB",
+        "amount" : 1000000.0,
+        "quote" : 0.0157454,
+        "rate" : 1.5745399999999998e-08,
+        "fee" : 0.0,
+        "min-amount" : 21375.077344360001,
+        "max-amount" : 7505000.0,
+        "last-update" : "2026-08-28T10:44:15.905426+02",
+        "status" : "OK"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "0d201cc7-fe42-4ba9-9ffa-e371e2962c8d",
+      "name" : "PulseLN BNB",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 660.0
+      },
+      "properties" : {
+        "digits" : 7,
+        "decimal-places" : 6,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(246,211,45)",
+        "unlit-segment-color" : "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "bf8987d6-a74f-4a1b-87f4-bc3e4a231f4f",
+      "name" : "BNB payout",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 820.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "x-buckets" : 200,
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "line-color" : "rgb(38,162,105)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : true,
+        "log-y" : false,
+        "y-from-zero" : false
+      }
     }
   ],
   "connections" : [
@@ -96,6 +162,14 @@
     {
       "source_id" : "f645e6c0-7bf1-4cb2-9bf5-1cb31fba0a78",
       "target_id" : "c61b538c-67c2-471d-b42b-9b9f0692e8e8"
+    },
+    {
+      "source_id" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
+      "target_id" : "0d201cc7-fe42-4ba9-9ffa-e371e2962c8d"
+    },
+    {
+      "source_id" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
+      "target_id" : "bf8987d6-a74f-4a1b-87f4-bc3e4a231f4f"
     }
   ],
   "sheets" : [
