@@ -21,6 +21,13 @@ networking_DATA = \
 	networking/network_test.json \
 	networking/weather.json
 
+cryptodir = $(pkgdatadir)/examples/crypto
+crypto_DATA = \
+	crypto/bridge-comparison.json \
+	crypto/crypto-monitor.json \
+	crypto/exchange-monitor.json \
+	crypto/exchange-rates.json
+
 homeautomationdir = $(pkgdatadir)/examples/home-automation
 homeautomation_DATA = \
 	home-automation/mqtt-test.json \
@@ -72,6 +79,7 @@ misc_DATA = \
 EXTRA_DIST = \
 	$(image_DATA) \
 	$(networking_DATA) \
+	$(crypto_DATA) \
 	$(homeautomation_DATA) \
 	$(systemmonitoring_DATA) \
 	$(speechandsound_DATA) \

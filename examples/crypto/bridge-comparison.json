@@ -1,0 +1,155 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "ec29d710-871e-40b3-b9e6-5da8fa4a3997",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 80.0,
+        "y": 20.0
+      },
+      "properties": {
+        "text": "Same swap, two bridges. Both nodes quote 5000000 PLS into BNB every five minutes; the graph overlays the two payouts so the cheaper route is obvious at a glance. The amount is kept under ChangeNOW's cap (about 7.5M PLS) so the comparison is fair -- PulseLN accepts far larger swaps. Compare data.rate, not data.value, if you change the amount.",
+        "width": 620.0,
+        "height": 110.0,
+        "text-size": 13.0,
+        "background-color": "rgb(255,255,255)",
+        "frame-color": "rgb(158,158,158)",
+        "text-color": "rgb(46,51,59)"
+      }
+    },
+    {
+      "type": "PnBridgeQuote",
+      "uuid": "660573ec-97e4-4b3f-9a92-2552c406ef28",
+      "name": "PulseLN",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 180.0
+      },
+      "properties": {
+        "period": 300,
+        "url": "https://api.pulseln.com/c/prices",
+        "bridge": "PulseLN",
+        "from": "PLS",
+        "to": "BNB",
+        "amount": 5000000.0,
+        "quote": 0.0,
+        "rate": 0.0,
+        "fee": 0.0,
+        "min-amount": 0.0,
+        "max-amount": 0.0,
+        "last-update": "",
+        "status": "Never updated"
+      }
+    },
+    {
+      "type": "PnBridgeQuote",
+      "uuid": "ad6dc675-25bd-4826-a2c8-a57636d4892c",
+      "name": "ChangeNOW",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 340.0
+      },
+      "properties": {
+        "period": 300,
+        "url": "https://api.changenow.io/v1/exchange-amount",
+        "bridge": "ChangeNOW",
+        "from": "PLS",
+        "to": "BNB",
+        "amount": 5000000.0,
+        "quote": 0.0,
+        "rate": 0.0,
+        "fee": 0.0,
+        "min-amount": 0.0,
+        "max-amount": 0.0,
+        "last-update": "",
+        "status": "Never updated"
+      }
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "d89d5b71-f073-4bb2-b164-cfd6ac678309",
+      "name": "PulseLN BNB",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 420.0,
+        "y": 180.0
+      },
+      "properties": {
+        "digits": 7,
+        "decimal-places": 6,
+        "background-color": "rgb(10,10,13)",
+        "segment-color": "rgb(51,209,122)",
+        "unlit-segment-color": "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type": "PnNumeric",
+      "uuid": "d1eef1ac-cb92-4aa2-b9fc-291d61084658",
+      "name": "ChangeNOW BNB",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 420.0,
+        "y": 340.0
+      },
+      "properties": {
+        "digits": 7,
+        "decimal-places": 6,
+        "background-color": "rgb(10,10,13)",
+        "segment-color": "rgb(51,209,122)",
+        "unlit-segment-color": "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type": "PnGraph",
+      "uuid": "f3fbc6f4-2c60-4022-ab26-5bec6f940794",
+      "name": "BNB payout",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 700.0,
+        "y": 240.0
+      },
+      "properties": {
+        "key": "data/value",
+        "resolution": "1 day",
+        "x-buckets": 200,
+        "data-view": "Time series",
+        "draw-style": "Error bars",
+        "line-color": "rgb(38,162,105)",
+        "line-width": 2,
+        "axis-color": "rgb(70,70,70)",
+        "background-color": "rgb(255,255,255)",
+        "show-grid": true,
+        "log-y": false,
+        "y-from-zero": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "660573ec-97e4-4b3f-9a92-2552c406ef28",
+      "target_id": "d89d5b71-f073-4bb2-b164-cfd6ac678309"
+    },
+    {
+      "source_id": "ad6dc675-25bd-4826-a2c8-a57636d4892c",
+      "target_id": "d1eef1ac-cb92-4aa2-b9fc-291d61084658"
+    },
+    {
+      "source_id": "660573ec-97e4-4b3f-9a92-2552c406ef28",
+      "target_id": "f3fbc6f4-2c60-4022-ab26-5bec6f940794"
+    },
+    {
+      "source_id": "ad6dc675-25bd-4826-a2c8-a57636d4892c",
+      "target_id": "f3fbc6f4-2c60-4022-ab26-5bec6f940794"
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}

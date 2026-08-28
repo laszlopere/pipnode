@@ -1,0 +1,105 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnComment",
+      "uuid" : "7cf3be51-7066-4d77-936f-03e0a9a9b93b",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 160.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "text" : "Monitoring the bridge.",
+        "width" : 620.0,
+        "height" : 110.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    },
+    {
+      "type" : "PnBridgeQuote",
+      "uuid" : "f645e6c0-7bf1-4cb2-9bf5-1cb31fba0a78",
+      "name" : "PulseLN",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 180.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "period" : 300,
+        "url" : "https://api.pulseln.com/c/prices",
+        "bridge" : "PulseLN",
+        "from" : "PLS",
+        "to" : "BNB",
+        "amount" : 100000000.0,
+        "quote" : 1.767541,
+        "rate" : 1.7675409999999999e-08,
+        "fee" : 0.014,
+        "min-amount" : 77605.215026000005,
+        "max-amount" : 77605215.026372999,
+        "last-update" : "2026-08-28T10:26:26.676734+02",
+        "status" : "OK"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "a7bfe24c-e909-4e60-ad2a-5798d5cc5083",
+      "name" : "PulseLN BNB",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "digits" : 7,
+        "decimal-places" : 6,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(246,211,45)",
+        "unlit-segment-color" : "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "c61b538c-67c2-471d-b42b-9b9f0692e8e8",
+      "name" : "BNB payout",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 380.0,
+        "y" : 400.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "x-buckets" : 200,
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "line-color" : "rgb(38,162,105)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : true,
+        "log-y" : false,
+        "y-from-zero" : false
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "f645e6c0-7bf1-4cb2-9bf5-1cb31fba0a78",
+      "target_id" : "a7bfe24c-e909-4e60-ad2a-5798d5cc5083"
+    },
+    {
+      "source_id" : "f645e6c0-7bf1-4cb2-9bf5-1cb31fba0a78",
+      "target_id" : "c61b538c-67c2-471d-b42b-9b9f0692e8e8"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
