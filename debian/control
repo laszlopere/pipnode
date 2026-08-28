@@ -100,6 +100,10 @@ Description: pipnode visual flow editor
  (org.pipas.pipnode.Engine) so panel applets and other clients can drive
  background worksheets.
  .
+ Ships pipnode-desktop alongside it: a plain window that shows one
+ worksheet's desktop layout — the widgets where the editor's Desktop
+ Layout tab placed them — driven live by the same background service.
+ .
  Ships the HTML user manual, per-node help pages and the bundled
  example worksheets.
 

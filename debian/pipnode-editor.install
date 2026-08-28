@@ -1,5 +1,7 @@
 usr/bin/pipnode-editor
+usr/bin/pipnode-desktop
 usr/share/applications/org.pipas.pipnode.desktop
+usr/share/applications/org.pipas.pipnode.Desktop.desktop
 usr/share/dbus-1/services/org.pipas.pipnode.service
 usr/share/icons/hicolor
 usr/share/metainfo/org.pipas.pipnode.metainfo.xml

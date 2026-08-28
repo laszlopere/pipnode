@@ -226,6 +226,8 @@ AC_CONFIG_FILES([
     plugins/host-monitoring/Makefile
     plugins/ollama/Makefile
     src/Makefile
+    viewers/Makefile
+    viewers/pipnode-desktop/Makefile
     tests/Makefile
     tests/unit/Makefile
     tests/plugins/Makefile

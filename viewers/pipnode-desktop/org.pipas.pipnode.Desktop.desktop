@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Pipnode Desktop
+GenericName=Worksheet Desktop Layout
+Comment=Show a pipnode worksheet's desktop layout in a window
+Exec=pipnode-desktop %f
+Icon=org.pipas.pipnode
+Terminal=false
+Categories=Utility;Monitor;GTK;
+Keywords=dataflow;flow;nodes;dashboard;automation;mqtt;iot;
+StartupNotify=true
+StartupWMClass=pipnode-desktop
+MimeType=application/json;

@@ -58,6 +58,7 @@ tests/__pycache__/
 # The built program
 /src/pipnode-editor
 /src/pipnode-run
+/viewers/pipnode-desktop/pipnode-desktop
 
 # Tooling: clangd compile database (bear --)
 /compile_commands.json
