@@ -49,13 +49,7 @@
 #include <json-glib/json-glib.h>
 #include <libxfce4panel/libxfce4panel.h>
 
-#include "pn-injector-widget.h"
-#include "pn-led-display.h"
-#include "pn-led-lamp.h"
-#include "pn-matrix57-display.h"
-#include "pn-numeric-display.h"
-#include "pn-switch-widget.h"
-#include "pn-text-display.h"
+#include "pn-widget-mirror.h"
 
 /* The freedesktop/themed icon name shipped by the main app
  * (data/icons/hicolor/.../org.pipas.pipnode.png). */
@@ -119,21 +113,6 @@ static const gchar EMPTY_WORKSHEET[] =
     "  \"active_sheet\" : \"Worksheet\"\n"
     "}\n";
 
-/* One mirrored widget: a panel-widgets drawing area plus the kind of node
- * it stands for ('c' = Countdown -> PnLedDisplay, 'l' = LED -> PnLedLamp,
- * 's' = Switch -> PnSwitchWidget, 'm' = Matrix57 -> PnMatrix57Display,
- * 'i' = Injector -> PnInjectorWidget).
- * Switch and injector are the interactive kinds: their widgets are made
- * clickable and the click is reported back to the engine by the node's
- * UUID, stashed on the widget as "pn-uuid".  The widget itself is owned by
- * the applet's @fixed; this struct only tracks the node.
- * Row order is the engine's layout order, held by @order. */
-typedef struct
-{
-    GtkWidget *widget;
-    gchar      kind;
-} AppletWidget;
-
 typedef struct
 {
     XfcePanelPlugin *plugin;
@@ -143,8 +122,11 @@ typedef struct
     gint             icon_size;/* panel icon size, applied to new widgets */
     gint             row_h;    /* fixed's allocated height; centres the row */
 
-    GHashTable      *widgets;  /* node UUID (owned) -> AppletWidget*      */
-    GPtrArray       *order;    /* AppletWidget* (borrowed), row order     */
+    /* The mirrored widget set, driven by the engine's layout JSON.  The
+     * mirror owns the widgets and their state; the applet owns only where
+     * they go — it packs them into a strip (see relayout), ignoring the
+     * layout's x so the panel wastes no space on the editor's spacing. */
+    PnWidgetMirror  *mirror;
 
     gchar           *path;     /* this instance's worksheet file          */
     GDBusProxy      *engine;   /* org.pipas.pipnode.Engine proxy          */
@@ -222,236 +204,12 @@ ensure_worksheet (const gchar *path,
 /*  Mirrored widgets                                                    */
 /* ------------------------------------------------------------------ */
 
-static void
-applet_widget_free (gpointer data)
-{
-    /* The GtkWidget is owned by @box and torn down with it; free only the
-     * tracking struct. */
-    g_slice_free (AppletWidget, data);
-}
-
 /* Show the icon only while the worksheet contributes no widgets. */
 static void
 update_empty_state (PipnodeDeadline *self)
 {
     gtk_widget_set_visible (self->image,
-                            g_hash_table_size (self->widgets) == 0);
-}
-
-/* Read an [r, g, b] JSON array member into @rgb.  Returns FALSE when the
- * member is missing or malformed, so the caller keeps the widget default. */
-static gboolean
-read_rgb (JsonObject *obj, const gchar *member, gdouble rgb[3])
-{
-    JsonArray *arr;
-
-    if (obj == NULL || !json_object_has_member (obj, member))
-        return FALSE;
-
-    arr = json_object_get_array_member (obj, member);
-    if (arr == NULL || json_array_get_length (arr) < 3)
-        return FALSE;
-
-    rgb[0] = json_array_get_double_element (arr, 0);
-    rgb[1] = json_array_get_double_element (arr, 1);
-    rgb[2] = json_array_get_double_element (arr, 2);
-    return TRUE;
-}
-
-/* Read an [r, g, b, a] JSON array member into @rgba.  Returns FALSE when
- * the member is missing or malformed, so the caller keeps the default. */
-static gboolean
-read_rgba (JsonObject *obj, const gchar *member, gdouble rgba[4])
-{
-    JsonArray *arr;
-
-    if (obj == NULL || !json_object_has_member (obj, member))
-        return FALSE;
-
-    arr = json_object_get_array_member (obj, member);
-    if (arr == NULL || json_array_get_length (arr) < 4)
-        return FALSE;
-
-    rgba[0] = json_array_get_double_element (arr, 0);
-    rgba[1] = json_array_get_double_element (arr, 1);
-    rgba[2] = json_array_get_double_element (arr, 2);
-    rgba[3] = json_array_get_double_element (arr, 3);
-    return TRUE;
-}
-
-/* Read either an [r, g, b] or [r, g, b, a] member into @rgba, defaulting
- * the alpha to 1.0 when only three components are present.  Older layouts
- * persisted only RGB for the seven-segment colours, so this keeps them
- * loading without forcing every caller to migrate their state JSON. */
-static gboolean
-read_rgb_or_rgba (JsonObject *obj, const gchar *member, gdouble rgba[4])
-{
-    JsonArray *arr;
-    guint      n;
-
-    if (obj == NULL || !json_object_has_member (obj, member))
-        return FALSE;
-
-    arr = json_object_get_array_member (obj, member);
-    if (arr == NULL)
-        return FALSE;
-    n = json_array_get_length (arr);
-    if (n < 3)
-        return FALSE;
-
-    rgba[0] = json_array_get_double_element (arr, 0);
-    rgba[1] = json_array_get_double_element (arr, 1);
-    rgba[2] = json_array_get_double_element (arr, 2);
-    rgba[3] = n >= 4 ? json_array_get_double_element (arr, 3) : 1.0;
-    return TRUE;
-}
-
-/* Push a node's render state (the WidgetChanged payload, or a layout
- * widget's inline "state") into its widget. */
-static void
-apply_widget_state (AppletWidget *e, JsonObject *state)
-{
-    gdouble rgb[3];
-
-    if (state == NULL)
-        return;
-
-    if (e->kind == 'c')
-    {
-        PnLedDisplay *led = PN_LED_DISPLAY (e->widget);
-        gdouble       rgba[4];
-
-        if (json_object_has_member (state, "seconds"))
-            pn_led_display_set_seconds (
-                    led, json_object_get_int_member (state, "seconds"));
-        if (json_object_has_member (state, "day_digits"))
-            pn_led_display_set_day_digits (
-                    led, (guint) json_object_get_int_member (state,
-                                                             "day_digits"));
-        /* RGBA — alpha lets the unlit segments fade into the panel's
-         * transparent background instead of painting a solid ghost. */
-        if (read_rgb_or_rgba (state, "segment_color", rgba))
-            pn_led_display_set_segment_color (led, rgba[0], rgba[1], rgba[2],
-                                              rgba[3]);
-        if (read_rgb_or_rgba (state, "unlit_color", rgba))
-            pn_led_display_set_unlit_color (led, rgba[0], rgba[1], rgba[2],
-                                            rgba[3]);
-    }
-    else if (e->kind == 's')
-    {
-        PnSwitchWidget *toggle = PN_SWITCH_WIDGET (e->widget);
-
-        if (json_object_has_member (state, "on"))
-            pn_switch_widget_set_on (
-                    toggle, json_object_get_boolean_member (state, "on"));
-    }
-    else if (e->kind == 'i')
-    {
-        PnInjectorWidget *button = PN_INJECTOR_WIDGET (e->widget);
-
-        if (json_object_has_member (state, "icon"))
-            pn_injector_widget_set_icon (
-                    button, json_object_get_string_member (state, "icon"));
-    }
-    else if (e->kind == 't')
-    {
-        PnTextDisplay *text = PN_TEXT_DISPLAY (e->widget);
-        gdouble        rgba[4];
-
-        if (json_object_has_member (state, "text"))
-            pn_text_display_set_text (
-                    text, json_object_get_string_member (state, "text"));
-        if (json_object_has_member (state, "lines"))
-            pn_text_display_set_lines (
-                    text, (gint) json_object_get_int_member (state, "lines"));
-        if (json_object_has_member (state, "font")
-            || json_object_has_member (state, "scale")
-            || json_object_has_member (state, "weight")
-            || json_object_has_member (state, "italic"))
-        {
-            const gchar *family = json_object_has_member (state, "font")
-                    ? json_object_get_string_member (state, "font") : "";
-            gint scale = json_object_has_member (state, "scale")
-                    ? (gint) json_object_get_int_member (state, "scale")
-                    : 100;
-            gint weight = json_object_has_member (state, "weight")
-                    ? (gint) json_object_get_int_member (state, "weight")
-                    : 400;
-            gboolean italic = json_object_has_member (state, "italic")
-                    && json_object_get_boolean_member (state, "italic");
-            pn_text_display_set_font (text, family, scale, weight, italic);
-        }
-        if (json_object_has_member (state, "align"))
-            pn_text_display_set_align (
-                    text, (gint) json_object_get_int_member (state, "align"));
-        if (read_rgb (state, "color", rgb))
-            pn_text_display_set_color (text, rgb[0], rgb[1], rgb[2]);
-        if (read_rgba (state, "bg", rgba))
-            pn_text_display_set_background (text, rgba[0], rgba[1],
-                                           rgba[2], rgba[3]);
-    }
-    else if (e->kind == 'n')
-    {
-        PnNumericDisplay *display = PN_NUMERIC_DISPLAY (e->widget);
-        gdouble           rgba[4];
-
-        if (json_object_has_member (state, "digits"))
-            pn_numeric_display_set_digits (
-                    display, (guint) json_object_get_int_member (state, "digits"));
-        if (json_object_has_member (state, "decimal_places"))
-            pn_numeric_display_set_decimal_places (
-                    display,
-                    (guint) json_object_get_int_member (state, "decimal_places"));
-        /* set_value latches has_value to TRUE, so apply value first and
-         * let the explicit has_value flag flip it back when there is no
-         * reading yet (the pre-first-message blank screen). */
-        if (json_object_has_member (state, "value"))
-            pn_numeric_display_set_value (
-                    display, json_object_get_double_member (state, "value"));
-        if (json_object_has_member (state, "has_value"))
-            pn_numeric_display_set_has_value (
-                    display,
-                    json_object_get_boolean_member (state, "has_value"));
-        if (read_rgb_or_rgba (state, "segment_color", rgba))
-            pn_numeric_display_set_segment_color (display, rgba[0], rgba[1],
-                                                  rgba[2], rgba[3]);
-        if (read_rgb_or_rgba (state, "unlit_color", rgba))
-            pn_numeric_display_set_unlit_color (display, rgba[0], rgba[1],
-                                                rgba[2], rgba[3]);
-    }
-    else if (e->kind == 'm')
-    {
-        PnMatrix57Display *display = PN_MATRIX57_DISPLAY (e->widget);
-
-        if (json_object_has_member (state, "text"))
-            pn_matrix57_display_set_text (
-                    display, json_object_get_string_member (state, "text"));
-        if (json_object_has_member (state, "cells"))
-            pn_matrix57_display_set_cells (
-                    display, (guint) json_object_get_int_member (state, "cells"));
-        if (json_object_has_member (state, "lines"))
-            pn_matrix57_display_set_lines (
-                    display, (gint) json_object_get_int_member (state, "lines"));
-        if (read_rgb (state, "bg", rgb))
-            pn_matrix57_display_set_background_color (display,
-                                                      rgb[0], rgb[1], rgb[2]);
-        if (read_rgb (state, "pixel", rgb))
-            pn_matrix57_display_set_pixel_color (display,
-                                                 rgb[0], rgb[1], rgb[2]);
-        if (read_rgb (state, "unlit", rgb))
-            pn_matrix57_display_set_unlit_pixel_color (display,
-                                                       rgb[0], rgb[1], rgb[2]);
-    }
-    else
-    {
-        PnLedLamp *lamp = PN_LED_LAMP (e->widget);
-
-        if (json_object_has_member (state, "lit"))
-            pn_led_lamp_set_lit (
-                    lamp, json_object_get_boolean_member (state, "lit"));
-        if (read_rgb (state, "color", rgb))
-            pn_led_lamp_set_color (lamp, rgb[0], rgb[1], rgb[2]);
-    }
+                            pn_widget_mirror_get_n_widgets (self->mirror) == 0);
 }
 
 /* Mirrored readouts render half again the panel's icon size: a panel-height
@@ -459,118 +217,37 @@ apply_widget_state (AppletWidget *e, JsonObject *state)
  * (the row centres the taller widget, see relayout()). */
 #define PN_APPLET_WIDGET_SIZE(self) ((self)->icon_size * 3 / 2)
 
-/* Size one mirrored widget to @size pixels, per its kind. */
+/* Size one widget the right way for its kind: the text-shaped kinds take the
+ * full panel row height so their font fills the panel like a clock applet;
+ * the other readouts keep the legibility-tuned icon×3/2 size. */
 static void
-size_widget (AppletWidget *e, gint size)
+apply_widget_size (PipnodeDeadline *self, guint i)
 {
-    if (e->kind == 'c')
-        pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
-    else if (e->kind == 's')
-        pn_switch_widget_set_height (PN_SWITCH_WIDGET (e->widget), size);
-    else if (e->kind == 'i')
-        pn_injector_widget_set_height (PN_INJECTOR_WIDGET (e->widget), size);
-    else if (e->kind == 't')
-        pn_text_display_set_height (PN_TEXT_DISPLAY (e->widget), size);
-    else if (e->kind == 'm')
-        pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (e->widget), size);
-    else if (e->kind == 'n')
-        pn_numeric_display_set_height (PN_NUMERIC_DISPLAY (e->widget), size);
-    else
-        pn_led_lamp_set_size (PN_LED_LAMP (e->widget), size);
-}
+    gboolean fills = pn_widget_mirror_fills_height (self->mirror, i);
+    gint     size  = (fills && self->row_h > 0) ? self->row_h
+                                                : PN_APPLET_WIDGET_SIZE (self);
 
-/* Size one widget the right way for its kind: the text label takes the full
- * panel row height so its font fills the panel like a clock applet; the
- * other readouts keep the legibility-tuned icon×3/2 size. */
-static void
-apply_widget_size (PipnodeDeadline *self, AppletWidget *e)
-{
-    gint size = ((e->kind == 't' || e->kind == 'm') && self->row_h > 0)
-                ? self->row_h : PN_APPLET_WIDGET_SIZE (self);
-    size_widget (e, size);
+    pn_widget_mirror_set_height (self->mirror, i, size);
 }
 
 /* A click on a mirrored interactive widget: ask the engine to act on that
- * one node, addressed by the UUID stashed on the widget.  For a switch the
- * engine toggles it and echoes the new "on" state back as a WidgetChanged,
- * which update_widget() pushes into the toggle.  For an injector the engine
- * fires the node (a one-shot message); there is no state to echo back.
- * Either way, the widget follows the node — it never tries to guess. */
+ * one node, addressed by its UUID.  For a switch the engine toggles it and
+ * echoes the new "on" state back as a WidgetChanged, which the mirror
+ * pushes into the toggle.  For an injector the engine fires the node (a
+ * one-shot message); there is no state to echo back.  Either way, the
+ * widget follows the node — it never tries to guess. */
 static void
-on_widget_activated (GtkWidget *widget, PipnodeDeadline *self)
+on_widget_activated (const gchar *uuid, gpointer user_data)
 {
-    const gchar *uuid;
+    PipnodeDeadline *self = user_data;
 
     if (self->engine == NULL)
-        return;
-
-    uuid = g_object_get_data (G_OBJECT (widget), "pn-uuid");
-    if (uuid == NULL)
         return;
 
     g_dbus_proxy_call (self->engine, "ActivateWidget",
                        g_variant_new ("(ss)", self->path, uuid),
                        G_DBUS_CALL_FLAGS_NONE, -1, self->cancel,
                        NULL, NULL);
-}
-
-/* Build a fresh widget of @kind for the node @uuid, sized to the panel and
- * placed on the row.  The interactive kinds (switch toggle, injector
- * button) are made clickable and tagged with their UUID so
- * on_widget_activated() can address them.  relayout() moves the widget to
- * its final spot once positions are known. */
-static AppletWidget *
-applet_widget_new (PipnodeDeadline *self, gchar kind, const gchar *uuid)
-{
-    AppletWidget *e = g_slice_new0 (AppletWidget);
-
-    e->kind = kind;
-    switch (kind)
-    {
-    case 's':
-        e->widget = pn_switch_widget_new ();
-        /* Make it clickable before it is shown (and thus realized), so the
-         * widget grabs its own input window; tag it with the node UUID and
-         * route clicks to the engine. */
-        pn_switch_widget_set_interactive (PN_SWITCH_WIDGET (e->widget), TRUE);
-        g_object_set_data_full (G_OBJECT (e->widget), "pn-uuid",
-                                g_strdup (uuid), g_free);
-        g_signal_connect (e->widget, "toggled",
-                          G_CALLBACK (on_widget_activated), self);
-        break;
-    case 'i':
-        e->widget = pn_injector_widget_new ();
-        /* Same pattern as the switch: make the tab interactive before
-         * realize, tag it with the node UUID, route clicks to the engine. */
-        pn_injector_widget_set_interactive (PN_INJECTOR_WIDGET (e->widget),
-                                            TRUE);
-        g_object_set_data_full (G_OBJECT (e->widget), "pn-uuid",
-                                g_strdup (uuid), g_free);
-        g_signal_connect (e->widget, "clicked",
-                          G_CALLBACK (on_widget_activated), self);
-        break;
-    case 'l':
-        e->widget = pn_led_lamp_new ();
-        break;
-    case 't':
-        e->widget = pn_text_display_new ();
-        break;
-    case 'm':
-        e->widget = pn_matrix57_display_new ();
-        break;
-    case 'n':
-        e->widget = pn_numeric_display_new ();
-        break;
-    case 'c':
-    default:
-        e->widget = pn_led_display_new ();
-        break;
-    }
-    apply_widget_size (self, e);
-
-    gtk_fixed_put (GTK_FIXED (self->fixed), e->widget, 0, 0);
-    gtk_widget_show (e->widget);
-    return e;
 }
 
 /* Vertically centre @child within the row, returning the y it was placed at.
@@ -598,157 +275,48 @@ center_in_row (PipnodeDeadline *self, GtkWidget *child, gint x)
 static void
 relayout (PipnodeDeadline *self)
 {
+    guint n = pn_widget_mirror_get_n_widgets (self->mirror);
     guint i;
     gint  pack_x = 0;
 
-    for (i = 0; i < self->order->len; i++)
+    for (i = 0; i < n; i++)
     {
-        AppletWidget *e   = g_ptr_array_index (self->order, i);
-        gint          nat = 0;
+        GtkWidget *w   = pn_widget_mirror_get_widget (self->mirror, i);
+        gint       nat = 0;
 
         if (i > 0)
             pack_x += PN_APPLET_WIDGET_GAP;
 
-        gtk_widget_get_preferred_width (e->widget, NULL, &nat);
-        center_in_row (self, e->widget, pack_x);
+        gtk_widget_get_preferred_width (w, NULL, &nat);
+        center_in_row (self, w, pack_x);
         pack_x += nat;
     }
 
     center_in_row (self, self->image, 0);
 }
 
-/* Reconcile the live widget row against the engine's layout JSON:
- *   { "widgets": [ { "uuid", "order", "state": { "kind", … } }, … ] }
- * Create widgets that are new, drop widgets that vanished, recreate any
- * whose kind changed, apply each one's inline state, and order them to
- * match the array (the hidden icon floats harmlessly among them). */
+/* Apply the panel's sizes to every mirrored widget. */
+static void
+resize_widgets (PipnodeDeadline *self)
+{
+    guint n = pn_widget_mirror_get_n_widgets (self->mirror);
+    guint i;
+
+    for (i = 0; i < n; i++)
+        apply_widget_size (self, i);
+}
+
+/* A fresh layout from the engine: let the mirror reconcile the widget set,
+ * then size and pack the row it left us. */
 static void
 reconcile_layout (PipnodeDeadline *self, const gchar *layout_json)
 {
-    JsonParser *parser = json_parser_new ();
-    GError     *error  = NULL;
-    JsonNode   *root;
-    JsonObject *obj;
-    JsonArray  *widgets;
-    GHashTable *desired;
-    guint       i, len;
-
-    if (!json_parser_load_from_data (parser, layout_json, -1, &error))
-    {
-        g_warning ("pipnode-xfce-applet: bad layout JSON: %s", error->message);
-        g_clear_error (&error);
-        g_object_unref (parser);
+    if (!pn_widget_mirror_reconcile (self->mirror, layout_json))
         return;
-    }
 
-    root = json_parser_get_root (parser);
-    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
-    {
-        g_object_unref (parser);
-        return;
-    }
-
-    obj     = json_node_get_object (root);
-    widgets = json_object_has_member (obj, "widgets")
-              ? json_object_get_array_member (obj, "widgets") : NULL;
-    len     = widgets != NULL ? json_array_get_length (widgets) : 0;
-
-    /* uuids present in this layout — keys borrowed from the parser, valid
-     * until it is freed below.  @order is rebuilt in array order. */
-    desired = g_hash_table_new (g_str_hash, g_str_equal);
-    g_ptr_array_set_size (self->order, 0);
-
-    for (i = 0; i < len; i++)
-    {
-        JsonObject   *w = json_array_get_object_element (widgets, i);
-        const gchar  *uuid;
-        JsonObject   *state;
-        const gchar  *kind_s;
-        gchar         kind;
-        AppletWidget *e;
-
-        if (w == NULL || !json_object_has_member (w, "uuid"))
-            continue;
-
-        uuid  = json_object_get_string_member (w, "uuid");
-        state = json_object_has_member (w, "state")
-                ? json_object_get_object_member (w, "state") : NULL;
-        kind_s = (state != NULL && json_object_has_member (state, "kind"))
-                 ? json_object_get_string_member (state, "kind") : "";
-        kind   = (g_strcmp0 (kind_s, "led")      == 0) ? 'l'
-               : (g_strcmp0 (kind_s, "switch")   == 0) ? 's'
-               : (g_strcmp0 (kind_s, "injector") == 0) ? 'i'
-               : (g_strcmp0 (kind_s, "text")     == 0) ? 't'
-               : (g_strcmp0 (kind_s, "matrix57") == 0) ? 'm'
-               : (g_strcmp0 (kind_s, "numeric")  == 0) ? 'n'
-               : 'c';
-
-        g_hash_table_add (desired, (gpointer) uuid);
-
-        e = g_hash_table_lookup (self->widgets, uuid);
-        if (e != NULL && e->kind != kind)
-        {
-            gtk_widget_destroy (e->widget);
-            g_hash_table_remove (self->widgets, uuid);
-            e = NULL;
-        }
-        if (e == NULL)
-        {
-            e = applet_widget_new (self, kind, uuid);
-            g_hash_table_insert (self->widgets, g_strdup (uuid), e);
-        }
-
-        apply_widget_state (e, state);
-        g_ptr_array_add (self->order, e);
-    }
-
-    /* Drop any widget whose node is no longer in the layout. */
-    {
-        GHashTableIter it;
-        gpointer       key, val;
-        GList         *stale = NULL, *l;
-
-        g_hash_table_iter_init (&it, self->widgets);
-        while (g_hash_table_iter_next (&it, &key, &val))
-            if (!g_hash_table_contains (desired, key))
-                stale = g_list_prepend (stale, key);
-
-        for (l = stale; l != NULL; l = l->next)
-        {
-            AppletWidget *e = g_hash_table_lookup (self->widgets, l->data);
-            if (e != NULL)
-                gtk_widget_destroy (e->widget);
-            g_hash_table_remove (self->widgets, l->data);
-        }
-        g_list_free (stale);
-    }
-
-    g_hash_table_destroy (desired);
-    g_object_unref (parser);
-
+    resize_widgets (self);
     relayout (self);
     update_empty_state (self);
-}
-
-/* Apply a single WidgetChanged state payload to the addressed widget. */
-static void
-update_widget (PipnodeDeadline *self, const gchar *uuid, const gchar *state_json)
-{
-    AppletWidget *e = g_hash_table_lookup (self->widgets, uuid);
-    JsonParser   *parser;
-    JsonNode     *root;
-
-    if (e == NULL)
-        return;   /* arrived before its layout entry; next reconcile fixes it */
-
-    parser = json_parser_new ();
-    if (json_parser_load_from_data (parser, state_json, -1, NULL))
-    {
-        root = json_parser_get_root (parser);
-        if (root != NULL && JSON_NODE_HOLDS_OBJECT (root))
-            apply_widget_state (e, json_node_get_object (root));
-    }
-    g_object_unref (parser);
 }
 
 /* ------------------------------------------------------------------ */
@@ -840,7 +408,7 @@ on_engine_signal (GDBusProxy *proxy,
         const gchar *state = NULL;
         g_variant_get (parameters, "(&s&s&s)", &path, &uuid, &state);
         if (g_strcmp0 (path, self->path) == 0)
-            update_widget (self, uuid, state);
+            pn_widget_mirror_update (self->mirror, uuid, state);
     }
     /* ValueChanged is the legacy single-value channel — ignored here, the
      * per-widget WidgetChanged path carries displays now. */
@@ -1002,18 +570,6 @@ on_restart_engine (GtkMenuItem      *item,
 /*  Panel lifecycle                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Apply the panel's icon size to every mirrored widget. */
-static void
-resize_widgets (PipnodeDeadline *self)
-{
-    GHashTableIter it;
-    gpointer       key, val;
-
-    g_hash_table_iter_init (&it, self->widgets);
-    while (g_hash_table_iter_next (&it, &key, &val))
-        apply_widget_size (self, val);
-}
-
 /* The row's height is only known once the panel allocates it, so re-centre
  * the widgets here whenever it changes.  gtk_fixed_move() queues a resize, so
  * we must act only on a genuine height change or we would loop forever. */
@@ -1056,8 +612,7 @@ on_free_data (XfcePanelPlugin  *plugin,
     g_cancellable_cancel (self->cancel);
     g_clear_object (&self->cancel);
     g_clear_object (&self->engine);
-    g_clear_pointer (&self->order, g_ptr_array_unref);
-    g_clear_pointer (&self->widgets, g_hash_table_destroy);
+    g_clear_pointer (&self->mirror, pn_widget_mirror_free);
     g_clear_pointer (&self->path, g_free);
 
     g_slice_free (PipnodeDeadline, self);
@@ -1074,9 +629,6 @@ pipnode_xfce_applet_construct (XfcePanelPlugin *plugin)
     self->cancel    = g_cancellable_new ();
     self->path      = worksheet_path (self);
     self->icon_size = xfce_panel_plugin_get_icon_size (plugin);
-    self->widgets   = g_hash_table_new_full (g_str_hash, g_str_equal,
-                                             g_free, applet_widget_free);
-    self->order     = g_ptr_array_new ();
 
     /* Flat, panel-styled button holding a free-positioned row: the icon
      * (shown only when the worksheet has no panel widgets) plus one widget
@@ -1090,6 +642,11 @@ pipnode_xfce_applet_construct (XfcePanelPlugin *plugin)
     gtk_image_set_pixel_size (GTK_IMAGE (self->image), self->icon_size);
     gtk_fixed_put (GTK_FIXED (self->fixed), self->image, 0, 0);
     gtk_container_add (GTK_CONTAINER (self->button), self->fixed);
+
+    /* The shared mirror owns the widgets on that row; clicks on the
+     * interactive ones come back through on_widget_activated. */
+    self->mirror = pn_widget_mirror_new (GTK_FIXED (self->fixed),
+                                         on_widget_activated, self);
 
     gtk_widget_set_tooltip_text (self->button,
                                  "Pipnode panel — click to send, "

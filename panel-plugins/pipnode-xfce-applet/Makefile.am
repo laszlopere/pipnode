@@ -8,9 +8,11 @@
 # (GDBus comes via GTK's gio-2.0 dependency) and NO pipnode runtime
 # library, so an engine/node crash can never take down xfce4-panel.  The
 # only pipnode code it embeds is the GTK/Cairo-only panel-widgets
-# convenience library (PnLedDisplay and friends), statically linked in;
-# it shares those widgets with the editor's panel-layout editor but pulls
-# in none of the node runtime, so the isolation above is preserved.
+# convenience library (PnLedDisplay and friends, plus the PnWidgetMirror
+# that drives them from the engine's layout JSON), statically linked in;
+# it shares those with the editor's layout editors and with the standalone
+# desktop viewer, but pulls in none of the node runtime, so the isolation
+# above is preserved.
 #
 # Install into the running panel's own module/descriptor dirs (derived
 # from libxfce4panel-2.0.pc in configure.ac), NOT pipnode's --prefix: the
