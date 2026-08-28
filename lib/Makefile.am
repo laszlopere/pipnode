@@ -37,6 +37,8 @@ libpipnode_core_la_SOURCES = \
 	pn-auto-random.h \
 	pn-auto-trigger.c \
 	pn-auto-trigger.h \
+	pn-bridge-quote.c \
+	pn-bridge-quote.h \
 	pn-chat.c \
 	pn-chat.h \
 	pn-color.c \
@@ -295,8 +297,12 @@ libpipnode_gui_la_SOURCES = \
 	pn-foldable.h \
 	pn-value-label.c \
 	pn-value-label.h \
+	pn-currency-editors.c \
+	pn-currency-editors.h \
 	pn-analog-meter-gui.c \
 	pn-analog-meter-gui.h \
+	pn-bridge-quote-gui.c \
+	pn-bridge-quote-gui.h \
 	pn-chat-gui.c \
 	pn-chat-gui.h \
 	pn-countdown-gui.c \
@@ -486,6 +492,7 @@ pipnode_core_headers = \
 	pn-auto-injector.h \
 	pn-auto-random.h \
 	pn-auto-trigger.h \
+	pn-bridge-quote.h \
 	pn-chat.h \
 	pn-color.h \
 	pn-comment.h \
@@ -601,6 +608,7 @@ pipnode_gui_headers = \
 	pn-foldable.h \
 	pn-value-label.h \
 	pn-analog-meter-gui.h \
+	pn-bridge-quote-gui.h \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \
 	pn-daily-timer-gui.h \

@@ -27,6 +27,7 @@
 #include "pn-astronomical.h"
 #include "pn-auto-injector.h"
 #include "pn-auto-random.h"
+#include "pn-bridge-quote.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
 #include "pn-counter.h"
@@ -272,6 +273,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_MQTT);
     pn_node_factory_register (self, PN_TYPE_MQTT_SINK);
     pn_node_factory_register (self, PN_TYPE_WEATHER);
+    pn_node_factory_register (self, PN_TYPE_BRIDGE_QUOTE);
 
     /* Filters. */
     pn_node_factory_register (self, PN_TYPE_COMPARATOR);
