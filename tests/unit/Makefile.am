@@ -84,6 +84,7 @@ check_PROGRAMS = \
 	test-pn-logger \
 	test-pn-text-view \
 	test-pn-rate \
+	test-pn-bridge-quote \
 	test-pn-led \
 	test-pn-dial \
 	test-pn-graph \
@@ -247,6 +248,7 @@ test_pn_debug_SOURCES         = test-pn-debug.c         pntest.c pntest.h
 test_pn_logger_SOURCES        = test-pn-logger.c        pntest.c pntest.h
 test_pn_text_view_SOURCES     = test-pn-text-view.c     pntest.c pntest.h
 test_pn_rate_SOURCES          = test-pn-rate.c          pntest.c pntest.h
+test_pn_bridge_quote_SOURCES  = test-pn-bridge-quote.c  pntest.c pntest.h
 test_pn_led_SOURCES           = test-pn-led.c           pntest.c pntest.h
 test_pn_dial_SOURCES          = test-pn-dial.c          pntest.c pntest.h
 test_pn_graph_SOURCES         = test-pn-graph.c         pntest.c pntest.h
