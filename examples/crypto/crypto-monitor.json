@@ -8,13 +8,13 @@
       "name" : "Comment 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 160.0,
-        "y" : 80.0
+        "x" : 200.0,
+        "y" : 20.0
       },
       "properties" : {
-        "text" : "Monitoring the bridges from PLS to BNB.",
+        "text" : "Monitoring PLS and BNB bridges. Just a small example, although one might find this not just interesting, but also beneficial. Other currencies are of course available in the node configuration, just double click them.",
         "width" : 620.0,
-        "height" : 110.0,
+        "height" : 80.0,
         "text-size" : 13.0,
         "background-color" : "rgb(255,255,255)",
         "frame-color" : "rgb(158,158,158)",
@@ -27,8 +27,8 @@
       "name" : "PulseLN",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 180.0,
-        "y" : 240.0
+        "x" : 20.0,
+        "y" : 120.0
       },
       "properties" : {
         "period" : 300,
@@ -37,13 +37,13 @@
         "from" : "PLS",
         "to" : "BNB",
         "amount" : 1000000.0,
-        "quote" : 0.017826999999999999,
-        "rate" : 1.7826999999999998e-08,
+        "quote" : 0.017658,
+        "rate" : 1.7658000000000002e-08,
         "fee" : 0.014,
-        "min-amount" : 77035.474071999997,
-        "max-amount" : 77035474.071502998,
-        "last-update" : "2026-08-28T10:44:22.730171+02",
-        "status" : "OK — PulseLN swaps to BNB are temporarily offline"
+        "min-amount" : 78129.851869000006,
+        "max-amount" : 205090861.15702599,
+        "last-update" : "2026-08-28T14:45:07.582749+02",
+        "status" : "OK"
       }
     },
     {
@@ -52,11 +52,11 @@
       "name" : "PulseLN BNB",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 240.0
+        "x" : 200.0,
+        "y" : 120.0
       },
       "properties" : {
-        "digits" : 7,
+        "digits" : 2,
         "decimal-places" : 6,
         "background-color" : "rgb(10,10,13)",
         "segment-color" : "rgb(246,211,45)",
@@ -69,8 +69,8 @@
       "name" : "BNB payout",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 400.0
+        "x" : 200.0,
+        "y" : 280.0
       },
       "properties" : {
         "key" : "data/value",
@@ -89,12 +89,12 @@
     },
     {
       "type" : "PnBridgeQuote",
-      "uuid" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
-      "name" : "ChangeNow",
+      "uuid" : "755778b2-790e-4682-9525-3b087946baba",
+      "name" : "ChangeNOW",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 180.0,
-        "y" : 660.0
+        "x" : 20.0,
+        "y" : 540.0
       },
       "properties" : {
         "period" : 300,
@@ -103,26 +103,26 @@
         "from" : "PLS",
         "to" : "BNB",
         "amount" : 1000000.0,
-        "quote" : 0.0157454,
-        "rate" : 1.5745399999999998e-08,
+        "quote" : 0.015337099999999999,
+        "rate" : 1.5337099999999999e-08,
         "fee" : 0.0,
-        "min-amount" : 21375.077344360001,
+        "min-amount" : 21415.35443218,
         "max-amount" : 7505000.0,
-        "last-update" : "2026-08-28T10:44:15.905426+02",
+        "last-update" : "2026-08-28T14:45:11.416478+02",
         "status" : "OK"
       }
     },
     {
       "type" : "PnNumeric",
-      "uuid" : "0d201cc7-fe42-4ba9-9ffa-e371e2962c8d",
-      "name" : "PulseLN BNB",
+      "uuid" : "a29bb391-3059-4516-807e-bc0fcb32b989",
+      "name" : "ChangeNOW BNB",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 660.0
+        "x" : 200.0,
+        "y" : 540.0
       },
       "properties" : {
-        "digits" : 7,
+        "digits" : 2,
         "decimal-places" : 6,
         "background-color" : "rgb(10,10,13)",
         "segment-color" : "rgb(246,211,45)",
@@ -131,12 +131,12 @@
     },
     {
       "type" : "PnGraph",
-      "uuid" : "bf8987d6-a74f-4a1b-87f4-bc3e4a231f4f",
+      "uuid" : "d95c5dd0-719d-4a6b-ba8f-661c2b5d4150",
       "name" : "BNB payout",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 380.0,
-        "y" : 820.0
+        "x" : 200.0,
+        "y" : 700.0
       },
       "properties" : {
         "key" : "data/value",
@@ -151,6 +151,73 @@
         "show-grid" : true,
         "log-y" : false,
         "y-from-zero" : false
+      }
+    },
+    {
+      "type" : "PnBridgeQuote",
+      "uuid" : "47b1f589-920b-4be8-b838-71933d00e60e",
+      "name" : "PLS -> BNB",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 300,
+        "url" : "https://api.pulseln.com/c/prices",
+        "bridge" : "PulseLN",
+        "from" : "PLS",
+        "to" : "BNB",
+        "amount" : 1000000.0,
+        "quote" : 0.017658,
+        "rate" : 1.7658000000000002e-08,
+        "fee" : 0.014,
+        "min-amount" : 78129.851869000006,
+        "max-amount" : 205090861.15702599,
+        "last-update" : "2026-08-28T14:45:56.463698+02",
+        "status" : "OK"
+      }
+    },
+    {
+      "type" : "PnBridgeConverter",
+      "uuid" : "33c464a9-7a2c-4af2-9715-b96955e20947",
+      "name" : "BNB -> PLS",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 740.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "period" : 30,
+        "url" : "https://api.changenow.io/v1/exchange-amount",
+        "bridge" : "ChangeNOW",
+        "from" : "BNB",
+        "to" : "PLS",
+        "amount" : 0.017658,
+        "quote" : 915861.53894959996,
+        "rate" : 51866663.209287569,
+        "fee" : 0.0,
+        "min-amount" : 0.00033925999999999997,
+        "max-amount" : 0.12759910999999999,
+        "last-update" : "2026-08-28T14:45:57.997338+02",
+        "status" : "OK"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "827dbc90-e7b6-4853-8515-8ed2c9282e37",
+      "name" : "Return PLS",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 920.0,
+        "y" : 120.0
+      },
+      "properties" : {
+        "digits" : 7,
+        "decimal-places" : 1,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(220,138,221)",
+        "unlit-segment-color" : "rgba(191,64,64,0)"
       }
     }
   ],
@@ -164,12 +231,20 @@
       "target_id" : "c61b538c-67c2-471d-b42b-9b9f0692e8e8"
     },
     {
-      "source_id" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
-      "target_id" : "0d201cc7-fe42-4ba9-9ffa-e371e2962c8d"
+      "source_id" : "755778b2-790e-4682-9525-3b087946baba",
+      "target_id" : "a29bb391-3059-4516-807e-bc0fcb32b989"
     },
     {
-      "source_id" : "0b7c2d68-c9bb-4ba9-bf61-15fc82c69ba2",
-      "target_id" : "bf8987d6-a74f-4a1b-87f4-bc3e4a231f4f"
+      "source_id" : "755778b2-790e-4682-9525-3b087946baba",
+      "target_id" : "d95c5dd0-719d-4a6b-ba8f-661c2b5d4150"
+    },
+    {
+      "source_id" : "47b1f589-920b-4be8-b838-71933d00e60e",
+      "target_id" : "33c464a9-7a2c-4af2-9715-b96955e20947"
+    },
+    {
+      "source_id" : "33c464a9-7a2c-4af2-9715-b96955e20947",
+      "target_id" : "827dbc90-e7b6-4853-8515-8ed2c9282e37"
     }
   ],
   "sheets" : [
