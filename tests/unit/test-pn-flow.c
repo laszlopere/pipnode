@@ -32,9 +32,11 @@
 #include "pn-subst.h"
 #include "pn-expression2.h"
 #include "pn-node-store.h"
+#include "pn-desktop-geometry.h"
 
 #include <json-glib/json-glib.h>
 #include <glib/gstdio.h>
+#include <string.h>
 
 /* Build a flow holding a single node and clear the dirty flag the add
  * itself raised, leaving a clean baseline for the caller to perturb. */
@@ -458,6 +460,188 @@ test_panel_layout_persists_when_closed (void)
     g_object_unref (flow);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Desktop-application layout                                         */
+/* ------------------------------------------------------------------ */
+
+/* set/get preserves the placement; an unplaced node misses. */
+static void
+test_desktop_position_roundtrip (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    gdouble  x = -1, y = -1;
+
+    PN_CHECK_FALSE (pn_flow_get_desktop_position (flow, "abc", NULL, NULL));
+
+    pn_flow_set_desktop_position (flow, "abc", 64.0, 96.0);
+    PN_CHECK (pn_flow_get_desktop_position (flow, "abc", &x, &y));
+    PN_CHECK_NEAR (x, 64.0, 1e-9);
+    PN_CHECK_NEAR (y, 96.0, 1e-9);
+
+    g_object_unref (flow);
+}
+
+/* The two layouts are independent maps: the same node holds its own
+ * position on each surface, and placing it on one leaves the other
+ * untouched. */
+static void
+test_desktop_and_panel_layouts_independent (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    gdouble  x = -1, y = -1;
+
+    pn_flow_set_panel_position   (flow, "abc", 10.0, 20.0);
+    PN_CHECK_FALSE (pn_flow_get_desktop_position (flow, "abc", NULL, NULL));
+
+    pn_flow_set_desktop_position (flow, "abc", 300.0, 400.0);
+
+    PN_CHECK (pn_flow_get_panel_position (flow, "abc", &x, &y));
+    PN_CHECK_NEAR (x, 10.0, 1e-9);
+    PN_CHECK_NEAR (y, 20.0, 1e-9);
+
+    PN_CHECK (pn_flow_get_desktop_position (flow, "abc", &x, &y));
+    PN_CHECK_NEAR (x, 300.0, 1e-9);
+    PN_CHECK_NEAR (y, 400.0, 1e-9);
+
+    g_object_unref (flow);
+}
+
+/* The window size defaults, clamps to the supported range, and only
+ * dirties the document when it actually changes. */
+static void
+test_desktop_window_size (void)
+{
+    PnFlow *flow = make_clean_flow (NULL);
+    gint    w = 0, h = 0;
+
+    pn_flow_get_desktop_window (flow, &w, &h);
+    PN_CHECK_CMPINT (w, ==, PN_DE_WINDOW_DEFAULT_WIDTH);
+    PN_CHECK_CMPINT (h, ==, PN_DE_WINDOW_DEFAULT_HEIGHT);
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    pn_flow_set_desktop_window (flow, 800, 500);
+    pn_flow_get_desktop_window (flow, &w, &h);
+    PN_CHECK_CMPINT (w, ==, 800);
+    PN_CHECK_CMPINT (h, ==, 500);
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    pn_flow_set_modified (flow, FALSE);
+    pn_flow_set_desktop_window (flow, 800, 500);          /* unchanged */
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    /* Out-of-range sizes are clamped rather than rejected. */
+    pn_flow_set_desktop_window (flow, 1, 99999);
+    pn_flow_get_desktop_window (flow, &w, &h);
+    PN_CHECK_CMPINT (w, ==, PN_DE_WINDOW_MIN_WIDTH);
+    PN_CHECK_CMPINT (h, ==, PN_DE_WINDOW_MAX_HEIGHT);
+
+    g_object_unref (flow);
+}
+
+/* The window title defaults to empty, never reports NULL, and dirties the
+ * document only on a real change. */
+static void
+test_desktop_window_title (void)
+{
+    PnFlow *flow = make_clean_flow (NULL);
+
+    PN_CHECK_CMPSTR (pn_flow_get_desktop_title (flow), ==, "");
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    pn_flow_set_desktop_title (flow, "Kitchen");
+    PN_CHECK_CMPSTR (pn_flow_get_desktop_title (flow), ==, "Kitchen");
+    PN_CHECK (pn_flow_is_modified (flow));
+
+    pn_flow_set_modified (flow, FALSE);
+    pn_flow_set_desktop_title (flow, "Kitchen");           /* unchanged */
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));
+
+    pn_flow_set_desktop_title (flow, NULL);                /* NULL = empty */
+    PN_CHECK_CMPSTR (pn_flow_get_desktop_title (flow), ==, "");
+
+    g_object_unref (flow);
+}
+
+/* The whole desktop layout — placements, window size and title, and the
+ * editor-open flag — survives a save/load to disk, and an orphan
+ * placement whose node is gone is pruned on save. */
+static void
+test_desktop_layout_disk_roundtrip (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_inject_new ());
+    gchar  *uuid;
+    gchar  *path = NULL;
+    gint    fd;
+    gint    w = 0, h = 0;
+    gdouble x = -1, y = -1;
+
+    pn_flow_add_node (flow, node);
+    uuid = g_strdup (pn_node_get_uuid (node));
+
+    pn_flow_set_desktop_editor_open (flow, TRUE);
+    pn_flow_set_desktop_window (flow, 720, 300);
+    pn_flow_set_desktop_title  (flow, "Hallway");
+    pn_flow_set_desktop_position (flow, uuid, 12.0, 34.0);
+    pn_flow_set_desktop_position (flow, "no-such-node", 7.0, 9.0);
+
+    fd = g_file_open_tmp ("pn-flow-desktop-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+    PN_CHECK_FALSE (pn_flow_is_modified (flow));   /* load alone is clean */
+
+    PN_CHECK (pn_flow_get_desktop_editor_open (flow));  /* reopens on load */
+    PN_CHECK_CMPSTR (pn_flow_get_desktop_title (flow), ==, "Hallway");
+    pn_flow_get_desktop_window (flow, &w, &h);
+    PN_CHECK_CMPINT (w, ==, 720);
+    PN_CHECK_CMPINT (h, ==, 300);
+
+    PN_CHECK (pn_flow_get_desktop_position (flow, uuid, &x, &y));
+    PN_CHECK_NEAR (x, 12.0, 1e-9);
+    PN_CHECK_NEAR (y, 34.0, 1e-9);
+    PN_CHECK_FALSE (pn_flow_get_desktop_position (flow, "no-such-node",
+                                                  NULL, NULL));
+
+    g_remove (path);
+    g_free (path);
+    g_free (uuid);
+    g_object_unref (flow);
+}
+
+/* A document that never touched the desktop layout writes none of its
+ * keys, so existing worksheets keep saving exactly as they did. */
+static void
+test_desktop_layout_absent_when_untouched (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *node = PN_NODE (pn_inject_new ());
+    gchar  *path = NULL;
+    gchar  *json = NULL;
+    gint    fd;
+
+    pn_flow_add_node (flow, node);
+
+    fd = g_file_open_tmp ("pn-flow-desktop-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    PN_CHECK (g_file_get_contents (path, &json, NULL, NULL));
+
+    PN_CHECK (strstr (json, "desktop_layout") == NULL);
+    PN_CHECK (strstr (json, "desktop_window") == NULL);
+    PN_CHECK (strstr (json, "desktop_editor_open") == NULL);
+
+    g_free (json);
+    g_remove (path);
+    g_free (path);
+    g_object_unref (flow);
+}
+
 /* Renaming a multi-input node's inputs dirties the flow: the names are
  * document data that round-trips to disk. */
 static void
@@ -547,6 +731,12 @@ main (int argc, char **argv)
     pn_test_add ("panel_pos_disk",        test_panel_position_disk_roundtrip);
     pn_test_add ("panel_editor_open_flag", test_panel_editor_open_flag);
     pn_test_add ("panel_layout_persists", test_panel_layout_persists_when_closed);
+    pn_test_add ("desktop_pos_roundtrip", test_desktop_position_roundtrip);
+    pn_test_add ("desktop_pos_separate",  test_desktop_and_panel_layouts_independent);
+    pn_test_add ("desktop_window_size",   test_desktop_window_size);
+    pn_test_add ("desktop_window_title",  test_desktop_window_title);
+    pn_test_add ("desktop_layout_disk",   test_desktop_layout_disk_roundtrip);
+    pn_test_add ("desktop_layout_absent", test_desktop_layout_absent_when_untouched);
     pn_test_add ("input_names_dirty",     test_input_names_mark_dirty);
     pn_test_add ("input_names_disk",      test_input_names_disk_roundtrip);
     return pn_test_run ();
