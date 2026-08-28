@@ -46,6 +46,7 @@
 #include "pn-meshtastic-gui.h"
 #include "pn-notify-gui.h"
 #include "pn-numeric-gui.h"
+#include "pn-bridge-converter-gui.h"
 #include "pn-bridge-quote-gui.h"
 #include "pn-rate-gui.h"
 #include "pn-segment16-gui.h"
@@ -87,6 +88,7 @@ pn_gui_install_builtin_nodes (void)
     pn_meshtastic_gui_install ();
     pn_notify_gui_install ();
     pn_numeric_gui_install ();
+    pn_bridge_converter_gui_install ();
     pn_bridge_quote_gui_install ();
     pn_rate_gui_install ();
     pn_segment16_gui_install ();
