@@ -71,6 +71,7 @@ libpipnode_core_la_SOURCES = \
 	pn-dial.h \
 	pn-digital-clock.c \
 	pn-digital-clock.h \
+	pn-desktop-geometry.h \
 	pn-edge.c \
 	pn-edge.h \
 	pn-expr-parser.c \
@@ -413,8 +414,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-numeric-gui.h \
 	pn-palette.c \
 	pn-palette.h \
-	pn-panel-editor.c \
-	pn-panel-editor.h \
+	pn-layout-editor.c \
+	pn-layout-editor.h \
 	pn-panel-geometry.h \
 	pn-preferences.c \
 	pn-preferences.h \
@@ -514,6 +515,7 @@ pipnode_core_headers = \
 	pn-analog-clock.h \
 	pn-dial.h \
 	pn-digital-clock.h \
+	pn-desktop-geometry.h \
 	pn-edge.h \
 	pn-expr-parser.h \
 	pn-expression.h \
@@ -658,7 +660,7 @@ pipnode_gui_headers = \
 	pn-notify-gui.h \
 	pn-numeric-gui.h \
 	pn-palette.h \
-	pn-panel-editor.h \
+	pn-layout-editor.h \
 	pn-panel-geometry.h \
 	pn-preferences.h \
 	pn-preferences-dialog.h \

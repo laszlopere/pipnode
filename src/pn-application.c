@@ -3350,7 +3350,7 @@ static GDBusNodeInfo *editor_introspection_data = NULL;
 /*  A click on an interactive widget (a Switch toggle) is addressed to */
 /*  that one node by UUID (ActivateWidget), which flips it.            */
 /*                                                                     */
-/*  The display side mirrors the visual layout editor (PnPanelEditor)  */
+/*  The display side mirrors the visual layout editor (PnLayoutEditor) */
 /*  headlessly: every PnCountdown / PnLed the user snapped onto the    */
 /*  panel band becomes a counterpart widget in the real applet.  The   */
 /*  applet asks for the widget set and order (GetLayout) and follows   */
@@ -3572,7 +3572,7 @@ engine_wire_displays (
 /* ------------------------------------------------------------------ */
 /*  Per-node panel widget mirroring                                     */
 /*                                                                     */
-/*  The engine plays the headless role PnPanelEditor plays in the      */
+/*  The engine plays the headless role PnLayoutEditor plays in the     */
 /*  editor: it watches the flow's nodes and pushes each representable   */
 /*  one (a PnCountdown -> seven-segment readout, a PnLed -> lamp) to a  */
 /*  counterpart widget in the real applet.  A widget is "on the panel"  */
@@ -3670,7 +3670,7 @@ engine_add_rgba_array (JsonBuilder *b, const PnColor *c)
 }
 
 /** Fill the open object @b with @node's render state, mirroring exactly
- *  what PnPanelEditor pushes into the corresponding panel widget.  Returns
+ *  what PnLayoutEditor pushes into the corresponding panel widget.  Returns
  *  the widget kind ("countdown"/"led"), or %NULL when @node is not a
  *  representable widget. */
 static const gchar *

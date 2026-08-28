@@ -28,6 +28,7 @@
 #include "pn-jump-in.h"
 #include "pn-jump-out.h"
 #include "pn-debug.h"
+#include "pn-desktop-geometry.h"
 
 #include <json-glib/json-glib.h>
 
@@ -81,7 +82,7 @@ struct _PnFlow
     GMutex       globals_mutex;
 
     /* Panel-applet layout: node UUID (gchar*, owned) -> placement
-     * (PnPanelPos*, owned) on the #PnPanelEditor canvas.  Main-thread
+     * (PnLayoutPos*, owned) on the #PnLayoutEditor canvas.  Main-thread
      * only (the layout editor and the save/load path), so unlike
      * @globals it needs no lock. */
     GHashTable  *panel_layout;
@@ -89,8 +90,28 @@ struct _PnFlow
     /* Whether the panel-applet GUI layout editor tab is open.  A
      * view-state flag (not a sheet and not user data), saved into the
      * document so reopening a file restores the editor the way the user
-     * left it.  See [[pn-panel-editor]]. */
+     * left it.  See [[pn-layout-editor]]. */
     gboolean     panel_editor_open;
+
+    /* Desktop-application layout: the same shape as @panel_layout, but
+     * the coordinates are relative to the desktop window's content area
+     * rather than to the editor canvas, and the map is entirely separate
+     * so a node can sit in a different spot on each surface.  Main-thread
+     * only, like @panel_layout. */
+    GHashTable  *desktop_layout;
+
+    /* Size and title of the window the desktop layout is arranged for —
+     * document data the (still to be written) desktop application reads
+     * to build its window.  Sizes are clamped to the PN_DE_WINDOW_*
+     * range; @desktop_title is never NULL (empty means "no title set",
+     * and the application falls back to the document's own name). */
+    gint         desktop_width;
+    gint         desktop_height;
+    gchar       *desktop_title;
+
+    /* Whether the desktop layout editor tab is open — the desktop twin of
+     * @panel_editor_open, saved and restored the same way. */
+    gboolean     desktop_editor_open;
 
     /* Undo/redo for this document.  Created with the flow and owned by
      * it; the funnel below feeds it edits and the clear/load paths reset
@@ -98,8 +119,10 @@ struct _PnFlow
     PnHistory   *history;
 };
 
-/* A stored panel-editor placement; see @panel_layout above. */
-typedef struct { gdouble x, y; } PnPanelPos;
+/* A stored layout-editor placement; see @panel_layout / @desktop_layout
+ * above.  One type serves both maps — they differ in what the
+ * coordinates are relative to, not in their shape. */
+typedef struct { gdouble x, y; } PnLayoutPos;
 
 G_DEFINE_TYPE (PnFlow, pn_flow, G_TYPE_OBJECT)
 
@@ -114,6 +137,8 @@ enum {
     SIG_MODIFIED_CHANGED,
     SIG_PANEL_EDITOR_VISIBLE,
     SIG_PANEL_LAYOUT_CHANGED,
+    SIG_DESKTOP_EDITOR_VISIBLE,
+    SIG_DESKTOP_LAYOUT_CHANGED,
     N_SIGNALS,
 };
 
@@ -470,21 +495,22 @@ pn_flow_remove_global (PnFlow *self, const gchar *name)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Panel-applet layout                                                */
+/*  GUI layout maps (panel applet, desktop window)                     */
+/*                                                                     */
+/*  Both surfaces store the same thing — a node UUID -> (x, y) map —    */
+/*  and differ only in what the coordinates mean and which signal a     */
+/*  change raises, so the three primitives below are shared and the      */
+/*  public per-surface entry points are thin wrappers over them.         */
 /* ------------------------------------------------------------------ */
 
-gboolean
-pn_flow_get_panel_position (PnFlow      *self,
-                            const gchar *uuid,
-                            gdouble     *out_x,
-                            gdouble     *out_y)
+static gboolean
+layout_get_position (GHashTable  *layout,
+                     const gchar *uuid,
+                     gdouble     *out_x,
+                     gdouble     *out_y)
 {
-    PnPanelPos *pos;
+    PnLayoutPos *pos = g_hash_table_lookup (layout, uuid);
 
-    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
-    g_return_val_if_fail (uuid != NULL, FALSE);
-
-    pos = g_hash_table_lookup (self->panel_layout, uuid);
     if (pos == NULL)
         return FALSE;
 
@@ -495,28 +521,187 @@ pn_flow_get_panel_position (PnFlow      *self,
     return TRUE;
 }
 
+/* Store @uuid at (@x, @y).  Returns whether that actually changed
+ * anything, so the caller only signals and dirties the document on a real
+ * move (re-clicking a widget without moving it leaves the file clean). */
+static gboolean
+layout_set_position (GHashTable  *layout,
+                     const gchar *uuid,
+                     gdouble      x,
+                     gdouble      y)
+{
+    PnLayoutPos *pos = g_hash_table_lookup (layout, uuid);
+
+    if (pos != NULL && pos->x == x && pos->y == y)
+        return FALSE;
+
+    if (pos == NULL)
+    {
+        pos = g_new0 (PnLayoutPos, 1);
+        g_hash_table_insert (layout, g_strdup (uuid), pos);
+    }
+    pos->x = x;
+    pos->y = y;
+    return TRUE;
+}
+
+/* Every placed UUID, as freshly-allocated strings (transfer full).  Order
+ * is unspecified, so callers that need a particular one sort themselves. */
+static GList *
+layout_list_positions (GHashTable *layout)
+{
+    GList         *out = NULL;
+    GHashTableIter iter;
+    gpointer       key;
+
+    g_hash_table_iter_init (&iter, layout);
+    while (g_hash_table_iter_next (&iter, &key, NULL))
+        out = g_list_prepend (out, g_strdup ((const gchar *) key));
+
+    return out;
+}
+
+/* Read the UUID -> { x, y } object stored under @member of @obj into
+ * @layout (which the caller has already emptied).  Malformed entries are
+ * skipped so a hand-edited file degrades gracefully rather than failing
+ * the whole load. */
+static void
+layout_load_json (GHashTable  *layout,
+                  JsonObject  *obj,
+                  const gchar *member)
+{
+    JsonObject *lay;
+    GList      *members;
+    GList      *l;
+
+    if (!json_object_has_member (obj, member) ||
+        !JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, member)))
+        return;
+
+    lay     = json_object_get_object_member (obj, member);
+    members = json_object_get_members (lay);
+
+    for (l = members; l != NULL; l = l->next)
+    {
+        const gchar *uid   = l->data;
+        JsonNode    *enode = json_object_get_member (lay, uid);
+        JsonObject  *entry;
+        PnLayoutPos *pos;
+
+        if (uid == NULL || *uid == '\0' || !JSON_NODE_HOLDS_OBJECT (enode))
+            continue;
+
+        entry = json_node_get_object (enode);
+        if (!json_object_has_member (entry, "x")
+            || !json_object_has_member (entry, "y"))
+            continue;
+
+        pos    = g_new0 (PnLayoutPos, 1);
+        pos->x = json_object_get_double_member (entry, "x");
+        pos->y = json_object_get_double_member (entry, "y");
+        g_hash_table_insert (layout, g_strdup (uid), pos);
+    }
+    g_list_free (members);
+}
+
+/* Write @layout into @obj under @member as a UUID-keyed object of
+ * { x, y } placements.  Entries for nodes no longer in the flow are
+ * pruned so deleting a node cleans up its placement, and the keys are
+ * sorted for stable diffs.  The member is omitted entirely when nothing
+ * placed survives the pruning. */
+static void
+layout_save_json (PnFlow      *self,
+                  GHashTable  *layout,
+                  JsonObject  *obj,
+                  const gchar *member)
+{
+    GHashTable *live;
+    JsonObject *lay;
+    GList      *keys;
+    GList      *l;
+    guint       k;
+
+    if (g_hash_table_size (layout) == 0)
+        return;
+
+    live = g_hash_table_new (g_str_hash, g_str_equal);
+    lay  = json_object_new ();
+    keys = g_hash_table_get_keys (layout);
+
+    for (k = 0; k < pn_node_store_get_length (self->nodes); k++)
+    {
+        const gchar *uid = pn_node_get_uuid (
+                pn_node_store_get_node (self->nodes, k));
+        if (uid != NULL && *uid != '\0')
+            g_hash_table_add (live, (gpointer) uid);
+    }
+
+    keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
+    for (l = keys; l != NULL; l = l->next)
+    {
+        const gchar       *uid = l->data;
+        const PnLayoutPos *pos;
+        JsonObject        *entry;
+
+        if (!g_hash_table_contains (live, uid))
+            continue;
+
+        pos   = g_hash_table_lookup (layout, uid);
+        entry = json_object_new ();
+        json_object_set_double_member (entry, "x", pos->x);
+        json_object_set_double_member (entry, "y", pos->y);
+        json_object_set_object_member (lay, uid, entry);
+    }
+    g_list_free (keys);
+    g_hash_table_destroy (live);
+
+    if (json_object_get_size (lay) > 0)
+        json_object_set_object_member (obj, member, lay);
+    else
+        json_object_unref (lay);
+}
+
+/* An editor-tab open/closed view-state flag, defaulting to closed when
+ * the member is absent or not a plain value. */
+static gboolean
+load_open_flag (JsonObject *obj, const gchar *member)
+{
+    JsonNode *bn;
+
+    if (!json_object_has_member (obj, member))
+        return FALSE;
+
+    bn = json_object_get_member (obj, member);
+    return JSON_NODE_HOLDS_VALUE (bn) ? json_node_get_boolean (bn) : FALSE;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Panel-applet layout                                                */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_flow_get_panel_position (PnFlow      *self,
+                            const gchar *uuid,
+                            gdouble     *out_x,
+                            gdouble     *out_y)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (uuid != NULL, FALSE);
+
+    return layout_get_position (self->panel_layout, uuid, out_x, out_y);
+}
+
 void
 pn_flow_set_panel_position (PnFlow      *self,
                             const gchar *uuid,
                             gdouble      x,
                             gdouble      y)
 {
-    PnPanelPos *pos;
-
     g_return_if_fail (PN_IS_FLOW (self));
     g_return_if_fail (uuid != NULL && *uuid != '\0');
 
-    pos = g_hash_table_lookup (self->panel_layout, uuid);
-    if (pos != NULL && pos->x == x && pos->y == y)
+    if (!layout_set_position (self->panel_layout, uuid, x, y))
         return;                 /* unchanged — keep the document clean */
-
-    if (pos == NULL)
-    {
-        pos = g_new0 (PnPanelPos, 1);
-        g_hash_table_insert (self->panel_layout, g_strdup (uuid), pos);
-    }
-    pos->x = x;
-    pos->y = y;
 
     g_signal_emit (self, signals[SIG_PANEL_LAYOUT_CHANGED], 0);
     pn_flow_set_modified (self, TRUE);
@@ -530,17 +715,9 @@ pn_flow_set_panel_position (PnFlow      *self,
 GList *
 pn_flow_list_panel_positions (PnFlow *self)
 {
-    GList      *out = NULL;
-    GHashTableIter iter;
-    gpointer    key;
-
     g_return_val_if_fail (PN_IS_FLOW (self), NULL);
 
-    g_hash_table_iter_init (&iter, self->panel_layout);
-    while (g_hash_table_iter_next (&iter, &key, NULL))
-        out = g_list_prepend (out, g_strdup ((const gchar *) key));
-
-    return out;
+    return layout_list_positions (self->panel_layout);
 }
 
 gboolean
@@ -567,6 +744,130 @@ pn_flow_set_panel_editor_open (PnFlow *self, gboolean open)
      * layout.  pn_flow_clear still empties it when the whole document goes. */
 
     g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0, open);
+    pn_flow_set_modified (self, TRUE);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Desktop-application layout                                         */
+/* ------------------------------------------------------------------ */
+
+gboolean
+pn_flow_get_desktop_position (PnFlow      *self,
+                              const gchar *uuid,
+                              gdouble     *out_x,
+                              gdouble     *out_y)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (uuid != NULL, FALSE);
+
+    return layout_get_position (self->desktop_layout, uuid, out_x, out_y);
+}
+
+void
+pn_flow_set_desktop_position (PnFlow      *self,
+                              const gchar *uuid,
+                              gdouble      x,
+                              gdouble      y)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+    g_return_if_fail (uuid != NULL && *uuid != '\0');
+
+    if (!layout_set_position (self->desktop_layout, uuid, x, y))
+        return;                 /* unchanged — keep the document clean */
+
+    g_signal_emit (self, signals[SIG_DESKTOP_LAYOUT_CHANGED], 0);
+    pn_flow_set_modified (self, TRUE);
+}
+
+GList *
+pn_flow_list_desktop_positions (PnFlow *self)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), NULL);
+
+    return layout_list_positions (self->desktop_layout);
+}
+
+gboolean
+pn_flow_get_desktop_editor_open (PnFlow *self)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    return self->desktop_editor_open;
+}
+
+void
+pn_flow_set_desktop_editor_open (PnFlow *self, gboolean open)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+
+    open = !!open;
+    if (self->desktop_editor_open == open)
+        return;
+
+    self->desktop_editor_open = open;
+
+    /* As on the panel: the placements are document data for the desktop
+     * application and outlive the editor tab; only pn_flow_clear drops
+     * them. */
+
+    g_signal_emit (self, signals[SIG_DESKTOP_EDITOR_VISIBLE], 0, open);
+    pn_flow_set_modified (self, TRUE);
+}
+
+void
+pn_flow_get_desktop_window (PnFlow *self,
+                            gint   *out_width,
+                            gint   *out_height)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+
+    if (out_width != NULL)
+        *out_width = self->desktop_width;
+    if (out_height != NULL)
+        *out_height = self->desktop_height;
+}
+
+void
+pn_flow_set_desktop_window (PnFlow *self,
+                            gint    width,
+                            gint    height)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+
+    width  = CLAMP (width,  PN_DE_WINDOW_MIN_WIDTH,  PN_DE_WINDOW_MAX_WIDTH);
+    height = CLAMP (height, PN_DE_WINDOW_MIN_HEIGHT, PN_DE_WINDOW_MAX_HEIGHT);
+
+    if (self->desktop_width == width && self->desktop_height == height)
+        return;
+
+    self->desktop_width  = width;
+    self->desktop_height = height;
+
+    g_signal_emit (self, signals[SIG_DESKTOP_LAYOUT_CHANGED], 0);
+    pn_flow_set_modified (self, TRUE);
+}
+
+const gchar *
+pn_flow_get_desktop_title (PnFlow *self)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), "");
+
+    return self->desktop_title != NULL ? self->desktop_title : "";
+}
+
+void
+pn_flow_set_desktop_title (PnFlow *self, const gchar *title)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+
+    if (title == NULL)
+        title = "";
+    if (g_strcmp0 (self->desktop_title, title) == 0)
+        return;
+
+    g_free (self->desktop_title);
+    self->desktop_title = g_strdup (title);
+
+    g_signal_emit (self, signals[SIG_DESKTOP_LAYOUT_CHANGED], 0);
     pn_flow_set_modified (self, TRUE);
 }
 
@@ -1366,13 +1667,25 @@ pn_flow_clear (PnFlow *self)
     g_mutex_unlock (&self->globals_mutex);
 
     g_hash_table_remove_all (self->panel_layout);
+    g_hash_table_remove_all (self->desktop_layout);
 
-    /* Close the panel-applet editor so a cleared (or about-to-be-loaded)
+    /* The desktop window reverts to a default, untitled one. */
+    self->desktop_width  = PN_DE_WINDOW_DEFAULT_WIDTH;
+    self->desktop_height = PN_DE_WINDOW_DEFAULT_HEIGHT;
+    g_free (self->desktop_title);
+    self->desktop_title = g_strdup ("");
+
+    /* Close both GUI layout editors so a cleared (or about-to-be-loaded)
      * document starts without a stale editor tab. */
     if (self->panel_editor_open)
     {
         self->panel_editor_open = FALSE;
         g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0, FALSE);
+    }
+    if (self->desktop_editor_open)
+    {
+        self->desktop_editor_open = FALSE;
+        g_signal_emit (self, signals[SIG_DESKTOP_EDITOR_VISIBLE], 0, FALSE);
     }
 
     /* Tell every host that all but the canonical default sheet just
@@ -1783,40 +2096,37 @@ flow_load_from_object (
     pn_flow_clear (self);
     self->loading = TRUE;
 
-    /* Panel-applet layout must be in place BEFORE the node-add cascade
-     * below: the panel editor reads each node's saved canvas position as
-     * its node-added handler fires.  pn_flow_clear above emptied the
-     * table.  Malformed entries are skipped so a hand-edited file
-     * degrades gracefully. */
-    if (json_object_has_member (obj, "panel_layout") &&
-        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj, "panel_layout")))
+    /* Both GUI layouts must be in place BEFORE the node-add cascade
+     * below: a layout editor reads each node's saved position as its
+     * node-added handler fires.  pn_flow_clear above emptied the tables.
+     * Malformed entries are skipped so a hand-edited file degrades
+     * gracefully. */
+    layout_load_json (self->panel_layout,   obj, "panel_layout");
+    layout_load_json (self->desktop_layout, obj, "desktop_layout");
+
+    /* The desktop window the layout above is arranged for.  Absent (or
+     * malformed) members leave the defaults pn_flow_clear just restored. */
+    if (json_object_has_member (obj, "desktop_window") &&
+        JSON_NODE_HOLDS_OBJECT (json_object_get_member (obj,
+                                                        "desktop_window")))
     {
-        JsonObject *lay     = json_object_get_object_member (obj,
-                                                             "panel_layout");
-        GList      *members = json_object_get_members (lay);
-        GList      *l;
+        JsonObject *win = json_object_get_object_member (obj,
+                                                         "desktop_window");
 
-        for (l = members; l != NULL; l = l->next)
+        if (json_object_has_member (win, "width"))
+            self->desktop_width =
+                    CLAMP ((gint) json_object_get_int_member (win, "width"),
+                           PN_DE_WINDOW_MIN_WIDTH, PN_DE_WINDOW_MAX_WIDTH);
+        if (json_object_has_member (win, "height"))
+            self->desktop_height =
+                    CLAMP ((gint) json_object_get_int_member (win, "height"),
+                           PN_DE_WINDOW_MIN_HEIGHT, PN_DE_WINDOW_MAX_HEIGHT);
+        if (json_object_has_member (win, "title"))
         {
-            const gchar *uid   = l->data;
-            JsonNode    *enode  = json_object_get_member (lay, uid);
-            JsonObject  *entry;
-            PnPanelPos  *pos;
-
-            if (uid == NULL || *uid == '\0' || !JSON_NODE_HOLDS_OBJECT (enode))
-                continue;
-
-            entry = json_node_get_object (enode);
-            if (!json_object_has_member (entry, "x")
-                || !json_object_has_member (entry, "y"))
-                continue;
-
-            pos    = g_new0 (PnPanelPos, 1);
-            pos->x = json_object_get_double_member (entry, "x");
-            pos->y = json_object_get_double_member (entry, "y");
-            g_hash_table_insert (self->panel_layout, g_strdup (uid), pos);
+            const gchar *t = json_object_get_string_member (win, "title");
+            g_free (self->desktop_title);
+            self->desktop_title = g_strdup (t != NULL ? t : "");
         }
-        g_list_free (members);
     }
 
     for (i = 0; i < new_nodes->len; i++)
@@ -1980,14 +2290,10 @@ flow_load_from_object (
         g_list_free (members);
     }
 
-    /* Panel-applet editor open/closed view-state (default closed). */
-    self->panel_editor_open = FALSE;
-    if (json_object_has_member (obj, "panel_editor_open"))
-    {
-        JsonNode *bn = json_object_get_member (obj, "panel_editor_open");
-        if (JSON_NODE_HOLDS_VALUE (bn))
-            self->panel_editor_open = json_node_get_boolean (bn);
-    }
+    /* Layout-editor open/closed view-state, one flag per surface
+     * (default closed). */
+    self->panel_editor_open   = load_open_flag (obj, "panel_editor_open");
+    self->desktop_editor_open = load_open_flag (obj, "desktop_editor_open");
 
     self->loading = FALSE;
     if (self->modified)
@@ -1997,10 +2303,12 @@ flow_load_from_object (
     }
 
     /* Now that the model is fully settled, tell the host to match the
-     * editor tab to the loaded state.  Emitted unconditionally so a load
+     * editor tabs to the loaded state.  Emitted unconditionally so a load
      * into a window that still shows a stale editor also closes it. */
     g_signal_emit (self, signals[SIG_PANEL_EDITOR_VISIBLE], 0,
                    self->panel_editor_open);
+    g_signal_emit (self, signals[SIG_DESKTOP_EDITOR_VISIBLE], 0,
+                   self->desktop_editor_open);
 
     g_ptr_array_unref  (new_wires);
     g_ptr_array_unref  (new_nodes);
@@ -2173,60 +2481,35 @@ flow_build_root (
         }
         g_mutex_unlock (&self->globals_mutex);
 
-        /* Panel-applet editor tab open/closed is a view-state flag, saved
-         * only while open so reopening the file restores the tab. */
+        /* Each GUI layout editor's tab open/closed is a view-state flag,
+         * saved only while open so reopening the file restores the tab. */
         if (self->panel_editor_open)
             json_object_set_boolean_member (obj, "panel_editor_open", TRUE);
+        if (self->desktop_editor_open)
+            json_object_set_boolean_member (obj, "desktop_editor_open", TRUE);
 
-        /* Panel layout persists regardless of whether the editor tab is
-         * open: it is real document data driving the panel applet (each
-         * band-snapped Countdown/LED is mirrored to a real panel widget).
-         *
-         * Layout: a UUID-keyed object of { x, y } canvas placements.
-         * Entries for nodes no longer in the flow are pruned so deleting a
-         * node cleans up its placement, and the keys are sorted for stable
-         * diffs.  Omitted when nothing was placed. */
+        /* The layouts persist regardless of whether their editor tab is
+         * open: they are real document data (the panel one drives the
+         * panel applet, each band-snapped Countdown/LED mirrored to a real
+         * panel widget; the desktop one is what the desktop application
+         * builds its window from). */
+        layout_save_json (self, self->panel_layout,   obj, "panel_layout");
+        layout_save_json (self, self->desktop_layout, obj, "desktop_layout");
+
+        /* The desktop window itself, saved only when it differs from a
+         * fresh default one, so documents that never opened the desktop
+         * layout stay byte-identical to before. */
+        if (self->desktop_width  != PN_DE_WINDOW_DEFAULT_WIDTH  ||
+            self->desktop_height != PN_DE_WINDOW_DEFAULT_HEIGHT ||
+            (self->desktop_title != NULL && *self->desktop_title != '\0'))
         {
-            if (g_hash_table_size (self->panel_layout) > 0)
-            {
-                GHashTable *live = g_hash_table_new (g_str_hash, g_str_equal);
-                JsonObject *lay  = json_object_new ();
-                GList      *keys = g_hash_table_get_keys (self->panel_layout);
-                GList      *l;
-                guint       k;
+            JsonObject *win = json_object_new ();
 
-                for (k = 0; k < pn_node_store_get_length (self->nodes); k++)
-                {
-                    const gchar *uid = pn_node_get_uuid (
-                            pn_node_store_get_node (self->nodes, k));
-                    if (uid != NULL && *uid != '\0')
-                        g_hash_table_add (live, (gpointer) uid);
-                }
-
-                keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
-                for (l = keys; l != NULL; l = l->next)
-                {
-                    const gchar      *uid = l->data;
-                    const PnPanelPos *pos;
-                    JsonObject       *entry;
-
-                    if (!g_hash_table_contains (live, uid))
-                        continue;
-
-                    pos   = g_hash_table_lookup (self->panel_layout, uid);
-                    entry = json_object_new ();
-                    json_object_set_double_member (entry, "x", pos->x);
-                    json_object_set_double_member (entry, "y", pos->y);
-                    json_object_set_object_member (lay, uid, entry);
-                }
-                g_list_free (keys);
-                g_hash_table_destroy (live);
-
-                if (json_object_get_size (lay) > 0)
-                    json_object_set_object_member (obj, "panel_layout", lay);
-                else
-                    json_object_unref (lay);
-            }
+            json_object_set_int_member (win, "width",  self->desktop_width);
+            json_object_set_int_member (win, "height", self->desktop_height);
+            json_object_set_string_member (win, "title",
+                                           pn_flow_get_desktop_title (self));
+            json_object_set_object_member (obj, "desktop_window", win);
         }
     }
 
@@ -2593,6 +2876,8 @@ pn_flow_finalize (GObject *object)
     g_clear_pointer (&self->globals, g_hash_table_destroy);
     g_mutex_clear (&self->globals_mutex);
     g_clear_pointer (&self->panel_layout, g_hash_table_destroy);
+    g_clear_pointer (&self->desktop_layout, g_hash_table_destroy);
+    g_clear_pointer (&self->desktop_title, g_free);
 
     G_OBJECT_CLASS (pn_flow_parent_class)->finalize (object);
 }
@@ -2696,6 +2981,25 @@ pn_flow_class_init (PnFlowClass *klass)
             G_SIGNAL_RUN_LAST,
             0, NULL, NULL, NULL,
             G_TYPE_NONE, 0);
+
+    /* The desktop layout editor's open/closed state changed (carries the
+     * new state): the panel signal's twin, driving the desktop tab. */
+    signals[SIG_DESKTOP_EDITOR_VISIBLE] = g_signal_new (
+            "desktop-editor-visible-changed",
+            PN_TYPE_FLOW,
+            G_SIGNAL_RUN_LAST,
+            0, NULL, NULL, NULL,
+            G_TYPE_NONE, 1, G_TYPE_BOOLEAN);
+
+    /* Something about the desktop window changed — a widget placement, the
+     * window size, or its title.  The desktop application (once it exists)
+     * re-reads the layout in response. */
+    signals[SIG_DESKTOP_LAYOUT_CHANGED] = g_signal_new (
+            "desktop-layout-changed",
+            PN_TYPE_FLOW,
+            G_SIGNAL_RUN_LAST,
+            0, NULL, NULL, NULL,
+            G_TYPE_NONE, 0);
 }
 
 static void
@@ -2713,6 +3017,12 @@ pn_flow_init (PnFlow *self)
 
     self->panel_layout = g_hash_table_new_full (g_str_hash, g_str_equal,
                                                 g_free, g_free);
+
+    self->desktop_layout = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                  g_free, g_free);
+    self->desktop_width  = PN_DE_WINDOW_DEFAULT_WIDTH;
+    self->desktop_height = PN_DE_WINDOW_DEFAULT_HEIGHT;
+    self->desktop_title  = g_strdup ("");
 
     g_signal_connect (self->nodes, "node-added",
                       G_CALLBACK (on_node_added), self);

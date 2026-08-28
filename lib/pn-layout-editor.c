@@ -17,8 +17,9 @@
 #include "config.h"
 #endif
 
-#include "pn-panel-editor.h"
+#include "pn-layout-editor.h"
 #include "pn-panel-geometry.h"
+#include "pn-desktop-geometry.h"
 #include "pn-injector-widget.h"
 #include "pn-led-display.h"
 #include "pn-led-lamp.h"
@@ -38,21 +39,34 @@
 #include "pn-switch.h"
 
 /* ------------------------------------------------------------------ */
-/*  PnPanelEditor                                                      */
+/*  PnLayoutEditor                                                     */
 /*                                                                     */
-/*  Panel-applet GUI layout editor — the visual counterpart to the     */
-/*  node-wiring #PnWorksheet, but for laying out the widgets a flow     */
-/*  drives rather than the dataflow itself.  Other GUI-layout editors   */
-/*  (desktop, web, mobile) are planned to follow the same shape.        */
+/*  GUI layout editor — the visual counterpart to the node-wiring       */
+/*  #PnWorksheet, but for laying out the widgets a flow drives rather   */
+/*  than the dataflow itself.  One class serves the whole family of      */
+/*  surfaces through #PnLayoutEditorKind:                                */
 /*                                                                     */
-/*  Role split: the panel widgets (#PnLedDisplay, #PnLedLamp, from the  */
+/*    PANEL   — the XFCE panel applet: widgets snap onto a one-widget-   */
+/*              tall band standing in for the real desktop panel, and    */
+/*              their canvas positions are saved in the flow's panel     */
+/*              layout.                                                  */
+/*    DESKTOP — the desktop application (still to be written): widgets   */
+/*              are arranged freely inside a window frame whose size and */
+/*              title the user picks here, and their window-relative     */
+/*              positions are saved in the flow's desktop layout.        */
+/*                                                                     */
+/*  The web and mobile surfaces sketched in the original plan slot in    */
+/*  the same way: a kind, a guide to draw, a snapping rule and a pair of */
+/*  flow accessors.                                                      */
+/*                                                                     */
+/*  Role split: the panel widgets (#PnLedDisplay, #PnLedLamp, … from the */
 /*  GTK/Cairo-only panel-widgets library) are dumb faces that know       */
 /*  nothing about nodes; this editor is the controller that binds them   */
-/*  to the model.  It keeps one widget per representable node across the  */
+/*  to the model.  It keeps one widget per representable node across the */
 /*  whole flow (every sheet) — a seven-segment readout for each          */
-/*  #PnCountdown, an indicator lamp for each #PnLed — observing the       */
+/*  #PnCountdown, an indicator lamp for each #PnLed — observing the      */
 /*  flow's single node store to create and destroy widgets as those      */
-/*  nodes come and go, and mirroring each node's live value through its   */
+/*  nodes come and go, and mirroring each node's live value through its  */
 /*  repaint-needed signal.                                              */
 /*                                                                     */
 /*  This editor lives in libpipnode-gui, which links the node runtime,  */
@@ -69,20 +83,31 @@
 /* Size of the free-positioning canvas.  It is deliberately larger than a
  * typical viewport so there is room to spread widgets out; the host wraps
  * the editor in a scrolled window, which scrolls to reach the rest. */
-#define PN_PE_CANVAS_WIDTH  1000
-#define PN_PE_CANVAS_HEIGHT  700
+#define PN_LE_CANVAS_WIDTH  1000
+#define PN_LE_CANVAS_HEIGHT  700
 
-/* Sticky snapping of a dragged row to the panel band: it snaps when the
- * pointer-driven position comes within PN_PE_SNAP_GRAB px of the band, and
- * stays stuck until the pointer is pulled more than PN_PE_SNAP_BREAK px
- * away — so a widget clings to the panel yet can be torn off deliberately.
- * BREAK is the larger of the two, which is what gives the snap its grip. */
-#define PN_PE_SNAP_GRAB     10
-#define PN_PE_SNAP_BREAK    22
+/* Desktop kind: inset of the window frame from the canvas corner.  Deep
+ * enough to leave room for the mock title bar drawn just above the frame,
+ * so the framed rectangle is exactly the window's content area and a
+ * stored (x, y) needs no correction for chrome. */
+#define PN_LE_FRAME_MARGIN   40
+#define PN_LE_TITLEBAR_H     24
 
-struct _PnPanelEditor
+/* Sticky snapping of a dragged row to a guide (the panel band, or a
+ * desktop window edge or centre line): it snaps when the pointer-driven
+ * position comes within PN_LE_SNAP_GRAB px of the guide, and stays stuck
+ * until the pointer is pulled more than PN_LE_SNAP_BREAK px away — so a
+ * widget clings to the guide yet can be torn off deliberately.  BREAK is
+ * the larger of the two, which is what gives the snap its grip. */
+#define PN_LE_SNAP_GRAB     10
+#define PN_LE_SNAP_BREAK    22
+
+struct _PnLayoutEditor
 {
     GtkBox parent_instance;
+
+    /* Which surface this editor lays out for; fixed at construction. */
+    PnLayoutEditorKind kind;
 
     /* The shared model.  Owned via a reference; @nodes is borrowed from
      * it (the flow keeps it alive). */
@@ -93,6 +118,15 @@ struct _PnPanelEditor
      * "nothing here yet" hint shown when there are no countdown nodes. */
     GtkWidget *canvas;
     GtkWidget *empty_label;
+
+    /* Desktop kind only (%NULL on the panel): the window-properties bar
+     * above the canvas — the title the application will give its window
+     * and the size the layout is arranged for.  All three edit the flow;
+     * the flow's desktop-layout-changed signal pushes values back here so
+     * a load or an undo is reflected without a second code path. */
+    GtkWidget *title_entry;
+    GtkWidget *width_spin;
+    GtkWidget *height_spin;
 
     /* Represented node (borrowed; the store owns the ref) → its row
      * widget (a #GtkEventBox drag handle wrapping the node's panel
@@ -113,10 +147,14 @@ struct _PnPanelEditor
     gint       drag_start_x;
     gint       drag_start_y;
 
-    /* Whether the row being dragged is currently stuck to the panel band.
+    /* Which guide the row being dragged is currently stuck to on each
+     * axis (an index into that axis's guide list, or -1 for free).
      * Carried across motion events so the snap has hysteresis: it holds
-     * until the pointer pulls PN_PE_SNAP_BREAK px clear (see on_row_motion). */
-    gboolean   drag_snapped;
+     * until the pointer pulls PN_LE_SNAP_BREAK px clear (see
+     * layout_snap_axis).  The panel kind has a single y guide (the band)
+     * and no x guide; the desktop kind has three of each. */
+    gint       drag_snap_x;
+    gint       drag_snap_y;
 
     /* Running count of rows ever placed, used to cascade the initial
      * position of each new readout so they do not all land on top of
@@ -124,12 +162,127 @@ struct _PnPanelEditor
     guint      cascade;
 };
 
-G_DEFINE_TYPE (PnPanelEditor, pn_panel_editor, GTK_TYPE_BOX)
+G_DEFINE_TYPE (PnLayoutEditor, pn_layout_editor, GTK_TYPE_BOX)
+
+/* ------------------------------------------------------------------ */
+/*  Kind-dependent geometry                                            */
+/* ------------------------------------------------------------------ */
+
+/* Pixel height every mirrored widget is drawn at on this surface.  The
+ * panel matches a typical XFCE panel icon; a window has room for more. */
+static gint
+layout_editor_widget_height (PnLayoutEditor *self)
+{
+    return self->kind == PN_LAYOUT_EDITOR_DESKTOP ? PN_DE_WIDGET_HEIGHT
+                                                  : PN_PE_PREVIEW_HEIGHT;
+}
+
+/* Canvas coordinates of the layout origin — the point stored placements
+ * are relative to.  The panel band spans the whole canvas, so its origin
+ * is the canvas corner and a stored coordinate IS a canvas coordinate;
+ * the desktop window is an inset rectangle, so its placements are stored
+ * relative to the frame's top-left, which is exactly what the desktop
+ * application wants to paint with. */
+static void
+layout_editor_origin (PnLayoutEditor *self, gint *out_x, gint *out_y)
+{
+    gboolean desktop = (self->kind == PN_LAYOUT_EDITOR_DESKTOP);
+
+    *out_x = desktop ? PN_LE_FRAME_MARGIN : 0;
+    *out_y = desktop ? PN_LE_FRAME_MARGIN : 0;
+}
+
+/* The desktop window's content rectangle in canvas coordinates.  Only
+ * meaningful for the desktop kind. */
+static void
+layout_editor_frame_rect (PnLayoutEditor *self, GdkRectangle *rect)
+{
+    gint w, h;
+
+    pn_flow_get_desktop_window (self->flow, &w, &h);
+
+    rect->x      = PN_LE_FRAME_MARGIN;
+    rect->y      = PN_LE_FRAME_MARGIN;
+    rect->width  = w;
+    rect->height = h;
+}
+
+/* Read @node's saved placement for this surface, translated into canvas
+ * coordinates.  Returns %FALSE when the node has never been placed. */
+static gboolean
+layout_editor_load_position (PnLayoutEditor *self,
+                             PnNode         *node,
+                             gint           *out_x,
+                             gint           *out_y)
+{
+    const gchar *uuid = pn_node_get_uuid (node);
+    gdouble      sx, sy;
+    gint         ox, oy;
+    gboolean     found;
+
+    found = (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+            ? pn_flow_get_desktop_position (self->flow, uuid, &sx, &sy)
+            : pn_flow_get_panel_position   (self->flow, uuid, &sx, &sy);
+    if (!found)
+        return FALSE;
+
+    layout_editor_origin (self, &ox, &oy);
+    *out_x = ox + (gint) sx;
+    *out_y = oy + (gint) sy;
+    return TRUE;
+}
+
+/* Save @node's canvas placement into this surface's layout map, converted
+ * back to origin-relative coordinates. */
+static void
+layout_editor_store_position (PnLayoutEditor *self,
+                              PnNode         *node,
+                              gint            x,
+                              gint            y)
+{
+    const gchar *uuid = pn_node_get_uuid (node);
+    gint         ox, oy;
+
+    layout_editor_origin (self, &ox, &oy);
+
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+        pn_flow_set_desktop_position (self->flow, uuid, x - ox, y - oy);
+    else
+        pn_flow_set_panel_position   (self->flow, uuid, x - ox, y - oy);
+}
+
+/* Sticky-snap @v to one of @guides, remembering in @state which guide
+ * (index, or -1 for free) it is currently stuck to.  That memory is what
+ * gives the snap hysteresis: it grabs within PN_LE_SNAP_GRAB px and only
+ * lets go once the pointer has pulled more than PN_LE_SNAP_BREAK px past
+ * the guide it holds. */
+static gint
+layout_snap_axis (gint v, const gint *guides, gint n_guides, gint *state)
+{
+    gint i;
+
+    if (*state >= 0 && *state < n_guides)
+    {
+        if (ABS (v - guides[*state]) <= PN_LE_SNAP_BREAK)
+            return guides[*state];
+        *state = -1;
+    }
+
+    for (i = 0; i < n_guides; i++)
+    {
+        if (ABS (v - guides[i]) <= PN_LE_SNAP_GRAB)
+        {
+            *state = i;
+            return guides[i];
+        }
+    }
+    return v;
+}
 
 /* Push @node's current countdown value into its readout, using the same
  * day/hour/minute/second breakdown the node itself paints with. */
 static void
-panel_editor_sync_countdown (PnNode *node, PnLedDisplay *led)
+layout_editor_sync_countdown (PnNode *node, PnLedDisplay *led)
 {
     PnCountdownPaintState st;
     gint64                seconds;
@@ -155,14 +308,14 @@ panel_editor_sync_countdown (PnNode *node, PnLedDisplay *led)
 static void
 on_countdown_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_countdown (node, PN_LED_DISPLAY (user_data));
+    layout_editor_sync_countdown (node, PN_LED_DISPLAY (user_data));
 }
 
 /* Push @node's current digital-clock value into its readout.  The clock is
  * the Countdown without a days field, so it mirrors onto a days-less
  * (day_digits == 0) HH:MM:SS readout. */
 static void
-panel_editor_sync_digital_clock (PnNode *node, PnLedDisplay *led)
+layout_editor_sync_digital_clock (PnNode *node, PnLedDisplay *led)
 {
     PnDigitalClockPaintState st;
     gint64                   seconds;
@@ -188,13 +341,13 @@ panel_editor_sync_digital_clock (PnNode *node, PnLedDisplay *led)
 static void
 on_digital_clock_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_digital_clock (node, PN_LED_DISPLAY (user_data));
+    layout_editor_sync_digital_clock (node, PN_LED_DISPLAY (user_data));
 }
 
 /* Push @node's current lit state and lit colour into its lamp, reading
  * both through the LED node's GTK-free accessors. */
 static void
-panel_editor_sync_led (PnNode *node, PnLedLamp *lamp)
+layout_editor_sync_led (PnNode *node, PnLedLamp *lamp)
 {
     PnColor color;
 
@@ -209,13 +362,13 @@ panel_editor_sync_led (PnNode *node, PnLedLamp *lamp)
 static void
 on_led_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_led (node, PN_LED_LAMP (user_data));
+    layout_editor_sync_led (node, PN_LED_LAMP (user_data));
 }
 
 /* Push @node's current text and styling into its readout, reading them
  * through the Label node's GTK-free paint-state accessor. */
 static void
-panel_editor_sync_label (PnNode *node, PnTextDisplay *text)
+layout_editor_sync_label (PnNode *node, PnTextDisplay *text)
 {
     PnLabelPaintState st;
 
@@ -240,13 +393,13 @@ panel_editor_sync_label (PnNode *node, PnTextDisplay *text)
 static void
 on_label_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_label (node, PN_TEXT_DISPLAY (user_data));
+    layout_editor_sync_label (node, PN_TEXT_DISPLAY (user_data));
 }
 
 /* Push @node's current text and styling into its readout, reading them
  * through the Matrix57 node's GTK-free paint-state accessor. */
 static void
-panel_editor_sync_matrix57 (PnNode *node, PnMatrix57Display *display)
+layout_editor_sync_matrix57 (PnNode *node, PnMatrix57Display *display)
 {
     PnMatrix57PaintState st;
 
@@ -279,13 +432,13 @@ panel_editor_sync_matrix57 (PnNode *node, PnMatrix57Display *display)
 static void
 on_matrix57_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (user_data));
+    layout_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (user_data));
 }
 
 /* Push @node's current value and styling into its readout, reading them
  * through the Numeric node's GTK-free paint-state accessor. */
 static void
-panel_editor_sync_numeric (PnNode *node, PnNumericDisplay *display)
+layout_editor_sync_numeric (PnNode *node, PnNumericDisplay *display)
 {
     PnNumericPaintState st;
 
@@ -314,13 +467,13 @@ panel_editor_sync_numeric (PnNode *node, PnNumericDisplay *display)
 static void
 on_numeric_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (user_data));
+    layout_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (user_data));
 }
 
 /* Push @node's current latch position into its toggle, reading it through
  * the Switch node's GTK-free accessor. */
 static void
-panel_editor_sync_switch (PnNode *node, PnSwitchWidget *toggle)
+layout_editor_sync_switch (PnNode *node, PnSwitchWidget *toggle)
 {
     pn_switch_widget_set_on (toggle, pn_switch_get_on (PN_SWITCH (node)));
 }
@@ -331,12 +484,12 @@ panel_editor_sync_switch (PnNode *node, PnSwitchWidget *toggle)
 static void
 on_switch_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_switch (node, PN_SWITCH_WIDGET (user_data));
+    layout_editor_sync_switch (node, PN_SWITCH_WIDGET (user_data));
 }
 
 /* Push @node's configured fire-button icon into its panel-button mirror. */
 static void
-panel_editor_sync_injector (PnNode *node, PnInjectorWidget *button)
+layout_editor_sync_injector (PnNode *node, PnInjectorWidget *button)
 {
     pn_injector_widget_set_icon (button,
                                  pn_inject_get_button_icon (PN_INJECT (node)));
@@ -347,17 +500,38 @@ panel_editor_sync_injector (PnNode *node, PnInjectorWidget *button)
 static void
 on_injector_repaint_needed (PnNode *node, gpointer user_data)
 {
-    panel_editor_sync_injector (node, PN_INJECTOR_WIDGET (user_data));
+    layout_editor_sync_injector (node, PN_INJECTOR_WIDGET (user_data));
 }
 
 /* Toggle the empty-state hint to match the live readout count. */
 static void
-panel_editor_update_empty_state (PnPanelEditor *self)
+layout_editor_update_empty_state (PnLayoutEditor *self)
 {
     gboolean empty = (g_hash_table_size (self->rows) == 0);
 
     gtk_widget_set_visible (self->empty_label, empty);
     gtk_widget_set_visible (self->canvas,     !empty);
+}
+
+/* Keep the canvas at least as large as the surface it stands in for, so a
+ * desktop window bigger than the default canvas is fully reachable
+ * through the host's scrolled window. */
+static void
+layout_editor_update_canvas_size (PnLayoutEditor *self)
+{
+    gint w = PN_LE_CANVAS_WIDTH;
+    gint h = PN_LE_CANVAS_HEIGHT;
+
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+    {
+        GdkRectangle fr;
+
+        layout_editor_frame_rect (self, &fr);
+        w = MAX (w, fr.x + fr.width  + PN_LE_FRAME_MARGIN);
+        h = MAX (h, fr.y + fr.height + PN_LE_FRAME_MARGIN);
+    }
+
+    gtk_widget_set_size_request (self->canvas, w, h);
 }
 
 /* The y at which @child sits centred in the panel band — the position it
@@ -380,7 +554,7 @@ on_row_button_press (GtkWidget      *child,
                      GdkEventButton *event,
                      gpointer        user_data)
 {
-    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
     GdkWindow     *win;
 
     if (event->button != GDK_BUTTON_PRIMARY)
@@ -393,9 +567,15 @@ on_row_button_press (GtkWidget      *child,
                              "x", &self->drag_start_x,
                              "y", &self->drag_start_y, NULL);
 
-    /* A row picked up already sitting in the band starts out snapped, so it
-     * clings rather than tearing off on the first stray pixel of motion. */
-    self->drag_snapped = (self->drag_start_y == panel_band_snap_y (child));
+    /* A row picked up already sitting on a guide starts out snapped to it,
+     * so it clings rather than tearing off on the first stray pixel of
+     * motion.  Resolved lazily on the first motion event, where the guide
+     * lists are built: -1 here just means "not yet stuck". */
+    self->drag_snap_x = -1;
+    self->drag_snap_y = -1;
+    if (self->kind == PN_LAYOUT_EDITOR_PANEL &&
+        self->drag_start_y == panel_band_snap_y (child))
+        self->drag_snap_y = 0;
 
     win = gtk_widget_get_window (child);
     if (win != NULL)
@@ -411,9 +591,10 @@ on_row_motion (GtkWidget      *child,
                GdkEventMotion *event,
                gpointer        user_data)
 {
-    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
     gint           px, py;
     gint           nx, ny;
+    gint           cw, ch;
 
     if (self->drag_child != child)
         return GDK_EVENT_PROPAGATE;
@@ -428,33 +609,54 @@ on_row_motion (GtkWidget      *child,
     nx = px - (gint) self->drag_grab_x;
     ny = py - (gint) self->drag_grab_y;
 
-    nx = CLAMP (nx, 0,
-                MAX (0, gtk_widget_get_allocated_width  (self->canvas)
-                            - gtk_widget_get_allocated_width  (child)));
-    ny = CLAMP (ny, 0,
-                MAX (0, gtk_widget_get_allocated_height (self->canvas)
-                            - gtk_widget_get_allocated_height (child)));
+    cw = gtk_widget_get_allocated_width  (child);
+    ch = gtk_widget_get_allocated_height (child);
 
-    /* Sticky-snap the row's vertical position to the panel band.  @ny still
-     * tracks the pointer, so its distance from the snap line measures how
-     * far the user has pulled: once snapped we hold the row on the line
-     * until that pull exceeds the (larger) break distance, then let go. */
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
     {
-        gint snap_y = panel_band_snap_y (child);
-        gint dist   = ABS (ny - snap_y);
+        /* The window frame is the whole world here: a widget the user
+         * cannot see in the running application is not a placement worth
+         * storing, so the row is confined to the content area. */
+        GdkRectangle fr;
+        gint         gx[3], gy[3];
 
-        if (self->drag_snapped)
-        {
-            if (dist > PN_PE_SNAP_BREAK)
-                self->drag_snapped = FALSE;
-            else
-                ny = snap_y;
-        }
-        else if (dist <= PN_PE_SNAP_GRAB)
-        {
-            self->drag_snapped = TRUE;
-            ny = snap_y;
-        }
+        layout_editor_frame_rect (self, &fr);
+
+        nx = CLAMP (nx, fr.x, MAX (fr.x, fr.x + fr.width  - cw));
+        ny = CLAMP (ny, fr.y, MAX (fr.y, fr.y + fr.height - ch));
+
+        /* Three guides per axis — the two window edges and the centre
+         * line — so rows line up flush or centred without pixel-hunting. */
+        gx[0] = fr.x;
+        gx[1] = fr.x + (fr.width  - cw) / 2;
+        gx[2] = fr.x + fr.width  - cw;
+        gy[0] = fr.y;
+        gy[1] = fr.y + (fr.height - ch) / 2;
+        gy[2] = fr.y + fr.height - ch;
+
+        nx = layout_snap_axis (nx, gx, G_N_ELEMENTS (gx), &self->drag_snap_x);
+        ny = layout_snap_axis (ny, gy, G_N_ELEMENTS (gy), &self->drag_snap_y);
+
+        /* A widget wider or taller than the window puts its far-edge and
+         * centre guides outside the frame; re-clamp so the snap can never
+         * push the row back out of the window. */
+        nx = CLAMP (nx, fr.x, MAX (fr.x, fr.x + fr.width  - cw));
+        ny = CLAMP (ny, fr.y, MAX (fr.y, fr.y + fr.height - ch));
+    }
+    else
+    {
+        /* Panel: free across the whole canvas, with the band as the one
+         * guide.  @ny still tracks the pointer, so its distance from the
+         * band measures how far the user has pulled. */
+        gint gy[1];
+
+        nx = CLAMP (nx, 0,
+                    MAX (0, gtk_widget_get_allocated_width  (self->canvas) - cw));
+        ny = CLAMP (ny, 0,
+                    MAX (0, gtk_widget_get_allocated_height (self->canvas) - ch));
+
+        gy[0] = panel_band_snap_y (child);
+        ny = layout_snap_axis (ny, gy, G_N_ELEMENTS (gy), &self->drag_snap_y);
     }
 
     gtk_fixed_move (GTK_FIXED (self->canvas), child, nx, ny);
@@ -466,7 +668,7 @@ on_row_button_release (GtkWidget      *child,
                        GdkEventButton *event,
                        gpointer        user_data)
 {
-    PnPanelEditor *self = PN_PANEL_EDITOR (user_data);
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
     gint           x, y;
     PnNode        *node;
 
@@ -483,7 +685,7 @@ on_row_button_release (GtkWidget      *child,
                              "x", &x, "y", &y, NULL);
     node = g_object_get_data (G_OBJECT (child), "pn-node");
     if (node != NULL && (x != self->drag_start_x || y != self->drag_start_y))
-        pn_flow_set_panel_position (self->flow, pn_node_get_uuid (node), x, y);
+        layout_editor_store_position (self, node, x, y);
 
     return GDK_EVENT_STOP;
 }
@@ -512,17 +714,37 @@ on_row_realize (GtkWidget *child, gpointer user_data)
 
 /* Initial canvas position for the next readout: cascade down a column,
  * wrapping to the next column once one fills, so a fresh editor lays the
- * existing nodes out tidily before the user rearranges them. */
+ * existing nodes out tidily before the user rearranges them.  The cascade
+ * starts at the surface's origin and stays inside it, so desktop widgets
+ * land in the window rather than beside it. */
 static void
-panel_editor_next_position (PnPanelEditor *self, gint *out_x, gint *out_y)
+layout_editor_next_position (PnLayoutEditor *self, gint *out_x, gint *out_y)
 {
-    const gint margin  = 24;
-    const gint step_y  = PN_PE_PREVIEW_HEIGHT + 28;
+    const gint step_y  = layout_editor_widget_height (self) + 28;
     const gint step_x  = 170;
-    gint       per_col = MAX (1, (PN_PE_CANVAS_HEIGHT - margin) / step_y);
+    gint       ox, oy;
+    gint       height  = PN_LE_CANVAS_HEIGHT;
+    gint       per_col;
 
-    *out_x = margin + (self->cascade / per_col) * step_x;
-    *out_y = margin + (self->cascade % per_col) * step_y;
+    layout_editor_origin (self, &ox, &oy);
+
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+    {
+        GdkRectangle fr;
+        layout_editor_frame_rect (self, &fr);
+        height = fr.height;
+    }
+    else
+    {
+        /* The panel cascade historically began at the band's own top. */
+        ox = oy = 24;
+        height -= 24;
+    }
+
+    per_col = MAX (1, height / step_y);
+
+    *out_x = ox + (self->cascade / per_col) * step_x;
+    *out_y = oy + (self->cascade % per_col) * step_y;
 }
 
 /* Build the panel widget that mirrors @node, or %NULL when @node is not a
@@ -532,7 +754,7 @@ panel_editor_next_position (PnPanelEditor *self, gint *out_x, gint *out_y)
  * destroying the row when the node goes away also severs the connection —
  * no manual handler bookkeeping, no dangling callbacks. */
 static GtkWidget *
-panel_editor_build_widget (PnNode *node)
+layout_editor_build_widget (PnNode *node, gint height)
 {
     if (PN_IS_COUNTDOWN (node))
     {
@@ -540,9 +762,9 @@ panel_editor_build_widget (PnNode *node)
          * canvas shows through behind it just as the panel does. */
         GtkWidget *led = pn_led_display_new ();
 
-        pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
+        pn_led_display_set_height (PN_LED_DISPLAY (led), height);
 
-        panel_editor_sync_countdown (node, PN_LED_DISPLAY (led));
+        layout_editor_sync_countdown (node, PN_LED_DISPLAY (led));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_countdown_repaint_needed),
                                  led, 0);
@@ -555,9 +777,9 @@ panel_editor_build_widget (PnNode *node)
          * canvas shows through behind it just as the panel does. */
         GtkWidget *led = pn_led_display_new ();
 
-        pn_led_display_set_height (PN_LED_DISPLAY (led), PN_PE_PREVIEW_HEIGHT);
+        pn_led_display_set_height (PN_LED_DISPLAY (led), height);
 
-        panel_editor_sync_digital_clock (node, PN_LED_DISPLAY (led));
+        layout_editor_sync_digital_clock (node, PN_LED_DISPLAY (led));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_digital_clock_repaint_needed),
                                  led, 0);
@@ -570,10 +792,9 @@ panel_editor_build_widget (PnNode *node)
          * canvas shows through behind it just as the panel does. */
         GtkWidget *text = pn_text_display_new ();
 
-        pn_text_display_set_height (PN_TEXT_DISPLAY (text),
-                                    PN_PE_PREVIEW_HEIGHT);
+        pn_text_display_set_height (PN_TEXT_DISPLAY (text), height);
 
-        panel_editor_sync_label (node, PN_TEXT_DISPLAY (text));
+        layout_editor_sync_label (node, PN_TEXT_DISPLAY (text));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_label_repaint_needed),
                                  text, 0);
@@ -586,10 +807,9 @@ panel_editor_build_widget (PnNode *node)
          * canvas shows through behind it just as the panel does. */
         GtkWidget *display = pn_matrix57_display_new ();
 
-        pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (display),
-                                        PN_PE_PREVIEW_HEIGHT);
+        pn_matrix57_display_set_height (PN_MATRIX57_DISPLAY (display), height);
 
-        panel_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (display));
+        layout_editor_sync_matrix57 (node, PN_MATRIX57_DISPLAY (display));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_matrix57_repaint_needed),
                                  display, 0);
@@ -603,10 +823,9 @@ panel_editor_build_widget (PnNode *node)
          * row. */
         GtkWidget *display = pn_numeric_display_new ();
 
-        pn_numeric_display_set_height (PN_NUMERIC_DISPLAY (display),
-                                       PN_PE_PREVIEW_HEIGHT);
+        pn_numeric_display_set_height (PN_NUMERIC_DISPLAY (display), height);
 
-        panel_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (display));
+        layout_editor_sync_numeric (node, PN_NUMERIC_DISPLAY (display));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_numeric_repaint_needed),
                                  display, 0);
@@ -617,9 +836,9 @@ panel_editor_build_widget (PnNode *node)
     {
         GtkWidget *lamp = pn_led_lamp_new ();
 
-        pn_led_lamp_set_size (PN_LED_LAMP (lamp), PN_PE_PREVIEW_HEIGHT);
+        pn_led_lamp_set_size (PN_LED_LAMP (lamp), height);
 
-        panel_editor_sync_led (node, PN_LED_LAMP (lamp));
+        layout_editor_sync_led (node, PN_LED_LAMP (lamp));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_led_repaint_needed),
                                  lamp, 0);
@@ -634,10 +853,9 @@ panel_editor_build_widget (PnNode *node)
          * state.  The applet is where the toggle becomes clickable. */
         GtkWidget *toggle = pn_switch_widget_new ();
 
-        pn_switch_widget_set_height (PN_SWITCH_WIDGET (toggle),
-                                     PN_PE_PREVIEW_HEIGHT);
+        pn_switch_widget_set_height (PN_SWITCH_WIDGET (toggle), height);
 
-        panel_editor_sync_switch (node, PN_SWITCH_WIDGET (toggle));
+        layout_editor_sync_switch (node, PN_SWITCH_WIDGET (toggle));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_switch_repaint_needed),
                                  toggle, 0);
@@ -652,10 +870,9 @@ panel_editor_build_widget (PnNode *node)
          * button becomes clickable. */
         GtkWidget *button = pn_injector_widget_new ();
 
-        pn_injector_widget_set_height (PN_INJECTOR_WIDGET (button),
-                                       PN_PE_PREVIEW_HEIGHT);
+        pn_injector_widget_set_height (PN_INJECTOR_WIDGET (button), height);
 
-        panel_editor_sync_injector (node, PN_INJECTOR_WIDGET (button));
+        layout_editor_sync_injector (node, PN_INJECTOR_WIDGET (button));
         g_signal_connect_object (node, "repaint-needed",
                                  G_CALLBACK (on_injector_repaint_needed),
                                  button, 0);
@@ -668,7 +885,7 @@ panel_editor_build_widget (PnNode *node)
 /* Create the panel widget for @node when it is a kind we represent and are
  * not already tracking. */
 static void
-panel_editor_add_node (PnPanelEditor *self, PnNode *node)
+layout_editor_add_node (PnLayoutEditor *self, PnNode *node)
 {
     GtkWidget *handle;
     GtkWidget *widget;
@@ -677,7 +894,8 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
     if (g_hash_table_contains (self->rows, node))
         return;
 
-    widget = panel_editor_build_widget (node);
+    widget = layout_editor_build_widget (node,
+                                        layout_editor_widget_height (self));
     if (widget == NULL)
         return;
 
@@ -691,7 +909,7 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
 
     /* The drag/release handlers recover the node from the handle to key
      * its saved position; the store owns the node and the handle never
-     * outlives it (panel_editor_remove_node destroys the handle), so a
+     * outlives it (layout_editor_remove_node destroys the handle), so a
      * borrowed pointer is safe. */
     g_object_set_data (G_OBJECT (handle), "pn-node", node);
 
@@ -706,30 +924,19 @@ panel_editor_add_node (PnPanelEditor *self, PnNode *node)
 
     /* Prefer a position saved in the document; otherwise fall back to the
      * cascade so a never-arranged node still lands somewhere sensible. */
-    {
-        gdouble sx, sy;
-        if (pn_flow_get_panel_position (self->flow,
-                                        pn_node_get_uuid (node), &sx, &sy))
-        {
-            x = (gint) sx;
-            y = (gint) sy;
-        }
-        else
-        {
-            panel_editor_next_position (self, &x, &y);
-        }
-    }
+    if (!layout_editor_load_position (self, node, &x, &y))
+        layout_editor_next_position (self, &x, &y);
     gtk_fixed_put (GTK_FIXED (self->canvas), handle, x, y);
     gtk_widget_show_all (handle);
     self->cascade++;
 
     g_hash_table_insert (self->rows, node, handle);
-    panel_editor_update_empty_state (self);
+    layout_editor_update_empty_state (self);
 }
 
 /* Destroy the readout for @node, if we have one. */
 static void
-panel_editor_remove_node (PnPanelEditor *self, PnNode *node)
+layout_editor_remove_node (PnLayoutEditor *self, PnNode *node)
 {
     GtkWidget *handle = g_hash_table_lookup (self->rows, node);
 
@@ -744,7 +951,7 @@ panel_editor_remove_node (PnPanelEditor *self, PnNode *node)
      * auto-disconnects the node's repaint-needed handler. */
     gtk_widget_destroy (handle);
     g_hash_table_remove (self->rows, node);
-    panel_editor_update_empty_state (self);
+    layout_editor_update_empty_state (self);
 }
 
 /* The store's node-added / node-removed both carry (node, index); we use
@@ -756,7 +963,7 @@ on_store_node_added (PnNodeStore *store,
                      gpointer     user_data)
 {
     (void) store; (void) index;
-    panel_editor_add_node (PN_PANEL_EDITOR (user_data), node);
+    layout_editor_add_node (PN_LAYOUT_EDITOR (user_data), node);
 }
 
 static void
@@ -766,20 +973,19 @@ on_store_node_removed (PnNodeStore *store,
                        gpointer     user_data)
 {
     (void) store; (void) index;
-    panel_editor_remove_node (PN_PANEL_EDITOR (user_data), node);
+    layout_editor_remove_node (PN_LAYOUT_EDITOR (user_data), node);
 }
 
-/* Bind the editor to @flow: keep a reference, subscribe to the node
- * store, and build a readout for every countdown node already present so
- * a freshly-created editor immediately mirrors the whole flow. */
+/* Subscribe to the flow's node store and build a widget for every
+ * representable node already present, so a freshly-created editor
+ * immediately mirrors the whole flow.  The flow reference itself is taken
+ * earlier, in pn_layout_editor_new: the widget tree built before this
+ * already reads the document's desktop-window settings. */
 static void
-panel_editor_attach_flow (PnPanelEditor *self, PnFlow *flow)
+layout_editor_attach_flow (PnLayoutEditor *self)
 {
     guint n;
     guint i;
-
-    self->flow  = g_object_ref (flow);
-    self->nodes = pn_flow_get_nodes (flow);
 
     g_signal_connect (self->nodes, "node-added",
                       G_CALLBACK (on_store_node_added), self);
@@ -788,13 +994,13 @@ panel_editor_attach_flow (PnPanelEditor *self, PnFlow *flow)
 
     n = pn_node_store_get_length (self->nodes);
     for (i = 0; i < n; i++)
-        panel_editor_add_node (self, pn_node_store_get_node (self->nodes, i));
+        layout_editor_add_node (self, pn_node_store_get_node (self->nodes, i));
 }
 
 static void
-pn_panel_editor_dispose (GObject *object)
+pn_layout_editor_dispose (GObject *object)
 {
-    PnPanelEditor *self = PN_PANEL_EDITOR (object);
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (object);
 
     /* Drop the store subscriptions before the flow reference goes; the
      * per-node repaint handlers fall away on their own as the readouts
@@ -803,19 +1009,19 @@ pn_panel_editor_dispose (GObject *object)
         g_signal_handlers_disconnect_by_data (self->nodes, self);
     self->nodes = NULL;
 
+    if (self->flow != NULL)
+        g_signal_handlers_disconnect_by_data (self->flow, self);
     g_clear_object (&self->flow);
     g_clear_pointer (&self->rows, g_hash_table_unref);
 
-    G_OBJECT_CLASS (pn_panel_editor_parent_class)->dispose (object);
+    G_OBJECT_CLASS (pn_layout_editor_parent_class)->dispose (object);
 }
 
 /* Paint the panel band behind the readouts: two thin dashed horizontal
  * lines spanning the canvas, marking the top and bottom edges of the strip
- * that stands in for the real XFCE panel.  Connected without _after so it
- * runs before GtkFixed propagates the draw to its children, leaving the
- * readouts on top of the guide. */
-static gboolean
-on_canvas_draw (GtkWidget *canvas, cairo_t *cr, gpointer user_data)
+ * that stands in for the real XFCE panel. */
+static void
+draw_panel_band (GtkWidget *canvas, cairo_t *cr)
 {
     static const double dashes[] = { 6.0, 4.0 };
     int    width  = gtk_widget_get_allocated_width (canvas);
@@ -823,9 +1029,6 @@ on_canvas_draw (GtkWidget *canvas, cairo_t *cr, gpointer user_data)
     double top    = PN_PE_PANEL_TOP + 0.5;
     double bottom = PN_PE_PANEL_TOP + PN_PE_PANEL_HEIGHT + 0.5;
 
-    (void) user_data;
-
-    cairo_save (cr);
     cairo_set_line_width (cr, 1.0);
     cairo_set_dash (cr, dashes, G_N_ELEMENTS (dashes), 0.0);
     cairo_set_source_rgba (cr, 0.8, 0.0, 0.0, 0.8);
@@ -835,28 +1038,215 @@ on_canvas_draw (GtkWidget *canvas, cairo_t *cr, gpointer user_data)
     cairo_move_to (cr, 0.0,    bottom);
     cairo_line_to (cr, width,  bottom);
     cairo_stroke (cr);
+}
+
+/* Paint the desktop window the widgets will be shown in: the content
+ * rectangle the layout is arranged inside, with a mock title bar drawn
+ * just above it (outside the rectangle, so the framed area stays exactly
+ * the content area a stored placement is relative to). */
+static void
+draw_desktop_frame (PnLayoutEditor *self, cairo_t *cr)
+{
+    GdkRectangle fr;
+    const gchar *title;
+    double       bar_y;
+
+    layout_editor_frame_rect (self, &fr);
+    bar_y = fr.y - PN_LE_TITLEBAR_H;
+
+    /* Content area: a faint wash so the window reads as a surface without
+     * fighting the widgets drawn on top of it in either theme. */
+    cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 0.10);
+    cairo_rectangle (cr, fr.x, fr.y, fr.width, fr.height);
+    cairo_fill (cr);
+
+    /* Title bar. */
+    cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 0.28);
+    cairo_rectangle (cr, fr.x, bar_y, fr.width, PN_LE_TITLEBAR_H);
+    cairo_fill (cr);
+
+    title = pn_flow_get_desktop_title (self->flow);
+    if (title == NULL || *title == '\0')
+        title = "Untitled window";
+
+    cairo_save (cr);
+    cairo_rectangle (cr, fr.x, bar_y, fr.width, PN_LE_TITLEBAR_H);
+    cairo_clip (cr);
+    cairo_set_source_rgba (cr, 0.35, 0.35, 0.35, 0.95);
+    cairo_select_font_face (cr, "Sans",
+                            CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size (cr, 12.0);
+    cairo_move_to (cr, fr.x + 8, bar_y + PN_LE_TITLEBAR_H - 7);
+    cairo_show_text (cr, title);
+    cairo_restore (cr);
+
+    /* Outline last, so it sits crisply over both fills.  +0.5 puts the
+     * 1px stroke on the pixel grid. */
+    cairo_set_line_width (cr, 1.0);
+    cairo_set_source_rgba (cr, 0.45, 0.45, 0.45, 0.9);
+    cairo_rectangle (cr, fr.x + 0.5, bar_y + 0.5,
+                     fr.width - 1.0, PN_LE_TITLEBAR_H + fr.height - 1.0);
+    cairo_move_to (cr, fr.x + 0.5,            fr.y + 0.5);
+    cairo_line_to (cr, fr.x + fr.width - 0.5, fr.y + 0.5);
+    cairo_stroke (cr);
+}
+
+/* Draw the guide the widgets are arranged against.  Connected without
+ * _after so it runs before GtkFixed propagates the draw to its children,
+ * leaving the widgets on top of the guide. */
+static gboolean
+on_canvas_draw (GtkWidget *canvas, cairo_t *cr, gpointer user_data)
+{
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
+
+    cairo_save (cr);
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+        draw_desktop_frame (self, cr);
+    else
+        draw_panel_band (canvas, cr);
     cairo_restore (cr);
 
     return GDK_EVENT_PROPAGATE; /* let GtkFixed paint the readouts */
 }
 
 static void
-pn_panel_editor_class_init (PnPanelEditorClass *klass)
+pn_layout_editor_class_init (PnLayoutEditorClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
-    object_class->dispose = pn_panel_editor_dispose;
+    object_class->dispose = pn_layout_editor_dispose;
 }
 
+/* The desktop window's title entry changed — push it onto the document.
+ * The canvas repaints because the flow's desktop-layout-changed handler
+ * runs in turn, so the mock title bar follows every keystroke. */
 static void
-pn_panel_editor_init (PnPanelEditor *self)
+on_title_entry_changed (GtkEditable *entry, gpointer user_data)
 {
-    self->rows = g_hash_table_new (g_direct_hash, g_direct_equal);
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
 
-    gtk_orientable_set_orientation (GTK_ORIENTABLE (self),
-                                    GTK_ORIENTATION_VERTICAL);
-    gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
-    gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
+    pn_flow_set_desktop_title (self->flow,
+                               gtk_entry_get_text (GTK_ENTRY (entry)));
+}
+
+/* Either window-size spin changed — push both onto the document. */
+static void
+on_size_spin_changed (GtkSpinButton *spin, gpointer user_data)
+{
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
+
+    (void) spin;
+    pn_flow_set_desktop_window (
+            self->flow,
+            gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->width_spin)),
+            gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->height_spin)));
+}
+
+/* The document's desktop layout changed — a placement moved, or the window
+ * was resized or retitled, from here or from a load or an undo.  Bring the
+ * controls and the canvas back into line.  Each control is only written
+ * when it actually differs, so echoing our own edit back cannot fight the
+ * user's cursor or start a signal loop. */
+static void
+on_flow_desktop_layout_changed (PnFlow *flow, gpointer user_data)
+{
+    PnLayoutEditor *self = PN_LAYOUT_EDITOR (user_data);
+    const gchar    *title;
+    gint            w, h;
+
+    (void) flow;
+
+    title = pn_flow_get_desktop_title (self->flow);
+    if (g_strcmp0 (gtk_entry_get_text (GTK_ENTRY (self->title_entry)),
+                   title) != 0)
+        gtk_entry_set_text (GTK_ENTRY (self->title_entry), title);
+
+    pn_flow_get_desktop_window (self->flow, &w, &h);
+    if (gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->width_spin)) != w)
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->width_spin), w);
+    if (gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (self->height_spin)) != h)
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->height_spin), h);
+
+    layout_editor_update_canvas_size (self);
+    gtk_widget_queue_draw (self->canvas);
+}
+
+/* Build the desktop kind's window-properties bar: the title the
+ * application will give its window, and the size the layout is arranged
+ * for.  Packed above the canvas; the panel kind has no equivalent (its
+ * geometry is the real panel's, not the user's to choose). */
+static GtkWidget *
+layout_editor_build_window_bar (PnLayoutEditor *self)
+{
+    GtkWidget *bar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *label;
+    gint       w, h;
+
+    pn_flow_get_desktop_window (self->flow, &w, &h);
+
+    gtk_widget_set_margin_start  (bar, 8);
+    gtk_widget_set_margin_end    (bar, 8);
+    gtk_widget_set_margin_top    (bar, 6);
+    gtk_widget_set_margin_bottom (bar, 6);
+
+    label = gtk_label_new ("Window title");
+    gtk_box_pack_start (GTK_BOX (bar), label, FALSE, FALSE, 0);
+
+    self->title_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->title_entry),
+                                    "(document name)");
+    gtk_entry_set_text (GTK_ENTRY (self->title_entry),
+                        pn_flow_get_desktop_title (self->flow));
+    gtk_widget_set_tooltip_text (
+            self->title_entry,
+            "Title the desktop application gives its window; "
+            "left empty it uses the document's own name");
+    g_signal_connect (self->title_entry, "changed",
+                      G_CALLBACK (on_title_entry_changed), self);
+    gtk_box_pack_start (GTK_BOX (bar), self->title_entry, TRUE, TRUE, 0);
+
+    label = gtk_label_new ("Size");
+    gtk_box_pack_start (GTK_BOX (bar), label, FALSE, FALSE, 6);
+
+    self->width_spin = gtk_spin_button_new_with_range (PN_DE_WINDOW_MIN_WIDTH,
+                                                       PN_DE_WINDOW_MAX_WIDTH,
+                                                       10);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->width_spin), w);
+    gtk_widget_set_tooltip_text (self->width_spin, "Window width in pixels");
+    g_signal_connect (self->width_spin, "value-changed",
+                      G_CALLBACK (on_size_spin_changed), self);
+    gtk_box_pack_start (GTK_BOX (bar), self->width_spin, FALSE, FALSE, 0);
+
+    label = gtk_label_new ("\303\227");     /* multiplication sign */
+    gtk_box_pack_start (GTK_BOX (bar), label, FALSE, FALSE, 0);
+
+    self->height_spin = gtk_spin_button_new_with_range (PN_DE_WINDOW_MIN_HEIGHT,
+                                                        PN_DE_WINDOW_MAX_HEIGHT,
+                                                        10);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (self->height_spin), h);
+    gtk_widget_set_tooltip_text (self->height_spin, "Window height in pixels");
+    g_signal_connect (self->height_spin, "value-changed",
+                      G_CALLBACK (on_size_spin_changed), self);
+    gtk_box_pack_start (GTK_BOX (bar), self->height_spin, FALSE, FALSE, 0);
+
+    return bar;
+}
+
+/* Assemble the editor's widget tree.  Deferred out of init() because it
+ * needs both the kind and the flow, neither of which exists until
+ * pn_layout_editor_new() has set them. */
+static void
+layout_editor_build_ui (PnLayoutEditor *self)
+{
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+    {
+        GtkWidget *bar = layout_editor_build_window_bar (self);
+
+        gtk_box_pack_start (GTK_BOX (self), bar, FALSE, FALSE, 0);
+        gtk_box_pack_start (GTK_BOX (self),
+                            gtk_separator_new (GTK_ORIENTATION_HORIZONTAL),
+                            FALSE, FALSE, 0);
+    }
 
     /* The free-positioning canvas the readouts are dragged around on.  A
      * size request gives the host's scrolled window a generous area to
@@ -864,36 +1254,62 @@ pn_panel_editor_init (PnPanelEditor *self)
      * canvas and the empty hint opt out of show_all so the host's
      * gtk_widget_show_all on the tab cannot override the explicit
      * visibility we toggle between them in
-     * panel_editor_update_empty_state. */
+     * layout_editor_update_empty_state. */
     self->canvas = gtk_fixed_new ();
-    gtk_widget_set_size_request (self->canvas,
-                                 PN_PE_CANVAS_WIDTH, PN_PE_CANVAS_HEIGHT);
     gtk_widget_set_no_show_all (self->canvas, TRUE);
     g_signal_connect (self->canvas, "draw",
-                      G_CALLBACK (on_canvas_draw), NULL);
+                      G_CALLBACK (on_canvas_draw), self);
     gtk_box_pack_start (GTK_BOX (self), self->canvas, TRUE, TRUE, 0);
+    layout_editor_update_canvas_size (self);
 
     self->empty_label = gtk_label_new (NULL);
     gtk_label_set_markup (
             GTK_LABEL (self->empty_label),
-            "<span foreground='#888888'>"
-            "No panel widgets yet — add a Countdown, Digital Clock or "
-            "LED node to a worksheet</span>");
+            self->kind == PN_LAYOUT_EDITOR_DESKTOP
+                ? "<span foreground='#888888'>"
+                  "No widgets yet — add a Countdown, Digital Clock, Label, "
+                  "Numeric, LED or Switch node to a worksheet</span>"
+                : "<span foreground='#888888'>"
+                  "No panel widgets yet — add a Countdown, Digital Clock or "
+                  "LED node to a worksheet</span>");
     gtk_widget_set_no_show_all (self->empty_label, TRUE);
     gtk_box_pack_start (GTK_BOX (self), self->empty_label, TRUE, FALSE, 0);
 
     /* Start in the empty state; attach_flow flips it as rows appear. */
-    panel_editor_update_empty_state (self);
+    layout_editor_update_empty_state (self);
+
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+        g_signal_connect (self->flow, "desktop-layout-changed",
+                          G_CALLBACK (on_flow_desktop_layout_changed), self);
+}
+
+static void
+pn_layout_editor_init (PnLayoutEditor *self)
+{
+    self->rows = g_hash_table_new (g_direct_hash, g_direct_equal);
+
+    gtk_orientable_set_orientation (GTK_ORIENTABLE (self),
+                                    GTK_ORIENTATION_VERTICAL);
+    gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
+    gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
 }
 
 GtkWidget *
-pn_panel_editor_new (PnFlow *flow)
+pn_layout_editor_new (PnFlow *flow, PnLayoutEditorKind kind)
 {
-    PnPanelEditor *self;
+    PnLayoutEditor *self;
 
     g_return_val_if_fail (PN_IS_FLOW (flow), NULL);
 
-    self = g_object_new (PN_TYPE_PANEL_EDITOR, NULL);
-    panel_editor_attach_flow (self, flow);
+    self = g_object_new (PN_TYPE_LAYOUT_EDITOR, NULL);
+    self->kind = kind;
+
+    /* Order matters: the flow reference and the widget tree must both
+     * exist before attach_flow starts creating rows for existing nodes. */
+    self->flow  = g_object_ref (flow);
+    self->nodes = pn_flow_get_nodes (flow);
+    layout_editor_build_ui (self);
+    layout_editor_attach_flow (self);
+
     return GTK_WIDGET (self);
 }

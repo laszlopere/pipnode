@@ -21,7 +21,7 @@
 #include "pn-devices-menu.h"
 #include "pn-help-browser.h"
 #include "pn-palette.h"
-#include "pn-panel-editor.h"
+#include "pn-layout-editor.h"
 #include "pn-preferences.h"
 #include "pn-preferences-dialog.h"
 #include "pn-document-settings-dialog.h"
@@ -72,14 +72,17 @@ struct _PnWindow
     GtkWidget   *automation_badge;
     guint        automation_hide_source;
 
-    /* The single panel-applet GUI layout editor tab, or %NULL when none
-     * is open.  Unlike the worksheet tabs this page is not backed by a
-     * #PnFlow sheet — it is a standalone #PnPanelEditor the window owns
-     * directly — so the sheet-list signals leave it untouched and the
-     * pointer is the one-instance guard: the "+" tab menu greys out its
-     * "Add Panel Applet Layout" entry while it is non-%NULL, and the
-     * tab's close button clears it so a fresh one can be created. */
+    /* The single panel-applet GUI layout editor tab, and the single
+     * desktop layout editor tab, or %NULL when that one is not open.
+     * Unlike the worksheet tabs these pages are not backed by a #PnFlow
+     * sheet — each is a standalone #PnLayoutEditor the window owns
+     * directly — so the sheet-list signals leave them untouched and the
+     * pointers are the one-instance guards: the "+" tab menu greys out
+     * "Add Panel Applet Layout" / "Add Desktop Layout" while the matching
+     * pointer is non-%NULL, and each tab's close button clears it so a
+     * fresh one can be created. */
     GtkWidget   *panel_editor_page;
+    GtkWidget   *desktop_editor_page;
 
     GtkWidget *menu_save;
     GtkWidget *menu_undo;
@@ -233,6 +236,14 @@ static void       on_add_panel_editor_activate  (GtkMenuItem *item,
                                                  gpointer     user_data);
 static void       pn_window_add_panel_editor_tab (PnWindow   *self);
 static void       on_panel_editor_close_clicked (GtkButton   *button,
+                                                 gpointer     user_data);
+static void       on_add_desktop_editor_activate (GtkMenuItem *item,
+                                                 gpointer     user_data);
+static void       pn_window_add_desktop_editor_tab (PnWindow  *self);
+static void       on_desktop_editor_close_clicked (GtkButton  *button,
+                                                 gpointer     user_data);
+static void       on_flow_desktop_editor_visible (PnFlow      *flow,
+                                                 gboolean     open,
                                                  gpointer     user_data);
 static gboolean   on_tab_label_button_press     (GtkWidget   *event_box,
                                                  GdkEventButton *event,
@@ -3769,10 +3780,11 @@ on_new_sheet_clicked (GtkButton *button, gpointer user_data)
 }
 
 /* The trailing "+" tab button opens a small menu rather than acting
- * directly, so the user can add either a node-flow sheet or the single
- * panel-applet GUI layout editor.  The menu is rebuilt on every click,
- * which lets the panel entry reflect the live one-instance state without
- * the window having to hold onto a menu-item handle. */
+ * directly, so the user can add either a node-flow sheet or one of the
+ * single-instance GUI layout editors (panel applet, desktop window).  The
+ * menu is rebuilt on every click, which lets those entries reflect the
+ * live one-instance state without the window having to hold onto
+ * menu-item handles. */
 static void
 on_add_tab_button_clicked (GtkButton *button, gpointer user_data)
 {
@@ -3780,6 +3792,7 @@ on_add_tab_button_clicked (GtkButton *button, gpointer user_data)
     GtkWidget *menu;
     GtkWidget *sheet_item;
     GtkWidget *panel_item;
+    GtkWidget *desktop_item;
 
     menu = gtk_menu_new ();
 
@@ -3796,6 +3809,13 @@ on_add_tab_button_clicked (GtkButton *button, gpointer user_data)
     g_signal_connect (panel_item, "activate",
                       G_CALLBACK (on_add_panel_editor_activate), self);
     gtk_menu_shell_append (GTK_MENU_SHELL (menu), panel_item);
+
+    desktop_item = gtk_menu_item_new_with_mnemonic ("Add _Desktop Layout");
+    /* Same one-instance rule as the panel entry above. */
+    gtk_widget_set_sensitive (desktop_item, self->desktop_editor_page == NULL);
+    g_signal_connect (desktop_item, "activate",
+                      G_CALLBACK (on_add_desktop_editor_activate), self);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), desktop_item);
 
     gtk_widget_show_all (menu);
     gtk_menu_popup_at_widget (GTK_MENU (menu),
@@ -3834,7 +3854,7 @@ on_panel_editor_close_clicked (GtkButton *button, gpointer user_data)
 
 /* Append (or, if one somehow already exists, just reveal) the single
  * panel-applet GUI layout editor tab.  The page is a scrolled window
- * wrapping a #PnPanelEditor; its tab label carries a close button. */
+ * wrapping a #PnLayoutEditor; its tab label carries a close button. */
 static void
 pn_window_add_panel_editor_tab (PnWindow *self)
 {
@@ -3859,7 +3879,8 @@ pn_window_add_panel_editor_tab (PnWindow *self)
             GTK_SCROLLED_WINDOW (scrolled),
             GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 
-    editor = pn_panel_editor_new (self->flow);
+    editor = pn_layout_editor_new (self->flow,
+                                   PN_LAYOUT_EDITOR_PANEL);
     gtk_container_add (GTK_CONTAINER (scrolled), editor);
 
     /* Tab label: a title plus a close button, so the user can dismiss
@@ -3924,6 +3945,118 @@ on_flow_panel_editor_visible (PnFlow   *flow,
         pn_window_add_panel_editor_tab (self);
     else
         pn_window_remove_panel_editor_tab (self);
+}
+
+static void
+on_add_desktop_editor_activate (GtkMenuItem *item, gpointer user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) item;
+
+    /* Same path as the panel entry: record the request on the document
+     * and let the flow's visibility signal create the tab. */
+    pn_flow_set_desktop_editor_open (self->flow, TRUE);
+}
+
+/* Close handler for the desktop layout tab's "✕" button. */
+static void
+on_desktop_editor_close_clicked (GtkButton *button, gpointer user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) button;
+
+    pn_flow_set_desktop_editor_open (self->flow, FALSE);
+    status_set (self, "Closed desktop layout");
+}
+
+/* Append (or, if one somehow already exists, just reveal) the single
+ * desktop layout editor tab — the panel tab's twin, laying widgets out
+ * inside the window the desktop application will show them in. */
+static void
+pn_window_add_desktop_editor_tab (PnWindow *self)
+{
+    GtkWidget *scrolled;
+    GtkWidget *editor;
+    GtkWidget *label_box;
+    GtkWidget *label;
+    GtkWidget *close_btn;
+    gint       index;
+
+    if (self->desktop_editor_page != NULL)
+    {
+        gtk_notebook_set_current_page (
+                GTK_NOTEBOOK (self->notebook),
+                gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
+                                       self->desktop_editor_page));
+        return;
+    }
+
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (
+            GTK_SCROLLED_WINDOW (scrolled),
+            GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+
+    editor = pn_layout_editor_new (self->flow, PN_LAYOUT_EDITOR_DESKTOP);
+    gtk_container_add (GTK_CONTAINER (scrolled), editor);
+
+    label_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
+    label = gtk_label_new ("Desktop Layout");
+    gtk_box_pack_start (GTK_BOX (label_box), label, FALSE, FALSE, 0);
+
+    close_btn = gtk_button_new_from_icon_name ("window-close-symbolic",
+                                               GTK_ICON_SIZE_MENU);
+    gtk_button_set_relief (GTK_BUTTON (close_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_focus_on_click (close_btn, FALSE);
+    gtk_widget_set_tooltip_text (close_btn, "Close the desktop layout");
+    g_signal_connect (close_btn, "clicked",
+                      G_CALLBACK (on_desktop_editor_close_clicked), self);
+    gtk_box_pack_start (GTK_BOX (label_box), close_btn, FALSE, FALSE, 0);
+    gtk_widget_show_all (label_box);
+
+    index = gtk_notebook_append_page (GTK_NOTEBOOK (self->notebook),
+                                      scrolled, label_box);
+    gtk_notebook_set_tab_reorderable (GTK_NOTEBOOK (self->notebook),
+                                      scrolled, TRUE);
+
+    self->desktop_editor_page = scrolled;
+
+    gtk_widget_show_all (scrolled);
+    gtk_notebook_set_current_page (GTK_NOTEBOOK (self->notebook), index);
+    status_set (self, "Added desktop layout");
+}
+
+/* Drop the desktop layout tab, if present, and clear the one-instance
+ * guard so the "+" menu offers the entry again. */
+static void
+pn_window_remove_desktop_editor_tab (PnWindow *self)
+{
+    gint idx;
+
+    if (self->desktop_editor_page == NULL)
+        return;
+
+    idx = gtk_notebook_page_num (GTK_NOTEBOOK (self->notebook),
+                                 self->desktop_editor_page);
+    if (idx >= 0)
+        gtk_notebook_remove_page (GTK_NOTEBOOK (self->notebook), idx);
+    self->desktop_editor_page = NULL;
+}
+
+/* The flow's desktop-editor open state changed (user action, load, or
+ * clear): bring the notebook tab into line with the document, exactly as
+ * the panel handler above does for its own tab. */
+static void
+on_flow_desktop_editor_visible (PnFlow   *flow,
+                                gboolean  open,
+                                gpointer  user_data)
+{
+    PnWindow *self = PN_WINDOW (user_data);
+    (void) flow;
+
+    if (open)
+        pn_window_add_desktop_editor_tab (self);
+    else
+        pn_window_remove_desktop_editor_tab (self);
 }
 
 static void
@@ -4451,7 +4584,7 @@ pn_window_constructed (GObject *object)
     new_sheet_btn = gtk_button_new_from_icon_name (
             "list-add-symbolic", GTK_ICON_SIZE_MENU);
     gtk_widget_set_tooltip_text (new_sheet_btn,
-                                 "Add a sheet or panel applet layout");
+                                 "Add a sheet or a GUI layout");
     gtk_button_set_relief       (GTK_BUTTON (new_sheet_btn), GTK_RELIEF_NONE);
     g_signal_connect (new_sheet_btn, "clicked",
                       G_CALLBACK (on_add_tab_button_clicked), self);
@@ -4489,6 +4622,8 @@ pn_window_constructed (GObject *object)
                       G_CALLBACK (on_flow_modified_changed), self);
     g_signal_connect (self->flow, "panel-editor-visible-changed",
                       G_CALLBACK (on_flow_panel_editor_visible), self);
+    g_signal_connect (self->flow, "desktop-editor-visible-changed",
+                      G_CALLBACK (on_flow_desktop_editor_visible), self);
 
     /* Keep Undo/Redo enablement in step with the document history (the
      * same history object survives File→New/Open, which only clear it). */

@@ -210,8 +210,9 @@ void         pn_flow_subst_resolver_globals (PnSubstResolver *r,
 /* --- Panel-applet layout -------------------------------------------
  *
  * Per-node placement for the panel-applet GUI layout editor
- * (#PnPanelEditor): a node UUID -> (x, y) on that editor's canvas,
- * saved into the document so a hand-arranged layout survives reload.
+ * (#PnLayoutEditor in its PANEL kind): a node UUID -> (x, y) on that
+ * editor's canvas, saved into the document so a hand-arranged layout
+ * survives reload.
  * Document-scoped like the globals above, but deliberately separate:
  * this is widget geometry, not user data, so it stays out of the
  * Document Settings dialog.  Only nodes that have actually been placed
@@ -282,6 +283,135 @@ gboolean     pn_flow_get_panel_editor_open (PnFlow *self);
  * editor the way it was saved).
  */
 void         pn_flow_set_panel_editor_open (PnFlow *self, gboolean open);
+
+/* --- Desktop-application layout -------------------------------------
+ *
+ * The desktop counterpart of the panel layout above: a node UUID ->
+ * (x, y) placement inside a plain application window, plus that window's
+ * size and title.  Saved into the document so the desktop application
+ * (a simple window that just shows the laid-out widgets) can reproduce
+ * the arrangement, and so the editor restores it on reload.
+ *
+ * The two layouts are deliberately independent maps: the same node may
+ * sit at one place on the panel band and at quite another inside the
+ * desktop window, and a node may appear in one layout and not the other.
+ * Coordinates here are WINDOW-RELATIVE — (0, 0) is the top-left of the
+ * window's content area (see pn-desktop-geometry.h).
+ */
+
+/**
+ * pn_flow_get_desktop_position:
+ * @self: the flow
+ * @uuid: the node's UUID (as from pn_node_get_uuid())
+ * @out_x: (out) (optional): receives the saved x coordinate
+ * @out_y: (out) (optional): receives the saved y coordinate
+ *
+ * Returns: %TRUE when a position has been stored for @uuid (and the
+ *   out-params, when given, were filled), %FALSE otherwise.
+ */
+gboolean     pn_flow_get_desktop_position (PnFlow      *self,
+                                           const gchar *uuid,
+                                           gdouble     *out_x,
+                                           gdouble     *out_y);
+
+/**
+ * pn_flow_set_desktop_position:
+ * @self: the flow
+ * @uuid: the node's UUID (non-empty)
+ * @x: window-relative x coordinate
+ * @y: window-relative y coordinate
+ *
+ * Stores @uuid's desktop-window placement, marking the flow modified when
+ * the stored value actually changes (so re-clicking a widget without
+ * moving it leaves the document clean).  Emits
+ * #PnFlow::desktop-layout-changed on a real change.
+ */
+void         pn_flow_set_desktop_position (PnFlow      *self,
+                                           const gchar *uuid,
+                                           gdouble      x,
+                                           gdouble      y);
+
+/**
+ * pn_flow_list_desktop_positions:
+ * @self: the flow
+ *
+ * Returns: (transfer full) (element-type utf8): every UUID that has a
+ *   stored desktop placement, as freshly-allocated strings.  Free with
+ *   g_list_free_full(list, g_free).  Order is unspecified.  Lets the
+ *   desktop application enumerate the laid-out widgets without access to
+ *   the private store.
+ */
+GList       *pn_flow_list_desktop_positions (PnFlow *self);
+
+/**
+ * pn_flow_get_desktop_editor_open:
+ * @self: the flow
+ *
+ * Returns: whether the document wants the desktop layout editor tab open.
+ */
+gboolean     pn_flow_get_desktop_editor_open (PnFlow *self);
+
+/**
+ * pn_flow_set_desktop_editor_open:
+ * @self: the flow
+ * @open: the new open/closed state
+ *
+ * Records whether the desktop layout editor tab is open and, when this
+ * changes, emits #PnFlow::desktop-editor-visible-changed and marks the
+ * flow modified.  The host opens or closes the editor tab in response
+ * (the same signal fires on load and clear so a reopened file restores
+ * the editor the way it was saved).
+ */
+void         pn_flow_set_desktop_editor_open (PnFlow *self, gboolean open);
+
+/**
+ * pn_flow_get_desktop_window:
+ * @self: the flow
+ * @out_width: (out) (optional): receives the window width in pixels
+ * @out_height: (out) (optional): receives the window height in pixels
+ *
+ * Reads the size of the window the desktop layout is arranged for.  A
+ * document that never set one reports the PN_DE_WINDOW_DEFAULT_* size.
+ */
+void         pn_flow_get_desktop_window (PnFlow *self,
+                                         gint   *out_width,
+                                         gint   *out_height);
+
+/**
+ * pn_flow_set_desktop_window:
+ * @self: the flow
+ * @width: window width in pixels, clamped to the PN_DE_WINDOW_* range
+ * @height: window height in pixels, clamped likewise
+ *
+ * Sets the size of the window the desktop layout is arranged for,
+ * marking the flow modified and emitting #PnFlow::desktop-layout-changed
+ * when it actually changes.  Placements are not rescaled; widgets left
+ * outside a shrunken window keep their stored coordinates.
+ */
+void         pn_flow_set_desktop_window (PnFlow *self,
+                                         gint    width,
+                                         gint    height);
+
+/**
+ * pn_flow_get_desktop_title:
+ * @self: the flow
+ *
+ * Returns: (transfer none): the title the desktop application should give
+ *   its window, or the empty string when the document sets none (in which
+ *   case the application falls back to the document's own name).  Never
+ *   %NULL.
+ */
+const gchar *pn_flow_get_desktop_title (PnFlow *self);
+
+/**
+ * pn_flow_set_desktop_title:
+ * @self: the flow
+ * @title: (nullable): the new window title; %NULL is stored as empty
+ *
+ * Sets the desktop window's title, marking the flow modified and emitting
+ * #PnFlow::desktop-layout-changed when it actually changes.
+ */
+void         pn_flow_set_desktop_title (PnFlow *self, const gchar *title);
 
 /**
  * pn_flow_serialize_nodes:

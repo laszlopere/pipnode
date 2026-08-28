@@ -5,7 +5,7 @@
 # are used in two processes that never meet:
 #
 #   * the panel applet .so loaded by xfce4-panel, and
-#   * the pipnode editor's panel-layout editor (PnPanelEditor).
+#   * the pipnode editor's GUI layout editors (PnLayoutEditor).
 #
 # They deliberately depend on GTK / GLib / Cairo ONLY — never on a pipnode
 # library — so the applet can embed them without dragging the node runtime

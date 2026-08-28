@@ -22,8 +22,9 @@
 /*  Shared, GTK-free constants for the panel-band layout, used by two  */
 /*  parties that must agree exactly:                                    */
 /*                                                                     */
-/*    - the visual layout editor (#PnPanelEditor, lib/pn-panel-editor) */
-/*      draws the band and sticky-snaps widgets to it; and             */
+/*    - the visual layout editor (#PnLayoutEditor in its PANEL kind,   */
+/*      lib/pn-layout-editor) draws the band and sticky-snaps widgets   */
+/*      to it; and                                                     */
 /*    - the headless engine (src/pn-application.c) which decides which  */
 /*      widgets are "on the panel" from each node's saved (x, y) and    */
 /*      mirrors them to the real XFCE panel applet.                     */
