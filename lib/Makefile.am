@@ -37,6 +37,8 @@ libpipnode_core_la_SOURCES = \
 	pn-auto-random.h \
 	pn-auto-trigger.c \
 	pn-auto-trigger.h \
+	pn-bridge-common.c \
+	pn-bridge-common.h \
 	pn-bridge-quote.c \
 	pn-bridge-quote.h \
 	pn-chat.c \
@@ -492,6 +494,7 @@ pipnode_core_headers = \
 	pn-auto-injector.h \
 	pn-auto-random.h \
 	pn-auto-trigger.h \
+	pn-bridge-common.h \
 	pn-bridge-quote.h \
 	pn-chat.h \
 	pn-color.h \
