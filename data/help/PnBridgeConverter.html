@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bridge Converter (PnBridgeConverter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnBridgeConverter">Bridge Converter</h4>
+<p>
+<em>Group:</em> Network. <em>Type:</em> <code>PnBridgeConverter</code>
+(subclass of <code>PnHttp</code>).
+</p>
+<p>
+Cross-chain swap converter. Send it a number in <code>from</code> units
+and it asks a real bridge what it would actually pay out, then emits that
+in <code>to</code> units. It is the dealable counterpart of the
+<a href="PnRate.html">FX Converter</a>: where that one multiplies by a
+mid-market reference price, this one reports what a provider would really
+deliver &mdash; spread, flat network fee and per-pair limits already taken
+out.
+</p>
+<p>
+Its sibling <a href="PnBridgeQuote.html">Bridge Quote</a> asks the same
+providers the same question on a timer, for a fixed reference amount.
+Reach for this node instead when the amount is not fixed &mdash; it comes
+off a Knob, a wallet balance, a calculation upstream.
+</p>
+
+<h5>One message in, one message out &mdash; a round-trip apart</h5>
+<p>
+There is no periodic fetch. Bridge pricing is amount-sensitive: a flat
+network fee dominates a small swap, so a cached rate cannot honestly be
+re-scaled to a new amount. The node has to ask again for every amount,
+and it only has an amount once a message arrives.
+</p>
+<p>
+That has one consequence worth knowing before wiring it up: the answer
+is emitted when the provider replies, not from the input handler. The
+message that arrives is the message that leaves &mdash; fields an
+upstream node set are still on it &mdash; but it leaves a network
+round-trip later. Nothing is passed through in the meantime, because an
+unconverted amount travelling on would look exactly like a conversion
+that happened to be the identity.
+</p>
+<p>
+Only one request is in flight at a time. An amount that arrives while
+the provider is still answering <em>replaces</em> the one waiting rather
+than queueing behind it, and the dropped one is noted in the node's log:
+a converter fed faster than the network answers should quote the newest
+amount, not work through a backlog of stale ones. That also bounds how
+hard the node can lean on a provider &mdash; one request per round-trip,
+whatever the input does. Even so, this is a node to drive from a Knob, a
+manual Inject or a slow timer, not from a fast Interval.
+</p>
+
+<h5>Providers</h5>
+<table>
+  <tr><th>Bridge</th><th>How the quote is obtained</th></tr>
+  <tr><td><code>PulseLN</code></td>
+      <td>One request to <code>api.pulseln.com/c/prices</code> returns
+          the whole cross-rate matrix, the fee table and the per-asset
+          limits; there is no per-amount endpoint, so the payout is
+          computed locally the same way the swap page computes it.
+          PulseLN publishes its fee, so <code>data.fee</code> is
+          filled in.</td></tr>
+  <tr><td><code>ChangeNOW</code></td>
+      <td>The provider quotes the amount directly through its v1
+          <code>exchange-amount</code> endpoint, and its limits come
+          from a second call to <code>exchange-range</code>. No API key
+          is needed. The provider's cut is folded into the estimate
+          rather than published, so <code>data.fee</code> is omitted.
+          Note ChangeNOW caps a pair well below PulseLN &mdash; an
+          amount over the cap comes back as a readable status naming
+          the actual limit, not as a bare HTTP error.</td></tr>
+</table>
+
+<h5>Consumed message</h5>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The amount to convert, in <code>from</code> units. A message
+          without a numeric <code>data.value</code>, or with one that is
+          zero or negative, is answered on the spot with
+          <code>data.success = false</code> and a reason &mdash; no
+          request is spent on something a provider would only
+          reject.</td></tr>
+  <tr><td>everything else</td>
+      <td>Carried through untouched, so a wallet address, a label or a
+          timestamp set upstream is still on the message that comes
+          out.</td></tr>
+</table>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>bridge</code></td>
+      <td>Which provider to ask: <code>PulseLN</code> or
+          <code>ChangeNOW</code>. Changing it re-points <code>url</code>
+          at that provider's endpoint and drops the last result.</td></tr>
+  <tr><td><code>from</code></td>
+      <td>Asset being sold, picked from the same currency list the FX
+          Converter uses, with icons. Neither bridge lists all of them:
+          a pair the selected provider does not trade marks the node as
+          needing configuration rather than failing at request
+          time.</td></tr>
+  <tr><td><code>to</code></td>
+      <td>Asset being bought. Same set as <code>from</code>; setting it
+          equal to <code>from</code> marks the node
+          unconfigured.</td></tr>
+  <tr><td><code>amount</code></td>
+      <td>Read-only. The amount last converted &mdash; the
+          <code>data.value</code> of the message that asked. Set when
+          the request goes out, so a failed conversion still says what
+          was asked about.</td></tr>
+  <tr><td><code>quote</code></td>
+      <td>Read-only. The payout for <code>amount</code>: how much
+          <code>to</code> the bridge would deliver, fees
+          included.</td></tr>
+  <tr><td><code>rate</code></td>
+      <td>Read-only. <code>quote &divide; amount</code> &mdash; what one
+          unit really fetched after the spread and fees. This is the
+          number to compare between bridges <em>at the same
+          size</em>.</td></tr>
+  <tr><td><code>fee</code></td>
+      <td>Read-only. Provider fee as a fraction (0.014 = 1.4%). Zero
+          means the provider does not publish it separately.</td></tr>
+  <tr><td><code>min-amount</code> / <code>max-amount</code></td>
+      <td>Read-only. The provider's limits, in <code>from</code> units.
+          Zero means unknown or uncapped.</td></tr>
+  <tr><td><code>last-update</code></td>
+      <td>Read-only ISO-8601 timestamp of the last successful conversion
+          (&ldquo;Never&rdquo; until the first one). Cleared the instant
+          <code>bridge</code>, <code>from</code> or <code>to</code>
+          changes.</td></tr>
+  <tr><td><code>status</code></td>
+      <td>Read-only outcome of the most recent conversion:
+          <code>OK</code>, <code>Never converted</code>, or
+          <code>Conversion failed: &hellip;</code> with the reason. The
+          same detail goes to the per-node log.</td></tr>
+  <tr><td><code>url</code></td>
+      <td>Endpoint base for the selected bridge, so a self-hosted proxy
+          can be substituted. Normally left alone: picking a
+          <code>bridge</code> sets it.</td></tr>
+</table>
+<p>
+The results are stored with the worksheet, so reopening a flow still
+shows what last came through. Nothing is re-emitted from them &mdash;
+unlike Bridge Quote, this node speaks only when spoken to.
+</p>
+<p>
+There is no <code>period</code> row. The node has no schedule, so a poll
+interval would be a knob that does nothing; the inherited property is
+pinned and used only as the request timeout.
+</p>
+
+<h5>Emitted message</h5>
+<p>
+One message out per message in, on the incoming message's own topic:
+</p>
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The payout, in <code>to</code> units &mdash; the canonical
+          number of the message, replacing the amount that came
+          in.</td></tr>
+  <tr><td><code>data.rate</code></td>
+      <td>Effective rate after fees, at this size.</td></tr>
+  <tr><td><code>data.amount</code></td>
+      <td>The input amount, so the answer still says what it was an
+          answer to.</td></tr>
+  <tr><td><code>data.from</code> / <code>data.to</code></td>
+      <td>Ticker codes, e.g. <code>PLS</code> and <code>BNB</code>.</td></tr>
+  <tr><td><code>data.bridge</code></td>
+      <td>Provider name, so a merged stream stays
+          attributable.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td>Whether this message produced a real quote.</td></tr>
+  <tr><td><code>data.swappable</code></td>
+      <td><code>false</code> when the provider would price this swap but
+          not execute it right now &mdash; its payout pool for
+          <code>to</code> is closed, or the amount falls outside
+          <code>min-amount</code>&hellip;<code>max-amount</code>.
+          <code>data.warning</code> says which. The rate is still
+          reported and <code>data.success</code> stays
+          <code>true</code>: the price is real, only the execution is
+          blocked.</td></tr>
+  <tr><td><code>data.deprecated</code></td>
+      <td>The mirror of <code>data.success</code>, carried for parity
+          with Bridge Quote so one downstream chain can read
+          either node.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>Human-readable summary, or the failure reason.</td></tr>
+  <tr><td><code>data.fee</code>, <code>data.min_amount</code>,
+          <code>data.max_amount</code>, <code>data.speed_forecast</code>,
+          <code>data.warning</code></td>
+      <td>Present only when the provider publishes them &mdash; a
+          missing field means &ldquo;not published&rdquo;, which is not
+          the same as zero.</td></tr>
+</table>
+
+<h5>Priced but not swappable</h5>
+<p>
+A route can be perfectly well priced and still be shut, and both
+providers say so rather than refusing to quote. PulseLN publishes a
+per-asset pool state and a floating size band (its swap page currently
+shows &ldquo;$1 MIN, $1000 MAX&rdquo;, converted to <code>from</code>
+units at the live price, so an amount can fall out of range with nothing
+reconfigured); it still displays the payout and only greys its
+<em>Swap Now</em> button. The node does the same: it reports the rate,
+sets <code>data.swappable</code> to <code>false</code> and explains why
+in <code>data.warning</code>. Wire that into a Filter or Comparator if
+you want to act only on executable quotes.
+</p>
+
+<h5>Caveat</h5>
+<p>
+This is a quote, not a promise. Both bridges re-quote when a swap is
+actually created, and PulseLN's endpoint is undocumented, so treat the
+number as a well-informed estimate rather than a commitment.
+</p>
+
+</body>
+</html>

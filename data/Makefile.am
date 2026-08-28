@@ -14,6 +14,7 @@ pnhelp_DATA = \
 	help/PnAstronomical.html \
 	help/PnAutoInjector.html \
 	help/PnAutoRandom.html \
+	help/PnBridgeConverter.html \
 	help/PnBridgeQuote.html \
 	help/PnChat.html \
 	help/PnComment.html \
