@@ -180,6 +180,148 @@ test_chrono_is_oldest_first (void)
     g_object_unref (node);
 }
 
+/* Swallows the warning the decoder logs for a malformed store.  (The
+ * harness does not run under g_test_init(), so g_test_expect_message()
+ * is unavailable here.) */
+static void
+swallow_log (const gchar    *domain,
+             GLogLevelFlags  level,
+             const gchar    *message,
+             gpointer        user_data)
+{
+    (void) domain; (void) level; (void) message; (void) user_data;
+}
+
+/* Nothing is written into the worksheet unless the user asked for it:
+ * "save-data" is off on a fresh node and the store stays empty however
+ * much data the graph has collected. */
+static void
+test_save_data_off_by_default (void)
+{
+    PnNode   *node = PN_NODE (pn_xy_graph_new ());
+    gboolean  save = TRUE;
+    gchar    *data = NULL;
+
+    g_object_get (node, "save-data", &save, NULL);
+    PN_CHECK_FALSE (save);
+
+    feed (node, "t", 1.0, 10.0);
+
+    g_object_get (node, "saved-data", &data, NULL);
+    PN_CHECK_CMPSTR (data, ==, "");
+
+    g_free (data);
+    g_object_unref (node);
+}
+
+/* With "save-data" on, the points survive a save/load round trip: a fresh
+ * node handed the serialised store comes back with the same series and
+ * the same coordinates, in arrival order. */
+static void
+test_saved_data_round_trip (void)
+{
+    PnXYGraph *src = pn_xy_graph_new ();
+    PnXYGraph *dst;
+    gchar     *data = NULL;
+    gdouble    xs[8], ys[8];
+    guint      n, n_views = 0;
+    PnXYGraphSeriesView *views;
+
+    g_object_set (src, "save-data", TRUE, NULL);
+    feed (PN_NODE (src), "alpha", 1.0, 10.0);
+    feed (PN_NODE (src), "alpha", 2.0, 20.0);
+    feed (PN_NODE (src), "beta",  3.0, 30.0);
+
+    g_object_get (src, "saved-data", &data, NULL);
+    PN_CHECK (data != NULL && *data != '\0');
+
+    dst = pn_xy_graph_new ();
+    g_object_set (dst, "saved-data", data, NULL);
+
+    PN_CHECK_CMPINT (pn_xy_graph_get_series_count (dst), ==, 2u);
+
+    views = pn_xy_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 2u);
+    PN_CHECK_CMPSTR (views[0].topic, ==, "alpha");
+
+    n = pn_xy_graph_series_chrono (views[0].series, 8, xs, ys);
+    PN_CHECK_CMPINT (n, ==, 2u);
+    PN_CHECK_NEAR (xs[0], 1.0,  1e-9);
+    PN_CHECK_NEAR (ys[0], 10.0, 1e-9);
+    PN_CHECK_NEAR (xs[1], 2.0,  1e-9);
+    PN_CHECK_NEAR (ys[1], 20.0, 1e-9);
+
+    n = pn_xy_graph_series_chrono (views[1].series, 8, xs, ys);
+    PN_CHECK_CMPINT (n, ==, 1u);
+    PN_CHECK_NEAR (xs[0], 3.0,  1e-9);
+    PN_CHECK_NEAR (ys[0], 30.0, 1e-9);
+
+    g_free (views);
+    g_free (data);
+    g_object_unref (dst);
+    g_object_unref (src);
+}
+
+/* The store never carries more than the plot draws: "max-points" caps it,
+ * and the newest points are the ones kept. */
+static void
+test_saved_data_is_capped (void)
+{
+    PnXYGraph *src = pn_xy_graph_new ();
+    PnXYGraph *dst;
+    gchar     *data = NULL;
+    gdouble    xs[8], ys[8];
+    guint      i, n, n_views = 0;
+    PnXYGraphSeriesView *views;
+
+    g_object_set (src, "save-data", TRUE, "max-points", 3u, NULL);
+    for (i = 0; i < 10; i++)
+        feed (PN_NODE (src), "t", (gdouble) i, (gdouble) (i * 10));
+
+    g_object_get (src, "saved-data", &data, NULL);
+
+    dst = pn_xy_graph_new ();
+    g_object_set (dst, "saved-data", data, NULL);
+
+    views = pn_xy_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 1u);
+    PN_CHECK_CMPINT (views[0].series->sample_count, ==, 3u);
+
+    n = pn_xy_graph_series_chrono (views[0].series, 8, xs, ys);
+    PN_CHECK_CMPINT (n, ==, 3u);
+    PN_CHECK_NEAR (xs[0], 7.0,  1e-9);
+    PN_CHECK_NEAR (xs[2], 9.0,  1e-9);
+    PN_CHECK_NEAR (ys[2], 90.0, 1e-9);
+
+    g_free (views);
+    g_free (data);
+    g_object_unref (dst);
+    g_object_unref (src);
+}
+
+/* A hand-mangled or foreign store is ignored rather than fatal, and an
+ * empty one leaves whatever the graph already holds alone. */
+static void
+test_saved_data_bad_input_is_safe (void)
+{
+    PnXYGraph *node = pn_xy_graph_new ();
+    GLogFunc   prev;
+
+    prev = g_log_set_default_handler (swallow_log, NULL);
+    g_object_set (node, "saved-data", "{ not json", NULL);
+    g_log_set_default_handler (prev, NULL);
+    PN_CHECK_CMPINT (pn_xy_graph_get_series_count (node), ==, 0u);
+
+    g_object_set (node, "saved-data", "{}", NULL);
+    PN_CHECK_CMPINT (pn_xy_graph_get_series_count (node), ==, 0u);
+
+    feed (PN_NODE (node), "t", 1.0, 10.0);
+    g_object_set (node, "saved-data", "", NULL);
+    PN_CHECK_CMPINT (pn_xy_graph_get_series_count (node), ==, 1u);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -191,5 +333,9 @@ main (int argc, char **argv)
     pn_test_add ("empty_key_is_noop",      test_empty_key_is_noop);
     pn_test_add ("series_fan_out_capped",  test_series_fan_out_is_capped);
     pn_test_add ("chrono_oldest_first",    test_chrono_is_oldest_first);
+    pn_test_add ("save_data_off_by_default", test_save_data_off_by_default);
+    pn_test_add ("saved_data_round_trip",    test_saved_data_round_trip);
+    pn_test_add ("saved_data_is_capped",     test_saved_data_is_capped);
+    pn_test_add ("saved_data_bad_input",     test_saved_data_bad_input_is_safe);
     return pn_test_run ();
 }

@@ -103,6 +103,20 @@ memory without bound.
           around the data &mdash; useful when the absolute magnitude of
           Y matters and tight auto-fit would exaggerate small
           wobbles.</td></tr>
+  <tr><td><code>save-data</code></td>
+      <td>Off by default. When enabled, the plotted points are written
+          into the worksheet file on save and read back when it is
+          opened, so a document reopened later comes back with its
+          curve instead of a blank plot. The store is bounded: never
+          more than <code>max-points</code> (all the plot draws anyway)
+          and never more than 512 points per series, so a graph left
+          running for a month costs no more than one left running for
+          an hour. Unlike the <em>Graph</em> node there is no time
+          axis here, so nothing ages out &mdash; an (x,&nbsp;y) pair
+          means the same thing whenever it is read back. One consequence
+          worth knowing: undo/redo snapshots the whole document, so while
+          this is on an undo also puts the plot back the way it looked at
+          that step.</td></tr>
 </table>
 
 <p>
@@ -113,7 +127,8 @@ tabs: <strong>Appearance</strong> collects how the plot is drawn
 <code>background-color</code>, <code>show-grid</code>), while
 <strong>Data</strong> collects what is plotted and how the axes are
 framed (<code>x-key</code>, <code>key</code>, <code>max-points</code>,
-<code>x-from-zero</code>, <code>y-from-zero</code>).
+<code>x-from-zero</code>, <code>y-from-zero</code>,
+<code>save-data</code>).
 </p>
 
 </body>

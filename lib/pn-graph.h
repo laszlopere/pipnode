@@ -158,6 +158,15 @@ guint    pn_graph_get_series_count (PnGraph *self);
 #define PN_GRAPH_MAX_BINS  200
 #define PN_GRAPH_SAMPLES   2048
 
+/* Cap on how many of the most recent raw samples per series are written
+ * into the worksheet file when the "save-data" property is on (samples
+ * older than the active resolution window are dropped first).  With at
+ * most PN_GRAPH_MAX_SERIES series the persisted store is bounded, so a
+ * graph left running for a month cannot grow the document without end.
+ * Comfortably above PN_GRAPH_MAX_BINS, so every time bucket the plot can
+ * draw still has samples behind it after a reload. */
+#define PN_GRAPH_PERSIST_SAMPLES  512
+
 /* One time bucket: a circular-buffer slot indexed by
  * monotonic_time / bin_width_us.  @epoch is the absolute bin index this
  * slot currently represents (G_MININT64 when never used), so a stale

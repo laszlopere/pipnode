@@ -85,6 +85,12 @@ guint pn_xy_graph_get_series_count (PnXYGraph *self);
  * struct rather than only in the core .c. */
 #define PN_XY_GRAPH_SAMPLES  2048
 
+/* Cap on how many of the most recent samples per series are written into
+ * the worksheet file when the "save-data" property is on.  With at most
+ * PN_XY_GRAPH_MAX_SERIES series the persisted store is bounded, so a
+ * graph left running for a month cannot grow the document without end. */
+#define PN_XY_GRAPH_PERSIST_SAMPLES  512
+
 /* One raw (x, y) observation kept verbatim. */
 typedef struct
 {

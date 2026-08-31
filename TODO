@@ -1068,3 +1068,61 @@
              independence in one document, live WidgetChanged, unarranged
              fallback). The panel engine test still passes unchanged, which
              is what covers the mirror extraction.
+
+[x] 62 Optionally persist a graph's data with the worksheet. A Graph node
+       reopened the next morning starts from a blank plot: everything it had
+       collected lived only in RAM. New per-node boolean `save-data` (default
+       FALSE -- a graph is a live view, and no document should start carrying
+       a data set nobody asked for) writes the samples into the worksheet on
+       save and reads them back on load. Bounded by construction, never
+       "grow until the file is unopenable".
+       [x] 62.1 The wire is a second, hidden read/write string property
+             `saved-data` on the node itself, not a new PnNodeClass vfunc: the
+             document serialiser already walks every writable subclass
+             property, so this needs no ABI bump and no change to pn-flow.c.
+             Its getter serialises on demand (and returns "" while `save-data`
+             is off, which is what keeps the store out of every other
+             worksheet); its setter parses and repopulates the rings. Absent
+             from the PnSettingsSchema row list, so it is never a dialog row --
+             only the `save-data` check button on the Data tab is.
+       [x] 62.2 PnGraph. The rings are stamped with the MONOTONIC clock, which
+             restarts with the process, so the format stores each sample as its
+             age in ms plus the wall clock of the save; on load the two are
+             added back into an age relative to now. A sample that aged past
+             the resolution window while the file sat on disk is dropped, so a
+             1-hour graph opened a day later comes back empty -- exactly what a
+             live one would show. Two caps: in-window samples only, and at most
+             PN_GRAPH_PERSIST_SAMPLES (512, >2 per bucket at the 200-bucket
+             maximum) per series, times at most 12 series.
+       [x] 62.3 Bin rebuild is deferred. The bucket width comes from
+             `resolution` / `x-buckets` and the loader applies a node's
+             properties in an unspecified order, so the restore folds the
+             samples into the buckets straight away (a headless load never
+             spins the main loop) AND once more from a one-shot idle, by which
+             point every property in the file is in place. receive() and the
+             restore share one series_bin_sample() so a reloaded sample lands
+             exactly where a live one would.
+       [x] 62.4 PnXYGraph gets the same pair, simpler: no time axis means
+             nothing ages out, so the store is just the coordinates. Capped at
+             `max-points` (all the plot draws anyway) and at
+             PN_XY_GRAPH_PERSIST_SAMPLES (512) per series.
+       [x] 62.5 Tests: round trip, the cap (and that it keeps the NEWEST
+             samples), the default-off case, and malformed/empty input in
+             tests/unit/test-pn-graph.c + test-pn-xy-graph.c, plus a real
+             document save/load through pn_flow_save_to_file in
+             test-pn-flow.c (which is what pins the feature end to end).
+             Docs: data/help/PnGraph.html, data/help/PnXYGraph.html and the
+             pipnode-nodes skill reference.
+       [x] 62.6 Interaction with undo/redo, worth knowing: PnHistory snapshots
+             the whole document through pn_flow_to_string, so with `save-data`
+             on the samples ride inside every snapshot -- an undo therefore
+             restores the plot as it stood at that step, the same way it
+             already restores a Bridge Quote's cached quote. Snapshots are
+             taken on document EDITS (the on_store_changed funnel), never per
+             message, so a busy feed does not push history or mark the
+             document dirty on its own.
+       [ ] 62.7 Deferred: the other display nodes. Plot and Oscilloscope hold
+             a SNAPSHOT (the last vector / the last trace), not accumulated
+             history, so a reload repaints them from the next message anyway;
+             they would need the same property pair only if a user wants the
+             picture to survive a restart with no feed running.

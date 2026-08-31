@@ -166,6 +166,178 @@ test_series_fan_out_is_capped (void)
     g_object_unref (node);
 }
 
+/* Chronological read-out of a series' raw-sample ring: the same walk the
+ * distribution painter does, used here to check what a restore put back. */
+static guint
+series_values (const PnGraphSeries *s, gdouble *out, guint max)
+{
+    guint first = (s->sample_head + PN_GRAPH_SAMPLES - s->sample_count)
+                  % PN_GRAPH_SAMPLES;
+    guint n     = MIN (s->sample_count, max);
+    guint i;
+
+    for (i = 0; i < n; i++)
+        out[i] = s->samples[(first + i) % PN_GRAPH_SAMPLES].value;
+    return n;
+}
+
+/* Nothing is written into the worksheet unless the user asked for it:
+ * "save-data" is off on a fresh node and the store stays empty however
+ * much data the graph has collected. */
+static void
+test_save_data_off_by_default (void)
+{
+    PnNode   *node = PN_NODE (pn_graph_new ());
+    gboolean  save = TRUE;
+    gchar    *data = NULL;
+
+    g_object_get (node, "save-data", &save, NULL);
+    PN_CHECK_FALSE (save);
+
+    feed (node, "t", 1.0);
+    feed (node, "t", 2.0);
+
+    g_object_get (node, "saved-data", &data, NULL);
+    PN_CHECK_CMPSTR (data, ==, "");
+
+    g_free (data);
+    g_object_unref (node);
+}
+
+/* With "save-data" on, the samples survive a save/load round trip: a
+ * fresh node handed the serialised store comes back with the same series
+ * and the same values, in the same order, and with its time buckets
+ * refolded (so the time-series view has something to draw). */
+static void
+test_saved_data_round_trip (void)
+{
+    PnGraph *src = pn_graph_new ();
+    PnGraph *dst;
+    gchar   *data = NULL;
+    gdouble  vals[8];
+    guint    n_views = 0;
+    PnGraphSeriesView *views;
+
+    g_object_set (src, "save-data", TRUE, NULL);
+    feed (PN_NODE (src), "alpha", 1.5);
+    feed (PN_NODE (src), "alpha", 2.5);
+    feed (PN_NODE (src), "beta",  3.5);
+
+    g_object_get (src, "saved-data", &data, NULL);
+    PN_CHECK (data != NULL && *data != '\0');
+
+    dst = pn_graph_new ();
+    g_object_set (dst, "saved-data", data, NULL);
+
+    PN_CHECK_CMPINT (pn_graph_get_series_count (dst), ==, 2u);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 2u);
+    PN_CHECK_CMPSTR (views[0].topic, ==, "alpha");
+    PN_CHECK_CMPINT (series_values (views[0].series, vals, 8), ==, 2u);
+    PN_CHECK_NEAR (vals[0], 1.5, 1e-9);
+    PN_CHECK_NEAR (vals[1], 2.5, 1e-9);
+    PN_CHECK_CMPSTR (views[1].topic, ==, "beta");
+    PN_CHECK_CMPINT (series_values (views[1].series, vals, 8), ==, 1u);
+    PN_CHECK_NEAR (vals[0], 3.5, 1e-9);
+
+    /* The buckets are refolded on the spot, not only from the idle, so a
+     * headless load has a populated ring too. */
+    {
+        const PnGraphSeries *s = views[0].series;
+        guint  i, filled = 0;
+        for (i = 0; i < PN_GRAPH_MAX_BINS; i++)
+            if (s->ring[i].epoch != G_MININT64 && s->ring[i].count > 0)
+                filled += s->ring[i].count;
+        PN_CHECK_CMPINT (filled, ==, 2u);
+    }
+
+    g_free (views);
+    g_free (data);
+    g_object_unref (dst);
+    g_object_unref (src);
+}
+
+/* The store is bounded: however long the graph has been running, only
+ * the newest PN_GRAPH_PERSIST_SAMPLES per series are written out. */
+static void
+test_saved_data_is_capped (void)
+{
+    PnGraph *src = pn_graph_new ();
+    PnGraph *dst;
+    gchar   *data = NULL;
+    guint    i;
+    guint    n_views = 0;
+    PnGraphSeriesView *views;
+
+    g_object_set (src, "save-data", TRUE, NULL);
+    for (i = 0; i < PN_GRAPH_PERSIST_SAMPLES + 100; i++)
+        feed (PN_NODE (src), "t", (gdouble) i);
+
+    g_object_get (src, "saved-data", &data, NULL);
+
+    dst = pn_graph_new ();
+    g_object_set (dst, "saved-data", data, NULL);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 1u);
+    PN_CHECK_CMPINT (views[0].series->sample_count, ==,
+                     (guint) PN_GRAPH_PERSIST_SAMPLES);
+
+    /* …and it is the NEWEST that survive: the last value fed is the last
+     * value restored. */
+    {
+        guint   last = (views[0].series->sample_head + PN_GRAPH_SAMPLES - 1)
+                       % PN_GRAPH_SAMPLES;
+        gdouble v    = views[0].series->samples[last].value;
+
+        PN_CHECK_NEAR (v, (gdouble) (PN_GRAPH_PERSIST_SAMPLES + 99), 1e-9);
+    }
+
+    g_free (views);
+    g_free (data);
+    g_object_unref (dst);
+    g_object_unref (src);
+}
+
+/* Swallows the warning the decoder logs for a malformed store. */
+static void
+swallow_log (const gchar    *domain,
+             GLogLevelFlags  level,
+             const gchar    *message,
+             gpointer        user_data)
+{
+    (void) domain; (void) level; (void) message; (void) user_data;
+}
+
+/* A hand-mangled or foreign store is ignored rather than fatal, and an
+ * empty one leaves whatever the graph already holds alone. */
+static void
+test_saved_data_bad_input_is_safe (void)
+{
+    PnGraph  *node = pn_graph_new ();
+    GLogFunc  prev;
+
+    /* The decoder warns about the unparseable store; swallow it so the
+     * expected-failure case does not spew to stderr.  (The harness does
+     * not run under g_test_init(), so g_test_expect_message() is
+     * unavailable here.) */
+    prev = g_log_set_default_handler (swallow_log, NULL);
+    g_object_set (node, "saved-data", "{ not json", NULL);
+    g_log_set_default_handler (prev, NULL);
+    PN_CHECK_CMPINT (pn_graph_get_series_count (node), ==, 0u);
+
+    g_object_set (node, "saved-data", "{}", NULL);
+    PN_CHECK_CMPINT (pn_graph_get_series_count (node), ==, 0u);
+
+    /* An empty store never wipes live data. */
+    feed (PN_NODE (node), "t", 1.0);
+    g_object_set (node, "saved-data", "", NULL);
+    PN_CHECK_CMPINT (pn_graph_get_series_count (node), ==, 1u);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -177,5 +349,9 @@ main (int argc, char **argv)
     pn_test_add ("empty_key_is_noop",       test_empty_key_is_noop);
     pn_test_add ("missing_value_is_noop",   test_missing_value_is_noop);
     pn_test_add ("series_fan_out_capped",   test_series_fan_out_is_capped);
+    pn_test_add ("save_data_off_by_default", test_save_data_off_by_default);
+    pn_test_add ("saved_data_round_trip",    test_saved_data_round_trip);
+    pn_test_add ("saved_data_is_capped",     test_saved_data_is_capped);
+    pn_test_add ("saved_data_bad_input",     test_saved_data_bad_input_is_safe);
     return pn_test_run ();
 }

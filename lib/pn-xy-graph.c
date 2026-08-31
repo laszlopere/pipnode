@@ -87,6 +87,12 @@ struct _PnXYGraph
     gboolean   x_from_zero;
     gboolean   y_from_zero;
 
+    /* Write the collected samples into the worksheet on save and read
+     * them back on load (see the "save-data" / "saved-data" property
+     * pair).  Off by default: a graph is a live view, and most documents
+     * should not carry a data set around. */
+    gboolean   save_data;
+
     /* topic (gchar *) -> PnXYGraphSeries *.  Owns both keys and values. */
     GHashTable *series;
     guint       next_arrival_idx;
@@ -116,6 +122,8 @@ enum {
     PROP_SHOW_GRID,
     PROP_X_FROM_ZERO,
     PROP_Y_FROM_ZERO,
+    PROP_SAVE_DATA,
+    PROP_SAVED_DATA,    /* hidden: the on-disk sample store */
     N_PROPS,
 };
 
@@ -184,6 +192,23 @@ series_get_or_create (
     s = series_new (self->next_arrival_idx++);
     g_hash_table_insert (self->series, g_strdup (key), s);
     return s;
+}
+
+/** Append one (x, y) observation to @series' ring.  Shared by receive()
+ *  and the restore path so a reloaded point lands exactly where a live
+ *  one would. */
+static void
+series_push_sample (
+        PnXYGraphSeries *series,
+        gdouble          x,
+        gdouble          y)
+{
+    series->samples[series->sample_head].x = x;
+    series->samples[series->sample_head].y = y;
+    series->sample_head =
+        (series->sample_head + 1) % PN_XY_GRAPH_SAMPLES;
+    if (series->sample_count < PN_XY_GRAPH_SAMPLES)
+        series->sample_count += 1;
 }
 
 static gint
@@ -456,14 +481,234 @@ pn_xy_graph_receive (
     if (series == NULL)
         return;  /* PN_XY_GRAPH_MAX_SERIES cap hit; drop silently. */
 
-    series->samples[series->sample_head].x = x;
-    series->samples[series->sample_head].y = y;
-    series->sample_head =
-        (series->sample_head + 1) % PN_XY_GRAPH_SAMPLES;
-    if (series->sample_count < PN_XY_GRAPH_SAMPLES)
-        series->sample_count += 1;
+    series_push_sample (series, x, y);
 
     schedule_repaint (self);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Persisted sample store                                             */
+/*                                                                     */
+/*  With "save-data" on, the plotted points travel with the worksheet:  */
+/*  the "saved-data" property serialises them on save and restores them */
+/*  on load, so reopening a document brings the curve back instead of   */
+/*  an empty plot.  Only the newest PN_XY_GRAPH_PERSIST_SAMPLES per     */
+/*  series are written (and never more than "max-points", which is all  */
+/*  the plot draws anyway), so the document stays bounded however long  */
+/*  the graph has been running.  Unlike #PnGraph there is no time axis  */
+/*  here — an (x, y) pair means the same thing whenever it is read back */
+/*  — so the store is just the coordinates.                             */
+/* ------------------------------------------------------------------ */
+
+#define PN_XY_GRAPH_STORE_VERSION  1
+
+/** Serialise the retained points of every series.  Returns %NULL (write
+ *  nothing) when there is no data worth carrying. */
+static gchar *
+xy_graph_encode_data (PnXYGraph *self)
+{
+    PnXYGraphSeriesView *views;
+    guint                n_views = 0;
+    guint                i;
+    JsonBuilder         *b;
+    JsonNode            *root;
+    JsonGenerator       *gen;
+    gchar               *out;
+    gboolean             any = FALSE;
+
+    views = pn_xy_graph_collect_series_sorted (self, &n_views);
+    if (views == NULL)
+        return NULL;
+
+    b = json_builder_new ();
+    json_builder_begin_object (b);
+
+    json_builder_set_member_name (b, "version");
+    json_builder_add_int_value (b, PN_XY_GRAPH_STORE_VERSION);
+    json_builder_set_member_name (b, "series");
+    json_builder_begin_array (b);
+
+    for (i = 0; i < n_views; i++)
+    {
+        const PnXYGraphSeries *s    = views[i].series;
+        guint                  keep = MIN (s->sample_count, self->max_points);
+        guint                  first;
+        guint                  k;
+
+        keep = MIN (keep, (guint) PN_XY_GRAPH_PERSIST_SAMPLES);
+        if (keep == 0)
+            continue;
+
+        first = (s->sample_head + PN_XY_GRAPH_SAMPLES - keep)
+                % PN_XY_GRAPH_SAMPLES;
+
+        json_builder_begin_object (b);
+        json_builder_set_member_name (b, "topic");
+        json_builder_add_string_value (
+                b, views[i].topic != NULL ? views[i].topic : "");
+        json_builder_set_member_name (b, "points");
+        json_builder_begin_array (b);
+
+        /* Flat [x, y, x, y, …], oldest first: half the brackets of an
+         * array of pairs, and pushing them back in that order restores
+         * the ring in arrival order — which is the order the Lines style
+         * connects them in. */
+        for (k = 0; k < keep; k++)
+        {
+            const PnXYGraphSample *smp =
+                    &s->samples[(first + k) % PN_XY_GRAPH_SAMPLES];
+
+            json_builder_add_double_value (b, smp->x);
+            json_builder_add_double_value (b, smp->y);
+        }
+
+        json_builder_end_array (b);
+        json_builder_end_object (b);
+        any = TRUE;
+    }
+
+    json_builder_end_array (b);
+    json_builder_end_object (b);
+    g_free (views);
+
+    if (!any)
+    {
+        g_object_unref (b);
+        return NULL;
+    }
+
+    root = json_builder_get_root (b);
+    gen  = json_generator_new ();
+    json_generator_set_root (gen, root);
+    out = json_generator_to_data (gen, NULL);
+
+    g_object_unref (gen);
+    json_node_unref (root);
+    g_object_unref (b);
+
+    return out;
+}
+
+/** Read one array slot as a finite double, tolerating an integer
+ *  coordinate a hand-edited file may carry. */
+static gboolean
+array_get_finite (
+        JsonArray *arr,
+        guint      idx,
+        gdouble   *out)
+{
+    JsonNode *node = json_array_get_element (arr, idx);
+    GType     type;
+
+    if (node == NULL || !JSON_NODE_HOLDS_VALUE (node))
+        return FALSE;
+
+    type = json_node_get_value_type (node);
+    if (type == G_TYPE_INT64)
+        *out = (gdouble) json_node_get_int (node);
+    else if (type == G_TYPE_DOUBLE)
+        *out = json_node_get_double (node);
+    else
+        return FALSE;
+
+    return isfinite (*out);
+}
+
+/** Repopulate the series table from a store written by
+ *  xy_graph_encode_data().  Replaces whatever the node holds (a restore
+ *  is a load, not a merge); malformed input leaves an empty graph rather
+ *  than a half-filled one. */
+static void
+xy_graph_decode_data (
+        PnXYGraph   *self,
+        const gchar *text)
+{
+    JsonParser *parser;
+    JsonNode   *root;
+    JsonObject *obj;
+    JsonArray  *series_arr;
+    GError     *error = NULL;
+    guint       i, n;
+    gboolean    any = FALSE;
+
+    if (text == NULL || *text == '\0')
+        return;
+
+    parser = json_parser_new ();
+    if (!json_parser_load_from_data (parser, text, -1, &error))
+    {
+        g_warning ("pn-xy-graph: saved data is not valid JSON: %s",
+                   error != NULL ? error->message : "(unknown)");
+        g_clear_error (&error);
+        g_object_unref (parser);
+        return;
+    }
+
+    root = json_parser_get_root (parser);
+    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    {
+        g_object_unref (parser);
+        return;
+    }
+
+    obj = json_node_get_object (root);
+    if (json_object_get_int_member_with_default (obj, "version", 0)
+            != PN_XY_GRAPH_STORE_VERSION
+        || !json_object_has_member (obj, "series")
+        || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (obj, "series")))
+    {
+        g_object_unref (parser);
+        return;
+    }
+
+    series_arr = json_object_get_array_member (obj, "series");
+
+    g_hash_table_remove_all (self->series);
+    self->next_arrival_idx = 0;
+
+    n = json_array_get_length (series_arr);
+    for (i = 0; i < n; i++)
+    {
+        JsonNode        *elem = json_array_get_element (series_arr, i);
+        JsonObject      *so;
+        JsonArray       *points;
+        PnXYGraphSeries *series;
+        guint            len, j;
+
+        if (elem == NULL || !JSON_NODE_HOLDS_OBJECT (elem))
+            continue;
+
+        so = json_node_get_object (elem);
+        if (!json_object_has_member (so, "points")
+            || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (so, "points")))
+            continue;
+
+        series = series_get_or_create (
+                self,
+                json_object_get_string_member_with_default (so, "topic", ""));
+        if (series == NULL)
+            break;              /* PN_XY_GRAPH_MAX_SERIES reached */
+
+        points = json_object_get_array_member (so, "points");
+        len    = json_array_get_length (points);
+
+        for (j = 0; j + 1 < len; j += 2)
+        {
+            gdouble x, y;
+
+            if (!array_get_finite (points, j,     &x) ||
+                !array_get_finite (points, j + 1, &y))
+                continue;
+
+            series_push_sample (series, x, y);
+            any = TRUE;
+        }
+    }
+
+    g_object_unref (parser);
+
+    if (any)
+        schedule_repaint (self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -557,6 +802,19 @@ pn_xy_graph_get_property (
         break;
     case PROP_Y_FROM_ZERO:
         g_value_set_boolean (value, self->y_from_zero);
+        break;
+    case PROP_SAVE_DATA:
+        g_value_set_boolean (value, self->save_data);
+        break;
+    case PROP_SAVED_DATA:
+        {
+            /* Serialised on demand: the document serialiser reads this
+             * property while saving, and with "save-data" off the empty
+             * string keeps the store out of the file entirely. */
+            gchar *text = self->save_data ? xy_graph_encode_data (self) : NULL;
+
+            g_value_take_string (value, text != NULL ? text : g_strdup (""));
+        }
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -698,6 +956,23 @@ pn_xy_graph_set_property (
             }
         }
         break;
+    case PROP_SAVE_DATA:
+        {
+            gboolean b = g_value_get_boolean (value);
+            if (self->save_data != b)
+            {
+                self->save_data = b;
+                g_object_notify_by_pspec (object, props[PROP_SAVE_DATA]);
+            }
+        }
+        break;
+    case PROP_SAVED_DATA:
+        /* Load-time only: the loader hands back whatever the getter
+         * wrote.  An empty string means "nothing was saved" and leaves
+         * the live ring alone, so toggling "save-data" off in the dialog
+         * never wipes the plot on the screen. */
+        xy_graph_decode_data (self, g_value_get_string (value));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -830,6 +1105,30 @@ pn_xy_graph_class_init (PnXYGraphClass *klass)
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_SAVE_DATA] = g_param_spec_boolean (
+            "save-data", "Save data with the worksheet",
+            "Write the plotted points into the worksheet file when it is "
+            "saved and read them back when it is opened, so the graph "
+            "returns with its curve instead of an empty plot.  Bounded by "
+            "design: at most the newest 512 points per series (never more "
+            "than \"max-points\") are written, so the document cannot grow "
+            "without end.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* The store itself.  Deliberately absent from the settings schema
+     * below, so it never shows up as a dialog row — it exists purely so
+     * the generic property serialiser carries the points in and out of
+     * the document. */
+    props[PROP_SAVED_DATA] = g_param_spec_string (
+            "saved-data", "Saved data",
+            "Serialised point store written when \"save-data\" is on: a "
+            "JSON object holding, per series, the topic and the retained "
+            "(x, y) pairs.  Read on load to repopulate the plot; not "
+            "user-editable.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Declarative settings schema: two themed pages (Appearance | Data),
@@ -851,6 +1150,7 @@ pn_xy_graph_class_init (PnXYGraphClass *klass)
         pn_settings_schema_row (schema, "max-points",  PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "x-from-zero", PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "y-from-zero", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "save-data",   PN_EDITOR_AUTO);
 
         pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
@@ -876,6 +1176,7 @@ pn_xy_graph_init (PnXYGraph *self)
     self->axis_color       = (PnColor) {  70.0/255.0,  70.0/255.0,  70.0/255.0, 1.0 };
     self->background_color = (PnColor) { 1.0, 1.0, 1.0, 1.0 };
     self->line_width       = 2;
+    self->save_data        = FALSE;
     self->show_grid        = FALSE;
     self->x_from_zero      = FALSE;
     self->y_from_zero      = FALSE;

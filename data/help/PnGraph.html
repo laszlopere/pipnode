@@ -183,6 +183,22 @@ memory without bound.
           unaffected (zero is in range either way). Honoured in the
           time-series view on a linear axis &mdash; it has no effect
           on a logarithmic Y axis, which cannot reach zero.</td></tr>
+  <tr><td><code>save-data</code></td>
+      <td>Off by default. When enabled, the collected samples are
+          written into the worksheet file on save and read back when
+          it is opened, so a document reopened days later comes back
+          with its history instead of a blank plot. Two rules keep the
+          file bounded: samples already older than the
+          <code>resolution</code> window (which the plot could not draw
+          anyway) are dropped, and at most the newest 512 samples per
+          series are written &mdash; so a graph left running for a
+          month costs no more than one left running for an hour. The
+          store keeps wall-clock ages, so a sample that aged out while
+          the file sat on disk is discarded on load: a one-hour graph
+          opened a day later is empty, exactly as a live one would
+          be. One consequence worth knowing: undo/redo snapshots the
+          whole document, so while this is on an undo also puts the plot
+          back the way it looked at that step.</td></tr>
 </table>
 
 <p>
@@ -194,7 +210,7 @@ tabs: <strong>Appearance</strong> collects how the plot is drawn
 <strong>Data</strong> collects what is plotted and how the value axis
 is framed (<code>key</code>, <code>resolution</code>,
 <code>x-buckets</code>, <code>data-view</code>, <code>log-y</code>,
-<code>y-from-zero</code>).
+<code>y-from-zero</code>, <code>save-data</code>).
 </p>
 
 </body>

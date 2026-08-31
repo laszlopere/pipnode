@@ -29,6 +29,7 @@
 #include "pn-flow.h"
 #include "pn-node.h"
 #include "pn-inject.h"
+#include "pn-graph.h"
 #include "pn-subst.h"
 #include "pn-expression2.h"
 #include "pn-node-store.h"
@@ -710,6 +711,113 @@ test_input_names_disk_roundtrip (void)
     g_object_unref (flow);
 }
 
+
+/* A Graph node with "save-data" on carries its samples through a real
+ * document save/load: the store lands in the file as an ordinary
+ * property and the reloaded node comes back with the same series and
+ * values, so reopening a worksheet no longer starts from a blank plot.
+ * With the flag off the property is written empty — the default, and
+ * what keeps a document from carrying a data set nobody asked for. */
+static void
+test_graph_saved_data_disk_roundtrip (void)
+{
+    PnFlow    *flow  = pn_flow_new ();
+    PnGraph   *graph = pn_graph_new ();
+    PnMessage *msg;
+    gchar     *path  = NULL;
+    gchar     *body  = NULL;
+    gint       fd;
+    guint      i;
+
+    pn_flow_add_node (flow, PN_NODE (graph));
+    g_object_set (graph, "save-data", TRUE, NULL);
+
+    for (i = 0; i < 3; i++)
+    {
+        msg = pn_message_new (NULL, "alpha");
+        pn_message_set_double (msg, "value", (gdouble) i + 0.5);
+        pn_node_receive_message (PN_NODE (graph), msg);
+        g_object_unref (msg);
+    }
+
+    fd = g_file_open_tmp ("pn-flow-graph-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+
+    /* The store really is in the file, not just in the object. */
+    PN_CHECK (g_file_get_contents (path, &body, NULL, NULL));
+    PN_CHECK (strstr (body, "saved-data") != NULL);
+    g_free (body);
+
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+    PN_CHECK_CMPINT (pn_node_store_get_length (pn_flow_get_nodes (flow)),
+                     ==, 1u);
+
+    {
+        PnNode  *loaded = pn_node_store_get_node (pn_flow_get_nodes (flow), 0);
+        PnGraph *g      = PN_GRAPH (loaded);
+        guint    n_views = 0;
+        PnGraphSeriesView *views;
+        gboolean save = FALSE;
+
+        g_object_get (g, "save-data", &save, NULL);
+        PN_CHECK (save);
+        PN_CHECK_CMPINT (pn_graph_get_series_count (g), ==, 1u);
+
+        views = pn_graph_collect_series_sorted (g, &n_views);
+        PN_CHECK_CMPINT (n_views, ==, 1u);
+        PN_CHECK_CMPSTR (views[0].topic, ==, "alpha");
+        PN_CHECK_CMPINT (views[0].series->sample_count, ==, 3u);
+        {
+            guint first = (views[0].series->sample_head + PN_GRAPH_SAMPLES - 3)
+                          % PN_GRAPH_SAMPLES;
+            PN_CHECK_NEAR (views[0].series->samples[first].value, 0.5, 1e-9);
+        }
+        g_free (views);
+    }
+
+    g_remove (path);
+    g_free (path);
+    g_object_unref (flow);
+}
+
+/* The same node with the flag left alone writes an empty store, whatever
+ * it has collected. */
+static void
+test_graph_saved_data_off_writes_nothing (void)
+{
+    PnFlow    *flow  = pn_flow_new ();
+    PnGraph   *graph = pn_graph_new ();
+    PnMessage *msg;
+    gchar     *path  = NULL;
+    gchar     *body  = NULL;
+    gint       fd;
+
+    pn_flow_add_node (flow, PN_NODE (graph));
+
+    msg = pn_message_new (NULL, "alpha");
+    pn_message_set_double (msg, "value", 1.0);
+    pn_node_receive_message (PN_NODE (graph), msg);
+    g_object_unref (msg);
+
+    fd = g_file_open_tmp ("pn-flow-graph-off-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+
+    PN_CHECK (g_file_get_contents (path, &body, NULL, NULL));
+    PN_CHECK (strstr (body, "\"saved-data\" : \"\"") != NULL);
+    g_free (body);
+
+    g_remove (path);
+    g_free (path);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -739,5 +847,9 @@ main (int argc, char **argv)
     pn_test_add ("desktop_layout_absent", test_desktop_layout_absent_when_untouched);
     pn_test_add ("input_names_dirty",     test_input_names_mark_dirty);
     pn_test_add ("input_names_disk",      test_input_names_disk_roundtrip);
+    pn_test_add ("graph_saved_data_roundtrip",
+                 test_graph_saved_data_disk_roundtrip);
+    pn_test_add ("graph_saved_data_off",
+                 test_graph_saved_data_off_writes_nothing);
     return pn_test_run ();
 }

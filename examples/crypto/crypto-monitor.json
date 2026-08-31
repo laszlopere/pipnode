@@ -37,12 +37,12 @@
         "from" : "PLS",
         "to" : "BNB",
         "amount" : 100000000.0,
-        "quote" : 1.7216469999999999,
-        "rate" : 1.7216469999999998e-08,
+        "quote" : 1.5812569999999999,
+        "rate" : 1.5812569999999999e-08,
         "fee" : 0.014,
-        "min-amount" : 80895.759646000006,
-        "max-amount" : 212351369.06983399,
-        "last-update" : "2026-08-28T16:18:47.601476+02",
+        "min-amount" : 89362.650001000002,
+        "max-amount" : 281492347.50280797,
+        "last-update" : "2026-08-31T16:44:23.086264+02",
         "status" : "OK"
       }
     },
@@ -84,7 +84,9 @@
         "background-color" : "rgb(255,255,255)",
         "show-grid" : true,
         "log-y" : false,
-        "y-from-zero" : false
+        "y-from-zero" : false,
+        "save-data" : true,
+        "saved-data" : "{\"version\":1,\"saved\":1788187617937116,\"series\":[{\"topic\":\"/pnode/Bridge Quote/PulseLN\",\"from\":\"PulseLN\",\"samples\":[16446,1.5812569999999999]}]}"
       }
     },
     {
@@ -103,12 +105,12 @@
         "from" : "PLS",
         "to" : "BNB",
         "amount" : 1000000.0,
-        "quote" : 0.014822200000000001,
-        "rate" : 1.4822200000000001e-08,
+        "quote" : 0.0141304,
+        "rate" : 1.41304e-08,
         "fee" : 0.0,
-        "min-amount" : 21473.05353293,
+        "min-amount" : 21543.425096729999,
         "max-amount" : 7505000.0,
-        "last-update" : "2026-08-28T16:18:50.518578+02",
+        "last-update" : "2026-08-31T16:42:27.037925+02",
         "status" : "OK"
       }
     },
@@ -150,74 +152,77 @@
         "background-color" : "rgb(255,255,255)",
         "show-grid" : true,
         "log-y" : false,
-        "y-from-zero" : false
+        "y-from-zero" : false,
+        "save-data" : true,
+        "saved-data" : "{\"version\":1,\"saved\":1788187617937337,\"series\":[{\"topic\":\"/pnode/Bridge Quote/ChangeNOW\",\"from\":\"ChangeNOW\",\"samples\":[16447,0.0141304]}]}"
       }
     },
     {
       "type" : "PnBridgeQuote",
-      "uuid" : "47b1f589-920b-4be8-b838-71933d00e60e",
-      "name" : "PLS -> BNB",
+      "uuid" : "58f854f5-f92c-4d0f-932a-14df5cebf8e4",
+      "name" : "PulseLN",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 560.0,
+        "x" : 540.0,
         "y" : 120.0
       },
       "properties" : {
         "period" : 300,
         "url" : "https://api.pulseln.com/c/prices",
         "bridge" : "PulseLN",
-        "from" : "PLS",
-        "to" : "BNB",
-        "amount" : 1000000.0,
-        "quote" : 0.017215999999999999,
-        "rate" : 1.7216e-08,
-        "fee" : 0.014,
-        "min-amount" : 80895.759646000006,
-        "max-amount" : 212351369.06983399,
-        "last-update" : "2026-08-28T16:18:48.496719+02",
-        "status" : "OK"
-      }
-    },
-    {
-      "type" : "PnBridgeConverter",
-      "uuid" : "33c464a9-7a2c-4af2-9715-b96955e20947",
-      "name" : "BNB -> PLS",
-      "worksheet" : "Worksheet",
-      "position" : {
-        "x" : 740.0,
-        "y" : 120.0
-      },
-      "properties" : {
-        "period" : 30,
-        "url" : "https://api.changenow.io/v1/exchange-amount",
-        "bridge" : "ChangeNOW",
         "from" : "BNB",
         "to" : "PLS",
-        "amount" : 0.017215999999999999,
-        "quote" : 924294.80607319996,
-        "rate" : 53688127.676184945,
-        "fee" : 0.0,
-        "min-amount" : 0.00032759,
-        "max-amount" : 0.12303202000000001,
-        "last-update" : "2026-08-28T16:18:50.060294+02",
+        "amount" : 1.99,
+        "quote" : 119069010.88331801,
+        "rate" : 59833673.810712568,
+        "fee" : 0.014,
+        "min-amount" : 0.0014530000000000001,
+        "max-amount" : 4.5760940000000003,
+        "last-update" : "2026-08-31T16:41:49.936294+02",
         "status" : "OK"
       }
     },
     {
       "type" : "PnNumeric",
-      "uuid" : "827dbc90-e7b6-4853-8515-8ed2c9282e37",
-      "name" : "Return PLS",
+      "uuid" : "ccf51b7c-f4d1-44c7-b7cf-5cdaf39b64aa",
+      "name" : "PulseLN BNB",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 920.0,
+        "x" : 720.0,
         "y" : 120.0
       },
       "properties" : {
-        "digits" : 7,
-        "decimal-places" : 1,
+        "digits" : 10,
+        "decimal-places" : 2,
         "background-color" : "rgb(10,10,13)",
-        "segment-color" : "rgb(220,138,221)",
+        "segment-color" : "rgb(246,211,45)",
         "unlit-segment-color" : "rgba(191,64,64,0)"
+      }
+    },
+    {
+      "type" : "PnGraph",
+      "uuid" : "dfaa4e55-c312-4089-8d31-8b3fb7fa97e1",
+      "name" : "BNB payout",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 720.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "key" : "data/value",
+        "resolution" : "1 day",
+        "x-buckets" : 200,
+        "data-view" : "Time series",
+        "draw-style" : "Error bars",
+        "line-color" : "rgb(38,162,105)",
+        "line-width" : 2,
+        "axis-color" : "rgb(70,70,70)",
+        "background-color" : "rgb(255,255,255)",
+        "show-grid" : true,
+        "log-y" : false,
+        "y-from-zero" : false,
+        "save-data" : true,
+        "saved-data" : "{\"version\":1,\"saved\":1788187617937625,\"series\":[{\"topic\":\"/pnode/Bridge Quote/PulseLN\",\"from\":\"PulseLN\",\"samples\":[16447,119069010.88331801]}]}"
       }
     }
   ],
@@ -239,12 +244,12 @@
       "target_id" : "d95c5dd0-719d-4a6b-ba8f-661c2b5d4150"
     },
     {
-      "source_id" : "47b1f589-920b-4be8-b838-71933d00e60e",
-      "target_id" : "33c464a9-7a2c-4af2-9715-b96955e20947"
+      "source_id" : "58f854f5-f92c-4d0f-932a-14df5cebf8e4",
+      "target_id" : "ccf51b7c-f4d1-44c7-b7cf-5cdaf39b64aa"
     },
     {
-      "source_id" : "33c464a9-7a2c-4af2-9715-b96955e20947",
-      "target_id" : "827dbc90-e7b6-4853-8515-8ed2c9282e37"
+      "source_id" : "58f854f5-f92c-4d0f-932a-14df5cebf8e4",
+      "target_id" : "dfaa4e55-c312-4089-8d31-8b3fb7fa97e1"
     }
   ],
   "sheets" : [
@@ -253,10 +258,6 @@
   "active_sheet" : "Worksheet",
   "desktop_editor_open" : true,
   "desktop_layout" : {
-    "827dbc90-e7b6-4853-8515-8ed2c9282e37" : {
-      "x" : 0.0,
-      "y" : 279.0
-    },
     "a29bb391-3059-4516-807e-bc0fcb32b989" : {
       "x" : 0.0,
       "y" : 176.0

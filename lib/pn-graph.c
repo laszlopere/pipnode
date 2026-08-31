@@ -97,6 +97,19 @@ struct _PnGraph
     gboolean   log_y;
     gboolean   y_from_zero;
 
+    /* Write the collected samples into the worksheet on save and read
+     * them back on load (see the "save-data" / "saved-data" property
+     * pair).  Off by default: a graph is a live view, and most documents
+     * should not carry a data set around. */
+    gboolean   save_data;
+
+    /* One-shot idle that rebuilds the time-bucket rings from the samples
+     * restored by the "saved-data" setter.  Deferred because the bin
+     * width depends on "resolution" / "x-buckets", and the loader applies
+     * the properties of a node in an unspecified order — by the time the
+     * idle runs, every property from the file is in place. */
+    guint      restore_id;
+
     /* topic (gchar *) -> PnGraphSeries *.  Owns both keys and values
      * (the hashtable's value-destroy frees the series struct).  The
      * empty-topic sentinel "" sits alongside named topics so a feed
@@ -146,6 +159,8 @@ enum {
     PROP_SHOW_GRID,
     PROP_LOG_Y,
     PROP_Y_FROM_ZERO,
+    PROP_SAVE_DATA,
+    PROP_SAVED_DATA,    /* hidden: the on-disk sample store */
     PROP_MODE,          /* legacy, write-only — see PnGraphMode */
     N_PROPS,
 };
@@ -333,6 +348,57 @@ series_get_or_create (
     s = series_new (self->next_arrival_idx++);
     g_hash_table_insert (self->series, g_strdup (key), s);
     return s;
+}
+
+/** Fold @value, observed at monotonic time @time_us, into @series'
+ *  time-bucket ring.  Shared by receive() and the restore path so a
+ *  reloaded sample lands in exactly the bucket it would have landed in
+ *  live. */
+static void
+series_bin_sample (
+        PnGraph       *self,
+        PnGraphSeries *series,
+        gint64         time_us,
+        gdouble        value)
+{
+    gint64      width     = pn_graph_bin_width_us (self);
+    gint64      cur_epoch = time_us / width;
+    guint       slot      = (guint) (cur_epoch % self->n_bins);
+    PnGraphBin *bin       = &series->ring[slot];
+
+    if (bin->epoch != cur_epoch)
+        reset_bin (bin, cur_epoch);
+
+    if (bin->count == 0)
+    {
+        bin->min = value;
+        bin->max = value;
+    }
+    else
+    {
+        if (value < bin->min) bin->min = value;
+        if (value > bin->max) bin->max = value;
+    }
+    bin->sum    += value;
+    bin->sum_sq += value * value;
+    bin->count  += 1;
+}
+
+/** Append one raw observation to @series' sample ring.  The ring is fed
+ *  unconditionally — toggling the view property never has to wait for a
+ *  fresh sample to start showing the other view — and the distribution
+ *  view bins these directly. */
+static void
+series_push_sample (
+        PnGraphSeries *series,
+        gint64         time_us,
+        gdouble        value)
+{
+    series->samples[series->sample_head].time_us = time_us;
+    series->samples[series->sample_head].value   = value;
+    series->sample_head = (series->sample_head + 1) % PN_GRAPH_SAMPLES;
+    if (series->sample_count < PN_GRAPH_SAMPLES)
+        series->sample_count += 1;
 }
 
 /* PnGraphSeriesView (the sortable topic+series pair walked in arrival
@@ -611,10 +677,6 @@ pn_graph_receive (
     JsonNode      *value_node;
     gdouble        value;
     gint64         now_us;
-    gint64         width;
-    gint64         cur_epoch;
-    guint          slot;
-    PnGraphBin    *bin;
     const gchar   *topic;
     PnGraphSeries *series;
 
@@ -659,38 +721,10 @@ pn_graph_receive (
         }
     }
 
-    now_us    = g_get_monotonic_time ();
-    width     = pn_graph_bin_width_us (self);
-    cur_epoch = now_us / width;
-    slot      = (guint) (cur_epoch % self->n_bins);
-    bin       = &series->ring[slot];
+    now_us = g_get_monotonic_time ();
 
-    if (bin->epoch != cur_epoch)
-        reset_bin (bin, cur_epoch);
-
-    if (bin->count == 0)
-    {
-        bin->min = value;
-        bin->max = value;
-    }
-    else
-    {
-        if (value < bin->min) bin->min = value;
-        if (value > bin->max) bin->max = value;
-    }
-    bin->sum    += value;
-    bin->sum_sq += value * value;
-    bin->count  += 1;
-
-    /* Mirror the value into the per-series raw-sample ring so
-     * histogram mode has something to bin.  The ring is fed
-     * unconditionally — toggling the mode property never has to
-     * wait for a fresh sample to start showing the other view. */
-    series->samples[series->sample_head].time_us = now_us;
-    series->samples[series->sample_head].value   = value;
-    series->sample_head = (series->sample_head + 1) % PN_GRAPH_SAMPLES;
-    if (series->sample_count < PN_GRAPH_SAMPLES)
-        series->sample_count += 1;
+    series_bin_sample  (self, series, now_us, value);
+    series_push_sample (series, now_us, value);
 
     /* Throttled: a high-rate feed will not push the worksheet to
      * repaint per message.  Property changes from the dialog still
@@ -702,6 +736,352 @@ pn_graph_receive (
     graph_ensure_tick (self);
 
     (void) node;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Persisted sample store                                             */
+/*                                                                     */
+/*  With "save-data" on, the samples behind the plot travel with the   */
+/*  worksheet: the "saved-data" property serialises them on save and   */
+/*  restores them on load, so reopening a document brings the graph    */
+/*  back with its history instead of an empty plot.  Two things keep   */
+/*  the document bounded: only the newest PN_GRAPH_PERSIST_SAMPLES per */
+/*  series are written, and anything already older than the active     */
+/*  resolution window (i.e. no longer drawable) is dropped first.      */
+/*                                                                     */
+/*  The rings are stamped with the monotonic clock, which restarts     */
+/*  with the process, so the wire format stores each sample as its age */
+/*  in milliseconds at save time plus the wall clock of the save.  On  */
+/*  load the two are added back into an age relative to *now* and      */
+/*  mapped onto the current monotonic clock — a file that sat on disk  */
+/*  for a day therefore restores nothing into a one-hour window, which */
+/*  is exactly what a live graph would have shown.                     */
+/* ------------------------------------------------------------------ */
+
+#define PN_GRAPH_STORE_VERSION  1
+
+/** Wipe every series' time-bucket ring and refold the raw samples into
+ *  it at the current bin width.  Used by the restore path only: live
+ *  receives fold each sample in as it arrives. */
+static void
+graph_rebuild_bins (PnGraph *self)
+{
+    GHashTableIter it;
+    gpointer       v;
+
+    g_hash_table_iter_init (&it, self->series);
+    while (g_hash_table_iter_next (&it, NULL, &v))
+    {
+        PnGraphSeries *s = v;
+        guint          first;
+        guint          i;
+
+        for (i = 0; i < PN_GRAPH_MAX_BINS; i++)
+            s->ring[i].epoch = G_MININT64;
+
+        if (s->sample_count == 0)
+            continue;
+
+        first = (s->sample_head + PN_GRAPH_SAMPLES - s->sample_count)
+                % PN_GRAPH_SAMPLES;
+        for (i = 0; i < s->sample_count; i++)
+        {
+            const PnGraphSample *smp =
+                    &s->samples[(first + i) % PN_GRAPH_SAMPLES];
+
+            series_bin_sample (self, s, smp->time_us, smp->value);
+        }
+    }
+}
+
+/** Deferred half of a restore: the bin width is derived from
+ *  "resolution" and "x-buckets", and the loader applies a node's
+ *  properties in an unspecified order, so the rings are refolded once
+ *  more from the idle — by which point every property in the file has
+ *  been applied. */
+static gboolean
+on_restore_bins (gpointer user_data)
+{
+    PnGraph *self = user_data;
+
+    self->restore_id = 0;
+    graph_rebuild_bins (self);
+    pn_node_request_repaint (PN_NODE (self));
+
+    return G_SOURCE_REMOVE;
+}
+
+/** Serialise the in-window samples of every series.  Returns %NULL
+ *  (write nothing) when there is no data worth carrying. */
+static gchar *
+graph_encode_data (PnGraph *self)
+{
+    PnGraphSeriesView *views;
+    guint              n_views = 0;
+    guint              i;
+    gint64             now_mono  = g_get_monotonic_time ();
+    gint64             now_real  = g_get_real_time ();
+    gint64             window_us =
+            (gint64) pn_graph_resolution_seconds (self->resolution)
+            * G_TIME_SPAN_SECOND;
+    JsonBuilder       *b;
+    JsonNode          *root;
+    JsonGenerator     *gen;
+    gchar             *out;
+    gboolean           any = FALSE;
+
+    views = pn_graph_collect_series_sorted (self, &n_views);
+    if (views == NULL)
+        return NULL;
+
+    b = json_builder_new ();
+    json_builder_begin_object (b);
+
+    json_builder_set_member_name (b, "version");
+    json_builder_add_int_value (b, PN_GRAPH_STORE_VERSION);
+    json_builder_set_member_name (b, "saved");
+    json_builder_add_int_value (b, now_real);
+    json_builder_set_member_name (b, "series");
+    json_builder_begin_array (b);
+
+    for (i = 0; i < n_views; i++)
+    {
+        const PnGraphSeries *s    = views[i].series;
+        guint                keep = MIN (s->sample_count,
+                                         (guint) PN_GRAPH_PERSIST_SAMPLES);
+        guint                first;
+        guint                k;
+        gboolean             opened = FALSE;
+
+        if (keep == 0)
+            continue;
+
+        first = (s->sample_head + PN_GRAPH_SAMPLES - keep) % PN_GRAPH_SAMPLES;
+
+        for (k = 0; k < keep; k++)
+        {
+            const PnGraphSample *smp =
+                    &s->samples[(first + k) % PN_GRAPH_SAMPLES];
+            gint64 age_us = now_mono - smp->time_us;
+
+            /* Already scrolled off the plot — no point carrying it. */
+            if (age_us > window_us)
+                continue;
+            if (age_us < 0)
+                age_us = 0;
+
+            if (!opened)
+            {
+                json_builder_begin_object (b);
+                json_builder_set_member_name (b, "topic");
+                json_builder_add_string_value (
+                        b, views[i].topic != NULL ? views[i].topic : "");
+                if (views[i].from != NULL)
+                {
+                    json_builder_set_member_name (b, "from");
+                    json_builder_add_string_value (b, views[i].from);
+                }
+                json_builder_set_member_name (b, "samples");
+                json_builder_begin_array (b);
+                opened = TRUE;
+                any    = TRUE;
+            }
+
+            /* Flat [age_ms, value, age_ms, value, …]: half the brackets
+             * of an array of pairs, and the ages are small integers
+             * because they are relative to the save. */
+            json_builder_add_int_value (b, age_us / G_TIME_SPAN_MILLISECOND);
+            json_builder_add_double_value (b, smp->value);
+        }
+
+        if (opened)
+        {
+            json_builder_end_array (b);
+            json_builder_end_object (b);
+        }
+    }
+
+    json_builder_end_array (b);
+    json_builder_end_object (b);
+    g_free (views);
+
+    if (!any)
+    {
+        g_object_unref (b);
+        return NULL;
+    }
+
+    root = json_builder_get_root (b);
+    gen  = json_generator_new ();
+    json_generator_set_root (gen, root);
+    out = json_generator_to_data (gen, NULL);
+
+    g_object_unref (gen);
+    json_node_unref (root);
+    g_object_unref (b);
+
+    return out;
+}
+
+/** Read one array slot as a finite double, accepting both the integer
+ *  ages and the double values the encoder writes. */
+static gboolean
+array_get_finite (
+        JsonArray *arr,
+        guint      idx,
+        gdouble   *out)
+{
+    JsonNode *node = json_array_get_element (arr, idx);
+    GType     type;
+
+    if (node == NULL || !JSON_NODE_HOLDS_VALUE (node))
+        return FALSE;
+
+    type = json_node_get_value_type (node);
+    if (type == G_TYPE_INT64)
+        *out = (gdouble) json_node_get_int (node);
+    else if (type == G_TYPE_DOUBLE)
+        *out = json_node_get_double (node);
+    else
+        return FALSE;
+
+    return isfinite (*out);
+}
+
+/** Repopulate the series table from a store written by
+ *  graph_encode_data().  Replaces whatever the node holds (a restore is
+ *  a load, not a merge); malformed or stale input leaves an empty
+ *  graph rather than a half-filled one. */
+static void
+graph_decode_data (
+        PnGraph     *self,
+        const gchar *text)
+{
+    JsonParser *parser;
+    JsonNode   *root;
+    JsonObject *obj;
+    JsonArray  *series_arr;
+    GError     *error = NULL;
+    gint64      saved_real, now_real, now_mono, elapsed_us, window_us;
+    guint       i, n;
+    gboolean    any = FALSE;
+
+    if (text == NULL || *text == '\0')
+        return;
+
+    parser = json_parser_new ();
+    if (!json_parser_load_from_data (parser, text, -1, &error))
+    {
+        g_warning ("pn-graph: saved data is not valid JSON: %s",
+                   error != NULL ? error->message : "(unknown)");
+        g_clear_error (&error);
+        g_object_unref (parser);
+        return;
+    }
+
+    root = json_parser_get_root (parser);
+    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    {
+        g_object_unref (parser);
+        return;
+    }
+
+    obj = json_node_get_object (root);
+    if (json_object_get_int_member_with_default (obj, "version", 0)
+            != PN_GRAPH_STORE_VERSION
+        || !json_object_has_member (obj, "series")
+        || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (obj, "series")))
+    {
+        g_object_unref (parser);
+        return;
+    }
+
+    series_arr = json_object_get_array_member (obj, "series");
+    saved_real = json_object_get_int_member_with_default (obj, "saved", 0);
+
+    now_real   = g_get_real_time ();
+    now_mono   = g_get_monotonic_time ();
+    elapsed_us = (saved_real > 0) ? now_real - saved_real : 0;
+    if (elapsed_us < 0)          /* clock moved backwards — treat as "just now" */
+        elapsed_us = 0;
+    window_us  = (gint64) pn_graph_resolution_seconds (self->resolution)
+               * G_TIME_SPAN_SECOND;
+
+    g_hash_table_remove_all (self->series);
+    self->next_arrival_idx = 0;
+
+    n = json_array_get_length (series_arr);
+    for (i = 0; i < n; i++)
+    {
+        JsonNode      *elem = json_array_get_element (series_arr, i);
+        JsonObject    *so;
+        JsonArray     *samples;
+        PnGraphSeries *series;
+        const gchar   *from;
+        guint          len, j;
+
+        if (elem == NULL || !JSON_NODE_HOLDS_OBJECT (elem))
+            continue;
+
+        so = json_node_get_object (elem);
+        if (!json_object_has_member (so, "samples")
+            || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (so, "samples")))
+            continue;
+
+        series = series_get_or_create (
+                self,
+                json_object_get_string_member_with_default (so, "topic", ""));
+        if (series == NULL)
+            break;              /* PN_GRAPH_MAX_SERIES reached */
+
+        from = json_object_get_string_member_with_default (so, "from", NULL);
+        if (from != NULL && *from != '\0')
+        {
+            g_free (series->from);
+            series->from = g_strdup (from);
+        }
+
+        samples = json_object_get_array_member (so, "samples");
+        len     = json_array_get_length (samples);
+
+        /* Oldest first, exactly as written — pushing in that order keeps
+         * the restored ring in chronological order. */
+        for (j = 0; j + 1 < len; j += 2)
+        {
+            gdouble age_ms, value;
+            gint64  age_us;
+
+            if (!array_get_finite (samples, j,     &age_ms) ||
+                !array_get_finite (samples, j + 1, &value))
+                continue;
+            if (age_ms < 0.0)
+                age_ms = 0.0;
+
+            age_us = elapsed_us + (gint64) (age_ms * G_TIME_SPAN_MILLISECOND);
+            if (age_us > window_us)
+                continue;       /* aged out while the file sat on disk */
+
+            series_push_sample (series, now_mono - age_us, value);
+            any = TRUE;
+        }
+    }
+
+    g_object_unref (parser);
+
+    if (!any)
+        return;
+
+    /* Fold what we restored into the buckets straight away so a headless
+     * caller that never spins the main loop still sees a populated ring,
+     * then again from an idle in case "resolution" / "x-buckets" are
+     * still to be applied (see #PnGraph.restore_id). */
+    graph_rebuild_bins (self);
+
+    if (self->restore_id == 0)
+        self->restore_id = g_idle_add (on_restore_bins, self);
+
+    graph_ensure_tick (self);
+    schedule_repaint (self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -805,6 +1185,19 @@ pn_graph_get_property (
         break;
     case PROP_Y_FROM_ZERO:
         g_value_set_boolean (value, self->y_from_zero);
+        break;
+    case PROP_SAVE_DATA:
+        g_value_set_boolean (value, self->save_data);
+        break;
+    case PROP_SAVED_DATA:
+        {
+            /* Serialised on demand: the document serialiser reads this
+             * property while saving, and with "save-data" off the empty
+             * string keeps the store out of the file entirely. */
+            gchar *text = self->save_data ? graph_encode_data (self) : NULL;
+
+            g_value_take_string (value, text != NULL ? text : g_strdup (""));
+        }
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1001,6 +1394,23 @@ pn_graph_set_property (
             }
         }
         break;
+    case PROP_SAVE_DATA:
+        {
+            gboolean b = g_value_get_boolean (value);
+            if (self->save_data != b)
+            {
+                self->save_data = b;
+                g_object_notify_by_pspec (object, props[PROP_SAVE_DATA]);
+            }
+        }
+        break;
+    case PROP_SAVED_DATA:
+        /* Load-time only: the loader hands back whatever the getter
+         * wrote.  An empty string means "nothing was saved" and leaves
+         * the live rings alone, so toggling "save-data" off in the
+         * dialog never wipes the plot on the screen. */
+        graph_decode_data (self, g_value_get_string (value));
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -1024,6 +1434,11 @@ pn_graph_finalize (GObject *object)
     {
         g_source_remove (self->tick_id);
         self->tick_id = 0;
+    }
+    if (self->restore_id != 0)
+    {
+        g_source_remove (self->restore_id);
+        self->restore_id = 0;
     }
 
     /* The PLplot stream (if one was ever allocated) is torn down by its
@@ -1182,6 +1597,30 @@ pn_graph_class_init (PnGraphClass *klass)
      * read+write properties), so re-saving a migrated worksheet drops
      * "mode" and writes the new pair instead.  No nick/blurb because it
      * never surfaces in the settings dialog. */
+    props[PROP_SAVE_DATA] = g_param_spec_boolean (
+            "save-data", "Save data with the worksheet",
+            "Write the plotted samples into the worksheet file when it is "
+            "saved and read them back when it is opened, so the graph "
+            "returns with its history instead of an empty plot.  Bounded "
+            "by design: samples already older than the resolution window "
+            "are dropped, and at most the newest 512 per series are "
+            "written, so the document cannot grow without end.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* The store itself.  Deliberately absent from the settings schema
+     * below, so it never shows up as a dialog row — it exists purely so
+     * the generic property serialiser carries the samples in and out of
+     * the document. */
+    props[PROP_SAVED_DATA] = g_param_spec_string (
+            "saved-data", "Saved data",
+            "Serialised sample store written when \"save-data\" is on: a "
+            "JSON object holding, per series, the topic and the in-window "
+            "samples as (age in ms at save time, value) pairs.  Read on "
+            "load to repopulate the plot; not user-editable.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_MODE] = g_param_spec_enum (
             "mode", NULL, NULL,
             PN_TYPE_GRAPH_MODE,
@@ -1215,6 +1654,7 @@ pn_graph_class_init (PnGraphClass *klass)
         pn_settings_schema_row (schema, "data-view",   PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "log-y",       PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "y-from-zero", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "save-data",   PN_EDITOR_AUTO);
 
         pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
@@ -1248,6 +1688,8 @@ pn_graph_init (PnGraph *self)
     self->show_grid        = FALSE;
     self->log_y            = FALSE;
     self->y_from_zero      = FALSE;
+    self->save_data        = FALSE;
+    self->restore_id       = 0;
 
     self->series = g_hash_table_new_full (g_str_hash, g_str_equal,
                                           g_free, series_free);

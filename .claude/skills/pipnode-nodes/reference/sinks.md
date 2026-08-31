@@ -91,6 +91,14 @@ value-frequency distribution). Use **Graph** for "this number over time"; use
   `background-color` (default white) / `show-grid` (default off).
 - `log-y` (default off, distribution only) / `y-from-zero` (default off,
   time-series linear only). `lib/pn-graph.c:1129` / `:1138`.
+- `save-data` (bool, default **off**) — persist the collected samples into the
+  worksheet file and restore them on load. Bounded: in-window samples only, at
+  most 512 per series. The store itself rides on a hidden read/write string
+  property `saved-data` (JSON: per series a topic plus flat
+  `[age_ms, value, …]` pairs relative to the save's wall clock), which is not a
+  dialog row — it exists only so the generic property serialiser carries it.
+  Samples that aged past the `resolution` window while the file sat on disk are
+  dropped on load.
 - Legacy write-only `mode` enum migrates old saves to data-view+draw-style.
   `lib/pn-graph.c:1157`.
 
@@ -132,6 +140,11 @@ time.
   `background-color` (default white) / `show-grid` (default off).
 - `x-from-zero` / `y-from-zero` (both default off) — anchor an axis at 0
   instead of tight auto-fit. `lib/pn-xy-graph.c:819` / `:826`.
+- `save-data` (bool, default **off**) — persist the plotted points into the
+  worksheet file and restore them on load, through the same hidden `saved-data`
+  string property the Graph node uses (JSON: per series a topic plus a flat
+  `[x, y, …]` array). Capped at `max-points`, and never more than 512 per
+  series. No time axis, so nothing ages out on load.
 
 **Renders / acts** — Resolves x and y, appends to the per-topic ring, repaints
 (10 Hz throttle); the painter reads the last `max-points` in chronological
