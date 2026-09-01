@@ -34,6 +34,8 @@ libpipnode_panel_widgets_la_SOURCES = \
 	pn-matrix57-display.h \
 	pn-numeric-display.c \
 	pn-numeric-display.h \
+	pn-plot-display.c \
+	pn-plot-display.h \
 	pn-switch-widget.c \
 	pn-switch-widget.h \
 	pn-text-display.c \

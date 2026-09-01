@@ -147,6 +147,14 @@ struct _PnLayoutEditor
     gint       drag_start_x;
     gint       drag_start_y;
 
+    /* A drag that started inside a plot's corner grip RESIZES it instead
+     * of moving it; @drag_start_w/h is the size at grab time, so a
+     * resize that ends where it began leaves the document clean the same
+     * way an unmoved row does. */
+    gboolean   drag_resize;
+    gint       drag_start_w;
+    gint       drag_start_h;
+
     /* Which guide the row being dragged is currently stuck to on each
      * axis (an index into that axis's guide list, or -1 for free).
      * Carried across motion events so the snap has hysteresis: it holds
@@ -249,6 +257,38 @@ layout_editor_store_position (PnLayoutEditor *self,
         pn_flow_set_desktop_position (self->flow, uuid, x - ox, y - oy);
     else
         pn_flow_set_panel_position   (self->flow, uuid, x - ox, y - oy);
+}
+
+/* Read @node's saved widget size for this surface, or the plot default
+ * when it has none.  Only the desktop kind has resizable widgets, so the
+ * panel always gets the default (which it never asks for). */
+static void
+layout_editor_load_size (PnLayoutEditor *self,
+                         PnNode         *node,
+                         gint           *out_w,
+                         gint           *out_h)
+{
+    gdouble w = PN_DE_PLOT_DEFAULT_WIDTH;
+    gdouble h = PN_DE_PLOT_DEFAULT_HEIGHT;
+
+    if (self->kind == PN_LAYOUT_EDITOR_DESKTOP)
+        pn_flow_get_desktop_size (self->flow, pn_node_get_uuid (node), &w, &h);
+
+    *out_w = (gint) w;
+    *out_h = (gint) h;
+}
+
+/* Save @node's widget size into this surface's layout map. */
+static void
+layout_editor_store_size (PnLayoutEditor *self,
+                          PnNode         *node,
+                          gint            w,
+                          gint            h)
+{
+    if (self->kind != PN_LAYOUT_EDITOR_DESKTOP)
+        return;
+
+    pn_flow_set_desktop_size (self->flow, pn_node_get_uuid (node), w, h);
 }
 
 /* Sticky-snap @v to one of @guides, remembering in @state which guide
@@ -503,6 +543,108 @@ on_injector_repaint_needed (PnNode *node, gpointer user_data)
     layout_editor_sync_injector (node, PN_INJECTOR_WIDGET (user_data));
 }
 
+/* ------------------------------------------------------------------ */
+/*  Plot widgets                                                       */
+/*                                                                     */
+/*  The one widget kind that is NOT a panel-widgets face.  Every other  */
+/*  row restates its node's look in self-contained cairo code, but a    */
+/*  plot's look lives in the node's own PnNodeClass::paint_plot         */
+/*  painter — PLplot for the 2D graphs, MathGL for the 3D ones, Pango   */
+/*  for the cards — and there is no honest way to say that twice.  The  */
+/*  editor lives in the same process as the nodes, so it simply calls   */
+/*  the painter into a drawing area: what you arrange here is literally */
+/*  the node's own picture, at the size it will have in the window.     */
+/*                                                                     */
+/*  (The desktop VIEWER cannot do this — it links no pipnode runtime    */
+/*  and no plotting stack — so the engine renders the same painter to a */
+/*  PNG and ships the pixels to a #PnPlotDisplay.  Same picture, one    */
+/*  process removed.)                                                   */
+/*                                                                     */
+/*  Plots are desktop-only: a panel band is one icon tall, which is no  */
+/*  place for a plot, and the panel layout has nowhere to store a size. */
+/* ------------------------------------------------------------------ */
+
+/* Set on the drawing area (the node it paints) and, for the row that
+ * wraps it, on the handle (the area itself) — the press handler uses the
+ * latter to tell a resizable plot row from a fixed-height one. */
+#define PN_LE_PLOT_NODE_QDATA  "pn-plot-node"
+#define PN_LE_PLOT_AREA_QDATA  "pn-plot-area"
+
+/* Draw the resize grip in the bottom-right corner: three short diagonals,
+ * the desktop-wide idiom for "drag me bigger".  Drawn over the plot, in a
+ * translucent grey that reads on both a light and a dark plot. */
+static void
+draw_plot_grip (cairo_t *cr, double w, double h)
+{
+    gint i;
+
+    cairo_save (cr);
+    cairo_set_line_width (cr, 1.5);
+    cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
+
+    for (i = 1; i <= 3; i++)
+    {
+        double d = i * (PN_DE_PLOT_GRIP / 4.0);
+
+        cairo_move_to (cr, w - d - 1.0, h - 1.0);
+        cairo_line_to (cr, w - 1.0,     h - d - 1.0);
+    }
+
+    /* Stroked twice — a dark line under a light one — so the grip stays
+     * visible whatever the plot happens to be painting underneath. */
+    cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.35);
+    cairo_stroke_preserve (cr);
+    cairo_set_line_width (cr, 0.8);
+    cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.75);
+    cairo_stroke (cr);
+    cairo_restore (cr);
+}
+
+/* Paint one plot row: the node's own painter across the whole area, then
+ * the resize grip on top. */
+static gboolean
+on_plot_draw (GtkWidget *area, cairo_t *cr, gpointer user_data)
+{
+    PnNode      *node = g_object_get_data (G_OBJECT (area),
+                                           PN_LE_PLOT_NODE_QDATA);
+    PnNodeClass *klass;
+    double       w = gtk_widget_get_allocated_width  (area);
+    double       h = gtk_widget_get_allocated_height (area);
+
+    (void) user_data;
+
+    if (node == NULL)
+        return GDK_EVENT_PROPAGATE;
+
+    klass = PN_NODE_GET_CLASS (node);
+    if (klass->paint_plot != NULL)
+        klass->paint_plot (node, cr, 0.0, 0.0, w, h);
+
+    draw_plot_grip (cr, w, h);
+    return GDK_EVENT_PROPAGATE;
+}
+
+/* repaint-needed on a plot node -> redraw its area.  @user_data is the
+ * row's drawing area (connected with g_signal_connect_object so it dies
+ * with the area). */
+static void
+on_plot_repaint_needed (PnNode *node, gpointer user_data)
+{
+    (void) node;
+    gtk_widget_queue_draw (GTK_WIDGET (user_data));
+}
+
+/* Whether @node is shown as a plot area on this surface: it installs a
+ * paint_plot painter, has no dedicated widget of its own (the checks
+ * above this one in layout_editor_build_widget claim those first), and
+ * the surface is the desktop. */
+static gboolean
+layout_editor_is_plot (PnLayoutEditor *self, PnNode *node)
+{
+    return self->kind == PN_LAYOUT_EDITOR_DESKTOP
+        && PN_NODE_GET_CLASS (node)->paint_plot != NULL;
+}
+
 /* Toggle the empty-state hint to match the live readout count. */
 static void
 layout_editor_update_empty_state (PnLayoutEditor *self)
@@ -545,6 +687,19 @@ panel_band_snap_y (GtkWidget *child)
     return PN_PE_PANEL_TOP + (PN_PE_PANEL_HEIGHT - h) / 2;
 }
 
+/* Whether (@x, @y) inside @child — a row handle — lands on the resize
+ * grip of a plot it wraps.  %FALSE for every non-plot row, which is what
+ * keeps the fixed-height readouts drag-only. */
+static gboolean
+press_in_plot_grip (GtkWidget *child, gdouble x, gdouble y)
+{
+    if (g_object_get_data (G_OBJECT (child), PN_LE_PLOT_AREA_QDATA) == NULL)
+        return FALSE;
+
+    return x >= gtk_widget_get_allocated_width  (child) - PN_DE_PLOT_GRIP
+        && y >= gtk_widget_get_allocated_height (child) - PN_DE_PLOT_GRIP;
+}
+
 /* Begin dragging the row under the pointer.  We remember where inside the
  * row the pointer grabbed so the row follows it without snapping its
  * corner to the cursor, and raise the row above its siblings so it stays
@@ -563,9 +718,16 @@ on_row_button_press (GtkWidget      *child,
     self->drag_child  = child;
     self->drag_grab_x = event->x;
     self->drag_grab_y = event->y;
+    self->drag_start_w = gtk_widget_get_allocated_width  (child);
+    self->drag_start_h = gtk_widget_get_allocated_height (child);
     gtk_container_child_get (GTK_CONTAINER (self->canvas), child,
                              "x", &self->drag_start_x,
                              "y", &self->drag_start_y, NULL);
+
+    /* A press inside a plot's corner grip resizes rather than moves.  One
+     * handle serves both gestures, so the row needs no extra child widget
+     * and the plot keeps the whole area for its picture. */
+    self->drag_resize = press_in_plot_grip (child, event->x, event->y);
 
     /* A row picked up already sitting on a guide starts out snapped to it,
      * so it clings rather than tearing off on the first stray pixel of
@@ -584,6 +746,68 @@ on_row_button_press (GtkWidget      *child,
     return GDK_EVENT_STOP;
 }
 
+/* Put @name's cursor on @child's own #GdkWindow, doing nothing when it is
+ * already showing.  The row handle is a #GtkEventBox, so it has one. */
+static void
+row_set_cursor (GtkWidget *child, const gchar *name)
+{
+    GdkWindow  *win = gtk_widget_get_window (child);
+    GdkCursor  *cursor;
+
+    if (win == NULL)
+        return;
+
+    /* Cheap identity check: re-setting the same cursor every motion event
+     * would ask X for a new one dozens of times a second. */
+    if (g_strcmp0 (g_object_get_data (G_OBJECT (child), "pn-cursor"),
+                   name) == 0)
+        return;
+
+    cursor = gdk_cursor_new_from_name (gtk_widget_get_display (child), name);
+    if (cursor == NULL)
+        cursor = gdk_cursor_new_for_display (
+                gtk_widget_get_display (child),
+                g_str_equal (name, "se-resize") ? GDK_BOTTOM_RIGHT_CORNER
+                                                : GDK_FLEUR);
+
+    gdk_window_set_cursor (win, cursor);
+    g_clear_object (&cursor);
+    g_object_set_data_full (G_OBJECT (child), "pn-cursor",
+                            g_strdup (name), g_free);
+}
+
+/* Resize the plot in @child so its bottom-right corner tracks the pointer
+ * at canvas position (@px, @py).  The grab offset is preserved, so the
+ * corner stays exactly where it was grabbed rather than jumping to the
+ * cursor; the result is clamped to the plot minimum and to the window
+ * frame, so a plot can never be sized out of the window it lives in. */
+static void
+resize_plot_row (PnLayoutEditor *self, GtkWidget *child, gint px, gint py)
+{
+    GtkWidget   *area = g_object_get_data (G_OBJECT (child),
+                                           PN_LE_PLOT_AREA_QDATA);
+    GdkRectangle fr;
+    gint         nw, nh;
+
+    if (area == NULL)
+        return;
+
+    nw = (px - self->drag_start_x) + (self->drag_start_w
+                                      - (gint) self->drag_grab_x);
+    nh = (py - self->drag_start_y) + (self->drag_start_h
+                                      - (gint) self->drag_grab_y);
+
+    layout_editor_frame_rect (self, &fr);
+    nw = CLAMP (nw, PN_DE_PLOT_MIN_WIDTH,
+                MAX (PN_DE_PLOT_MIN_WIDTH,
+                     fr.x + fr.width  - self->drag_start_x));
+    nh = CLAMP (nh, PN_DE_PLOT_MIN_HEIGHT,
+                MAX (PN_DE_PLOT_MIN_HEIGHT,
+                     fr.y + fr.height - self->drag_start_y));
+
+    gtk_widget_set_size_request (area, nw, nh);
+}
+
 /* Track the pointer: move the grabbed row so the grab point stays under
  * the cursor, clamped so the row cannot be dragged off the canvas. */
 static gboolean
@@ -596,8 +820,15 @@ on_row_motion (GtkWidget      *child,
     gint           nx, ny;
     gint           cw, ch;
 
+    /* Not dragging: the pointer is only here to pick the cursor, so a plot
+     * announces its grip before the user commits to a gesture. */
     if (self->drag_child != child)
+    {
+        row_set_cursor (child,
+                        press_in_plot_grip (child, event->x, event->y)
+                        ? "se-resize" : "move");
         return GDK_EVENT_PROPAGATE;
+    }
 
     /* event->x/y are relative to @child; translate to canvas coordinates
      * so the move is expressed in the canvas's own space. */
@@ -605,6 +836,12 @@ on_row_motion (GtkWidget      *child,
                                            (gint) event->x, (gint) event->y,
                                            &px, &py))
         return GDK_EVENT_PROPAGATE;
+
+    if (self->drag_resize)
+    {
+        resize_plot_row (self, child, px, py);
+        return GDK_EVENT_STOP;
+    }
 
     nx = px - (gint) self->drag_grab_x;
     ny = py - (gint) self->drag_grab_y;
@@ -678,12 +915,31 @@ on_row_button_release (GtkWidget      *child,
         return GDK_EVENT_PROPAGATE;
 
     self->drag_child = NULL;
+    node = g_object_get_data (G_OBJECT (child), "pn-node");
+
+    if (self->drag_resize)
+    {
+        GtkWidget *area = g_object_get_data (G_OBJECT (child),
+                                             PN_LE_PLOT_AREA_QDATA);
+        gint       w = 0, h = 0;
+
+        self->drag_resize = FALSE;
+
+        /* The request, not the allocation: the canvas may not have
+         * re-laid-out yet, and the request is what the user just set. */
+        if (area != NULL)
+            gtk_widget_get_size_request (area, &w, &h);
+        if (node != NULL && w > 0 && h > 0
+            && (w != self->drag_start_w || h != self->drag_start_h))
+            layout_editor_store_size (self, node, w, h);
+
+        return GDK_EVENT_STOP;
+    }
 
     /* Persist the placement only when the row actually moved, so a plain
      * click never dirties the document. */
     gtk_container_child_get (GTK_CONTAINER (self->canvas), child,
                              "x", &x, "y", &y, NULL);
-    node = g_object_get_data (G_OBJECT (child), "pn-node");
     if (node != NULL && (x != self->drag_start_x || y != self->drag_start_y))
         layout_editor_store_position (self, node, x, y);
 
@@ -691,25 +947,14 @@ on_row_button_release (GtkWidget      *child,
 }
 
 /* Give a row a move ("fleur") cursor so it reads as draggable.  Deferred
- * to realize because the cursor is set on the row's #GdkWindow. */
+ * to realize because the cursor is set on the row's #GdkWindow.  A plot
+ * row swaps this for "se-resize" while the pointer is over its grip; see
+ * on_row_motion. */
 static void
 on_row_realize (GtkWidget *child, gpointer user_data)
 {
-    GdkWindow  *win = gtk_widget_get_window (child);
-    GdkDisplay *display;
-    GdkCursor  *cursor;
-
     (void) user_data;
-    if (win == NULL)
-        return;
-
-    display = gtk_widget_get_display (child);
-    cursor  = gdk_cursor_new_from_name (display, "move");
-    if (cursor == NULL)
-        cursor = gdk_cursor_new_for_display (display, GDK_FLEUR);
-
-    gdk_window_set_cursor (win, cursor);
-    g_clear_object (&cursor);
+    row_set_cursor (child, "move");
 }
 
 /* Initial canvas position for the next readout: cascade down a column,
@@ -747,15 +992,17 @@ layout_editor_next_position (PnLayoutEditor *self, gint *out_x, gint *out_y)
     *out_y = oy + (self->cascade % per_col) * step_y;
 }
 
-/* Build the panel widget that mirrors @node, or %NULL when @node is not a
- * kind the panel editor represents.  Each branch seeds the widget's
+/* Build the widget that mirrors @node, or %NULL when @node is not a kind
+ * this surface represents.  Each branch seeds the widget's
  * current value and wires it to follow the node's repaint-needed signal
  * live; tying that handler to the widget (g_signal_connect_object) means
  * destroying the row when the node goes away also severs the connection —
  * no manual handler bookkeeping, no dangling callbacks. */
 static GtkWidget *
-layout_editor_build_widget (PnNode *node, gint height)
+layout_editor_build_widget (PnLayoutEditor *self, PnNode *node)
 {
+    const gint height = layout_editor_widget_height (self);
+
     if (PN_IS_COUNTDOWN (node))
     {
         /* The readout draws on a transparent background (no frame), so the
@@ -879,6 +1126,28 @@ layout_editor_build_widget (PnNode *node, gint height)
         return button;
     }
 
+    /* Last: every node that paints a plot of its own and has no dedicated
+     * widget above.  Deliberately after the specific branches, because
+     * Countdown and Label install a paint_plot painter too and their
+     * seven-segment / text faces are the better mirror. */
+    if (layout_editor_is_plot (self, node))
+    {
+        GtkWidget *area = gtk_drawing_area_new ();
+        gint       w, h;
+
+        layout_editor_load_size (self, node, &w, &h);
+        gtk_widget_set_size_request (area, w, h);
+
+        /* Borrowed: the store owns the node and destroys this row before
+         * it, exactly like the "pn-node" pointer on the handle. */
+        g_object_set_data (G_OBJECT (area), PN_LE_PLOT_NODE_QDATA, node);
+        g_signal_connect (area, "draw", G_CALLBACK (on_plot_draw), NULL);
+        g_signal_connect_object (node, "repaint-needed",
+                                 G_CALLBACK (on_plot_repaint_needed),
+                                 area, 0);
+        return area;
+    }
+
     return NULL;
 }
 
@@ -894,8 +1163,7 @@ layout_editor_add_node (PnLayoutEditor *self, PnNode *node)
     if (g_hash_table_contains (self->rows, node))
         return;
 
-    widget = layout_editor_build_widget (node,
-                                        layout_editor_widget_height (self));
+    widget = layout_editor_build_widget (self, node);
     if (widget == NULL)
         return;
 
@@ -912,6 +1180,11 @@ layout_editor_add_node (PnLayoutEditor *self, PnNode *node)
      * outlives it (layout_editor_remove_node destroys the handle), so a
      * borrowed pointer is safe. */
     g_object_set_data (G_OBJECT (handle), "pn-node", node);
+
+    /* Mark a plot row so the press handler knows it has a resize grip; a
+     * row without this data is drag-only. */
+    if (g_object_get_data (G_OBJECT (widget), PN_LE_PLOT_NODE_QDATA) != NULL)
+        g_object_set_data (G_OBJECT (handle), PN_LE_PLOT_AREA_QDATA, widget);
 
     g_signal_connect (handle, "button-press-event",
                       G_CALLBACK (on_row_button_press), self);
@@ -1268,7 +1541,8 @@ layout_editor_build_ui (PnLayoutEditor *self)
             self->kind == PN_LAYOUT_EDITOR_DESKTOP
                 ? "<span foreground='#888888'>"
                   "No widgets yet — add a Countdown, Digital Clock, Label, "
-                  "Numeric, LED or Switch node to a worksheet</span>"
+                  "Numeric, LED or Switch node to a worksheet, or a Graph "
+                  "or any other node that draws a picture</span>"
                 : "<span foreground='#888888'>"
                   "No panel widgets yet — add a Countdown, Digital Clock or "
                   "LED node to a worksheet</span>");

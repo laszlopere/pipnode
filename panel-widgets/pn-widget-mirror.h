@@ -147,7 +147,9 @@ void pn_widget_mirror_get_position (PnWidgetMirror *self,
  * @index: position in layout order
  * @height: the pixel height to draw at
  *
- * Sizes one widget the way its kind is sized.
+ * Sizes one widget the way its kind is sized.  Ignored for a plot area,
+ * which carries its own width and height in its state: it is a rectangle
+ * the layout editor sized, not a row on a strip.
  */
 void pn_widget_mirror_set_height (PnWidgetMirror *self,
                                   guint           index,

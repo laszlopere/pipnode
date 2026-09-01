@@ -614,6 +614,112 @@ test_desktop_layout_disk_roundtrip (void)
     g_object_unref (flow);
 }
 
+/* How many times @needle occurs in @haystack.  Used to pin that exactly
+ * one layout entry wrote a size. */
+static gint
+count_occurrences (const gchar *haystack, const gchar *needle)
+{
+    const gchar *p = haystack;
+    gint         n = 0;
+
+    while ((p = strstr (p, needle)) != NULL)
+    {
+        n++;
+        p += strlen (needle);
+    }
+    return n;
+}
+
+/* A widget size is stored beside its placement, is independent of it
+ * (either may be set first), and misses until one is actually given —
+ * which is what lets a plot fall back to its default size. */
+static void
+test_desktop_size_roundtrip (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    gdouble  w = -1, h = -1;
+    gdouble  x = -1, y = -1;
+
+    PN_CHECK_FALSE (pn_flow_get_desktop_size (flow, "abc", NULL, NULL));
+
+    /* Placed but never resized: still no size of its own. */
+    pn_flow_set_desktop_position (flow, "abc", 10.0, 20.0);
+    PN_CHECK_FALSE (pn_flow_get_desktop_size (flow, "abc", NULL, NULL));
+
+    pn_flow_set_desktop_size (flow, "abc", 320.0, 200.0);
+    PN_CHECK (pn_flow_get_desktop_size (flow, "abc", &w, &h));
+    PN_CHECK_NEAR (w, 320.0, 1e-9);
+    PN_CHECK_NEAR (h, 200.0, 1e-9);
+
+    /* The placement is untouched by the resize. */
+    PN_CHECK (pn_flow_get_desktop_position (flow, "abc", &x, &y));
+    PN_CHECK_NEAR (x, 10.0, 1e-9);
+    PN_CHECK_NEAR (y, 20.0, 1e-9);
+
+    /* Resized before ever being dragged: the entry is created at the
+     * origin rather than dropped. */
+    pn_flow_set_desktop_size (flow, "def", 100.0, 90.0);
+    PN_CHECK (pn_flow_get_desktop_size (flow, "def", &w, &h));
+    PN_CHECK_NEAR (w, 100.0, 1e-9);
+    PN_CHECK_NEAR (h,  90.0, 1e-9);
+    PN_CHECK (pn_flow_get_desktop_position (flow, "def", &x, &y));
+    PN_CHECK_NEAR (x, 0.0, 1e-9);
+    PN_CHECK_NEAR (y, 0.0, 1e-9);
+
+    g_object_unref (flow);
+}
+
+/* A widget size survives a save/load, and a placement with no size of its
+ * own writes no w/h at all — so a layout of nothing but row widgets saves
+ * byte-identically to one written before sizes existed. */
+static void
+test_desktop_size_disk_roundtrip (void)
+{
+    PnFlow *flow  = pn_flow_new ();
+    PnNode *sized = PN_NODE (pn_inject_new ());
+    PnNode *plain = PN_NODE (pn_inject_new ());
+    gchar  *sized_uuid;
+    gchar  *plain_uuid;
+    gchar  *path = NULL;
+    gchar  *json = NULL;
+    gint    fd;
+    gdouble w = -1, h = -1;
+
+    pn_flow_add_node (flow, sized);
+    pn_flow_add_node (flow, plain);
+    sized_uuid = g_strdup (pn_node_get_uuid (sized));
+    plain_uuid = g_strdup (pn_node_get_uuid (plain));
+
+    pn_flow_set_desktop_position (flow, sized_uuid, 12.0, 34.0);
+    pn_flow_set_desktop_size     (flow, sized_uuid, 300.0, 180.0);
+    pn_flow_set_desktop_position (flow, plain_uuid, 56.0, 78.0);
+
+    fd = g_file_open_tmp ("pn-flow-desktop-XXXXXX.json", &path, NULL);
+    PN_CHECK (fd >= 0);
+    g_close (fd, NULL);
+    PN_CHECK (pn_flow_save_to_file (flow, path, NULL));
+    PN_CHECK (g_file_get_contents (path, &json, NULL, NULL));
+
+    /* Exactly one entry carries a size. */
+    PN_CHECK_CMPINT (count_occurrences (json, "\"w\""), ==, 1);
+    g_free (json);
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_file (flow, path, NULL));
+
+    PN_CHECK (pn_flow_get_desktop_size (flow, sized_uuid, &w, &h));
+    PN_CHECK_NEAR (w, 300.0, 1e-9);
+    PN_CHECK_NEAR (h, 180.0, 1e-9);
+    PN_CHECK_FALSE (pn_flow_get_desktop_size (flow, plain_uuid, NULL, NULL));
+
+    g_remove (path);
+    g_free (path);
+    g_free (sized_uuid);
+    g_free (plain_uuid);
+    g_object_unref (flow);
+}
+
 /* A document that never touched the desktop layout writes none of its
  * keys, so existing worksheets keep saving exactly as they did. */
 static void
@@ -844,6 +950,8 @@ main (int argc, char **argv)
     pn_test_add ("desktop_window_size",   test_desktop_window_size);
     pn_test_add ("desktop_window_title",  test_desktop_window_title);
     pn_test_add ("desktop_layout_disk",   test_desktop_layout_disk_roundtrip);
+    pn_test_add ("desktop_size_roundtrip", test_desktop_size_roundtrip);
+    pn_test_add ("desktop_size_disk",     test_desktop_size_disk_roundtrip);
     pn_test_add ("desktop_layout_absent", test_desktop_layout_absent_when_untouched);
     pn_test_add ("input_names_dirty",     test_input_names_mark_dirty);
     pn_test_add ("input_names_disk",      test_input_names_disk_roundtrip);

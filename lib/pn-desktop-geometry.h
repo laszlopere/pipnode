@@ -51,4 +51,20 @@
 #define PN_DE_WINDOW_MAX_WIDTH      4096
 #define PN_DE_WINDOW_MAX_HEIGHT     4096
 
+/* Plot widgets — the Graph family and every other node that installs a
+ * PnNodeClass::paint_plot painter — are areas, not rows: they carry their
+ * own width and height, stored per node in the desktop layout and resized
+ * with the grip in the editor's bottom-right corner.  These are the size a
+ * freshly-placed plot starts at and the smallest one the grip allows; a
+ * plot narrower than this has no room for an axis label. */
+#define PN_DE_PLOT_DEFAULT_WIDTH   260
+#define PN_DE_PLOT_DEFAULT_HEIGHT  170
+#define PN_DE_PLOT_MIN_WIDTH        80
+#define PN_DE_PLOT_MIN_HEIGHT       60
+
+/* Side of the square resize grip drawn in a plot widget's bottom-right
+ * corner.  A press inside it resizes instead of dragging, so the editor
+ * needs no second handle widget. */
+#define PN_DE_PLOT_GRIP  14
+
 #endif /* PN_DESKTOP_GEOMETRY_H */

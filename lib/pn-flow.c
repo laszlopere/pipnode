@@ -122,7 +122,12 @@ struct _PnFlow
 /* A stored layout-editor placement; see @panel_layout / @desktop_layout
  * above.  One type serves both maps — they differ in what the
  * coordinates are relative to, not in their shape. */
-typedef struct { gdouble x, y; } PnLayoutPos;
+/* A stored layout-editor placement.  @w/@h are the widget's own pixel
+ * size, meaningful only for the surfaces and widget kinds that have one
+ * (a desktop plot area); 0 means "unset", and unset is what is written to
+ * disk as absent, so a row widget's entry is exactly the {x, y} it always
+ * was. */
+typedef struct { gdouble x, y, w, h; } PnLayoutPos;
 
 G_DEFINE_TYPE (PnFlow, pn_flow, G_TYPE_OBJECT)
 
@@ -545,6 +550,52 @@ layout_set_position (GHashTable  *layout,
     return TRUE;
 }
 
+/* Read @uuid's stored widget size.  Returns %FALSE when the UUID is not
+ * placed at all or carries no size, so the caller can fall back to the
+ * kind's default rather than to a zero-sized widget. */
+static gboolean
+layout_get_size (GHashTable  *layout,
+                 const gchar *uuid,
+                 gdouble     *out_w,
+                 gdouble     *out_h)
+{
+    PnLayoutPos *pos = g_hash_table_lookup (layout, uuid);
+
+    if (pos == NULL || pos->w <= 0.0 || pos->h <= 0.0)
+        return FALSE;
+
+    if (out_w != NULL)
+        *out_w = pos->w;
+    if (out_h != NULL)
+        *out_h = pos->h;
+    return TRUE;
+}
+
+/* Store @uuid's widget size, creating the entry (at the origin) when the
+ * widget has been resized before it was ever moved.  Returns whether that
+ * changed anything, so a resize that ended where it began leaves the
+ * document clean, exactly like layout_set_position. */
+static gboolean
+layout_set_size (GHashTable  *layout,
+                 const gchar *uuid,
+                 gdouble      w,
+                 gdouble      h)
+{
+    PnLayoutPos *pos = g_hash_table_lookup (layout, uuid);
+
+    if (pos != NULL && pos->w == w && pos->h == h)
+        return FALSE;
+
+    if (pos == NULL)
+    {
+        pos = g_new0 (PnLayoutPos, 1);
+        g_hash_table_insert (layout, g_strdup (uuid), pos);
+    }
+    pos->w = w;
+    pos->h = h;
+    return TRUE;
+}
+
 /* Every placed UUID, as freshly-allocated strings (transfer full).  Order
  * is unspecified, so callers that need a particular one sort themselves. */
 static GList *
@@ -599,6 +650,14 @@ layout_load_json (GHashTable  *layout,
         pos    = g_new0 (PnLayoutPos, 1);
         pos->x = json_object_get_double_member (entry, "x");
         pos->y = json_object_get_double_member (entry, "y");
+        /* Optional: only the sized kinds (a desktop plot area) write these,
+         * so their absence is the normal case, not a malformed entry. */
+        if (json_object_has_member (entry, "w")
+            && json_object_has_member (entry, "h"))
+        {
+            pos->w = json_object_get_double_member (entry, "w");
+            pos->h = json_object_get_double_member (entry, "h");
+        }
         g_hash_table_insert (layout, g_strdup (uid), pos);
     }
     g_list_free (members);
@@ -650,6 +709,13 @@ layout_save_json (PnFlow      *self,
         entry = json_object_new ();
         json_object_set_double_member (entry, "x", pos->x);
         json_object_set_double_member (entry, "y", pos->y);
+        /* Omitted while unset, so a document with no resizable widget in
+         * its layout saves byte-identically to before sizes existed. */
+        if (pos->w > 0.0 && pos->h > 0.0)
+        {
+            json_object_set_double_member (entry, "w", pos->w);
+            json_object_set_double_member (entry, "h", pos->h);
+        }
         json_object_set_object_member (lay, uid, entry);
     }
     g_list_free (keys);
@@ -785,6 +851,34 @@ pn_flow_list_desktop_positions (PnFlow *self)
     g_return_val_if_fail (PN_IS_FLOW (self), NULL);
 
     return layout_list_positions (self->desktop_layout);
+}
+
+gboolean
+pn_flow_get_desktop_size (PnFlow      *self,
+                          const gchar *uuid,
+                          gdouble     *out_w,
+                          gdouble     *out_h)
+{
+    g_return_val_if_fail (PN_IS_FLOW (self), FALSE);
+    g_return_val_if_fail (uuid != NULL, FALSE);
+
+    return layout_get_size (self->desktop_layout, uuid, out_w, out_h);
+}
+
+void
+pn_flow_set_desktop_size (PnFlow      *self,
+                          const gchar *uuid,
+                          gdouble      width,
+                          gdouble      height)
+{
+    g_return_if_fail (PN_IS_FLOW (self));
+    g_return_if_fail (uuid != NULL && *uuid != '\0');
+
+    if (!layout_set_size (self->desktop_layout, uuid, width, height))
+        return;                 /* unchanged — keep the document clean */
+
+    g_signal_emit (self, signals[SIG_DESKTOP_LAYOUT_CHANGED], 0);
+    pn_flow_set_modified (self, TRUE);
 }
 
 gboolean

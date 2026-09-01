@@ -83,6 +83,13 @@ It executes nothing itself: the flow runs in the background engine
 mirrors live. Like the XFCE panel applet it links no pipnode runtime
 library, so a misbehaving node can never take the window down.
 
+Readouts (Countdown, Numeric, LED, Label, …) are redrawn there as
+self-contained Cairo widgets. Nodes that paint a picture of their own —
+Graph, XY Graph, Plot, Oscilloscope, the clocks and meters, the weather
+card — go in a window too, resized with the grip in the layout editor;
+since the viewer links no plotting stack either, the engine renders those
+with the node's own painter and sends the image.
+
 Pipnode is built as two libraries: a GTK-free **core** (`libpipnode-core`)
 with the flow engine and all node logic, and a **GUI** tier
 (`libpipnode-gui`) with the editor, canvas rendering and dialogs.

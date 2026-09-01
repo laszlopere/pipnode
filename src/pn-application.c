@@ -3635,6 +3635,98 @@ engine_is_widget_node (PnNode *node)
         || PN_IS_SWITCH (node);
 }
 
+/** A node the DESKTOP viewer shows as a plot area: it installs a
+ *  PnNodeClass::paint_plot painter and has no dedicated widget above.
+ *  That is the whole test — Graph, XY Graph, Plot, Oscilloscope, the
+ *  clocks and meters, the weather card, Table View, Text View, and any
+ *  plugin node that paints one, without a type list to keep in step.
+ *
+ *  Countdown and Label paint plots too, which is why the dedicated-widget
+ *  test comes first: their seven-segment and text faces are drawn as
+ *  vectors by the panel widgets and look better for it.
+ *
+ *  Desktop only.  A panel band is one icon tall, and the panel layout has
+ *  nowhere to record the size a plot needs. */
+static gboolean
+engine_is_plot_node (PnNode *node)
+{
+    if (engine_is_widget_node (node))
+        return FALSE;
+
+    return PN_NODE_GET_CLASS (node)->paint_plot != NULL;
+}
+
+/** Any node either viewer mirrors — what the engine wires up and watches.
+ *  The panel builder narrows this back to engine_is_widget_node. */
+static gboolean
+engine_is_mirrored_node (PnNode *node)
+{
+    return engine_is_widget_node (node) || engine_is_plot_node (node);
+}
+
+/** The pixel area @node's plot is drawn at: what the layout editor's
+ *  resize grip stored, or the default a freshly-placed plot starts at. */
+static void
+engine_plot_size (PnFlow *flow, PnNode *node, gint *out_w, gint *out_h)
+{
+    gdouble w = PN_DE_PLOT_DEFAULT_WIDTH;
+    gdouble h = PN_DE_PLOT_DEFAULT_HEIGHT;
+
+    if (flow != NULL)
+        pn_flow_get_desktop_size (flow, pn_node_get_uuid (node), &w, &h);
+
+    *out_w = (gint) w;
+    *out_h = (gint) h;
+}
+
+/** cairo_surface_write_to_png_stream sink: append to a #GByteArray. */
+static cairo_status_t
+engine_png_write (void                *closure,
+                  const unsigned char *data,
+                  unsigned int         length)
+{
+    g_byte_array_append ((GByteArray *) closure, data, length);
+    return CAIRO_STATUS_SUCCESS;
+}
+
+/** Render @node's own paint_plot painter to a @w x @h PNG and return it
+ *  base64-encoded, or "" when there is nothing to draw.
+ *
+ *  This is the bridge across the tier boundary.  The viewer links no
+ *  pipnode runtime and no plotting stack — that is what keeps a node
+ *  crash out of its address space — so it cannot call a painter that
+ *  lives in PLplot, MathGL and Pango.  The engine can, so it draws the
+ *  picture once and ships the pixels; the viewer's #PnPlotDisplay blits
+ *  them.  What the window shows is therefore the node's own painter
+ *  output, not a second implementation of it that could drift. */
+static gchar *
+engine_render_plot_png (PnNode *node, gint w, gint h)
+{
+    PnNodeClass     *klass = PN_NODE_GET_CLASS (node);
+    cairo_surface_t *surface;
+    cairo_t         *cr;
+    GByteArray      *buf;
+    gchar           *out = NULL;
+
+    if (klass->paint_plot == NULL || w <= 0 || h <= 0)
+        return g_strdup ("");
+
+    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+    cr      = cairo_create (surface);
+    klass->paint_plot (node, cr, 0.0, 0.0, (gdouble) w, (gdouble) h);
+    cairo_destroy (cr);
+
+    buf = g_byte_array_new ();
+    if (cairo_surface_write_to_png_stream (surface, engine_png_write, buf)
+        == CAIRO_STATUS_SUCCESS)
+        out = g_base64_encode (buf->data, buf->len);
+
+    g_byte_array_unref (buf);
+    cairo_surface_destroy (surface);
+
+    return out != NULL ? out : g_strdup ("");
+}
+
 /** Emit an Engine signal, sinking @params even when the bus is absent. */
 static void
 engine_emit_signal (PnApplication *app,
@@ -3686,9 +3778,13 @@ engine_add_rgba_array (JsonBuilder *b, const PnColor *c)
 /** Fill the open object @b with @node's render state, mirroring exactly
  *  what PnLayoutEditor pushes into the corresponding panel widget.  Returns
  *  the widget kind ("countdown"/"led"), or %NULL when @node is not a
- *  representable widget. */
+ *  representable widget.
+ *
+ *  @flow is needed only by the plot kind, whose state carries the size the
+ *  desktop layout gave it and the picture rendered at that size; %NULL is
+ *  accepted and falls back to the default plot size. */
 static const gchar *
-engine_add_widget_state (JsonBuilder *b, PnNode *node)
+engine_add_widget_state (JsonBuilder *b, PnFlow *flow, PnNode *node)
 {
     if (PN_IS_COUNTDOWN (node))
     {
@@ -3859,6 +3955,30 @@ engine_add_widget_state (JsonBuilder *b, PnNode *node)
         return "injector";
     }
 
+    if (engine_is_plot_node (node))
+    {
+        gint   w, h;
+        gchar *png;
+
+        engine_plot_size (flow, node, &w, &h);
+        png = engine_render_plot_png (node, w, h);
+
+        json_builder_set_member_name (b, "kind");
+        json_builder_add_string_value (b, "plot");
+        /* The size travels with the picture rather than with the layout
+         * entry, so the widget reserves the right area even before the
+         * first render arrives, and a resized plot can never be shown
+         * with its old picture stretched into a new frame. */
+        json_builder_set_member_name (b, "w");
+        json_builder_add_int_value (b, w);
+        json_builder_set_member_name (b, "h");
+        json_builder_add_int_value (b, h);
+        json_builder_set_member_name (b, "png");
+        json_builder_add_string_value (b, png);
+        g_free (png);
+        return "plot";
+    }
+
     return NULL;
 }
 
@@ -3882,12 +4002,12 @@ engine_builder_to_string (JsonBuilder *b)
 /** @node's render state as a standalone JSON object string (the
  *  WidgetChanged payload, and the per-widget "state" in the layout). */
 static gchar *
-engine_widget_state_json (PnNode *node)
+engine_widget_state_json (PnFlow *flow, PnNode *node)
 {
     JsonBuilder *b = json_builder_new ();
 
     json_builder_begin_object (b);
-    if (engine_add_widget_state (b, node) == NULL)
+    if (engine_add_widget_state (b, flow, node) == NULL)
     {
         json_builder_end_object (b);
         g_object_unref (b);
@@ -4015,7 +4135,7 @@ engine_build_layout_json (PnWindow *win)
         json_builder_add_double_value (b, have_layout ? e->x - min_x : 0.0);
         json_builder_set_member_name (b, "state");
         json_builder_begin_object (b);
-        engine_add_widget_state (b, e->node);
+        engine_add_widget_state (b, flow, e->node);
         json_builder_end_object (b);
         json_builder_end_object (b);
     }
@@ -4075,7 +4195,7 @@ engine_build_desktop_layout_json (PnWindow *win)
         EngineLayoutEntry e;
         gdouble           x = 0.0, y = 0.0;
 
-        if (!engine_is_widget_node (node))
+        if (!engine_is_mirrored_node (node))
             continue;
 
         if (have_layout)
@@ -4144,7 +4264,7 @@ engine_build_desktop_layout_json (PnWindow *win)
         json_builder_add_double_value (b, e->y);
         json_builder_set_member_name (b, "state");
         json_builder_begin_object (b);
-        engine_add_widget_state (b, e->node);
+        engine_add_widget_state (b, flow, e->node);
         json_builder_end_object (b);
         json_builder_end_object (b);
     }
@@ -4155,17 +4275,142 @@ engine_build_desktop_layout_json (PnWindow *win)
     return engine_builder_to_string (b);
 }
 
-/** repaint-needed on a widget node → push its fresh state to the applet. */
+/** Push @node's fresh state to every viewer of ctx's worksheet. */
 static void
-on_panel_widget_repaint (PnNode *node, gpointer user_data)
+engine_push_widget_state (EngineWidgetCtx *ctx, PnNode *node)
 {
-    EngineWidgetCtx *ctx  = user_data;
-    gchar           *json = engine_widget_state_json (node);
+    PnFlow *flow = ctx->win != NULL ? pn_window_get_flow (ctx->win) : NULL;
+    gchar  *json = engine_widget_state_json (flow, node);
 
     engine_emit_signal (ctx->app, "WidgetChanged",
                         g_variant_new ("(sss)", ctx->path,
                                        pn_node_get_uuid (node), json));
     g_free (json);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Coalescing plot pushes                                             */
+/*                                                                     */
+/*  Every other widget state is a handful of numbers, so a repaint can  */
+/*  be forwarded the moment it happens.  A plot state carries a         */
+/*  rendered PNG: the engine runs the node's PLplot / MathGL / Pango    */
+/*  painter over an image surface and base64s the result.  That is far  */
+/*  too expensive to do once per message on a busy feed, and pointless  */
+/*  besides — nobody can read more than a few frames a second.          */
+/*                                                                     */
+/*  So a plot's repaint schedules one push and swallows every repaint   */
+/*  until it fires.  The pending source id lives on the node itself, so */
+/*  a node destroyed mid-wait cancels its own push rather than leaving  */
+/*  a timeout holding a freed pointer.                                  */
+/* ------------------------------------------------------------------ */
+
+/* Longest a plot may lag the data behind it.  ~5 frames a second: fast
+ * enough to read as live, slow enough that a graph fed at message rate
+ * costs a bounded amount of CPU. */
+#define PN_ENGINE_PLOT_PUSH_MS  200
+
+#define PN_ENGINE_PLOT_PENDING_QDATA  "pn-engine-plot-pending"
+
+typedef struct
+{
+    EngineWidgetCtx *ctx;   /* not owned; outlives the timeout */
+    PnNode          *node;  /* not owned; cancels this on destroy */
+} EnginePlotPush;
+
+/* Whether a desktop window would actually show @node's plot: it was
+ * placed in the desktop layout, or the document has no desktop layout at
+ * all and the viewer is therefore falling back to every widget node. */
+static gboolean
+engine_plot_is_shown (EngineWidgetCtx *ctx, PnNode *node)
+{
+    PnFlow   *flow = ctx->win != NULL ? pn_window_get_flow (ctx->win) : NULL;
+    GList    *placed;
+    gboolean  have_layout;
+
+    if (flow == NULL)
+        return FALSE;
+
+    placed      = pn_flow_list_desktop_positions (flow);
+    have_layout = (placed != NULL);
+    g_list_free_full (placed, g_free);
+
+    if (!have_layout)
+        return TRUE;
+
+    return pn_flow_get_desktop_position (flow, pn_node_get_uuid (node),
+                                         NULL, NULL);
+}
+
+/* The timeout's data destroy — runs whether it fired or was cancelled. */
+static void
+engine_plot_push_free (EnginePlotPush *push)
+{
+    g_slice_free (EnginePlotPush, push);
+}
+
+/* Set as the pending id's destroy notify: a node finalized (or unwired)
+ * while a push is queued drops the timeout with it. */
+static void
+engine_plot_pending_cancel (gpointer data)
+{
+    guint id = GPOINTER_TO_UINT (data);
+
+    if (id != 0)
+        g_source_remove (id);
+}
+
+static gboolean
+on_engine_plot_push (gpointer user_data)
+{
+    EnginePlotPush *push = user_data;
+
+    /* Steal rather than set-to-NULL: stealing skips the destroy notify,
+     * which would try to remove the source we are currently inside. */
+    g_object_steal_data (G_OBJECT (push->node),
+                         PN_ENGINE_PLOT_PENDING_QDATA);
+
+    engine_push_widget_state (push->ctx, push->node);
+    return G_SOURCE_REMOVE;
+}
+
+/** repaint-needed on a widget node → push its fresh state to the applet
+ *  and to any desktop viewer.  Plots go through the coalescer above; every
+ *  other kind is cheap enough to forward straight away. */
+static void
+on_panel_widget_repaint (PnNode *node, gpointer user_data)
+{
+    EngineWidgetCtx *ctx = user_data;
+    EnginePlotPush  *push;
+    guint            id;
+
+    if (!engine_is_plot_node (node))
+    {
+        engine_push_widget_state (ctx, node);
+        return;
+    }
+
+    /* Rendering costs real work, so do not do it for a plot no window
+     * shows.  A document with a desktop layout shows exactly the nodes it
+     * placed; one with no layout at all falls back to showing everything,
+     * and then every plot is on screen. */
+    if (!engine_plot_is_shown (ctx, node))
+        return;
+
+    /* A push is already queued: this repaint is folded into it. */
+    if (g_object_get_data (G_OBJECT (node),
+                           PN_ENGINE_PLOT_PENDING_QDATA) != NULL)
+        return;
+
+    push       = g_slice_new0 (EnginePlotPush);
+    push->ctx  = ctx;
+    push->node = node;
+
+    id = g_timeout_add_full (G_PRIORITY_DEFAULT, PN_ENGINE_PLOT_PUSH_MS,
+                             on_engine_plot_push, push,
+                             (GDestroyNotify) engine_plot_push_free);
+    g_object_set_data_full (G_OBJECT (node), PN_ENGINE_PLOT_PENDING_QDATA,
+                            GUINT_TO_POINTER (id),
+                            engine_plot_pending_cancel);
 }
 
 /** Re-publish the whole layout for ctx's worksheet to the applet. */
@@ -4208,7 +4453,7 @@ on_engine_node_added (PnNodeStore *store,
     EngineWidgetCtx *ctx = user_data;
 
     (void) store; (void) index;
-    if (!engine_is_widget_node (node))
+    if (!engine_is_mirrored_node (node))
         return;
     engine_wire_widget_node (ctx, node);
     engine_emit_layout_changed (ctx);
@@ -4225,7 +4470,7 @@ on_engine_node_removed (PnNodeStore *store,
     EngineWidgetCtx *ctx = user_data;
 
     (void) store; (void) index;
-    if (!engine_is_widget_node (node))
+    if (!engine_is_mirrored_node (node))
         return;
     engine_emit_layout_changed (ctx);
     engine_emit_desktop_layout_changed (ctx);
@@ -4283,7 +4528,7 @@ engine_wire_panel_widgets (
     for (i = 0; i < n; i++)
     {
         PnNode *node = pn_node_store_get_node (nodes, i);
-        if (engine_is_widget_node (node))
+        if (engine_is_mirrored_node (node))
             engine_wire_widget_node (ctx, node);
     }
 
@@ -4317,6 +4562,18 @@ engine_unwire_panel_widgets (PnWindow *win)
 
     g_signal_handlers_disconnect_by_data (pn_flow_get_nodes (flow), ctx);
     g_signal_handlers_disconnect_by_data (flow,                     ctx);
+
+    /* Drop any queued plot render: the ctx it would push through is about
+     * to go, and nothing is left to show the picture anyway.  Clearing the
+     * qdata runs its destroy notify, which removes the source. */
+    {
+        PnNodeStore *nodes = pn_flow_get_nodes (flow);
+        guint        i, n  = pn_node_store_get_length (nodes);
+
+        for (i = 0; i < n; i++)
+            g_object_set_data (G_OBJECT (pn_node_store_get_node (nodes, i)),
+                               PN_ENGINE_PLOT_PENDING_QDATA, NULL);
+    }
 }
 
 /* Cover the app-shutdown path, where windows are destroyed without going

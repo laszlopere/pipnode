@@ -344,6 +344,43 @@ void         pn_flow_set_desktop_position (PnFlow      *self,
 GList       *pn_flow_list_desktop_positions (PnFlow *self);
 
 /**
+ * pn_flow_get_desktop_size:
+ * @self: the flow
+ * @uuid: the node to look up
+ * @out_w: (out) (optional): the widget's stored pixel width
+ * @out_h: (out) (optional): the widget's stored pixel height
+ *
+ * Reads the size a resizable desktop widget was given in the layout
+ * editor.  Only the plot kinds (any node with a PnNodeClass::paint_plot
+ * painter) carry one — they are areas rather than rows, so one height for
+ * the whole surface cannot describe them.
+ *
+ * Returns: %FALSE when @uuid is not placed, or is placed but has no size
+ *   of its own, in which case the caller uses PN_DE_PLOT_DEFAULT_WIDTH /
+ *   _HEIGHT.
+ */
+gboolean     pn_flow_get_desktop_size (PnFlow      *self,
+                                       const gchar *uuid,
+                                       gdouble     *out_w,
+                                       gdouble     *out_h);
+
+/**
+ * pn_flow_set_desktop_size:
+ * @self: the flow
+ * @uuid: the node being resized
+ * @width: the new pixel width
+ * @height: the new pixel height
+ *
+ * Stores @uuid's desktop-widget size, marking the flow modified and
+ * emitting #PnFlow::desktop-layout-changed on a real change.  Creates the
+ * layout entry when the widget is resized before it is ever dragged.
+ */
+void         pn_flow_set_desktop_size (PnFlow      *self,
+                                       const gchar *uuid,
+                                       gdouble      width,
+                                       gdouble      height);
+
+/**
  * pn_flow_get_desktop_editor_open:
  * @self: the flow
  *

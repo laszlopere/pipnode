@@ -47,6 +47,7 @@ node's output to another node's input.
   </li>
   <li><a href="#desktop-layout">Desktop layouts</a>
     <ul>
+      <li><a href="#desktop-plots">Graphs and other plots</a></li>
       <li><a href="#desktop-viewer">The desktop viewer</a></li>
     </ul>
   </li>
@@ -1179,10 +1180,41 @@ The two layouts are entirely independent maps. The same Countdown node
 can sit at the left of the panel band and dead centre of the desktop
 window, and a node placed on one surface need not appear on the other
 at all &mdash; each layout stores only the nodes you actually dragged
-into it. The same node kinds are representable on both: Countdown,
-Digital Clock, Label, Matrix 5&times;7, Numeric, LED, Switch and
-Inject. Widgets are drawn larger here than on the panel, since a window
-has the room for it.
+into it. Both surfaces show the same readout kinds: Countdown, Digital
+Clock, Label, Matrix 5&times;7, Numeric, LED, Switch and Inject.
+Widgets are drawn larger here than on the panel, since a window has the
+room for it.
+</p>
+
+<h3 id="desktop-plots">Graphs and other plots</h3>
+
+<p>
+The desktop layout takes one further kind the panel cannot: any node
+that draws a picture of its own. Graph and XY Graph are the obvious
+ones, and the same applies to Plot, Oscilloscope, Analog Clock, Analog
+Meter, Sun Path, Weather Report, Table View and Text View &mdash; every
+node whose body you can already read at a glance on the worksheet.
+There is no list to keep up with: if a node paints something, it can go
+in a window. The panel is excluded on purpose, being one icon tall with
+nowhere to put a plot.
+</p>
+
+<p>
+A plot is an area rather than a row, so it carries its own size. Drop
+one in and it starts at a readable default; drag the grip in its
+bottom-right corner to make it as big as the window allows. The size is
+saved with the placement, so each plot keeps the proportions you gave
+it.
+</p>
+
+<p>
+What you see while arranging is the node's own painter, drawn live at
+the size you set &mdash; the same code that draws the node on the
+worksheet, not an approximation of it. The <a href="#desktop-viewer">
+viewer</a> shows exactly the same picture: because it deliberately
+links no plotting library (see below), the engine renders each plot for
+it and sends the image across, refreshed a few times a second as the
+data changes.
 </p>
 
 <p>
@@ -1190,7 +1222,9 @@ Placements are stored relative to the window's content area, so the
 saved coordinates are exactly what a window needs to paint with. In the
 saved worksheet they live under <code>desktop_layout</code>, keyed by
 node UUID, alongside <code>desktop_window</code> (width, height and
-title).
+title). A plot's entry carries <code>w</code> and <code>h</code> as
+well; a readout's does not, so a layout of nothing but readouts is
+saved exactly as it always was.
 </p>
 
 <h3 id="desktop-viewer">The desktop viewer</h3>

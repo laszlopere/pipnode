@@ -26,6 +26,7 @@
 #include "pn-led-lamp.h"
 #include "pn-matrix57-display.h"
 #include "pn-numeric-display.h"
+#include "pn-plot-display.h"
 #include "pn-switch-widget.h"
 #include "pn-text-display.h"
 
@@ -40,6 +41,7 @@
 /*    't' Label                     -> PnTextDisplay                    */
 /*    'm' Matrix 5x7                -> PnMatrix57Display                */
 /*    'n' Numeric                   -> PnNumericDisplay                 */
+/*    'p' any plot-painting node    -> PnPlotDisplay                    */
 /*                                                                     */
 /*  The two interactive kinds carry their node UUID as widget data so a */
 /*  click can be reported back to the engine by node, not by position.  */
@@ -280,6 +282,23 @@ apply_widget_state (MirrorWidget *e, JsonObject *state)
             pn_matrix57_display_set_unlit_pixel_color (display,
                                                        rgb[0], rgb[1], rgb[2]);
     }
+    else if (e->kind == 'p')
+    {
+        PnPlotDisplay *plot = PN_PLOT_DISPLAY (e->widget);
+
+        /* Size first: the picture is rendered at exactly this size, so
+         * applying it in the other order would scale the new image into
+         * the old area for one frame. */
+        if (json_object_has_member (state, "w")
+            && json_object_has_member (state, "h"))
+            pn_plot_display_set_size (
+                    plot,
+                    (gint) json_object_get_int_member (state, "w"),
+                    (gint) json_object_get_int_member (state, "h"));
+        if (json_object_has_member (state, "png"))
+            pn_plot_display_set_png_base64 (
+                    plot, json_object_get_string_member (state, "png"));
+    }
     else
     {
         PnLedLamp *lamp = PN_LED_LAMP (e->widget);
@@ -296,6 +315,11 @@ apply_widget_state (MirrorWidget *e, JsonObject *state)
 static void
 size_widget (MirrorWidget *e, gint size)
 {
+    /* A plot carries its own width and height in its state — it is an
+     * area, not a row — so the surface's row height does not apply. */
+    if (e->kind == 'p')
+        return;
+
     if (e->kind == 'c')
         pn_led_display_set_height (PN_LED_DISPLAY (e->widget), size);
     else if (e->kind == 's')
@@ -378,6 +402,9 @@ mirror_widget_new (PnWidgetMirror *self, gchar kind, const gchar *uuid)
     case 'n':
         e->widget = pn_numeric_display_new ();
         break;
+    case 'p':
+        e->widget = pn_plot_display_new ();
+        break;
     case 'c':
     default:
         e->widget = pn_led_display_new ();
@@ -399,6 +426,7 @@ mirror_kind_from_string (const gchar *kind_s)
          : (g_strcmp0 (kind_s, "text")     == 0) ? 't'
          : (g_strcmp0 (kind_s, "matrix57") == 0) ? 'm'
          : (g_strcmp0 (kind_s, "numeric")  == 0) ? 'n'
+         : (g_strcmp0 (kind_s, "plot")     == 0) ? 'p'
          : 'c';
 }
 

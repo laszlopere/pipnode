@@ -1126,3 +1126,81 @@
              history, so a reload repaints them from the next message anyway;
              they would need the same property pair only if a user wants the
              picture to survive a restart with no feed running.
+
+[x] 63 Graphs (and every other plot) on the desktop layout. A Graph node was
+       invisible to both halves of TODO #61: the Desktop Layout editor would
+       not place it, and the viewer had no way to show one. The editor and
+       the engine live in pipnode-editor and can call a node's own painter;
+       the viewer deliberately links no pipnode runtime AND no plotting
+       stack, which is what keeps a node crash out of its address space. So
+       the editor draws the painter directly and the engine renders the SAME
+       painter to a PNG for the viewer to blit -- one picture, one code path,
+       no second implementation to drift.
+       [x] 63.1 Eligibility is a vfunc test, not a type list:
+             engine_is_plot_node() / layout_editor_is_plot() are
+             "PN_NODE_GET_CLASS(node)->paint_plot != NULL, and no dedicated
+             widget claimed it first". That covers Graph, XY Graph, Plot,
+             Oscilloscope, Analog Clock, Analog Meter, Sun Path, Weather
+             Report, Table View, Text View, Filedrop and any plugin node that
+             paints, and a new painter needs no registration. The
+             dedicated-widget test HAS to come first: Countdown and Label
+             install paint_plot too, and their vector faces are the better
+             mirror.
+       [x] 63.2 Desktop only. A panel band is one icon tall and the panel
+             layout has nowhere to store a size, so the panel builder still
+             uses the narrow engine_is_widget_node(); only the desktop one
+             widened to engine_is_mirrored_node().
+       [x] 63.3 Per-widget size. PnLayoutPos gained w/h (0 = unset) with
+             layout_get/set_size primitives and a public
+             pn_flow_get/set_desktop_size pair; on disk a desktop_layout
+             entry carries "w"/"h" ONLY when set, so a layout of nothing but
+             readouts saves byte-identically to before (pinned by a test that
+             counts the occurrences).
+       [x] 63.4 Resize interaction. No second handle widget: the row's
+             existing GtkEventBox reports a press inside the plot's
+             bottom-right PN_DE_PLOT_GRIP square as a resize instead of a
+             drag, and the grip is painted over the plot (dark stroke under a
+             light one, so it reads on any plot). The pointer picks up
+             "se-resize" over it and "move" everywhere else, through one
+             row_set_cursor() that also replaced the old realize-time cursor
+             code. Clamped to PN_DE_PLOT_MIN_* and to the window frame; a
+             resize that ends where it began leaves the document clean, the
+             same rule an unmoved drag follows.
+       [x] 63.5 Transport: a "plot" widget state carrying w, h and a base64
+             PNG the engine rendered at exactly w x h (cairo image surface ->
+             write_to_png_stream -> g_base64_encode). The size travels with
+             the picture rather than with the layout entry, so the widget
+             reserves the right area before the first render arrives and a
+             resized plot is never shown with its old picture stretched.
+       [x] 63.6 Rendering is coalesced and gated, because it is the one
+             widget state that costs real work. A plot's repaint-needed
+             schedules ONE push PN_ENGINE_PLOT_PUSH_MS (200 ms) out and
+             swallows every repaint until it fires; the pending source id
+             lives on the node itself with a destroy notify, so a node
+             finalized mid-wait cancels its own push instead of leaving a
+             timeout holding a freed pointer (and engine_unwire_panel_widgets
+             clears them all up front). Nothing is rendered for a plot the
+             window would not show.
+       [x] 63.7 Client half: panel-widgets/pn-plot-display.[ch]
+             (PnPlotDisplay), the one widget in that library that restates
+             nothing -- it decodes the PNG through GdkPixbuf, caches the
+             surface, and re-decodes only when the encoded string actually
+             changes. Empty/undecodable state paints a framed placeholder so
+             a graph with no data yet reads as a reserved area. Mirror kind
+             'p'; pn_widget_mirror_set_height is a no-op for it, so the
+             viewer needed no change at all.
+       [x] 63.8 Tests: two new cases in tests/unit/test-pn-flow.c (size round
+             trip incl. resize-before-drag, and the disk round trip proving
+             only the sized entry writes w/h), and the Graph added to
+             tests/test_desktop_engine_run.py -- which decodes the PNG's IHDR
+             rather than trusting the state's own w/h, so it proves the
+             engine really rendered the painter at the layout's size. The
+             panel engine test passes unchanged.
+       [x] 63.9 Docs: a "Graphs and other plots" section in
+             data/help/help-index.html (plus its TOC entry and the widened
+             desktop_layout format note) and a paragraph in README.md.
+       [ ] 63.10 Deferred: interaction. A plot in the window is a picture --
+             the Oscilloscope's knobs and PnSunPath's drag-to-rotate do
+             nothing there. The seam exists (ActivateWidget already carries a
+             UUID for Switch/Inject); it would need a coordinate-carrying
+             variant and a per-node "handle this click" vfunc.
