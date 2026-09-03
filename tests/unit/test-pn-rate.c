@@ -30,6 +30,11 @@
 #include "pntest.h"
 #include "pn-rate.h"
 
+/* A syntactically valid endpoint that is never contacted: the node
+ * under test is built with "autostart" = FALSE, so no worker thread
+ * exists to fetch it.  It is here only to make is_configured() true. */
+#define PN_TEST_RATE_URL "https://api.coingecko.com/api/v3/simple/price"
+
 typedef struct
 {
     guint      count;
@@ -274,6 +279,35 @@ test_pair_change_deprecates (void)
     g_object_unref (node);
 }
 
+/* Reloading a saved worksheet must not leave the node marked in error.
+ * pn-flow replays the properties bag in file order — `from` / `to`
+ * before `last-update` — so a saved pair that differs from the
+ * constructor default first trips the pair-change branch (which drops
+ * the timestamp and paints the error marker) and only then restores the
+ * cached timestamp.  The node is built quiescent (autostart off) with a
+ * plausible URL so it counts as configured without any worker thread
+ * ever reaching the network. */
+static void
+test_load_order_clears_error_marker (void)
+{
+    PnNode *node = PN_NODE (g_object_new (PN_TYPE_RATE,
+                                          "autostart", FALSE,
+                                          "url", PN_TEST_RATE_URL,
+                                          NULL));
+
+    /* Property bag, in the order pn-flow applies it. */
+    g_object_set (node, "from", PN_CURRENCY_BNB, NULL);
+    PN_CHECK (pn_node_get_has_error (node));        /* pair change deprecates */
+
+    g_object_set (node, "to", PN_CURRENCY_USD, NULL);
+    g_object_set (node, "rate", 720.19, NULL);
+    g_object_set (node, "last-update", "2026-06-07T08:00:00+00", NULL);
+
+    PN_CHECK_FALSE (pn_node_get_has_error (node));  /* cache restored */
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -287,5 +321,6 @@ main (int argc, char **argv)
     pn_test_add ("deprecated_no_update",   test_deprecated_without_last_update);
     pn_test_add ("not_deprecated_update",  test_not_deprecated_with_last_update);
     pn_test_add ("pair_change_deprecates", test_pair_change_deprecates);
+    pn_test_add ("load_order_no_error",    test_load_order_clears_error_marker);
     return pn_test_run ();
 }

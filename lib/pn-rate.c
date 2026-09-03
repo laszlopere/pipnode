@@ -831,6 +831,17 @@ pn_rate_set_property (
         g_free (self->last_update);
         self->last_update = g_value_dup_string (value);
         g_mutex_unlock (&self->mutex);
+        /* Restoring the timestamp un-deprecates the cached rate, so the
+         * error marker has to come back off.  This matters on every
+         * worksheet load: the properties bag applies `from` / `to`
+         * first, and a saved pair that differs from the constructor
+         * default trips the pair-change branch above, which clears the
+         * timestamp and paints the node red.  The `last-update` member
+         * that follows puts the cache back — without this refresh the
+         * node stayed visibly in error until the next successful fetch,
+         * which the freshness gate in pn_rate_trigger deliberately
+         * suppresses while the restored cache is still young. */
+        rate_refresh_visual (self);
         break;
     case PROP_STATUS:
         g_mutex_lock (&self->mutex);
