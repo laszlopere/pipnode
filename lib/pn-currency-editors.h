@@ -24,13 +24,29 @@ G_BEGIN_DECLS
 /*  Shared settings-dialog editors for the currency nodes.             */
 /*                                                                     */
 /*  Two property editors are wanted by every node that quotes money:   */
-/*  a picker that shows a currency's icon next to its ticker, and a    */
-/*  read-only row for the values the node fetches for itself.  They    */
-/*  started out inside pn-rate-gui.c; the Bridge Quote node wants the  */
-/*  same two, so they live here rather than being copied.              */
+/*  a picker for the currency, and a read-only row for the values the  */
+/*  node fetches for itself.  They started out inside pn-rate-gui.c;   */
+/*  the Bridge Quote and Fiat Converter nodes want the same two, so    */
+/*  they live here rather than being copied.                           */
+/*                                                                     */
+/*  The picker comes in two dresses.  Crypto tickers are recognised by */
+/*  their logo, so #PnCurrency's combo carries the bundled icon; the   */
+/*  national currencies of the Fiat Converter have no icon set and are */
+/*  not all readable as three letters, so theirs spells the name out   */
+/*  beside the code instead.                                           */
 /*                                                                     */
 /*  Internal to the gui library — not an installed header.             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * PnCurrencyDescribeFunc:
+ * @value: the enum value of the row being built
+ *
+ * Returns the human-readable name of a currency ("Hungarian forint"),
+ * to be shown beside its code.  The returned string is owned by the
+ * callee and must outlive the combo — a static table entry.
+ */
+typedef const gchar *(*PnCurrencyDescribeFunc) (gint value);
 
 /**
  * pn_currency_editor_new:
@@ -49,6 +65,25 @@ G_BEGIN_DECLS
  */
 GtkWidget *pn_currency_editor_new (GObject    *target,
                                    GParamSpec *pspec);
+
+/**
+ * pn_currency_editor_new_named:
+ * @target:   the object whose property is being edited
+ * @pspec:    the property's #GParamSpec; its value type must be a #GEnum
+ *            whose nicks are currency codes
+ * @describe: (nullable): returns the English name for an enum value
+ *
+ * The iconless sibling of pn_currency_editor_new(): a combo listing
+ * every value of the enum as "EUR — Euro".  For a currency set with no
+ * bundled icons, where the code alone is not self-explanatory.  Passing
+ * %NULL for @describe leaves the bare codes.  The combo tracks the
+ * property both ways, and is insensitive when @pspec is read-only.
+ *
+ * Returns: (transfer floating): the editor widget.
+ */
+GtkWidget *pn_currency_editor_new_named (GObject                *target,
+                                         GParamSpec             *pspec,
+                                         PnCurrencyDescribeFunc  describe);
 
 /**
  * pn_readonly_label_editor_new:

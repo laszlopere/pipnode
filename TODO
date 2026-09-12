@@ -1258,3 +1258,54 @@
              The filter and the tooltip are GUI and were driven by hand.
        [x] 64.7 Docs: the Palette bullet in data/help/help-index.html now
              describes the search box, the Full text checkbox and the tooltip.
+
+[x] 65 Fiat Converter -- a second currency converter, for national
+       currencies. The FX Converter (PnRate) is named for foreign exchange
+       but quotes a crypto market: its 23-entry list is 22 crypto assets and
+       USD as the pivot they are priced against, so a worksheet carrying a
+       price in euros had no way to read it in forints. The new node is the
+       same node with a different quote source, and deliberately the same
+       message contract, so a chain converts from one to the other by
+       swapping the node.
+       [x] 65.1 lib/pn-fiat.[ch], PnFiat, a PnHttp subclass in the core
+             (GTK-free) tier, modelled on pn-rate.c property for property:
+             from/to/rate/last-update/status, the same mutex discipline
+             between the fetch worker and the receive path, the same
+             cache-freshness gate on trigger so reopening a worksheet does
+             not fire a request, and the same deprecated-rate error marker.
+             receive() writes data.value (x rate), data.rate, data.currency
+             and data.deprecated -- member for member what PnRate writes.
+       [x] 65.2 Quote source: Frankfurter (api.frankfurter.dev/v1/latest),
+             a free, key-less, self-hostable front end to the ECB's daily
+             reference rates. ?base=<from>&symbols=<to> needs no pivot --
+             the endpoint re-bases its euro table on request -- so the parse
+             reads one member out of "rates" and is done, where PnRate has
+             to divide two USD prices. The reply's "date" is the working day
+             the rates were fixed on and goes into the status, because a
+             rate fetched on a Sunday is Friday's rate.
+       [x] 65.3 Currency set: the 30 the ECB publishes (PnFiatCurrency, its
+             own enum, no overlap with PnCurrency beyond USD). Period
+             defaults to 3600, which is also PnAutoTrigger's hard ceiling --
+             the rates move once a working day. The floor is 600 rather than
+             3600 only because a floor equal to the ceiling would make the
+             setting a constant the user cannot touch.
+       [x] 65.4 lib/pn-fiat-gui.c installs the dialog customisation:
+             read-only rows for rate / last-update / status, and the pair
+             pickers. There is no bundled icon set for national currencies
+             and MYR / RON / ISK do not read as three bare letters, so the
+             combo builder in pn-currency-editors.c grew a second dress:
+             currency_editor_build() now takes "with icons" and an optional
+             describe callback, pn_currency_editor_new() is the crypto
+             wrapper it always was and pn_currency_editor_new_named() lists
+             "EUR -- Euro" with no pixbuf column packed at all.
+       [x] 65.5 tests/unit/test-pn-fiat.c, 15 cases. Beyond the conversion
+             and cache-state cases the Rate test already covers, it drives
+             the parse path by hand through the PnHttp emit_message vfunc
+             with real reply bodies: the success path (rate, timestamp and
+             the fixing date in the status), the four failure paths (no
+             response, non-2xx, no rate table, a table about some other
+             currency, a body that is not JSON) each leaving the cached rate
+             standing, and the fact that a fetch emits no message of its own.
+       [x] 65.6 Docs: data/help/PnFiat.html, the data.deprecated row in
+             help-index.html, and a Fiat Converter section in the
+             pipnode-nodes skill reference.

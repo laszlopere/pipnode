@@ -1,6 +1,6 @@
 # Filters — Gate, Expressions, Compute & AI
 
-Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `has_input` and `has_output`, so a message arrives, the node transforms or gates it, and (usually) one message goes out the other side. Three sub-categories appear under the palette's **Filters** group: **Filters/Gate** nodes decide pass/block (and some rewrite `data.value` to a clean 0.0/1.0 boolean), **Filters/Expressions** nodes recompute the bag (Calculator, Calculator 2, JMESPath, Parse JSON), and **Filters/Compute & AI** nodes derive new values (FX Converter, Throughput). Every node forwards the *received* topic unchanged unless noted (Throughput is the exception — it mints a fresh `stats` message). Each output wire receives a deep copy. The message contract: envelope `topic`/`id`/`created` plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical number; boolean = 0.0/1.0, test `> 0.5`), `data.output` (human summary) and `data.success` (boolean).
+Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `has_input` and `has_output`, so a message arrives, the node transforms or gates it, and (usually) one message goes out the other side. Three sub-categories appear under the palette's **Filters** group: **Filters/Gate** nodes decide pass/block (and some rewrite `data.value` to a clean 0.0/1.0 boolean), **Filters/Expressions** nodes recompute the bag (Calculator, Calculator 2, JMESPath, Parse JSON), and **Filters/Compute & AI** nodes derive new values (FX Converter, Fiat Converter, Throughput). Every node forwards the *received* topic unchanged unless noted (Throughput is the exception — it mints a fresh `stats` message). Each output wire receives a deep copy. The message contract: envelope `topic`/`id`/`created` plus a schemaless `data.*` bag whose mandatory members are `data.value` (canonical number; boolean = 0.0/1.0, test `> 0.5`), `data.output` (human summary) and `data.success` (boolean).
 
 ---
 
@@ -233,6 +233,30 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 **Writes** — Rewrites `data.value` (× rate), and always stamps `data.rate` (the factor) and `data.currency` (the `to` nick, e.g. "USD"). Does not set `data.success`/`data.output`. Notably does **not** emit on its own periodic ticks — rate updates are internal state; output is 1:1 with input messages.
 
 **Gotchas** — `rate` defaults to 1.0, so an unconfigured/not-yet-fetched node passes values through scaled by 1. State is mutex-guarded (worker writes, main thread reads on receive). 10-minute floor protects CoinGecko's free-tier rate limit. GUI (icon+ticker combos, read-only cache rows) lives in companion `pn-rate-gui.c`. Gold body, fa-exchange icon.
+
+---
+
+## Fiat Converter
+
+**Purpose** — National-currency converter: the fiat sibling of **FX Converter**, writing the same message members with the rate taken from the European Central Bank's daily reference rates instead of a crypto market. (`lib/pn-fiat.c` receive.) Subclass of **PnHttp** (→ PnAutoTrigger). Category **Filters/Compute & AI**.
+
+**When to use** — Any EUR→HUF / USD→GBP style conversion on a value passing through a wire. Reach for **FX Converter** instead the moment a crypto asset is involved: the two currency sets do not overlap at all (USD is in both, but nothing else is), and neither node can quote the other's assets.
+
+**Ports** — `has_input` + `has_output`, single each.
+
+**Settings**
+- `from` (enum `PnFiatCurrency`, default **EUR**) / `to` (default **USD**): the 30 currencies the ECB publishes a euro reference rate for (AUD BRL CAD CHF CNY CZK DKK EUR GBP HKD HUF IDR ILS INR ISK JPY KRW MXN MYR NOK NZD PHP PLN RON SEK SGD THB TRY USD ZAR). No pivot currency: the endpoint re-bases the table on whichever `from` is set. `from == to` marks the node unconfigured and skips fetches. Changing the pair clears `last-update` and kicks an immediate refresh.
+- `rate` (double, default **1.0**): cached factor (1 `from` = `rate` `to`); persisted, overwritten on each successful fetch.
+- `last-update` (string ISO-8601, default **`""`**): timestamp of the last successful fetch; persisted. Drives the cache-freshness gate.
+- `status` (string, read-only in the dialog): `Never updated`, `OK (reference rate of <date>)` — the working day the rates were *fixed* on, which is not the day they were fetched over a weekend — or `Update failed: …`.
+- `url` (inherited from PnHttp, default Frankfurter `https://api.frankfurter.dev/v1/latest`): free and key-less, and self-hostable, which is why it is a property. The node appends `?base=<from>&symbols=<to>`.
+- `period` (inherited, default **3600 s**, floor **600 s**): 3600 is also PnAutoTrigger's hard ceiling, so the default is as slow as the node can go; sub-600 values are silently clamped up (`on_period_notify`). The rates change once per working day, so there is nothing a faster poll can learn.
+
+**Behaviour** — Identical to FX Converter on the receive path: a numeric `data.value` is rewritten to `value * rate`, anything else is left alone and still passes. The fetch reads one member out of the reply's `rates` object — no arithmetic, no pivot. `pn_fiat_trigger` short-circuits while the cached `last-update` is inside `period`, so reopening a worksheet does not burn a request.
+
+**Writes** — Rewrites `data.value` (× rate), and always stamps `data.rate`, `data.currency` (the `to` code) and `data.deprecated`. Does not set `data.success`/`data.output`. Like FX Converter it does **not** emit on its own periodic ticks — output is 1:1 with input.
+
+**Gotchas** — Same member-for-member contract as FX Converter, deliberately, so a chain converts from one to the other by swapping the node. `deprecated` is true until the first successful fetch for the *current pair*, and the canvas paints the error marker while it is. Every failure path (transport, non-2xx, unparseable body, missing rate) records a reason in `status` and the per-node log and leaves the cached rate standing. No bundled icons for these currencies, so the dialog's picker spells the name out beside the code (`pn_currency_editor_new_named`, shared in `pn-currency-editors.c`) rather than showing a logo. Green body, fa-money icon.
 
 ---
 

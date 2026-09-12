@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fiat Converter (PnFiat) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFiat">Fiat Converter</h4>
+<p>
+<em>Group:</em> Filters. <em>Type:</em> <code>PnFiat</code>
+(subclass of <code>PnHttp</code>).
+</p>
+<p>
+National-currency converter. For every received message the node
+multiplies <code>data.value</code> by its cached conversion factor
+(from &rarr; to) and forwards the message with the converted
+amount, the factor itself in <code>data.rate</code>, the
+destination currency code in <code>data.currency</code> and a
+<code>data.deprecated</code> boolean. Non-numeric or missing
+<code>data.value</code> fields are left untouched so the message
+still passes through.
+</p>
+<p>
+This is the fiat sibling of the
+<a href="PnRate.html">FX Converter</a>, and writes exactly the same
+message members &mdash; a chain built around one converts to the
+other by swapping the node. What differs is where the rate comes
+from. The FX Converter asks CoinGecko for a crypto market price;
+this one asks <a href="https://frankfurter.dev/">Frankfurter</a>
+for the European Central Bank's daily reference rates, which are
+authoritative for fiat, need no pivot currency (any member of the
+set can be the base) and are fixed once per working day rather
+than moving by the second.
+</p>
+<p>
+<code>data.deprecated</code> is <code>true</code> whenever the
+cached rate cannot yet be trusted for the current pair &mdash;
+before the first successful fetch, immediately after the
+<code>from</code>/<code>to</code> pair is changed (which drops the
+cached timestamp at once), or after a failed fetch. While
+deprecated the node still converts using the last known rate so
+chains do not stall, but it paints the standard error marker on
+the canvas and surfaces the reason through <code>status</code> and
+the per-node log.
+</p>
+<p>
+The fetched rate <em>and</em> the timestamp of the last successful
+fetch round-trip through the worksheet on save/load, so re-opening
+a flow does <strong>not</strong> fire a fresh request: the
+previously-saved rate is used until the next periodic tick.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>url</code></td>
+      <td>Endpoint base URL. The node appends
+          <code>?base=&hellip;&amp;symbols=&hellip;</code> at
+          request time. Defaults to Frankfurter's free, key-less
+          <code>latest</code> endpoint; the server is
+          self-hostable, so this can be re-pointed at your own
+          instance.</td></tr>
+  <tr><td><code>from</code></td>
+      <td>Source currency. Pick from the 30 currencies the ECB
+          publishes a daily euro reference rate for:
+          <code>AUD</code>, <code>BRL</code>, <code>CAD</code>,
+          <code>CHF</code>, <code>CNY</code>, <code>CZK</code>,
+          <code>DKK</code>, <code>EUR</code>, <code>GBP</code>,
+          <code>HKD</code>, <code>HUF</code>, <code>IDR</code>,
+          <code>ILS</code>, <code>INR</code>, <code>ISK</code>,
+          <code>JPY</code>, <code>KRW</code>, <code>MXN</code>,
+          <code>MYR</code>, <code>NOK</code>, <code>NZD</code>,
+          <code>PHP</code>, <code>PLN</code>, <code>RON</code>,
+          <code>SEK</code>, <code>SGD</code>, <code>THB</code>,
+          <code>TRY</code>, <code>USD</code> and <code>ZAR</code>.
+          The settings dialog spells each name out beside its code.
+          Crypto assets are not in this set &mdash; those belong to
+          the <a href="PnRate.html">FX Converter</a>.</td></tr>
+  <tr><td><code>to</code></td>
+      <td>Destination currency. Same set as <code>from</code>;
+          when <code>from</code> equals <code>to</code> the node
+          is marked as needing configuration and skips its
+          fetches.</td></tr>
+  <tr><td><code>rate</code></td>
+      <td>Cached conversion factor (1 unit of <code>from</code>
+          equals <em>rate</em> units of <code>to</code>).
+          Defaults to 1 and is overwritten on every successful
+          fetch; persisted with the worksheet.</td></tr>
+  <tr><td><code>last-update</code></td>
+      <td>ISO-8601 timestamp of the last successful fetch, shown
+          read-only in the dialog (&ldquo;Never&rdquo; until the
+          first fetch lands). Cleared the instant the pair changes.
+          Persisted with the worksheet alongside
+          <code>rate</code>.</td></tr>
+  <tr><td><code>status</code></td>
+      <td>Read-only outcome of the most recent fetch:
+          <code>Never updated</code>,
+          <code>OK (reference rate of 2026-09-11)</code> &mdash;
+          the working day the rates were fixed on, which is not
+          the day you fetched them if you fetched over a weekend
+          &mdash; or <code>Update failed: &hellip;</code> with the
+          reason. The matching detail is also written to the
+          per-node log.</td></tr>
+  <tr><td><code>period</code></td>
+      <td>Seconds between rate refreshes. Defaults to 3600 (one
+          hour, which is also the highest value the auto-trigger
+          accepts), and the floor is 600: attempts to set a
+          smaller value &mdash; from the dialog or by hand-editing
+          a saved worksheet &mdash; are silently rounded back up.
+          There is nothing to gain from a faster poll, as the
+          reference rates change once per working day.</td></tr>
+</table>
+<p>
+Wire one in after any node that emits a numeric
+<code>data.value</code> with <code>from = EUR</code>,
+<code>to = HUF</code> to turn a price in euros into forints before
+it reaches a Debug, Numeric or Graph sink.
+</p>
+
+</body>
+</html>

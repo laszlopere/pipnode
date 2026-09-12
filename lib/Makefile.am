@@ -84,6 +84,8 @@ libpipnode_core_la_SOURCES = \
 	pn-expression2.h \
 	pn-failure.c \
 	pn-failure.h \
+	pn-fiat.c \
+	pn-fiat.h \
 	pn-file-viewer.c \
 	pn-file-viewer.h \
 	pn-filedrop.c \
@@ -330,6 +332,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.c \
 	pn-document-settings-dialog.h \
+	pn-fiat-gui.c \
+	pn-fiat-gui.h \
 	pn-file-viewer-gui.c \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.c \
@@ -526,6 +530,7 @@ pipnode_core_headers = \
 	pn-expression.h \
 	pn-expression2.h \
 	pn-failure.h \
+	pn-fiat.h \
 	pn-file-viewer.h \
 	pn-filedrop.h \
 	pn-filter.h \
@@ -634,6 +639,7 @@ pipnode_gui_headers = \
 	pn-dial-gui.h \
 	pn-digital-clock-gui.h \
 	pn-document-settings-dialog.h \
+	pn-fiat-gui.h \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \

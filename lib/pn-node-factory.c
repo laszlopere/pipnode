@@ -49,6 +49,7 @@
 #include "pn-failure.h"
 #include "pn-file-viewer.h"
 #include "pn-filedrop.h"
+#include "pn-fiat.h"
 #include "pn-filter.h"
 #include "pn-format.h"
 #include "pn-graph.h"
@@ -294,6 +295,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_QUERY);
     pn_node_factory_register (self, PN_TYPE_RAMP);
     pn_node_factory_register (self, PN_TYPE_RATE);
+    pn_node_factory_register (self, PN_TYPE_FIAT);
     pn_node_factory_register (self, PN_TYPE_REDUCE);
     pn_node_factory_register (self, PN_TYPE_REWRITE);
     pn_node_factory_register (self, PN_TYPE_SET);

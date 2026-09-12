@@ -49,6 +49,7 @@
 #include "pn-bridge-converter-gui.h"
 #include "pn-bridge-quote-gui.h"
 #include "pn-rate-gui.h"
+#include "pn-fiat-gui.h"
 #include "pn-segment16-gui.h"
 #include "pn-set-gui.h"
 #include "pn-sound-gui.h"
@@ -91,6 +92,7 @@ pn_gui_install_builtin_nodes (void)
     pn_bridge_converter_gui_install ();
     pn_bridge_quote_gui_install ();
     pn_rate_gui_install ();
+    pn_fiat_gui_install ();
     pn_segment16_gui_install ();
     pn_set_gui_install ();
     pn_sound_gui_install ();

@@ -32,6 +32,7 @@ pnhelp_DATA = \
 	help/PnExpression.html \
 	help/PnExpression2.html \
 	help/PnFailure.html \
+	help/PnFiat.html \
 	help/PnFileDrop.html \
 	help/PnFileViewer.html \
 	help/PnFilter.html \

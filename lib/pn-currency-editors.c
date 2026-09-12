@@ -17,10 +17,14 @@
 /*  Shared settings-dialog editors for the currency nodes — gui tier.  */
 /*                                                                     */
 /*  Lifted out of pn-rate-gui.c when the Bridge Quote node turned out  */
-/*  to want exactly the same two editors.  Both talk to their target    */
-/*  purely through GObject properties plus the public                  */
-/*  pn_currency_get_icon_name() / PN_TYPE_CURRENCY, so the headless     */
+/*  to want exactly the same two editors.  All of them talk to their   */
+/*  target purely through GObject properties plus the public           */
+/*  pn_currency_get_icon_name() / PN_TYPE_CURRENCY, so the headless    */
 /*  runtime never loads any of this.                                   */
+/*                                                                     */
+/*  One combo builder serves both pickers: the crypto one fills a      */
+/*  pixbuf column from the bundled icons, the fiat one leaves that     */
+/*  column empty and appends the currency's name to its code instead.  */
 /* ------------------------------------------------------------------ */
 
 #ifdef HAVE_CONFIG_H
@@ -278,10 +282,15 @@ load_currency_icon (const gchar *nick)
     return pix;
 }
 
-GtkWidget *
-pn_currency_editor_new (
-        GObject    *target,
-        GParamSpec *pspec)
+/** Shared builder behind both pickers.  @with_icons fills the pixbuf
+ *  column from the bundled crypto icons; @describe, when given, spells
+ *  the currency's name out after its code. */
+static GtkWidget *
+currency_editor_build (
+        GObject                *target,
+        GParamSpec             *pspec,
+        gboolean                with_icons,
+        PnCurrencyDescribeFunc  describe)
 {
     enum { COL_ID, COL_LABEL, COL_PIX, N_COLS };
     GType              ptype;
@@ -289,7 +298,6 @@ pn_currency_editor_new (
     gboolean           writable;
     GtkListStore      *store;
     GtkWidget         *combo;
-    GtkCellRenderer   *pix_r;
     GtkCellRenderer   *txt_r;
     GEnumClass        *eclass;
     PnCurrencyBinding *bind;
@@ -305,15 +313,21 @@ pn_currency_editor_new (
     store    = gtk_list_store_new (N_COLS, G_TYPE_STRING, G_TYPE_STRING,
                                    GDK_TYPE_PIXBUF);
     combo    = gtk_combo_box_new_with_model (GTK_TREE_MODEL (store));
-    pix_r    = gtk_cell_renderer_pixbuf_new ();
     txt_r    = gtk_cell_renderer_text_new ();
     eclass   = g_type_class_ref (ptype);
 
     gtk_combo_box_set_id_column (GTK_COMBO_BOX (combo), COL_ID);
 
-    gtk_cell_layout_pack_start (GTK_CELL_LAYOUT (combo), pix_r, FALSE);
-    gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (combo),
-                                   pix_r, "pixbuf", COL_PIX);
+    /* The pixbuf column is packed only when there are icons to put in
+     * it — an always-empty renderer indents every row for nothing. */
+    if (with_icons)
+    {
+        GtkCellRenderer *pix_r = gtk_cell_renderer_pixbuf_new ();
+
+        gtk_cell_layout_pack_start (GTK_CELL_LAYOUT (combo), pix_r, FALSE);
+        gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (combo),
+                                       pix_r, "pixbuf", COL_PIX);
+    }
 
     gtk_cell_layout_pack_start (GTK_CELL_LAYOUT (combo), txt_r, TRUE);
     gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (combo),
@@ -321,12 +335,17 @@ pn_currency_editor_new (
 
     for (i = 0; i < eclass->n_values; i++)
     {
-        const GEnumValue *v   = &eclass->values[i];
-        const gchar      *lbl = (v->value_nick != NULL && *v->value_nick != '\0')
-                                    ? v->value_nick : v->value_name;
-        gchar            *id  = g_strdup_printf ("%d", v->value);
-        GdkPixbuf        *pix = load_currency_icon (
-                pn_currency_get_icon_name ((PnCurrency) v->value));
+        const GEnumValue *v    = &eclass->values[i];
+        const gchar      *code = (v->value_nick != NULL && *v->value_nick != '\0')
+                                     ? v->value_nick : v->value_name;
+        const gchar      *desc = (describe != NULL) ? describe (v->value) : NULL;
+        gchar            *lbl  = (desc != NULL && *desc != '\0')
+                                     ? g_strdup_printf ("%s \xe2\x80\x94 %s", code, desc)
+                                     : g_strdup (code);
+        gchar            *id   = g_strdup_printf ("%d", v->value);
+        GdkPixbuf        *pix  = with_icons
+            ? load_currency_icon (pn_currency_get_icon_name ((PnCurrency) v->value))
+            : NULL;
         GtkTreeIter       iter;
 
         gtk_list_store_append (store, &iter);
@@ -337,6 +356,7 @@ pn_currency_editor_new (
                             -1);
         if (pix != NULL)
             g_object_unref (pix);
+        g_free (lbl);
         g_free (id);
     }
 
@@ -367,4 +387,21 @@ pn_currency_editor_new (
                             bind, currency_binding_free);
 
     return combo;
+}
+
+GtkWidget *
+pn_currency_editor_new (
+        GObject    *target,
+        GParamSpec *pspec)
+{
+    return currency_editor_build (target, pspec, TRUE, NULL);
+}
+
+GtkWidget *
+pn_currency_editor_new_named (
+        GObject                *target,
+        GParamSpec             *pspec,
+        PnCurrencyDescribeFunc  describe)
+{
+    return currency_editor_build (target, pspec, FALSE, describe);
 }
