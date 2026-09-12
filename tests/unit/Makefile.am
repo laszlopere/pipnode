@@ -75,6 +75,7 @@ check_PROGRAMS = \
 	test-pn-astronomical \
 	test-pn-sun-path \
 	test-pn-geocode \
+	test-pn-help-text \
 	test-pn-rtc \
 	test-pn-deadline \
 	test-pn-watchdog \
@@ -241,6 +242,7 @@ test_pn_auto_random_SOURCES   = test-pn-auto-random.c   pntest.c pntest.h pntime
 test_pn_astronomical_SOURCES  = test-pn-astronomical.c  pntest.c pntest.h
 test_pn_sun_path_SOURCES      = test-pn-sun-path.c      pntest.c pntest.h
 test_pn_geocode_SOURCES       = test-pn-geocode.c       pntest.c pntest.h
+test_pn_help_text_SOURCES     = test-pn-help-text.c     pntest.c pntest.h
 test_pn_rtc_SOURCES           = test-pn-rtc.c           pntest.c pntest.h pntimer.h
 test_pn_deadline_SOURCES      = test-pn-deadline.c      pntest.c pntest.h pntimer.h
 test_pn_watchdog_SOURCES      = test-pn-watchdog.c      pntest.c pntest.h pntimer.h

@@ -18,6 +18,8 @@
 #endif
 
 #include "pn-palette.h"
+#include "pn-help-browser.h"
+#include "pn-help-text.h"
 #include "pn-node-factory.h"
 #include "pn-preferences.h"
 
@@ -60,6 +62,12 @@ struct _PnPalette
     GtkTreeModelFilter *filter;
     GtkTreeView        *tree;
     GtkEntry           *search_entry;
+    GtkWidget          *full_text_check;
+
+    /* Mirrors the "Full text" check button: when set, a leaf also
+     * matches when the needle appears in its help page.  Seeded from
+     * #PnPreferences and written back on every toggle. */
+    gboolean            search_help_text;
 
     /* Case-folded current search needle.  %NULL when the search entry
      * is empty; in that case the filter is a pass-through and every
@@ -297,6 +305,85 @@ append_node (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Help-page text index                                               */
+/*                                                                     */
+/*  Backing store for the "Full text" search: the plain text of each   */
+/*  node type's help page, keyed by #GType name (the page is always    */
+/*  "<GType name>.html", the same basename the Help menu entry opens). */
+/*                                                                     */
+/*  A palette is built per worksheet tab, so the index is a file-      */
+/*  static shared by every instance rather than a per-object field.    */
+/*  It fills in lazily, one type at a time, the first time a full-text */
+/*  search asks about that type, and a type with no page caches an     */
+/*  empty entry so the search path is walked once and not once per     */
+/*  keystroke.  Nothing is ever evicted: fully populated it holds the  */
+/*  ~600 KiB the bundled pages amount to, twice, and lives as long as  */
+/*  the process.                                                       */
+/* ------------------------------------------------------------------ */
+
+typedef struct
+{
+    gchar *plain;   /* tag-stripped, whitespace-collapsed page text */
+    gchar *fold;    /* g_utf8_casefold of @plain — what we match on */
+} PaletteHelpText;
+
+static GHashTable *palette_help_index;  /* type name -> PaletteHelpText* */
+
+static void
+palette_help_text_free (gpointer data)
+{
+    PaletteHelpText *ht = data;
+
+    g_free (ht->plain);
+    g_free (ht->fold);
+    g_free (ht);
+}
+
+/** Return the cached help text for @type_name, reading and stripping
+ *  the page on first use.  Never %NULL; a type without a help page
+ *  yields an entry whose strings are empty, which no needle matches. */
+static const PaletteHelpText *
+palette_help_text (const gchar *type_name)
+{
+    PaletteHelpText *ht;
+    gchar           *page;
+    gchar           *path;
+    gchar           *contents = NULL;
+
+    if (palette_help_index == NULL)
+        palette_help_index = g_hash_table_new_full (
+                g_str_hash, g_str_equal, g_free, palette_help_text_free);
+
+    ht = g_hash_table_lookup (palette_help_index, type_name);
+    if (ht != NULL)
+        return ht;
+
+    ht = g_new0 (PaletteHelpText, 1);
+
+    page = g_strconcat (type_name, ".html", NULL);
+    path = pn_help_browser_resolve_page (page);
+    g_free (page);
+
+    if (path != NULL
+        && g_file_get_contents (path, &contents, NULL, NULL))
+    {
+        ht->plain = pn_help_text_from_html (contents, TRUE);
+        ht->fold  = g_utf8_casefold (ht->plain, -1);
+        g_free (contents);
+    }
+    else
+    {
+        ht->plain = g_strdup ("");
+        ht->fold  = g_strdup ("");
+    }
+
+    g_free (path);
+    g_hash_table_insert (palette_help_index, g_strdup (type_name), ht);
+
+    return ht;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Search filter                                                      */
 /*                                                                     */
 /*  The tree view is backed by a #GtkTreeModelFilter wrapping the      */
@@ -308,14 +395,80 @@ append_node (
 /*  the categorisation stays intact during a search.                   */
 /* ------------------------------------------------------------------ */
 
-/** TRUE if any leaf at or below @iter has a label matching @needle.
+/** TRUE if the leaf @iter's label contains the current needle.  Split
+ *  out from leaf_matches() because the tooltip needs to tell a label
+ *  hit from a help-text-only one. */
+static gboolean
+leaf_label_matches (
+        PnPalette    *self,
+        GtkTreeModel *model,
+        GtkTreeIter  *iter)
+{
+    gchar    *label = NULL;
+    gboolean  hit   = FALSE;
+
+    gtk_tree_model_get (model, iter, COL_MARKUP, &label, -1);
+
+    if (label != NULL)
+    {
+        gchar *fold = g_utf8_casefold (label, -1);
+        if (fold != NULL
+            && g_strstr_len (fold, -1, self->search_casefold) != NULL)
+            hit = TRUE;
+        g_free (fold);
+    }
+
+    g_free (label);
+    return hit;
+}
+
+/** TRUE if the leaf @iter's help page contains the current needle.
+ *  Always %FALSE while the "Full text" box is unticked, so the index
+ *  is never touched — and never built — in the default state. */
+static gboolean
+leaf_help_matches (
+        PnPalette    *self,
+        GtkTreeModel *model,
+        GtkTreeIter  *iter)
+{
+    gchar    *type_name = NULL;
+    gboolean  hit       = FALSE;
+
+    if (!self->search_help_text)
+        return FALSE;
+
+    gtk_tree_model_get (model, iter, COL_TYPE_NAME, &type_name, -1);
+
+    if (type_name != NULL && *type_name != '\0')
+    {
+        const PaletteHelpText *ht = palette_help_text (type_name);
+        hit = (g_strstr_len (ht->fold, -1, self->search_casefold) != NULL);
+    }
+
+    g_free (type_name);
+    return hit;
+}
+
+/** TRUE if the leaf @iter survives the current needle, by its label or
+ *  — with the "Full text" box ticked — by its help page. */
+static gboolean
+leaf_matches (
+        PnPalette    *self,
+        GtkTreeModel *model,
+        GtkTreeIter  *iter)
+{
+    return leaf_label_matches (self, model, iter)
+        || leaf_help_matches  (self, model, iter);
+}
+
+/** TRUE if any leaf at or below @iter matches the current needle.
  *  Recurses so an arbitrarily-deep subgroup chain keeps its ancestors
  *  visible during a search. */
 static gboolean
 row_matches_recursive (
+        PnPalette    *self,
         GtkTreeModel *model,
-        GtkTreeIter  *iter,
-        const gchar  *needle)
+        GtkTreeIter  *iter)
 {
     GtkTreeIter child;
 
@@ -323,28 +476,14 @@ row_matches_recursive (
     {
         do
         {
-            if (row_matches_recursive (model, &child, needle))
+            if (row_matches_recursive (self, model, &child))
                 return TRUE;
         }
         while (gtk_tree_model_iter_next (model, &child));
         return FALSE; /* group rows never match by their own label */
     }
-    else
-    {
-        gchar    *label = NULL;
-        gboolean  hit   = FALSE;
 
-        gtk_tree_model_get (model, iter, COL_MARKUP, &label, -1);
-        if (label != NULL)
-        {
-            gchar *fold = g_utf8_casefold (label, -1);
-            if (fold != NULL && g_strstr_len (fold, -1, needle) != NULL)
-                hit = TRUE;
-            g_free (fold);
-        }
-        g_free (label);
-        return hit;
-    }
+    return leaf_matches (self, model, iter);
 }
 
 static gboolean
@@ -355,47 +494,47 @@ filter_visible_func (
 {
     PnPalette *self = PN_PALETTE (user_data);
     gchar     *type_name = NULL;
-    gchar     *label     = NULL;
-    gboolean   visible   = FALSE;
+    gboolean   visible;
     gboolean   is_group;
 
     if (self->search_casefold == NULL)
         return TRUE;
 
-    gtk_tree_model_get (model, iter,
-                        COL_TYPE_NAME, &type_name,
-                        COL_MARKUP,    &label,
-                        -1);
-
+    gtk_tree_model_get (model, iter, COL_TYPE_NAME, &type_name, -1);
     is_group = (type_name == NULL || *type_name == '\0');
+    g_free (type_name);
 
     if (is_group)
-    {
         /* A group (top-level or nested subgroup) is visible iff any
          * leaf anywhere beneath it matches.  Recurse so a match in a
          * deep subgroup keeps the whole ancestor chain on-screen. */
-        visible = row_matches_recursive (model, iter,
-                                         self->search_casefold);
-    }
-    else if (label != NULL)
-    {
-        gchar *fold = g_utf8_casefold (label, -1);
-        if (fold != NULL
-            && g_strstr_len (fold, -1, self->search_casefold) != NULL)
-            visible = TRUE;
-        g_free (fold);
-    }
+        visible = row_matches_recursive (self, model, iter);
+    else
+        visible = leaf_matches (self, model, iter);
 
-    g_free (type_name);
-    g_free (label);
     return visible;
 }
 
-/** Refresh the cached case-folded needle and re-evaluate the filter.
- *  Expanding the tree on every keystroke keeps surviving matches on-
- *  screen; collapsing back to the user's previous expansion state when
- *  the search clears is not worth the bookkeeping — the palette is
- *  small enough that "everything expanded" is the natural default. */
+/** Re-evaluate the filter and expand the tree so every surviving match
+ *  is immediately on-screen.  Collapsing back to the user's previous
+ *  expansion state when the search clears is not worth the bookkeeping
+ *  — the palette is small enough that "everything expanded" is the
+ *  natural default. */
+static void
+palette_refilter (PnPalette *self)
+{
+    if (self->filter != NULL)
+        gtk_tree_model_filter_refilter (self->filter);
+
+    /* expand_all fires row-expanded for every newly opened group; gate
+     * the persistence handler so the search does not silently clear
+     * the user's saved collapsed entries. */
+    self->suppress_state_save++;
+    gtk_tree_view_expand_all (self->tree);
+    self->suppress_state_save--;
+}
+
+/** Refresh the cached case-folded needle and re-evaluate the filter. */
 static void
 on_search_entry_changed (
         GtkEditable *editable,
@@ -408,15 +547,26 @@ on_search_entry_changed (
     if (text != NULL && *text != '\0')
         self->search_casefold = g_utf8_casefold (text, -1);
 
-    if (self->filter != NULL)
-        gtk_tree_model_filter_refilter (self->filter);
+    palette_refilter (self);
+}
 
-    /* expand_all fires row-expanded for every newly opened group; gate
-     * the persistence handler so the search does not silently clear
-     * the user's saved collapsed entries. */
-    self->suppress_state_save++;
-    gtk_tree_view_expand_all (self->tree);
-    self->suppress_state_save--;
+/** Widen or narrow the search to the help pages.  The choice is a user
+ *  preference rather than per-window state, so it is written straight
+ *  back to #PnPreferences; other palettes pick it up on their next
+ *  construction. */
+static void
+on_full_text_toggled (
+        GtkToggleButton *button,
+        gpointer         user_data)
+{
+    PnPalette *self = PN_PALETTE (user_data);
+
+    self->search_help_text = gtk_toggle_button_get_active (button);
+
+    pn_preferences_set_palette_search_help_text (
+            pn_preferences_get_default (), self->search_help_text);
+
+    palette_refilter (self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -602,6 +752,136 @@ on_palette_popup_menu (
 }
 
 /* ------------------------------------------------------------------ */
+/*  Help-text match tooltip                                            */
+/*                                                                     */
+/*  With "Full text" on, a search can surface a node whose name has    */
+/*  nothing to do with what was typed.  Hovering such a row shows the  */
+/*  sentence fragment that made it match, so the result reads as an    */
+/*  answer rather than as noise.  Rows that matched on their label     */
+/*  need no explanation and get no tooltip.                            */
+/* ------------------------------------------------------------------ */
+
+#define PN_PALETTE_SNIPPET_CONTEXT 40  /* bytes kept either side of a hit */
+#define PN_PALETTE_SNIPPET_HEAD    80  /* fallback: bytes from the top    */
+
+/** Snap @p back to the byte that starts its UTF-8 character, without
+ *  running past @lo. */
+static const gchar *
+snap_char_start (const gchar *p, const gchar *lo)
+{
+    while (p > lo && ((guchar) *p & 0xC0) == 0x80)
+        p--;
+    return p;
+}
+
+/** Snap @p forward to the next UTF-8 character start, without running
+ *  past @hi. */
+static const gchar *
+snap_char_end (const gchar *p, const gchar *hi)
+{
+    while (p < hi && ((guchar) *p & 0xC0) == 0x80)
+        p++;
+    return p;
+}
+
+/** One-line excerpt of @ht around the first occurrence of @needle, or
+ *  %NULL when the page does not contain it.  The page text already has
+ *  its whitespace collapsed, so the result is a single line. */
+static gchar *
+palette_help_snippet (
+        const PaletteHelpText *ht,
+        const gchar           *needle)
+{
+    const gchar *lo  = ht->plain;
+    const gchar *hi  = ht->plain + strlen (ht->plain);
+    const gchar *hit;
+    const gchar *start;
+    const gchar *end;
+
+    hit = g_strstr_len (ht->fold, -1, needle);
+    if (hit == NULL)
+        return NULL;
+
+    /* An offset into the case-folded copy only addresses the same
+     * character in the original when folding left the byte length
+     * alone — true of the bundled pages, but g_utf8_casefold promises
+     * no such thing, so show the opening words instead of cutting the
+     * text at a position that means nothing. */
+    if (strlen (ht->fold) != strlen (ht->plain))
+    {
+        end = (hi - lo > PN_PALETTE_SNIPPET_HEAD)
+            ? snap_char_end (lo + PN_PALETTE_SNIPPET_HEAD, hi)
+            : hi;
+        return g_strdup_printf ("%.*s%s",
+                                (int) (end - lo), lo,
+                                end < hi ? "…" : "");
+    }
+
+    start = ht->plain + (hit - ht->fold);
+    end   = start + strlen (needle);
+
+    start = (start - lo > PN_PALETTE_SNIPPET_CONTEXT)
+          ? snap_char_start (start - PN_PALETTE_SNIPPET_CONTEXT, lo)
+          : lo;
+    end   = (hi - end > PN_PALETTE_SNIPPET_CONTEXT)
+          ? snap_char_end (end + PN_PALETTE_SNIPPET_CONTEXT, hi)
+          : hi;
+
+    return g_strdup_printf ("%s%.*s%s",
+                            start > lo ? "…" : "",
+                            (int) (end - start), start,
+                            end < hi ? "…" : "");
+}
+
+static gboolean
+on_tree_query_tooltip (
+        GtkWidget  *widget,
+        gint        x,
+        gint        y,
+        gboolean    keyboard_mode,
+        GtkTooltip *tooltip,
+        gpointer    user_data)
+{
+    PnPalette    *self  = PN_PALETTE (user_data);
+    GtkTreeView  *tree  = GTK_TREE_VIEW (widget);
+    GtkTreeModel *model = NULL;
+    GtkTreePath  *path  = NULL;
+    GtkTreeIter   iter;
+    gchar        *type_name = NULL;
+    gchar        *snippet   = NULL;
+    gboolean      shown     = FALSE;
+
+    if (!self->search_help_text || self->search_casefold == NULL)
+        return FALSE;
+
+    if (!gtk_tree_view_get_tooltip_context (tree, &x, &y, keyboard_mode,
+                                            &model, &path, &iter))
+        return FALSE;
+
+    gtk_tree_model_get (model, &iter, COL_TYPE_NAME, &type_name, -1);
+
+    /* Group rows carry no type name, and a leaf that matched on its
+     * label needs no explaining. */
+    if (type_name != NULL && *type_name != '\0'
+        && !leaf_label_matches (self, model, &iter))
+        snippet = palette_help_snippet (palette_help_text (type_name),
+                                        self->search_casefold);
+
+    if (snippet != NULL)
+    {
+        gtk_tooltip_set_text (tooltip, snippet);
+        gtk_tree_view_set_tooltip_row (tree, tooltip, path);
+        shown = TRUE;
+    }
+
+    g_free (snippet);
+    g_free (type_name);
+    gtk_tree_path_free (path);
+
+    return shown;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Construction                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -677,6 +957,11 @@ build_tree_view (PnPalette *self)
                       G_CALLBACK (on_tree_drag_begin_hide_icon), NULL);
     g_signal_connect (tree, "drag-end",
                       G_CALLBACK (on_tree_drag_end),      self);
+
+    /* Explains a row that only a full-text search could have found. */
+    gtk_widget_set_has_tooltip (tree, TRUE);
+    g_signal_connect (tree, "query-tooltip",
+                      G_CALLBACK (on_tree_query_tooltip), self);
 
     return tree;
 }
@@ -997,6 +1282,29 @@ pn_palette_init (PnPalette *self)
 
         g_signal_connect (entry, "changed",
                           G_CALLBACK (on_search_entry_changed), self);
+    }
+
+    /* Widens the search from the node labels to the text of their help
+     * pages.  Off by default — it is the answer to "what was the node
+     * that does X called", not the everyday way to find a node — and
+     * its own row, because the sidebar is too narrow to put a check
+     * button beside the entry without squeezing it. */
+    {
+        GtkWidget *check = gtk_check_button_new_with_label ("Full text");
+
+        self->search_help_text =
+                pn_preferences_get_palette_search_help_text (
+                        pn_preferences_get_default ());
+
+        self->full_text_check = check;
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (check),
+                                      self->search_help_text);
+        gtk_widget_set_tooltip_text (
+                check, "Also search the text of each node's help page");
+        gtk_box_pack_start (GTK_BOX (self), check, FALSE, FALSE, 0);
+
+        g_signal_connect (check, "toggled",
+                          G_CALLBACK (on_full_text_toggled), self);
     }
 
     /* Scrolled wrapper so a long type list does not stretch the

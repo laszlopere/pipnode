@@ -72,6 +72,11 @@ struct _PnPreferences
      * paths; values unused. */
     GHashTable *collapsed_palette_groups;
 
+    /* Whether the palette's search box also matches the text of each
+     * node's help page, not just its label.  Off by default; the
+     * palette's "Full text" check button drives it. */
+    gboolean   palette_search_help_text;
+
     /* Set while the JSON loader is pushing values into the object so the
      * autosave hook can short-circuit -- we do not want the initial load
      * to immediately rewrite the same file.  Also pinned to %TRUE during
@@ -103,6 +108,7 @@ enum {
     PROP_DEBUG_VIEW_WIDTH,
     PROP_WINDOW_WIDTH,
     PROP_WINDOW_HEIGHT,
+    PROP_PALETTE_SEARCH_HELP_TEXT,
     N_PROPS,
 };
 
@@ -225,6 +231,9 @@ pn_preferences_save_now (PnPreferences *self)
 
     json_builder_set_member_name (b, "window_height");
     json_builder_add_int_value (b, self->window_height);
+
+    json_builder_set_member_name (b, "palette_search_help_text");
+    json_builder_add_boolean_value (b, self->palette_search_help_text);
 
     /* disabled_plugins: array of .so basenames the user has opted out
      * of.  Sorted so the on-disk file is stable across saves regardless
@@ -411,6 +420,12 @@ pn_preferences_load (PnPreferences *self)
                 (gint) json_object_get_int_member (obj, "window_width"),
                 (gint) json_object_get_int_member (obj, "window_height"));
 
+    if (json_object_has_member (obj, "palette_search_help_text"))
+        pn_preferences_set_palette_search_help_text (
+                self,
+                json_object_get_boolean_member (obj,
+                                                "palette_search_help_text"));
+
     if (json_object_has_member (obj, "disabled_plugins"))
     {
         JsonNode *arr_node =
@@ -509,6 +524,9 @@ pn_preferences_get_property (
     case PROP_WINDOW_HEIGHT:
         g_value_set_int (value, self->window_height);
         break;
+    case PROP_PALETTE_SEARCH_HELP_TEXT:
+        g_value_set_boolean (value, self->palette_search_help_text);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -566,6 +584,10 @@ pn_preferences_set_property (
     case PROP_WINDOW_HEIGHT:
         pn_preferences_set_window_size (self, self->window_width,
                                         g_value_get_int (value));
+        break;
+    case PROP_PALETTE_SEARCH_HELP_TEXT:
+        pn_preferences_set_palette_search_help_text (
+                self, g_value_get_boolean (value));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -676,6 +698,13 @@ pn_preferences_class_init (PnPreferencesClass *klass)
             1, G_MAXINT, 720,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    properties[PROP_PALETTE_SEARCH_HELP_TEXT] = g_param_spec_boolean (
+            "palette-search-help-text", "Palette Search Help Text",
+            "Whether the palette search also matches the text of each "
+            "node's help page.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, properties);
 }
 
@@ -706,6 +735,7 @@ pn_preferences_init (PnPreferences *self)
     self->debug_view_width = 0;
     self->window_width     = 1024;
     self->window_height    = 720;
+    self->palette_search_help_text = FALSE;
     self->loading         = FALSE;
     self->save_idle_id    = 0;
     self->config_path     = default_config_path ();
@@ -924,6 +954,28 @@ pn_preferences_set_debug_view_open (PnPreferences *self, gboolean open)
     self->debug_view_open = open;
     g_object_notify_by_pspec (G_OBJECT (self),
                               properties[PROP_DEBUG_VIEW_OPEN]);
+    pn_preferences_schedule_save (self);
+}
+
+gboolean
+pn_preferences_get_palette_search_help_text (PnPreferences *self)
+{
+    g_return_val_if_fail (PN_IS_PREFERENCES (self), FALSE);
+    return self->palette_search_help_text;
+}
+
+void
+pn_preferences_set_palette_search_help_text (PnPreferences *self,
+                                             gboolean       search)
+{
+    g_return_if_fail (PN_IS_PREFERENCES (self));
+
+    search = search ? TRUE : FALSE;
+    if (self->palette_search_help_text == search)
+        return;
+    self->palette_search_help_text = search;
+    g_object_notify_by_pspec (G_OBJECT (self),
+                              properties[PROP_PALETTE_SEARCH_HELP_TEXT]);
     pn_preferences_schedule_save (self);
 }
 

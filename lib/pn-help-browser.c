@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-help-browser.h"
+#include "pn-help-text.h"
 
 #ifdef HAVE_WEBKIT
 
@@ -295,35 +296,6 @@ struct _PnHelpBrowser
 
 G_DEFINE_TYPE (PnHelpBrowser, pn_help_browser, GTK_TYPE_WINDOW)
 
-/** Strip a very small subset of HTML to produce readable text.
- *  Good enough for the bundled help pages; not a real renderer. */
-static gchar *
-strip_html (const gchar *html)
-{
-    GString *out = g_string_new (NULL);
-    const char *p = html;
-    gboolean in_tag = FALSE;
-
-    while (*p)
-    {
-        if (in_tag)
-        {
-            if (*p == '>')
-                in_tag = FALSE;
-        }
-        else
-        {
-            if (*p == '<')
-                in_tag = TRUE;
-            else
-                g_string_append_c (out, *p);
-        }
-        p++;
-    }
-
-    return g_string_free (out, FALSE);
-}
-
 static void
 on_home_clicked (
         GtkButton     *button,
@@ -457,7 +429,9 @@ pn_help_browser_load_page (
     if (!self->home_path)
         self->home_path = g_strdup (page_path);
 
-    plain = strip_html (contents);
+    /* Tag-stripping only: pn_help_text_from_html()'s search mode
+     * would collapse the paragraph breaks this view needs. */
+    plain = pn_help_text_from_html (contents, FALSE);
     g_free (contents);
 
     buffer = gtk_text_view_get_buffer (self->text_view);

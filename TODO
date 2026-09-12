@@ -1204,3 +1204,57 @@
              nothing there. The seam exists (ActivateWidget already carries a
              UUID for Switch/Inject); it would need a coordinate-carrying
              variant and a per-node "handle this click" vfunc.
+
+[x] 64 Full-text palette search over the node help pages. The palette's search
+       box matched one string, the node's label, and nothing else: no node
+       carries a description, so a user who remembers what a node does but not
+       what it is called had nowhere to look. Every node already ships a
+       hand-written help page, and that prose is the only place its behaviour
+       is described in words -- 174 pages the palette could not see. A "Full
+       text" check button under the search box, off by default, widens the
+       filter to that text.
+       [x] 64.1 One extractor, two consumers. lib/pn-help-text.[ch] (core tier,
+             GLib only) reduces a page to plain text: pn_help_text_from_html()
+             always strips tags, and in search mode also turns each &entity;
+             into a space and collapses whitespace runs, so a needle typed as
+             prose matches text the page wrote as "Wheel&nbsp;up" or broke
+             across a source line. The help browser's no-WebKit fallback lost
+             its private strip_html() and calls the same function with
+             for_search FALSE, which reproduces its old output byte for byte.
+       [x] 64.2 The index is a file-static in pn-palette.c, not a field: a
+             palette is built per worksheet tab, so a per-object cache would
+             hold the same ~600 KiB once per tab. It fills lazily, one type at
+             a time, keyed on the GType name -- the help page is always
+             "<GType name>.html", the basename the Help menu entry already
+             opens -- and resolves through the existing
+             pn_help_browser_resolve_page() rather than a third copy of the
+             search path. A type with no page caches an empty entry, so the
+             path is walked once per type and not once per keystroke, and with
+             the box unticked the index is never built at all.
+       [x] 64.3 Filtering. filter_visible_func and row_matches_recursive stopped
+             restating the casefold/g_strstr_len dance and now share
+             leaf_matches(), which is leaf_label_matches() OR (only with the
+             box ticked) leaf_help_matches(). Group rows are unchanged: visible
+             iff some descendant leaf is. The refilter+expand_all tail moved
+             into palette_refilter(), shared by the entry and the check button.
+       [x] 64.4 A help-only hit gets a tooltip, because a search for "wheel"
+             surfacing Knob otherwise reads as a bug. The tree view's
+             query-tooltip shows ~40 bytes either side of the match, and only
+             for a leaf whose LABEL did not match -- a name hit needs no
+             explanation. Both halves of the page are cached, the casefolded
+             one to match on and the original to quote; the offset is carried
+             from one to the other only while folding left the byte length
+             alone (true of these ASCII pages), otherwise the opening words
+             stand in rather than a cut at a meaningless position.
+       [x] 64.5 The state is a preference, not window state:
+             palette-search-help-text on PnPreferences (FALSE by default,
+             JSON "palette_search_help_text"), so it is off on a fresh profile
+             and sticky once turned on. Own row under the entry -- the sidebar
+             is 180px and a check button beside the box squeezes it.
+       [x] 64.6 Tests: tests/unit/test-pn-help-text.c on the usual headless
+             harness covers tag stripping, entities becoming spaces, the bare
+             ampersand that must NOT be eaten, whitespace folding, an
+             unterminated tag, and verbatim mode keeping its paragraph breaks.
+             The filter and the tooltip are GUI and were driven by hand.
+       [x] 64.7 Docs: the Palette bullet in data/help/help-index.html now
+             describes the search box, the Full text checkbox and the tooltip.

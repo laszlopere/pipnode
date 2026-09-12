@@ -168,6 +168,22 @@ void        pn_preferences_set_palette_group_collapsed
                                          const gchar   *path,
                                          gboolean       collapsed);
 
+/* --- Palette full-text search --------------------------------------
+ *
+ * The palette's search box normally matches a node's label only.  With
+ * this on it also matches the plain text of the node's help page, so a
+ * user who remembers what a node does but not what it is called can
+ * still find it.  Off by default; the palette's "Full text" check
+ * button reads it on construction and writes it back when toggled.
+ */
+
+gboolean    pn_preferences_get_palette_search_help_text
+                                        (PnPreferences *self);
+
+void        pn_preferences_set_palette_search_help_text
+                                        (PnPreferences *self,
+                                         gboolean       search);
+
 G_END_DECLS
 
 #endif /* PN_PREFERENCES_H */

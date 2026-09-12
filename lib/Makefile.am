@@ -98,6 +98,8 @@ libpipnode_core_la_SOURCES = \
 	pn-format.h \
 	pn-geocode.c \
 	pn-geocode.h \
+	pn-help-text.c \
+	pn-help-text.h \
 	pn-graph.c \
 	pn-graph.h \
 	pn-plot.c \
@@ -531,6 +533,7 @@ pipnode_core_headers = \
 	pn-history.h \
 	pn-format.h \
 	pn-geocode.h \
+	pn-help-text.h \
 	pn-graph.h \
 	pn-plot.h \
 	pn-xy-graph.h \
