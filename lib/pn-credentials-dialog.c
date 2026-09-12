@@ -167,6 +167,23 @@ on_field_entry_focus_out (GtkWidget *widget, GdkEvent *event,
     return FALSE;
 }
 
+/* Re-flag the row as the user types.  The value is still committed on
+ * focus-out / Enter — this only keeps the required-field marker honest
+ * in between, so an address that has just been pasted stops looking
+ * like an error without the user having to click away first. */
+static void
+on_field_entry_changed (GtkEditable *editable, gpointer user_data)
+{
+    FieldCtx *ctx = user_data;
+
+    (void) editable;
+
+    if (ctx->self->rebuilding)
+        return;
+    if (ctx->frame != NULL)
+        frame_apply_visibility (ctx->frame);
+}
+
 static void
 on_field_toggled (GtkToggleButton *button, gpointer user_data)
 {
@@ -315,6 +332,8 @@ build_field_editor (PnCredentialsDialog *self,
                           G_CALLBACK (on_field_entry_activate), ctx);
         g_signal_connect (w, "focus-out-event",
                           G_CALLBACK (on_field_entry_focus_out), ctx);
+        g_signal_connect (w, "changed",
+                          G_CALLBACK (on_field_entry_changed), ctx);
     }
 
     g_object_set_data_full (G_OBJECT (w), FIELD_CTX_KEY, ctx, field_ctx_free);
@@ -422,10 +441,22 @@ row_apply_required (FrameCtx *fc, RowVis *r, PnProfile *p, gboolean visible)
 
     if (visible && pn_profile_schema_field_get_required (fc->schema, r->index))
     {
-        const gchar *field = pn_profile_schema_field_name (fc->schema, r->index);
-        gchar       *val   = pn_profile_get_string (p, field);
-        missing = (val == NULL || *val == '\0');
-        g_free (val);
+        /* Read an entry-backed field off the widget rather than the
+         * profile: entries commit on focus-out, and a flag that waited
+         * for that would still be red over text the user can see. */
+        if (GTK_IS_ENTRY (r->editor))
+        {
+            const gchar *text = gtk_entry_get_text (GTK_ENTRY (r->editor));
+            missing = (text == NULL || *text == '\0');
+        }
+        else
+        {
+            const gchar *field =
+                    pn_profile_schema_field_name (fc->schema, r->index);
+            gchar       *val   = pn_profile_get_string (p, field);
+            missing = (val == NULL || *val == '\0');
+            g_free (val);
+        }
     }
 
     if (missing)
