@@ -53,6 +53,7 @@ pnhelp_DATA = \
 	help/PnMqtt.html \
 	help/PnMqttSink.html \
 	help/MqttBrokerProfile.html \
+	help/EthereumAddressProfile.html \
 	help/PnNotify.html \
 	help/PnNumeric.html \
 	help/PnPanelDisplay.html \

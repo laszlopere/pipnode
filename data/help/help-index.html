@@ -762,9 +762,11 @@ share or commit it safely.
 </p>
 
 <p>
-The unit of configuration is a <strong>profile</strong>. Each plugin that
-needs credentials declares one or more profile <em>types</em> (the bundled
-network plugin declares <em>MQTT Broker</em> and <em>Web Service Login</em>);
+The unit of configuration is a <strong>profile</strong>. Pipnode itself
+declares a few profile <em>types</em> (<em>MQTT Broker</em>,
+<em>SSH Login</em> and <em>Ethereum Address</em>), and each plugin that
+needs credentials declares its own (the bundled network plugin declares
+<em>Web Service Login</em>);
 you create named <em>profiles</em> of a type and fill in their fields. Open
 the manager from <strong>Edit&nbsp;&rarr;&nbsp;Credentials</strong>, pick a
 type on the left, and use <em>Add</em> to create a profile. Secret fields

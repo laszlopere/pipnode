@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ethereum Address credentials &mdash; Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4>Ethereum Address credentials</h4>
+<p>
+An <em>Ethereum Address</em> profile is a named account address: a
+unique name you choose (&ldquo;Payout wallet&rdquo;, &ldquo;Cold
+storage&rdquo;, &ldquo;Miner&nbsp;3&rdquo;) paired with one
+<code>0x&hellip;</code> address.  Nodes that watch balances, payouts
+or transactions reference the profile by name, so a worksheet you
+share or commit names the wallet instead of hard-coding the address
+&mdash; and moving the worksheet to another machine is a matter of
+filling the profile in there.
+</p>
+
+<h5>No private keys</h5>
+<p>
+This profile holds a <strong>public address only</strong>.  Pipnode
+has no key storage and cannot sign transactions, so there is no
+private-key or seed-phrase field, and nothing here is secret &mdash;
+an account address is public on-chain data.  Anything Pipnode does
+with it is read-only: query a balance, follow transfers, report a
+payout.  Never paste a private key or a seed phrase into the name
+field or anywhere else in Pipnode.
+</p>
+
+<h5>Filling in the profile</h5>
+<table>
+<tr><th>Field</th><th>What goes in it</th></tr>
+<tr><td><code>Profile&nbsp;name</code></td><td>
+  The name you will pick from node drop-downs.  Make it unique and
+  descriptive &mdash; it is how you tell two addresses apart, and the
+  only part of the pair you will read day to day.
+</td></tr>
+<tr><td><code>Address</code></td><td>
+  The account address: <code>0x</code> followed by 40 hexadecimal
+  digits, e.g.
+  <code>0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045</code>.  Required.
+  Copy it from your wallet rather than typing it &mdash; a mistyped
+  address is a different, usually non-existent, account.
+</td></tr>
+</table>
+
+<h5>Which chain?</h5>
+<p>
+None, and all of them.  An address is derived from a key pair, not
+from a network, so the same <code>0x&hellip;</code> identifies your
+account on Ethereum, PulseChain, Base, Arbitrum and every other
+EVM chain.  The chain (and the RPC endpoint used to reach it) is
+chosen on the node, not here, so one profile serves every chain you
+watch that account on.
+</p>
+
+<h5>Checking an address</h5>
+<p>
+Mixed-case addresses carry an EIP-55 checksum: the pattern of upper-
+and lower-case letters encodes a hash of the address, which is what
+lets a wallet catch a typo.  If you paste an address in and a node
+reports an empty or unexpected balance, compare it character by
+character against a block explorer before assuming the node is wrong.
+</p>
+
+<p>
+Profiles live in <code>~/.config/pipnode/credentials.json</code>
+(mode 0600), never in a saved worksheet.  See
+<a href="help-index.html#credentials">Credentials and connection
+profiles</a> for how profiles, primaries and per-node references
+work in general.
+</p>
+
+</body>
+</html>

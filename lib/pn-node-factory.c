@@ -43,6 +43,7 @@
 #include "pn-delay.h"
 #include "pn-dial.h"
 #include "pn-edge.h"
+#include "pn-ethereum-profile.h"
 #include "pn-expression.h"
 #include "pn-expression2.h"
 #include "pn-failure.h"
@@ -366,9 +367,13 @@ register_builtins (PnNodeFactory *self)
      * subclass of #PnMqtt.  The "ssh-login" type lives here for the same
      * reason: it is shared by the bundled shell and host-monitoring
      * plugins, so a single core-owned id keeps them both pointing at one
-     * stable schema. */
+     * stable schema.  "ethereum-address" is here for the mirror-image
+     * reason: its consumer (the Ethereum nodes) is an out-of-tree plugin,
+     * and a named-address book is useful — and visible in the Credentials
+     * dialog — whether or not that plugin is installed. */
     pn_mqtt_register_profile_type (self);
     pn_ssh_register_profile_type (self);
+    pn_ethereum_register_profile_type (self);
 }
 
 /* ------------------------------------------------------------------ */

@@ -137,6 +137,7 @@ check_PROGRAMS = \
 	test-pn-mqtt \
 	test-pn-mqtt-sink \
 	test-pn-mqtt-profile \
+	test-pn-ethereum-profile \
 	test-pn-mqtt-util \
 	test-pn-mqtt-resolve \
 	test-pn-tasmota-probe \
@@ -309,6 +310,7 @@ test_pn_lxc_ls_command_SOURCES = test-pn-lxc-ls-command.c pntest.c pntest.h \
 test_pn_mqtt_SOURCES         = test-pn-mqtt.c         pntest.c pntest.h
 test_pn_mqtt_sink_SOURCES    = test-pn-mqtt-sink.c    pntest.c pntest.h
 test_pn_mqtt_profile_SOURCES = test-pn-mqtt-profile.c pntest.c pntest.h
+test_pn_ethereum_profile_SOURCES = test-pn-ethereum-profile.c pntest.c pntest.h
 test_pn_mqtt_util_SOURCES    = test-pn-mqtt-util.c    pntest.c pntest.h
 test_pn_mqtt_resolve_SOURCES = test-pn-mqtt-resolve.c pntest.c pntest.h
 
