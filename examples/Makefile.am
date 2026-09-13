@@ -62,6 +62,7 @@ controlsandlogic_DATA = \
 	controls-and-logic/jumps.json \
 	controls-and-logic/knob.json \
 	controls-and-logic/notify-test.json \
+	controls-and-logic/topic-demux.json \
 	controls-and-logic/toy-cpu-accumulator.json
 
 timedir = $(pkgdatadir)/examples/time

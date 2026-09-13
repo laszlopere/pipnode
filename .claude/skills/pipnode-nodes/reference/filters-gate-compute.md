@@ -81,6 +81,26 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 ---
 
+## Topic Demux
+
+**Purpose** — Routes each message by its topic: one input, `outputs` outputs, one topic pattern per output; the message leaves unchanged by the **first** output whose pattern matches, or is dropped. (`lib/pn-topic-demux.c`; GUI tab in `lib/pn-topic-demux-gui.c`)
+
+**When to use** — Branching one stream on topic, e.g. an MQTT Source on `tele/plug/#` split into SENSOR / STATE / rest. Replaces a fan of topic **Filter** nodes (one per branch). Use **Filter** when the decision is on data-bag members, not the topic.
+
+**Ports** — 1 input; `outputs` outputs (`out1` … `outN`), each labelled on the worksheet with its pattern (tail + `…` when > 16 chars; `outN` when empty). Wire a specific output with `ConnectPorts` over D-Bus; on disk the wire carries `source_output`.
+
+**Settings**
+- `outputs` (int, `2`..`16`, default `4`).
+- `topics` (string, default `"[]"`): JSON array of pattern strings, index = output. Trailing empty entries are trimmed on save; entries beyond `outputs` are kept (shrink then grow restores them) but do not route. Non-array JSON clears all; a non-string element clears its slot. Patterns are whitespace-trimmed. The dialog shows the `outputs` spin + one entry per output instead of the raw JSON.
+
+**Behaviour** — Patterns tried in output order. A pattern containing `*` or `?` is a glob (`GPatternSpec`, `*` crosses `/`); otherwise an MQTT filter: `+` = exactly one level (only as a whole level), trailing `#` = rest incl. none (`a/#` matches `a`), else byte-exact. Empty pattern matches nothing. A NULL topic is treated as `""`. The matched message is emitted as-is (same object, like Filter).
+
+**Writes** — Nothing.
+
+**Gotchas** — First match wins: put specific patterns before catch-alls (`#`/`*` last). Only one output ever fires per message (no fan-out to every match). Pure matcher seam `pn_topic_demux_topic_matches()` and `pn_topic_demux_route()` exist for tests.
+
+---
+
 ## Success
 
 **Purpose** — Pass-through gate: forwards a message only when `data.success` is boolean **true**. (`lib/pn-success.c:36` receive.)

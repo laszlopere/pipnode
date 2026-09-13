@@ -234,6 +234,8 @@ libpipnode_core_la_SOURCES = \
 	pn-text-view.h \
 	pn-topic.c \
 	pn-topic.h \
+	pn-topic-demux.c \
+	pn-topic-demux.h \
 	pn-threshold.c \
 	pn-threshold.h \
 	pn-throttle.c \
@@ -324,6 +326,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-countdown-gui.h \
 	pn-daily-timer-gui.c \
 	pn-daily-timer-gui.h \
+	pn-topic-demux-gui.c \
+	pn-topic-demux-gui.h \
 	pn-analog-clock-gui.c \
 	pn-analog-clock-gui.h \
 	pn-dial-gui.c \
@@ -606,6 +610,7 @@ pipnode_core_headers = \
 	pn-text.h \
 	pn-text-view.h \
 	pn-topic.h \
+	pn-topic-demux.h \
 	pn-threshold.h \
 	pn-throttle.h \
 	pn-tts.h \
@@ -637,6 +642,7 @@ pipnode_gui_headers = \
 	pn-chat-gui.h \
 	pn-countdown-gui.h \
 	pn-daily-timer-gui.h \
+	pn-topic-demux-gui.h \
 	pn-credentials-dialog.h \
 	pn-analog-clock-gui.h \
 	pn-dial-gui.h \

@@ -86,6 +86,7 @@ pnhelp_DATA = \
 	help/PnText.html \
 	help/PnTextView.html \
 	help/PnTopic.html \
+	help/PnTopicDemux.html \
 	help/PnThreshold.html \
 	help/PnThrottle.html \
 	help/PnTts.html \

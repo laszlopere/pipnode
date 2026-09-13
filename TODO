@@ -736,6 +736,9 @@
        UPDATE: the port model is decided and built in #66 (multi-output ports
        mirroring multi-input: pn_node_emit_message_on_output, wire
        source_output). The Router node itself is still open.
+       UPDATE: #67 Topic Demux covers the topic-glob case (the power.json /
+       tasmota-socket.json pattern). Value-test and success routing are
+       still open.
 
        Related, deliberately NOT split out as entries: the expression language
        has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
@@ -1351,3 +1354,27 @@
              removed outputs in place (they carry nothing and are drawn
              below the body). Same as lowering an input count today; a
              shared "prune wires on port-count shrink" fix covers both.
+
+[ ] 67 Topic Demux node -- the topic half of the #56 Router, built on the
+       #66 multi-output ports. One input, N outputs (2..16, "outputs"), one
+       topic pattern per output ("topics", a JSON array of strings). A message
+       leaves unchanged by the FIRST output whose pattern matches; unmatched
+       messages are dropped; an empty pattern matches nothing. Patterns with
+       '*' or '?' are globs, otherwise MQTT filters ('+' one level, trailing
+       '#' the rest). Core, Filters/Gate, fa-sitemap, Filter's yellow.
+       [x] 67.1 lib/pn-topic-demux.[ch]: matcher (pure seam
+             pn_topic_demux_topic_matches + pn_topic_demux_route), 16 fixed
+             topic slots so shrinking the count keeps the patterns, output
+             names follow the patterns (tail-ellipsized past 16 chars).
+       [x] 67.2 Gui tier pn-topic-demux-gui.c: build_class_tab with the
+             outputs spin + one entry per output, rebuilt on notify::outputs,
+             refreshed on notify::topics (undo / D-Bus).
+       [x] 67.3 Factory registration, help page, pipnode-nodes skill.
+       [x] 67.4 Unit tests (tests/unit/test-pn-topic-demux.c).
+       [ ] 67.5 GUI check by the user: the settings tab (spin grows/shrinks
+             the topic fields live, typing relabels the output on the
+             worksheet), long topic labels do not collide with the output
+             value readout.
+       [ ] 67.6 Candidate follow-up: migrate examples/home-automation/
+             power.json and tasmota-socket.json from filter fans to a Topic
+             Demux.

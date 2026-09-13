@@ -61,6 +61,7 @@ check_PROGRAMS = \
 	test-pn-shift-register \
 	test-pn-text \
 	test-pn-topic \
+	test-pn-topic-demux \
 	test-pn-value \
 	test-pn-filter \
 	test-pn-rewrite \
@@ -232,6 +233,7 @@ test_pn_shift_register_SOURCES = test-pn-shift-register.c pntest.c pntest.h
 test_pn_daily_timer_SOURCES  = test-pn-daily-timer.c  pntest.c pntest.h
 test_pn_text_SOURCES         = test-pn-text.c         pntest.c pntest.h
 test_pn_topic_SOURCES        = test-pn-topic.c        pntest.c pntest.h
+test_pn_topic_demux_SOURCES  = test-pn-topic-demux.c  pntest.c pntest.h
 test_pn_value_SOURCES        = test-pn-value.c        pntest.c pntest.h
 test_pn_filter_SOURCES       = test-pn-filter.c       pntest.c pntest.h
 test_pn_rewrite_SOURCES      = test-pn-rewrite.c      pntest.c pntest.h

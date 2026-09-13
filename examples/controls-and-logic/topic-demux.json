@@ -1,0 +1,203 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnTopicDemux",
+      "uuid" : "0ec68f89-0c43-478f-917f-c725e6e615f7",
+      "name" : "Topic Demux",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "outputs" : 3,
+        "topics" : "[\"/pnode/AutoRandom/AutoRandom 1\",\"/pnode/AutoRandom/AutoRandom 2\",\"/pnode/AutoRandom/AutoRandom 3\"]"
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "c82a823f-708b-404f-b37f-b92c76f0dbfb",
+      "name" : "AutoRandom 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 260.0
+      },
+      "properties" : {
+        "period" : 1,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 1.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "132a4599-45ea-495f-b128-6141fe4da289",
+      "name" : "AutoRandom 2",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "period" : 1,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 1.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "c8cbf2a8-19b3-4acc-887e-340afa9c1c24",
+      "name" : "AutoRandom 3",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "period" : 1,
+        "output" : "AutoRandom sample.",
+        "min" : 0.0,
+        "max" : 1.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "c8a314a9-bf29-417d-936b-799363a6dcf1",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "disabled" : true,
+      "position" : {
+        "x" : 220.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "44dff1c6-1fa5-4940-b3b8-b3a4ad91f943",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "2d1c1534-1afd-4cab-a2dc-69aa39c476dd",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 560.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "fd2aec44-6a6f-40b1-890f-44b3387200f1",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 562.9671630859375,
+        "y" : 531.933349609375
+      },
+      "properties" : {
+        "digits" : 6,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "ebca79cd-3a2e-4db2-8ea1-655c8a84614e",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 220.0,
+        "y" : 80.0
+      },
+      "properties" : {
+        "text" : "Example worksheet for the Topic Demux node. Very simple, but powerful demultiplexer for message topics.",
+        "width" : 640.0,
+        "height" : 80.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "c82a823f-708b-404f-b37f-b92c76f0dbfb",
+      "target_id" : "c8a314a9-bf29-417d-936b-799363a6dcf1"
+    },
+    {
+      "source_id" : "132a4599-45ea-495f-b128-6141fe4da289",
+      "target_id" : "c8a314a9-bf29-417d-936b-799363a6dcf1"
+    },
+    {
+      "source_id" : "c8cbf2a8-19b3-4acc-887e-340afa9c1c24",
+      "target_id" : "c8a314a9-bf29-417d-936b-799363a6dcf1"
+    },
+    {
+      "source_id" : "c82a823f-708b-404f-b37f-b92c76f0dbfb",
+      "target_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7"
+    },
+    {
+      "source_id" : "132a4599-45ea-495f-b128-6141fe4da289",
+      "target_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7"
+    },
+    {
+      "source_id" : "c8cbf2a8-19b3-4acc-887e-340afa9c1c24",
+      "target_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7"
+    },
+    {
+      "source_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7",
+      "target_id" : "44dff1c6-1fa5-4940-b3b8-b3a4ad91f943"
+    },
+    {
+      "source_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7",
+      "target_id" : "2d1c1534-1afd-4cab-a2dc-69aa39c476dd",
+      "source_output" : 1
+    },
+    {
+      "source_id" : "0ec68f89-0c43-478f-917f-c725e6e615f7",
+      "target_id" : "fd2aec44-6a6f-40b1-890f-44b3387200f1",
+      "source_output" : 2
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

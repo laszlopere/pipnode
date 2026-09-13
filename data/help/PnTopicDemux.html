@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Topic Demux (PnTopicDemux) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTopicDemux">Topic Demux</h4>
+<p>
+<em>Group:</em> Filters/Gate. <em>Type:</em> <code>PnTopicDemux</code>.
+</p>
+<p>
+Sorts messages by their topic. The node has one input and a
+configurable number of outputs, and every output has its own topic
+pattern. An arriving message is compared against the patterns of
+<code>out1</code>, <code>out2</code>, &hellip; in order and leaves,
+unchanged, by the <em>first</em> output whose pattern matches. A
+message that matches no pattern is dropped. An output with an empty
+pattern is unused and receives nothing.
+</p>
+<p>
+One Topic Demux replaces a row of Filter nodes that each test the
+topic &mdash; for example to split everything an MQTT Source
+subscribed to with <code>tele/plug/#</code> into its sensor readings,
+state reports and the rest.
+</p>
+<table>
+  <tr><th>Pattern</th><th>Matches</th></tr>
+  <tr><td><code>tele/plug/SENSOR</code></td>
+      <td>Exactly that topic.</td></tr>
+  <tr><td><code>tele/+/SENSOR</code></td>
+      <td>MQTT wildcard: <code>+</code> matches exactly one topic level,
+          so <code>tele/plug1/SENSOR</code> but not
+          <code>tele/a/b/SENSOR</code>.</td></tr>
+  <tr><td><code>stat/#</code></td>
+      <td>MQTT wildcard: a trailing <code>#</code> matches every
+          remaining level, including none &mdash; <code>stat</code>,
+          <code>stat/plug/POWER</code>, &hellip;</td></tr>
+  <tr><td><code>*SENSOR</code></td>
+      <td>Glob, used whenever the pattern contains <code>*</code> or
+          <code>?</code>: <code>*</code> matches any run of characters
+          (slashes included), <code>?</code> one character.</td></tr>
+</table>
+<p>
+Because the first match wins, a catch-all (<code>#</code> or
+<code>*</code>) on the last output collects every message the earlier
+outputs did not claim. Each output is labelled on the worksheet with
+its pattern (the end of it, when the pattern is long) and the value
+last sent through it.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of outputs, 2&ndash;16. Default <code>4</code>. The
+          settings dialog shows one topic field per output. Lowering the
+          count keeps the patterns of the removed outputs, so raising it
+          again brings them back; wires on outputs that no longer exist
+          stop carrying messages.</td></tr>
+  <tr><td><code>topics</code></td>
+      <td>The patterns, one per output, stored as a JSON array of
+          strings (<code>["tele/+/SENSOR", "tele/#", "#"]</code>).
+          Edited through the topic fields of the settings dialog.
+          Leading and trailing spaces are ignored.</td></tr>
+</table>
+
+</body>
+</html>
