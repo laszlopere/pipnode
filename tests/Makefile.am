@@ -26,7 +26,8 @@ TESTS = \
 	test_devices_menu_providers.py \
 	test_credentials_profile.py \
 	test_credentials_migration.py \
-	test_no_plugins_flag.py
+	test_no_plugins_flag.py \
+	test_topic_demux_route.py
 
 # pndbus.py is the shared reference client the D-Bus tests import, not a
 # test itself, so it ships in the tarball but is not in TESTS.

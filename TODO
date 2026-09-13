@@ -1371,6 +1371,9 @@
              refreshed on notify::topics (undo / D-Bus).
        [x] 67.3 Factory registration, help page, pipnode-nodes skill.
        [x] 67.4 Unit tests (tests/unit/test-pn-topic-demux.c).
+       [x] 67.7 Functional test tests/test_topic_demux_route.py: the
+             topic-demux example network built inline, run headless through
+             pipnode-run, per-output routing + unlisted topic dropped.
        [ ] 67.5 GUI check by the user: the settings tab (spin grows/shrinks
              the topic fields live, typing relabels the output on the
              worksheet), long topic labels do not collide with the output
