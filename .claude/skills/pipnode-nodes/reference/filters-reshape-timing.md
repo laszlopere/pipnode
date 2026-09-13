@@ -180,6 +180,23 @@ Filter nodes sit mid-flow with both an input and an output port: they receive a 
 
 **Gotchas** — Independent per-message timers mean concurrency is unbounded (one source per in-flight message). Changing `delay-ms` only affects newly-arriving messages; already-armed timers keep their original schedule (`lib/pn-delay.c:151`). Messages still waiting when the node is disposed are **discarded, not forwarded** (`pn_delay_dispose` cancels every timer, `lib/pn-delay.c:173`).
 
+## Shift Register
+
+**Purpose** — Open-ended (non-looping) shift register of whole messages: one input, `outputs` outputs, one per stage. (`lib/pn-shift-register.c`, palette group **CPU**)
+
+**When to use** — Keep the last N messages available at once: a moving window for a downstream Calculator 2 (moving sum/average), "previous value" comparisons, or a delay line measured in messages rather than time (contrast **Delay**, which shifts in time).
+
+**Ports** — 1 input; `outputs` outputs (`out1` … `outN`), stacked down the right edge. Wire a specific output with `ConnectPorts` over D-Bus; on disk the wire carries `source_output`.
+
+**Settings**
+- `outputs` (int, `2`..`16`, default `4`) — stage count. Shrinking keeps the newest stages; wires on removed outputs stop carrying messages.
+
+**Behaviour** — Each arriving message is cloned into stage 1 and every stored stage moves along one; the last stage's message is dropped. Then every *filled* stage k is emitted on output k (0-based k−1), **oldest stage first, `out1` last**. Unfilled stages are silent: the first message produces only `out1`, the second `out1`+`out2`, etc. Each emission is a fresh clone whose source is the Shift Register.
+
+**Writes** — Nothing; stored messages go out verbatim (topic and all `data.*`).
+
+**Gotchas** — One input message causes up to N emissions, so a downstream collating node (Calculator 2) computes N times; only the result triggered by `out1` sees all stages updated. The stages are runtime state, not saved with the worksheet.
+
 ## Staircase
 
 **Purpose** — Monostable ("stairwell light") timer: a trigger is forwarded, the node goes "on" for `on-time-ms`, then emits a synthetic turn-off (`data.value = 0.0`) and returns to rest. (`lib/pn-staircase.c:132`)

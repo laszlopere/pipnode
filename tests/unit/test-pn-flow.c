@@ -32,6 +32,9 @@
 #include "pn-graph.h"
 #include "pn-subst.h"
 #include "pn-expression2.h"
+#include "pn-shift-register.h"
+#include "pn-wire.h"
+#include "pn-wire-store.h"
 #include "pn-node-store.h"
 #include "pn-desktop-geometry.h"
 
@@ -924,6 +927,121 @@ test_graph_saved_data_off_writes_nothing (void)
     g_object_unref (flow);
 }
 
+/* Return the single wire of @flow whose source is @src, or NULL. */
+static PnWire *
+wire_from (PnFlow *flow, PnNode *src)
+{
+    PnWireStore *wires = pn_flow_get_wires (flow);
+    guint        i;
+
+    for (i = 0; i < pn_wire_store_get_length (wires); i++)
+    {
+        PnWire *w = pn_wire_store_get_wire (wires, i);
+        if (pn_wire_get_source (w) == src)
+            return w;
+    }
+    return NULL;
+}
+
+/* A wire hanging off output 2 of a multi-output node keeps its source
+ * port through a save/load and through copy/paste, while a wire off an
+ * ordinary output writes no "source_output" member at all, so existing
+ * documents stay byte-identical. */
+static void
+test_source_output_roundtrip (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *sr   = PN_NODE (pn_shift_register_new ());
+    PnNode *mid  = PN_NODE (pn_shift_register_new ());
+    PnNode *dst  = PN_NODE (pn_expression2_new ());
+    PnWire *wire;
+    gchar  *json;
+    GList  *pasted;
+
+    pn_node_set_name (sr,  "sr");
+    pn_node_set_name (mid, "mid");
+    pn_node_set_name (dst, "dst");
+    pn_flow_add_node (flow, sr);
+    pn_flow_add_node (flow, mid);
+    pn_flow_add_node (flow, dst);
+
+    wire = pn_wire_new_ports (sr, 2, dst, 1);
+    pn_wire_store_add (pn_flow_get_wires (flow), wire);
+    g_object_unref (wire);
+    wire = pn_wire_new (mid, dst);
+    pn_wire_store_add (pn_flow_get_wires (flow), wire);
+    g_object_unref (wire);
+
+    json = pn_flow_to_string (flow);
+    PN_CHECK (strstr (json, "\"source_output\"") != NULL);
+    /* Exactly one wire carries the member. */
+    PN_CHECK (strstr (strstr (json, "\"source_output\"") + 1,
+                      "\"source_output\"") == NULL);
+    g_object_unref (flow);
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_data (flow, json, NULL));
+    g_free (json);
+
+    {
+        PnNodeStore *nodes = pn_flow_get_nodes (flow);
+        PnNode      *got_sr = NULL, *got_mid = NULL;
+        guint        i;
+
+        for (i = 0; i < pn_node_store_get_length (nodes); i++)
+        {
+            PnNode *n = pn_node_store_get_node (nodes, i);
+            if (g_strcmp0 (pn_node_get_name (n), "sr") == 0)  got_sr  = n;
+            if (g_strcmp0 (pn_node_get_name (n), "mid") == 0) got_mid = n;
+        }
+        PN_CHECK (got_sr != NULL && got_mid != NULL);
+
+        wire = wire_from (flow, got_sr);
+        PN_CHECK (wire != NULL);
+        PN_CHECK_CMPINT (pn_wire_get_source_output (wire), ==, 2);
+        PN_CHECK_CMPINT (pn_wire_get_target_input  (wire), ==, 1);
+
+        wire = wire_from (flow, got_mid);
+        PN_CHECK (wire != NULL);
+        PN_CHECK_CMPINT (pn_wire_get_source_output (wire), ==, 0);
+
+        /* Copy sr + dst and paste them: the pasted wire keeps port 2. */
+        {
+            GList *subset = NULL;
+            PnNode *got_dst = NULL;
+
+            for (i = 0; i < pn_node_store_get_length (nodes); i++)
+            {
+                PnNode *n = pn_node_store_get_node (nodes, i);
+                if (g_strcmp0 (pn_node_get_name (n), "dst") == 0)
+                    got_dst = n;
+            }
+            subset = g_list_append (subset, got_sr);
+            subset = g_list_append (subset, got_dst);
+            json   = pn_flow_serialize_nodes (flow, subset);
+            g_list_free (subset);
+        }
+    }
+
+    pasted = pn_flow_paste_from_string (flow, json, 20.0, 20.0, NULL);
+    g_free (json);
+    PN_CHECK_CMPINT (g_list_length (pasted), ==, 2u);
+    {
+        GList *l;
+        for (l = pasted; l != NULL; l = l->next)
+            if (PN_IS_SHIFT_REGISTER (l->data))
+            {
+                wire = wire_from (flow, l->data);
+                PN_CHECK (wire != NULL);
+                if (wire != NULL)
+                    PN_CHECK_CMPINT (pn_wire_get_source_output (wire), ==, 2);
+            }
+    }
+    g_list_free (pasted);
+
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -955,6 +1073,7 @@ main (int argc, char **argv)
     pn_test_add ("desktop_layout_absent", test_desktop_layout_absent_when_untouched);
     pn_test_add ("input_names_dirty",     test_input_names_mark_dirty);
     pn_test_add ("input_names_disk",      test_input_names_disk_roundtrip);
+    pn_test_add ("source_output_roundtrip", test_source_output_roundtrip);
     pn_test_add ("graph_saved_data_roundtrip",
                  test_graph_saved_data_disk_roundtrip);
     pn_test_add ("graph_saved_data_off",

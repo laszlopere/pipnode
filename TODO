@@ -733,6 +733,9 @@
        pn_node_emit_message fans one output to every wire. Multi-output ports
        would touch the port model, worksheet wiring and serialization. Decide the
        port model first; the node falls out of it.
+       UPDATE: the port model is decided and built in #66 (multi-output ports
+       mirroring multi-input: pn_node_emit_message_on_output, wire
+       source_output). The Router node itself is still open.
 
        Related, deliberately NOT split out as entries: the expression language
        has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
@@ -1309,3 +1312,42 @@
        [x] 65.6 Docs: data/help/PnFiat.html, the data.deprecated row in
              help-index.html, and a Fiat Converter section in the
              pipnode-nodes skill reference.
+
+[ ] 66 Shift Register node -- and the multi-output ports it needs. One input,
+       N outputs (2..16, "outputs" property). Every arriving message is stored
+       at the head of an open-ended shift register: message k leaves on
+       output 1, message k-1 on output 2, ... message k-N+1 on output N; the
+       oldest falls off the end. Stages not yet filled stay silent. Emission
+       order is oldest stage first, output 1 last, so a downstream multi-input
+       node triggered from output 1 already sees the other stages updated.
+       This settles the port-model question #56 left open: multi-output is
+       the mirror image of multi-input.
+       [x] 66.1 Core port model (pn-node): pn_node_set/get_n_outputs,
+             per-output names (node-set, default "out1".., not serialized),
+             per-output last-value readout, pn_node_emit_message_on_output()
+             + pn_node_current_output() (thread-local, saved/restored like
+             current_input). pn_node_emit_message() == output 0. The stacked
+             port section is max(multi-in rows, multi-out rows). No ABI bump
+             (instance-private state + new functions only).
+       [x] 66.2 PnWire source_output ("source-output" property,
+             pn_wire_new_ports()); a wire forwards only emissions on its own
+             output.
+       [x] 66.3 Serialization: optional "source_output" on connections (load,
+             save, clipboard paste); omitted when 0 so existing files stay
+             byte-identical.
+       [x] 66.4 Worksheet: output tabs down the right edge of the port
+             section, names + last value per row, hit-test, drag-to-connect
+             from/to a specific output, wire/flow-light anchors.
+       [x] 66.5 D-Bus: additive ConnectPorts(s,i,s,i) and ListPortWires /
+             GetNodePortWires a(sisis); Connect/ListWires keep their shape.
+       [x] 66.6 lib/pn-shift-register.[ch] (CPU group), factory registration.
+       [x] 66.7 Unit tests: wire routing by output, flow round-trip of
+             source_output, shift-register behaviour.
+       [x] 66.8 Docs: help page, PLUGINS / DBUS-API.md / skills.
+       [ ] 66.9 GUI check by the user: output tabs/names/values paint on the
+             right edge, drag a wire out of (and onto) a specific output,
+             the wire and its flow light leave from that row.
+       [ ] 66.10 Known rough edge: lowering "outputs" leaves wires on the
+             removed outputs in place (they carry nothing and are drawn
+             below the body). Same as lowering an input count today; a
+             shared "prune wires on port-count shrink" fix covers both.

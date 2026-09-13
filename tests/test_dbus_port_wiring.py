@@ -27,6 +27,12 @@ This test drives them through a freshly launched editor and asserts:
      rejected with IllegalConnection; bad node/wire UUIDs raise
      NodeNotFound / WireNotFound (the #40.2 contract).
 
+  5. OUTPUT PORTS (TODO #66) — ConnectPorts(src,source_output,tgt,input)
+     hangs a wire off a specific output of a multi-output node (a Shift
+     Register); ListPortWires / GetNodePortWires report the source output,
+     the legacy ListWires still reports the same wire in its old shape,
+     and an output index past the source's port count is rejected.
+
 Run directly:
 
     python3 tests/test_dbus_port_wiring.py
@@ -127,6 +133,16 @@ def connect(bus, src: str, tgt: str, target_input: int) -> str:
 
 def list_wires(bus):
     return call(bus, "ListWires", None, "(a(ssis))").unpack()[0]
+
+
+def connect_ports(bus, src: str, out: int, tgt: str, target_input: int) -> str:
+    return call(bus, "ConnectPorts",
+                GLib.Variant("(sisi)", (src, out, tgt, target_input)),
+                "(s)").unpack()[0]
+
+
+def list_port_wires(bus):
+    return call(bus, "ListPortWires", None, "(a(sisis))").unpack()[0]
 
 
 def node_wires(bus, node_uuid: str):
@@ -248,8 +264,35 @@ def run_test() -> None:
         if len(list_wires(bus)) != 1:
             fail("a rejected Connect leaked a wire into the store")
 
+        # --- 5. OUTPUT PORTS (multi-output source) -------------------
+        sr = add_node(bus, "PnShiftRegister", 80.0, 440.0)
+        w3 = connect_ports(bus, sr, 3, dst, 1)
+        rows = {r[4]: r for r in list_port_wires(bus)}
+        if rows.get(w3) != (sr, 3, dst, 1, w3):
+            fail(f"ListPortWires row for {w3} is {rows.get(w3)!r}")
+        if rows.get(w2, (None, -1))[1] != 0:
+            fail("an ordinary wire should report source_output 0")
+        legacy = {r[3]: r for r in list_wires(bus)}
+        if legacy.get(w3) != (sr, dst, 1, w3):
+            fail(f"ListWires row for {w3} is {legacy.get(w3)!r}")
+        pw = call(bus, "GetNodePortWires", GLib.Variant("(s)", (sr,)),
+                  "(a(sisis))").unpack()[0]
+        if [r[4] for r in pw] != [w3]:
+            fail(f"GetNodePortWires(sr) returned {pw!r}")
+        # Output 4 does not exist on a default (4-output) Shift Register.
+        expect(bus, "ConnectPorts",
+               GLib.Variant("(sisi)", (sr, 4, dst, 0)), "(s)",
+               ERR + "IllegalConnection")
+        # Same ports again is a duplicate; another output is not.
+        expect(bus, "ConnectPorts",
+               GLib.Variant("(sisi)", (sr, 3, dst, 1)), "(s)",
+               ERR + "IllegalConnection")
+        if not connect_ports(bus, sr, 2, dst, 1):
+            fail("ConnectPorts from a different output was rejected")
+
         print("PASS: the port-aware wiring methods (Connect, Disconnect, "
-              "ListWires, GetNodeWires) land wires on the named input port, "
+              "ListWires, GetNodeWires, ConnectPorts, ListPortWires) land "
+              "wires on the named output and input ports, "
               "report them by stable handle, disconnect precisely, and reject "
               "self-loops/no-input/out-of-range/duplicate with IllegalConnection.")
     finally:

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shift Register (PnShiftRegister) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnShiftRegister">Shift Register</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnShiftRegister</code>.
+</p>
+<p>
+An open-ended (non-looping) shift register of whole messages. It has
+one input and a configurable number of outputs, one per stage. Every
+arriving message goes into stage 1 and pushes the messages already
+stored one stage along; the message in the last stage falls off the
+end. The node then sends every filled stage out of its own output:
+</p>
+<table>
+  <tr><th>Message</th><th>out1</th><th>out2</th><th>out3</th></tr>
+  <tr><td>1st (A)</td><td>A</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td>2nd (B)</td><td>B</td><td>A</td><td>&mdash;</td></tr>
+  <tr><td>3rd (C)</td><td>C</td><td>B</td><td>A</td></tr>
+  <tr><td>4th (D)</td><td>D</td><td>C</td><td>B</td></tr>
+</table>
+<p>
+A stage that has not been filled yet stays silent. The whole message
+is shifted &mdash; topic and every <code>data</code> member &mdash; not
+just <code>data.value</code>. The value last sent out of each output is
+shown beside it on the worksheet.
+</p>
+<p>
+On every arriving message the outputs fire from the oldest stage to
+the newest, so <code>out1</code> fires last. When the stages feed the
+inputs of a multi-input node such as <em>Calculator 2</em>, the
+result it computes on the <code>out1</code> message sees every stage
+already updated (for example a moving sum of the last N readings). It
+also recomputes on each earlier output, with some inputs not yet
+updated, so only its last result for each arriving message is the
+complete one.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of stages (and outputs), 2&ndash;16. Default
+          <code>4</code>. Lowering it keeps the newest stages that still
+          fit; wires on outputs that no longer exist stop carrying
+          messages.</td></tr>
+</table>
+<p>
+The stored messages are runtime state: they are not saved with the
+worksheet, so a reopened worksheet starts with every stage empty.
+</p>
+
+</body>
+</html>

@@ -81,6 +81,7 @@
 #include "pn-rate.h"
 #include "pn-reduce.h"
 #include "pn-register.h"
+#include "pn-shift-register.h"
 #include "pn-rewrite.h"
 #include "pn-rtc.h"
 #include "pn-matrix57.h"
@@ -316,6 +317,7 @@ register_builtins (PnNodeFactory *self)
      * (ALU) and Filter (opcode dispatch), to wire an ultra-primitive
      * clocked CPU on a worksheet. */
     pn_node_factory_register (self, PN_TYPE_REGISTER);
+    pn_node_factory_register (self, PN_TYPE_SHIFT_REGISTER);
     pn_node_factory_register (self, PN_TYPE_COUNTER);
     pn_node_factory_register (self, PN_TYPE_RAM);
     pn_node_factory_register (self, PN_TYPE_MUX);

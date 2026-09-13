@@ -202,6 +202,8 @@ libpipnode_core_la_SOURCES = \
 	pn-segment16.h \
 	pn-set.c \
 	pn-set.h \
+	pn-shift-register.c \
+	pn-shift-register.h \
 	pn-settings-schema.c \
 	pn-settings-schema.h \
 	pn-sound.c \
@@ -588,6 +590,7 @@ pipnode_core_headers = \
 	pn-rtc.h \
 	pn-segment16.h \
 	pn-set.h \
+	pn-shift-register.h \
 	pn-settings-schema.h \
 	pn-sound.h \
 	pn-ssh-profile.h \

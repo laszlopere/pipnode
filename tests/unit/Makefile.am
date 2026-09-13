@@ -58,6 +58,7 @@ check_PROGRAMS = \
 	test-pn-panel-input \
 	test-pn-panel-display \
 	test-pn-set \
+	test-pn-shift-register \
 	test-pn-text \
 	test-pn-topic \
 	test-pn-value \
@@ -227,6 +228,7 @@ test_pn_switch_SOURCES       = test-pn-switch.c       pntest.c pntest.h
 test_pn_panel_input_SOURCES  = test-pn-panel-input.c  pntest.c pntest.h
 test_pn_panel_display_SOURCES = test-pn-panel-display.c pntest.c pntest.h
 test_pn_set_SOURCES          = test-pn-set.c          pntest.c pntest.h
+test_pn_shift_register_SOURCES = test-pn-shift-register.c pntest.c pntest.h
 test_pn_daily_timer_SOURCES  = test-pn-daily-timer.c  pntest.c pntest.h
 test_pn_text_SOURCES         = test-pn-text.c         pntest.c pntest.h
 test_pn_topic_SOURCES        = test-pn-topic.c        pntest.c pntest.h

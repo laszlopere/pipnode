@@ -70,6 +70,7 @@ pnhelp_DATA = \
 	help/PnRtc.html \
 	help/PnSegment16.html \
 	help/PnSet.html \
+	help/PnShiftRegister.html \
 	help/PnSound.html \
 	help/SshProfile.html \
 	help/PnStaircase.html \
