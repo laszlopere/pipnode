@@ -398,7 +398,8 @@ Pipe Writer. Use MQTT Source instead when the producer is on another host.
 (`lib/pn-pipe-reader.c:447`).
 
 **Settings**
-- `pipe-path` (string, file editor, default `""`) — the FIFO. Created with
+- `pipe-path` (string, file editor, default `""`) — the FIFO; a leading `~`
+  is expanded via `pn_path_expand()` (the typed form is saved). Created with
   `mkfifo` (0666 minus umask) when missing; an existing non-FIFO is refused
   and left untouched (`pn_pipe_ensure_fifo`, `lib/pn-pipe-common.c:55`).
 - `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*: the

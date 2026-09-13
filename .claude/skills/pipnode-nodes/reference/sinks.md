@@ -571,7 +571,8 @@ persist on disk.
 **Ports** — input only; no output (`lib/pn-pipe-writer.c:363`).
 
 **Settings**
-- `pipe-path` (string, file editor, default `""`) — the FIFO. Created from an
+- `pipe-path` (string, file editor, default `""`) — the FIFO; a leading `~`
+  is expanded via `pn_path_expand()` (the typed form is saved). Created from an
   idle as soon as the path is set, so an outside reader can open it before the
   first message; an existing non-FIFO is refused (red) and never written.
 - `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*:

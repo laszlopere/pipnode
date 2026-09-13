@@ -19,6 +19,7 @@
 
 #include "pn-logger.h"
 #include "pn-message.h"
+#include "pn-path.h"
 #include "pn-settings-schema.h"
 
 #include <json-glib/json-glib.h>
@@ -30,7 +31,8 @@ struct _PnLogger
 {
     PnNode parent_instance;
 
-    gchar          *file_path;
+    gchar          *file_path;   /* as typed, saved */
+    gchar          *real_path;   /* file_path with ~ expanded */
     PnLoggerFormat  format;
     gboolean        logrotate;
     gint            max_size_mb;   /* rotate when the file reaches this many MB */
@@ -244,7 +246,7 @@ logger_ensure_open (PnLogger *self)
     GStatBuf st;
 
     if (self->fp != NULL &&
-        g_strcmp0 (self->open_path, self->file_path) == 0)
+        g_strcmp0 (self->open_path, self->real_path) == 0)
         return TRUE;
 
     /* Path changed or not yet open: drop any previous stream. */
@@ -253,19 +255,19 @@ logger_ensure_open (PnLogger *self)
     if (self->file_path == NULL || self->file_path[0] == '\0')
         return FALSE;
 
-    self->fp = g_fopen (self->file_path, "a");
+    self->fp = g_fopen (self->real_path, "a");
     if (self->fp == NULL)
     {
         if (!self->warned)
         {
             g_warning ("Logger: cannot open '%s' for append: %s",
-                       self->file_path, g_strerror (errno));
+                       self->real_path, g_strerror (errno));
             self->warned = TRUE;
         }
         return FALSE;
     }
 
-    self->open_path = g_strdup (self->file_path);
+    self->open_path = g_strdup (self->real_path);
     self->cur_size  = (g_stat (self->open_path, &st) == 0)
                       ? (goffset) st.st_size : 0;
     self->warned    = FALSE;
@@ -432,6 +434,8 @@ pn_logger_set_property (
             {
                 g_free (self->file_path);
                 self->file_path = g_strdup (path != NULL ? path : "");
+                g_free (self->real_path);
+                self->real_path = pn_path_expand (path);
                 /* Reopen against the new path on the next write. */
                 logger_close (self);
                 /* No file to write to is a configuration error: flag it
@@ -517,6 +521,7 @@ pn_logger_finalize (GObject *object)
     PnLogger *self = PN_LOGGER (object);
 
     g_clear_pointer (&self->file_path, g_free);
+    g_clear_pointer (&self->real_path, g_free);
 
     G_OBJECT_CLASS (pn_logger_parent_class)->finalize (object);
 }
@@ -613,6 +618,7 @@ pn_logger_init (PnLogger *self)
     PnColor  amber = { 0.62, 0.45, 0.20, 1.0 };
 
     self->file_path   = g_strdup ("");
+    self->real_path   = g_strdup ("");
     self->format      = PN_LOGGER_FORMAT_LINES;
     self->logrotate   = TRUE;
     self->max_size_mb = 10;

@@ -95,13 +95,13 @@ JSON body.
       file is minted lazily on the first start and reused on every
       run after that. Point at a different file to swap in a real
       cert. Clearing both this and <code>key-path</code> falls back
-      to an ephemeral, in-memory self-signed cert.</td></tr>
+      to an ephemeral, in-memory self-signed cert. A leading <code>~</code> stands for your home directory.</td></tr>
   <tr><td><code>key-path</code></td>
       <td>Path to the PEM-encoded private key matching
       <code>cert-path</code>. Defaults to
       <code>$XDG_DATA_HOME/pipnode/default-key.pem</code>, generated
       together with the certificate and stored
-      <code>chmod 0600</code>.</td></tr>
+      <code>chmod 0600</code>. A leading <code>~</code> stands for your home directory.</td></tr>
 </table>
 
 <h5>Quick test</h5>

@@ -1414,3 +1414,10 @@
              `cat fifo` shows a Pipe Writer's lines.
        [ ] 68.7 Candidate follow-up: surface the writer's dropped-message
              count on the node (it is only an API accessor today).
+       [x] 68.8 "~" in file-path settings: lib/pn-path.[ch]
+             pn_path_expand() ("~" and "~/rest" -> home, all else as is),
+             applied at use time (the typed form is what is saved) in Pipe
+             Reader / Pipe Writer, Logger, Text to Speech voice path, SSH
+             profile identity file and the HTTPS Tunnel Receiver cert/key
+             paths. tests/unit/test-pn-path.c; PLUGINS section 12 gotcha;
+             help pages.

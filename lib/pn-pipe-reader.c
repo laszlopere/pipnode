@@ -19,6 +19,7 @@
 
 #include "pn-pipe-reader.h"
 #include "pn-message.h"
+#include "pn-path.h"
 #include "pn-settings-schema.h"
 
 #include <glib-unix.h>
@@ -36,7 +37,8 @@ struct _PnPipeReader
 {
     PnNode parent_instance;
 
-    gchar        *pipe_path;
+    gchar        *pipe_path;   /* as typed, saved              */
+    gchar        *real_path;   /* pipe_path with ~ expanded    */
     PnPipeFormat  format;
 
     gint     rd_fd;         /* read end, -1 when closed                 */
@@ -259,7 +261,7 @@ on_readable (gint fd, GIOCondition condition, gpointer user_data)
          * Either way stop watching rather than spin. */
         {
             gchar *out = g_strdup_printf ("Pipe Reader: reading '%s' "
-                                          "failed: %s", self->pipe_path,
+                                          "failed: %s", self->real_path,
                                           n < 0 ? g_strerror (errno)
                                                 : "end of file");
             self->watch_id = 0;
@@ -285,7 +287,7 @@ reader_open (PnPipeReader *self, gchar **message)
     if (self->pipe_path[0] == '\0')
         return FALSE;                     /* unconfigured, not an event */
 
-    if (!pn_pipe_ensure_fifo (self->pipe_path, &error))
+    if (!pn_pipe_ensure_fifo (self->real_path, &error))
     {
         *message = g_strdup_printf ("Pipe Reader: %s", error->message);
         g_error_free (error);
@@ -295,15 +297,15 @@ reader_open (PnPipeReader *self, gchar **message)
     /* O_NONBLOCK: a read-only open of a FIFO would otherwise wait for a
      * writer.  With a reader already present, the write-only open of
      * keep_fd succeeds immediately too. */
-    self->rd_fd = open (self->pipe_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    self->rd_fd = open (self->real_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (self->rd_fd >= 0)
-        self->keep_fd = open (self->pipe_path,
+        self->keep_fd = open (self->real_path,
                               O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 
     if (self->rd_fd < 0 || self->keep_fd < 0)
     {
         *message = g_strdup_printf ("Pipe Reader: cannot open '%s': %s",
-                                    self->pipe_path, g_strerror (errno));
+                                    self->real_path, g_strerror (errno));
         reader_close (self);
         return FALSE;
     }
@@ -389,6 +391,8 @@ pn_pipe_reader_set_property (
             {
                 g_free (self->pipe_path);
                 self->pipe_path = g_strdup (path);
+                g_free (self->real_path);
+                self->real_path = pn_path_expand (path);
                 reader_close (self);
                 pn_node_set_has_error (PN_NODE (self), *path == '\0');
                 if (*path != '\0')
@@ -438,6 +442,7 @@ pn_pipe_reader_finalize (GObject *object)
     PnPipeReader *self = PN_PIPE_READER (object);
 
     g_free (self->pipe_path);
+    g_free (self->real_path);
     g_string_free (self->line, TRUE);
 
     G_OBJECT_CLASS (pn_pipe_reader_parent_class)->finalize (object);
@@ -495,6 +500,7 @@ pn_pipe_reader_init (PnPipeReader *self)
     PnColor  teal = { 0.33, 0.58, 0.62, 1.0 };
 
     self->pipe_path = g_strdup ("");
+    self->real_path = g_strdup ("");
     self->format    = PN_PIPE_FORMAT_OUTPUT;
     self->rd_fd     = -1;
     self->keep_fd   = -1;

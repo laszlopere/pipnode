@@ -19,6 +19,7 @@
 
 #include "pn-tts.h"
 #include "pn-message.h"
+#include "pn-path.h"
 #include "pn-settings-schema.h"
 
 #include <gio/gio.h>
@@ -552,6 +553,9 @@ pn_tts_speak (
         return;
 
     gchar   *speed_arg = eng->speed_flag (self->speed);
+    /* A voice may be a model file path such as "~/voices/x.onnx"; the
+     * shell never sees it unquoted, so expand the ~ here. */
+    gchar   *voice_path = pn_path_expand (voice);
     gboolean is_piper  = g_strcmp0 (eng->id, "piper") == 0;
     gboolean have_sink = self->sink != NULL && *self->sink != '\0';
     gchar   *cmd;
@@ -563,13 +567,13 @@ pn_tts_speak (
          * build_piper_command().  `have_voice` is guaranteed here
          * because piper has no cmd_no_voice and the no-voice guard
          * above already bailed. */
-        cmd = build_piper_command (speed_arg, voice, self->sink);
+        cmd = build_piper_command (speed_arg, voice_path, self->sink);
     }
     else
     {
         if (have_voice)
         {
-            gchar *quoted = g_shell_quote (voice);
+            gchar *quoted = g_shell_quote (voice_path);
             cmd = g_strdup_printf (eng->cmd_with_voice, speed_arg, quoted);
             g_free (quoted);
         }
@@ -593,6 +597,7 @@ pn_tts_speak (
         }
     }
     g_free (speed_arg);
+    g_free (voice_path);
 
     GSubprocessLauncher *launcher = g_subprocess_launcher_new (
             G_SUBPROCESS_FLAGS_STDIN_PIPE

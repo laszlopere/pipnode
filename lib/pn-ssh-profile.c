@@ -14,6 +14,7 @@
  */
 
 #include "pn-ssh-profile.h"
+#include "pn-path.h"
 #include "pn-profile-schema.h"
 #include "pn-vault.h"
 
@@ -384,7 +385,7 @@ pn_ssh_build_argv (const gchar        *host,
     if (identity != NULL && *identity != '\0')
     {
         g_ptr_array_add (out, g_strdup ("-i"));
-        g_ptr_array_add (out, g_strdup (identity));
+        g_ptr_array_add (out, pn_path_expand (identity));
     }
 
     g_ptr_array_add (out, g_strdup (target));

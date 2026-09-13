@@ -19,6 +19,7 @@
 
 #include "pn-https-tunnel-receiver.h"
 #include "pn-message.h"
+#include "pn-path.h"
 #include "pn-vault.h"
 #include "pn-network-profiles.h"
 
@@ -380,15 +381,19 @@ load_certificate (PnHttpsTunnelReceiver *self, GError **error)
     if (self->cert_path != NULL && *self->cert_path != '\0' &&
         self->key_path  != NULL && *self->key_path  != '\0')
     {
-        if (g_file_test (self->cert_path, G_FILE_TEST_EXISTS) &&
-            g_file_test (self->key_path,  G_FILE_TEST_EXISTS))
-        {
-            return g_tls_certificate_new_from_files (self->cert_path,
-                                                     self->key_path,
-                                                     error);
-        }
+        gchar           *cert = pn_path_expand (self->cert_path);
+        gchar           *key  = pn_path_expand (self->key_path);
+        GTlsCertificate *out;
 
-        return mint_and_persist (self, self->cert_path, self->key_path, error);
+        if (g_file_test (cert, G_FILE_TEST_EXISTS) &&
+            g_file_test (key,  G_FILE_TEST_EXISTS))
+            out = g_tls_certificate_new_from_files (cert, key, error);
+        else
+            out = mint_and_persist (self, cert, key, error);
+
+        g_free (cert);
+        g_free (key);
+        return out;
     }
 
     /* Both paths empty — happens with older worksheets saved before

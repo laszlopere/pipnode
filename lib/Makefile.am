@@ -178,6 +178,8 @@ libpipnode_core_la_SOURCES = \
 	pn-panel-input.h \
 	pn-parse.c \
 	pn-parse.h \
+	pn-path.c \
+	pn-path.h \
 	pn-pipe-common.c \
 	pn-pipe-common.h \
 	pn-pipe-reader.c \
@@ -588,6 +590,7 @@ pipnode_core_headers = \
 	pn-panel-display.h \
 	pn-panel-input.h \
 	pn-parse.h \
+	pn-path.h \
 	pn-pipe-common.h \
 	pn-pipe-reader.h \
 	pn-pipe-writer.h \

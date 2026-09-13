@@ -821,6 +821,16 @@ to the same plugin) does not require a per-class override.
   use `pn_node_log` for anything you want the user to be able to
   read in the app.
 
+- *No shell, so no "~".*  Pipnode is started from desktop
+  launchers and never passes a setting through a shell, so a
+  leading "~" in a file-path property reaches `open()` literally.
+  Keep the property value exactly as the user typed it (it is what
+  gets saved) and pass it through `pn_path_expand()` (`pn-path.h`,
+  libpipnode-core) right before any file-system use; it turns "~"
+  and "~/rest" into the home directory and leaves every other path
+  alone.  The core Logger and Pipe Reader / Pipe Writer nodes and
+  the network plugin's certificate paths are worked examples.
+
 
 13. DEBUGGING A PLUGIN THAT DOES NOT LOAD
 -----------------------------------------
