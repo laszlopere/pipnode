@@ -553,3 +553,44 @@ output lives on the XFCE panel, mirrored via D-Bus, not in a card on the
 worksheet. Repeated identical values are suppressed to keep the panel D-Bus
 traffic quiet. An applet that should show a value must contain exactly one
 Panel Display.
+
+---
+
+## Pipe Writer
+
+**Purpose** — Write every received message into a named pipe (FIFO) as one
+line for another process to read (`pn_pipe_writer_receive`,
+`lib/pn-pipe-writer.c:208`). The sink half of the pipe pair; its source
+counterpart is **Pipe Reader**.
+
+**When to use** — To hand flow output to a local script (`while read l; do …;
+done < /tmp/x.fifo`) or, in *JSON message* format, to pass whole messages to
+another pipnode process's Pipe Reader. Use Logger instead when the lines must
+persist on disk.
+
+**Ports** — input only; no output (`lib/pn-pipe-writer.c:363`).
+
+**Settings**
+- `pipe-path` (string, file editor, default `""`) — the FIFO. Created from an
+  idle as soon as the path is set, so an outside reader can open it before the
+  first message; an existing non-FIFO is refused (red) and never written.
+- `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*:
+  `data.output` + `\n` (empty line when absent/non-string). *JSON message*:
+  `pn_message_serialize (msg, TRUE)` — compact one-line envelope, vector blobs
+  included, so a JSON-mode Pipe Reader rebuilds the same message.
+
+**Renders / acts** — Opens `O_WRONLY|O_NONBLOCK` lazily per message; with no
+reader the open fails `ENXIO` and the message is **dropped** (counted by
+`pn_pipe_writer_get_dropped`, not an error). Accepted lines queue in a
+`GString` and `writer_flush` (`lib/pn-pipe-writer.c:129`) writes what the pipe
+takes; on `EAGAIN` a `G_IO_OUT` fd watch drains the rest.
+
+**Gotchas** — Never blocks and never raises SIGPIPE: writes go through
+`pn_pipe_write` (`lib/pn-pipe-common.c:107`), which blocks SIGPIPE on the
+thread and eats a pending one, so a vanished reader is just `EPIPE` → close +
+discard the queue (a half-written line never reaches the next reader). Before
+each message an idle writer polls for `POLLERR` so a reader that left and
+came back gets the message. Queue capped at 1 MiB (`PN_PIPE_MAX_BUFFER`); past
+that whole messages are dropped. Multi-line `output` text becomes several
+lines at the reader — use JSON format to keep it whole. Starts red (no path).
+`fa-sign-out` icon (FontAwesome 4.7).

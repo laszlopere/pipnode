@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pipe Reader (PnPipeReader) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPipeReader">Pipe Reader</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnPipeReader</code>.
+</p>
+<p>
+Source that reads a named pipe (FIFO) and emits one message for every
+line another program writes into it. Pair it with the
+<a href="PnPipeWriter.html">Pipe Writer</a> to pass messages between two
+pipnode processes, or feed it from a shell script:
+</p>
+
+<pre>echo "door opened" &gt; /tmp/pipnode.in</pre>
+
+<p>
+The pipe is created when the path does not exist yet. A path that
+exists but is not a named pipe is refused (the file is left alone).
+Until a usable path is set the node shows the error state, painted
+red on the worksheet.
+</p>
+
+<p>
+Reading never blocks pipnode. It does not matter whether a program
+has the other end open, and writers may connect and disconnect as
+often as they like: the node keeps listening. A line is emitted when
+its newline arrives; a trailing <code>\r</code> is dropped.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>pipe-path</code></td>
+      <td>Path of the named pipe to read. Created when missing.</td></tr>
+  <tr><td><code>format</code></td>
+      <td><em>Output text</em> (the default) or <em>JSON message</em>;
+        see below.</td></tr>
+</table>
+
+<h5>Output text</h5>
+<p>
+Each line becomes one message: <code>data.output</code> is the line,
+<code>data.value</code> is the line's number when the whole line is a
+number (surrounding blanks allowed) and <code>0</code> otherwise, and
+<code>data.success</code> is <code>true</code>. The topic is the node's
+own.
+</p>
+
+<h5>JSON message</h5>
+<p>
+Each line is a whole message in one-line JSON &mdash; the envelope a
+Pipe Writer in JSON mode writes:
+</p>
+<pre>{"type":"PnMessage","topic":"home/kitchen","id":"…","created":"…","data":{"value":21.5,"output":"21.5 C","success":true}}</pre>
+<p>
+Topic, id, creation time and the data bag are kept; the Pipe Reader
+becomes the message's source. A line with no <code>"data"</code>
+member is taken as the data bag itself, e.g.
+<code>{"output":"hi","value":1}</code>, and gets the node's topic.
+Blank lines are skipped. A line that is not valid JSON emits a message
+with <code>data.success</code> <code>false</code> and the parse error in
+<code>data.output</code>.
+</p>
+
+<h5>Errors</h5>
+<p>
+When the pipe cannot be created or opened, the node turns red and
+emits a <code>success</code>&nbsp;=&nbsp;<code>false</code> message
+whose <code>output</code> says why.
+</p>
+
+</body>
+</html>

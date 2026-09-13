@@ -379,3 +379,45 @@ suspend/resume, NTP steps and DST changeovers self-heal. The compiled interval
 cache and `last_state` are guarded by a `GMutex` because the trigger reads them
 on the worker thread while the dialog writes `schedule` from the main thread.
 `fa-calendar` icon (FontAwesome 4.7).
+
+---
+
+## Pipe Reader
+
+**Purpose** — Read a named pipe (FIFO) and emit one message per
+newline-terminated line another process writes into it
+(`emit_line`, `lib/pn-pipe-reader.c:95`). The source half of the pipe pair; its
+sink counterpart is **Pipe Writer**.
+
+**When to use** — To feed a flow from a shell script, cron job or another
+local program without a broker (`echo on > /tmp/x.fifo`), or — in *JSON
+message* format — to receive whole messages from another pipnode process's
+Pipe Writer. Use MQTT Source instead when the producer is on another host.
+
+**Ports** — `has_input = FALSE`, `has_output = TRUE`
+(`lib/pn-pipe-reader.c:447`).
+
+**Settings**
+- `pipe-path` (string, file editor, default `""`) — the FIFO. Created with
+  `mkfifo` (0666 minus umask) when missing; an existing non-FIFO is refused
+  and left untouched (`pn_pipe_ensure_fifo`, `lib/pn-pipe-common.c:55`).
+- `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*: the
+  line → `data.output`, `data.value` = the line's number when the whole
+  (blank-trimmed) line is one else `0`, `success = true`, node topic.
+  *JSON message*: the line is a `pn_message_deserialize` envelope (topic / id /
+  created / data / blobs kept, source re-stamped to the reader; node topic when
+  the envelope has none) or a bare data object; blank lines skipped.
+
+**Emits** — One message per line, from a main-loop `g_unix_fd_add` watch
+(`on_readable`, `lib/pn-pipe-reader.c:228`). Failures (cannot create/open,
+invalid JSON line, read error) emit `success = false` with the reason in
+`output`, and open failures also set `has_error`.
+
+**Gotchas** — Never blocks: opened `O_RDONLY|O_NONBLOCK`, and the node holds
+its own `O_WRONLY` end open (`keep_fd`) so writers disconnecting never produce
+EOF/POLLHUP (which would spin the watch) — writers can come and go freely. The
+open runs from an idle after construction / path change (properties load after
+`constructed()`, wires later), so `pn_pipe_reader_is_open()` is FALSE until the
+main loop turns. A trailing `\r` is stripped; an unterminated line longer
+than 1 MiB (`PN_PIPE_MAX_BUFFER`) is flushed as is. At most 16 × 64 KiB is read
+per wakeup. Starts red (no path). `fa-sign-in` icon (FontAwesome 4.7).

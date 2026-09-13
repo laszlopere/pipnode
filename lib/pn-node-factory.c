@@ -39,6 +39,8 @@
 #include "pn-deadline.h"
 #include "pn-debug.h"
 #include "pn-logger.h"
+#include "pn-pipe-reader.h"
+#include "pn-pipe-writer.h"
 #include "pn-dedup.h"
 #include "pn-delay.h"
 #include "pn-dial.h"
@@ -242,6 +244,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_RTC);
     pn_node_factory_register (self, PN_TYPE_INJECT);
     pn_node_factory_register (self, PN_TYPE_FILEDROP);
+    pn_node_factory_register (self, PN_TYPE_PIPE_READER);
     pn_node_factory_register (self, PN_TYPE_SWITCH);
     pn_node_factory_register (self, PN_TYPE_KNOB);
     pn_node_factory_register (self, PN_TYPE_PANEL_INPUT);
@@ -333,6 +336,7 @@ register_builtins (PnNodeFactory *self)
     /* Sinks. */
     pn_node_factory_register (self, PN_TYPE_DEBUG);
     pn_node_factory_register (self, PN_TYPE_LOGGER);
+    pn_node_factory_register (self, PN_TYPE_PIPE_WRITER);
     pn_node_factory_register (self, PN_TYPE_GRAPH);
     pn_node_factory_register (self, PN_TYPE_PLOT);
     pn_node_factory_register (self, PN_TYPE_XY_GRAPH);

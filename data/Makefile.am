@@ -60,6 +60,8 @@ pnhelp_DATA = \
 	help/PnPanelDisplay.html \
 	help/PnPanelInput.html \
 	help/PnParse.html \
+	help/PnPipeReader.html \
+	help/PnPipeWriter.html \
 	help/PnQuery.html \
 	help/PnRam.html \
 	help/PnRamp.html \

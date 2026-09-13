@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pipe Writer (PnPipeWriter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnPipeWriter">Pipe Writer</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnPipeWriter</code>.
+</p>
+<p>
+Sink that writes every received message into a named pipe (FIFO) as one
+line, for another program to read. Pair it with the
+<a href="PnPipeReader.html">Pipe Reader</a> to pass messages between two
+pipnode processes, or read it from a shell:
+</p>
+
+<pre>cat /tmp/pipnode.out</pre>
+
+<p>
+The pipe is created as soon as the path is set, so a reader can open it
+before the first message is sent. A path that exists but is not a named
+pipe is refused (the file is left alone). Until a usable path is set the
+node shows the error state, painted red on the worksheet.
+</p>
+
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>pipe-path</code></td>
+      <td>Path of the named pipe to write. Created when missing.</td></tr>
+  <tr><td><code>format</code></td>
+      <td><em>Output text</em> (the default) writes the message's
+        <code>data.output</code> (an empty line when it has none).
+        <em>JSON message</em> writes the whole message envelope as one
+        compact JSON line, which a Pipe Reader in JSON mode turns back
+        into the same message.</td></tr>
+</table>
+
+<h5>Never blocks</h5>
+<p>
+Writing never makes pipnode wait for the other end:
+</p>
+<ul>
+  <li>While no program has the pipe open for reading, messages are
+    <strong>dropped</strong>. This is normal and does not turn the node
+    red. The next message tries again, so a reader that starts later
+    receives everything sent from then on.</li>
+  <li>When a reader is connected but reads slowly, unsent lines wait in
+    memory (up to 1&nbsp;MiB) and are written as the reader catches up.
+    When that is full, new messages are dropped whole &mdash; a reader
+    never sees half a line.</li>
+  <li>When the reader goes away, the waiting lines are discarded.</li>
+</ul>
+<p>
+A text message containing newlines arrives at the reader as several
+lines; use <em>JSON message</em> to keep such text in one piece.
+</p>
+
+</body>
+</html>

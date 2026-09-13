@@ -85,6 +85,8 @@ check_PROGRAMS = \
 	test-pn-history \
 	test-pn-debug \
 	test-pn-logger \
+	test-pn-pipe-reader \
+	test-pn-pipe-writer \
 	test-pn-text-view \
 	test-pn-rate \
 	test-pn-fiat \
@@ -255,6 +257,8 @@ test_pn_flow_SOURCES          = test-pn-flow.c          pntest.c pntest.h
 test_pn_history_SOURCES       = test-pn-history.c       pntest.c pntest.h
 test_pn_debug_SOURCES         = test-pn-debug.c         pntest.c pntest.h
 test_pn_logger_SOURCES        = test-pn-logger.c        pntest.c pntest.h
+test_pn_pipe_reader_SOURCES   = test-pn-pipe-reader.c   pntest.c pntest.h
+test_pn_pipe_writer_SOURCES   = test-pn-pipe-writer.c   pntest.c pntest.h
 test_pn_text_view_SOURCES     = test-pn-text-view.c     pntest.c pntest.h
 test_pn_rate_SOURCES          = test-pn-rate.c          pntest.c pntest.h
 test_pn_fiat_SOURCES          = test-pn-fiat.c          pntest.c pntest.h

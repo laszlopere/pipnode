@@ -178,6 +178,12 @@ libpipnode_core_la_SOURCES = \
 	pn-panel-input.h \
 	pn-parse.c \
 	pn-parse.h \
+	pn-pipe-common.c \
+	pn-pipe-common.h \
+	pn-pipe-reader.c \
+	pn-pipe-reader.h \
+	pn-pipe-writer.c \
+	pn-pipe-writer.h \
 	pn-profile-schema.c \
 	pn-profile-schema.h \
 	pn-prom.c \
@@ -582,6 +588,9 @@ pipnode_core_headers = \
 	pn-panel-display.h \
 	pn-panel-input.h \
 	pn-parse.h \
+	pn-pipe-common.h \
+	pn-pipe-reader.h \
+	pn-pipe-writer.h \
 	pn-profile-schema.h \
 	pn-prom.h \
 	pn-query.h \

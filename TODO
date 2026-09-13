@@ -1381,3 +1381,36 @@
        [ ] 67.6 Candidate follow-up: migrate examples/home-automation/
              power.json and tasmota-socket.json from filter fans to a Topic
              Demux.
+
+[ ] 68 Named-pipe nodes -- Pipe Reader (Sources) and Pipe Writer (Sinks) read
+       and write a FIFO, one message per line. "pipe-path" names the FIFO
+       (created when missing, a non-FIFO is refused and left alone);
+       "format" is Output text (data.output, the default) or JSON message
+       (the whole envelope, pn_message_serialize / _deserialize). Neither
+       side ever blocks when the other end is absent or slow. Core, no gui
+       tier (settings schema only), fa-sign-in / fa-sign-out, teal.
+       [x] 68.1 lib/pn-pipe-common.[ch]: PnPipeFormat enum,
+             pn_pipe_ensure_fifo (mkfifo / validate), pn_pipe_write (write
+             with SIGPIPE blocked on the thread and a pending one consumed,
+             so a vanished reader is EPIPE, not process death).
+       [x] 68.2 lib/pn-pipe-reader.[ch]: O_RDONLY|O_NONBLOCK + our own
+             O_WRONLY keep-alive end (writers may come and go without EOF /
+             POLLHUP spinning the watch), g_unix_fd_add, line framing with
+             a 1 MiB unterminated-line cap, open from an idle so failure
+             messages reach wires; failures emit success=FALSE + has_error.
+       [x] 68.3 lib/pn-pipe-writer.[ch]: lazy O_WRONLY|O_NONBLOCK open per
+             message (ENXIO = no reader -> drop, not an error), bounded
+             1 MiB whole-line queue drained by a G_IO_OUT watch, POLLERR
+             probe so a reader that left and came back gets the next
+             message, FIFO created up front from an idle on path set.
+       [x] 68.4 Factory registration, help pages PnPipeReader.html /
+             PnPipeWriter.html, pipnode-nodes skill (sources.md, sinks.md).
+       [x] 68.5 Unit tests tests/unit/test-pn-pipe-reader.c and
+             test-pn-pipe-writer.c (incl. slow-reader queue/drain and a
+             writer -> FIFO -> reader JSON round trip).
+       [ ] 68.6 GUI check by the user: both nodes in the palette (Sources /
+             Sinks), the settings tab shows the file chooser + format combo,
+             red until a path is set, `echo hi > fifo` lights a Pipe Reader,
+             `cat fifo` shows a Pipe Writer's lines.
+       [ ] 68.7 Candidate follow-up: surface the writer's dropped-message
+             count on the node (it is only an API accessor today).
