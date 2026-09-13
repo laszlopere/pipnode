@@ -91,6 +91,9 @@ session-only (not serialized).
 | `Disconnect` | `(s wire_uuid)` | Unknown → `WireNotFound`. |
 | `ListWires` | `() → (a(ssis))` rows `{source_uuid, target_uuid, target_input, wire_uuid}` | Dangling endpoint reads as empty UUID. |
 | `GetNodeWires` | `(s uuid) → (a(ssis))` | Same shape, restricted to wires touching `uuid`. |
+| `ConnectPorts` | `(s source, i source_output, s target, i target_input) → (s wire_uuid)` | For multi-output sources (Shift Register). Output out of range → `IllegalConnection`. |
+| `ListPortWires` | `() → (a(sisis))` rows `{source_uuid, source_output, target_uuid, target_input, wire_uuid}` | `ListWires` plus the source output. |
+| `GetNodePortWires` | `(s uuid) → (a(sisis))` | Same shape, restricted to wires touching `uuid`. |
 
 ### Discovery (runtime-accurate, includes loaded plugins)
 

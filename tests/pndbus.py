@@ -410,6 +410,14 @@ class PipnodeEditor:
                        GLib.Variant("(ssi)", (source, target, target_input)),
                        "(s)").unpack()[0]
 
+    def connect_ports(self, source: str, source_output: int, target: str,
+                      target_input: int = 0) -> str:
+        """Wire source.source_output -> target.target_input; return the UUID."""
+        return self.ws("ConnectPorts",
+                       GLib.Variant("(sisi)", (source, source_output,
+                                               target, target_input)),
+                       "(s)").unpack()[0]
+
     def disconnect(self, wire_uuid: str) -> None:
         self.ws("Disconnect", GLib.Variant("(s)", (wire_uuid,)))
 
@@ -423,6 +431,19 @@ class PipnodeEditor:
                        "(a(ssis))").unpack()[0]
         return [{"source": s, "target": t, "target_input": i, "uuid": u}
                 for (s, t, i, u) in rows]
+
+    def list_port_wires(self) -> list[dict]:
+        rows = self.ws("ListPortWires", None, "(a(sisis))").unpack()[0]
+        return [{"source": s, "source_output": o, "target": t,
+                 "target_input": i, "uuid": u}
+                for (s, o, t, i, u) in rows]
+
+    def get_node_port_wires(self, uuid: str) -> list[dict]:
+        rows = self.ws("GetNodePortWires", GLib.Variant("(s)", (uuid,)),
+                       "(a(sisis))").unpack()[0]
+        return [{"source": s, "source_output": o, "target": t,
+                 "target_input": i, "uuid": u}
+                for (s, o, t, i, u) in rows]
 
     # ---- convenience: discovery (Worksheet) --------------------------
 

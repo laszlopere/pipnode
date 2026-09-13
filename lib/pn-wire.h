@@ -26,8 +26,9 @@ G_BEGIN_DECLS
 /*  A single connection from one node's output to another node's       */
 /*  input.  While the source and target are both set the wire         */
 /*  actively routes messages: it listens for the source's "message"   */
-/*  signal and forwards each emission into the target via             */
-/*  pn_node_receive_message().                                        */
+/*  signal and forwards each emission that leaves by its source       */
+/*  output into the target's input via                                */
+/*  pn_node_receive_message_on_input().                               */
 /*                                                                     */
 /*  Signals:                                                          */
 /*    "message-passed" (PnMessage *message): emitted as a message is  */
@@ -61,6 +62,19 @@ PnWire  *pn_wire_new        (PnNode *source, PnNode *target);
 PnWire  *pn_wire_new_full   (PnNode *source, PnNode *target,
                              gint target_input);
 
+/**
+ * pn_wire_new_ports:
+ * @source:        (nullable) (transfer none): emitting node
+ * @source_output: index of the source output port the wire carries
+ * @target:        (nullable) (transfer none): receiving node
+ * @target_input:  index of the target input port the wire feeds
+ *
+ * The fully port-addressed constructor: pn_wire_new_full() is the
+ * @source_output == 0 special case.
+ */
+PnWire  *pn_wire_new_ports  (PnNode *source, gint source_output,
+                             PnNode *target, gint target_input);
+
 PnNode  *pn_wire_get_source (PnWire *self);
 void     pn_wire_set_source (PnWire *self, PnNode *source);
 
@@ -75,6 +89,16 @@ void     pn_wire_set_target (PnWire *self, PnNode *target);
  */
 gint     pn_wire_get_target_input (PnWire *self);
 void     pn_wire_set_target_input (PnWire *self, gint target_input);
+
+/**
+ * pn_wire_get_source_output:
+ *
+ * Index of the source output port this wire carries (0 for an ordinary
+ * single-output source).  The wire forwards only the emissions that leave
+ * by that output (see pn_node_emit_message_on_output()).
+ */
+gint     pn_wire_get_source_output (PnWire *self);
+void     pn_wire_set_source_output (PnWire *self, gint source_output);
 
 /**
  * pn_wire_disconnect:

@@ -2120,6 +2120,7 @@ flow_load_from_object (
         const gchar *src_name;
         const gchar *dst_name;
         gint         dst_input;
+        gint         src_output;
         PnNode      *src = NULL;
         PnNode      *dst = NULL;
 
@@ -2139,6 +2140,13 @@ flow_load_from_object (
          * usual single-input case) means port 0. */
         dst_input = json_object_has_member (cobj, "target_input")
             ? (gint) json_object_get_int_member (cobj, "target_input") : 0;
+        /* Likewise the source's output port; absent means output 0. */
+        src_output = json_object_has_member (cobj, "source_output")
+            ? (gint) json_object_get_int_member (cobj, "source_output") : 0;
+        if (dst_input < 0)
+            dst_input = 0;
+        if (src_output < 0)
+            src_output = 0;
 
         /* Prefer UUID-keyed endpoints; fall back to the legacy
          * name-keyed shape so worksheets written before the migration
@@ -2180,7 +2188,8 @@ flow_load_from_object (
             continue;
         }
 
-        g_ptr_array_add (new_wires, pn_wire_new_full (src, dst, dst_input));
+        g_ptr_array_add (new_wires,
+                         pn_wire_new_ports (src, src_output, dst, dst_input));
     }
 
     /* Commit.  During the cascade of node-added / wire-added events
@@ -2651,12 +2660,16 @@ flow_build_root (
         entry = json_object_new ();
         json_object_set_string_member (entry, "source_id", src_uid);
         json_object_set_string_member (entry, "target_id", dst_uid);
-        /* Only multi-input targets need the port index; omit it for the
-         * single-input common case so existing files stay byte-identical. */
+        /* Only multi-input targets / multi-output sources need a port
+         * index; omit both for the common case so existing files stay
+         * byte-identical. */
         {
             const gint dst_input = pn_wire_get_target_input (wire);
+            const gint src_output = pn_wire_get_source_output (wire);
             if (dst_input > 0)
                 json_object_set_int_member (entry, "target_input", dst_input);
+            if (src_output > 0)
+                json_object_set_int_member (entry, "source_output", src_output);
         }
         json_array_add_object_element (connections, entry);
     }
@@ -2893,6 +2906,7 @@ pn_flow_paste_from_string (
         const gchar *src_name;
         const gchar *dst_name;
         gint         dst_input;
+        gint         src_output;
         PnNode      *src = NULL;
         PnNode      *dst = NULL;
         PnWire      *wire;
@@ -2911,6 +2925,13 @@ pn_flow_paste_from_string (
             ? json_object_get_string_member (cobj, "target") : NULL;
         dst_input = json_object_has_member (cobj, "target_input")
             ? (gint) json_object_get_int_member (cobj, "target_input") : 0;
+        /* Likewise the source's output port; absent means output 0. */
+        src_output = json_object_has_member (cobj, "source_output")
+            ? (gint) json_object_get_int_member (cobj, "source_output") : 0;
+        if (dst_input < 0)
+            dst_input = 0;
+        if (src_output < 0)
+            src_output = 0;
 
         /* Prefer UUID; fall back to old name for clipboard payloads
          * generated before the migration. */
@@ -2933,7 +2954,7 @@ pn_flow_paste_from_string (
             continue;
         }
 
-        wire = pn_wire_new_full (src, dst, dst_input);
+        wire = pn_wire_new_ports (src, src_output, dst, dst_input);
         pn_wire_store_add (self->wires, wire);
         g_object_unref (wire);
     }

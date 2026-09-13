@@ -335,6 +335,13 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='i' name='target_input' direction='in'/>"
     "      <arg type='s' name='wire_uuid'    direction='out'/>"
     "    </method>"
+    "    <method name='ConnectPorts'>"
+    "      <arg type='s' name='source'        direction='in'/>"
+    "      <arg type='i' name='source_output' direction='in'/>"
+    "      <arg type='s' name='target'        direction='in'/>"
+    "      <arg type='i' name='target_input'  direction='in'/>"
+    "      <arg type='s' name='wire_uuid'     direction='out'/>"
+    "    </method>"
     "    <method name='Disconnect'>"
     "      <arg type='s' name='wire_uuid' direction='in'/>"
     "    </method>"
@@ -344,6 +351,13 @@ static const gchar worksheet_introspection_xml[] =
     "    <method name='GetNodeWires'>"
     "      <arg type='s'       name='uuid'  direction='in'/>"
     "      <arg type='a(ssis)' name='wires' direction='out'/>"
+    "    </method>"
+    "    <method name='ListPortWires'>"
+    "      <arg type='a(sisis)' name='wires' direction='out'/>"
+    "    </method>"
+    "    <method name='GetNodePortWires'>"
+    "      <arg type='s'        name='uuid'  direction='in'/>"
+    "      <arg type='a(sisis)' name='wires' direction='out'/>"
     "    </method>"
     "    <method name='OpenNodeDialog'>"
     "      <arg type='u' name='index'  direction='in'/>"
@@ -615,13 +629,27 @@ wire_by_uuid (PnWireStore *wires, const gchar *uuid)
  *  endpoint (no source or target) contributes an empty UUID string so
  *  the row count still mirrors the store. */
 static void
-wire_append_to_builder (GVariantBuilder *builder, PnWire *wire)
+wire_append_to_builder (GVariantBuilder *builder, PnWire *wire,
+                        gboolean with_output)
 {
     PnNode      *src      = pn_wire_get_source (wire);
     PnNode      *tgt      = pn_wire_get_target (wire);
     const gchar *src_uuid = src != NULL ? pn_node_get_uuid (src) : NULL;
     const gchar *tgt_uuid = tgt != NULL ? pn_node_get_uuid (tgt) : NULL;
     const gchar *wire_uuid = pn_wire_get_uuid (wire);
+
+    /* The port-aware rows (ListPortWires / GetNodePortWires) add the
+     * source output index after the source UUID. */
+    if (with_output)
+    {
+        g_variant_builder_add (builder, "(sisis)",
+                               src_uuid  ? src_uuid  : "",
+                               pn_wire_get_source_output (wire),
+                               tgt_uuid  ? tgt_uuid  : "",
+                               pn_wire_get_target_input (wire),
+                               wire_uuid ? wire_uuid : "");
+        return;
+    }
 
     g_variant_builder_add (builder, "(ssis)",
                            src_uuid  ? src_uuid  : "",
@@ -1790,17 +1818,25 @@ handle_worksheet_method_call (
 
         worksheet_connect_nodes (invocation, wires, source, target);
     }
-    else if (g_strcmp0 (method_name, "Connect") == 0)
+    else if (g_strcmp0 (method_name, "Connect") == 0 ||
+             g_strcmp0 (method_name, "ConnectPorts") == 0)
     {
         const gchar *src_uuid = NULL;
         const gchar *dst_uuid = NULL;
+        gint         source_output = 0;
         gint         target_input;
         PnNode      *source, *target;
         PnWire      *wire;
         guint        i, n;
 
-        g_variant_get (parameters, "(&s&si)",
-                       &src_uuid, &dst_uuid, &target_input);
+        /* Connect is ConnectPorts with the source output fixed at 0. */
+        if (g_strcmp0 (method_name, "ConnectPorts") == 0)
+            g_variant_get (parameters, "(&si&si)",
+                           &src_uuid, &source_output, &dst_uuid,
+                           &target_input);
+        else
+            g_variant_get (parameters, "(&s&si)",
+                           &src_uuid, &dst_uuid, &target_input);
 
         source = node_by_uuid (nodes, src_uuid);
         target = node_by_uuid (nodes, dst_uuid);
@@ -1843,6 +1879,16 @@ handle_worksheet_method_call (
                     "Target node '%s' has no input", dst_uuid);
             return;
         }
+        if (source_output < 0 ||
+            source_output >= pn_node_get_n_outputs (source))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation,
+                    PN_WORKSHEET_ERROR, PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
+                    "Source output %d out of range (node has %d output(s))",
+                    source_output, pn_node_get_n_outputs (source));
+            return;
+        }
         if (target_input < 0 || target_input >= pn_node_get_n_inputs (target))
         {
             g_dbus_method_invocation_return_error (
@@ -1860,6 +1906,7 @@ handle_worksheet_method_call (
         {
             PnWire *w = pn_wire_store_get_wire (wires, i);
             if (pn_wire_get_source (w) == source &&
+                pn_wire_get_source_output (w) == source_output &&
                 pn_wire_get_target (w) == target &&
                 pn_wire_get_target_input (w) == target_input)
             {
@@ -1867,13 +1914,14 @@ handle_worksheet_method_call (
                         invocation,
                         PN_WORKSHEET_ERROR,
                         PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
-                        "A wire already feeds input %d of the target",
-                        target_input);
+                        "A wire from output %d already feeds input %d "
+                        "of the target",
+                        source_output, target_input);
                 return;
             }
         }
 
-        wire = pn_wire_new_full (source, target, target_input);
+        wire = pn_wire_new_ports (source, source_output, target, target_input);
         pn_wire_store_add (wires, wire);
         g_dbus_method_invocation_return_value (
                 invocation, g_variant_new ("(s)", pn_wire_get_uuid (wire)));
@@ -1901,22 +1949,28 @@ handle_worksheet_method_call (
         pn_wire_store_remove (wires, wire);
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
-    else if (g_strcmp0 (method_name, "ListWires") == 0)
+    else if (g_strcmp0 (method_name, "ListWires") == 0 ||
+             g_strcmp0 (method_name, "ListPortWires") == 0)
     {
+        const gboolean  ports = g_strcmp0 (method_name, "ListPortWires") == 0;
+        const gchar    *type  = ports ? "a(sisis)" : "a(ssis)";
         GVariantBuilder builder;
         guint           i, n;
 
-        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssis)"));
+        g_variant_builder_init (&builder, G_VARIANT_TYPE (type));
         n = pn_wire_store_get_length (wires);
         for (i = 0; i < n; i++)
             wire_append_to_builder (&builder,
-                                    pn_wire_store_get_wire (wires, i));
+                                    pn_wire_store_get_wire (wires, i), ports);
 
         g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(a(ssis))", &builder));
+                invocation,
+                g_variant_new (ports ? "(a(sisis))" : "(a(ssis))", &builder));
     }
-    else if (g_strcmp0 (method_name, "GetNodeWires") == 0)
+    else if (g_strcmp0 (method_name, "GetNodeWires") == 0 ||
+             g_strcmp0 (method_name, "GetNodePortWires") == 0)
     {
+        const gboolean  ports = g_strcmp0 (method_name, "GetNodePortWires") == 0;
         const gchar    *uuid = NULL;
         PnNode         *node;
         GVariantBuilder builder;
@@ -1934,18 +1988,20 @@ handle_worksheet_method_call (
             return;
         }
 
-        g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssis)"));
+        g_variant_builder_init (&builder,
+                                G_VARIANT_TYPE (ports ? "a(sisis)" : "a(ssis)"));
         n = pn_wire_store_get_length (wires);
         for (i = 0; i < n; i++)
         {
             PnWire *wire = pn_wire_store_get_wire (wires, i);
             if (pn_wire_get_source (wire) == node ||
                 pn_wire_get_target (wire) == node)
-                wire_append_to_builder (&builder, wire);
+                wire_append_to_builder (&builder, wire, ports);
         }
 
         g_dbus_method_invocation_return_value (
-                invocation, g_variant_new ("(a(ssis))", &builder));
+                invocation,
+                g_variant_new (ports ? "(a(sisis))" : "(a(ssis))", &builder));
     }
     else if (g_strcmp0 (method_name, "OpenNodeDialog") == 0)
     {

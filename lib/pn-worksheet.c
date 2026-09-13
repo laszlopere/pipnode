@@ -182,8 +182,8 @@ struct _PnWorksheet
      *  non-%NULL while a drag is in progress (both %NULL when idle):
      *
      *    - #wire_source owns a ref to the node whose *output* port the
-     *      user grabbed; the drag runs toward an input port (the
-     *      original direction).
+     *      user grabbed, and #wire_source_output is which of its outputs;
+     *      the drag runs toward an input port (the original direction).
      *    - #wire_dest owns a ref to the node whose *input* port the user
      *      grabbed, and #wire_dest_input is which of its inputs; the drag
      *      runs toward an output port (the reverse direction).
@@ -191,6 +191,7 @@ struct _PnWorksheet
      *  Either way #wire_cursor_{x,y} hold the current pointer position so
      *  the painter can draw a tentative line to the loose end. */
     PnNode *wire_source;
+    gint    wire_source_output;
     PnNode *wire_dest;
     gint    wire_dest_input;
     double  wire_cursor_x;
@@ -587,8 +588,25 @@ input_port_y (PnNode *node, gint index)
          + ((double) index + 0.5) * PN_NODE_INPUT_ROW_HEIGHT;
 }
 
+/* World-space y of the centre of output port @index of @node — the
+ * mirror image of input_port_y(): a lone output sits on the header
+ * centreline, 2+ outputs one per row down the stacked port section. */
+static inline double
+output_port_y (PnNode *node, gint index)
+{
+    const gint    n  = pn_node_get_n_outputs      (node);
+    const double  hh = pn_node_get_header_height   (node);
+    const PnPoint *p = pn_node_get_position        (node);
+
+    if (n <= 1)
+        return p->y + hh / 2.0;
+
+    return p->y + hh
+         + ((double) index + 0.5) * PN_NODE_INPUT_ROW_HEIGHT;
+}
+
 /* Height of a node's solid body — its header plus, for a multi-input
- * node, the stacked input-row section fenced off below it.  This is the
+ * or multi-output node, the stacked port-row section fenced off below it.  This is the
  * filled/outlined rectangle and the node's selection target; it
  * deliberately excludes any paint_plot extension (a passive readout that
  * is not a hit target).  Single-input and input-less nodes report just
@@ -597,7 +615,7 @@ static inline double
 node_body_height (PnNode *node)
 {
     return pn_node_get_header_height (node)
-         + pn_node_get_input_section_height (node);
+         + pn_node_get_port_section_height (node);
 }
 
 /* The "fire" button drawn on the left edge of #PnInject nodes.  Sits
@@ -1053,6 +1071,8 @@ draw_node (
      * painting is unchanged. */
     const gint     n_inputs  = has_input ? pn_node_get_n_inputs (node) : 0;
     const gboolean multi_in  = n_inputs >= 2;
+    const gint     n_outputs = has_output ? pn_node_get_n_outputs (node) : 0;
+    const gboolean multi_out = n_outputs >= 2;
     const double   body_h    = node_body_height (node);
     /* Override the node's body colour: neutral grey while disabled (so
      * the inert state reads at a glance), red while in an error state
@@ -1367,7 +1387,7 @@ draw_node (
      * icon-panel separator — a dark trace on the header side stacked
      * against a light trace on the input-section side — and clipped to
      * the body so it respects the rounded corners. */
-    if (multi_in)
+    if (multi_in || multi_out)
     {
         cairo_save (cr);
         rounded_rect_path (cr, x, y, full_w, body_h, PN_NODE_RADIUS);
@@ -1449,7 +1469,11 @@ draw_node (
                     const gchar *ival =
                             pn_node_get_input_value_display (node, i);
                     const double left  = tx + iw + 8.0;
-                    const double right = x + full_w - PN_NODE_LABEL_PADDING;
+                    /* Share the row with the output side of a node that
+                     * has stacked outputs too: stop at the midline. */
+                    const double right = multi_out
+                        ? x + full_w / 2.0
+                        : x + full_w - PN_NODE_LABEL_PADDING;
                     const double avail = right - left;
 
                     if (ival != NULL && *ival != '\0' && avail > 12.0)
@@ -1491,17 +1515,104 @@ draw_node (
         }
     }
 
+    /* Output tabs: a lone output on the header centreline, stacked
+     * outputs one per row down the right edge of the port section, each
+     * with its name right-aligned beside the tab and the value last sent
+     * through it to the left of the name. */
     if (has_output)
     {
-        const double px = x + full_w - PN_PORT_WIDTH / 2.0;
-        const double py = y + (header_h - PN_PORT_HEIGHT) / 2.0;
-        rounded_rect_path (cr, px, py,
-                           PN_PORT_WIDTH, PN_PORT_HEIGHT, PN_PORT_RADIUS);
-        cairo_set_source_rgb (cr, 0.78, 0.78, 0.80);
-        cairo_fill_preserve (cr);
-        cairo_set_source_rgb (cr, 0.40, 0.40, 0.42);
-        cairo_set_line_width (cr, 1.0);
-        cairo_stroke (cr);
+        gint o;
+
+        for (o = 0; o < n_outputs; o++)
+        {
+            const double cy = output_port_y (node, o);
+            const double px = x + full_w - PN_PORT_WIDTH / 2.0;
+            const double py = cy - PN_PORT_HEIGHT / 2.0;
+
+            rounded_rect_path (cr, px, py,
+                               PN_PORT_WIDTH, PN_PORT_HEIGHT, PN_PORT_RADIUS);
+            cairo_set_source_rgb (cr, 0.78, 0.78, 0.80);
+            cairo_fill_preserve (cr);
+            cairo_set_source_rgb (cr, 0.40, 0.40, 0.42);
+            cairo_set_line_width (cr, 1.0);
+            cairo_stroke (cr);
+
+            if (multi_out)
+            {
+                PangoLayout          *olayout;
+                PangoFontDescription *odesc;
+                const gchar          *oname = pn_node_get_output_name (node, o);
+                const gchar          *oval  =
+                        pn_node_get_output_value_display (node, o);
+                int                   ow, oh;
+                double                tx, ty;
+
+                olayout = pango_cairo_create_layout (cr);
+                odesc   = pango_font_description_from_string ("Sans");
+                pango_font_description_set_absolute_size (odesc,
+                                                          11.0 * PANGO_SCALE);
+                pango_layout_set_font_description (olayout, odesc);
+                pango_font_description_free (odesc);
+                pango_layout_set_text (olayout, oname, -1);
+                pango_layout_get_pixel_size (olayout, &ow, &oh);
+
+                tx = x + full_w - PN_PORT_WIDTH / 2.0 - 5.0 - ow;
+                ty = cy - oh / 2.0;
+
+                cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.55);
+                cairo_move_to (cr, tx, ty + 1.0);
+                pango_cairo_show_layout (cr, olayout);
+                cairo_set_source_rgb (cr, 0.22, 0.22, 0.22);
+                cairo_move_to (cr, tx, ty);
+                pango_cairo_show_layout (cr, olayout);
+
+                g_object_unref (olayout);
+
+                /* Last value out of this port, right-aligned against the
+                 * name; its left edge is the body edge, or the midline
+                 * when the input side shares the row. */
+                {
+                    const double left  = multi_in
+                        ? x + full_w / 2.0 + 4.0
+                        : x + PN_NODE_LABEL_PADDING + 4.0;
+                    const double right = tx - 8.0;
+                    const double avail = right - left;
+
+                    if (oval != NULL && *oval != '\0' && avail > 12.0)
+                    {
+                        PangoLayout          *vlayout;
+                        PangoFontDescription *vdesc;
+                        int                   vw, vh;
+                        double                vty;
+
+                        vlayout = pango_cairo_create_layout (cr);
+                        vdesc   = pango_font_description_from_string ("Sans");
+                        pango_font_description_set_absolute_size (
+                                vdesc, 10.0 * PANGO_SCALE);
+                        pango_layout_set_font_description (vlayout, vdesc);
+                        pango_font_description_free (vdesc);
+                        pango_layout_set_text (vlayout, oval, -1);
+                        pango_layout_set_width (vlayout,
+                                                (int) (avail * PANGO_SCALE));
+                        pango_layout_set_ellipsize (vlayout,
+                                                    PANGO_ELLIPSIZE_END);
+                        pango_layout_set_alignment (vlayout,
+                                                    PANGO_ALIGN_RIGHT);
+                        pango_layout_get_pixel_size (vlayout, &vw, &vh);
+                        vty = cy - vh / 2.0;
+
+                        cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.45);
+                        cairo_move_to (cr, left, vty + 1.0);
+                        pango_cairo_show_layout (cr, vlayout);
+                        cairo_set_source_rgb (cr, 0.12, 0.12, 0.14);
+                        cairo_move_to (cr, left, vty);
+                        pango_cairo_show_layout (cr, vlayout);
+
+                        g_object_unref (vlayout);
+                    }
+                }
+            }
+        }
     }
 
     /* Class-owned in-header decoration painted on top of the standard
@@ -1609,7 +1720,7 @@ draw_node_wireframe (
 
     /* Framing line below the header for multi-input ghosts, mirroring
      * the painted node. */
-    if (pn_node_get_n_inputs (node) >= 2)
+    if (pn_node_get_n_inputs (node) >= 2 || pn_node_get_n_outputs (node) >= 2)
     {
         cairo_move_to (cr, x,      y + header_h);
         cairo_line_to (cr, x + dw, y + header_h);
@@ -2083,7 +2194,7 @@ wire_endpoints (
     PnNode        *dst;
     const PnPoint *ps;
     const PnPoint *pt;
-    double         sw, sh, shh;
+    double         sw, sh;
 
     if (!wire_on_sheet (self, wire))
         return FALSE;
@@ -2094,11 +2205,10 @@ wire_endpoints (
     ps  = pn_node_get_position (src);
     pt  = pn_node_get_position (dst);
     pn_node_get_size (src, &sw, &sh);
-    shh = pn_node_get_header_height (src);
     (void) sh;
 
     *x1 = ps->x + sw;
-    *y1 = ps->y + shh / 2.0;
+    *y1 = output_port_y (src, pn_wire_get_source_output (wire));
     *x2 = pt->x;
     *y2 = input_port_y (dst, pn_wire_get_target_input (wire));
     return TRUE;
@@ -3345,13 +3455,14 @@ pn_worksheet_draw (
         if (self->wire_source != NULL)
         {
             const PnPoint *ps  = pn_node_get_position (self->wire_source);
-            const double   shh = pn_node_get_header_height (self->wire_source);
             double         sw, sh;
             pn_node_get_size (self->wire_source, &sw, &sh);
             (void) sh;
 
             draw_wire (cr,
-                       ps->x + sw,            ps->y + shh / 2.0,
+                       ps->x + sw,
+                       output_port_y (self->wire_source,
+                                      self->wire_source_output),
                        self->wire_cursor_x,   self->wire_cursor_y);
         }
 
@@ -4034,10 +4145,10 @@ hit_test_chat_input (
 
 /** Return the topmost node whose input or output port contains
  *  (@x, @y), or %NULL.  The hit area is enlarged by a small slop so
- *  the user does not have to land exactly on the 7×10 px tab.  When an
- *  input port is hit and @out_input is non-%NULL it receives the
- *  0-based index of that input (relevant only for multi-input nodes;
- *  always 0 for ordinary single-input nodes and for output hits). */
+ *  the user does not have to land exactly on the 7×10 px tab.  When
+ *  @out_input is non-%NULL it receives the 0-based index of the port
+ *  hit on its side — which input, or which output (relevant only for
+ *  multi-input / multi-output nodes; 0 for ordinary ones). */
 static PnNode *
 hit_test_port (
         PnWorksheet *self,
@@ -4056,7 +4167,6 @@ hit_test_port (
     {
         PnNode        *node = pn_node_store_get_node (self->nodes, (guint) i);
         const PnPoint *p    = pn_node_get_position   (node);
-        const double   cy   = p->y + pn_node_get_header_height (node) / 2.0;
         double         nw, nh;
 
         if (!node_on_sheet (self, node))
@@ -4067,13 +4177,20 @@ hit_test_port (
 
         if (pn_node_get_has_output (node))
         {
-            const double ox = p->x + nw - PN_PORT_WIDTH / 2.0;
-            const double oy = cy - PN_PORT_HEIGHT / 2.0;
-            if (x >= ox - slop && x < ox + PN_PORT_WIDTH  + slop &&
-                y >= oy - slop && y < oy + PN_PORT_HEIGHT + slop)
+            const gint   n_outputs = pn_node_get_n_outputs (node);
+            const double ox        = p->x + nw - PN_PORT_WIDTH / 2.0;
+            gint         k;
+
+            for (k = 0; k < n_outputs; k++)
             {
-                if (out_kind) *out_kind = PN_PORT_OUTPUT;
-                return node;
+                const double oy = output_port_y (node, k) - PN_PORT_HEIGHT / 2.0;
+                if (x >= ox - slop && x < ox + PN_PORT_WIDTH  + slop &&
+                    y >= oy - slop && y < oy + PN_PORT_HEIGHT + slop)
+                {
+                    if (out_kind)  *out_kind  = PN_PORT_OUTPUT;
+                    if (out_input) *out_input = k;
+                    return node;
+                }
             }
         }
 
@@ -4149,7 +4266,7 @@ hit_test_wire (
             (void) sh;
 
             x1 = ps->x + sw;
-            y1 = ps->y + pn_node_get_header_height (src) / 2.0;
+            y1 = output_port_y (src, pn_wire_get_source_output (wire));
             x2 = pt->x;
             /* Match the painted wire: land on the addressed input row
              * (lower section for multi-input targets), not the header. */
@@ -4191,8 +4308,8 @@ snap_to_grid (double v)
     return round (v / PN_GRID_STEP) * PN_GRID_STEP;
 }
 
-/** Return %TRUE when the store already contains a wire from @source to
- *  @target's input @target_input.  Wires are direction-sensitive, so a
+/** Return %TRUE when the store already contains a wire from @source's
+ *  output @source_output to @target's input @target_input.  Wires are direction-sensitive, so a
  *  reverse-direction wire is not considered a duplicate; and the port
  *  index is part of the identity, so the same source feeding two
  *  different inputs of one node counts as two distinct wires. */
@@ -4200,6 +4317,7 @@ static gboolean
 wire_exists (
         PnWorksheet *self,
         PnNode      *source,
+        gint         source_output,
         PnNode      *target,
         gint         target_input)
 {
@@ -4211,6 +4329,7 @@ wire_exists (
         PnWire *wire = pn_wire_store_get_wire (self->wires, i);
 
         if (pn_wire_get_source (wire) == source &&
+            pn_wire_get_source_output (wire) == source_output &&
             pn_wire_get_target (wire) == target &&
             pn_wire_get_target_input (wire) == target_input)
             return TRUE;
@@ -5628,7 +5747,8 @@ on_button_press (
         port_node = hit_test_port (self, wx, wy, &port_kind, &port_input);
         if (port_node != NULL && port_kind == PN_PORT_OUTPUT)
         {
-            self->wire_source   = g_object_ref (port_node);
+            self->wire_source        = g_object_ref (port_node);
+            self->wire_source_output = port_input;
             self->wire_cursor_x = wx;
             self->wire_cursor_y = wy;
             gtk_widget_queue_draw (widget);
@@ -6026,10 +6146,12 @@ on_button_release (
             target != self->wire_source &&
             node_on_sheet (self, self->wire_source) &&
             node_on_sheet (self, target) &&
-            !wire_exists (self, self->wire_source, target, target_input))
+            !wire_exists (self, self->wire_source, self->wire_source_output,
+                          target, target_input))
         {
-            PnWire *wire = pn_wire_new_full (self->wire_source, target,
-                                             target_input);
+            PnWire *wire = pn_wire_new_ports (self->wire_source,
+                                              self->wire_source_output,
+                                              target, target_input);
             pn_wire_store_add (self->wires, wire);
             g_object_unref (wire);
         }
@@ -6047,19 +6169,22 @@ on_button_release (
     if (self->wire_dest != NULL)
     {
         PnPortKind   kind;
+        gint         source_output = 0;
         const double wx     = widget_to_world_x (self, event->x);
         const double wy     = widget_to_world_y (self, event->y);
-        PnNode      *source = hit_test_port (self, wx, wy, &kind, NULL);
+        PnNode      *source = hit_test_port (self, wx, wy, &kind,
+                                             &source_output);
 
         if (source != NULL && kind == PN_PORT_OUTPUT &&
             source != self->wire_dest &&
             node_on_sheet (self, source) &&
             node_on_sheet (self, self->wire_dest) &&
-            !wire_exists (self, source, self->wire_dest,
+            !wire_exists (self, source, source_output, self->wire_dest,
                           self->wire_dest_input))
         {
-            PnWire *wire = pn_wire_new_full (source, self->wire_dest,
-                                             self->wire_dest_input);
+            PnWire *wire = pn_wire_new_ports (source, source_output,
+                                              self->wire_dest,
+                                              self->wire_dest_input);
             pn_wire_store_add (self->wires, wire);
             g_object_unref (wire);
         }

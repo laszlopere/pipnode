@@ -703,6 +703,81 @@ void            pn_node_set_n_inputs   (PnNode *self, gint n);
 double          pn_node_get_input_section_height (PnNode *self);
 
 /**
+ * pn_node_get_n_outputs:
+ *
+ * Number of output ports the node exposes — the mirror image of
+ * pn_node_get_n_inputs().  Ordinary nodes report 1 (0 when they have no
+ * output); a multi-output node reports the count it set with
+ * pn_node_set_n_outputs().  Wires address a specific output by index
+ * (see pn_wire_get_source_output()).
+ */
+gint            pn_node_get_n_outputs  (PnNode *self);
+
+/**
+ * pn_node_set_n_outputs:
+ * @n: number of output ports (>= 0)
+ *
+ * Declares that the node has @n outputs.  The node sends a message out of
+ * output @i with pn_node_emit_message_on_output().  Keeps has-output
+ * consistent (TRUE when @n >= 1).  With 2+ outputs the output tabs move
+ * off the header edge into the stacked port section, one row each.
+ */
+void            pn_node_set_n_outputs  (PnNode *self, gint n);
+
+/**
+ * pn_node_get_port_section_height:
+ * @self: the node
+ *
+ * Height of the stacked port section below the header: one
+ * #PN_NODE_INPUT_ROW_HEIGHT row per port on whichever side has more ports,
+ * counting a side only when it has 2+ ports (a lone port stays on the
+ * header edge).  0 for nodes with at most one input and one output.  This
+ * is what the default #PnNodeClass.get_size adds to the header.
+ */
+double          pn_node_get_port_section_height (PnNode *self);
+
+/**
+ * pn_node_get_output_name:
+ * @index: 0-based output index
+ *
+ * Name painted beside output @index of a multi-output node; "out1",
+ * "out2", … unless the node set one with pn_node_set_output_name().
+ * Output names belong to the node type and are not serialized.
+ *
+ * Returns: (transfer none): the output's display name, owned by @self.
+ */
+const gchar *   pn_node_get_output_name (PnNode *self, gint index);
+
+/**
+ * pn_node_set_output_name:
+ * @name: (nullable): display name, or %NULL/empty for the "outN" default
+ */
+void            pn_node_set_output_name (PnNode      *self,
+                                         gint         index,
+                                         const gchar *name);
+
+/**
+ * pn_node_get_output_value_display:
+ * @index: 0-based output index
+ *
+ * Short rendering of the /data/value last emitted on output @index of a
+ * multi-output node (same format as pn_node_get_input_value_display()),
+ * or %NULL when nothing has left by that output yet.  Valid until the
+ * next emission on that output.
+ *
+ * Returns: (transfer none) (nullable): the display string.
+ */
+const gchar *   pn_node_get_output_value_display (PnNode *self, gint index);
+
+/**
+ * pn_node_clear_output_value_displays:
+ *
+ * Forgets every per-output readout, for a node whose outputs were emptied
+ * (e.g. a Shift Register that was reset or resized).
+ */
+void            pn_node_clear_output_value_displays (PnNode *self);
+
+/**
  * pn_node_get_input_name:
  * @self: the node
  * @index: 0-based input index
@@ -1157,6 +1232,30 @@ void            pn_node_request_repaint (PnNode *self);
  * expected to forward the signal to downstream nodes.
  */
 void            pn_node_emit_message   (PnNode *self, PnMessage *message);
+
+/**
+ * pn_node_emit_message_on_output:
+ * @self:    the source node
+ * @message: (transfer none): message to deliver
+ * @output:  index of the output port the message leaves by
+ *
+ * Like pn_node_emit_message() (which is this with @output 0) but sends
+ * @message out of a specific output of a multi-output node.  Only the
+ * wires attached to @output forward it.  The "message" signal still
+ * fires once per emission; a handler learns the port from
+ * pn_node_current_output().
+ */
+void            pn_node_emit_message_on_output (PnNode    *self,
+                                                PnMessage *message,
+                                                gint       output);
+
+/**
+ * pn_node_current_output:
+ *
+ * Index of the output port the message currently being emitted left by.
+ * Only meaningful inside a "message" signal handler; 0 otherwise.
+ */
+gint            pn_node_current_output (void);
 
 /**
  * pn_node_get_last_output_message:

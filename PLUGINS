@@ -308,6 +308,34 @@ single-input case).  Wires created in C address a port with
 `pn_wire_new (source, target)` is the `target_input == 0` shortcut.
 
 
+4b. NODES WITH MORE THAN ONE OUTPUT
+-----------------------------------
+
+The mirror image of 4a.  `pn_node_set_n_outputs (node, N)` in
+`_init` gives the node N output ports (and turns `has_output` on);
+the worksheet stacks the output tabs down the node's right edge,
+named "out1", "out2", ... unless the node renames them with
+`pn_node_set_output_name ()`.  Output names belong to the node type
+and are not saved.
+
+A node sends a message out of a particular output with
+
+    pn_node_emit_message_on_output (node, message, output);  /* 0 .. N-1 */
+
+`pn_node_emit_message ()` is the `output == 0` shortcut, so every
+single-output node keeps working unchanged.  The "message" signal
+still fires once per emission; a handler that needs the port calls
+`pn_node_current_output ()`, which is valid only during the emission.
+Only the wires attached to that output forward the message.
+
+A wire from an output other than 0 stores a `source_output` integer
+in the `connections` array (omitted, and assumed 0, otherwise).  In
+C, `pn_wire_new_ports (source, source_output, target, target_input)`
+addresses both ends; `pn_wire_new_full ()` is its `source_output == 0`
+case.  The core Shift Register (lib/pn-shift-register.c) is the
+worked example.
+
+
 5. BUILDING THE PLUGIN: STANDALONE MAKEFILE
 -------------------------------------------
 

@@ -209,6 +209,9 @@ reload mints a fresh one); node UUIDs are the stable cross-save identity.
 | `Disconnect` | `(s wire_uuid)` | Unknown wire → `WireNotFound`. |
 | `ListWires` | `() → (a(ssis))` rows of `{source_uuid, target_uuid, target_input, wire_uuid}` | A dangling endpoint reads as an empty UUID. |
 | `GetNodeWires` | `(s uuid) → (a(ssis))` | Same row shape, restricted to wires touching `uuid`. |
+| `ConnectPorts` | `(s source, i source_output, s target, i target_input) → (s wire_uuid)` | `Connect` with the source output named too, for multi-output nodes (a Shift Register). Same rejections, plus output out of range. A duplicate is the same source, output, target and input. |
+| `ListPortWires` | `() → (a(sisis))` rows of `{source_uuid, source_output, target_uuid, target_input, wire_uuid}` | Like `ListWires` with the source output. `ListWires` keeps its shape and does not show the output. |
+| `GetNodePortWires` | `(s uuid) → (a(sisis))` | Same row shape, restricted to wires touching `uuid`. |
 
 ### Discovery
 

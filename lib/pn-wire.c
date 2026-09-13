@@ -31,7 +31,7 @@ struct _PnWire
      *  UUID this is a *session* identity: it is the handle the D-Bus
      *  automation API hands back from Connect and addresses in
      *  Disconnect/ListWires (TODO #40.5), and is NOT serialized — a wire
-     *  is fully described on disk by its endpoints + target_input, so a
+     *  is fully described on disk by its endpoints + port indices, so a
      *  reloaded wire simply gets a fresh handle. */
     gchar  *uuid;
 
@@ -39,6 +39,11 @@ struct _PnWire
      *  single-input nodes that make up almost every flow; >0 only when
      *  the target is a multi-input node (see pn_node_get_n_inputs()). */
     gint    target_input;
+
+    /** Which of the source's output ports this wire listens to.  0 for
+     *  every ordinary single-output source; >0 only when the source is a
+     *  multi-output node (see pn_node_get_n_outputs()). */
+    gint    source_output;
 
     /** Handler id of the "message" signal connected on @source, or
      *  0 when not currently subscribed. */
@@ -52,6 +57,7 @@ enum {
     PROP_SOURCE,
     PROP_TARGET,
     PROP_TARGET_INPUT,
+    PROP_SOURCE_OUTPUT,
     N_PROPS,
 };
 
@@ -91,6 +97,11 @@ on_source_message (
     (void) source;
 
     if (self->target == NULL)
+        return;
+
+    /* A multi-output source raises the same "message" signal for every
+     * port; forward only what leaves by the output this wire hangs off. */
+    if (pn_node_current_output () != self->source_output)
         return;
 
     copy = pn_message_clone (message);
@@ -156,6 +167,9 @@ pn_wire_get_property (
     case PROP_TARGET_INPUT:
         g_value_set_int (value, self->target_input);
         break;
+    case PROP_SOURCE_OUTPUT:
+        g_value_set_int (value, self->source_output);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -180,6 +194,9 @@ pn_wire_set_property (
         break;
     case PROP_TARGET_INPUT:
         pn_wire_set_target_input (self, g_value_get_int (value));
+        break;
+    case PROP_SOURCE_OUTPUT:
+        pn_wire_set_source_output (self, g_value_get_int (value));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -237,6 +254,13 @@ pn_wire_class_init (PnWireClass *klass)
             0, G_MAXINT, 0,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_SOURCE_OUTPUT] = g_param_spec_int (
+            "source-output", "Source output",
+            "Index of the source's output port this wire carries (0 unless "
+            "the source is a multi-output node)",
+            0, G_MAXINT, 0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     g_object_class_install_properties (object_class, N_PROPS, props);
 
     /* Emitted each time a message is forwarded across this wire, after
@@ -262,6 +286,7 @@ pn_wire_init (PnWire *self)
     self->target         = NULL;
     self->uuid           = g_uuid_string_random ();
     self->target_input   = 0;
+    self->source_output  = 0;
     self->source_handler = 0;
 }
 
@@ -291,6 +316,43 @@ pn_wire_new_full (
                          "target",       target,
                          "target-input", target_input,
                          NULL);
+}
+
+PnWire *
+pn_wire_new_ports (
+        PnNode *source,
+        gint    source_output,
+        PnNode *target,
+        gint    target_input)
+{
+    return g_object_new (PN_TYPE_WIRE,
+                         "source",        source,
+                         "source-output", source_output,
+                         "target",        target,
+                         "target-input",  target_input,
+                         NULL);
+}
+
+gint
+pn_wire_get_source_output (PnWire *self)
+{
+    g_return_val_if_fail (PN_IS_WIRE (self), 0);
+    return self->source_output;
+}
+
+void
+pn_wire_set_source_output (
+        PnWire *self,
+        gint    source_output)
+{
+    g_return_if_fail (PN_IS_WIRE (self));
+    g_return_if_fail (source_output >= 0);
+
+    if (self->source_output == source_output)
+        return;
+
+    self->source_output = source_output;
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SOURCE_OUTPUT]);
 }
 
 gint

@@ -180,6 +180,20 @@ typedef struct
      * — it is purely a worksheet readout.  Lazily allocated; NULL until
      * first use.  Purely runtime — never serialized. */
     GPtrArray *input_value_str;
+    /* Number of output ports, or 0 to mean "derive from has_output" —
+     * the mirror image of n_inputs.  Only multi-output nodes (the Shift
+     * Register) set it via pn_node_set_n_outputs(). */
+    gint       n_outputs;
+    /* Per-output display names ("out1", … by default; see
+     * pn_node_get_output_name).  Set by the node itself, never by the
+     * user, so — unlike input_names — never serialized.  Lazily
+     * allocated; NULL slot ⇒ use the default. */
+    GPtrArray *output_names;
+    /* Per-output short display of the last /data/value emitted on each
+     * output of a multi-output node, painted by the worksheet beside the
+     * output's name.  Same shape and rules as input_value_str.  Lazily
+     * allocated; purely runtime. */
+    GPtrArray *output_value_str;
     /* Name of the GObject property a node exposes to let the user change
      * its input count (Calculator 2's "inputs"), or NULL when the count
      * is fixed.  Purely a UI hint: the node dialog renders a spin for this
@@ -315,7 +329,7 @@ pn_node_default_get_size (
      * taller body without overriding geometry. */
     if (out_height != NULL)
         *out_height = PN_NODE_DEFAULT_HEIGHT
-                    + pn_node_get_input_section_height (self);
+                    + pn_node_get_port_section_height (self);
 }
 
 static double
@@ -342,7 +356,7 @@ pn_node_default_get_client_area (
      * a header-only multi-input node (comparator, image blends) keeps
      * reporting no client area, exactly as it did when single-height. */
     body_h = h - hh - PN_NODE_PLOT_GAP
-           - pn_node_get_input_section_height (self);
+           - pn_node_get_port_section_height (self);
 
     /* A node has a client area when its footprint extends below the
      * header — the body it fills with its own content (a table's grid,
@@ -508,6 +522,8 @@ pn_node_finalize (GObject *object)
     g_clear_pointer (&priv->input_latch, g_ptr_array_unref);
     g_clear_pointer (&priv->input_value_str, g_ptr_array_unref);
     g_clear_pointer (&priv->input_count_prop, g_free);
+    g_clear_pointer (&priv->output_names, g_ptr_array_unref);
+    g_clear_pointer (&priv->output_value_str, g_ptr_array_unref);
     g_clear_pointer (&priv->log,        g_ptr_array_unref);
     g_clear_object  (&priv->last_output);
     g_mutex_clear   (&priv->processing_lock);
@@ -728,6 +744,7 @@ pn_node_init (PnNode *self)
     priv->has_input  = TRUE;
     priv->has_output = TRUE;
     priv->n_inputs   = 0;   /* 0 ⇒ derive from has_input (single input) */
+    priv->n_outputs  = 0;   /* 0 ⇒ derive from has_output (single output) */
     /* input_latch left NULL — lazily allocated on first latch, and only
      * when a multi-input node opts in via pn_node_set_collate_inputs(). */
     priv->collate_inputs = FALSE;
@@ -759,15 +776,77 @@ pn_node_new (void)
     return g_object_new (PN_TYPE_NODE, NULL);
 }
 
+static gchar *pn_node_format_value_display (PnMessage *message,
+                                             JsonNode  *value);
+
+/* Index of the output port the emission currently being delivered left
+ * by.  Valid for the duration of a "message" signal emission; wires read
+ * it through pn_node_current_output() to forward only their own port's
+ * messages.  Saved/restored around each emission so a nested synchronous
+ * emit (A:out1 → B → B:out0 → …) leaves A's index visible again to A's
+ * remaining handlers. */
+static __thread gint pn_node_current_output_idx = 0;
+
+/* Update the worksheet readout for output @output of a multi-output node
+ * from the /data/value of @message.  No-op for single-output nodes. */
+static void
+pn_node_latch_output (
+        PnNode    *self,
+        PnMessage *message,
+        gint       output)
+{
+    PnNodePrivate *priv = pn_node_get_instance_private (self);
+    const gint     n    = pn_node_get_n_outputs (self);
+    gchar         *disp;
+    gchar         *old;
+
+    if (n < 2 || output < 0 || output >= n)
+        return;
+
+    if (priv->output_value_str == NULL)
+        priv->output_value_str = g_ptr_array_new_with_free_func (g_free);
+    while ((gint) priv->output_value_str->len < n)
+        g_ptr_array_add (priv->output_value_str, NULL);
+
+    disp = pn_node_format_value_display (
+            message, pn_message_get_member (message, "value"));
+    old  = priv->output_value_str->pdata[output];
+    if (g_strcmp0 (old, disp) == 0)
+    {
+        g_free (disp);
+        return;
+    }
+    g_free (old);
+    priv->output_value_str->pdata[output] = disp;   /* may be NULL */
+    pn_node_request_repaint (self);
+}
+
 void
 pn_node_emit_message (
         PnNode    *self,
         PnMessage *message)
 {
+    pn_node_emit_message_on_output (self, message, 0);
+}
+
+gint
+pn_node_current_output (void)
+{
+    return pn_node_current_output_idx;
+}
+
+void
+pn_node_emit_message_on_output (
+        PnNode    *self,
+        PnMessage *message,
+        gint       output)
+{
     PnNodePrivate *priv;
+    gint           prev_output;
 
     g_return_if_fail (PN_IS_NODE (self));
     g_return_if_fail (PN_IS_MESSAGE (message));
+    g_return_if_fail (output >= 0);
 
     /* A disabled node is inert: drop the message before any wire sees
      * it so downstream nodes stay idle. */
@@ -793,7 +872,12 @@ pn_node_emit_message (
     priv->last_output = pn_message_clone (message);
     pn_message_set_source (priv->last_output, NULL);
 
+    pn_node_latch_output (self, message, output);
+
+    prev_output = pn_node_current_output_idx;
+    pn_node_current_output_idx = output;
     g_signal_emit (self, signals[SIG_MESSAGE], 0, message);
+    pn_node_current_output_idx = prev_output;
 }
 
 PnMessage *
@@ -1292,6 +1376,126 @@ pn_node_get_input_section_height (PnNode *self)
     if (n <= 1)
         return 0.0;
     return (double) n * PN_NODE_INPUT_ROW_HEIGHT;
+}
+
+gint
+pn_node_get_n_outputs (PnNode *self)
+{
+    PnNodePrivate *priv;
+    g_return_val_if_fail (PN_IS_NODE (self), 0);
+    priv = pn_node_get_instance_private (self);
+    if (priv->n_outputs > 0)
+        return priv->n_outputs;
+    return priv->has_output ? 1 : 0;
+}
+
+void
+pn_node_set_n_outputs (
+        PnNode *self,
+        gint    n)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    g_return_if_fail (n >= 0);
+
+    priv = pn_node_get_instance_private (self);
+    if (priv->n_outputs == n)
+        return;
+
+    priv->n_outputs = n;
+    if (priv->output_value_str != NULL &&
+        (gint) priv->output_value_str->len > n)
+        g_ptr_array_set_size (priv->output_value_str, n);
+    pn_node_set_has_output (self, n >= 1);
+}
+
+double
+pn_node_get_port_section_height (PnNode *self)
+{
+    gint n_in, n_out, rows;
+
+    g_return_val_if_fail (PN_IS_NODE (self), 0.0);
+
+    /* A side with a single port keeps it on the header edge and needs no
+     * row; a side with 2+ ports needs one row each.  Both sides share the
+     * same rows, so the section is as tall as the longer side. */
+    n_in  = pn_node_get_n_inputs  (self);
+    n_out = pn_node_get_n_outputs (self);
+    rows  = MAX (n_in  >= 2 ? n_in  : 0,
+                 n_out >= 2 ? n_out : 0);
+    return (double) rows * PN_NODE_INPUT_ROW_HEIGHT;
+}
+
+const gchar *
+pn_node_get_output_name (PnNode *self, gint index)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+    g_return_val_if_fail (index >= 0, NULL);
+
+    priv = pn_node_get_instance_private (self);
+    if (priv->output_names == NULL)
+        priv->output_names = g_ptr_array_new_with_free_func (g_free);
+    while ((gint) priv->output_names->len <= index)
+        g_ptr_array_add (priv->output_names, NULL);
+
+    if (priv->output_names->pdata[index] == NULL)
+        priv->output_names->pdata[index] =
+                g_strdup_printf ("out%d", index + 1);
+
+    return priv->output_names->pdata[index];
+}
+
+void
+pn_node_set_output_name (
+        PnNode      *self,
+        gint         index,
+        const gchar *name)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+    g_return_if_fail (index >= 0);
+
+    /* Materialise the slot (and the array) through the getter, then
+     * replace it; NULL/"" falls back to the "outN" default on next read. */
+    (void) pn_node_get_output_name (self, index);
+    priv = pn_node_get_instance_private (self);
+    g_free (priv->output_names->pdata[index]);
+    priv->output_names->pdata[index] =
+            (name != NULL && *name != '\0') ? g_strdup (name) : NULL;
+    pn_node_request_repaint (self);
+}
+
+const gchar *
+pn_node_get_output_value_display (PnNode *self, gint index)
+{
+    PnNodePrivate *priv;
+
+    g_return_val_if_fail (PN_IS_NODE (self), NULL);
+
+    priv = pn_node_get_instance_private (self);
+    if (index < 0 || priv->output_value_str == NULL ||
+        index >= (gint) priv->output_value_str->len)
+        return NULL;
+
+    return priv->output_value_str->pdata[index];   /* borrowed; may be NULL */
+}
+
+void
+pn_node_clear_output_value_displays (PnNode *self)
+{
+    PnNodePrivate *priv;
+
+    g_return_if_fail (PN_IS_NODE (self));
+
+    priv = pn_node_get_instance_private (self);
+    if (priv->output_value_str == NULL || priv->output_value_str->len == 0)
+        return;
+    g_ptr_array_set_size (priv->output_value_str, 0);
+    pn_node_request_repaint (self);
 }
 
 /* Grow priv->input_names so index @n-1 is addressable, padding new slots

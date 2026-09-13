@@ -114,7 +114,10 @@ method that works before a document exists). Current: **1.2**.
   every pair is validated first, so one bad pair leaves the node untouched.
 - **Booleans ride on `data.value`** as `0.0` (off) / `1.0` (on); test "on" with
   `value > 0.5`. Same encoding when injecting/reading messages.
-- **Connections are port-aware.** `Connect(source, target, target_input)`.
+- **Connections are port-aware.** `Connect(source, target, target_input)`;
+  for a multi-output source (Shift Register) use
+  `ConnectPorts(source, source_output, target, target_input)` and read wires
+  back with `ListPortWires` (plain `ListWires` omits the output index).
   Illegal wires (self-loop, no-output source, no-input target, input index out
   of range, duplicate) all raise `IllegalConnection`.
 - **Every failure is a real D-Bus error**, never a silent false. Domain
