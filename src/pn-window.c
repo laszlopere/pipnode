@@ -27,6 +27,7 @@
 #include "pn-document-settings-dialog.h"
 #include "pn-credentials-dialog.h"
 #include "pn-node-dialog.h"
+#include "pn-file-chooser-entry.h"
 
 #include <json-glib/json-glib.h>
 
@@ -5209,6 +5210,16 @@ pn_window_get_dialog_editor_text (PnWindow *self, const gchar *prop)
     if (GTK_IS_ENTRY (editor))
         return g_strdup (gtk_entry_get_text (GTK_ENTRY (editor)));
 
+    /* The file-path editor is an entry plus a browse button in a box. */
+    if (PN_IS_FILE_CHOOSER_ENTRY (editor))
+        return g_strdup (pn_file_chooser_entry_get_text (
+                PN_FILE_CHOOSER_ENTRY (editor)));
+
+    /* A combo reports the label of its active item. */
+    if (GTK_IS_COMBO_BOX_TEXT (editor))
+        return gtk_combo_box_text_get_active_text (
+                GTK_COMBO_BOX_TEXT (editor));
+
     return NULL;
 }
 
@@ -5258,6 +5269,36 @@ pn_window_set_dialog_editor_text (PnWindow    *self,
     {
         gtk_entry_set_text (GTK_ENTRY (editor), text != NULL ? text : "");
         return TRUE;
+    }
+    if (PN_IS_FILE_CHOOSER_ENTRY (editor))
+    {
+        pn_file_chooser_entry_set_text (PN_FILE_CHOOSER_ENTRY (editor), text);
+        return TRUE;
+    }
+    if (GTK_IS_COMBO_BOX_TEXT (editor))
+    {
+        /* Pick the item whose label is @text, as a user would. */
+        GtkTreeModel *model = gtk_combo_box_get_model (GTK_COMBO_BOX (editor));
+        GtkTreeIter   iter;
+        gint          col   = gtk_combo_box_get_entry_text_column (
+                GTK_COMBO_BOX (editor));
+        gboolean      more;
+
+        for (more = gtk_tree_model_get_iter_first (model, &iter); more;
+             more = gtk_tree_model_iter_next (model, &iter))
+        {
+            gchar   *label = NULL;
+            gboolean hit;
+
+            gtk_tree_model_get (model, &iter, col, &label, -1);
+            hit = g_strcmp0 (label, text) == 0;
+            g_free (label);
+            if (hit)
+            {
+                gtk_combo_box_set_active_iter (GTK_COMBO_BOX (editor), &iter);
+                return TRUE;
+            }
+        }
     }
     return FALSE;
 }

@@ -21,6 +21,8 @@ TESTS = \
 	test_multi_worksheet.py \
 	test_node_dialog_dial.py \
 	test_node_dialog_led.py \
+	test_pipe_nodes_editor.py \
+	test_pipe_writer_reader.py \
 	test_plugin_load.py \
 	test_plugin_gui_companion.py \
 	test_devices_menu_providers.py \

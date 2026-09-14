@@ -1410,10 +1410,12 @@
        [x] 68.5 Unit tests tests/unit/test-pn-pipe-reader.c and
              test-pn-pipe-writer.c (incl. slow-reader queue/drain and a
              writer -> FIFO -> reader JSON round trip).
-       [ ] 68.6 GUI check by the user: both nodes in the palette (Sources /
-             Sinks), the settings tab shows the file chooser + format combo,
-             red until a path is set, `echo hi > fifo` lights a Pipe Reader,
-             `cat fifo` shows a Pipe Writer's lines.
+       [x] 68.6 GUI check: both nodes in the palette (Sources / Sinks), the
+             settings tab shows the file chooser + format combo, red until a
+             path is set, `echo hi > fifo` lights a Pipe Reader, `cat fifo`
+             shows a Pipe Writer's lines. Covered by
+             tests/test_pipe_nodes_editor.py (68.9); only the red painting
+             and the browse button's file chooser are left to the eye.
        [ ] 68.7 Candidate follow-up: surface the writer's dropped-message
              count on the node (it is only an API accessor today).
        [x] 68.8 "~" in file-path settings: lib/pn-path.[ch]
@@ -1423,6 +1425,13 @@
              profile identity file and the HTTPS Tunnel Receiver cert/key
              paths. tests/unit/test-pn-path.c; PLUGINS section 12 gotcha;
              help pages.
+       [x] 68.9 Functional tests: tests/test_pipe_writer_reader.py (headless
+             pipnode-run, AutoInjector -> Pipe Writer -> FIFO -> Pipe Reader
+             -> Debug in both formats) and tests/test_pipe_nodes_editor.py
+             (editor over D-Bus: palette, error state, dialog editors, the
+             test script as the outside echo / cat). GetDialogEditorText /
+             SetDialogEditorText now also drive PnFileChooserEntry and
+             GtkComboBoxText editors.
 
 [x] 69 Clock Divider node -- one tick input, N outputs (2..16, "outputs"),
        built on the #66 multi-output ports. Output k fires on every

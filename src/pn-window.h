@@ -246,8 +246,8 @@ gboolean     pn_window_select_dialog_page (PnWindow *self, guint index);
  * @prop: the GObject property name whose editor to read
  *
  * Returns: (transfer full) (nullable): the text shown in the editor
- *   widget the dialog built for @prop (entries and numeric spinners),
- *   or %NULL when no test dialog is open, the editor is not found, or
+ *   widget the dialog built for @prop (entries, numeric spinners and
+ *   file-path entries; the active item's label for a combo), or %NULL when no test dialog is open, the editor is not found, or
  *   the editor is not text-shaped.  Free with g_free().
  */
 gchar       *pn_window_get_dialog_editor_text (PnWindow    *self,
@@ -276,8 +276,9 @@ gboolean     pn_window_get_dialog_editor_sensitive (PnWindow    *self,
  *
  * Drives the editor widget for @prop as a user would, letting the
  * dialog's bidirectional binding write the value through to the node.
- * Spinners parse @text as a number.  Returns %FALSE when no test
- * dialog is open, the editor is not found, or it is not text-shaped.
+ * Spinners parse @text as a number; a combo selects the item labelled
+ * @text.  Returns %FALSE when no test dialog is open, the editor is not
+ * found, it is not text-shaped, or no combo item carries that label.
  */
 gboolean     pn_window_set_dialog_editor_text (PnWindow    *self,
                                                const gchar *prop,
