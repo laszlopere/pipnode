@@ -43,6 +43,7 @@
 #include "pn-pipe-writer.h"
 #include "pn-dedup.h"
 #include "pn-delay.h"
+#include "pn-tapped-delay.h"
 #include "pn-dial.h"
 #include "pn-edge.h"
 #include "pn-ethereum-profile.h"
@@ -288,6 +289,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_COMPARATOR);
     pn_node_factory_register (self, PN_TYPE_DEDUP);
     pn_node_factory_register (self, PN_TYPE_DELAY);
+    pn_node_factory_register (self, PN_TYPE_TAPPED_DELAY);
     pn_node_factory_register (self, PN_TYPE_EDGE);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION2);

@@ -1441,24 +1441,36 @@
        [ ] 69.5 Unit tests (tests/unit/test-pn-clock-divider.c).
        [ ] 69.6 GUI check by the user.
 
-[ ] 70 Tapped Delay node -- one input, N outputs (2..16, "outputs"). Every
+[x] 70 Tapped Delay node -- one input, N outputs (2..16, "outputs"). Every
        arriving message is forwarded unchanged on each output, output k after
        k * "step-ms" milliseconds (output 1 after one step, output N after N
        steps). A time-staggered fan-out: cascading light chases, staggered
        device start-up, echo effects. Unlike the Shift Register (shifts by
        message count) this shifts by time; unlike Delay, one message yields N
        spaced copies. Core, Filters/Timing.
-       [ ] 70.1 lib/pn-tapped-delay.[ch]: one pending timer per (message,
+       [x] 70.1 lib/pn-tapped-delay.[ch]: one pending timer per (message,
              output), order preserved per output, all timers cancelled in
-             dispose and when "outputs" / "step-ms" change.
-       [ ] 70.2 Decide: optional "output 0 = immediate" toggle (k * step
-             counted from 0) -- default off.
-       [ ] 70.3 Settings (outputs, step-ms); output names show the delay
-             ("100 ms", "200 ms", ...).
-       [ ] 70.4 Factory registration, help page, pipnode-nodes skill.
-       [ ] 70.5 Unit tests (tests/unit/test-pn-tapped-delay.c), driven through
-             a main loop with a short step.
-       [ ] 70.6 GUI check by the user.
+             dispose. Lowering "outputs" cancels only the copies for the
+             removed outputs; a "step-ms" change applies to later messages
+             (armed copies keep their schedule, same as Delay). Each
+             emission is a fresh clone. Default step 250 ms, 4 outputs,
+             Delay's yellow, fa-hourglass-start.
+       [x] 70.2 Decided: no "immediate output" toggle -- a wire straight
+             from the source gives the undelayed copy.
+       [x] 70.3 Settings (outputs, step-ms) as plain properties, no gui
+             tier; output names show the delay ("250 ms", ..., "1.5 s").
+       [x] 70.4 Factory registration, help page PnTappedDelay.html,
+             pipnode-nodes skill (filters-reshape-timing.md).
+       [x] 70.5 Unit tests (tests/unit/test-pn-tapped-delay.c), driven through
+             a main loop with a short step: timing, order, burst, zero step,
+             shrink, step change, dispose.
+       [x] 70.7 Example examples/controls-and-logic/tapped-delay.json: an
+             Inject button sweeps six Flash-mode LEDs 150 ms apart. Routing
+             verified headless through pipnode-run (outputs 1, 2, 3 in
+             order per message).
+       [x] 70.6 GUI check by the user: node in Filters/Timing, output
+             labels follow outputs / step-ms edits, the example's LED sweep.
+             Verified; example node positions tidied by the user.
 
 [ ] 71 Round Robin node -- one input, N outputs (2..16, "outputs"). Each
        arriving message leaves unchanged on the next output in turn, wrapping

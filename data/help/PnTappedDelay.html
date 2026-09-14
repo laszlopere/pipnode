@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tapped Delay (PnTappedDelay) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnTappedDelay">Tapped Delay</h4>
+<p>
+<em>Group:</em> Filters/Timing. <em>Type:</em> <code>PnTappedDelay</code>.
+</p>
+<p>
+A time-staggered fan-out. It has one input and a configurable number of
+outputs. Every arriving message is sent, unchanged, out of each output
+in turn: output 1 after one step, output 2 after two steps, and so on,
+where a step is <code>step-ms</code> milliseconds. With a 250&nbsp;ms
+step and four outputs:
+</p>
+<table>
+  <tr><th>Output</th><th>Sends the message after</th></tr>
+  <tr><td>out 1</td><td>250 ms</td></tr>
+  <tr><td>out 2</td><td>500 ms</td></tr>
+  <tr><td>out 3</td><td>750 ms</td></tr>
+  <tr><td>out 4</td><td>1 s</td></tr>
+</table>
+<p>
+Each output is labelled with its delay on the worksheet, and shows the
+value it sent last. Use it for a running-light chase, to start several
+devices one after another instead of all at once, or for an echo. A
+single wire straight from the source gives you an undelayed copy as
+well.
+</p>
+<p>
+Compare <em>Delay</em>, which forwards each message once after a fixed
+time, and <em>Shift Register</em>, which shifts by message count rather
+than by time.
+</p>
+<p>
+Nothing is dropped or merged: a burst of messages arrives on every
+output as the same burst, in the same order, shifted later.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of outputs, 2&ndash;16. Default <code>4</code>. Lowering
+          it drops the copies still waiting for the removed outputs;
+          wires on outputs that no longer exist stop carrying
+          messages.</td></tr>
+  <tr><td><code>step-ms</code></td>
+      <td>Milliseconds between consecutive outputs, 0&ndash;3600000
+          (one hour). Default <code>250</code>. A change applies to
+          messages that arrive afterwards; copies already waiting keep
+          their original timing. With <code>0</code> every output fires
+          on the next pass of the main loop, output 1 first.</td></tr>
+</table>
+<p>
+Waiting copies are runtime state: they are not saved with the
+worksheet, and they are discarded when the node is deleted.
+</p>
+
+</body>
+</html>

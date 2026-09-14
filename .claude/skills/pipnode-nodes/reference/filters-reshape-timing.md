@@ -180,6 +180,24 @@ Filter nodes sit mid-flow with both an input and an output port: they receive a 
 
 **Gotchas** — Independent per-message timers mean concurrency is unbounded (one source per in-flight message). Changing `delay-ms` only affects newly-arriving messages; already-armed timers keep their original schedule (`lib/pn-delay.c:151`). Messages still waiting when the node is disposed are **discarded, not forwarded** (`pn_delay_dispose` cancels every timer, `lib/pn-delay.c:173`).
 
+## Tapped Delay
+
+**Purpose** — Time-staggered fan-out: one input, `outputs` outputs; every arriving message is forwarded unchanged on output k after k × `step-ms`. (`lib/pn-tapped-delay.c`, palette group **Filters/Timing**)
+
+**When to use** — Running-light chases, staggered device start-up, echoes: one trigger, N spaced copies. Contrast **Delay** (one copy after a fixed time) and **Shift Register** (shifts by message count, not time). Wire the source straight to the target too if you also want an undelayed copy.
+
+**Ports** — 1 input; `outputs` outputs, stacked down the right edge and labelled with their delay (`250 ms`, `500 ms`, … `1.5 s`). Wire a specific output with `ConnectPorts` over D-Bus; on disk the wire carries `source_output`.
+
+**Settings**
+- `outputs` (int, `2`..`16`, default `4`) — tap count. Shrinking cancels the copies still waiting for removed outputs.
+- `step-ms` (uint, `0`..`3600000`, default `250`) — ms between consecutive outputs. A change applies to later messages only; armed copies keep their schedule.
+
+**Behaviour** — On receive the message is cloned once (source cleared) and one `g_timeout_add_full` timer is armed per output, deadline `step-ms × (k+1)`. When a timer fires, a fresh clone (source = the Tapped Delay) is emitted with `pn_node_emit_message_on_output`. Equal deadlines fire in arrival order, so a burst keeps its order on each output. `step-ms = 0` still defers to the next main-loop iteration, output 1 first. `pn_tapped_delay_get_n_pending()` reports waiting copies.
+
+**Writes** — Nothing; messages go out verbatim (topic and all `data.*`).
+
+**Gotchas** — Timer count is messages-in-flight × outputs (unbounded). Waiting copies are runtime state: not saved, and discarded (not forwarded) when the node is disposed. Example: `examples/controls-and-logic/tapped-delay.json`.
+
 ## Shift Register
 
 **Purpose** — Open-ended (non-looping) shift register of whole messages: one input, `outputs` outputs, one per stage. (`lib/pn-shift-register.c`, palette group **CPU**)

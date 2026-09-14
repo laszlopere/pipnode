@@ -85,6 +85,7 @@ pnhelp_DATA = \
 	help/PnTable.html \
 	help/PnTableModel.html \
 	help/PnTableView.html \
+	help/PnTappedDelay.html \
 	help/PnText.html \
 	help/PnTextView.html \
 	help/PnTopic.html \
