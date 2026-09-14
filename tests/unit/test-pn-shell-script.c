@@ -174,8 +174,8 @@ test_output_format_round_trip (void)
 static void
 test_schema_code_editor (void)
 {
-    /* The class declares two tabs: a "Settings" tab (output mode +
-     * host + SSH login) first, then a "Script" tab whose sole row edits
+    /* The class declares two tabs: a "Settings" tab (SSH login +
+     * host + output mode) first, then a "Script" tab whose sole row edits
      * the body as a full-width `sh`-highlighted code editor — its own
      * last page.  The schema is GTK-free data, so this needs no GUI. */
     PnShellScript    *s      = pn_shell_script_new ();
@@ -186,15 +186,15 @@ test_schema_code_editor (void)
     PN_CHECK (pn_settings_schema_has_tabs (schema));
     PN_CHECK_CMPINT (pn_settings_schema_get_n_tabs (schema), ==, 2);
 
-    /* Tab 0 — "Settings": output mode + where/how to connect. */
+    /* Tab 0 — "Settings": where/how to connect, then output mode. */
     PN_CHECK_CMPSTR (pn_settings_schema_get_tab_title (schema, 0),
                      ==, "Settings");
     PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 0),
-                     ==, "output-format");
+                     ==, "auth-profile");
     PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 1),
                      ==, "host");
     PN_CHECK_CMPSTR (pn_settings_schema_row_prop (schema, 0, 2),
-                     ==, "auth-profile");
+                     ==, "output-format");
 
     /* Tab 1 — "Script": the code editor alone, full width, `sh`-lit. */
     PN_CHECK_CMPSTR (pn_settings_schema_get_tab_title (schema, 1),
