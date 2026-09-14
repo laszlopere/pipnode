@@ -101,6 +101,27 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 ---
 
+## Value Router
+
+**Purpose** — Routes each message by a number it carries: one input, `outputs` outputs, one rule per output; the message leaves unchanged by the **first** output whose rule matches the number at `path`, or is dropped. (`lib/pn-value-router.c`; GUI tab in `lib/pn-value-router-gui.c`)
+
+**When to use** — Numeric branching: opcode dispatch (see `examples/controls-and-logic/toy-cpu-accumulator.json`, where two routers on `path = op` replace nine Filters), temperature bands, error-code classes. Replaces a fan of Filter nodes each testing one member. **Topic Demux** routes on the topic instead; **Filter** when one pass/block decision needs several ANDed conditions or string comparisons; **Threshold** for a hysteretic on/off on one level.
+
+**Ports** — 1 input; `outputs` outputs, each labelled with its rule (`== 3`, `10..20`, `else`; `outN` when unused). Wire a specific output with `ConnectPorts` / `source_output`.
+
+**Settings**
+- `outputs` (int, `2`..`16`, default `3`).
+- `path` (string, default `"value"`) — data-bag member holding the number; dotted path (`status.level`) descends nested objects. Blank resets to `value`.
+- `rules` (string, default `"[]"`) — JSON array, index = output: `{"op":"<"|"<="|"=="|"!="|">="|">","value":N}`, `{"op":"range","low":A,"high":B}` (inclusive), `{"op":"else"}` (matches everything), `{}`/unknown op = unused (matches nothing). 16 slots kept across shrink; trailing unused trimmed on save; numbers saved as doubles (`3.0`). Dialog: outputs spin, path entry, one row per output (operator combo `unused < ≤ = ≠ ≥ > between otherwise` + number entry/entries).
+
+**Behaviour** — Reads the number (JSON int/double; boolean → 1.0/0.0; string/missing/object → "no number"). Rules tried in output order; no number matches only `else`. Exact `==` on doubles (fine for integer-valued data like opcodes). The matched message object is emitted as-is (like Topic Demux / Filter). Pure seam `pn_value_router_route_number(self, has_number, number)` for tests.
+
+**Writes** — Nothing.
+
+**Gotchas** — First match wins: put `else` last, narrow ranges before wide ones. Only one output fires per message. There is no separate "otherwise" port — an `else` rule on any output plays that role, so its index never shifts when `outputs` changes.
+
+---
+
 ## Round Robin
 
 **Purpose** — Deals messages out to its outputs in turn: inputs `in` and `reset`, `outputs` outputs; each message on `in` leaves unchanged by the next output, wrapping after the last. (`lib/pn-round-robin.c`)

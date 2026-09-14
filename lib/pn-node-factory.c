@@ -107,6 +107,7 @@
 #include "pn-topic.h"
 #include "pn-topic-demux.h"
 #include "pn-round-robin.h"
+#include "pn-value-router.h"
 #include "pn-tts.h"
 #include "pn-value.h"
 #include "pn-watchdog.h"
@@ -312,6 +313,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_TOPIC);
     pn_node_factory_register (self, PN_TYPE_TOPIC_DEMUX);
     pn_node_factory_register (self, PN_TYPE_ROUND_ROBIN);
+    pn_node_factory_register (self, PN_TYPE_VALUE_ROUTER);
     pn_node_factory_register (self, PN_TYPE_VALUE);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);
@@ -324,8 +326,8 @@ register_builtins (PnNodeFactory *self)
     /* CPU building blocks — a wire-writable register, a self-advancing
      * counter (the program counter), a read/write RAM, and a value-
      * selected multiplexer.  Enough, with PROM (program), Calculator
-     * (ALU) and Filter (opcode dispatch), to wire an ultra-primitive
-     * clocked CPU on a worksheet. */
+     * (ALU) and Value Router (opcode dispatch), to wire an ultra-
+     * primitive clocked CPU on a worksheet. */
     pn_node_factory_register (self, PN_TYPE_REGISTER);
     pn_node_factory_register (self, PN_TYPE_SHIFT_REGISTER);
     pn_node_factory_register (self, PN_TYPE_CLOCK_DIVIDER);

@@ -96,6 +96,7 @@ pnhelp_DATA = \
 	help/PnThrottle.html \
 	help/PnTts.html \
 	help/PnValue.html \
+	help/PnValueRouter.html \
 	help/PnWatchdog.html \
 	help/PnWeather.html \
 	help/PnWeatherReport.html

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Value Router (PnValueRouter) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnValueRouter">Value Router</h4>
+<p>
+<em>Group:</em> Filters/Gate. <em>Type:</em> <code>PnValueRouter</code>.
+</p>
+<p>
+Routes each message by a number it carries. It has one input and a
+configurable number of outputs, each with one rule. The node reads
+<code>data.value</code> (or the member named by <code>path</code>) from
+every arriving message and sends the message, unchanged, out of the
+<em>first</em> output whose rule matches. A message no rule matches is
+dropped. For example, sorting temperatures:
+</p>
+<table>
+  <tr><th>Output</th><th>Rule</th><th>Gets</th></tr>
+  <tr><td>out1</td><td>&lt; 0</td><td>freezing readings</td></tr>
+  <tr><td>out2</td><td>between 0 and 25</td><td>0 to 25, both included</td></tr>
+  <tr><td>out3</td><td>otherwise</td><td>everything else, including
+      messages without a number</td></tr>
+</table>
+<p>
+A rule is one of:
+</p>
+<ul>
+  <li><code>&lt;</code>, <code>&le;</code>, <code>=</code>,
+      <code>&ne;</code>, <code>&ge;</code>, <code>&gt;</code> and a
+      number;</li>
+  <li><em>between</em> a low and a high number, both ends included;</li>
+  <li><em>otherwise</em>, which matches every message &mdash; because
+      the first match wins, put it on the last output to catch what the
+      other outputs did not claim;</li>
+  <li><em>unused</em>, which matches nothing.</li>
+</ul>
+<p>
+Booleans count as 1 (true) and 0 (false). A message whose member is
+missing, or holds text rather than a number, matches only an
+<em>otherwise</em> rule. Each output is labelled with its rule on the
+worksheet (<code>== 3</code>, <code>0..25</code>, <code>else</code>).
+</p>
+<p>
+Use <em>Topic Demux</em> to route on the message topic instead, and
+<em>Filter</em> when a single yes/no decision needs several conditions
+or a text comparison.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of outputs, 2&ndash;16. Default <code>3</code>. Lowering
+          it keeps the rules of the removed outputs, so raising it again
+          brings them back; wires on outputs that no longer exist stop
+          carrying messages.</td></tr>
+  <tr><td><code>path</code></td>
+      <td>The data member holding the number. Default
+          <code>value</code>. A dotted path such as
+          <code>status.level</code> reaches into nested objects.</td></tr>
+  <tr><td><code>rules</code></td>
+      <td>One rule per output, edited in the settings dialog. Saved as a
+          JSON array, for example
+          <code>[{"op":"&lt;","value":0},{"op":"range","low":0,"high":25},{"op":"else"}]</code>;
+          <code>{}</code> is an unused output.</td></tr>
+</table>
+
+</body>
+</html>

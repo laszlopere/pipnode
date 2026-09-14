@@ -30,6 +30,7 @@
 #include "pn-countdown-gui.h"
 #include "pn-daily-timer-gui.h"
 #include "pn-topic-demux-gui.h"
+#include "pn-value-router-gui.h"
 #include "pn-digital-clock-gui.h"
 #include "pn-dial-gui.h"
 #include "pn-file-viewer-gui.h"
@@ -105,6 +106,7 @@ pn_gui_install_builtin_nodes (void)
     pn_table_view_gui_install ();
     pn_text_view_gui_install ();
     pn_topic_demux_gui_install ();
+    pn_value_router_gui_install ();
     pn_tts_gui_install ();
     pn_weather_report_gui_install ();
 

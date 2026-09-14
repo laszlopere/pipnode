@@ -739,7 +739,8 @@
        UPDATE: #67 Topic Demux covers the topic-glob case (the power.json /
        tasmota-socket.json pattern). Value-test and success routing are
        still open.
-       UPDATE: value-test routing is planned as #72 Value Router.
+       UPDATE: value-test routing is done as #72 Value Router (success
+       routing too: path "success", == 1 / == 0).
 
        Related, deliberately NOT split out as entries: the expression language
        has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
@@ -1508,24 +1509,39 @@
        [x] 71.4 GUI check by the user: node in Filters/Gate, the example's
              LEDs light in turn, Reset restarts at output 1.
 
-[ ] 72 Value Router node -- the value-test half of the #56 Router (#67 Topic
+[x] 72 Value Router node -- the value-test half of the #56 Router (#67 Topic
        Demux did the topic half). One input, N outputs (2..16, "outputs"),
        one rule per output testing data.value (or a configurable data-bag
        path): < <= == != >= > against a number, or an inclusive range. A
        message leaves unchanged by the FIRST output whose rule matches; an
        optional "otherwise" last output catches the rest (else dropped).
        Core, Filters/Gate, Filter's yellow, same look as Topic Demux.
-       [ ] 72.1 lib/pn-value-router.[ch]: rule list as a JSON array property,
-             16 fixed slots, pure seam pn_value_router_route(); non-numeric
-             or missing value matches only "otherwise".
-       [ ] 72.2 Decide: "first match" only, or also an "all matches" mode
-             (fan out to every matching output).
-       [ ] 72.3 Gui tier: outputs spin + one rule row per output (operator
-             combo + number, or low/high for a range), "otherwise" check;
-             output names follow the rules ("< 10", "10..20", "else").
-       [ ] 72.4 Factory registration, help page, pipnode-nodes skill.
-       [ ] 72.5 Unit tests (tests/unit/test-pn-value-router.c).
-       [ ] 72.6 GUI check by the user.
+       [x] 72.1 lib/pn-value-router.[ch]: "rules" JSON array in 16 fixed
+             slots, "path" (default value, dotted paths descend), pure seam
+             pn_value_router_route_number(); booleans read as 1/0, a
+             missing or non-numeric member matches only "else". Filter's
+             yellow, fa-share-alt.
+       [x] 72.2 Decided: first match only (fan-out is a wire away). And no
+             separate "otherwise" port: an {"op":"else"} rule on any output
+             does that job, so no output index shifts when the count
+             changes and no wire silently changes meaning.
+       [x] 72.3 Gui tier pn-value-router-gui.c: outputs spin, path entry,
+             one row per output (operator combo + one number entry, two
+             for "between"); output names follow the rules ("== 3",
+             "10..20", "else").
+       [x] 72.4 Factory registration, help page PnValueRouter.html,
+             pipnode-nodes skill (filters-gate-compute.md).
+       [x] 72.5 Unit tests (tests/unit/test-pn-value-router.c): operators,
+             range ends, first match + else, path / nested / boolean,
+             unchanged forwarding, JSON round trip + names, notify.
+       [x] 72.7 Example: examples/controls-and-logic/toy-cpu-accumulator.json
+             now dispatches opcodes with two Value Routers on path "op"
+             (Opcode: 6 outputs after Decode; Execute: 3 outputs after
+             ACC) instead of nine Filters -- 29 nodes down to 22. Headless
+             pipnode-run prints the same 13, 5, 13, ... as before.
+       [x] 72.6 GUI check by the user: node in Filters/Gate, the rule rows
+             (combo shows/hides the number fields, editing relabels the
+             output), and the simplified CPU example running.
 
 [ ] 73 Value Trend node -- rising / falling split on data.value. One input,
        two outputs: "rising" (1) gets the message when data.value is greater
