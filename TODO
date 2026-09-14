@@ -739,6 +739,7 @@
        UPDATE: #67 Topic Demux covers the topic-glob case (the power.json /
        tasmota-socket.json pattern). Value-test and success routing are
        still open.
+       UPDATE: value-test routing is planned as #72 Value Router.
 
        Related, deliberately NOT split out as entries: the expression language
        has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
@@ -1421,3 +1422,88 @@
              profile identity file and the HTTPS Tunnel Receiver cert/key
              paths. tests/unit/test-pn-path.c; PLUGINS section 12 gotcha;
              help pages.
+
+[ ] 69 Clock Divider node -- one tick input, N outputs (2..16, "outputs"),
+       built on the #66 multi-output ports. Output k fires on every
+       divisor(k)-th arriving message; the default divisors are powers of two
+       (output 1 = /2, output 2 = /4, ...), each editable ("divisors", a JSON
+       array, fixed slots like Topic Demux so shrinking keeps the values). A
+       reset input zeroes the count. Lets one Auto Trigger drive fast and slow
+       chains at once. Core, CPU group.
+       [ ] 69.1 lib/pn-clock-divider.[ch]: shared tick counter, pure seam
+             "which outputs fire at count n", reset input (silent).
+       [ ] 69.2 Emission order: slowest output first, output 1 last (same
+             rule as the Shift Register), so a downstream multi-input node
+             triggered from the fast output already sees the slow ones.
+       [ ] 69.3 Gui tier: outputs spin + one divisor spin per output; output
+             names follow the divisors ("/2", "/4", ...).
+       [ ] 69.4 Factory registration, help page, pipnode-nodes skill.
+       [ ] 69.5 Unit tests (tests/unit/test-pn-clock-divider.c).
+       [ ] 69.6 GUI check by the user.
+
+[ ] 70 Tapped Delay node -- one input, N outputs (2..16, "outputs"). Every
+       arriving message is forwarded unchanged on each output, output k after
+       k * "step-ms" milliseconds (output 1 after one step, output N after N
+       steps). A time-staggered fan-out: cascading light chases, staggered
+       device start-up, echo effects. Unlike the Shift Register (shifts by
+       message count) this shifts by time; unlike Delay, one message yields N
+       spaced copies. Core, Filters/Timing.
+       [ ] 70.1 lib/pn-tapped-delay.[ch]: one pending timer per (message,
+             output), order preserved per output, all timers cancelled in
+             dispose and when "outputs" / "step-ms" change.
+       [ ] 70.2 Decide: optional "output 0 = immediate" toggle (k * step
+             counted from 0) -- default off.
+       [ ] 70.3 Settings (outputs, step-ms); output names show the delay
+             ("100 ms", "200 ms", ...).
+       [ ] 70.4 Factory registration, help page, pipnode-nodes skill.
+       [ ] 70.5 Unit tests (tests/unit/test-pn-tapped-delay.c), driven through
+             a main loop with a short step.
+       [ ] 70.6 GUI check by the user.
+
+[ ] 71 Round Robin node -- one input, N outputs (2..16, "outputs"). Each
+       arriving message leaves unchanged on the next output in turn, wrapping
+       after output N. A reset input returns the pointer to output 1. Spreads
+       work across parallel chains, alternates sinks, A/B splits. Core,
+       Filters/Gate.
+       [ ] 71.1 lib/pn-round-robin.[ch]: next-output pointer, clamped when
+             "outputs" shrinks, reset input (silent).
+       [ ] 71.2 Factory registration, help page, pipnode-nodes skill.
+       [ ] 71.3 Unit tests (tests/unit/test-pn-round-robin.c): rotation,
+             wrap, reset, shrink while the pointer is past the new end.
+       [ ] 71.4 GUI check by the user.
+
+[ ] 72 Value Router node -- the value-test half of the #56 Router (#67 Topic
+       Demux did the topic half). One input, N outputs (2..16, "outputs"),
+       one rule per output testing data.value (or a configurable data-bag
+       path): < <= == != >= > against a number, or an inclusive range. A
+       message leaves unchanged by the FIRST output whose rule matches; an
+       optional "otherwise" last output catches the rest (else dropped).
+       Core, Filters/Gate, Filter's yellow, same look as Topic Demux.
+       [ ] 72.1 lib/pn-value-router.[ch]: rule list as a JSON array property,
+             16 fixed slots, pure seam pn_value_router_route(); non-numeric
+             or missing value matches only "otherwise".
+       [ ] 72.2 Decide: "first match" only, or also an "all matches" mode
+             (fan out to every matching output).
+       [ ] 72.3 Gui tier: outputs spin + one rule row per output (operator
+             combo + number, or low/high for a range), "otherwise" check;
+             output names follow the rules ("< 10", "10..20", "else").
+       [ ] 72.4 Factory registration, help page, pipnode-nodes skill.
+       [ ] 72.5 Unit tests (tests/unit/test-pn-value-router.c).
+       [ ] 72.6 GUI check by the user.
+
+[ ] 73 Value Trend node -- rising / falling split on data.value. One input,
+       two outputs: "rising" (1) gets the message when data.value is greater
+       than the previous message's value, "falling" (2) when it is smaller.
+       Equal values and the first message (nothing to compare with) are
+       dropped. An optional deadband ("min-change", default 0) ignores moves
+       smaller than the band, measured from the last forwarded value so a
+       slow drift still eventually trips. Non-numeric values are dropped and
+       do not reset the reference. Core, Filters/Gate.
+       [ ] 73.1 lib/pn-value-trend.[ch]: last-value reference, pure seam
+             pn_value_trend_classify(prev, cur, band).
+       [ ] 73.2 Decide: optional third "unchanged" output instead of
+             dropping equal values.
+       [ ] 73.3 Factory registration, help page, pipnode-nodes skill.
+       [ ] 73.4 Unit tests (tests/unit/test-pn-value-trend.c): rise, fall,
+             equal, first message, deadband drift.
+       [ ] 73.5 GUI check by the user.
