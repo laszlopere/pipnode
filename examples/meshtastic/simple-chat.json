@@ -124,6 +124,34 @@
         "timeout-ms" : -1,
         "replace" : true
       }
+    },
+    {
+      "type" : "PnPipeReader",
+      "uuid" : "186aabe0-dc06-40c9-97b4-a4ce4116e445",
+      "name" : "Pipe Reader 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 20.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "pipe-path" : "/home/pipas/pipnode-pipe",
+        "format" : "Output text"
+      }
+    },
+    {
+      "type" : "PnDebug",
+      "uuid" : "03fc3c65-048e-488f-b24c-2c2b0e7e5733",
+      "name" : "Debug Print 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 740.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "target" : "Debug View",
+        "format" : "JSON"
+      }
     }
   ],
   "connections" : [
@@ -154,6 +182,22 @@
     {
       "source_id" : "78fd5093-d223-465f-8e86-034db5f33510",
       "target_id" : "3aedbf81-53ae-4b1f-8f74-1b63fbe97980"
+    },
+    {
+      "source_id" : "186aabe0-dc06-40c9-97b4-a4ce4116e445",
+      "target_id" : "ea4ee177-86c5-469d-81ff-d6af66dd6778"
+    },
+    {
+      "source_id" : "186aabe0-dc06-40c9-97b4-a4ce4116e445",
+      "target_id" : "110a538c-bfe1-411d-8e52-1b262bd7d1bc"
+    },
+    {
+      "source_id" : "186aabe0-dc06-40c9-97b4-a4ce4116e445",
+      "target_id" : "3aedbf81-53ae-4b1f-8f74-1b63fbe97980"
+    },
+    {
+      "source_id" : "186aabe0-dc06-40c9-97b4-a4ce4116e445",
+      "target_id" : "03fc3c65-048e-488f-b24c-2c2b0e7e5733"
     }
   ],
   "sheets" : [
