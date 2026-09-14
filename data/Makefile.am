@@ -70,6 +70,7 @@ pnhelp_DATA = \
 	help/PnReduce.html \
 	help/PnRegister.html \
 	help/PnRewrite.html \
+	help/PnRoundRobin.html \
 	help/PnRtc.html \
 	help/PnSegment16.html \
 	help/PnSet.html \

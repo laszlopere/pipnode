@@ -106,6 +106,7 @@
 #include "pn-throttle.h"
 #include "pn-topic.h"
 #include "pn-topic-demux.h"
+#include "pn-round-robin.h"
 #include "pn-tts.h"
 #include "pn-value.h"
 #include "pn-watchdog.h"
@@ -310,6 +311,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_TEXT);
     pn_node_factory_register (self, PN_TYPE_TOPIC);
     pn_node_factory_register (self, PN_TYPE_TOPIC_DEMUX);
+    pn_node_factory_register (self, PN_TYPE_ROUND_ROBIN);
     pn_node_factory_register (self, PN_TYPE_VALUE);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);

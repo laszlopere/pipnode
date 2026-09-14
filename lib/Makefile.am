@@ -206,6 +206,8 @@ libpipnode_core_la_SOURCES = \
 	pn-register.h \
 	pn-rewrite.c \
 	pn-rewrite.h \
+	pn-round-robin.c \
+	pn-round-robin.h \
 	pn-rtc.c \
 	pn-rtc.h \
 	pn-segment16.c \
@@ -610,6 +612,7 @@ pipnode_core_headers = \
 	pn-reduce.h \
 	pn-register.h \
 	pn-rewrite.h \
+	pn-round-robin.h \
 	pn-rtc.h \
 	pn-segment16.h \
 	pn-set.h \

@@ -101,6 +101,25 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 ---
 
+## Round Robin
+
+**Purpose** — Deals messages out to its outputs in turn: inputs `in` and `reset`, `outputs` outputs; each message on `in` leaves unchanged by the next output, wrapping after the last. (`lib/pn-round-robin.c`)
+
+**When to use** — Spread work across parallel chains (several HTTP endpoints, workers), alternate sinks or TTS voices, A/B splits. Use **Topic Demux** to route by content instead of by turn; **Clock Divider** to thin a tick stream per output instead of dealing it.
+
+**Ports** — 2 inputs: 0 `in`, 1 `reset` (use `target_input: 1`). `outputs` outputs (`out1` … `outN`); wire a specific one with `ConnectPorts` / `source_output`.
+
+**Settings**
+- `outputs` (int, `2`..`16`, default `3`). Shrinking while the next output is past the new end wraps the turn to output 1; otherwise the turn is kept.
+
+**Behaviour** — The turn advances **before** the emit (a message fed back into `in` during the synchronous emit takes the following output). Exactly one output fires per message; the message object is forwarded as-is (like Topic Demux). A `reset` message makes output 1 next and emits nothing (safe to wire from downstream). `pn_round_robin_get_next()` / `pn_round_robin_reset()` for tests.
+
+**Writes** — Nothing.
+
+**Gotchas** — The turn is runtime state, not saved: a reopened worksheet starts at output 1. Example: `examples/controls-and-logic/round-robin.json`.
+
+---
+
 ## Success
 
 **Purpose** — Pass-through gate: forwards a message only when `data.success` is boolean **true**. (`lib/pn-success.c:36` receive.)

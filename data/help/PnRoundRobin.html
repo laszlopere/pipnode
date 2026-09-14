@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round Robin (PnRoundRobin) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnRoundRobin">Round Robin</h4>
+<p>
+<em>Group:</em> Filters/Gate. <em>Type:</em> <code>PnRoundRobin</code>.
+</p>
+<p>
+Deals messages out to its outputs in turn. It has two inputs and a
+configurable number of outputs. Every message on the <code>in</code>
+input leaves, unchanged, by the next output: the first message by
+output 1, the second by output 2, and after the last output the turn
+wraps back to output 1. With three outputs:
+</p>
+<table>
+  <tr><th>Message</th><th>1st</th><th>2nd</th><th>3rd</th><th>4th</th><th>5th</th></tr>
+  <tr><td>Leaves by</td><td>out1</td><td>out2</td><td>out3</td><td>out1</td><td>out2</td></tr>
+</table>
+<p>
+Exactly one output fires for each message. Use it to spread work over
+parallel chains (for example several HTTP requests that should not all
+hit the same server), to alternate between sinks or voices, or for an
+A/B split.
+</p>
+<p>
+A message on the <code>reset</code> input makes output 1 the next
+output again. It sends nothing, so it can be wired back from further
+down the chain without creating a loop.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of outputs, 2&ndash;16. Default <code>3</code>. If the
+          next output no longer exists after lowering it, the turn starts
+          again at output 1. Wires on outputs that no longer exist stop
+          carrying messages.</td></tr>
+</table>
+<p>
+Whose turn it is is runtime state: it is not saved with the worksheet,
+so a reopened worksheet starts at output 1.
+</p>
+
+</body>
+</html>

@@ -1485,17 +1485,28 @@
              labels follow outputs / step-ms edits, the example's LED sweep.
              Verified; example node positions tidied by the user.
 
-[ ] 71 Round Robin node -- one input, N outputs (2..16, "outputs"). Each
+[x] 71 Round Robin node -- one input, N outputs (2..16, "outputs"). Each
        arriving message leaves unchanged on the next output in turn, wrapping
        after output N. A reset input returns the pointer to output 1. Spreads
        work across parallel chains, alternates sinks, A/B splits. Core,
        Filters/Gate.
-       [ ] 71.1 lib/pn-round-robin.[ch]: next-output pointer, clamped when
-             "outputs" shrinks, reset input (silent).
-       [ ] 71.2 Factory registration, help page, pipnode-nodes skill.
-       [ ] 71.3 Unit tests (tests/unit/test-pn-round-robin.c): rotation,
-             wrap, reset, shrink while the pointer is past the new end.
-       [ ] 71.4 GUI check by the user.
+       [x] 71.1 lib/pn-round-robin.[ch]: next-output pointer, wrapped to
+             output 1 when "outputs" shrinks past it, inputs "in" and
+             "reset" (silent). The turn advances before the emit, so a
+             message fed back into "in" takes the following output. The
+             message is forwarded as-is (one output per message). Default
+             3 outputs, Filter's yellow, fa-refresh. No gui tier.
+       [x] 71.2 Factory registration, help page PnRoundRobin.html,
+             pipnode-nodes skill (filters-gate-compute.md).
+       [x] 71.3 Unit tests (tests/unit/test-pn-round-robin.c): rotation,
+             wrap, reset, shrink while the pointer is past the new end,
+             feedback loop.
+       [x] 71.5 Example examples/controls-and-logic/round-robin.json: a 1 s
+             Auto Injector dealt over four LEDs, plus a Reset button on
+             the reset input. Rotation verified headless through
+             pipnode-run.
+       [x] 71.4 GUI check by the user: node in Filters/Gate, the example's
+             LEDs light in turn, Reset restarts at output 1.
 
 [ ] 72 Value Router node -- the value-test half of the #56 Router (#67 Topic
        Demux did the topic half). One input, N outputs (2..16, "outputs"),
