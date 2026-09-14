@@ -91,14 +91,17 @@ value-frequency distribution). Use **Graph** for "this number over time"; use
   `background-color` (default white) / `show-grid` (default off).
 - `log-y` (default off, distribution only) / `y-from-zero` (default off,
   time-series linear only). `lib/pn-graph.c:1129` / `:1138`.
-- `save-data` (bool, default **off**) — persist the collected samples into the
-  worksheet file and restore them on load. Bounded: in-window samples only, at
-  most 512 per series. The store itself rides on a hidden read/write string
-  property `saved-data` (JSON: per series a topic plus flat
-  `[age_ms, value, …]` pairs relative to the save's wall clock), which is not a
-  dialog row — it exists only so the generic property serialiser carries it.
-  Samples that aged past the `resolution` window while the file sat on disk are
-  dropped on load.
+- `save-data` (bool, default **off**) — persist the collected data into the
+  worksheet file and restore it on load. Bounded, in-window only: per series the
+  time buckets (at most `x-buckets`, so ≤ 200; they drive the time-series view)
+  and the newest 512 raw samples (they drive the distribution view). The store
+  itself rides on a hidden read/write string property `saved-data` (JSON v2:
+  top-level `saved` wall clock + `bin_us`; per series a topic, flat
+  `samples` `[age_ms, value, …]` and flat `bins`
+  `[age_in_buckets, count, sum, sum_sq, min, max, …]`; v1 stores without `bins`
+  still load, buckets refolded from the samples), which is not a dialog row — it
+  exists only so the generic property serialiser carries it. Data that aged past
+  the `resolution` window while the file sat on disk is dropped on load.
 - Legacy write-only `mode` enum migrates old saves to data-view+draw-style.
   `lib/pn-graph.c:1157`.
 

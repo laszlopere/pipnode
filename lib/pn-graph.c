@@ -110,6 +110,14 @@ struct _PnGraph
      * idle runs, every property from the file is in place. */
     guint      restore_id;
 
+    /* Time buckets the "saved-data" setter read back, held until the
+     * restore idle has refolded them at the final bin width: topic
+     * (gchar *) -> GArray of #PnGraphStoredBin, oldest first.  NULL when
+     * nothing is pending.  @restored_at_us is the monotonic time of that
+     * restore, so samples received live after it are folded in on top. */
+    GHashTable *restored_bins;
+    gint64      restored_at_us;
+
     /* topic (gchar *) -> PnGraphSeries *.  Owns both keys and values
      * (the hashtable's value-destroy frees the series struct).  The
      * empty-topic sentinel "" sits alongside named topics so a feed
@@ -256,6 +264,19 @@ pn_graph_mode_get_type (void)
     return id;
 }
 
+/* One time bucket read back from the worksheet, stamped with the
+ * monotonic time of its newest edge so it can be refolded at whatever
+ * bin width is in force once every property has been loaded. */
+typedef struct
+{
+    gint64   time_us;
+    guint64  count;
+    gdouble  sum;
+    gdouble  sum_sq;
+    gdouble  min;
+    gdouble  max;
+} PnGraphStoredBin;
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -382,6 +403,42 @@ series_bin_sample (
     bin->sum    += value;
     bin->sum_sq += value * value;
     bin->count  += 1;
+}
+
+/** Merge the stored bucket @sb into the bucket of @series' ring its
+ *  time falls in.  Buckets that are already outside the plotted window
+ *  are skipped rather than allowed to reset a newer slot they share. */
+static void
+series_bin_stored (
+        PnGraph                *self,
+        PnGraphSeries          *series,
+        const PnGraphStoredBin *sb)
+{
+    gint64      width     = pn_graph_bin_width_us (self);
+    gint64      cur_epoch = g_get_monotonic_time () / width;
+    gint64      epoch     = sb->time_us / width;
+    PnGraphBin *bin;
+
+    if (epoch <= cur_epoch - (gint64) self->n_bins || epoch > cur_epoch)
+        return;
+
+    bin = &series->ring[(guint) (epoch % self->n_bins)];
+    if (bin->epoch != epoch)
+        reset_bin (bin, epoch);
+
+    if (bin->count == 0)
+    {
+        bin->min = sb->min;
+        bin->max = sb->max;
+    }
+    else
+    {
+        if (sb->min < bin->min) bin->min = sb->min;
+        if (sb->max > bin->max) bin->max = sb->max;
+    }
+    bin->sum    += sb->sum;
+    bin->sum_sq += sb->sum_sq;
+    bin->count  += sb->count;
 }
 
 /** Append one raw observation to @series' sample ring.  The ring is fed
@@ -744,40 +801,54 @@ pn_graph_receive (
 /*  With "save-data" on, the samples behind the plot travel with the   */
 /*  worksheet: the "saved-data" property serialises them on save and   */
 /*  restores them on load, so reopening a document brings the graph    */
-/*  back with its history instead of an empty plot.  Two things keep   */
-/*  the document bounded: only the newest PN_GRAPH_PERSIST_SAMPLES per */
-/*  series are written, and anything already older than the active     */
+/*  back with its history instead of an empty plot.  Each series      */
+/*  carries its time buckets (at most "x-buckets", so never more than  */
+/*  PN_GRAPH_MAX_BINS), which is what the time-series view draws, and  */
+/*  the newest PN_GRAPH_PERSIST_SAMPLES raw samples, which is what the */
+/*  distribution view draws.  Anything already older than the active   */
 /*  resolution window (i.e. no longer drawable) is dropped first.      */
+/*  Version 1 stores (samples only) still load: their buckets are      */
+/*  refolded from the samples.                                         */
 /*                                                                     */
 /*  The rings are stamped with the monotonic clock, which restarts     */
 /*  with the process, so the wire format stores each sample as its age */
-/*  in milliseconds at save time plus the wall clock of the save.  On  */
+/*  in milliseconds at save time (each bucket as its distance in       */
+/*  buckets from the current one) plus the wall clock of the save.  On */
 /*  load the two are added back into an age relative to *now* and      */
 /*  mapped onto the current monotonic clock — a file that sat on disk  */
 /*  for a day therefore restores nothing into a one-hour window, which */
 /*  is exactly what a live graph would have shown.                     */
 /* ------------------------------------------------------------------ */
 
-#define PN_GRAPH_STORE_VERSION  1
+#define PN_GRAPH_STORE_VERSION  2
 
-/** Wipe every series' time-bucket ring and refold the raw samples into
- *  it at the current bin width.  Used by the restore path only: live
- *  receives fold each sample in as it arrives. */
+/** Wipe every series' time-bucket ring and refold it at the current bin
+ *  width: from the stored buckets when the store had them, otherwise
+ *  (a version 1 store) from the raw samples.  Used by the restore path
+ *  only: live receives fold each sample in as it arrives. */
 static void
 graph_rebuild_bins (PnGraph *self)
 {
     GHashTableIter it;
-    gpointer       v;
+    gpointer       k, v;
 
     g_hash_table_iter_init (&it, self->series);
-    while (g_hash_table_iter_next (&it, NULL, &v))
+    while (g_hash_table_iter_next (&it, &k, &v))
     {
-        PnGraphSeries *s = v;
+        PnGraphSeries *s      = v;
+        GArray        *stored = NULL;
         guint          first;
         guint          i;
 
         for (i = 0; i < PN_GRAPH_MAX_BINS; i++)
             s->ring[i].epoch = G_MININT64;
+
+        if (self->restored_bins != NULL)
+            stored = g_hash_table_lookup (self->restored_bins, k);
+        if (stored != NULL)
+            for (i = 0; i < stored->len; i++)
+                series_bin_stored (self, s,
+                        &g_array_index (stored, PnGraphStoredBin, i));
 
         if (s->sample_count == 0)
             continue;
@@ -789,6 +860,10 @@ graph_rebuild_bins (PnGraph *self)
             const PnGraphSample *smp =
                     &s->samples[(first + i) % PN_GRAPH_SAMPLES];
 
+            /* The stored buckets already hold the restored samples; only
+             * what arrived live since the restore goes on top. */
+            if (stored != NULL && smp->time_us <= self->restored_at_us)
+                continue;
             series_bin_sample (self, s, smp->time_us, smp->value);
         }
     }
@@ -806,13 +881,14 @@ on_restore_bins (gpointer user_data)
 
     self->restore_id = 0;
     graph_rebuild_bins (self);
+    g_clear_pointer (&self->restored_bins, g_hash_table_unref);
     pn_node_request_repaint (PN_NODE (self));
 
     return G_SOURCE_REMOVE;
 }
 
-/** Serialise the in-window samples of every series.  Returns %NULL
- *  (write nothing) when there is no data worth carrying. */
+/** Serialise the in-window buckets and samples of every series.  Returns
+ *  %NULL (write nothing) when there is no data worth carrying. */
 static gchar *
 graph_encode_data (PnGraph *self)
 {
@@ -824,6 +900,8 @@ graph_encode_data (PnGraph *self)
     gint64             window_us =
             (gint64) pn_graph_resolution_seconds (self->resolution)
             * G_TIME_SPAN_SECOND;
+    gint64             width     = pn_graph_bin_width_us (self);
+    gint64             cur_epoch = now_mono / width;
     JsonBuilder       *b;
     JsonNode          *root;
     JsonGenerator     *gen;
@@ -841,6 +919,8 @@ graph_encode_data (PnGraph *self)
     json_builder_add_int_value (b, PN_GRAPH_STORE_VERSION);
     json_builder_set_member_name (b, "saved");
     json_builder_add_int_value (b, now_real);
+    json_builder_set_member_name (b, "bin_us");
+    json_builder_add_int_value (b, width);
     json_builder_set_member_name (b, "series");
     json_builder_begin_array (b);
 
@@ -851,9 +931,22 @@ graph_encode_data (PnGraph *self)
                                          (guint) PN_GRAPH_PERSIST_SAMPLES);
         guint                first;
         guint                k;
+        guint                n_filled = 0;
         gboolean             opened = FALSE;
 
-        if (keep == 0)
+        /* Only the buckets the plot can still draw: the current one and
+         * the n_bins - 1 before it, so never more than PN_GRAPH_MAX_BINS. */
+        for (k = 0; k < self->n_bins; k++)
+        {
+            const PnGraphBin *bin = &s->ring[k];
+            gint64            age = cur_epoch - bin->epoch;
+
+            if (bin->epoch != G_MININT64 && bin->count > 0 &&
+                age >= 0 && age < (gint64) self->n_bins)
+                n_filled++;
+        }
+
+        if (keep == 0 && n_filled == 0)
             continue;
 
         first = (s->sample_head + PN_GRAPH_SAMPLES - keep) % PN_GRAPH_SAMPLES;
@@ -894,11 +987,59 @@ graph_encode_data (PnGraph *self)
             json_builder_add_double_value (b, smp->value);
         }
 
-        if (opened)
+        if (!opened && n_filled > 0)
         {
-            json_builder_end_array (b);
-            json_builder_end_object (b);
+            /* Buckets outlive the samples behind them (the samples are
+             * capped, the buckets are not), so a series may have only
+             * buckets left to carry. */
+            json_builder_begin_object (b);
+            json_builder_set_member_name (b, "topic");
+            json_builder_add_string_value (
+                    b, views[i].topic != NULL ? views[i].topic : "");
+            if (views[i].from != NULL)
+            {
+                json_builder_set_member_name (b, "from");
+                json_builder_add_string_value (b, views[i].from);
+            }
+            json_builder_set_member_name (b, "samples");
+            json_builder_begin_array (b);
+            opened = TRUE;
+            any    = TRUE;
         }
+
+        if (!opened)
+            continue;
+
+        json_builder_end_array (b);
+
+        if (n_filled > 0)
+        {
+            gint64 age;
+
+            /* Flat [age, count, sum, sum_sq, min, max, …], oldest first,
+             * where age is the distance in buckets from the current one. */
+            json_builder_set_member_name (b, "bins");
+            json_builder_begin_array (b);
+            for (age = (gint64) self->n_bins - 1; age >= 0; age--)
+            {
+                gint64            epoch = cur_epoch - age;
+                const PnGraphBin *bin   =
+                        &s->ring[(guint) (epoch % self->n_bins)];
+
+                if (bin->epoch != epoch || bin->count == 0)
+                    continue;
+
+                json_builder_add_int_value    (b, age);
+                json_builder_add_int_value    (b, (gint64) bin->count);
+                json_builder_add_double_value (b, bin->sum);
+                json_builder_add_double_value (b, bin->sum_sq);
+                json_builder_add_double_value (b, bin->min);
+                json_builder_add_double_value (b, bin->max);
+            }
+            json_builder_end_array (b);
+        }
+
+        json_builder_end_object (b);
     }
 
     json_builder_end_array (b);
@@ -963,6 +1104,7 @@ graph_decode_data (
     JsonArray  *series_arr;
     GError     *error = NULL;
     gint64      saved_real, now_real, now_mono, elapsed_us, window_us;
+    gint64      version, bin_us;
     guint       i, n;
     gboolean    any = FALSE;
 
@@ -986,9 +1128,9 @@ graph_decode_data (
         return;
     }
 
-    obj = json_node_get_object (root);
-    if (json_object_get_int_member_with_default (obj, "version", 0)
-            != PN_GRAPH_STORE_VERSION
+    obj     = json_node_get_object (root);
+    version = json_object_get_int_member_with_default (obj, "version", 0);
+    if (version < 1 || version > PN_GRAPH_STORE_VERSION
         || !json_object_has_member (obj, "series")
         || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (obj, "series")))
     {
@@ -998,6 +1140,7 @@ graph_decode_data (
 
     series_arr = json_object_get_array_member (obj, "series");
     saved_real = json_object_get_int_member_with_default (obj, "saved", 0);
+    bin_us     = json_object_get_int_member_with_default (obj, "bin_us", 0);
 
     now_real   = g_get_real_time ();
     now_mono   = g_get_monotonic_time ();
@@ -1010,6 +1153,12 @@ graph_decode_data (
     g_hash_table_remove_all (self->series);
     self->next_arrival_idx = 0;
 
+    g_clear_pointer (&self->restored_bins, g_hash_table_unref);
+    self->restored_bins  = g_hash_table_new_full (
+            g_str_hash, g_str_equal, g_free,
+            (GDestroyNotify) g_array_unref);
+    self->restored_at_us = now_mono;
+
     n = json_array_get_length (series_arr);
     for (i = 0; i < n; i++)
     {
@@ -1017,6 +1166,7 @@ graph_decode_data (
         JsonObject    *so;
         JsonArray     *samples;
         PnGraphSeries *series;
+        const gchar   *topic;
         const gchar   *from;
         guint          len, j;
 
@@ -1028,9 +1178,8 @@ graph_decode_data (
             || !JSON_NODE_HOLDS_ARRAY (json_object_get_member (so, "samples")))
             continue;
 
-        series = series_get_or_create (
-                self,
-                json_object_get_string_member_with_default (so, "topic", ""));
+        topic  = json_object_get_string_member_with_default (so, "topic", "");
+        series = series_get_or_create (self, topic);
         if (series == NULL)
             break;              /* PN_GRAPH_MAX_SERIES reached */
 
@@ -1064,12 +1213,60 @@ graph_decode_data (
             series_push_sample (series, now_mono - age_us, value);
             any = TRUE;
         }
+
+        /* Buckets (version 2 on): stamped at their newest edge, which
+         * keeps consecutive buckets in consecutive slots when the bin
+         * width is unchanged. */
+        if (bin_us > 0 && json_object_has_member (so, "bins")
+            && JSON_NODE_HOLDS_ARRAY (json_object_get_member (so, "bins")))
+        {
+            JsonArray *bins   = json_object_get_array_member (so, "bins");
+            GArray    *stored = g_array_new (FALSE, FALSE,
+                                             sizeof (PnGraphStoredBin));
+
+            len = json_array_get_length (bins);
+            for (j = 0; j + 5 < len && stored->len < PN_GRAPH_MAX_BINS;
+                 j += 6)
+            {
+                PnGraphStoredBin sb;
+                gdouble          age, count;
+                gint64           age_us;
+
+                if (!array_get_finite (bins, j,     &age)       ||
+                    !array_get_finite (bins, j + 1, &count)     ||
+                    !array_get_finite (bins, j + 2, &sb.sum)    ||
+                    !array_get_finite (bins, j + 3, &sb.sum_sq) ||
+                    !array_get_finite (bins, j + 4, &sb.min)    ||
+                    !array_get_finite (bins, j + 5, &sb.max))
+                    continue;
+                if (age < 0.0 || count < 1.0)
+                    continue;
+
+                age_us = elapsed_us + (gint64) age * bin_us;
+                if (age_us >= window_us)
+                    continue;   /* aged out while the file sat on disk */
+
+                sb.time_us = now_mono - age_us;
+                sb.count   = (guint64) count;
+                g_array_append_val (stored, sb);
+                any = TRUE;
+            }
+
+            if (stored->len > 0)
+                g_hash_table_replace (self->restored_bins,
+                                      g_strdup (topic), stored);
+            else
+                g_array_unref (stored);
+        }
     }
 
     g_object_unref (parser);
 
     if (!any)
+    {
+        g_clear_pointer (&self->restored_bins, g_hash_table_unref);
         return;
+    }
 
     /* Fold what we restored into the buckets straight away so a headless
      * caller that never spins the main loop still sees a populated ring,
@@ -1445,8 +1642,9 @@ pn_graph_finalize (GObject *object)
      * GObject-data destroy-notify in the gui tier — the core never calls
      * plend1. */
 
-    g_clear_pointer (&self->series, g_hash_table_unref);
-    g_clear_pointer (&self->key,    g_free);
+    g_clear_pointer (&self->series,        g_hash_table_unref);
+    g_clear_pointer (&self->restored_bins, g_hash_table_unref);
+    g_clear_pointer (&self->key,           g_free);
 
     G_OBJECT_CLASS (pn_graph_parent_class)->finalize (object);
 }

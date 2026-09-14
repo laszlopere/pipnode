@@ -187,12 +187,14 @@ memory without bound.
       <td>Off by default. When enabled, the collected samples are
           written into the worksheet file on save and read back when
           it is opened, so a document reopened days later comes back
-          with its history instead of a blank plot. Two rules keep the
-          file bounded: samples already older than the
-          <code>resolution</code> window (which the plot could not draw
-          anyway) are dropped, and at most the newest 512 samples per
-          series are written &mdash; so a graph left running for a
-          month costs no more than one left running for an hour. The
+          with its history instead of a blank plot. Each series saves
+          its time buckets (at most <code>x-buckets</code>, so never
+          more than 200), which is what the time-series view draws,
+          plus the newest 512 raw readings for the distribution view.
+          Anything already older than the <code>resolution</code>
+          window (which the plot could not draw anyway) is dropped
+          &mdash; so a graph left running for a month costs no more
+          than one left running for an hour. The
           store keeps wall-clock ages, so a sample that aged out while
           the file sat on disk is discarded on load: a one-hour graph
           opened a day later is empty, exactly as a live one would

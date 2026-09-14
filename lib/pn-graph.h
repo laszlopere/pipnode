@@ -163,8 +163,9 @@ guint    pn_graph_get_series_count (PnGraph *self);
  * older than the active resolution window are dropped first).  With at
  * most PN_GRAPH_MAX_SERIES series the persisted store is bounded, so a
  * graph left running for a month cannot grow the document without end.
- * Comfortably above PN_GRAPH_MAX_BINS, so every time bucket the plot can
- * draw still has samples behind it after a reload. */
+ * These feed the distribution view; the time-series view is restored
+ * from the time buckets, which are saved alongside (at most "x-buckets",
+ * so never more than PN_GRAPH_MAX_BINS per series). */
 #define PN_GRAPH_PERSIST_SAMPLES  512
 
 /* One time bucket: a circular-buffer slot indexed by

@@ -30,6 +30,8 @@
 #include "pntest.h"
 #include "pn-graph.h"
 
+#include <json-glib/json-glib.h>
+
 /* Feed one finite reading carried under @topic into @node. */
 static void
 feed (PnNode *node, const gchar *topic, gdouble value)
@@ -300,6 +302,185 @@ test_saved_data_is_capped (void)
     g_object_unref (src);
 }
 
+/* Filled time buckets across a series' whole ring (plotted or not). */
+static guint64
+ring_count (const PnGraphSeries *s, guint *n_filled)
+{
+    guint64 total = 0;
+    guint   i;
+
+    *n_filled = 0;
+    for (i = 0; i < PN_GRAPH_MAX_BINS; i++)
+        if (s->ring[i].epoch != G_MININT64 && s->ring[i].count > 0)
+        {
+            total += s->ring[i].count;
+            (*n_filled)++;
+        }
+    return total;
+}
+
+/* Number of stored buckets under the first series of a saved store. */
+static guint
+store_bucket_count (const gchar *data)
+{
+    JsonParser *parser = json_parser_new ();
+    JsonObject *so;
+    guint       n = 0;
+
+    if (json_parser_load_from_data (parser, data, -1, NULL))
+    {
+        so = json_array_get_object_element (
+                json_object_get_array_member (
+                        json_node_get_object (json_parser_get_root (parser)),
+                        "series"), 0);
+        if (json_object_has_member (so, "bins"))
+            n = json_array_get_length (
+                    json_object_get_array_member (so, "bins")) / 6;
+    }
+    g_object_unref (parser);
+    return n;
+}
+
+/* A hand-built version 2 store with @n_bins buckets, ages n_bins-1 .. 0,
+ * each holding three readings, and no raw samples at all. */
+static gchar *
+bucket_store (PnGraph *graph, guint n_bins)
+{
+    GString *s = g_string_new (NULL);
+    guint    i;
+
+    g_string_append_printf (s,
+            "{\"version\":2,\"saved\":%" G_GINT64_FORMAT
+            ",\"bin_us\":%" G_GINT64_FORMAT
+            ",\"series\":[{\"topic\":\"t\",\"samples\":[],\"bins\":[",
+            g_get_real_time (), pn_graph_bin_width_us (graph));
+    for (i = 0; i < n_bins; i++)
+        g_string_append_printf (s, "%s%u,3,6.0,12.0,1.0,3.0",
+                                i > 0 ? "," : "", n_bins - 1 - i);
+    g_string_append (s, "]}]}");
+    return g_string_free (s, FALSE);
+}
+
+/* The time buckets themselves are saved, not rebuilt from the capped raw
+ * samples: a bucket holding more readings than PN_GRAPH_PERSIST_SAMPLES
+ * comes back with every one of them counted. */
+static void
+test_saved_buckets_keep_counts (void)
+{
+    PnGraph *src = pn_graph_new ();
+    PnGraph *dst;
+    gchar   *data = NULL;
+    guint    i, n_views = 0, n_filled;
+    guint64  before, after;
+    PnGraphSeriesView *views;
+
+    g_object_set (src, "save-data", TRUE, NULL);
+    for (i = 0; i < PN_GRAPH_PERSIST_SAMPLES + 300; i++)
+        feed (PN_NODE (src), "t", 1.0);
+
+    views  = pn_graph_collect_series_sorted (src, &n_views);
+    before = ring_count (views[0].series, &n_filled);
+    g_free (views);
+    PN_CHECK_CMPINT (before, ==, (guint64) PN_GRAPH_PERSIST_SAMPLES + 300);
+
+    g_object_get (src, "saved-data", &data, NULL);
+    dst = pn_graph_new ();
+    g_object_set (dst, "saved-data", data, NULL);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 1u);
+    PN_CHECK_CMPINT (views[0].series->sample_count, ==,
+                     (guint) PN_GRAPH_PERSIST_SAMPLES);
+    after = ring_count (views[0].series, &n_filled);
+    PN_CHECK_CMPINT (after, ==, before);
+
+    g_free (views);
+    g_free (data);
+    g_object_unref (dst);
+    g_object_unref (src);
+}
+
+/* A full ring of PN_GRAPH_MAX_BINS buckets loads into as many buckets,
+ * and saving it again writes all of them back out. */
+static void
+test_saved_buckets_full_ring (void)
+{
+    PnGraph *dst   = pn_graph_new ();
+    gchar   *store = bucket_store (dst, PN_GRAPH_MAX_BINS);
+    gchar   *again = NULL;
+    guint    n_views = 0, n_filled;
+    PnGraphSeriesView *views;
+
+    g_object_set (dst, "save-data", TRUE, "saved-data", store, NULL);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 1u);
+    PN_CHECK_CMPINT (ring_count (views[0].series, &n_filled), ==,
+                     3u * PN_GRAPH_MAX_BINS);
+    PN_CHECK_CMPINT (n_filled, ==, (guint) PN_GRAPH_MAX_BINS);
+    g_free (views);
+
+    g_object_get (dst, "saved-data", &again, NULL);
+    PN_CHECK (again != NULL);
+    PN_CHECK_CMPINT (store_bucket_count (again), ==, (guint) PN_GRAPH_MAX_BINS);
+
+    g_free (again);
+    g_free (store);
+    g_object_unref (dst);
+}
+
+/* Never more buckets than the plot has: a store with more than
+ * "x-buckets" of them keeps only the newest, and saves that many. */
+static void
+test_saved_buckets_capped (void)
+{
+    PnGraph *dst   = pn_graph_new ();
+    gchar   *store = bucket_store (dst, PN_GRAPH_MAX_BINS + 100);
+    gchar   *again = NULL;
+    guint    n_views = 0, n_filled;
+    PnGraphSeriesView *views;
+
+    g_object_set (dst, "save-data", TRUE, "saved-data", store, NULL);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    ring_count (views[0].series, &n_filled);
+    PN_CHECK_CMPINT (n_filled, ==, (guint) PN_GRAPH_MAX_BINS);
+    g_free (views);
+
+    g_object_get (dst, "saved-data", &again, NULL);
+    PN_CHECK_CMPINT (store_bucket_count (again), <=, (guint) PN_GRAPH_MAX_BINS);
+
+    g_free (again);
+    g_free (store);
+    g_object_unref (dst);
+}
+
+/* A version 1 store (samples only) still loads, its buckets refolded
+ * from the samples. */
+static void
+test_saved_data_version_1 (void)
+{
+    PnGraph *dst = pn_graph_new ();
+    gchar   *store;
+    guint    n_views = 0, n_filled;
+    PnGraphSeriesView *views;
+
+    store = g_strdup_printf (
+            "{\"version\":1,\"saved\":%" G_GINT64_FORMAT
+            ",\"series\":[{\"topic\":\"t\",\"samples\":[0,1.0,0,2.0]}]}",
+            g_get_real_time ());
+    g_object_set (dst, "saved-data", store, NULL);
+
+    views = pn_graph_collect_series_sorted (dst, &n_views);
+    PN_CHECK_CMPINT (n_views, ==, 1u);
+    PN_CHECK_CMPINT (views[0].series->sample_count, ==, 2u);
+    PN_CHECK_CMPINT (ring_count (views[0].series, &n_filled), ==, 2u);
+
+    g_free (views);
+    g_free (store);
+    g_object_unref (dst);
+}
+
 /* Swallows the warning the decoder logs for a malformed store. */
 static void
 swallow_log (const gchar    *domain,
@@ -352,6 +533,10 @@ main (int argc, char **argv)
     pn_test_add ("save_data_off_by_default", test_save_data_off_by_default);
     pn_test_add ("saved_data_round_trip",    test_saved_data_round_trip);
     pn_test_add ("saved_data_is_capped",     test_saved_data_is_capped);
+    pn_test_add ("saved_buckets_keep_counts", test_saved_buckets_keep_counts);
+    pn_test_add ("saved_buckets_full_ring",  test_saved_buckets_full_ring);
+    pn_test_add ("saved_buckets_capped",     test_saved_buckets_capped);
+    pn_test_add ("saved_data_version_1",     test_saved_data_version_1);
     pn_test_add ("saved_data_bad_input",     test_saved_data_bad_input_is_safe);
     return pn_test_run ();
 }
