@@ -1423,23 +1423,36 @@
              paths. tests/unit/test-pn-path.c; PLUGINS section 12 gotcha;
              help pages.
 
-[ ] 69 Clock Divider node -- one tick input, N outputs (2..16, "outputs"),
+[x] 69 Clock Divider node -- one tick input, N outputs (2..16, "outputs"),
        built on the #66 multi-output ports. Output k fires on every
        divisor(k)-th arriving message; the default divisors are powers of two
        (output 1 = /2, output 2 = /4, ...), each editable ("divisors", a JSON
        array, fixed slots like Topic Demux so shrinking keeps the values). A
        reset input zeroes the count. Lets one Auto Trigger drive fast and slow
        chains at once. Core, CPU group.
-       [ ] 69.1 lib/pn-clock-divider.[ch]: shared tick counter, pure seam
-             "which outputs fire at count n", reset input (silent).
-       [ ] 69.2 Emission order: slowest output first, output 1 last (same
-             rule as the Shift Register), so a downstream multi-input node
-             triggered from the fast output already sees the slow ones.
-       [ ] 69.3 Gui tier: outputs spin + one divisor spin per output; output
-             names follow the divisors ("/2", "/4", ...).
-       [ ] 69.4 Factory registration, help page, pipnode-nodes skill.
-       [ ] 69.5 Unit tests (tests/unit/test-pn-clock-divider.c).
-       [ ] 69.6 GUI check by the user.
+       [x] 69.1 lib/pn-clock-divider.[ch]: shared 64-bit tick count, output
+             k fires when count % divisor(k) == 0 (a /4 fires on ticks 4, 8,
+             ...), pure seam pn_clock_divider_plan(), inputs "tick" and
+             "reset" (silent). Divisors 1..1000000 in 16 fixed slots; the
+             saved JSON trims trailing defaults. Each emission is a clone
+             of the tick message. Indigo, fa-sort-amount-desc.
+       [x] 69.2 Emission order: largest divisor first, smallest last, ties
+             highest output first -- by divisor rather than by output
+             number, so it stays slowest-first after the user edits the
+             divisors out of order.
+       [x] 69.3 Gui tier pn-clock-divider-gui.c: outputs spin + one divisor
+             spin per output, rebuilt on notify::outputs, refreshed on
+             notify::divisors; output names follow the divisors ("/2").
+       [x] 69.4 Factory registration, help page PnClockDivider.html,
+             pipnode-nodes skill (filters-reshape-timing.md).
+       [x] 69.5 Unit tests (tests/unit/test-pn-clock-divider.c): sequence
+             and order, plan by divisor, reset, shrink, JSON, notify.
+       [x] 69.7 Example examples/controls-and-logic/clock-divider.json: a
+             1 s Auto Injector into /2 /4 /8 LEDs, plus a Reset button on
+             the reset input. Order verified headless through pipnode-run.
+       [x] 69.6 GUI check by the user: node in the CPU palette group, the
+             settings tab (spins follow the output count, editing a divisor
+             relabels its output), the example's LEDs and Reset.
 
 [x] 70 Tapped Delay node -- one input, N outputs (2..16, "outputs"). Every
        arriving message is forwarded unchanged on each output, output k after

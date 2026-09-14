@@ -26,6 +26,7 @@
 #include "pn-analog-clock-gui.h"
 #include "pn-analog-meter-gui.h"
 #include "pn-chat-gui.h"
+#include "pn-clock-divider-gui.h"
 #include "pn-countdown-gui.h"
 #include "pn-daily-timer-gui.h"
 #include "pn-topic-demux-gui.h"
@@ -71,6 +72,7 @@ pn_gui_install_builtin_nodes (void)
     pn_analog_clock_gui_install ();
     pn_analog_meter_gui_install ();
     pn_chat_gui_install ();
+    pn_clock_divider_gui_install ();
     pn_countdown_gui_install ();
     pn_daily_timer_gui_install ();
     pn_digital_clock_gui_install ();

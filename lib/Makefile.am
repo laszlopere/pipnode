@@ -45,6 +45,8 @@ libpipnode_core_la_SOURCES = \
 	pn-bridge-quote.h \
 	pn-chat.c \
 	pn-chat.h \
+	pn-clock-divider.c \
+	pn-clock-divider.h \
 	pn-color.c \
 	pn-color.h \
 	pn-comment.c \
@@ -332,6 +334,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-bridge-quote-gui.h \
 	pn-chat-gui.c \
 	pn-chat-gui.h \
+	pn-clock-divider-gui.c \
+	pn-clock-divider-gui.h \
 	pn-countdown-gui.c \
 	pn-countdown-gui.h \
 	pn-daily-timer-gui.c \
@@ -527,6 +531,7 @@ pipnode_core_headers = \
 	pn-bridge-converter.h \
 	pn-bridge-quote.h \
 	pn-chat.h \
+	pn-clock-divider.h \
 	pn-color.h \
 	pn-comment.h \
 	pn-comparator.h \
@@ -655,6 +660,7 @@ pipnode_gui_headers = \
 	pn-bridge-converter-gui.h \
 	pn-bridge-quote-gui.h \
 	pn-chat-gui.h \
+	pn-clock-divider-gui.h \
 	pn-countdown-gui.h \
 	pn-daily-timer-gui.h \
 	pn-topic-demux-gui.h \

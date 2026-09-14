@@ -17,6 +17,7 @@ pnhelp_DATA = \
 	help/PnBridgeConverter.html \
 	help/PnBridgeQuote.html \
 	help/PnChat.html \
+	help/PnClockDivider.html \
 	help/PnComment.html \
 	help/PnComparator.html \
 	help/PnCountdown.html \

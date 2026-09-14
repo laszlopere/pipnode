@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clock Divider (PnClockDivider) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnClockDivider">Clock Divider</h4>
+<p>
+<em>Group:</em> CPU. <em>Type:</em> <code>PnClockDivider</code>.
+</p>
+<p>
+Turns one tick stream into several slower ones. It has two inputs and a
+configurable number of outputs, each with its own divisor. Every message
+on the <code>tick</code> input adds one to a shared count; an output
+forwards that tick message when the count is a multiple of its divisor.
+With the default divisors 2, 4, 8, 16:
+</p>
+<table>
+  <tr><th>Tick</th><th>/2</th><th>/4</th><th>/8</th><th>/16</th></tr>
+  <tr><td>1</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td>2</td><td>fires</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td>3</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td>4</td><td>fires</td><td>fires</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td>8</td><td>fires</td><td>fires</td><td>fires</td><td>&mdash;</td></tr>
+  <tr><td>16</td><td>fires</td><td>fires</td><td>fires</td><td>fires</td></tr>
+</table>
+<p>
+So one <em>Auto Trigger</em> ticking every second can drive a chain that
+runs every 2 seconds, another every 4, and so on. The divisors do not
+have to be powers of two: 60 on a one-second tick gives a once-a-minute
+output. A divisor of 1 forwards every tick. Each output is labelled with
+its divisor on the worksheet (<code>/2</code>, <code>/4</code>, ...).
+</p>
+<p>
+A message on the <code>reset</code> input sets the count back to zero
+and sends nothing, so every output starts its division again from the
+next tick.
+</p>
+<p>
+When several outputs fire on the same tick, the one with the largest
+divisor fires first and the one with the smallest last (equal divisors
+fire from the highest output down). A multi-input node such as
+<em>Calculator 2</em> that computes on the fastest output therefore
+already sees what the slower outputs just sent.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>outputs</code></td>
+      <td>Number of outputs, 2&ndash;16. Default <code>4</code>. Lowering
+          it keeps the divisors of the removed outputs, so raising it again
+          brings them back; wires on outputs that no longer exist stop
+          carrying messages.</td></tr>
+  <tr><td><code>divisors</code></td>
+      <td>One divisor per output, 1&ndash;1000000, edited in the settings
+          dialog. Saved as a JSON array such as <code>[2,4,60]</code>;
+          outputs the array does not reach use the default
+          <code>2</code>, <code>4</code>, <code>8</code>, ... for their
+          position.</td></tr>
+</table>
+<p>
+The count is runtime state: it is not saved with the worksheet, so a
+reopened worksheet starts counting from zero.
+</p>
+
+</body>
+</html>
