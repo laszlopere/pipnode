@@ -1,0 +1,451 @@
+[x] 48 Use MathGL for the 3D graph views (multi-series PnGraph). PLplot has no
+       grid-of-towers 3D bar primitive, so the current 3D code in
+       lib/pn-graph-gui.c (paint_histogram_3d / paint_line_3d) sets up PLplot's
+       plw3d/plbox3 axis box and then HAND-ROLLS the bar projection (Pn3DProj /
+       proj_xy / proj_depth / fill_3d_quad + painter's-algorithm depth sort) on
+       top -- that hand-rolled projection fighting PLplot's axis projection is
+       why the 3D bars never looked right. Leave the 2D views on PLplot for now;
+       only the multi-series 3D paths move to MathGL. (If MathGL proves itself we
+       may later move 2D too.)
+       DONE (integration complete; user visual sign-off given 2026-07-10).
+       FEASIBILITY was proven with tools/mgl-graph-preview.c; the integrated path
+       is verified end-to-end with tools/graph-preview.c (drives the REAL node
+       paint_plot vfunc -> PNG). Real vertical towers come from per-series
+       mgl_bars_xyz (x=bin, y=series-index, z=count) -- NOT mgl_bars(matrix),
+       which is a 2D grouped-bar concept that lies flat under rotation. Lines use
+       per-series mgl_plot_xyz. Solid 3D bars are built from MathGL FACE
+       primitives (mgl_facez top + mgl_facex/facey sides -> mgl_draw_bar_box),
+       NOT mgl_bars_xyz (which draws flat zero-depth blades = "2D bars in a 3D
+       scene"); mgl_set_light is required so the faces shade by normal.
+       [x] 48.1 configure.ac: detect MathGL. NO pkg-config .pc file ships (Ubuntu
+                libmgl-dev 8.0.1); link is just -lmgl (lib in /usr, header
+                <mgl2/mgl_cf.h>). Use AC_CHECK_HEADER + AC_CHECK_LIB, export
+                MGL_CFLAGS/MGL_LIBS. GOTCHA: mreal is double ONLY when
+                MGL_USE_DOUBLE=1, which the installed config.h sets and define.h
+                picks up via #include "mgl2/config.h"; our compile already sees
+                sizeof(mreal)==8, so no -D needed -- but if a build ever sees
+                mreal=float against a double-built lib, every mgl_data_set_value
+                silently corrupts (passes 8 bytes into a 4-byte slot).
+       [x] 48.2 lib/Makefile.am: add MGL_CFLAGS/MGL_LIBS to libpipnode-gui
+                (3D painters live in the gui tier; core stays MathGL-free).
+       [x] 48.3 Replace paint_histogram_3d + paint_line_3d in pn-graph-gui.c with
+                MathGL renderers + the mgl_get_rgba -> cairo ARGB32 bridge (swap
+                R<->B; opaque so no premultiply). Map the node's configurable
+                background_color/axis_color + per-series color_for_series wheel
+                into MathGL (mgl_clf_rgb + per-series pen). Reuse the existing
+                GTK-free collect_* ring readers. Delete the now-dead hand-rolled
+                Pn3DProj/proj_*/fill_3d_quad/bar-sort helpers.
+       [x] 48.4 Build, clear LSP diagnostics, run make check (test-pn-graph is
+                headless/core so untouched) + a visual check via the running
+                editor. PLUGINS/packaging note: MathGL is a new gui-tier runtime
+                dep (pipnode-gui package), document alongside PLplot.
+
+[x] 50 Parse JSON node -- make response bodies addressable. Core, headless,
+       small. Http Client hands the body back as a STRING in data.output, and
+       pn-http.c never parses it, so JMESPath (which runs against the message
+       tree) cannot reach a single field of a REST response. json-glib is already
+       a dependency. Cheapest node on this list, and it is what makes #49 useful.
+       DONE (2026-07-10). PnParse in lib/pn-parse.[ch], registered in the factory,
+       category Filters/Expressions, fa-code icon. Props source-field (default
+       "data/output") + result-field (default "result", ""/"data" replace the
+       bag) -- deliberately the same shape as PnQuery so the pair reads alike.
+       Failure is NON-destructive (unlike PnQuery's bag-replacing failure): the
+       bag is forwarded untouched apart from data.error, so the body you could
+       not parse survives for inspection; the node also lights pn_node_set_has_error.
+       7 unit tests (tests/unit/test-pn-parse.c, 23 checks). Verified end-to-end
+       headless: python http.server -> PnHttp -> PnParse -> PnQuery -> PnDebug
+       yielded data.value = 21.5 out of a nested body. Help page data/help/PnParse.html;
+       skill reference filters-gate-compute.md updated.
+
+[x] 61 Desktop Layout view -- a second GUI layout editor, beside the existing
+       Panel Applet Layout, where the user arranges the same widgets inside a
+       plain application window, plus the application that shows the result
+       (viewers/pipnode-desktop, 61.7).
+
+       [x] 61.1 Generalise the editor. lib/pn-panel-editor.[ch] was already
+             documented as "the first of a planned family of GUI-layout
+             editors (panel, desktop, web, mobile)", and the whole node ->
+             widget mirroring half of it is surface-independent, so it became
+             lib/pn-layout-editor.[ch]: one PnLayoutEditor parameterised by a
+             PnLayoutEditorKind (PANEL / DESKTOP). The kind selects four
+             things and nothing else -- the widget height, the guide drawn
+             behind the widgets, the snapping rule, and which pair of PnFlow
+             accessors placements are saved through. Adding the planned web
+             and mobile surfaces is now a kind plus those four hooks.
+       [x] 61.2 Flow storage. A desktop_layout map (node UUID -> window-
+             relative x/y) entirely separate from panel_layout, so the same
+             node can sit in a different place on each surface; plus the
+             window itself (desktop_width / desktop_height / desktop_title)
+             and a desktop_editor_open view-state flag. New signals
+             desktop-layout-changed and desktop-editor-visible-changed mirror
+             the panel pair. The panel and desktop paths share three new
+             static primitives (layout_get/set_position, layout_list_positions)
+             and two JSON helpers, so the second surface added no duplicated
+             serialisation code.
+       [x] 61.3 On-disk format: "desktop_layout" (UUID -> {x, y}),
+             "desktop_window" ({width, height, title}) and
+             "desktop_editor_open", all omitted while untouched -- a document
+             that never opened the desktop layout saves byte-identically to
+             before (covered by a test).
+       [x] 61.4 Editor surface. The window is drawn as an outlined rectangle
+             with a mock title bar sitting just ABOVE it, so the framed area
+             is exactly the content area a stored (x, y) is relative to and
+             the desktop app needs no chrome correction. Widgets are clamped
+             inside the frame and sticky-snap to three guides per axis (both
+             edges and the centre line), reusing the panel band's GRAB/BREAK
+             hysteresis through one shared layout_snap_axis(). Widgets are
+             drawn at PN_DE_WIDGET_HEIGHT (48) rather than the panel's 36.
+       [x] 61.5 Window properties bar above the canvas: title entry (empty =
+             fall back to the document name) and width/height spins. They edit
+             the flow; the flow's desktop-layout-changed signal pushes values
+             back, so load and undo need no second code path.
+       [x] 61.6 Window plumbing: "Add _Desktop Layout" in the "+" tab menu,
+             one instance at a time, closable "X" tab, opened and closed
+             through the document flag exactly like the panel tab. Tests
+             (6 new cases in tests/unit/test-pn-flow.c) and a "Desktop
+             layouts" section in data/help/help-index.html.
+       [x] 61.7 The desktop application itself -- viewers/pipnode-desktop, a
+             plain window that shows one worksheet's desktop layout and
+             nothing else. Engineered exactly like the XFCE applet: a pure
+             D-Bus client of the same background engine, linking GTK / GLib /
+             json-glib and the GTK-only panel-widgets library but NO pipnode
+             runtime, so a node or engine crash cannot take it down; it
+             self-heals across an engine restart by watching the bus name.
+             Takes a worksheet path either positionally or via --file/-f,
+             with the same precedence pipnode-editor applies (--file wins,
+             two positionals is an error), and a file chooser when given
+             neither; ships its own desktop entry. Interaction mirrors the applet one
+             for one: ActivateWidget for Switch/Inject, SendEvent for a
+             background click, PresentEditor from the right-click menu.
+             Closing the window stops the worksheet (CloseWorksheet) -- the
+             one deliberate difference from the applet, whose worksheet is
+             meant to outlive any one view of it.
+       [x] 61.8 Engine support: GetDesktopLayout + DesktopLayoutChanged
+             beside the panel's GetLayout + LayoutChanged, sharing the
+             per-node WidgetChanged channel. Membership is simpler than the
+             panel's band test -- a node is in the window iff the desktop
+             editor placed it -- and x/y are published verbatim
+             (window-relative), so the viewer paints with them directly. The
+             window block carries width/height/title plus widget_height, so
+             the viewer needs no pipnode header to size widgets and cannot
+             drift from the editor.
+       [x] 61.9 Extracted the applet's widget mirroring into
+             panel-widgets/pn-widget-mirror.[ch] (PnWidgetMirror): the client
+             half of the layout protocol -- create/destroy/update widgets
+             from layout JSON -- shared by the applet and the viewer, with
+             PLACEMENT left to the host, which is the one thing the two
+             surfaces genuinely differ on. Cut ~300 duplicated lines and
+             keeps a new widget kind a one-file change. New top-level
+             viewers/ tree for the family (web and mobile next).
+       [x] 61.10 Tests: tests/test_desktop_engine_run.py pins the engine half
+             end to end (window block, verbatim placements, panel/desktop
+             independence in one document, live WidgetChanged, unarranged
+             fallback). The panel engine test still passes unchanged, which
+             is what covers the mirror extraction.
+
+[x] 64 Full-text palette search over the node help pages. The palette's search
+       box matched one string, the node's label, and nothing else: no node
+       carries a description, so a user who remembers what a node does but not
+       what it is called had nowhere to look. Every node already ships a
+       hand-written help page, and that prose is the only place its behaviour
+       is described in words -- 174 pages the palette could not see. A "Full
+       text" check button under the search box, off by default, widens the
+       filter to that text.
+       [x] 64.1 One extractor, two consumers. lib/pn-help-text.[ch] (core tier,
+             GLib only) reduces a page to plain text: pn_help_text_from_html()
+             always strips tags, and in search mode also turns each &entity;
+             into a space and collapses whitespace runs, so a needle typed as
+             prose matches text the page wrote as "Wheel&nbsp;up" or broke
+             across a source line. The help browser's no-WebKit fallback lost
+             its private strip_html() and calls the same function with
+             for_search FALSE, which reproduces its old output byte for byte.
+       [x] 64.2 The index is a file-static in pn-palette.c, not a field: a
+             palette is built per worksheet tab, so a per-object cache would
+             hold the same ~600 KiB once per tab. It fills lazily, one type at
+             a time, keyed on the GType name -- the help page is always
+             "<GType name>.html", the basename the Help menu entry already
+             opens -- and resolves through the existing
+             pn_help_browser_resolve_page() rather than a third copy of the
+             search path. A type with no page caches an empty entry, so the
+             path is walked once per type and not once per keystroke, and with
+             the box unticked the index is never built at all.
+       [x] 64.3 Filtering. filter_visible_func and row_matches_recursive stopped
+             restating the casefold/g_strstr_len dance and now share
+             leaf_matches(), which is leaf_label_matches() OR (only with the
+             box ticked) leaf_help_matches(). Group rows are unchanged: visible
+             iff some descendant leaf is. The refilter+expand_all tail moved
+             into palette_refilter(), shared by the entry and the check button.
+       [x] 64.4 A help-only hit gets a tooltip, because a search for "wheel"
+             surfacing Knob otherwise reads as a bug. The tree view's
+             query-tooltip shows ~40 bytes either side of the match, and only
+             for a leaf whose LABEL did not match -- a name hit needs no
+             explanation. Both halves of the page are cached, the casefolded
+             one to match on and the original to quote; the offset is carried
+             from one to the other only while folding left the byte length
+             alone (true of these ASCII pages), otherwise the opening words
+             stand in rather than a cut at a meaningless position.
+       [x] 64.5 The state is a preference, not window state:
+             palette-search-help-text on PnPreferences (FALSE by default,
+             JSON "palette_search_help_text"), so it is off on a fresh profile
+             and sticky once turned on. Own row under the entry -- the sidebar
+             is 180px and a check button beside the box squeezes it.
+       [x] 64.6 Tests: tests/unit/test-pn-help-text.c on the usual headless
+             harness covers tag stripping, entities becoming spaces, the bare
+             ampersand that must NOT be eaten, whitespace folding, an
+             unterminated tag, and verbatim mode keeping its paragraph breaks.
+             The filter and the tooltip are GUI and were driven by hand.
+       [x] 64.7 Docs: the Palette bullet in data/help/help-index.html now
+             describes the search box, the Full text checkbox and the tooltip.
+
+[x] 65 Fiat Converter -- a second currency converter, for national
+       currencies. The FX Converter (PnRate) is named for foreign exchange
+       but quotes a crypto market: its 23-entry list is 22 crypto assets and
+       USD as the pivot they are priced against, so a worksheet carrying a
+       price in euros had no way to read it in forints. The new node is the
+       same node with a different quote source, and deliberately the same
+       message contract, so a chain converts from one to the other by
+       swapping the node.
+       [x] 65.1 lib/pn-fiat.[ch], PnFiat, a PnHttp subclass in the core
+             (GTK-free) tier, modelled on pn-rate.c property for property:
+             from/to/rate/last-update/status, the same mutex discipline
+             between the fetch worker and the receive path, the same
+             cache-freshness gate on trigger so reopening a worksheet does
+             not fire a request, and the same deprecated-rate error marker.
+             receive() writes data.value (x rate), data.rate, data.currency
+             and data.deprecated -- member for member what PnRate writes.
+       [x] 65.2 Quote source: Frankfurter (api.frankfurter.dev/v1/latest),
+             a free, key-less, self-hostable front end to the ECB's daily
+             reference rates. ?base=<from>&symbols=<to> needs no pivot --
+             the endpoint re-bases its euro table on request -- so the parse
+             reads one member out of "rates" and is done, where PnRate has
+             to divide two USD prices. The reply's "date" is the working day
+             the rates were fixed on and goes into the status, because a
+             rate fetched on a Sunday is Friday's rate.
+       [x] 65.3 Currency set: the 30 the ECB publishes (PnFiatCurrency, its
+             own enum, no overlap with PnCurrency beyond USD). Period
+             defaults to 3600, which is also PnAutoTrigger's hard ceiling --
+             the rates move once a working day. The floor is 600 rather than
+             3600 only because a floor equal to the ceiling would make the
+             setting a constant the user cannot touch.
+       [x] 65.4 lib/pn-fiat-gui.c installs the dialog customisation:
+             read-only rows for rate / last-update / status, and the pair
+             pickers. There is no bundled icon set for national currencies
+             and MYR / RON / ISK do not read as three bare letters, so the
+             combo builder in pn-currency-editors.c grew a second dress:
+             currency_editor_build() now takes "with icons" and an optional
+             describe callback, pn_currency_editor_new() is the crypto
+             wrapper it always was and pn_currency_editor_new_named() lists
+             "EUR -- Euro" with no pixbuf column packed at all.
+       [x] 65.5 tests/unit/test-pn-fiat.c, 15 cases. Beyond the conversion
+             and cache-state cases the Rate test already covers, it drives
+             the parse path by hand through the PnHttp emit_message vfunc
+             with real reply bodies: the success path (rate, timestamp and
+             the fixing date in the status), the four failure paths (no
+             response, non-2xx, no rate table, a table about some other
+             currency, a body that is not JSON) each leaving the cached rate
+             standing, and the fact that a fetch emits no message of its own.
+       [x] 65.6 Docs: data/help/PnFiat.html, the data.deprecated row in
+             help-index.html, and a Fiat Converter section in the
+             pipnode-nodes skill reference.
+
+[x] 66 Shift Register node -- and the multi-output ports it needs. One input,
+       N outputs (2..16, "outputs" property). Every arriving message is stored
+       at the head of an open-ended shift register: message k leaves on
+       output 1, message k-1 on output 2, ... message k-N+1 on output N; the
+       oldest falls off the end. Stages not yet filled stay silent. Emission
+       order is oldest stage first, output 1 last, so a downstream multi-input
+       node triggered from output 1 already sees the other stages updated.
+       This settles the port-model question #56 left open: multi-output is
+       the mirror image of multi-input.
+       [x] 66.1 Core port model (pn-node): pn_node_set/get_n_outputs,
+             per-output names (node-set, default "out1".., not serialized),
+             per-output last-value readout, pn_node_emit_message_on_output()
+             + pn_node_current_output() (thread-local, saved/restored like
+             current_input). pn_node_emit_message() == output 0. The stacked
+             port section is max(multi-in rows, multi-out rows). No ABI bump
+             (instance-private state + new functions only).
+       [x] 66.2 PnWire source_output ("source-output" property,
+             pn_wire_new_ports()); a wire forwards only emissions on its own
+             output.
+       [x] 66.3 Serialization: optional "source_output" on connections (load,
+             save, clipboard paste); omitted when 0 so existing files stay
+             byte-identical.
+       [x] 66.4 Worksheet: output tabs down the right edge of the port
+             section, names + last value per row, hit-test, drag-to-connect
+             from/to a specific output, wire/flow-light anchors.
+       [x] 66.5 D-Bus: additive ConnectPorts(s,i,s,i) and ListPortWires /
+             GetNodePortWires a(sisis); Connect/ListWires keep their shape.
+       [x] 66.6 lib/pn-shift-register.[ch] (CPU group), factory registration.
+       [x] 66.7 Unit tests: wire routing by output, flow round-trip of
+             source_output, shift-register behaviour.
+       [x] 66.8 Docs: help page, PLUGINS / DBUS-API.md / skills.
+       [x] 66.9 GUI check by the user: output tabs/names/values paint on the
+             right edge, drag a wire out of (and onto) a specific output,
+             the wire and its flow light leave from that row.
+       [x] 66.10 Prune wires on port-count shrink (inputs and outputs).
+             pn_node_set_n_inputs/_outputs emit a new "port-count-changed"
+             signal (signal only, no ABI bump); PnFlow listens per node
+             and removes every wire whose target_input >= n_inputs or
+             source_output >= n_outputs. Removal goes through the wire
+             store, so repaint, modified flag and undo come for free, and
+             it covers the GUI dialog, D-Bus SetNodeInputCount and the
+             headless runner alike. Tests: shrink_outputs_prunes /
+             shrink_inputs_prunes in test-pn-shift-register.
+       [x] 66.11 Stale wires in files saved before 66.10: load and paste
+             drop any connection whose source_output / target_input is out
+             of range for the loaded node (wire_ports_in_range in
+             pn-flow.c); the next save writes the file clean. Test:
+             load_drops_stale_ports in test-pn-flow. All 67 examples
+             load with every wire intact.
+
+[x] 69 Clock Divider node -- one tick input, N outputs (2..16, "outputs"),
+       built on the #66 multi-output ports. Output k fires on every
+       divisor(k)-th arriving message; the default divisors are powers of two
+       (output 1 = /2, output 2 = /4, ...), each editable ("divisors", a JSON
+       array, fixed slots like Topic Demux so shrinking keeps the values). A
+       reset input zeroes the count. Lets one Auto Trigger drive fast and slow
+       chains at once. Core, CPU group.
+       [x] 69.1 lib/pn-clock-divider.[ch]: shared 64-bit tick count, output
+             k fires when count % divisor(k) == 0 (a /4 fires on ticks 4, 8,
+             ...), pure seam pn_clock_divider_plan(), inputs "tick" and
+             "reset" (silent). Divisors 1..1000000 in 16 fixed slots; the
+             saved JSON trims trailing defaults. Each emission is a clone
+             of the tick message. Indigo, fa-sort-amount-desc.
+       [x] 69.2 Emission order: largest divisor first, smallest last, ties
+             highest output first -- by divisor rather than by output
+             number, so it stays slowest-first after the user edits the
+             divisors out of order.
+       [x] 69.3 Gui tier pn-clock-divider-gui.c: outputs spin + one divisor
+             spin per output, rebuilt on notify::outputs, refreshed on
+             notify::divisors; output names follow the divisors ("/2").
+       [x] 69.4 Factory registration, help page PnClockDivider.html,
+             pipnode-nodes skill (filters-reshape-timing.md).
+       [x] 69.5 Unit tests (tests/unit/test-pn-clock-divider.c): sequence
+             and order, plan by divisor, reset, shrink, JSON, notify.
+       [x] 69.7 Example examples/controls-and-logic/clock-divider.json: a
+             1 s Auto Injector into /2 /4 /8 LEDs, plus a Reset button on
+             the reset input. Order verified headless through pipnode-run.
+       [x] 69.6 GUI check by the user: node in the CPU palette group, the
+             settings tab (spins follow the output count, editing a divisor
+             relabels its output), the example's LEDs and Reset.
+
+[x] 70 Tapped Delay node -- one input, N outputs (2..16, "outputs"). Every
+       arriving message is forwarded unchanged on each output, output k after
+       k * "step-ms" milliseconds (output 1 after one step, output N after N
+       steps). A time-staggered fan-out: cascading light chases, staggered
+       device start-up, echo effects. Unlike the Shift Register (shifts by
+       message count) this shifts by time; unlike Delay, one message yields N
+       spaced copies. Core, Filters/Timing.
+       [x] 70.1 lib/pn-tapped-delay.[ch]: one pending timer per (message,
+             output), order preserved per output, all timers cancelled in
+             dispose. Lowering "outputs" cancels only the copies for the
+             removed outputs; a "step-ms" change applies to later messages
+             (armed copies keep their schedule, same as Delay). Each
+             emission is a fresh clone. Default step 250 ms, 4 outputs,
+             Delay's yellow, fa-hourglass-start.
+       [x] 70.2 Decided: no "immediate output" toggle -- a wire straight
+             from the source gives the undelayed copy.
+       [x] 70.3 Settings (outputs, step-ms) as plain properties, no gui
+             tier; output names show the delay ("250 ms", ..., "1.5 s").
+       [x] 70.4 Factory registration, help page PnTappedDelay.html,
+             pipnode-nodes skill (filters-reshape-timing.md).
+       [x] 70.5 Unit tests (tests/unit/test-pn-tapped-delay.c), driven through
+             a main loop with a short step: timing, order, burst, zero step,
+             shrink, step change, dispose.
+       [x] 70.7 Example examples/controls-and-logic/tapped-delay.json: an
+             Inject button sweeps six Flash-mode LEDs 150 ms apart. Routing
+             verified headless through pipnode-run (outputs 1, 2, 3 in
+             order per message).
+       [x] 70.6 GUI check by the user: node in Filters/Timing, output
+             labels follow outputs / step-ms edits, the example's LED sweep.
+             Verified; example node positions tidied by the user.
+
+[x] 71 Round Robin node -- one input, N outputs (2..16, "outputs"). Each
+       arriving message leaves unchanged on the next output in turn, wrapping
+       after output N. A reset input returns the pointer to output 1. Spreads
+       work across parallel chains, alternates sinks, A/B splits. Core,
+       Filters/Gate.
+       [x] 71.1 lib/pn-round-robin.[ch]: next-output pointer, wrapped to
+             output 1 when "outputs" shrinks past it, inputs "in" and
+             "reset" (silent). The turn advances before the emit, so a
+             message fed back into "in" takes the following output. The
+             message is forwarded as-is (one output per message). Default
+             3 outputs, Filter's yellow, fa-refresh. No gui tier.
+       [x] 71.2 Factory registration, help page PnRoundRobin.html,
+             pipnode-nodes skill (filters-gate-compute.md).
+       [x] 71.3 Unit tests (tests/unit/test-pn-round-robin.c): rotation,
+             wrap, reset, shrink while the pointer is past the new end,
+             feedback loop.
+       [x] 71.5 Example examples/controls-and-logic/round-robin.json: a 1 s
+             Auto Injector dealt over four LEDs, plus a Reset button on
+             the reset input. Rotation verified headless through
+             pipnode-run.
+       [x] 71.4 GUI check by the user: node in Filters/Gate, the example's
+             LEDs light in turn, Reset restarts at output 1.
+
+[x] 72 Value Router node -- the value-test half of the #56 Router (#67 Topic
+       Demux did the topic half). One input, N outputs (2..16, "outputs"),
+       one rule per output testing data.value (or a configurable data-bag
+       path): < <= == != >= > against a number, or an inclusive range. A
+       message leaves unchanged by the FIRST output whose rule matches; an
+       optional "otherwise" last output catches the rest (else dropped).
+       Core, Filters/Gate, Filter's yellow, same look as Topic Demux.
+       [x] 72.1 lib/pn-value-router.[ch]: "rules" JSON array in 16 fixed
+             slots, "path" (default value, dotted paths descend), pure seam
+             pn_value_router_route_number(); booleans read as 1/0, a
+             missing or non-numeric member matches only "else". Filter's
+             yellow, fa-share-alt.
+       [x] 72.2 Decided: first match only (fan-out is a wire away). And no
+             separate "otherwise" port: an {"op":"else"} rule on any output
+             does that job, so no output index shifts when the count
+             changes and no wire silently changes meaning.
+       [x] 72.3 Gui tier pn-value-router-gui.c: outputs spin, path entry,
+             one row per output (operator combo + one number entry, two
+             for "between"); output names follow the rules ("== 3",
+             "10..20", "else").
+       [x] 72.4 Factory registration, help page PnValueRouter.html,
+             pipnode-nodes skill (filters-gate-compute.md).
+       [x] 72.5 Unit tests (tests/unit/test-pn-value-router.c): operators,
+             range ends, first match + else, path / nested / boolean,
+             unchanged forwarding, JSON round trip + names, notify.
+       [x] 72.7 Example: examples/controls-and-logic/toy-cpu-accumulator.json
+             now dispatches opcodes with two Value Routers on path "op"
+             (Opcode: 6 outputs after Decode; Execute: 3 outputs after
+             ACC) instead of nine Filters -- 29 nodes down to 22. Headless
+             pipnode-run prints the same 13, 5, 13, ... as before.
+       [x] 72.6 GUI check by the user: node in Filters/Gate, the rule rows
+             (combo shows/hides the number fields, editing relabels the
+             output), and the simplified CPU example running.
+
+[x] 73 Value Trend node -- rising / falling split on data.value. One input,
+       two outputs: "rising" (1) gets the message when data.value is greater
+       than the previous message's value, "falling" (2) when it is smaller.
+       Equal values and the first message (nothing to compare with) are
+       dropped. An optional deadband ("min-change", default 0) ignores moves
+       smaller than the band, measured from the last forwarded value so a
+       slow drift still eventually trips. Non-numeric values are dropped and
+       do not reset the reference. Core, Filters/Gate.
+       [x] 73.1 lib/pn-value-trend.[ch]: last-value reference, pure seam
+             pn_value_trend_classify(prev, cur, band). Booleans read as
+             1.0 / 0.0 like Value Router; a move of exactly the band width
+             trips, anything under it does not. No GUI tier -- the two
+             properties render in the generic settings dialog.
+       [x] 73.2 Decided: YES, an optional third "unchanged" output, behind
+             the "unchanged-output" boolean (default FALSE, so the node is
+             a plain two-way split until asked). It collects equal values
+             and sub-band moves; the first message stays dropped either
+             way, since there is nothing to compare it against. Flipping
+             the property changes the output count live (2 <-> 3).
+       [x] 73.3 Factory registration, help page data/help/PnValueTrend.html,
+             pipnode-nodes skill (filters-gate-compute.md + SKILL.md index).
+       [x] 73.4 Unit tests (tests/unit/test-pn-value-trend.c): defaults,
+             classify seam, rise/fall/first message, forwarded untouched,
+             deadband drift, third output, non-numeric + booleans,
+             property notify. 82 checks; full suite 158 passed, 0 failed.
+       [x] 73.6 Example: examples/controls-and-logic/value-trend.json --
+             Knob -> Value Trend, each branch through a Format into its
+             own Text View. NB the Format nodes carry the SAME template
+             in success-text and failure-text: the Knob emits only
+             data.value, and Format reads a missing data.success as
+             false, so a success-text-only demo shows nothing.
+       [x] 73.5 GUI check by the user.
