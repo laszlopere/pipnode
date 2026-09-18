@@ -1125,6 +1125,33 @@ on_node_input_names_changed (
     on_store_changed_mark_modified (user_data);
 }
 
+/* "port-count-changed" handler: when a node drops inputs or outputs,
+ * remove every wire still attached to a port that no longer exists —
+ * it would carry nothing and be drawn below the node body.  Scanned
+ * back-to-front so index shifts during removal stay benign; each
+ * removal flows through "wire-removed" (modified flag, undo, repaint). */
+static void
+on_node_port_count_changed (
+        PnNode  *node,
+        gpointer user_data)
+{
+    PnFlow *self  = PN_FLOW (user_data);
+    gint    n_in  = pn_node_get_n_inputs  (node);
+    gint    n_out = pn_node_get_n_outputs (node);
+    gint    i;
+
+    for (i = (gint) pn_wire_store_get_length (self->wires) - 1; i >= 0; i--)
+    {
+        PnWire *wire = pn_wire_store_get_wire (self->wires, (guint) i);
+
+        if ((pn_wire_get_target (wire) == node &&
+             pn_wire_get_target_input (wire) >= n_in) ||
+            (pn_wire_get_source (wire) == node &&
+             pn_wire_get_source_output (wire) >= n_out))
+            pn_wire_store_remove (self->wires, wire);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Status-message routing                                             */
 /* ------------------------------------------------------------------ */
@@ -1191,6 +1218,11 @@ on_node_added (
      * marks the document modified through this dedicated signal. */
     g_signal_connect (node, "input-names-changed",
                       G_CALLBACK (on_node_input_names_changed), self);
+
+    /* Shrinking a node's input or output count prunes the wires left
+     * on the ports that went away. */
+    g_signal_connect (node, "port-count-changed",
+                      G_CALLBACK (on_node_port_count_changed), self);
 }
 
 static void
@@ -1209,6 +1241,8 @@ on_node_removed (
             node, G_CALLBACK (on_node_any_notify_mark), self);
     g_signal_handlers_disconnect_by_func (
             node, G_CALLBACK (on_node_input_names_changed), self);
+    g_signal_handlers_disconnect_by_func (
+            node, G_CALLBACK (on_node_port_count_changed), self);
     if (PN_IS_DEBUG (node))
     {
         g_signal_handlers_disconnect_by_func (

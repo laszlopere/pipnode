@@ -26,6 +26,8 @@
 
 #include "pntest.h"
 #include "pn-shift-register.h"
+#include "pn-expression2.h"
+#include "pn-flow.h"
 #include "pn-wire.h"
 
 #include <string.h>
@@ -464,6 +466,107 @@ test_nested_emission_restores_output (void)
     g_object_unref (sr);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Port-count shrink prunes wires                                     */
+/* ------------------------------------------------------------------ */
+
+/* Is @wire still in @flow's wire store? */
+static gboolean
+flow_has_wire (PnFlow *flow, PnWire *wire)
+{
+    PnWireStore *store = pn_flow_get_wires (flow);
+    guint        i;
+
+    for (i = 0; i < pn_wire_store_get_length (store); i++)
+        if (pn_wire_store_get_wire (store, i) == wire)
+            return TRUE;
+    return FALSE;
+}
+
+/* Lowering "outputs" drops the wires on the outputs that went away and
+ * leaves the rest; raising it again does not resurrect them. */
+static void
+test_shrink_outputs_prunes_wires (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    PnNode  *sr   = make_node (4, NULL);
+    PnNode  *sink = PN_NODE (pn_shift_register_new ());
+    PnWire  *w0   = pn_wire_new_ports (sr, 0, sink, 0);
+    PnWire  *w1   = pn_wire_new_ports (sr, 1, sink, 0);
+    PnWire  *w3   = pn_wire_new_ports (sr, 3, sink, 0);
+    PnWire  *in   = pn_wire_new_ports (sink, 2, sr, 0);  /* sr as target */
+
+    pn_node_store_add (pn_flow_get_nodes (flow), sr);
+    pn_node_store_add (pn_flow_get_nodes (flow), sink);
+    pn_wire_store_add (pn_flow_get_wires (flow), w0);
+    pn_wire_store_add (pn_flow_get_wires (flow), w1);
+    pn_wire_store_add (pn_flow_get_wires (flow), w3);
+    pn_wire_store_add (pn_flow_get_wires (flow), in);
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 4u);
+
+    g_object_set (sr, "outputs", 2, NULL);
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 3u);
+    PN_CHECK (flow_has_wire (flow, w0));
+    PN_CHECK (flow_has_wire (flow, w1));
+    PN_CHECK (!flow_has_wire (flow, w3));
+    PN_CHECK (flow_has_wire (flow, in));   /* input side untouched */
+
+    g_object_set (sr, "outputs", 4, NULL);
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 3u);
+
+    /* The sink losing its third output takes the wire into sr with it. */
+    g_object_set (sink, "outputs", 2, NULL);
+    PN_CHECK (!flow_has_wire (flow, in));
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 2u);
+
+    g_object_unref (w0);
+    g_object_unref (w1);
+    g_object_unref (w3);
+    g_object_unref (in);
+    g_object_unref (sink);
+    g_object_unref (sr);
+    g_object_unref (flow);
+}
+
+/* The input side: lowering a multi-input node's count drops the wires
+ * feeding the removed inputs. */
+static void
+test_shrink_inputs_prunes_wires (void)
+{
+    PnFlow  *flow = pn_flow_new ();
+    PnNode  *src  = make_node (2, NULL);
+    PnNode  *expr = PN_NODE (pn_expression2_new ());
+    PnWire  *a, *b, *c;
+
+    g_object_set (expr, "inputs", 3, NULL);
+    PN_CHECK_CMPINT (pn_node_get_n_inputs (expr), ==, 3);
+    a = pn_wire_new_ports (src, 0, expr, 0);
+    b = pn_wire_new_ports (src, 1, expr, 1);
+    c = pn_wire_new_ports (src, 0, expr, 2);
+
+    pn_node_store_add (pn_flow_get_nodes (flow), src);
+    pn_node_store_add (pn_flow_get_nodes (flow), expr);
+    pn_wire_store_add (pn_flow_get_wires (flow), a);
+    pn_wire_store_add (pn_flow_get_wires (flow), b);
+    pn_wire_store_add (pn_flow_get_wires (flow), c);
+
+    g_object_set (expr, "inputs", 2, NULL);
+    PN_CHECK (flow_has_wire (flow, a));
+    PN_CHECK (flow_has_wire (flow, b));
+    PN_CHECK (!flow_has_wire (flow, c));
+
+    g_object_unref (a);
+    g_object_unref (b);
+    g_object_unref (c);
+    g_object_unref (expr);
+    g_object_unref (src);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -481,5 +584,7 @@ main (int argc, char **argv)
     pn_test_add ("wire_routes_by_output",  test_wire_routes_by_output);
     pn_test_add ("plain_wire_output_zero", test_plain_wire_is_output_zero);
     pn_test_add ("nested_emit_restores",   test_nested_emission_restores_output);
+    pn_test_add ("shrink_outputs_prunes",  test_shrink_outputs_prunes_wires);
+    pn_test_add ("shrink_inputs_prunes",   test_shrink_inputs_prunes_wires);
     return pn_test_run ();
 }

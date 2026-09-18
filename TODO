@@ -1318,7 +1318,7 @@
              help-index.html, and a Fiat Converter section in the
              pipnode-nodes skill reference.
 
-[ ] 66 Shift Register node -- and the multi-output ports it needs. One input,
+[x] 66 Shift Register node -- and the multi-output ports it needs. One input,
        N outputs (2..16, "outputs" property). Every arriving message is stored
        at the head of an open-ended shift register: message k leaves on
        output 1, message k-1 on output 2, ... message k-N+1 on output N; the
@@ -1349,13 +1349,18 @@
        [x] 66.7 Unit tests: wire routing by output, flow round-trip of
              source_output, shift-register behaviour.
        [x] 66.8 Docs: help page, PLUGINS / DBUS-API.md / skills.
-       [ ] 66.9 GUI check by the user: output tabs/names/values paint on the
+       [x] 66.9 GUI check by the user: output tabs/names/values paint on the
              right edge, drag a wire out of (and onto) a specific output,
              the wire and its flow light leave from that row.
-       [ ] 66.10 Known rough edge: lowering "outputs" leaves wires on the
-             removed outputs in place (they carry nothing and are drawn
-             below the body). Same as lowering an input count today; a
-             shared "prune wires on port-count shrink" fix covers both.
+       [x] 66.10 Prune wires on port-count shrink (inputs and outputs).
+             pn_node_set_n_inputs/_outputs emit a new "port-count-changed"
+             signal (signal only, no ABI bump); PnFlow listens per node
+             and removes every wire whose target_input >= n_inputs or
+             source_output >= n_outputs. Removal goes through the wire
+             store, so repaint, modified flag and undo come for free, and
+             it covers the GUI dialog, D-Bus SetNodeInputCount and the
+             headless runner alike. Tests: shrink_outputs_prunes /
+             shrink_inputs_prunes in test-pn-shift-register.
 
 [ ] 67 Topic Demux node -- the topic half of the #56 Router, built on the
        #66 multi-output ports. One input, N outputs (2..16, "outputs"), one

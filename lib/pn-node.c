@@ -286,6 +286,7 @@ enum {
     SIG_REPAINT_NEEDED,
     SIG_LOG_CHANGED,
     SIG_INPUT_NAMES_CHANGED,
+    SIG_PORT_COUNT_CHANGED,
     SIG_PROCESSING_CHANGED,
     N_SIGNALS,
 };
@@ -685,6 +686,20 @@ pn_node_class_init (PnNodeClass *klass)
      * signal to flag the document modified on a rename. */
     signals[SIG_INPUT_NAMES_CHANGED] = g_signal_new (
             "input-names-changed",
+            PN_TYPE_NODE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            0);
+
+    /* Emitted when the input or output port count changes
+     * (pn_node_set_n_inputs / pn_node_set_n_outputs).  The counts are not
+     * GObject properties, so they raise no "notify"; PnFlow listens to
+     * this to drop wires left attached to ports that no longer exist. */
+    signals[SIG_PORT_COUNT_CHANGED] = g_signal_new (
+            "port-count-changed",
             PN_TYPE_NODE,
             G_SIGNAL_RUN_LAST,
             0,
@@ -1360,6 +1375,7 @@ pn_node_set_n_inputs (
     /* Keep the boolean consistent so has-input consumers (and the
      * save format, which still goes through it) agree with the count. */
     pn_node_set_has_input (self, n >= 1);
+    g_signal_emit (self, signals[SIG_PORT_COUNT_CHANGED], 0);
 }
 
 double
@@ -1408,6 +1424,7 @@ pn_node_set_n_outputs (
         (gint) priv->output_value_str->len > n)
         g_ptr_array_set_size (priv->output_value_str, n);
     pn_node_set_has_output (self, n >= 1);
+    g_signal_emit (self, signals[SIG_PORT_COUNT_CHANGED], 0);
 }
 
 double

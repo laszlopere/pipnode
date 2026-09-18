@@ -676,6 +676,8 @@ gint            pn_node_get_n_inputs   (PnNode *self);
  * @i are dispatched via pn_node_receive_message_on_input(); inside its
  * `receive` handler the node learns @i from pn_node_current_input().
  * Also keeps the has-input boolean consistent (TRUE when @n >= 1).
+ * Emits "port-count-changed" on a change; a #PnFlow then removes any
+ * wire still feeding an input index >= @n.
  */
 void            pn_node_set_n_inputs   (PnNode *self, gint n);
 
@@ -721,6 +723,8 @@ gint            pn_node_get_n_outputs  (PnNode *self);
  * output @i with pn_node_emit_message_on_output().  Keeps has-output
  * consistent (TRUE when @n >= 1).  With 2+ outputs the output tabs move
  * off the header edge into the stacked port section, one row each.
+ * Emits "port-count-changed" on a change; a #PnFlow then removes any
+ * wire still leaving an output index >= @n.
  */
 void            pn_node_set_n_outputs  (PnNode *self, gint n);
 
