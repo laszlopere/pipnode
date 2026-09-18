@@ -26,7 +26,8 @@ Core nodes, by category:
 - [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Panel Input, AutoInjector, AutoRandom, Astronomical, Daily Timer, Pipe Reader
 - [`reference/network.md`](reference/network.md) — **Network**: Http Client, MQTT Source, MQTT Sink, Weather, Bridge Quote, Bridge Converter, Meshtastic
 - [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI**: Comparator, Dedup, Edge, Filter, Topic Demux, Value Router, Value Trend, Round Robin, Success, Failure, Threshold, Calculator, Calculator 2, JMESPath, Parse JSON, FX Converter, Fiat Converter, Throughput
-- [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, PROM, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Tapped Delay, Shift Register and Clock Divider (CPU group), Staircase, Throttle, Watchdog, Deadline
+- [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, PROM, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Tapped Delay, Staircase, Throttle, Watchdog, Deadline
+- [`reference/cpu.md`](reference/cpu.md) — **CPU** (building blocks for a clocked machine, with the silent-store rule that makes feedback loops safe): Register, Counter, RAM, Mux, Shift Register, Clock Divider
 - [`reference/sinks.md`](reference/sinks.md) — **Sinks** (consume/visualise): Debug Print, Graph, XY Graph, Weather Report, Sun Path, Chat, Sound, Text to Speech, Notify, FileViewer, Text View, Table, Table View, Panel Display, Pipe Writer
 - [`reference/gui-displays-gauges.md`](reference/gui-displays-gauges.md) — **GUI/Displays & Gauges + indicator sinks**: Numeric, Segment16, Matrix57, DigitalClock, Label, AnalogClock, AnalogMeter, Dial, LED, Countdown
 

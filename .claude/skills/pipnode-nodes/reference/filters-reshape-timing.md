@@ -198,41 +198,6 @@ Filter nodes sit mid-flow with both an input and an output port: they receive a 
 
 **Gotchas** — Timer count is messages-in-flight × outputs (unbounded). Waiting copies are runtime state: not saved, and discarded (not forwarded) when the node is disposed. Example: `examples/controls-and-logic/tapped-delay.json`.
 
-## Shift Register
-
-**Purpose** — Open-ended (non-looping) shift register of whole messages: one input, `outputs` outputs, one per stage. (`lib/pn-shift-register.c`, palette group **CPU**)
-
-**When to use** — Keep the last N messages available at once: a moving window for a downstream Calculator 2 (moving sum/average), "previous value" comparisons, or a delay line measured in messages rather than time (contrast **Delay**, which shifts in time).
-
-**Ports** — 1 input; `outputs` outputs (`out1` … `outN`), stacked down the right edge. Wire a specific output with `ConnectPorts` over D-Bus; on disk the wire carries `source_output`.
-
-**Settings**
-- `outputs` (int, `2`..`16`, default `4`) — stage count. Shrinking keeps the newest stages; wires on removed outputs stop carrying messages.
-
-**Behaviour** — Each arriving message is cloned into stage 1 and every stored stage moves along one; the last stage's message is dropped. Then every *filled* stage k is emitted on output k (0-based k−1), **oldest stage first, `out1` last**. Unfilled stages are silent: the first message produces only `out1`, the second `out1`+`out2`, etc. Each emission is a fresh clone whose source is the Shift Register.
-
-**Writes** — Nothing; stored messages go out verbatim (topic and all `data.*`).
-
-**Gotchas** — One input message causes up to N emissions, so a downstream collating node (Calculator 2) computes N times; only the result triggered by `out1` sees all stages updated. The stages are runtime state, not saved with the worksheet.
-
-## Clock Divider
-
-**Purpose** — Derives slower tick streams from one: inputs `tick` and `reset`, `outputs` outputs, each forwarding every tick whose count is a multiple of its divisor. (`lib/pn-clock-divider.c`, gui tab `lib/pn-clock-divider-gui.c`, palette group **CPU**)
-
-**When to use** — One Auto Injector drives chains at several rates (every 2 s, 4 s, 60 s …) instead of several independent timers drifting apart; clock phases for CPU-kit worksheets. Contrast **Throttle** (time-based thinning of an arbitrary stream) and **Counter** (emits the count itself).
-
-**Ports** — 2 inputs: 0 `tick`, 1 `reset` (use `target_input: 1`). `outputs` outputs labelled with their divisor (`/2`, `/4`, …); wire a specific one with `ConnectPorts` / `source_output`.
-
-**Settings**
-- `outputs` (int, `2`..`16`, default `4`).
-- `divisors` (string, JSON array of ints `1`..`1000000`, default `"[]"`) — one per output; missing/non-numeric entries use the positional default 2^(k+1) (2, 4, 8, … 65536). Always 16 slots, so shrinking `outputs` keeps the removed divisors; saved form trims trailing defaults. The gui tab shows one spin per output.
-
-**Behaviour** — A tick increments a 64-bit count, then output k fires iff `count % divisor(k) == 0` (so /4 fires on ticks 4, 8, 12 — not on tick 1). Firing outputs are emitted **largest divisor first, smallest last**, ties highest output first (pure seam `pn_clock_divider_plan()`). Each emission is a clone of the tick message (topic and `data.*` unchanged), source = the divider. A `reset` message zeroes the count and emits nothing (safe to wire from downstream).
-
-**Writes** — Nothing; the tick message is forwarded verbatim.
-
-**Gotchas** — The count is runtime state, not saved: a reopened worksheet starts from zero, and a divisor change takes effect against the running count (no re-phase — send `reset` for that). Example: `examples/controls-and-logic/clock-divider.json`.
-
 ## Staircase
 
 **Purpose** — Monostable ("stairwell light") timer: a trigger is forwarded, the node goes "on" for `on-time-ms`, then emits a synthetic turn-off (`data.value = 0.0`) and returns to rest. (`lib/pn-staircase.c:132`)
