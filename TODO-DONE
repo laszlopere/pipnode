@@ -57,6 +57,42 @@
        yielded data.value = 21.5 out of a nested body. Help page data/help/PnParse.html;
        skill reference filters-gate-compute.md updated.
 
+[x] 56 N-way Router -- ARCHITECTURAL, needs a design spike before any code. One
+       input, N outputs, each message leaving by the output whose rule (topic
+       glob / value test / success) matches. This is the highest-recurrence
+       pattern in the tree: examples/home-automation/power.json fans one PnMqtt
+       source into THREE identical PnFilter nodes just to branch on topic; also
+       examples/home-automation/tasmota-socket.json (2 topic filters) and
+       examples/networking/network_test.json (a complementary OnlySuccess /
+       OnlyFail pair). But the graph model is single-output today: connections
+       are {source_id, target_id, target_input} with no source-port index, and
+       pn_node_emit_message fans one output to every wire. Multi-output ports
+       would touch the port model, worksheet wiring and serialization. Decide the
+       port model first; the node falls out of it.
+       UPDATE: the port model is decided and built in #66 (multi-output ports
+       mirroring multi-input: pn_node_emit_message_on_output, wire
+       source_output). The Router node itself is still open.
+       UPDATE: #67 Topic Demux covers the topic-glob case (the power.json /
+       tasmota-socket.json pattern). Value-test and success routing are
+       still open.
+       UPDATE: value-test routing is done as #72 Value Router (success
+       routing too: path "success", == 1 / == 0).
+       CLOSED: every piece is delivered -- port model #66, topic routing #67
+       Topic Demux, value and success routing #72 Value Router. The example
+       migrations it motivated are tracked as #67.6 (power.json,
+       tasmota-socket.json) and #67.8 (network_test.json). Of the "related"
+       notes below, Schedule is done as #57 Daily Timer and Deadband is
+       covered by #73 Value Trend's min-change; logic operators remain
+       unplanned.
+
+       Related, deliberately NOT split out as entries: the expression language
+       has no && / || and (per the comment at lib/pn-expr-parser.c:219) "no
+       logical-not", so a boolean AND is only expressible as the arithmetic trick
+       (a>0.5)*(b>0.5). A Logic Gate node would be discoverability, not new
+       capability. Deadband (forward only when the value moves beyond a band) and
+       Schedule (fire at 07:00 on weekdays) would each make headless pipnode-run
+       materially more self-sufficient.
+
 [x] 58 CPU building-block nodes -- a minimal kit for wiring an ultra-primitive
        clocked CPU (fetch/decode/execute) on a worksheet. Decode/dispatch reuses
        existing Filters (each node has only one output port); the ALU stays
