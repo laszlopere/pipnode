@@ -66,6 +66,7 @@ check_PROGRAMS = \
 	test-pn-topic-demux \
 	test-pn-round-robin \
 	test-pn-value-router \
+	test-pn-value-trend \
 	test-pn-value \
 	test-pn-filter \
 	test-pn-rewrite \
@@ -245,6 +246,7 @@ test_pn_topic_SOURCES        = test-pn-topic.c        pntest.c pntest.h
 test_pn_topic_demux_SOURCES  = test-pn-topic-demux.c  pntest.c pntest.h
 test_pn_round_robin_SOURCES  = test-pn-round-robin.c  pntest.c pntest.h
 test_pn_value_router_SOURCES = test-pn-value-router.c pntest.c pntest.h
+test_pn_value_trend_SOURCES  = test-pn-value-trend.c  pntest.c pntest.h
 test_pn_value_SOURCES        = test-pn-value.c        pntest.c pntest.h
 test_pn_filter_SOURCES       = test-pn-filter.c       pntest.c pntest.h
 test_pn_rewrite_SOURCES      = test-pn-rewrite.c      pntest.c pntest.h

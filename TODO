@@ -1560,11 +1560,21 @@
        smaller than the band, measured from the last forwarded value so a
        slow drift still eventually trips. Non-numeric values are dropped and
        do not reset the reference. Core, Filters/Gate.
-       [ ] 73.1 lib/pn-value-trend.[ch]: last-value reference, pure seam
-             pn_value_trend_classify(prev, cur, band).
-       [ ] 73.2 Decide: optional third "unchanged" output instead of
-             dropping equal values.
-       [ ] 73.3 Factory registration, help page, pipnode-nodes skill.
-       [ ] 73.4 Unit tests (tests/unit/test-pn-value-trend.c): rise, fall,
-             equal, first message, deadband drift.
+       [x] 73.1 lib/pn-value-trend.[ch]: last-value reference, pure seam
+             pn_value_trend_classify(prev, cur, band). Booleans read as
+             1.0 / 0.0 like Value Router; a move of exactly the band width
+             trips, anything under it does not. No GUI tier -- the two
+             properties render in the generic settings dialog.
+       [x] 73.2 Decided: YES, an optional third "unchanged" output, behind
+             the "unchanged-output" boolean (default FALSE, so the node is
+             a plain two-way split until asked). It collects equal values
+             and sub-band moves; the first message stays dropped either
+             way, since there is nothing to compare it against. Flipping
+             the property changes the output count live (2 <-> 3).
+       [x] 73.3 Factory registration, help page data/help/PnValueTrend.html,
+             pipnode-nodes skill (filters-gate-compute.md + SKILL.md index).
+       [x] 73.4 Unit tests (tests/unit/test-pn-value-trend.c): defaults,
+             classify seam, rise/fall/first message, forwarded untouched,
+             deadband drift, third output, non-numeric + booleans,
+             property notify. 82 checks; full suite 158 passed, 0 failed.
        [ ] 73.5 GUI check by the user.

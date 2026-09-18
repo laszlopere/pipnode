@@ -97,6 +97,7 @@ pnhelp_DATA = \
 	help/PnTts.html \
 	help/PnValue.html \
 	help/PnValueRouter.html \
+	help/PnValueTrend.html \
 	help/PnWatchdog.html \
 	help/PnWeather.html \
 	help/PnWeatherReport.html

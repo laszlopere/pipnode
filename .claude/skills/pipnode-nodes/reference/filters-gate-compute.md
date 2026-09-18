@@ -122,6 +122,26 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 ---
 
+## Value Trend
+
+**Purpose** — Splits a numeric stream by direction of travel: one input, a `rising` and a `falling` output (optionally a third `unchanged`); each message leaves unchanged by the output matching how its `data.value` moved against the last value the node forwarded. (`lib/pn-value-trend.c` receive.)
+
+**When to use** — "Is it going up or down?" branching: a temperature climbing vs cooling, a price tick up vs down, a tank filling vs draining — each direction driving a different chain. **Threshold** answers "above or below one level" (hysteretic on/off) instead of direction; **Edge** reacts to the `data.success` boolean flipping; **Value Router** sorts into numeric bands; **Comparator** compares two live streams.
+
+**Ports** — 1 input; 2 outputs named `rising` (0) and `falling` (1), plus `unchanged` (2) when `unchanged-output` is on. Wire a specific output with `ConnectPorts` / `source_output`.
+
+**Settings**
+- `min-change` (double, `0`..`1e9`, default `0`) — deadband; moves smaller than this are not a rise or a fall. A move of *exactly* the band width does trip.
+- `unchanged-output` (boolean, default `FALSE`) — adds the third output carrying what would otherwise be dropped. Flipping it changes the output count live (2 ↔ 3).
+
+**Behaviour** — Reads `data.value` (JSON int/double; boolean → 1.0/0.0; string/missing/object → dropped, reference untouched). The **first** numeric message only seeds the reference and is always dropped, third output or not. The reference is the last value **forwarded**, never the last seen, so sub-band steps accumulate: with `min-change` 5 the run 100, 102, 104, 106 stays silent until 106 (+6 from 100). The matched message object is emitted as-is (like Value Router / Topic Demux). Pure seam `pn_value_trend_classify(prev, cur, band)` for tests.
+
+**Writes** — Nothing.
+
+**Gotchas** — Exactly one output fires per message, and never on the first one. Equal values are dropped unless the third output is on. Non-numeric messages are *not* a reset — they pass through unnoticed. Yellow body, fa-sort icon.
+
+---
+
 ## Round Robin
 
 **Purpose** — Deals messages out to its outputs in turn: inputs `in` and `reset`, `outputs` outputs; each message on `in` leaves unchanged by the next output, wrapping after the last. (`lib/pn-round-robin.c`)

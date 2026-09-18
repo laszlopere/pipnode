@@ -108,6 +108,7 @@
 #include "pn-topic-demux.h"
 #include "pn-round-robin.h"
 #include "pn-value-router.h"
+#include "pn-value-trend.h"
 #include "pn-tts.h"
 #include "pn-value.h"
 #include "pn-watchdog.h"
@@ -314,6 +315,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_TOPIC_DEMUX);
     pn_node_factory_register (self, PN_TYPE_ROUND_ROBIN);
     pn_node_factory_register (self, PN_TYPE_VALUE_ROUTER);
+    pn_node_factory_register (self, PN_TYPE_VALUE_TREND);
     pn_node_factory_register (self, PN_TYPE_VALUE);
     pn_node_factory_register (self, PN_TYPE_STAIRCASE);
     pn_node_factory_register (self, PN_TYPE_STATS);

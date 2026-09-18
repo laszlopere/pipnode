@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Value Trend (PnValueTrend) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnValueTrend">Value Trend</h4>
+<p>
+<em>Group:</em> Filters/Gate. <em>Type:</em> <code>PnValueTrend</code>.
+</p>
+<p>
+Splits a stream of numbers by which way they are moving. The node
+remembers the last value it let through and compares every arriving
+<code>data.value</code> against it: a bigger value leaves, unchanged, by
+the <em>rising</em> output, a smaller one by <em>falling</em>. An equal
+value is dropped, and so is the very first message &mdash; there is
+nothing to compare it against, it only sets the starting reference.
+</p>
+<table>
+  <tr><th>Output</th><th>Gets</th></tr>
+  <tr><td>rising</td><td>the value went up</td></tr>
+  <tr><td>falling</td><td>the value went down</td></tr>
+  <tr><td>unchanged</td><td>only when <code>unchanged-output</code> is
+      on: the value stayed put, or moved less than
+      <code>min-change</code></td></tr>
+</table>
+<p>
+<code>min-change</code> is a deadband for noisy readings: a move
+smaller than it is not counted as a rise or a fall. The reference stays
+on the last value that was actually forwarded rather than on the last
+value seen, so small steps accumulate &mdash; with a deadband of 5 a
+sensor creeping 100, 102, 104, 106 stays quiet until 106, which is 6
+above the reference of 100. A move of exactly the deadband width does
+trip. With the default <code>min-change</code> of 0 every change at all
+is a rise or a fall.
+</p>
+<p>
+Messages whose <code>data.value</code> is missing or holds text are
+dropped and leave the reference alone, so a stray message cannot break
+a running trend. Booleans count as 1 (true) and 0 (false).
+</p>
+<p>
+Use <em>Threshold</em> when what matters is being above or below one
+level rather than the direction of travel, <em>Edge</em> to react to a
+boolean <code>success</code> flipping, and <em>Value Router</em> to sort
+messages into numeric bands.
+</p>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>min-change</code></td>
+      <td>Deadband width. Moves smaller than this count as unchanged.
+          Default <code>0</code>, which splits on any change.</td></tr>
+  <tr><td><code>unchanged-output</code></td>
+      <td>Adds a third output carrying the messages that neither rose
+          nor fell, instead of dropping them. Off by default. The first
+          message is dropped either way.</td></tr>
+</table>
+
+</body>
+</html>

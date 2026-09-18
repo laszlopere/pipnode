@@ -252,6 +252,8 @@ libpipnode_core_la_SOURCES = \
 	pn-topic-demux.h \
 	pn-value-router.c \
 	pn-value-router.h \
+	pn-value-trend.c \
+	pn-value-trend.h \
 	pn-threshold.c \
 	pn-threshold.h \
 	pn-throttle.c \
@@ -639,6 +641,7 @@ pipnode_core_headers = \
 	pn-topic.h \
 	pn-topic-demux.h \
 	pn-value-router.h \
+	pn-value-trend.h \
 	pn-threshold.h \
 	pn-throttle.h \
 	pn-tts.h \
