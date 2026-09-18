@@ -1361,6 +1361,12 @@
              it covers the GUI dialog, D-Bus SetNodeInputCount and the
              headless runner alike. Tests: shrink_outputs_prunes /
              shrink_inputs_prunes in test-pn-shift-register.
+       [x] 66.11 Stale wires in files saved before 66.10: load and paste
+             drop any connection whose source_output / target_input is out
+             of range for the loaded node (wire_ports_in_range in
+             pn-flow.c); the next save writes the file clean. Test:
+             load_drops_stale_ports in test-pn-flow. All 67 examples
+             load with every wire intact.
 
 [ ] 67 Topic Demux node -- the topic half of the #56 Router, built on the
        #66 multi-output ports. One input, N outputs (2..16, "outputs"), one

@@ -1152,6 +1152,21 @@ on_node_port_count_changed (
     }
 }
 
+/* Do both ends of a wire read from a file or the clipboard name ports
+ * the nodes actually have?  A file saved before port-count pruning
+ * existed can carry wires on inputs/outputs that were since removed;
+ * the loaders drop those instead of restoring dead wires. */
+static gboolean
+wire_ports_in_range (
+        PnNode *src,
+        gint    src_output,
+        PnNode *dst,
+        gint    dst_input)
+{
+    return src_output < pn_node_get_n_outputs (src) &&
+           dst_input  < pn_node_get_n_inputs  (dst);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Status-message routing                                             */
 /* ------------------------------------------------------------------ */
@@ -2222,6 +2237,11 @@ flow_load_from_object (
             continue;
         }
 
+        /* A wire on a port the node no longer has (a stale wire from
+         * before port-count pruning) carries nothing; drop it. */
+        if (!wire_ports_in_range (src, src_output, dst, dst_input))
+            continue;
+
         g_ptr_array_add (new_wires,
                          pn_wire_new_ports (src, src_output, dst, dst_input));
     }
@@ -2987,6 +3007,9 @@ pn_flow_paste_from_string (
                        dst_id != NULL ? dst_id : (dst_name ? dst_name : "?"));
             continue;
         }
+
+        if (!wire_ports_in_range (src, src_output, dst, dst_input))
+            continue;
 
         wire = pn_wire_new_ports (src, src_output, dst, dst_input);
         pn_wire_store_add (self->wires, wire);

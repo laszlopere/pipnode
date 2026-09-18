@@ -338,7 +338,9 @@ worked example.
 A node may change its port count at runtime (an "inputs"/"outputs"
 property).  When the count goes down, the flow removes every wire
 still attached to a port that no longer exists -- on either side --
-so the node needs no wire bookkeeping of its own.
+so the node needs no wire bookkeeping of its own.  Loading a file
+or pasting likewise skips any connection whose port index is out of
+range for the node as loaded.
 
 
 5. BUILDING THE PLUGIN: STANDALONE MAKEFILE

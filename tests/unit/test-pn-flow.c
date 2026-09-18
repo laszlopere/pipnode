@@ -1042,6 +1042,76 @@ test_source_output_roundtrip (void)
     g_object_unref (flow);
 }
 
+/* Replace the single occurrence of @from in @json with @to (in place,
+ * returning the new string). */
+static gchar *
+json_replace (gchar *json, const gchar *from, const gchar *to)
+{
+    gchar **parts = g_strsplit (json, from, -1);
+    gchar  *out;
+
+    PN_CHECK_CMPINT (g_strv_length (parts), ==, 2u);
+    out = g_strjoinv (to, parts);
+    g_strfreev (parts);
+    g_free (json);
+    return out;
+}
+
+/* A file saved before port-count pruning can carry wires on outputs /
+ * inputs the node no longer has.  Load and paste drop exactly those. */
+static void
+test_load_drops_stale_port_wires (void)
+{
+    PnFlow *flow = pn_flow_new ();
+    PnNode *sr   = PN_NODE (pn_shift_register_new ());
+    PnNode *dst  = PN_NODE (pn_expression2_new ());
+    PnWire *wire;
+    gchar  *json;
+    GList  *pasted;
+
+    g_object_set (sr,  "outputs", 4, NULL);
+    g_object_set (dst, "inputs",  3, NULL);
+    pn_node_set_name (sr,  "sr");
+    pn_node_set_name (dst, "dst");
+    pn_flow_add_node (flow, sr);
+    pn_flow_add_node (flow, dst);
+
+    wire = pn_wire_new_ports (sr, 1, dst, 1);      /* in range: kept   */
+    pn_wire_store_add (pn_flow_get_wires (flow), wire);
+    g_object_unref (wire);
+    wire = pn_wire_new_ports (sr, 3, dst, 0);      /* stale output 4   */
+    pn_wire_store_add (pn_flow_get_wires (flow), wire);
+    g_object_unref (wire);
+    wire = pn_wire_new_ports (sr, 0, dst, 2);      /* stale input 3    */
+    pn_wire_store_add (pn_flow_get_wires (flow), wire);
+    g_object_unref (wire);
+
+    json = pn_flow_to_string (flow);
+    g_object_unref (flow);
+
+    /* Forge the stale file: lower the counts but keep all three wires. */
+    json = json_replace (json, "\"outputs\" : 4", "\"outputs\" : 2");
+    json = json_replace (json, "\"inputs\" : 3",  "\"inputs\" : 2");
+
+    flow = pn_flow_new ();
+    PN_CHECK (pn_flow_load_from_data (flow, json, NULL));
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 1u);
+    wire = pn_wire_store_get_wire (pn_flow_get_wires (flow), 0);
+    PN_CHECK_CMPINT (pn_wire_get_source_output (wire), ==, 1);
+    PN_CHECK_CMPINT (pn_wire_get_target_input  (wire), ==, 1);
+
+    /* Pasting the same stale document adds only the in-range wire. */
+    pasted = pn_flow_paste_from_string (flow, json, 20.0, 20.0, NULL);
+    PN_CHECK_CMPINT (g_list_length (pasted), ==, 2u);
+    PN_CHECK_CMPINT (pn_wire_store_get_length (pn_flow_get_wires (flow)),
+                     ==, 2u);
+    g_list_free (pasted);
+
+    g_free (json);
+    g_object_unref (flow);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1078,5 +1148,6 @@ main (int argc, char **argv)
                  test_graph_saved_data_disk_roundtrip);
     pn_test_add ("graph_saved_data_off",
                  test_graph_saved_data_off_writes_nothing);
+    pn_test_add ("load_drops_stale_ports", test_load_drops_stale_port_wires);
     return pn_test_run ();
 }
