@@ -131,6 +131,50 @@ value_box_free (gpointer p)
 
 /* Per-element scalar kernels. */
 
+/* The bitwise operators work on 64-bit integers: an operand is truncated
+ * toward zero, like a C cast.  One that is not finite or does not fit an
+ * int64 has no integer reading, so it makes the result NaN — the same
+ * "no error, just a non-number" contract '/' has for a zero divisor. */
+#define PN_INT64_LIMIT 9223372036854775808.0   /* 2^63 */
+
+static gboolean
+to_int64 (gdouble x, gint64 *out)
+{
+    if (!isfinite (x))
+        return FALSE;
+    x = trunc (x);
+    if (x < -PN_INT64_LIMIT || x >= PN_INT64_LIMIT)
+        return FALSE;
+    *out = (gint64) x;
+    return TRUE;
+}
+
+static gdouble
+apply_bitwise (gchar op, gdouble x, gdouble y)
+{
+    gint64 a, b;
+
+    if (!to_int64 (x, &a) || !to_int64 (y, &b))
+        return NAN;
+
+    switch (op)
+    {
+    case '&': return (gdouble) (a & b);
+    case '|': return (gdouble) (a | b);
+    case '^': return (gdouble) (a ^ b);
+    case 'l':
+        /* Shift through unsigned so a bit shifted into (or past) the
+         * sign position wraps instead of being undefined behaviour. */
+        if (b < 0 || b > 63)
+            return NAN;
+        return (gdouble) (gint64) ((guint64) a << b);
+    default:  /* 'r' — arithmetic: a negative value stays negative */
+        if (b < 0 || b > 63)
+            return NAN;
+        return (gdouble) (a >> b);
+    }
+}
+
 static gdouble
 apply_arith (gchar op, gdouble x, gdouble y)
 {
@@ -139,8 +183,28 @@ apply_arith (gchar op, gdouble x, gdouble y)
     case '+': return x + y;
     case '-': return x - y;
     case '*': return x * y;
+    case '%':
+        {
+            /* Floored modulo: the result takes the divisor's sign, so
+             * `-1 % 8` is 7 — what an address wrap wants (PnCounter's
+             * modulo wraps the same way).  y == 0 gives NaN. */
+            gdouble r = fmod (x, y);
+            if (r != 0.0 && ((r < 0.0) != (y < 0.0)))
+                r += y;
+            return r;
+        }
+    case '&': case '|': case '^': case 'l': case 'r':
+        return apply_bitwise (op, x, y);
     default:  return x / y;   /* '/' — IEEE inf/nan on divide-by-zero */
     }
+}
+
+/* ~x: bitwise complement of the truncated int64 (NaN when x has none). */
+static gdouble
+bit_not (gdouble x)
+{
+    gint64 a;
+    return to_int64 (x, &a) ? (gdouble) ~a : NAN;
 }
 
 static gboolean
@@ -205,7 +269,7 @@ map_value (UnaryFn fn, const PnExprValue *a, PnExprValue *out)
     }
 }
 
-/* out = a OP b for an arithmetic operator (+,-,*,/).  Broadcasts a scalar
+/* out = a OP b for an arithmetic or bitwise operator (+ - * / % & | ^ << >>).  Broadcasts a scalar
  * over a vector; elementwise for two vectors; on a length mismatch the
  * result takes the longer length and the surviving tail element passes
  * through verbatim. */
@@ -518,6 +582,8 @@ eval_value (PnVarStore       *self,
                 return FALSE;
             if (node->op == '-')
                 negate_value (&a, out);
+            else if (node->op == '~')
+                map_value (bit_not, &a, out);
             else                            /* unary '+': pass the value */
                 { out->vec = a.vec; out->scalar = a.scalar; a.vec = NULL; }
             pn_expr_value_clear (&a);
@@ -539,7 +605,8 @@ eval_value (PnVarStore       *self,
 
             switch (node->op)
             {
-            case '+': case '-': case '*': case '/':
+            case '+': case '-': case '*': case '/': case '%':
+            case '&': case '|': case '^': case 'l': case 'r':
                 arith_value (node->op, &a, &b, out);
                 break;
             case '<': case '>': case 'L':

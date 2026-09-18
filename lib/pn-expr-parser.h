@@ -37,7 +37,7 @@ typedef enum
 {
     PN_EXPR_NODE_NUMBER,   /* literal:   uses .number                  */
     PN_EXPR_NODE_VARIABLE, /* identifier: uses .name                   */
-    PN_EXPR_NODE_UNARY,    /* unary op:  .op ('-'), .left = operand    */
+    PN_EXPR_NODE_UNARY,    /* unary op:  .op ('-' or '~'), .left = operand */
     PN_EXPR_NODE_BINARY,   /* binary op: .op, .left/.right (see below)  */
     PN_EXPR_NODE_CALL,     /* function:  .name, .left = argument       */
     PN_EXPR_NODE_ASSIGN,   /* name = expr: .name target, .left = value */
@@ -51,7 +51,7 @@ struct _PnExprNode
     PnExprNodeType  type;
     gdouble         number; /* NUMBER */
     gchar          *name;   /* VARIABLE / CALL / ASSIGN target name */
-    gchar           op;     /* UNARY '-'; BINARY operator code (below)   */
+    gchar           op;     /* UNARY '-' / '~'; BINARY op code (below)   */
     PnExprNode     *left;   /* binary lhs / unary / call arg / assign value
                              *   / sequence statement                    */
     PnExprNode     *right;  /* binary rhs / rest of a sequence */
@@ -60,6 +60,9 @@ struct _PnExprNode
      * their own character; the multi-character comparisons get a single
      * stand-in letter so .op stays a plain gchar:
      *     '+' '-' '*' '/'   arithmetic
+     *     '%'               floored modulo (result takes the divisor's sign)
+     *     '&' '|' '^'       bitwise and, or, xor
+     *     'l' 'r'           shift left (<<), shift right (>>)
      *     '<' '>'           less-than, greater-than
      *     'L' 'G'           less-or-equal (<=), greater-or-equal (>=)
      *     '=' '!'           equal (==), not-equal (!=)
@@ -114,10 +117,12 @@ PnExprParser *pn_expr_parser_new (void);
  *
  * Parses @text into a freshly-allocated AST.  Supported grammar:
  * numbers (`12`, `12.3`), variables (`value`, `value1`), the arithmetic
- * operators `+ - * /`, the comparison operators `< > <= >= == !=` (which
- * yield 1.0 or 0.0 and bind looser than arithmetic), all with the usual
- * precedence, parentheses, unary minus, and single-argument function
- * calls (`sin(x)`, `cos(x)`, `log(x)`, …).
+ * operators `+ - * / %`, the bitwise operators `<< >> & ^ |` and unary
+ * `~`, the comparison operators `< > <= >= == !=` (which yield 1.0 or 0.0
+ * and bind looser than everything else), parentheses, unary minus, and
+ * single-argument function calls (`sin(x)`, `cos(x)`, `log(x)`, …).
+ * Precedence, tightest first: unary, `* / %`, `+ -`, `<< >>`, `&`, `^`,
+ * `|`, comparisons — Python's order, so `a & 1 == 1` is `(a & 1) == 1`.
  *
  * @text may hold several statements separated by newlines; blank lines
  * are ignored.  A statement is either an assignment `name = expr` (which

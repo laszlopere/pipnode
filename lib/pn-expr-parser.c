@@ -73,6 +73,13 @@ typedef enum
     TOK_MINUS,
     TOK_STAR,
     TOK_SLASH,
+    TOK_PERCENT,   /* %  */
+    TOK_AMP,       /* &  */
+    TOK_PIPE,      /* |  */
+    TOK_CARET,     /* ^  */
+    TOK_TILDE,     /* ~  */
+    TOK_SHL,       /* << */
+    TOK_SHR,       /* >> */
     TOK_LT,        /* <  */
     TOK_GT,        /* >  */
     TOK_LE,        /* <= */
@@ -211,20 +218,27 @@ lex_advance (Ctx *c)
     case '-': c->tok = TOK_MINUS;  c->p = p + 1; return;
     case '*': c->tok = TOK_STAR;   c->p = p + 1; return;
     case '/': c->tok = TOK_SLASH;  c->p = p + 1; return;
+    case '%': c->tok = TOK_PERCENT; c->p = p + 1; return;
+    case '&': c->tok = TOK_AMP;    c->p = p + 1; return;
+    case '|': c->tok = TOK_PIPE;   c->p = p + 1; return;
+    case '^': c->tok = TOK_CARET;  c->p = p + 1; return;
+    case '~': c->tok = TOK_TILDE;  c->p = p + 1; return;
     case '(': c->tok = TOK_LPAREN; c->p = p + 1; return;
     case ')': c->tok = TOK_RPAREN; c->p = p + 1; return;
 
-    /* Comparisons: '<' and '>' stand alone or take a trailing '=';
-     * '!=' must be two characters — a lone '!' is an error, since the
+    /* Comparisons: '<' and '>' stand alone or take a trailing '=', and
+     * a doubled '<<' / '>>' is a shift; '!=' must be two characters — a lone '!' is an error, since the
      * language has no logical-not.  ('=' is handled separately: '==' is
      * equality, a lone '=' is assignment.) */
     case '<':
-        if (p[1] == '=') { c->tok = TOK_LE; c->p = p + 2; }
-        else             { c->tok = TOK_LT; c->p = p + 1; }
+        if (p[1] == '=')      { c->tok = TOK_LE;  c->p = p + 2; }
+        else if (p[1] == '<') { c->tok = TOK_SHL; c->p = p + 2; }
+        else                  { c->tok = TOK_LT;  c->p = p + 1; }
         return;
     case '>':
-        if (p[1] == '=') { c->tok = TOK_GE; c->p = p + 2; }
-        else             { c->tok = TOK_GT; c->p = p + 1; }
+        if (p[1] == '=')      { c->tok = TOK_GE;  c->p = p + 2; }
+        else if (p[1] == '>') { c->tok = TOK_SHR; c->p = p + 2; }
+        else                  { c->tok = TOK_GT;  c->p = p + 1; }
         return;
     case '=':
         /* "==" is equality; a lone "=" is statement-level assignment. */
@@ -269,17 +283,24 @@ lex_peek (Ctx *c)
 /*    program    := NEWLINE* statement (NEWLINE statement)* NEWLINE*    */
 /*    statement  := IDENT '=' expression          // assignment        */
 /*                | expression                                         */
-/*    expression := additive (CMP additive)*    // CMP: < > <= >= == != */
+/*    expression := bitor  (CMP bitor)*       // CMP: < > <= >= == !=   */
+/*    bitor      := bitxor ('|' bitxor)*                               */
+/*    bitxor     := bitand ('^' bitand)*                               */
+/*    bitand     := shift  ('&' shift)*                                */
+/*    shift      := additive (('<<' | '>>') additive)*                 */
 /*    additive   := term   (('+' | '-') term)*                         */
-/*    term       := factor (('*' | '/') factor)*                       */
+/*    term       := factor (('*' | '/' | '%') factor)*                 */
 /*    factor     := NUMBER                                             */
 /*                | IDENT '(' expression ')'   // function call        */
 /*                | IDENT                       // variable            */
 /*                | '(' expression ')'                                 */
 /*                | ('+' | '-') factor          // unary sign          */
+/*                | '~' factor                  // bitwise not         */
 /*                                                                     */
 /*  Comparisons sit at the lowest precedence level and are left-       */
 /*  associative like the arithmetic operators; each yields 1.0/0.0.    */
+/*  The bitwise operators rank as in Python, not C: all of them bind   */
+/*  tighter than a comparison, so `a & 1 == 1` is `(a & 1) == 1`.      */
 /*  A program is one or more newline-separated statements; its value   */
 /*  is that of the last statement (see pn-var-store evaluation).       */
 /* ------------------------------------------------------------------ */
@@ -309,6 +330,19 @@ parse_factor_body (Ctx *c)
                 return NULL;
             n = node_new (PN_EXPR_NODE_UNARY);
             n->op   = '-';
+            n->left = operand;
+            return n;
+        }
+
+    case TOK_TILDE:
+        {
+            PnExprNode *operand, *n;
+            lex_advance (c);
+            operand = parse_factor (c);
+            if (operand == NULL)
+                return NULL;
+            n = node_new (PN_EXPR_NODE_UNARY);
+            n->op   = '~';
             n->left = operand;
             return n;
         }
@@ -420,9 +454,10 @@ parse_term (Ctx *c)
     if (left == NULL)
         return NULL;
 
-    while (c->tok == TOK_STAR || c->tok == TOK_SLASH)
+    while (c->tok == TOK_STAR || c->tok == TOK_SLASH || c->tok == TOK_PERCENT)
     {
-        gchar       op = (c->tok == TOK_STAR) ? '*' : '/';
+        gchar       op = (c->tok == TOK_STAR)  ? '*'
+                       : (c->tok == TOK_SLASH) ? '/' : '%';
         PnExprNode *right, *n;
 
         lex_advance (c);
@@ -473,6 +508,83 @@ parse_additive (Ctx *c)
     return left;
 }
 
+/** Map a bitwise-level token to its operator code (see the header), or
+ *  '\0' if @tok is not one. */
+static gchar
+bitwise_op (TokenType tok)
+{
+    switch (tok)
+    {
+    case TOK_SHL:   return 'l';
+    case TOK_SHR:   return 'r';
+    case TOK_AMP:   return '&';
+    case TOK_CARET: return '^';
+    case TOK_PIPE:  return '|';
+    default:        return '\0';
+    }
+}
+
+/** One left-associative binary level: operands come from @next, and the
+ *  level consumes every token whose bitwise_op() is @op_a or @op_b (pass
+ *  the same code twice for a single-operator level). */
+static PnExprNode *
+parse_bitwise_level (Ctx         *c,
+                     PnExprNode *(*next) (Ctx *),
+                     gchar        op_a,
+                     gchar        op_b)
+{
+    PnExprNode *left = next (c);
+    gchar       op;
+
+    if (left == NULL)
+        return NULL;
+
+    while ((op = bitwise_op (c->tok)) != '\0' && (op == op_a || op == op_b))
+    {
+        PnExprNode *right, *n;
+
+        lex_advance (c);
+        right = next (c);
+        if (right == NULL)
+        {
+            pn_expr_node_free (left);
+            return NULL;
+        }
+
+        n = node_new (PN_EXPR_NODE_BINARY);
+        n->op    = op;
+        n->left  = left;
+        n->right = right;
+        left = n;
+    }
+
+    return left;
+}
+
+static PnExprNode *
+parse_shift (Ctx *c)
+{
+    return parse_bitwise_level (c, parse_additive, 'l', 'r');
+}
+
+static PnExprNode *
+parse_bitand (Ctx *c)
+{
+    return parse_bitwise_level (c, parse_shift, '&', '&');
+}
+
+static PnExprNode *
+parse_bitxor (Ctx *c)
+{
+    return parse_bitwise_level (c, parse_bitand, '^', '^');
+}
+
+static PnExprNode *
+parse_bitor (Ctx *c)
+{
+    return parse_bitwise_level (c, parse_bitxor, '|', '|');
+}
+
 /** Map a comparison token to the single-character operator code carried
  *  in PnExprNode.op (see the header), or '\0' if @tok is not one. */
 static gchar
@@ -493,7 +605,7 @@ comparison_op (TokenType tok)
 static PnExprNode *
 parse_expression (Ctx *c)
 {
-    PnExprNode *left = parse_additive (c);
+    PnExprNode *left = parse_bitor (c);
     if (left == NULL)
         return NULL;
 
@@ -502,7 +614,7 @@ parse_expression (Ctx *c)
         PnExprNode *right, *n;
 
         lex_advance (c);
-        right = parse_additive (c);
+        right = parse_bitor (c);
         if (right == NULL)
         {
             pn_expr_node_free (left);

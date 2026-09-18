@@ -40,9 +40,31 @@ convert a Celsius reading to Fahrenheit.
   <li><strong>Operators:</strong> <code>+</code> <code>-</code>
       <code>*</code> <code>/</code> with the usual precedence,
       parentheses for grouping, and unary minus.</li>
+  <li><strong>Modulo:</strong> <code>%</code>, at the same level as
+      <code>*</code> and <code>/</code>. The result takes the sign of the
+      divisor, so <code>-1 % 8</code> is <code>7</code>, which is what
+      wrapping an address or a counter wants. Works on fractions too
+      (<code>5.5 % 2</code> is <code>1.5</code>).</li>
+  <li><strong>Bitwise:</strong> <code>&amp;</code> (and),
+      <code>|</code> (or), <code>^</code> (exclusive or &mdash;
+      <em>not</em> a power), <code>&lt;&lt;</code> and
+      <code>&gt;&gt;</code> (shifts), and unary <code>~</code> (not).
+      Each operand is cut to its whole-number part and treated as a
+      64-bit signed integer; <code>&gt;&gt;</code> keeps the sign, so
+      <code>-8 &gt;&gt; 1</code> is <code>-4</code>. A value that is not a
+      finite number, does not fit 64 bits, or a shift count outside
+      0&ndash;63 gives <code>nan</code> instead of an error. Results above
+      2<sup>53</sup> lose their lowest bits, because every value is
+      carried as a double. Binding, tightest first: <code>* / %</code>,
+      <code>+ -</code>, <code>&lt;&lt; &gt;&gt;</code>,
+      <code>&amp;</code>, <code>^</code>, <code>|</code>, comparisons
+      &mdash; so <code>value &amp; 1 == 1</code> means
+      <code>(value &amp; 1) == 1</code>. Example: the low 4 bits of an
+      instruction word are <code>value &amp; 15</code> and the opcode above
+      them is <code>value &gt;&gt; 4</code> (there are no hex literals).</li>
   <li><strong>Comparisons:</strong> <code>&lt;</code> <code>&gt;</code>
       <code>&lt;=</code> <code>&gt;=</code> <code>==</code>
-      <code>!=</code>. These bind looser than the arithmetic operators
+      <code>!=</code>. These bind looser than every other operator
       and evaluate to <code>1.0</code> (true) or <code>0.0</code>
       (false), so a comparison result can feed straight into further
       arithmetic &mdash; e.g. <code>(value &gt; 100) * 5</code>.</li>

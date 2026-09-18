@@ -214,7 +214,11 @@ void pn_var_store_clear (PnVarStore *self);
  * Recursively walks @node, resolving variables against @self and
  * dispatching function calls (sin, cos, tan, log, log10, exp, sqrt,
  * abs, floor, ceil) to the C math library.  Comparison operators
- * (`< > <= >= == !=`) evaluate to 1.0 (true) or 0.0 (false).  An
+ * (`< > <= >= == !=`) evaluate to 1.0 (true) or 0.0 (false).  `%` is a
+ * floored modulo (the result takes the divisor's sign).  The bitwise
+ * operators (`& | ^ << >>`, unary `~`) truncate their operands to int64;
+ * an operand with no int64 reading, or a shift count outside 0..63,
+ * yields NaN rather than an error, as '/' does for a zero divisor.  An
  * assignment statement binds its name (via pn_var_store_assign()) and
  * evaluates to the bound value; a statement sequence evaluates each in
  * order and yields the value of the last.  An unbound variable or an

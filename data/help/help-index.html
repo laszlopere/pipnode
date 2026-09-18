@@ -656,7 +656,9 @@ does the scalar thing to the numbers:
     <code>[2, 3] * [3, 4, 5]</code> &rarr; <code>[6, 12, 5]</code> &mdash;
     the <code>5</code> is taken as it was. This is a deliberate choice
     rather than an error; it is operator-agnostic (the element passes
-    through unchanged regardless of <code>+&nbsp;-&nbsp;*&nbsp;/</code>).</li>
+    through unchanged regardless of <code>+&nbsp;-&nbsp;*&nbsp;/&nbsp;%</code>
+    or the bitwise <code>&amp;&nbsp;|&nbsp;^&nbsp;&lt;&lt;&nbsp;&gt;&gt;</code>,
+    which all broadcast and pair up the same way).</li>
 <li><strong>Functions</strong> (<code>sin</code>, <code>cos</code>,
     <code>sqrt</code>, &hellip;) <em>map</em> over a vector element by
     element: <code>sin([a, b])</code> &rarr;

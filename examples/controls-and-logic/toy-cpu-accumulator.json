@@ -61,7 +61,7 @@
         "y" : 40.0
       },
       "properties" : {
-        "expression" : "op = floor(value / 16)\narg = value - 16 * op\narg"
+        "expression" : "op = value >> 4\narg = value & 15\narg"
       }
     },
     {

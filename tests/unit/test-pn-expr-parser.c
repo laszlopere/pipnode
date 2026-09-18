@@ -27,6 +27,8 @@
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 
+#include <math.h>
+
 /* Parse @expr, evaluate against @vars, and return the numeric result.
  * Writes TRUE/FALSE to @ok for "parsed and evaluated cleanly".  The
  * parser instance carries no per-parse state, so one is reused. */
@@ -282,6 +284,96 @@ test_comparison_precedence (void)
     g_object_unref (p);
 }
 
+/* '%' is a floored modulo at the '*' '/' level: the result takes the
+ * divisor's sign, fractions work, and a zero divisor gives NaN. */
+static void
+test_modulo (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "7 % 3",     &ok),  1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-1 % 8",    &ok),  7.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "7 % -3",    &ok), -2.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-8 % 4",    &ok),  0.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "5.5 % 2",   &ok),  1.5, 1e-9); PN_CHECK (ok);
+    /* Same level as '*': left to right, and tighter than '+'. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 * 7 % 4", &ok),  2.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 + 7 % 4", &ok),  4.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK (isnan (parse_eval (p, vars, "5 % 0", &ok))); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* The bitwise operators work on the truncated int64 of each operand. */
+static void
+test_bitwise (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "12 & 10",  &ok),   8.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "12 | 10",  &ok),  14.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "12 ^ 10",  &ok),   6.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "~0",       &ok),  -1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "~5",       &ok),  -6.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-~5",      &ok),   6.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 << 4",   &ok),  16.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "100 >> 3", &ok),  12.0, 1e-9); PN_CHECK (ok);
+    /* '>>' is arithmetic: a negative value stays negative (rounds down). */
+    PN_CHECK_NEAR (parse_eval (p, vars, "-8 >> 1",  &ok),  -4.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-1 >> 5",  &ok),  -1.0, 1e-9); PN_CHECK (ok);
+    /* Fractions are truncated toward zero first. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "7.9 & 3",  &ok),   3.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "-2.5 | 0", &ok),  -2.0, 1e-9); PN_CHECK (ok);
+    /* Shifting into the sign bit wraps rather than being undefined. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 << 63",  &ok), -9223372036854775808.0, 1.0);
+    PN_CHECK (ok);
+    /* No int64 reading, or a shift count outside 0..63: NaN, not an error. */
+    PN_CHECK (isnan (parse_eval (p, vars, "1 << 64",       &ok))); PN_CHECK (ok);
+    PN_CHECK (isnan (parse_eval (p, vars, "1 >> -1",       &ok))); PN_CHECK (ok);
+    PN_CHECK (isnan (parse_eval (p, vars, "(1 / 0) & 1",   &ok))); PN_CHECK (ok);
+    PN_CHECK (isnan (parse_eval (p, vars, "1e19 | 0",      &ok))); PN_CHECK (ok);
+    PN_CHECK (isnan (parse_eval (p, vars, "~(0 / 0)",      &ok))); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* Precedence, tightest first: unary, * / %, + -, << >>, &, ^, |, then
+ * comparisons (Python's order, not C's). */
+static void
+test_bitwise_precedence (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    pn_var_store_set (vars, "value", 0x5A);   /* 90 = 0101 1010 */
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 << 2 + 1",    &ok),  8.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 << 2 & 6",    &ok),  4.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "6 | 1 & 3",     &ok),  7.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 | 3 ^ 1",     &ok),  3.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "3 ^ 1 & 1",     &ok),  2.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "value & 1 == 0", &ok), 1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "~1 & 7",        &ok),  6.0, 1e-9); PN_CHECK (ok);
+    /* Decode a byte: high nibble (opcode) and low nibble (operand). */
+    PN_CHECK_NEAR (parse_eval (p, vars, "value >> 4",    &ok),  5.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "value & 15",    &ok), 10.0, 1e-9); PN_CHECK (ok);
+    /* Left-associative shifts: (256 >> 2) >> 1. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "256 >> 2 >> 1", &ok), 32.0, 1e-9); PN_CHECK (ok);
+    /* '<<' next to '<' / '<=' still lexes as intended. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "1 << 1 < 3",    &ok),  1.0, 1e-9); PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "4 >> 1 >= 2",   &ok),  1.0, 1e-9); PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
 /* A program may be several newline-separated statements; assignments
  * bind names for later lines and the program's value is the last
  * statement's.  Blank lines and a trailing newline are ignored. */
@@ -398,7 +490,7 @@ test_parse_error_codes (void)
     check_parse_error (p, "1 2",     PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
     check_parse_error (p, "(1 + 2",  PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
     check_parse_error (p, "sin(1",   PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
-    check_parse_error (p, "1 % 2",   PN_EXPR_PARSER_ERROR_SYNTAX);
+    check_parse_error (p, "1 @ 2",   PN_EXPR_PARSER_ERROR_SYNTAX);
     /* '=' assigns, but only to an identifier: a number on the left
      * parses as a complete statement, leaving the '=' as junk after it. */
     check_parse_error (p, "1 = 2",   PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
@@ -442,7 +534,7 @@ test_parse_errors (void)
     g_clear_error (&err);
 
     /* Stray character the lexer rejects. */
-    ast = pn_expr_parser_parse (p, "1 % 2", &err);
+    ast = pn_expr_parser_parse (p, "1 @ 2", &err);
     PN_CHECK (ast == NULL);
     PN_CHECK (err != NULL);
     g_clear_error (&err);
@@ -523,6 +615,9 @@ main (int argc, char **argv)
     pn_test_add ("left_assoc_division",   test_left_associative_division);
     pn_test_add ("comparisons",           test_comparisons);
     pn_test_add ("comparison_precedence", test_comparison_precedence);
+    pn_test_add ("modulo",                test_modulo);
+    pn_test_add ("bitwise",               test_bitwise);
+    pn_test_add ("bitwise_precedence",    test_bitwise_precedence);
     pn_test_add ("statements_assignment", test_statements_and_assignment);
     pn_test_add ("eval_semantics",        test_eval_semantics);
     pn_test_add ("parse_error_codes",     test_parse_error_codes);
