@@ -126,7 +126,7 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 **Purpose** — Splits a numeric stream by direction of travel: one input, a `rising` and a `falling` output (optionally a third `unchanged`); each message leaves unchanged by the output matching how its `data.value` moved against the last value the node forwarded. (`lib/pn-value-trend.c` receive.)
 
-**When to use** — "Is it going up or down?" branching: a temperature climbing vs cooling, a price tick up vs down, a tank filling vs draining — each direction driving a different chain. **Threshold** answers "above or below one level" (hysteretic on/off) instead of direction; **Edge** reacts to the `data.success` boolean flipping; **Value Router** sorts into numeric bands; **Comparator** compares two live streams.
+**When to use** — "Is it going up or down?" branching: a temperature climbing vs cooling, a price tick up vs down, a tank filling vs draining — each direction driving a different chain (see `examples/controls-and-logic/value-trend.json`: a Knob into a Value Trend, each branch through a Format into its own Text View). **Threshold** answers "above or below one level" (hysteretic on/off) instead of direction; **Edge** reacts to the `data.success` boolean flipping; **Value Router** sorts into numeric bands; **Comparator** compares two live streams.
 
 **Ports** — 1 input; 2 outputs named `rising` (0) and `falling` (1), plus `unchanged` (2) when `unchanged-output` is on. Wire a specific output with `ConnectPorts` / `source_output`.
 

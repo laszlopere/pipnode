@@ -1,0 +1,120 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKnob",
+      "uuid" : "b08151b0-4d6a-43d1-83a4-16ec8a9e3968",
+      "name" : "Knob 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.0,
+        "value" : 0.45833333333333337
+      }
+    },
+    {
+      "type" : "PnValueTrend",
+      "uuid" : "5378b489-da91-49b6-8e3d-473ef7f5cc99",
+      "name" : "Value Trend 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 260.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min-change" : 0.0,
+        "unchanged-output" : false
+      }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "58468cf6-98ae-4ab0-acdd-a3c99c5a4690",
+      "name" : "rising",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 660.0,
+        "y" : 140.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
+    },
+    {
+      "type" : "PnTextView",
+      "uuid" : "d1503288-95a7-4b8b-848e-ac84dcd66b37",
+      "name" : "falling",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 660.0,
+        "y" : 380.0
+      },
+      "properties" : {
+        "background-color" : "rgb(0,0,0)",
+        "text-color" : "rgb(0,255,0)",
+        "font-size" : 12.0
+      }
+    },
+    {
+      "type" : "PnFormat",
+      "uuid" : "520eb27d-58d4-4d81-85a3-8bef645e8146",
+      "name" : "up text",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "success-text" : "up   ${data/value}",
+        "failure-text" : "up   ${data/value}"
+      }
+    },
+    {
+      "type" : "PnFormat",
+      "uuid" : "b6e1c472-d2f3-4249-b44a-07f068c062aa",
+      "name" : "down text",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "success-text" : "down ${data/value}",
+        "failure-text" : "down ${data/value}"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "5378b489-da91-49b6-8e3d-473ef7f5cc99",
+      "target_id" : "520eb27d-58d4-4d81-85a3-8bef645e8146"
+    },
+    {
+      "source_id" : "5378b489-da91-49b6-8e3d-473ef7f5cc99",
+      "target_id" : "b6e1c472-d2f3-4249-b44a-07f068c062aa",
+      "source_output" : 1
+    },
+    {
+      "source_id" : "520eb27d-58d4-4d81-85a3-8bef645e8146",
+      "target_id" : "58468cf6-98ae-4ab0-acdd-a3c99c5a4690"
+    },
+    {
+      "source_id" : "b6e1c472-d2f3-4249-b44a-07f068c062aa",
+      "target_id" : "d1503288-95a7-4b8b-848e-ac84dcd66b37"
+    },
+    {
+      "source_id" : "b08151b0-4d6a-43d1-83a4-16ec8a9e3968",
+      "target_id" : "5378b489-da91-49b6-8e3d-473ef7f5cc99"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

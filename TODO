@@ -1577,4 +1577,10 @@
              classify seam, rise/fall/first message, forwarded untouched,
              deadband drift, third output, non-numeric + booleans,
              property notify. 82 checks; full suite 158 passed, 0 failed.
+       [x] 73.6 Example: examples/controls-and-logic/value-trend.json --
+             Knob -> Value Trend, each branch through a Format into its
+             own Text View. NB the Format nodes carry the SAME template
+             in success-text and failure-text: the Knob emits only
+             data.value, and Format reads a missing data.success as
+             false, so a success-text-only demo shows nothing.
        [ ] 73.5 GUI check by the user.
