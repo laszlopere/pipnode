@@ -1108,6 +1108,40 @@
              canvas, every key clicks and flashes, the header still selects /
              drags / double-click-opens settings, and the four colour settings
              repaint.
-       [ ] 74.8 Candidate follow-up: an example worksheet wiring the pad into a
-             Calculator -- needs a small "accumulate the keystrokes into an
-             expression string" step, which today has no single node.
+       [x] 74.8 An example worksheet wiring the pad into a calculator: done by
+             #75, which added the Calculator Engine as that missing step and
+             ships examples/controls-and-logic/calculator.json.
+
+[ ] 75 Calculator Engine node (PnCalcEngine) -- the arithmetic half of a
+       four-function calculator, and the "accumulate the keystrokes" step #74.8
+       said had no single node. Reads one keystroke per message from data.key
+       (what the #74 Keypad emits) and keeps accumulator + pending
+       operator + typed entry. Keypad -> Engine -> Numeric is a working pocket
+       calculator.
+
+       [x] 75.1 Core lib/pn-calc-engine.[ch] (GTK-free, no gui tier -- the node
+             is header-only and the one property renders in the generic settings
+             dialog). Logic seam pn_calc_engine_press() so a headless test can
+             drive a whole calculation without building messages.
+       [x] 75.2 Emits the WHOLE display on every accepted key, not just on "=",
+             so the readout tracks the typing digit by digit: data.value (the
+             number), data.output (display as text -- "12." mid-typing,
+             "Error") and data.success.
+       [x] 75.3 Error latch: divide by zero, or a result running to inf/NaN,
+             sets pn_node_set_has_error(), emits success=FALSE, and then ignores
+             every key but "C" WITH NO EMISSION -- the silent node is the error.
+       [x] 75.4 Factory registration, help page PnCalcEngine.html, pipnode-nodes
+             skill entry (filters-gate-compute.md).
+       [x] 75.5 Unit tests tests/unit/test-pn-calc-engine.c -- the four
+             operations, chained operators showing the running total, typing
+             rules (leading zero, decimal point, max-digits), C vs CE, the
+             divide-by-zero latch and its dead end, and the message shape.
+       [x] 75.6 Example worksheet examples/controls-and-logic/calculator.json
+             (Keypad -> Engine -> Numeric + a Comment), closing #74.8.
+       [ ] 75.7 GUI check by hand: click a sum on the pad and watch the
+             seven-segment readout follow the typing; divide by zero and confirm
+             the engine paints red and goes quiet until C.
+       [ ] 75.8 Candidate follow-ups: repeat-equals (pressing "=" again repeats
+             the last operation, as most pocket calculators do -- deliberately
+             NOT implemented, "=" simply re-emits the same result today); a
+             sign-change and percent key, which would need keypad keys first.

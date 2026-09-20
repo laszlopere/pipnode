@@ -29,6 +29,7 @@
 #include "pn-auto-random.h"
 #include "pn-bridge-converter.h"
 #include "pn-bridge-quote.h"
+#include "pn-calc-engine.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
 #include "pn-counter.h"
@@ -299,6 +300,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_EDGE);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION);
     pn_node_factory_register (self, PN_TYPE_EXPRESSION2);
+    pn_node_factory_register (self, PN_TYPE_CALC_ENGINE);
     pn_node_factory_register (self, PN_TYPE_SUCCESS);
     pn_node_factory_register (self, PN_TYPE_FAILURE);
     pn_node_factory_register (self, PN_TYPE_FILTER);

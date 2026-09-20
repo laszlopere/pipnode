@@ -57,6 +57,7 @@ speechandsound_DATA = \
 controlsandlogicdir = $(pkgdatadir)/examples/controls-and-logic
 controlsandlogic_DATA = \
 	controls-and-logic/animation-test.json \
+	controls-and-logic/calculator.json \
 	controls-and-logic/comparator-test.json \
 	controls-and-logic/filter-examples.json \
 	controls-and-logic/jumps.json \

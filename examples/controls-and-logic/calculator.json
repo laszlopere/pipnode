@@ -1,0 +1,85 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnKeypad",
+      "uuid" : "126f60f1-916a-42bd-b078-02d831dd0399",
+      "name" : "Keypad 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "background-color" : "rgb(41,41,48)",
+        "key-color" : "rgb(77,77,87)",
+        "accent-color" : "rgb(204,133,46)",
+        "text-color" : "rgb(242,242,245)"
+      }
+    },
+    {
+      "type" : "PnCalcEngine",
+      "uuid" : "baca2ef4-9076-49bf-b425-4e3b220749c1",
+      "name" : "Calculator Engine 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 400.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "max-digits" : 12
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "03329127-950c-4097-bcba-fc9534e8dadd",
+      "name" : "Numeric 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 660.0,
+        "y" : 160.0
+      },
+      "properties" : {
+        "digits" : 8,
+        "decimal-places" : 3,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(235,31,20)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "1b6618d2-f24e-4130-940d-523809192c88",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 120.0,
+        "y" : 60.0
+      },
+      "properties" : {
+        "text" : "A working four-function calculator.  The Keypad emits one message per key press (data.key); the Calculator Engine keeps the accumulator and the pending operation, and emits the whole display on every key; the Numeric seven-segment readout shows data.value.  Divide by zero to see the engine latch its error state -- only C clears it.",
+        "width" : 880.0,
+        "height" : 72.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "126f60f1-916a-42bd-b078-02d831dd0399",
+      "target_id" : "baca2ef4-9076-49bf-b425-4e3b220749c1"
+    },
+    {
+      "source_id" : "baca2ef4-9076-49bf-b425-4e3b220749c1",
+      "target_id" : "03329127-950c-4097-bcba-fc9534e8dadd"
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

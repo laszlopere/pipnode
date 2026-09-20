@@ -252,6 +252,25 @@ Filters are `PnNode` subclasses that sit *inline* on a wire: they all set both `
 
 ---
 
+## Calculator Engine
+
+**Purpose** — The arithmetic half of a four-function pocket calculator: turns a stream of keystrokes into a running display. Reads one key per message from `data.key` and emits the whole display. (`lib/pn-calc-engine.c`; the state machine seam is `pn_calc_engine_press()`.)
+
+**When to use** — With a **Keypad** (Sources) upstream and a **Numeric** seven-segment readout downstream: the three are a working calculator (`examples/controls-and-logic/calculator.json`). Anything writing `data.key` drives it — an Injector for testing, an MQTT feed from a physical keypad. Contrast **Calculator** (`PnExpression`), which evaluates a *stored* expression per message; this node has no expression, it has an accumulator and a keyboard.
+
+**Ports** — `has_input` + `has_output`, single each.
+
+**Settings**
+- `max-digits` (uint, 1–15, default **12**) — digits accepted into one typed number. Caps *typing* only; a computed result is shown in full.
+
+**Behaviour** — Conventional four-function state machine over accumulator + pending operator + typed entry. An operator key folds the entry into the accumulator under the *previous* operator and shows the running total, so `2 + 3 + 4 =` reads 5 after the second `+` and 9 after `=`. `=` with nothing pending is a no-op on the value (`5 =` is 5). A digit after a result starts a new number; a leading `0` is a placeholder (`0` `5` = 5); `.` at most once per number, and first press starts `0.`. `C` clears all; `CE` clears only the typed entry, **keeping** accumulator and pending operator.
+
+**Writes** — On EVERY accepted key (not just `=`), so the readout tracks typing digit by digit: `data.value` (the displayed number), `data.output` (display as text — `"12."` mid-typing, `"Error"`), `data.success`. Emits a **fresh** message (source = the engine), it does not forward the keystroke.
+
+**Gotchas** — Divide by zero (or a result running to inf/NaN) **latches**: `pn_node_set_has_error()` paints the node red, `data.success` = false, display reads `Error`, and every key but `C` is then ignored **with no emission at all** — a silent node in that state is the error, not a bug. Messages with no string `data.key` are ignored silently (a stray reading can't corrupt a half-typed sum). Reads the ASCII codes (`*` `/` `-`), NOT the typographic signs the keypad paints. Display text is formatted `%.10g` via `g_ascii_formatd`, so it round-trips back through `g_ascii_strtod` when folded into the next operation. Violet body + fa-cogs icon — the Calculator / Keypad family colour.
+
+---
+
 ## JMESPath
 
 **Purpose** — Runs each message through a JMESPath query and writes the result back onto the message (never drops). (`lib/pn-query.c:107` receive; engine `lib/pn-jmespath.c`, pointer resolution `lib/pn-json-path.c`.)

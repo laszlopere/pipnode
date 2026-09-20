@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calculator Engine (PnCalcEngine) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnCalcEngine">Calculator Engine</h4>
+<p>
+<em>Group:</em> Filters/Expressions. <em>Type:</em> <code>PnCalcEngine</code>.
+</p>
+<p>
+The arithmetic half of a four-function calculator: the part that turns
+a stream of keystrokes into a running display.  Wire a
+<a href="PnKeypad.html">Keypad</a> into it and a
+<a href="PnNumeric.html">Numeric</a> seven-segment readout out of it,
+and the three nodes are a working pocket calculator &mdash; see
+<code>examples/controls-and-logic/calculator.json</code>.
+</p>
+<p>
+Each incoming message is one keystroke, read from its
+<code>data.key</code> member.  That is exactly what the Keypad emits,
+but anything writing the same member drives the engine just as well
+&mdash; an <a href="PnInject.html">Injector</a> for testing, or an
+MQTT feed from a physical keypad.  A message carrying
+no usable <code>data.key</code> is ignored in silence, so a stray
+reading that wanders into the input cannot corrupt a half-typed sum.
+</p>
+
+<h5>What it emits</h5>
+<p>
+Every accepted keystroke emits the <strong>whole display</strong>, not
+just results, so the readout tracks the typing digit by digit the way
+a calculator's own display does.
+</p>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The displayed number &mdash; what the seven-segment readout
+          shows.  Zero while the engine is in its error state.</td></tr>
+  <tr><td><code>data.output</code></td>
+      <td>The display as text: <code>12.</code> keeps the decimal point
+          the user has typed but not yet filled in, and an errored
+          engine reads <code>Error</code>.</td></tr>
+  <tr><td><code>data.success</code></td>
+      <td><code>false</code> once the calculation has errored,
+          <code>true</code> otherwise.</td></tr>
+</table>
+
+<h5>The keys</h5>
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><code>0</code>&hellip;<code>9</code></td>
+      <td>Appends a digit to the number being typed.  A digit pressed
+          straight after a result starts a new number rather than
+          extending the result, and a leading zero is a placeholder
+          &mdash; <code>0</code> then <code>5</code> is 5, not 05.</td></tr>
+  <tr><td><code>.</code></td>
+      <td>Adds the decimal point, at most one per number.  Pressed
+          first, it starts <code>0.</code>.</td></tr>
+  <tr><td><code>+ - * /</code></td>
+      <td>Folds the typed number into the accumulator under the
+          <em>previous</em> operator, shows the running total, and holds
+          the new operator for the operand still to come.  So
+          <code>2 + 3 + 4 =</code> shows 5 after the second
+          <code>+</code> and 9 after <code>=</code>.</td></tr>
+  <tr><td><code>=</code></td>
+      <td>Completes the pending operation and shows the result.  With
+          no operator pending, <code>5 =</code> is just 5.</td></tr>
+  <tr><td><code>C</code></td>
+      <td>Clears everything &mdash; accumulator, pending operation,
+          typed entry and any error.</td></tr>
+  <tr><td><code>CE</code></td>
+      <td>Clears only the number being typed.  The accumulator and the
+          pending operator survive, so a mistyped operand can be
+          retyped without restarting the sum.</td></tr>
+</table>
+
+<h5>Errors</h5>
+<p>
+Dividing by zero &mdash; or running a calculation off to infinity
+&mdash; latches an error.  The node paints its error state, the display
+reads <code>Error</code>, and the emitted message carries
+<code>data.success = false</code>.  While latched the engine ignores
+every key but <code>C</code> and emits nothing at all, which is the
+same dead end a real calculator's &ldquo;E&rdquo; is.
+</p>
+
+<h5>Settings</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>max-digits</code></td>
+      <td>How many digits may be typed into one number before the entry
+          stops accepting them &mdash; the digit count of the calculator
+          being imitated (1&ndash;15, default 12).  It caps
+          <em>typing</em> only: a computed result is shown in
+          full.</td></tr>
+</table>
+
+</body>
+</html>

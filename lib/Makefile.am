@@ -43,6 +43,8 @@ libpipnode_core_la_SOURCES = \
 	pn-bridge-converter.h \
 	pn-bridge-quote.c \
 	pn-bridge-quote.h \
+	pn-calc-engine.c \
+	pn-calc-engine.h \
 	pn-chat.c \
 	pn-chat.h \
 	pn-clock-divider.c \
@@ -542,6 +544,7 @@ pipnode_core_headers = \
 	pn-bridge-common.h \
 	pn-bridge-converter.h \
 	pn-bridge-quote.h \
+	pn-calc-engine.h \
 	pn-chat.h \
 	pn-clock-divider.h \
 	pn-color.h \
