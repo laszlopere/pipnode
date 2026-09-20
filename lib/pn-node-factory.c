@@ -64,6 +64,7 @@
 #include "pn-inject.h"
 #include "pn-jump-in.h"
 #include "pn-jump-out.h"
+#include "pn-keypad.h"
 #include "pn-knob.h"
 #include "pn-label.h"
 #include "pn-led.h"
@@ -252,6 +253,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_PIPE_READER);
     pn_node_factory_register (self, PN_TYPE_SWITCH);
     pn_node_factory_register (self, PN_TYPE_KNOB);
+    pn_node_factory_register (self, PN_TYPE_KEYPAD);
     pn_node_factory_register (self, PN_TYPE_PANEL_INPUT);
     pn_node_factory_register (self, PN_TYPE_AUTO_INJECTOR);
     pn_node_factory_register (self, PN_TYPE_AUTO_RANDOM);

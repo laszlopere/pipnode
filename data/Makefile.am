@@ -45,6 +45,7 @@ pnhelp_DATA = \
 	help/PnOscilloscope.html \
 	help/PnHttp.html \
 	help/PnInject.html \
+	help/PnKeypad.html \
 	help/PnKnob.html \
 	help/PnLabel.html \
 	help/PnLed.html \

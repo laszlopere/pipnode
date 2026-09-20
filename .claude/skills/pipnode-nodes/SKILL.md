@@ -23,7 +23,7 @@ members it reads and writes, and gotchas.
 
 Core nodes, by category:
 
-- [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Panel Input, AutoInjector, AutoRandom, Astronomical, Daily Timer, Pipe Reader
+- [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Calculator Keypad, Panel Input, AutoInjector, AutoRandom, Astronomical, Daily Timer, Pipe Reader
 - [`reference/network.md`](reference/network.md) — **Network**: Http Client, MQTT Source, MQTT Sink, Weather, Bridge Quote, Bridge Converter, Meshtastic
 - [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI**: Comparator, Dedup, Edge, Filter, Topic Demux, Value Router, Value Trend, Round Robin, Success, Failure, Threshold, Calculator, Calculator 2, JMESPath, Parse JSON, FX Converter, Fiat Converter, Throughput
 - [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, PROM, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Tapped Delay, Staircase, Throttle, Watchdog, Deadline

@@ -1071,3 +1071,43 @@
              test script as the outside echo / cat). GetDialogEditorText /
              SetDialogEditorText now also drive PnFileChooserEntry and
              GtkComboBoxText editors.
+
+[ ] 74 Calculator Keypad node (PnKeypad) -- a pocket-calculator key pad in the
+       node's client area. Ten digits, ".", the four basic operators, "=", "C"
+       and "CE"; clicking a key emits one message naming the key. The node does
+       no arithmetic and holds no accumulator: it is an input device, and the
+       natural partner downstream is the Calculator (PnExpression) node that
+       evaluates what the pad types.
+
+       [x] 74.1 Core lib/pn-keypad.[ch] (GTK-free): the static 4x5 layout
+             table published in the header, pn_keypad_key_rect_in() as the one
+             shared placement call, pn_keypad_hit_key(), pn_keypad_press() /
+             pn_keypad_press_code(), and the transient pressed-key highlight.
+             Sources category, fa-keyboard-o (NOT the Calculator's
+             fa-calculator), no input port.
+       [x] 74.2 Message shape: data.key (ASCII code -- the operator keys paint
+             the typographic signs but emit "*" "/" "-" so the code drops
+             straight into an expression string), data.kind (digit / point /
+             operator / equals / clear / clear-entry) and data.value on the
+             digit keys ONLY. No startup announce -- a keypad has no state to
+             report.
+       [x] 74.3 GUI tier lib/pn-keypad-gui.[ch]: the cairo case + keys +
+             legends, placing every key through the core's shared rect call so
+             the pixel seen and the key pressed cannot drift apart.
+             paint_plot_skip_zoom so a body press hits a key instead of lifting
+             the node into the zoom overlay.
+       [x] 74.4 Worksheet routing: hit_test_keypad_key() + the press block
+             beside the Switch / Inject button handling in pn-worksheet.c.
+       [x] 74.5 Factory registration, gui install, help page PnKeypad.html,
+             pipnode-nodes skill entry (sources.md).
+       [x] 74.6 Unit tests tests/unit/test-pn-keypad.c -- layout completeness,
+             label-vs-code, non-overlapping keys, the spanning "0" and "=",
+             hit-test on every key and the deliberate misses, and the message
+             each key family emits.
+       [ ] 74.7 GUI check by hand: the pad paints in the palette and on the
+             canvas, every key clicks and flashes, the header still selects /
+             drags / double-click-opens settings, and the four colour settings
+             repaint.
+       [ ] 74.8 Candidate follow-up: an example worksheet wiring the pad into a
+             Calculator -- needs a small "accumulate the keystrokes into an
+             expression string" step, which today has no single node.

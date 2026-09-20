@@ -31,6 +31,7 @@
 #include "pn-auto-trigger.h"
 #include "pn-switch.h"
 #include "pn-knob.h"
+#include "pn-keypad.h"
 #include "pn-chat.h"
 #include "pn-comment.h"
 #include "pn-jump.h"
@@ -4102,6 +4103,47 @@ hit_test_inject_button (
     return NULL;
 }
 
+/** Topmost #PnKeypad with a key under (@x, @y), or %NULL when the
+ *  point hits no key.  @out_key receives the index into the keypad's
+ *  key table.  The keypad's client area is a grid of buttons rather
+ *  than a readout, so — like the inject fire button and the switch
+ *  slider — a press on it is routed to the control instead of to the
+ *  generic plot / marquee handling. */
+static PnKeypad *
+hit_test_keypad_key (
+        PnWorksheet *self,
+        double       x,
+        double       y,
+        gint        *out_key)
+{
+    const guint count = pn_node_store_get_length (self->nodes);
+    gint i;
+
+    if (out_key != NULL)
+        *out_key = -1;
+
+    for (i = (gint) count - 1; i >= 0; i--)
+    {
+        PnNode *node = pn_node_store_get_node (self->nodes, (guint) i);
+        gint    key;
+
+        if (!PN_IS_KEYPAD (node))
+            continue;
+        if (!node_on_sheet (self, node))
+            continue;
+
+        key = pn_keypad_hit_key (PN_KEYPAD (node), x, y);
+        if (key >= 0)
+        {
+            if (out_key != NULL)
+                *out_key = key;
+            return PN_KEYPAD (node);
+        }
+    }
+
+    return NULL;
+}
+
 /** Topmost #PnChat whose entry strip or inline Send button contains
  *  (@x, @y).  @out_hit reports which of the two regions was hit.
  *  Returns %NULL (with @*out_hit == #PN_CHAT_HIT_NONE) when no chat's
@@ -5649,6 +5691,27 @@ on_button_press (
                 g_clear_object (&self->pressed_inject);
                 self->pressed_inject = g_object_ref (inject);
                 pn_inject_fire (inject);
+                gtk_widget_queue_draw (widget);
+            }
+            return GDK_EVENT_STOP;
+        }
+    }
+
+    /* PnKeypad's keys.  A primary press on a key emits that key's
+     * code and flashes the key; the synthetic 2BUTTON_PRESS after a
+     * double-click is absorbed so hammering a digit twice quickly
+     * sends two presses (from the two real presses) and not three.
+     * Routed before the generic body/marquee handling for the same
+     * reason the inject button and the switch slider are. */
+    {
+        gint      key    = -1;
+        PnKeypad *keypad = hit_test_keypad_key (self, wx, wy, &key);
+
+        if (keypad != NULL)
+        {
+            if (event->type == GDK_BUTTON_PRESS)
+            {
+                pn_keypad_press (keypad, (guint) key);
                 gtk_widget_queue_draw (widget);
             }
             return GDK_EVENT_STOP;

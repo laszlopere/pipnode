@@ -9,7 +9,8 @@ bag members are `data.value` (canonical numeric reading, booleans encoded as
 them fire*: **periodic** ones subclass `PnAutoTrigger` (a background worker
 thread ticks every `period` seconds — Clock, AutoInjector, AutoRandom,
 Astronomical); **manual** ones fire on a user gesture (Injector click, Knob
-wheel, Switch click, FileDrop drop, Panel Input applet click); and the manual
+wheel, Switch click, Calculator Keypad key press, FileDrop drop, Panel Input
+applet click); and the manual
 latch/value sources (Knob, Switch, Panel Input) additionally **announce once**
 shortly after load via a one-shot `g_idle` scheduled in `constructed()`, so
 downstream nodes learn their state without a first gesture.
@@ -190,6 +191,46 @@ the startup shot) does. Startup-announce: one-shot `g_idle` in `constructed()`
 `dispose()` pulls the idle if the node dies first. Cairo dial painter in
 `pn-knob-gui.c`, reading position via `pn_knob_get_value_fraction()`
 (`pn-knob.c:161`); `pn_knob_hit_knob()` is the worksheet hit-test.
+
+## Calculator Keypad
+
+**Purpose** — A pocket-calculator key pad in the node's client area: ten
+digits, `.`, the four operators, `=`, `C` and `CE`. Clicking a key emits one
+message naming the key (`pn_keypad_press`, `lib/pn-keypad.c`). Does **no**
+arithmetic and holds no accumulator — it is an input device; the natural
+partner downstream is the Calculator (`PnExpression`) node.
+
+**When to use** — Hand-type digits/operators into a flow (a setpoint entered
+digit by digit, a test expression, a PIN pad). Use over Knob when the input is
+discrete keystrokes rather than a continuous dial.
+
+**Ports** — `has_input = FALSE`, `has_output = TRUE`.
+
+**Settings** — appearance only: `background-color` (the case), `key-color`
+(digit/point/clear faces), `accent-color` (operator + `=` faces),
+`text-color` (legends).
+
+**Emits** — one message per key press. Topic: default. Writes:
+- `key` (string) — the machine-readable code: `0`..`9`, `.`, `+`, `-`, `*`,
+  `/`, `=`, `C`, `CE`. Operator keys *paint* `×` `÷` `−` but always emit the
+  ASCII form, so `data.key` concatenates straight into an expression string.
+- `kind` (string) — `digit`, `point`, `operator`, `equals`, `clear`,
+  `clear-entry`. Lets a Filter/Value Router split the stream without matching
+  ten digit codes.
+- `value` (double) — **digit keys only**, 0..9. Deliberately absent on every
+  other key, so a downstream numeric node eats the digits and ignores the rest.
+
+**Gotchas** — No startup announce (nothing to report, unlike Knob/Switch): the
+node is silent until a key is pressed. The class pins
+`paint_plot_skip_zoom = TRUE`, so a body press lands on a key instead of
+lifting the node into the centred zoom overlay; the header still selects,
+drags and double-click-opens the settings dialog. A click in the gap between
+two keys presses nothing. The layout table is published in `pn-keypad.h` and
+both the painter (`pn-keypad-gui.c`) and the worksheet hit-test
+(`pn_keypad_hit_key`) place keys through the one shared
+`pn_keypad_key_rect_in()`, so seen pixel and pressed key cannot drift apart.
+Worksheet routing lives alongside the Switch/Inject button handling in
+`pn-worksheet.c` (`hit_test_keypad_key`).
 
 ## Panel Input
 

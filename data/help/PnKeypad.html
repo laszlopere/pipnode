@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calculator Keypad (PnKeypad) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnKeypad">Calculator Keypad</h4>
+<p>
+<em>Group:</em> Sources. <em>Type:</em> <code>PnKeypad</code>.
+</p>
+<p>
+A pocket-calculator key pad on the worksheet: ten digits, a decimal
+point, the four basic operators, <code>=</code>, and the two clear
+keys <code>C</code> and <code>CE</code>.  Clicking a key emits exactly
+one message naming the key that was pressed.
+</p>
+<p>
+The node does no arithmetic and keeps no accumulator &mdash; it is an
+input device, not a calculator.  What the keystrokes add up to is up to
+the graph downstream; the natural partner is the
+<a href="PnExpression.html">Calculator</a> node, which evaluates the
+expression the pad types.
+</p>
+
+<h5>The message a press emits</h5>
+<table>
+  <tr><th>Member</th><th>Description</th></tr>
+  <tr><td><code>data.key</code></td>
+      <td>The key's machine-readable code: <code>0</code>&hellip;<code>9</code>,
+          <code>.</code>, <code>+</code>, <code>-</code>, <code>*</code>,
+          <code>/</code>, <code>=</code>, <code>C</code> or
+          <code>CE</code>.</td></tr>
+  <tr><td><code>data.kind</code></td>
+      <td>The key's family: <code>digit</code>, <code>point</code>,
+          <code>operator</code>, <code>equals</code>, <code>clear</code>
+          or <code>clear-entry</code>.  Lets a
+          <a href="PnFilter.html">Filter</a> or a
+          <a href="PnValueRouter.html">Value Router</a> split the
+          stream without matching ten separate digit codes.</td></tr>
+  <tr><td><code>data.value</code></td>
+      <td>The numeric value <code>0</code>&hellip;<code>9</code> &mdash;
+          <strong>digit keys only</strong>.  Absent on every other key, so
+          a downstream numeric node consumes the digits and quietly
+          ignores the rest.</td></tr>
+</table>
+<p>
+The operator keys paint the typographic signs a calculator has on its
+buttons (<code>&times;</code>, <code>&divide;</code>,
+<code>&minus;</code>) but always emit the ASCII ones
+(<code>*</code>, <code>/</code>, <code>-</code>), so
+<code>data.key</code> can be concatenated straight into an expression
+string.
+</p>
+
+<h5>Using it</h5>
+<p>
+The keypad's body is the control itself, so a press lands on a key
+rather than lifting the node into the zoom overlay the way a graph or
+a table does.  The header above the keys behaves like any other node
+header: click to select and drag, double-click to open the settings
+dialog.  A click that lands in the gap between two keys presses
+neither.
+</p>
+<p>
+A keypad emits only when a key is pressed.  Unlike the
+<a href="PnKnob.html">Knob</a> and the <a href="PnSwitch.html">Switch</a>
+it has no state to report, so a freshly-loaded worksheet stays quiet
+until the user actually presses something.
+</p>
+
+<h5>Appearance</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fill colour of the keypad's case &mdash; the panel the keys
+          sit on.</td></tr>
+  <tr><td><code>key-color</code></td>
+      <td>Face colour of the digit, decimal-point and clear keys.</td></tr>
+  <tr><td><code>accent-color</code></td>
+      <td>Face colour of the operator keys and <code>=</code> &mdash; the
+          column a calculator traditionally picks out in a second
+          colour.</td></tr>
+  <tr><td><code>text-color</code></td>
+      <td>Colour of the key legends.</td></tr>
+</table>
+
+</body>
+</html>

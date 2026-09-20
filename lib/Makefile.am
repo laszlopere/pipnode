@@ -128,6 +128,8 @@ libpipnode_core_la_SOURCES = \
 	pn-jump-in.h \
 	pn-jump-out.c \
 	pn-jump-out.h \
+	pn-keypad.c \
+	pn-keypad.h \
 	pn-knob.c \
 	pn-knob.h \
 	pn-label.c \
@@ -389,6 +391,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-inline-edit-label.h \
 	pn-file-chooser-entry.c \
 	pn-file-chooser-entry.h \
+	pn-keypad-gui.c \
+	pn-keypad-gui.h \
 	pn-knob-gui.c \
 	pn-knob-gui.h \
 	pn-label-gui.c \
@@ -580,6 +584,7 @@ pipnode_core_headers = \
 	pn-jump.h \
 	pn-jump-in.h \
 	pn-jump-out.h \
+	pn-keypad.h \
 	pn-knob.h \
 	pn-label.h \
 	pn-led.h \
@@ -695,6 +700,7 @@ pipnode_gui_headers = \
 	pn-inject-gui.h \
 	pn-inline-edit-label.h \
 	pn-file-chooser-entry.h \
+	pn-keypad-gui.h \
 	pn-knob-gui.h \
 	pn-label-gui.h \
 	pn-led-gui.h \
