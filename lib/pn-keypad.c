@@ -510,7 +510,7 @@ pn_keypad_class_init (PnKeypadClass *klass)
     node_class->paint_plot_corner_radius  = 6.0;
 
     node_class->palette_icon = PN_KEYPAD_ICON;
-    node_class->class_name   = "Calculator Keypad";
+    node_class->class_name   = "Keypad";
     node_class->icon         = PN_KEYPAD_ICON;
     /* Shares the Calculator (#PnExpression) node's violet so the two
      * read as partners on a worksheet — the pad types, the Calculator
@@ -564,7 +564,7 @@ pn_keypad_init (PnKeypad *self)
     self->pressed_index  = -1;
     self->press_flash_id = 0;
 
-    pn_node_set_class_name (node, "Calculator Keypad");
+    pn_node_set_class_name (node, "Keypad");
     pn_node_set_icon       (node, PN_KEYPAD_ICON);
     pn_node_set_has_input  (node, FALSE);
     pn_node_set_has_output (node, TRUE);

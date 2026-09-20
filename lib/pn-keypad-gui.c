@@ -16,8 +16,8 @@
 /* ------------------------------------------------------------------ */
 /*  PnKeypad — gui tier.                                               */
 /*                                                                     */
-/*  The cairo painter for the Calculator Keypad's client area: a dark  */
-/*  case, eighteen rounded keys, and their legends.  Every key's       */
+/*  The cairo painter for the Keypad's client area: a dark case,       */
+/*  eighteen rounded keys, and their legends.  Every key's             */
 /*  rectangle comes from the core's pn_keypad_key_rect_in(), the same  */
 /*  call the hit-test uses, so the key the user sees under the cursor  */
 /*  is always the key the press resolves to.                           */

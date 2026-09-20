@@ -1072,7 +1072,7 @@
              SetDialogEditorText now also drive PnFileChooserEntry and
              GtkComboBoxText editors.
 
-[ ] 74 Calculator Keypad node (PnKeypad) -- a pocket-calculator key pad in the
+[ ] 74 Keypad node (PnKeypad) -- a pocket-calculator key pad in the
        node's client area. Ten digits, ".", the four basic operators, "=", "C"
        and "CE"; clicking a key emits one message naming the key. The node does
        no arithmetic and holds no accumulator: it is an input device, and the

@@ -9,7 +9,7 @@ bag members are `data.value` (canonical numeric reading, booleans encoded as
 them fire*: **periodic** ones subclass `PnAutoTrigger` (a background worker
 thread ticks every `period` seconds — Clock, AutoInjector, AutoRandom,
 Astronomical); **manual** ones fire on a user gesture (Injector click, Knob
-wheel, Switch click, Calculator Keypad key press, FileDrop drop, Panel Input
+wheel, Switch click, Keypad key press, FileDrop drop, Panel Input
 applet click); and the manual
 latch/value sources (Knob, Switch, Panel Input) additionally **announce once**
 shortly after load via a one-shot `g_idle` scheduled in `constructed()`, so
@@ -192,7 +192,7 @@ the startup shot) does. Startup-announce: one-shot `g_idle` in `constructed()`
 `pn-knob-gui.c`, reading position via `pn_knob_get_value_fraction()`
 (`pn-knob.c:161`); `pn_knob_hit_knob()` is the worksheet hit-test.
 
-## Calculator Keypad
+## Keypad
 
 **Purpose** — A pocket-calculator key pad in the node's client area: ten
 digits, `.`, the four operators, `=`, `C` and `CE`. Clicking a key emits one
