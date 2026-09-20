@@ -24,8 +24,8 @@
       "name" : "Calculator Engine 1",
       "worksheet" : "Worksheet",
       "position" : {
-        "x" : 400.0,
-        "y" : 200.0
+        "x" : 360.0,
+        "y" : 160.0
       },
       "properties" : {
         "max-digits" : 12
@@ -34,7 +34,7 @@
     {
       "type" : "PnNumeric",
       "uuid" : "03329127-950c-4097-bcba-fc9534e8dadd",
-      "name" : "Numeric 1",
+      "name" : "USD",
       "worksheet" : "Worksheet",
       "position" : {
         "x" : 660.0,
@@ -42,7 +42,7 @@
       },
       "properties" : {
         "digits" : 8,
-        "decimal-places" : 3,
+        "decimal-places" : 2,
         "background-color" : "rgb(10,10,13)",
         "segment-color" : "rgb(235,31,20)",
         "unlit-segment-color" : "rgb(38,5,3)"
@@ -66,6 +66,42 @@
         "frame-color" : "rgb(158,158,158)",
         "text-color" : "rgb(46,51,59)"
       }
+    },
+    {
+      "type" : "PnFiat",
+      "uuid" : "f43109a1-c22c-4025-8465-50f4d86c335f",
+      "name" : "Fiat Converter 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 460.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "period" : 3600,
+        "url" : "https://api.frankfurter.dev/v1/latest",
+        "from" : "USD",
+        "to" : "HUF",
+        "rate" : 317.87,
+        "last-update" : "2026-09-20T15:02:49.809221+02",
+        "status" : "OK (reference rate of 2026-09-18)"
+      }
+    },
+    {
+      "type" : "PnNumeric",
+      "uuid" : "f64a8bfc-5234-4865-891c-c64627b527cf",
+      "name" : "HUF",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 660.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "digits" : 8,
+        "decimal-places" : 2,
+        "background-color" : "rgb(10,10,13)",
+        "segment-color" : "rgb(246,211,45)",
+        "unlit-segment-color" : "rgb(38,5,3)"
+      }
     }
   ],
   "connections" : [
@@ -76,6 +112,14 @@
     {
       "source_id" : "baca2ef4-9076-49bf-b425-4e3b220749c1",
       "target_id" : "03329127-950c-4097-bcba-fc9534e8dadd"
+    },
+    {
+      "source_id" : "baca2ef4-9076-49bf-b425-4e3b220749c1",
+      "target_id" : "f43109a1-c22c-4025-8465-50f4d86c335f"
+    },
+    {
+      "source_id" : "f43109a1-c22c-4025-8465-50f4d86c335f",
+      "target_id" : "f64a8bfc-5234-4865-891c-c64627b527cf"
     }
   ],
   "sheets" : [
