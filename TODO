@@ -1404,3 +1404,124 @@
              unlock disarming the #77 panel, which today is just the event
              output wired into the alarm's keypad input, and should stay that
              way until it demonstrably is not enough.
+
+[ ] 79 A wave-optics teaching sheet -- single slit -> double slit ->
+       diffraction grating, all three out of ONE formula and one Calculator 2.
+       The optics sibling of the Uniswap AMM example
+       (examples/crypto/uniswap-v2.json), built on the same skeleton: knob
+       column -> Ramp -> element-wise core -> LED panels and plots. Where that
+       sheet taught a RATIO, this one teaches a PRODUCT:
+
+           I/I0 = [sin(al)/al]^2 * [sin(N*be)/(N*sin(be))]^2
+                  al = pi*w*s/lam     be = pi*d*s/lam     s = sin(theta)
+
+       The first factor is what ONE slit does (the envelope), the second is
+       what N point sources do (the interference comb), and the pattern on the
+       wall is their product. Winding the slit-count knob walks the whole
+       syllabus without rewiring anything: N=1 collapses the comb to 1 and
+       leaves the bare single slit, N=2 is the textbook double slit, and N
+       large sharpens the comb into a grating's needle-thin orders while the
+       envelope above it never moves.
+
+       [ ] 79.1 The file. examples/Compute/diffraction.json, beside
+             projectile.json and lissajous.json -- Compute is where the vector
+             machinery already lives. Five-band layout copied from the AMM
+             sheet: title Comment, four section Comments, then knob column ->
+             sweep -> core -> readouts -> plots.
+       [ ] 79.2 GOTCHA found while planning: examples/Compute is NOT in
+             examples/Makefile.am -- nor are Clocks, meshtastic or
+             panel-applet-ideas -- so nothing in it has ever been installed.
+             Add a computedir/compute_DATA block and sweep up the five
+             existing files with it, or the new sheet ships only to people
+             who clone the repo. Worth doing for the other three dirs in the
+             same commit; they are the same one-block fix.
+       [ ] 79.3 Six knobs, every one a real optical-bench control. Slit width
+             w (1..25 um, 1 um a notch, default 8); slit separation d (5..125
+             um, 5 um a notch, default 40); wavelength lam (0.40..0.76 um, the
+             visible band, default 0.55); slit count N (1..25, one a notch,
+             default 2); screen distance L (0.25..6.25 m, which turns angles
+             into millimetres on the wall); and view width k (0.5..12.5),
+             how many envelope lobes to draw. Pick every range so one wheel
+             notch is a round number -- 24 detents to a full sweep.
+       [ ] 79.4 The sweep runs over s = sin(theta), NOT theta. Every term in
+             the formula only ever sees sin(theta), so sweeping it directly
+             saves a sine per element and leaves the x axis linear in position
+             on the screen. Ramp from = -smax to = +smax with
+             smax = k*lam/w, so the view auto-scales to the physics rather
+             than to a fixed angle: one Calculator 2 (k, lam, w) computes
+             smax and feeds "to", a one-line Calculator negating it feeds
+             "from". 1024 samples, EVEN on purpose (see 79.6).
+       [ ] 79.5 One Calculator 2, five named inputs (s, w, d, lam, N),
+             publishing THREE vectors as message members:
+                 al   = 3.14159265 * w * s / lam + 1e-9
+                 be   = 3.14159265 * d * s / lam + 1e-9
+                 env  = (sin(al)/al) * (sin(al)/al)
+                 comb = sin(N*be) / (N * sin(be))
+                 intf = comb * comb
+                 tot  = env * intf
+             Normalising the comb by N is what keeps all three on the same
+             0..1 vertical scale, so the sub-plots in 79.7 are directly
+             comparable. NOTE: there is no pow() and ^ is XOR, not power --
+             square by multiplying, as above.
+       [ ] 79.6 Two removable singularities, both 0/0 and both fatal to the
+             element they land on: sin(al)/al at al=0 (dead centre) and
+             sin(N*be)/sin(be) at every principal maximum be = m*pi. The 1e-9
+             offsets in 79.5 are the fix -- near zero sin(N*e)/sin(e) tends to
+             N smoothly, so the offset costs nothing and removes the NaN.
+             Belt and braces: an even sample count means no sample sits
+             exactly on s = 0. Same class of bug as the AMM sheet's dy/dx, and
+             it wants the same answer: reshape so the division never sees 0/0.
+       [ ] 79.7 THE SUB-PLOTS -- the centrepiece, and the reason the core
+             publishes three vectors instead of one. Three PnPlot panels
+             stacked in one column, sharing the sweep so their x axes line up:
+                 envelope   value-key env    what ONE slit does
+                 comb       value-key intf   what N point sources do
+                 pattern    value-key tot    the product, what the wall shows
+             Read top to bottom they ARE the derivation, and the third is
+             visibly the first two multiplied. PnPlot is single-series and
+             swallows a whole vector per message, so each panel is one node
+             with no extra wiring. Lines, show-grid on, y-from-zero on so the
+             three share a floor.
+       [ ] 79.8 A PnOscilloscope beside them tracing tot against s. The Plot
+             panels' x axis is a bucket index; the scope's is the real
+             sin(theta), so it is the one that reads in physical units -- and
+             the green CRT is the closest thing to looking at the actual
+             screen. Check whether it wants a fixed frame or auto-fit (79.11).
+       [ ] 79.9 LED readouts, each a one-line Calculator picking a field:
+             fringe spacing lam*L/d (mm), envelope first minimum lam*L/w (mm),
+             highest visible order floor(d/lam), principal-maximum angular
+             width lam/(N*d) -- the resolving power -- and 2*d/w, the number
+             of fringes fitting under the central envelope. That last one is
+             the shape parameter, the d/w ratio this sheet is really about, so
+             give it the Dial (0..40) as well. A Reduce in sum mode over tot
+             gives total power through the slits for a Numeric.
+       [ ] 79.10 A MISSING-ORDERS lamp, the nicest bit of physics on the
+             sheet: when d/w is a whole number the envelope's zero lands
+             exactly on a principal maximum and that order vanishes. Detect it
+             with the mask idiom -- abs(d/w - floor(d/w + 0.5)) < 0.02 -- into
+             an LED in Blink Fast. Wind d with w fixed and the lamp ticks
+             every time an order dies. Worth a Matrix57 "bench card" too: slit
+             width, separation, wavelength and screen distance on four lines.
+       [ ] 79.11 Before shipping, run the scale-invariance check the AMM sheet
+             taught us the hard way: for EVERY knob, confirm it changes the
+             SHAPE of the plotted curve and not merely its scale, because an
+             auto-fitting axis silently cancels a pure scaling and the panel
+             then looks frozen. Expected here: w, d and N all bend the
+             pattern (via d/w and N), lam and w both set smax so the view
+             tracks them, and L is pure unit conversion that must therefore
+             show up ONLY in the millimetre readouts, never in a plot. Prove
+             it by dumping the vectors headless at two knob settings and
+             comparing the normalised traces, not by eye.
+       [ ] 79.12 Comments carrying the teaching text, as on the AMM sheet: the
+             formula and the product idea up top, then one box per band. Say
+             explicitly that the envelope belongs to the single slit and the
+             comb to the array, because that split is the whole lesson and is
+             invisible unless someone writes it down.
+       [ ] 79.13 Verify headless with ./src/pipnode-run -t 3 before any GUI
+             work: no CRITICALs, no NaN in the three vectors at the extremes
+             of every knob (N=1 and N=25, w=1 and w=25), and check the node
+             boxes do not overlap. Then the GUI check by hand: wind N from 1
+             to 25 and watch the comb sharpen under a stationary envelope;
+             wind w and watch the envelope close in while the fringe spacing
+             holds; wind d and watch the fringes crowd and the missing-order
+             lamp tick.
