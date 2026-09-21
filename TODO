@@ -1680,6 +1680,10 @@
                 dialog a list of what the program expects.
             13. Per-frame hygiene: pn_var_store_clear() before every
                 frame, or last frame's assignments leak into this one.
+                Refined by 80.8(e): the clear is followed by re-applying
+                the constants and the latched input snapshot, which a
+                repaint-driven node cannot rebuild from an arriving
+                message the way Calculator 2 does.
             14. A vector argument raises the type-mismatch error today
                 ("a vector reached a scalar sink"). Leave it an error in
                 v1 -- and make exactly that the seam 80.16 replaces with
@@ -2025,14 +2029,68 @@
              (i) Font FAMILY stays a node property (80.5), so one
                  figure is typographically consistent and the family is
                  not repeated on every line.
-       [ ] 80.8 Inputs become variables. Follow Calculator 2: an `inputs`
-             count property with renameable ports, each input's message
-             members bound as variables (the port's name, plus its named
-             members), last value per input retained so the figure
-             redraws whole when any one input updates. A fresh node with
-             nothing wired must still draw something -- unbound variables
-             evaluate to 0 rather than erroring, or the node is blank and
-             mysterious until the first message.
+       [x] 80.8 DECIDED (2026-09-21): inputs become variables -- and
+             almost none of it is new code, because the core already
+             does the hard part.
+
+             (a) THE LATCHING IS A CORE FEATURE, not something
+                 Calculator 2 invented: pn_node_set_collate_inputs()
+                 turns on a per-input latch and the core re-injects
+                 every latched value into the arriving message under
+                 that input's DISPLAY NAME. The figure opts in and
+                 inherits "input `angle` still holds its last value
+                 even though `load` just fired" for nothing.
+             (b) BIND EXACTLY AS CALCULATOR 2 BINDS -- two passes: the
+                 latched headline values under the input names, then
+                 this message's other numeric members suffixed with the
+                 1-based arriving input number (temp -> temp1). Same
+                 rule, same surprises, one thing to document.
+             (c) SO EXTRACT IT rather than write a third copy. That
+                 binding is ~100 lines of static code in
+                 pn-expression2.c with a simpler variant in
+                 pn-expression.c; a third copy guarantees drift. Lift
+                 it into lib/pn-expr-bind.[ch] -- PnNode + PnMessage +
+                 PnVarStore, core tier -- exactly as 81.4 lifts the
+                 function table into pn-expr-funcs.[ch]. It refactors
+                 shipping nodes, so it goes behind characterization
+                 tests: the Calculator and Calculator 2 unit tests pass
+                 untouched before and after, or the extraction is
+                 wrong.
+             (d) INPUT COUNT 1..8, DEFAULT 1, ports renameable,
+                 following Expression2's `inputs` property (which
+                 allows 2..8). One input is the common case -- the
+                 lever needs one angle.
+             (e) 80.2 RULE 13 NEEDS REFINING, and this is the real
+                 design point here. Calculator 2 rebuilds its variables
+                 from the arriving message and throws them away,
+                 because it only ever evaluates on receive. A figure
+                 REPAINTS -- on a timer, on a zoom, on an expose --
+                 long after the last message, so its bindings must
+                 survive between frames. Keep the latched inputs as our
+                 own snapshot (a small name -> PnExprValue table)
+                 rebuilt on receive; each frame clear the store,
+                 re-apply the constants and the snapshot, then run the
+                 program. No new PnVarStore API: clear-and-refill is
+                 cheaper than inventing
+                 pn_var_store_clear_assignments().
+             (f) STRINGS ARE NOT BOUND -- the binding skips non-numeric
+                 members, so a figure cannot label itself from an
+                 incoming string. That is 80.7(c)'s ban on %s seen from
+                 the other side, and it is deliberate: this node draws
+                 numbers.
+             (g) IT IS A SINK: has_input TRUE, has_output FALSE, like
+                 PnPlot. A figure is a readout, not a stage in a chain.
+             (h) REPAINT IS COALESCED at a 100 ms floor, copying the
+                 schedule_repaint() idiom PnPlot and PnOscilloscope
+                 already share -- repaint straight away when the
+                 interval has elapsed, otherwise one pending timeout.
+                 A figure wired to a fast source must not repaint per
+                 message. That will make three copies of the idiom in
+                 the tree: worth noticing, not worth fixing here.
+             (i) A FRESH NODE STILL DRAWS: 80.2 rule 12's zero-fill
+                 renders an unwired figure with every input at 0,
+                 rather than erroring or sitting blank and mysterious
+                 until the first message arrives.
        [ ] 80.9 Implementation shape, the now-standard split: PnFigure in
              libpipnode-core holds the program, the parse, the variable
              bindings and the error state; pn-figure-gui.c installs the
