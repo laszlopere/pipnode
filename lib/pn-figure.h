@@ -146,6 +146,93 @@ void pn_figure_line_locate (const PnFigureLine *self,
 GPtrArray *pn_figure_scan (const gchar *program,
                            GPtrArray   *errors);
 
+/* ------------------------------------------------------------------ */
+/*  The statement splitter                                             */
+/*                                                                     */
+/*  Second stage: one logical line in, one statement out.  It decides  */
+/*  verb-or-assignment on a single lookahead (80.2 rule 1), splits a   */
+/*  verb's arguments on the commas that are at paren depth 0 and       */
+/*  outside quotes (rule 3), and resolves the escapes in a quoted      */
+/*  string.  It does NOT know which verbs exist or how many arguments  */
+/*  they take — that is the verb table's business — and it does not    */
+/*  parse an expression, only delimit one.                             */
+/*                                                                     */
+/*  Quoted means literal and unquoted means expression, in every       */
+/*  argument position (rule 7), so this is where an argument's KIND is */
+/*  settled once and for all.                                          */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_FIGURE_ARG_EXPRESSION, /* unquoted: text for the calculator     */
+    PN_FIGURE_ARG_STRING,     /* quoted: the contents, escapes resolved */
+} PnFigureArgKind;
+
+typedef struct
+{
+    PnFigureArgKind  kind;
+    gchar           *text;   /* owned: the fragment, or the contents   */
+    gsize            offset; /* where it starts in PnFigureLine.text   */
+} PnFigureArg;
+
+typedef enum
+{
+    PN_FIGURE_STATEMENT_VERB,
+    PN_FIGURE_STATEMENT_ASSIGNMENT,
+} PnFigureStatementKind;
+
+/* A statement borrows the logical line it came from, for
+ * pn_figure_line_locate(): the line list must outlive the statement
+ * list, which it does for the whole of a parse.
+ *
+ * An assignment carries no arguments — rule 1 hands the WHOLE line,
+ * @source->text, to pn_expr_parser_parse(), which already understands
+ * `name = expr`.  Its @name is the target it binds, kept exactly as
+ * typed because variable names are case-sensitive; a verb's @name is
+ * folded to lower case because verbs are not (rule 2).
+ *
+ * The verb itself always starts at offset 0 of @source->text, the
+ * scanner having trimmed the line, so an error about the verb — an
+ * unknown one, or the wrong number of arguments — locates there. */
+typedef struct
+{
+    PnFigureStatementKind  kind;
+    gchar                 *name;   /* owned: verb, or assignment target */
+    GPtrArray             *args;   /* #PnFigureArg, empty for an assignment */
+    const PnFigureLine    *source; /* borrowed                          */
+} PnFigureStatement;
+
+/**
+ * pn_figure_statement_free:
+ * @self: (nullable) (transfer full): a statement, or %NULL
+ *
+ * Frees @self, its name and its arguments.  Safe to call with %NULL.
+ */
+void pn_figure_statement_free (PnFigureStatement *self);
+
+/**
+ * pn_figure_split:
+ * @lines:  (element-type PnFigureLine): logical lines from
+ *          pn_figure_scan(), which must outlive the result
+ * @errors: (nullable) (element-type PnFigureError): collector
+ *
+ * Splits each logical line into a statement.  The errors it can report
+ * are a line that does not begin with an identifier, an empty argument
+ * — which is what a comma with nothing after it comes to — text after
+ * a closing quote, and an undefined escape.  The escapes the language
+ * defines are `\"`, `\\` and `\n`, the last because 80.7(d) makes a
+ * newline split a label into lines; anything else is a mistake worth
+ * saying out loud rather than drawing as a backslash.
+ *
+ * A line that fails is left out of the result and the scan goes on, so
+ * one broken line does not hide the errors on the next (80.2 rule 9).
+ *
+ * Returns: (transfer full) (element-type PnFigureStatement): the
+ *   statements, in order.
+ */
+GPtrArray *pn_figure_split (GPtrArray *lines,
+                            GPtrArray *errors);
+
 G_END_DECLS
 
 #endif /* PN_FIGURE_H */

@@ -360,3 +360,328 @@ pn_figure_scan (
     g_strfreev (raw);
     return scan.lines;
 }
+
+/* ================================================================== */
+/*  The statement splitter                                            */
+/* ================================================================== */
+
+static void
+pn_figure_arg_free (
+        PnFigureArg *self)
+{
+    if (self == NULL)
+        return;
+
+    g_free (self->text);
+    g_free (self);
+}
+
+void
+pn_figure_statement_free (
+        PnFigureStatement *self)
+{
+    if (self == NULL)
+        return;
+
+    g_free (self->name);
+    if (self->args != NULL)
+        g_ptr_array_unref (self->args);
+    g_free (self);
+}
+
+/* Reports an error at @offset in @line, turning the offset into the
+ * source line and column it really came from. */
+static void report_at (GPtrArray          *errors,
+                       const PnFigureLine *line,
+                       gsize               offset,
+                       const gchar        *format,
+                       ...) G_GNUC_PRINTF (4, 5);
+
+static void
+report_at (
+        GPtrArray          *errors,
+        const PnFigureLine *line,
+        gsize               offset,
+        const gchar        *format,
+        ...)
+{
+    PnFigureError *error;
+    va_list        args;
+    gint           lineno = 0;
+    gint           column = 0;
+
+    if (errors == NULL)
+        return;
+
+    pn_figure_line_locate (line, offset, &lineno, &column);
+
+    error         = g_new0 (PnFigureError, 1);
+    error->line   = lineno;
+    error->column = column;
+
+    va_start (args, format);
+    error->message = g_strdup_vprintf (format, args);
+    va_end (args);
+
+    g_ptr_array_add (errors, error);
+}
+
+/* Copies the body of a string literal, resolving the three escapes the
+ * language defines.  @body runs to the closing quote, which is not
+ * included.  Returns %NULL, with the error reported, on an escape that
+ * means nothing. */
+static gchar *
+unescape (
+        const PnFigureLine *line,
+        gsize               body,
+        gsize               end,
+        GPtrArray          *errors)
+{
+    const gchar *text = line->text;
+    GString     *out  = g_string_new (NULL);
+    gsize        i;
+
+    for (i = body; i < end; i++)
+    {
+        if (text[i] != '\\')
+        {
+            g_string_append_c (out, text[i]);
+            continue;
+        }
+
+        /* The scanner already proved the literal is closed, so a
+         * backslash always has a character after it. */
+        switch (text[i + 1])
+        {
+        case '"':  g_string_append_c (out, '"');  break;
+        case '\\': g_string_append_c (out, '\\'); break;
+        case 'n':  g_string_append_c (out, '\n'); break;
+
+        default:
+        {
+            const gchar *next = text + i + 1;
+            const gchar *stop = g_utf8_find_next_char (next, text + end);
+
+            if (stop == NULL)
+                stop = text + end;
+
+            report_at (errors, line, i, "unknown escape \"\\%.*s\"",
+                       (int) (stop - next), next);
+            g_string_free (out, TRUE);
+            return NULL;
+        }
+        }
+
+        i++; /* the escaped character */
+    }
+
+    return g_string_free (out, FALSE);
+}
+
+/* Turns the slice [@start, @end) of @line into one argument and appends
+ * it to @args.  The slice is what stood between two commas, whitespace
+ * and all.  Returns %FALSE, with the error reported, when it is not an
+ * argument at all. */
+static gboolean
+add_argument (
+        GPtrArray          *args,
+        const PnFigureLine *line,
+        gsize               start,
+        gsize               end,
+        GPtrArray          *errors)
+{
+    const gchar *text = line->text;
+    PnFigureArg *arg;
+
+    while (start < end && g_ascii_isspace (text[start]))
+        start++;
+    while (end > start && g_ascii_isspace (text[end - 1]))
+        end--;
+
+    if (start == end)
+    {
+        /* A comma with nothing after it — the dangling comma a
+         * continuation left behind reaches us exactly here. */
+        report_at (errors, line, start, "empty argument");
+        return FALSE;
+    }
+
+    arg         = g_new0 (PnFigureArg, 1);
+    arg->offset = start;
+
+    if (text[start] == '"')
+    {
+        gboolean escaped = FALSE;
+        gsize    close;
+
+        for (close = start + 1; close < end; close++)
+        {
+            if (escaped)
+                escaped = FALSE;
+            else if (text[close] == '\\')
+                escaped = TRUE;
+            else if (text[close] == '"')
+                break;
+        }
+
+        /* Quoted means literal, so the quotes have to be the whole
+         * argument: "A" is a string, "A" + 1 is a mistake.  The slice
+         * is already right-trimmed, so there is something to point at
+         * past the whitespace. */
+        if (close + 1 != end)
+        {
+            gsize junk = close + 1;
+
+            while (junk < end && g_ascii_isspace (text[junk]))
+                junk++;
+
+            report_at (errors, line, junk,
+                       "unexpected text after a string");
+            g_free (arg);
+            return FALSE;
+        }
+
+        arg->kind = PN_FIGURE_ARG_STRING;
+        arg->text = unescape (line, start + 1, close, errors);
+
+        if (arg->text == NULL)
+        {
+            g_free (arg);
+            return FALSE;
+        }
+    }
+    else
+    {
+        arg->kind = PN_FIGURE_ARG_EXPRESSION;
+        arg->text = g_strndup (text + start, end - start);
+    }
+
+    g_ptr_array_add (args, arg);
+    return TRUE;
+}
+
+/* Splits one logical line.  Returns %NULL, with every error it found
+ * reported, when the line is not a statement. */
+static PnFigureStatement *
+split_line (
+        const PnFigureLine *line,
+        GPtrArray          *errors)
+{
+    const gchar       *text = line->text;
+    PnFigureStatement *statement;
+    GPtrArray         *args;
+    gboolean           ok      = TRUE;
+    gboolean           in_string = FALSE;
+    gboolean           escaped = FALSE;
+    gint               depth   = 0;
+    gsize              name_end;
+    gsize              rest;
+    gsize              start;
+    gsize              i;
+
+    /* Rule 1: a statement begins with an identifier, spelled the way
+     * the expression lexer spells one. */
+    if (!g_ascii_isalpha (text[0]) && text[0] != '_')
+    {
+        report_at (errors, line, 0, "expected a verb or an assignment");
+        return NULL;
+    }
+
+    for (name_end = 0;
+         g_ascii_isalnum (text[name_end]) || text[name_end] == '_';
+         name_end++)
+        ;
+
+    rest = name_end;
+    while (g_ascii_isspace (text[rest]))
+        rest++;
+
+    /* One lookahead settles it: a lone "=" assigns, "==" compares. */
+    if (text[rest] == '=' && text[rest + 1] != '=')
+    {
+        statement         = g_new0 (PnFigureStatement, 1);
+        statement->kind   = PN_FIGURE_STATEMENT_ASSIGNMENT;
+        statement->name   = g_strndup (text, name_end);
+        statement->args   = g_ptr_array_new_with_free_func (
+                                (GDestroyNotify) pn_figure_arg_free);
+        statement->source = line;
+        return statement;
+    }
+
+    args = g_ptr_array_new_with_free_func ((GDestroyNotify) pn_figure_arg_free);
+
+    /* Rule 3: split on the commas at paren depth 0, outside quotes.
+     * A verb with nothing after it has no arguments, as against one
+     * empty argument. */
+    if (text[rest] != '\0')
+    {
+        for (i = start = rest; ; i++)
+        {
+            gchar c = text[i];
+
+            if (c == '\0' || (!in_string && depth == 0 && c == ','))
+            {
+                if (!add_argument (args, line, start, i, errors))
+                    ok = FALSE;
+                if (c == '\0')
+                    break;
+                start = i + 1;
+                continue;
+            }
+
+            if (escaped)
+                escaped = FALSE;
+            else if (in_string)
+            {
+                if (c == '\\')
+                    escaped = TRUE;
+                else if (c == '"')
+                    in_string = FALSE;
+            }
+            else if (c == '"')
+                in_string = TRUE;
+            else if (c == '(')
+                depth++;
+            else if (c == ')' && depth > 0)
+                depth--;
+        }
+    }
+
+    if (!ok)
+    {
+        g_ptr_array_unref (args);
+        return NULL;
+    }
+
+    statement         = g_new0 (PnFigureStatement, 1);
+    statement->kind   = PN_FIGURE_STATEMENT_VERB;
+    statement->name   = g_ascii_strdown (text, (gssize) name_end);
+    statement->args   = args;
+    statement->source = line;
+    return statement;
+}
+
+GPtrArray *
+pn_figure_split (
+        GPtrArray *lines,
+        GPtrArray *errors)
+{
+    GPtrArray *statements;
+    guint      i;
+
+    statements = g_ptr_array_new_with_free_func (
+                     (GDestroyNotify) pn_figure_statement_free);
+
+    g_return_val_if_fail (lines != NULL, statements);
+
+    for (i = 0; i < lines->len; i++)
+    {
+        const PnFigureLine *line = g_ptr_array_index (lines, i);
+        PnFigureStatement  *statement = split_line (line, errors);
+
+        if (statement != NULL)
+            g_ptr_array_add (statements, statement);
+    }
+
+    return statements;
+}
