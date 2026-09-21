@@ -1284,3 +1284,123 @@
              stored in the worksheet as PLAIN TEXT -- a certified panel would
              want it in the PnVault (see #27), which is the one thing here that
              is a real limitation rather than a missing convenience.
+
+[ ] 78 Keypad Door Lock node (PnDoorLock) -- the second CONTROLLER, and the
+       small sibling of the #77 alarm panel: a code pad that drives an electric
+       strike. Where the alarm asks "is the house armed", the lock asks WHO is
+       at the door -- it holds several codes, one per person, and names the
+       person on every unlock. Keypad -> Lock -> Tasmota relay + LCD is a
+       working door station. Keeping the "who" here is also what lets #77 stay
+       a one-code panel instead of growing a user list it does not need.
+
+       [ ] 78.1 Core lib/pn-door-lock.[ch] (GTK-free, no gui tier -- the
+             properties render in the generic settings dialog). Logic seam
+             pn_door_lock_press() / _submit() / _set_door() / _request_exit() /
+             _tick() / _reset(), plus the read seam (_get_state(),
+             _get_strike(), _get_user(), _get_remaining(),
+             _get_display_text()), so a headless test walks a whole shift
+             without building messages or waiting out a real delay -- exactly
+             the shape #75.1 and #77.1 settled on. _tick() must not touch the
+             node's own 1 Hz timer.
+       [ ] 78.2 Inputs: 0 keypad (data.key, one keystroke -- what the #76
+             Decimal or Phone pad emits; failing that a WHOLE code in
+             data.output, so an MQTT feed or a card reader can present a
+             credential), 1 exit (request-to-exit -- the button on the inside,
+             unlocks with no code and names nobody), 2 door (the contact; a
+             numeric data.value is the held open/closed state, the door-contact
+             half of #77.2).
+       [ ] 78.3 Outputs: 0 strike (0.0/1.0, held for unlock-time seconds --
+             wire it to an LED or a Tasmota relay), 1 display (LCD lines in
+             data.output, countdown seconds in data.value, for a Matrix57),
+             2 event -- ONE message per decision carrying data.user (the person,
+             "" when nobody), data.state and a human sentence in data.output.
+             Deliberately NOT #77's three-way speech/sms split: one event tap
+             feeds a Text to Speech, a Logger or a Meshtastic node, and a Filter
+             on data.state picks what each of them deserves. The typed code
+             NEVER leaves the node -- not in a message, not in the display.
+       [ ] 78.4 States locked -> open -> ajar, plus lockout and forced.
+             LOCKED   watching; typing builds a code.
+             OPEN     a code (or the exit button) matched: strike energised,
+                      counting unlock-time down. Relocks on the timer, or
+                      early once the door has been opened AND closed again --
+                      the "one person, one unlock" rule every real strike has.
+             AJAR     the door was left open past ajar-time: an event, and the
+                      node paints red, but the strike is already back off.
+             LOCKOUT  after wrong-tries wrong codes the pad goes dead for
+                      lockout-time seconds and emits one event. The count
+                      resets on any successful unlock.
+             FORCED   the contact opened while locked and nothing unlocked it:
+                      one event, and it stays forced until a valid code is
+                      typed. This is the lock's own break-in detection and it
+                      is core, not a follow-up -- a lock that cannot tell a
+                      forced door from an opened one is a doorbell.
+       [ ] 78.5 Where the codes live. Primary: the PnVault (#27). A new
+             core-owned profile type "door-code" (pn-door-code-profile.c,
+             registered next to mqtt-broker / ssh-login / ethereum-address in
+             pn-node-factory.c) whose profile NAME is the person and whose one
+             SECRET field is the code. The node holds no profile-ref: it
+             enumerates every profile of the type with pn_vault_list_profiles()
+             and matches the typed digits against all of them -- the first node
+             that uses the vault as a SET rather than as one named credential.
+             Re-read on PnVault::changed, so adding a person does not need a
+             reload. This is the answer to the plain-text limitation #77.13
+             admits to.
+       [ ] 78.6 Secondary: a plain "codes" property, PROM-contents style, one
+             "<name> <code>" pair per line, merged with whatever the vault
+             holds. It exists so the example worksheet and the unit tests have
+             working codes without provisioning a vault first -- and its tooltip
+             and help page must say plainly that it is stored in the worksheet
+             as clear text, with the vault as the upgrade.
+       [ ] 78.7 Typing rules: "#" or "=" submits, "*" or "C" clears what has
+             been typed. The display echoes stars, never the digits. An
+             inter-digit timeout (property, default ~5 s) drops a half-typed
+             code, so the next person does not inherit three stray digits.
+             Optional auto-submit: check after every keystroke once the typed
+             length equals some stored code's length, which is how a real pad
+             with no "#" key behaves.
+       [ ] 78.8 A duress code -- the second of #77.13's follow-ups, and it lands
+             here rather than there. Per person (a second secret field on the
+             profile): it unlocks exactly as the normal code does, the display
+             and the strike show nothing unusual, but the event carries
+             data.duress = TRUE so a Filter can text somebody quietly.
+       [ ] 78.9 Startup announce (g_idle, the Knob/Switch pattern): display and
+             strike = 0 once on load, so a wired LCD is not left blank and a
+             wired strike is explicitly told to stay locked. Silent on the event
+             output. The state is NOT serialized -- a reloaded worksheet comes
+             up locked, the only safe assumption.
+       [ ] 78.10 Paints red through the generic node error state
+             (pn_node_set_has_error, #71-era) while in lockout, ajar or forced,
+             as #77.6 does while tripped.
+       [ ] 78.11 Factory registration under "Controllers", help page
+             PnDoorLock.html, a DoorCodeProfile.html for the new profile type
+             (pn_profile_schema_set_help_page, as #27's credentials work set
+             up), and the pipnode-nodes skill entry in reference/controllers.md.
+       [ ] 78.12 Unit tests tests/unit/test-pn-door-lock.c -- the state machine
+             driven through the logic seam: right and wrong codes, several
+             people and the name on the event, the exit button naming nobody,
+             relock on timer vs relock on door-closed, ajar, the lockout count
+             and its reset, forced entry, the duress flag, the inter-digit
+             timeout, auto-submit on and off, the star echo (and that no code
+             ever appears in an emitted message), the startup announce and the
+             message shapes on all three outputs.
+       [ ] 78.13 Example worksheet examples/controls-and-logic/door-lock.json
+             (Keypad + a Switch for the door contact + a Switch for the exit
+             button -> Lock -> Matrix57 + an LED for the strike + a Text View on
+             the event output), with the codes in the plain property and a
+             Comment pointing at the vault.
+       [ ] 78.14 GUI check by hand: type one person's code and watch the LED
+             energise, the LCD name them and the strike drop after the unlock
+             time; flip the door switch open and closed mid-unlock and confirm
+             it relocks early; type three wrong codes and confirm LOCKOUT, the
+             red node and the dead pad; flip the door open while locked and
+             confirm FORCED.
+       [ ] 78.15 Candidate follow-ups, deliberately NOT implemented: time-of-day
+             validity (a code that only works 07:00-19:00, which wants a Daily
+             Timer wired into a fourth input rather than a schedule property);
+             one-time or guest codes with a use count, which would mean writing
+             back to the vault; an RFID/Wiegand credential as a first-class
+             input rather than a whole code on the keypad input; a lockdown
+             input that refuses every code; and the obvious pairing -- a valid
+             unlock disarming the #77 panel, which today is just the event
+             output wired into the alarm's keypad input, and should stay that
+             way until it demonstrably is not enough.
