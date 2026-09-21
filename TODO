@@ -2155,7 +2155,8 @@
                  format picks them up: `program` (multiline, 80.11),
                  `inputs` (1..8, 80.8d), `background-color`,
                  `font-family` (80.7i), `stretch` (80.4h). The
-                 animation pair from 80.17 lands later.
+                 animation trio from 80.17 -- fps, play-mode, frames --
+                 lands later.
              (i) The unit test binary wants its own Makefile.am entry
                  in tests/unit alongside the node -- see 80.12 for what
                  goes in it.
@@ -2436,39 +2437,109 @@
              [ ] 80.15.3 Both get their line in examples/Makefile.am's
                    displays_DATA, and then `automake &&
                    ./config.status` (80.9b) or they will not install.
-       [ ] 80.16 ANIMATION, and not before the above works. When an
-             argument evaluates to a VECTOR the figure becomes a film:
-             frame i takes element i of every vector argument, scalars
-             broadcast unchanged, and the frame count is the SHORTEST
-             vector -- corrected from "longest" by 80.3(f), because
-             vector OP vector already truncates to the shorter operand
-             and the figure must not disagree with its own arithmetic.
-             Also from 80.3(f): a comparison collapses a vector to one
-             scalar, so `blue = s > 0` cannot vary per frame; if
-             per-frame conditionals are wanted they need arithmetic
-             (mask idioms), not comparisons. This otherwise falls
-             straight out of PnVarStore already dealing in
-             scalar-or-vector values, and it means a Ramp into a
-             Calculator into a Figure animates with no new plumbing --
-             the same pipeline the Compute examples already build.
-       [ ] 80.17 Animation controls: frames-per-second, and a play mode
-             (once / loop / ping-pong / hold-last). The frame timer and
-             frame index live in the core half so the behaviour is the
-             node's, not the painter's; each tick calls
-             pn_node_request_repaint(). Expose `frame` (the index) and
-             `t` (0..1 through the film) as variables so a program can
-             animate things that did not arrive as a vector. Stop the
-             timer in dispose(), and do not run it at all while the
-             figure has no vector argument.
-       [ ] 80.18 A design tension to settle before 80.16 is coded, not
-             after: a vector means FRAMES, so what draws twenty identical
-             ticks along an axis? Candidate answer is a `repeat n` verb
-             binding an index variable for the statements that follow --
-             which reintroduces the blocks 80.2 refused. Decide then:
-             either a one-statement repeat prefix, or an explicit
-             `repeat` / `end` pair, or nothing at all and let people
-             write the twenty lines out. Do not let it creep in by
-             accident.
+       [x] 80.16 DECIDED (2026-09-21): ANIMATION -- when an argument
+             resolves to a VECTOR the figure becomes a film. Frame i
+             takes element i of every vector; scalars broadcast
+             unchanged; the frame count is the SHORTEST vector (see
+             80.3f -- vector OP vector already truncates to the shorter
+             operand, and the figure must not disagree with its own
+             arithmetic).
+
+             (a) EVALUATE ONCE FOR THE WHOLE FILM, INDEX AT PAINT TIME.
+                 The obvious implementation -- re-run the program per
+                 frame with each vector variable replaced by its i-th
+                 element -- is both slower and WRONG-ER than doing
+                 nothing: PnVarStore is already elementwise, so
+                 evaluating `dx = 50 * cos(a)` with a vector `a` simply
+                 yields a vector dx. So the resolved display list holds
+                 values that may be vectors, and the frame index is
+                 applied where the painter reads them. One evaluation
+                 per input change, not per frame; scrubbing costs
+                 nothing; the timer only repaints.
+             (b) WHICH MAKES THE WHOLE THING FALL OUT OF THE EXISTING
+                 SEMANTICS rather than being bolted on. A Ramp into a
+                 Calculator into a Figure animates with no new
+                 plumbing -- the same pipeline the Compute examples
+                 already build.
+             (c) A VECTOR IN A PEN-STATE ARGUMENT ANIMATES TOO, for
+                 free: `color` fading through the film, `width`
+                 thickening, even `view` panning, all from the same
+                 indexing. No special cases.
+             (d) THE 80.10(c) ERROR CLASS DISAPPEARS HERE, exactly as
+                 predicted: "a vector reached a scalar sink" stops
+                 being a wiring mistake and becomes the frame indexer.
+                 That seam was put there for this.
+             (e) A comparison still collapses a vector to one scalar
+                 (80.3f), so `hot = s > 0` cannot vary per frame. Say
+                 so in the help and point at mask arithmetic.
+             (f) 80.12's dump grows a frame argument -- dump frame i --
+                 so the tests can assert a whole film, not just a
+                 still.
+       [x] 80.17 DECIDED (2026-09-21): animation controls.
+
+             (a) PROPERTIES: `fps` (default 25, capped at 60),
+                 `play-mode` (once / loop / ping-pong -- "hold last" is
+                 what once already does, so three modes, not four) and
+                 `frames`, an explicit frame count where 0 means "take
+                 it from the data".
+             (b) THE TIMER LIVES IN THE CORE HALF, so the behaviour
+                 belongs to the node and not to the painter: a
+                 g_timeout at 1000/fps advances the index and calls
+                 pn_node_request_repaint(). Stopped in dispose(), never
+                 started when the frame count is 1, and the index
+                 resets to 0 when new data arrives -- a new film starts
+                 at the beginning.
+             (c) DO NOT SPIN A TIMER NOBODY IS WATCHING. Headless, a
+                 figure has no painter and advancing an index forever
+                 is pure waste. The node can tell: nothing is connected
+                 to its "repaint-needed" signal, so no listener means
+                 no timer. Confirm the signal-handler check behaves at
+                 implementation time; the rule stands either way.
+             (d) `frame` AND `t` COLLIDE WITH 80.16(a), and this is the
+                 real content of this sub-point. If the program is
+                 evaluated ONCE for the whole film, a per-frame scalar
+                 variable cannot exist. The fix is to make them
+                 vectors: bind `frame` as [0..N-1] and `t` as
+                 [0..1], so they animate through the very same
+                 indexing as everything else, with no re-evaluation and
+                 no special case in the painter.
+             (e) WHICH LEAVES ONE CHICKEN-AND-EGG: N comes from the
+                 data, but `t` is part of the data. Two answers, and
+                 both are cheap. When `frames` > 0 the count is
+                 explicit, `t` and `frame` are bound up front, and a
+                 figure with NO inputs at all can still animate -- a
+                 turning wheel needs no Ramp. When `frames` is 0 we
+                 need a second evaluation pass to learn N first, and
+                 80.2 rule 12's free-identifier walker tells us for
+                 nothing whether the program even mentions `t` or
+                 `frame`, so the second pass runs only for the programs
+                 that need it. At most two evaluations, only on input
+                 change.
+       [x] 80.18 DECIDED (2026-09-21): the repeat-versus-frames
+             tension, settled before 80.16 was coded rather than after,
+             as promised. A vector means FRAMES, so what draws twenty
+             tick marks along an axis?
+
+             (a) THE FORM, if and when it is built: an explicit
+                 `repeat n` ... `end` block binding a scalar index
+                 variable. NOT a one-statement prefix (our arguments
+                 are comma-separated expressions, so a prefix needs a
+                 separator character the language does not otherwise
+                 have), and emphatically NOT letting a vector expand
+                 into many shapes, which would make the same value mean
+                 two different things depending on where it appeared.
+             (b) THE INVARIANT THAT KEEPS THE TWO IDEAS APART, and it
+                 is the whole reason to decide this now: INSIDE a
+                 repeat, a vector is STILL a frame, never an iteration,
+                 and the loop index is always a scalar. Write that in
+                 the help the day the block lands.
+             (c) NOT IN V1. The actual demand -- axis ticks, hatching,
+                 a grating's slits -- is better served by the dedicated
+                 helpers already queued in 80.19 (`axes`, hatching),
+                 which draw the right thing in one statement instead of
+                 making everyone hand-roll a loop. A gear's teeth would
+                 genuinely want the block; when something real asks for
+                 it, build (a).
        [ ] 80.19 Later primitives, in the order a physics plate wants
              them: arrows (a figure of forces without arrowheads is not a
              figure of forces), ROTATED LABELS along an axis or a ray
