@@ -2409,10 +2409,10 @@
              a figure" escape hatch, and have them link back.
        [ ] 80.15 PLACEMENT SETTLED (2026-09-21), sheets STILL TO BUILD:
              example worksheets, the reason the node exists -- and
-             they go in examples/displays/, deliberately. CHECKED: examples/Makefile.am installs
-             image, networking, crypto, home-automation,
-             system-monitoring, speech-and-sound, controls-and-logic,
-             time, displays and misc -- and STILL not Clocks, Compute,
+             they go in examples/displays/, deliberately. CHECKED:
+             examples/Makefile.am installs image, networking, crypto,
+             home-automation, system-monitoring, speech-and-sound,
+             controls-and-logic, time, displays and misc -- and STILL not Clocks, Compute,
              meshtastic or panel-applet-ideas, exactly as TODO #79.2
              found. Rather than make this work depend on that fix,
              ship into a directory that already installs; #79.2 stays
