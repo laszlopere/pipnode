@@ -1816,15 +1816,85 @@
                  for a given rectangle, the gui half walks it and
                  strokes. That is what lets 80.12 assert device
                  coordinates in a headless test with no cairo anywhere.
-       [ ] 80.5 Pen state, HPGL-style: `color`, `fill` / `nofill` with a
-             fill colour, `width`, `dash` (solid, dot, dash, dashdot ->
-             cairo_set_dash), `font` size. State persists until changed,
-             so a figure reads as a sequence of pen changes and strokes.
-             Colours accept either three 0..1 expressions or a quoted
-             literal -- "#rrggbb", or one of a handful of names
-             ("black", "red", ...) kept for legibility. Quoted, per the
-             clash resolved in 80.2. Defer `push` / `pop` of the pen
-             state until something actually needs it.
+       [x] 80.5 DECIDED (2026-09-21): pen state, HPGL-style -- the
+             figure reads as a sequence of pen changes and strokes, and
+             every setting persists until something changes it. THE
+             WHOLE STATE VECTOR, written down once because it is the
+             thing the core evaluates into and the painter consumes:
+             stroke colour, fill colour, fill on/off, line width, dash
+             pattern and its scale, font size, pen position (80.6) and
+             the current view (80.2 rule 11). Nothing else is
+             stateful.
+
+             The verbs:
+                 color  <colour>          stroke colour
+                 fill   <colour>          fill colour, and fill ON
+                 nofill                   fill OFF
+                 width  w                 stroke width, user units
+                 dash   "style" [, scale] pattern, user units
+                 font   size              text size, user units
+             where <colour> is ONE quoted literal or THREE-or-FOUR
+             expressions (r, g, b [, a] in 0..1). That is the one
+             two-form arity in the language and it clarifies rather
+             than contradicts 80.2 rule 8: a colour ARGUMENT has two
+             spellings, every other verb has a fixed count.
+
+             (a) COLOUR PARSING IS ALREADY WRITTEN, and it is core:
+                 pn_color_parse() in lib/pn-color.c is GTK-free and
+                 takes `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`,
+                 `rgb(...)`, `rgba(...)` and `transparent`, locale
+                 independently, and PnColor is byte-compatible with
+                 GdkRGBA so the painter casts for free. Use it
+                 verbatim; the figure node must not grow a colour
+                 parser of its own any more than it grows a function
+                 table.
+             (b) It parses no NAMES, though -- checked, there is no
+                 name table, only hex and the rgb() forms. Since 80.1
+                 justified quoted colour literals partly on legibility,
+                 add a short name table (black, white, red, green,
+                 blue, yellow, cyan, magenta, grey/gray, orange, brown)
+                 TO pn-color.c, not to the figure node: it is a strict
+                 superset of what that function accepts today, no
+                 existing input changes meaning, and pn_color_to_string
+                 still emits rgb()/rgba() so the save format is
+                 untouched. One table, whole project. It is a core
+                 change all the same, so it lands with its cases added
+                 to the existing tests/unit/test-pn-color.c rather than
+                 riding in on a drawing node's commit.
+             (c) DEFAULT WIDTH IS 1 USER UNIT, and `width 0` means a
+                 device hairline -- the PostScript convention, and the
+                 escape hatch from 80.4(b)'s rule that widths scale
+                 with the view. Everything else scales like a
+                 photograph; a hairline stays a hairline on purpose.
+                 Note for the specimen reader: its `width 2` is two
+                 USER units, a deliberately bold beam, not two pixels.
+             (d) DASH PATTERNS in user units, multiplied by the
+                 optional scale and then by s at draw time:
+                 "solid" = [], "dot" = [0.5, 1.5], "dash" = [3, 2],
+                 "dashdot" = [3, 2, 0.5, 2].
+             (e) FILL THEN STROKE. A shape drawn with fill on is filled
+                 and then outlined in the stroke colour
+                 (cairo_fill_preserve + stroke) -- which is why `color`
+                 and `fill` are separate state and neither sets the
+                 other: the specimen's fulcrum is a grey triangle with
+                 a dark outline, and that is the look the whole style
+                 depends on.
+             (f) ROUND CAP AND ROUND JOIN, fixed, no verb. Cairo
+                 defaults to a butt cap and a mitre join; mitre spikes
+                 on the sharp corner of a `poly` are ugly and surprising
+                 and nobody drawing a lever wants to think about it.
+             (g) PEN STATE RESETS AT THE START OF EVERY FRAME to those
+                 defaults. Persisting it across frames would make frame
+                 N depend on frame N-1, which is exactly the bug class
+                 80.16's film has no way to debug.
+             (h) A BONUS FROM 80.2 RULE 7, worth naming because it is
+                 free: an unknown dash style, an unknown colour name
+                 and a malformed hex are all QUOTED LITERALS, so all
+                 three are caught at PARSE time with a line and column,
+                 not discovered mid-frame. Runtime colour errors simply
+                 do not exist.
+             (i) `push` / `pop` of the pen state stays deferred until
+                 something actually needs it.
        [ ] 80.6 Geometry verbs, first cut -- the smallest set that draws a
              real textbook figure: `move x,y` and `rmove dx,dy` (pen
              position without drawing); `line x1,y1,x2,y2`; `rline dx,dy`
