@@ -1895,14 +1895,76 @@
                  do not exist.
              (i) `push` / `pop` of the pen state stays deferred until
                  something actually needs it.
-       [ ] 80.6 Geometry verbs, first cut -- the smallest set that draws a
-             real textbook figure: `move x,y` and `rmove dx,dy` (pen
-             position without drawing); `line x1,y1,x2,y2`; `rline dx,dy`
-             (from the pen position, the relative form the brief asks
-             for); `point x,y`; `circle x,y,r`; `arc x,y,r,a0,a1`;
-             `rect x,y,w,h`; `poly x1,y1,x2,y2,...` (variadic, closes
-             under `fill`). Every one of them honours the current pen
-             state and fills when filling is on.
+       [x] 80.6 DECIDED (2026-09-21): the geometry verbs -- the
+             smallest set that draws a real textbook figure. Every
+             coordinate is user units mapped by 80.4; every LENGTH (r,
+             w, h) is user units scaled by s; every one of them honours
+             the pen state of 80.5 and fills when filling is on.
+
+                 move   x, y                 pen position, no ink
+                 rmove  dx, dy               ... relative
+                 lineto x, y                 draw from the pen to here
+                 rline  dx, dy               ... relative
+                 line   x1, y1, x2, y2       a one-off segment
+                 point  x, y                 a dot
+                 circle x, y, r
+                 arc    x, y, r, a0, a1
+                 rect   x, y, w, h
+                 poly   x1, y1, x2, y2, ...  closed polygon
+                 path   x1, y1, x2, y2, ...  open polyline
+
+             (a) ONLY move/rmove/lineto/rline/line TOUCH THE PEN
+                 POSITION; the shapes are placed absolutely and leave
+                 it alone. `line` leaves the pen at its second point so
+                 a `line` then `rline` chain works. The pen starts each
+                 frame at the user origin (0,0) -- predictable, and
+                 where a physics figure starts anyway.
+             (b) `lineto` earns its place by completing the pen model:
+                 move/lineto/rmove/rline IS HPGL's PU/PD/PR set, which
+                 80.1 chose. `line` stays the four-argument convenience
+                 for a one-off segment.
+             (c) ANGLES ARE DEGREES, following PostScript (`arc x y r
+                 ang1 ang2`) and HPGL -- what someone drawing a plate
+                 actually writes. The help must then say, loudly, that
+                 `sin`/`cos` inside an EXPRESSION still take radians,
+                 because that is genuinely a mixed convention and
+                 pretending otherwise will not help anybody. Any later
+                 Logo-style `turn` (80.1) is degrees too.
+             (d) ARC SWEEP IS SIGNED: from a0 to a1, positive
+                 counter-clockwise in user space, so `arc 0,0,10,90,0`
+                 is a clockwise quarter. GOTCHA, and exactly the kind
+                 that costs an hour: our y flip means a device angle is
+                 the NEGATED user angle, so a counter-clockwise user
+                 sweep is a clockwise device sweep -- the call is
+                 cairo_arc_negative (xc, yc, r, -a0, -a1), not
+                 cairo_arc.
+             (e) CIRCLES AND THE `stretch` PROPERTY (80.4h) collide:
+                 with aspect preserved a circle is a circle, but under
+                 stretch it must become an ellipse, and cairo_arc
+                 cannot draw one. Draw circles and arcs inside a
+                 cairo_save / translate-to-centre / scale (|sx|/s,
+                 |sy|/s) / restore -- a no-op in the normal
+                 aspect-preserved case, and correct under stretch.
+             (f) `rect x,y,w,h` takes the LOWER-LEFT corner, because
+                 y points up and any other choice needs explaining.
+                 Negative w or h extends the other way. No centred
+                 variant: `rect cx-w/2, cy-h/2, w, h` already says it,
+                 and every verb we do not add is one the help page does
+                 not have to document.
+             (g) `poly` CLOSES, `path` DOES NOT -- two verbs over one
+                 implementation, which kills the "does it close?"
+                 question before anyone asks it. `poly` fills when fill
+                 is on; `path` only ever strokes, so there is no
+                 implicit-closure-for-fill subtlety to explain. Both
+                 want an even argument count and at least three points
+                 (80.2 rule 8); `path` with two points is just `line`.
+             (h) `point x,y` draws a filled disc of radius = the
+                 current line width, in the STROKE colour -- so `width`
+                 sizes the dots and no new state appears. It is what
+                 marks a hinge, a mass or an intersection.
+             (i) Non-finite or degenerate arguments skip the statement
+                 rather than erroring, per 80.10 -- a radius passing
+                 through zero as a knob winds is a value, not a bug.
        [ ] 80.7 Text. `text x, y, "label"` with an alignment argument --
              quoted, per 80.2 rule 7: "left"/"centre"/"right" and
              "top"/"middle"/"baseline" -- because a label that is not
