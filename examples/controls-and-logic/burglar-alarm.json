@@ -1,0 +1,255 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "22edd21a-7e1e-4877-b157-f7515aad4ae8",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "A burglar alarm panel.  Type 1234 on the keypad and press # to arm -- the LCD counts the exit delay down, then reads ARMED.  Flip a Switch to open a zone: the front door starts the entry delay (type 1234 # again to disarm in time), any other zone sounds the siren at once.  The panel names the zone that tripped it, and the zone names ARE the Burglar Alarm's input names -- rename an input on its Inputs tab and every announcement follows.",
+        "width": 1000.0,
+        "height": 76.0,
+        "text-size": 13.0,
+        "background-color": "rgb(255,255,255)",
+        "frame-color": "rgb(158,158,158)",
+        "text-color": "rgb(46,51,59)"
+      }
+    },
+    {
+      "type": "PnKeypad",
+      "uuid": "a2ddade1-7e43-4ca1-96e7-345c4847a1b7",
+      "name": "Keypad",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 160.0
+      },
+      "properties": {
+        "layout": "Decimal Keyboard",
+        "background-color": "rgb(41,41,48)",
+        "key-color": "rgb(77,77,87)",
+        "accent-color": "rgb(204,133,46)",
+        "text-color": "rgb(242,242,245)"
+      }
+    },
+    {
+      "type": "PnSwitch",
+      "uuid": "b2164140-4534-4429-8392-b5b56d01be8a",
+      "name": "Front door",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 420.0
+      },
+      "properties": {
+        "on": false
+      }
+    },
+    {
+      "type": "PnSwitch",
+      "uuid": "cf0eadc3-469a-4c58-9eaf-7f49b83b201d",
+      "name": "Kitchen window",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 500.0
+      },
+      "properties": {
+        "on": false
+      }
+    },
+    {
+      "type": "PnSwitch",
+      "uuid": "72b56f50-9e8c-4779-93a7-6479ecbddf8e",
+      "name": "Lounge window",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 580.0
+      },
+      "properties": {
+        "on": false
+      }
+    },
+    {
+      "type": "PnSwitch",
+      "uuid": "794b99a8-ccd1-4c0f-ab5b-9c3daf0e1245",
+      "name": "Hall PIR",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 100.0,
+        "y": 660.0
+      },
+      "properties": {
+        "on": false
+      }
+    },
+    {
+      "type": "PnBurglarAlarm",
+      "uuid": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "name": "Panel",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 380.0,
+        "y": 400.0
+      },
+      "properties": {
+        "code": "1234",
+        "exit-delay": 15,
+        "entry-delay": 15,
+        "siren-time": 60,
+        "display-lines": 4,
+        "sms-on-arming": false
+      },
+      "input-names": {
+        "1": "Front door",
+        "2": "Kitchen window",
+        "3": "Lounge window",
+        "4": "Hall PIR"
+      }
+    },
+    {
+      "type": "PnMatrix57",
+      "uuid": "9aa7001d-6129-4ea1-8d3d-3c41396f6d10",
+      "name": "Panel display",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 160.0
+      },
+      "properties": {
+        "cells": 20,
+        "lines": 4
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "fd6d70d8-bf06-425d-a871-273cf338de7a",
+      "name": "Siren",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 420.0
+      },
+      "properties": {
+        "mode": "Blink Fast",
+        "color": "rgb(229,57,53)"
+      }
+    },
+    {
+      "type": "PnLed",
+      "uuid": "ae890f4a-a1b8-4ff8-a3ce-2ac919bf1e53",
+      "name": "Armed",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 500.0
+      },
+      "properties": {
+        "mode": "Steady (level)",
+        "color": "rgb(67,160,71)"
+      }
+    },
+    {
+      "type": "PnTts",
+      "uuid": "95b064f1-1ddb-476b-afc7-6ca580014c07",
+      "name": "Voice",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 580.0
+      },
+      "properties": {}
+    },
+    {
+      "type": "PnTextView",
+      "uuid": "aa1269ac-8fc4-40d2-8b4d-2c558ba42293",
+      "name": "Phone",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 660.0
+      },
+      "properties": {}
+    },
+    {
+      "type": "PnComment",
+      "uuid": "213e3c4f-c782-4000-81ba-4c2977871cb6",
+      "name": "Comment 2",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 660.0,
+        "y": 900.0
+      },
+      "properties": {
+        "text": "The sms output is wired to a Text View here so the example runs anywhere.  Swap in a Meshtastic node (or an MQTT Sink) and the same data.output text leaves the house.  The Voice node needs a TTS engine and voice picked in its settings before it speaks.",
+        "width": 420.0,
+        "height": 76.0,
+        "text-size": 12.0,
+        "background-color": "rgb(255,255,255)",
+        "frame-color": "rgb(158,158,158)",
+        "text-color": "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "a2ddade1-7e43-4ca1-96e7-345c4847a1b7",
+      "target_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3"
+    },
+    {
+      "source_id": "b2164140-4534-4429-8392-b5b56d01be8a",
+      "target_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_input": 1
+    },
+    {
+      "source_id": "cf0eadc3-469a-4c58-9eaf-7f49b83b201d",
+      "target_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_input": 2
+    },
+    {
+      "source_id": "72b56f50-9e8c-4779-93a7-6479ecbddf8e",
+      "target_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_input": 3
+    },
+    {
+      "source_id": "794b99a8-ccd1-4c0f-ab5b-9c3daf0e1245",
+      "target_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_input": 4
+    },
+    {
+      "source_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_id": "fd6d70d8-bf06-425d-a871-273cf338de7a"
+    },
+    {
+      "source_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_id": "9aa7001d-6129-4ea1-8d3d-3c41396f6d10",
+      "source_output": 1
+    },
+    {
+      "source_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_id": "ae890f4a-a1b8-4ff8-a3ce-2ac919bf1e53",
+      "source_output": 2
+    },
+    {
+      "source_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_id": "95b064f1-1ddb-476b-afc7-6ca580014c07",
+      "source_output": 3
+    },
+    {
+      "source_id": "8176a605-113c-41eb-a8e3-1f9820cd3dc3",
+      "target_id": "aa1269ac-8fc4-40d2-8b4d-2c558ba42293",
+      "source_output": 4
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
