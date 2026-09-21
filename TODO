@@ -1553,9 +1553,9 @@
            # weight hanging off the left end
            rect -dx-6, -dy-16, 12, 10
 
-           text -dx, -dy+6, "A", "centre"
-           text  dx,  dy+6, "B", "centre"
-           value 0, 22, a * 57.2958, 1
+           text -dx, -dy+6, "A"
+           text  dx,  dy+6, "B"
+           text 0, 22, "%.1f deg", a * 57.2958
 
        This is deliberately NOT another plotting node: PnPlot, PnGraph
        and PnOscilloscope already plot data series. This one draws the
@@ -1822,9 +1822,9 @@
              WHOLE STATE VECTOR, written down once because it is the
              thing the core evaluates into and the painter consumes:
              stroke colour, fill colour, fill on/off, line width, dash
-             pattern and its scale, font size, pen position (80.6) and
-             the current view (80.2 rule 11). Nothing else is
-             stateful.
+             pattern and its scale, font size, TEXT ALIGNMENT (added by
+             80.7), pen position (80.6) and the current view (80.2 rule
+             11). Nothing else is stateful.
 
              The verbs:
                  color  <colour>          stroke colour
@@ -1833,6 +1833,7 @@
                  width  w                 stroke width, user units
                  dash   "style" [, scale] pattern, user units
                  font   size              text size, user units
+                 align  "h" [, "v"]       text anchoring (80.7)
              where <colour> is ONE quoted literal or THREE-or-FOUR
              expressions (r, g, b [, a] in 0..1). That is the one
              two-form arity in the language and it clarifies rather
@@ -1965,15 +1966,65 @@
              (i) Non-finite or degenerate arguments skip the statement
                  rather than erroring, per 80.10 -- a radius passing
                  through zero as a knob winds is a value, not a bug.
-       [ ] 80.7 Text. `text x, y, "label"` with an alignment argument --
-             quoted, per 80.2 rule 7: "left"/"centre"/"right" and
-             "top"/"middle"/"baseline" -- because a label that is not
-             anchored is a label in the wrong place. Numbers
-             inside labels are the interesting half: `value x, y, expr,
-             decimals` for a bare readout, and printf-style
-             `text x, y, "theta = %.1f deg", theta` for a sentence.
-             Figures in this style are half annotation -- A, B, theta, l1
-             -- so this verb carries more of the lesson than it looks.
+       [x] 80.7 DECIDED (2026-09-21): text -- which carries more of the
+             lesson than it looks, because a figure in this style is
+             half annotation: A, B, theta, l1.
+
+                 text  x, y, "format" [, expr, ...]
+                 align "h" [, "v"]        -- pen state, see 80.5
+
+             (a) ONE VERB, NOT TWO. The planned `value x, y, expr,
+                 decimals` is gone: `text x, y, "%.2f", v` says the
+                 same thing in the same space, and one verb is one help
+                 paragraph and one implementation.
+             (b) WHICH FORCED ALIGNMENT OUT OF THE ARGUMENT LIST -- the
+                 clash that decided the shape. With variadic format
+                 arguments a trailing `"centre"` is ambiguous: is it an
+                 alignment or a format argument? Making alignment PEN
+                 STATE removes the ambiguity and is the more HPGL-ish
+                 answer anyway, since it belongs beside font size
+                 rather than on every label. 80.5's state vector and
+                 verb table are updated to match.
+             (c) THE FORMAT STRING IS VALIDATED AT PARSE TIME, and this
+                 one is safety, not style: handing a user-typed format
+                 to printf with double arguments is how `%s`
+                 dereferences a double and `%n` writes to the stack.
+                 Accept only `%%` and the numeric conversions (%f %e %g
+                 %F %E %G) with optional flags, width and precision;
+                 require the conversion count to equal the number of
+                 trailing expressions; make anything else a parse error
+                 with its line and column. No format string reaches
+                 printf unchecked, ever.
+             (d) `\n` SPLITS LINES, drawn downward at 1.2x the font
+                 size, each line anchored per the alignment -- so a
+                 four-line bench card is one statement.
+             (e) PANGO, not the cairo toy API. The project uses both
+                 (clock, meter and dial go through pango_cairo; graph,
+                 table and file viewer use cairo_show_text), and text
+                 here IS the teaching content -- a plate wants theta,
+                 lambda and Omega to render properly. Size via
+                 pango_font_description_set_absolute_size (size_user *
+                 s * PANGO_SCALE).
+             (f) ALIGNMENT BREAKS 80.4(i)'s PURITY, and it is worth
+                 admitting rather than discovering: the core half
+                 cannot measure glyphs without a font backend, so core
+                 emits the anchor point plus the alignment enum and the
+                 painter does the extents and the offset. 80.12's
+                 headless tests assert the anchor and the enum, not a
+                 glyph box. This is the one place the core/painter seam
+                 is not a clean "core computes, painter strokes".
+             (g) DEFAULT ALIGNMENT IS "centre", "middle", because
+                 `text x, y, "A"` almost always means "label this
+                 point", not "start writing here". The conventional
+                 left/baseline is one `align` away.
+             (h) Glyphs come out upright for free, since 80.4(a) keeps
+                 the flip out of the CTM. ROTATED labels -- along an
+                 axis, along a ray -- are a real want and a real
+                 omission: they need a CTM rotation about the anchor,
+                 and they go on 80.19's list rather than into v1.
+             (i) Font FAMILY stays a node property (80.5), so one
+                 figure is typographically consistent and the family is
+                 not repeated on every line.
        [ ] 80.8 Inputs become variables. Follow Calculator 2: an `inputs`
              count property with renameable ports, each input's message
              members bound as variables (the port's name, plus its named
@@ -2062,10 +2113,12 @@
              accident.
        [ ] 80.19 Later primitives, in the order a physics plate wants
              them: arrows (a figure of forces without arrowheads is not a
-             figure of forces), angle-mark arcs with a label, dimension
-             lines with ticks, hatching for a wall or a ground plane,
-             bezier curves, and an `axes` helper that draws a labelled
-             pair of axes in one statement. Each one is a verb plus a
+             figure of forces), ROTATED LABELS along an axis or a ray
+             (deferred out of 80.7(h), and the first of these anyone
+             will miss), angle-mark arcs with a label, dimension lines
+             with ticks, hatching for a wall or a ground plane, bezier
+             curves, and an `axes` helper that draws a labelled pair of
+             axes in one statement. Each one is a verb plus a
              paragraph in the help page; none of them changes the engine.
        [ ] 80.20 Export, if it ever earns its place: the display list is
              backend-agnostic, so the same walk that drives cairo could
