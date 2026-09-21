@@ -1751,15 +1751,71 @@
                  per-frame conditional cannot be written as a comparison
                  against a vector, because the comparison collapses
                  before the frame indexer ever sees it.
-       [ ] 80.4 Coordinates. `view xmin, ymin, xmax, ymax` declares the
-             user-unit window, mapped onto the client rectangle. Y POINTS
-             UP -- this is a physics figure, not a screen -- so the
-             mapping flips, and that must be stated loudly in the help
-             because it is the first thing everyone gets wrong. Aspect
-             ratio preserved by default (letterboxed inside the client
-             area) with a property to stretch instead; a figure with no
-             `view` gets a sane default window. The view arguments are
-             expressions too, so a figure can follow what it is drawing.
+       [x] 80.4 DECIDED (2026-09-21): coordinates.
+             `view xmin, ymin, xmax, ymax` declares the user-unit
+             window; Y POINTS UP, because this is a physics figure and
+             not a screen, and that sentence goes in the help page in
+             bold because it is the first thing everyone gets wrong.
+             The window is fitted into the client rectangle preserving
+             aspect and centred, so the mapping is:
+
+                 ex = xmax - xmin        ey = ymax - ymin
+                 s  = min (w / |ex|, h / |ey|)
+                 sx =  s * |ex| / ex     sy = -s * |ey| / ey
+                 ox = x + (w - s*|ex|) / 2
+                 oy = y + (h - s*|ey|) / 2
+                 X  = ox + (u - xmin) * sx
+                 Y  = oy + s*|ey| + (v - ymin) * sy
+
+             (a) THE FLIP DOES NOT GO IN THE CAIRO MATRIX. Map the
+                 points ourselves, as above, and leave the CTM alone. A
+                 negative-y CTM mirrors every glyph the `text` verb
+                 draws, and an anisotropic one makes line width depend
+                 on direction -- two classic bugs bought for nothing,
+                 since the multiply is three instructions.
+             (b) WIDTHS, DASHES AND FONT SIZES ARE USER UNITS, scaled
+                 by s at draw time like everything else. That is what
+                 makes the zoom overlay enlarge the figure like a
+                 photograph instead of leaving spidery hairlines on a
+                 big plate. Clamp the stroked width to a minimum of
+                 about 0.75 device pixels so a fine line never vanishes
+                 at rest.
+             (c) THE DEFAULT WINDOW IS `0, 0, 100, 100` -- fixed, round
+                 and documented, NOT auto-fitted to the drawing's
+                 bounding box. An auto window breathes as the values
+                 change, which turns every animation into an
+                 accidental zoom and makes a figure impossible to
+                 compare with itself. A `viewfit` verb can be added
+                 later if sketching really wants one.
+             (d) Reversed bounds are legal and flip that axis -- it
+                 costs nothing and someone will want x increasing
+                 leftwards. A DEGENERATE window (zero extent, NaN,
+                 infinite) is a runtime value rather than a program
+                 bug, and a knob passing through zero must not latch
+                 the node red, so a bad `view` is skipped and the
+                 previous window stands -- the same rule 80.10 applies
+                 to any non-finite statement.
+             (e) WE CLIP, because the worksheet does not: checked --
+                 pn-worksheet.c calls paint_plot with the rectangle and
+                 no clip of its own, and PnPlot saves, rectangles and
+                 clips for itself. Do the same, or one stray coordinate
+                 paints across the whole worksheet.
+             (f) Fill the client rectangle with a background-colour
+                 property before the program runs, exactly as PnPlot
+                 does, so the letterbox bars are simply background and
+                 an empty figure still reads as a deliberate area.
+             (g) Set PnNodeClass.paint_plot_zoom_keep_aspect to %TRUE:
+                 the figure already preserves its own aspect, so a
+                 stretched overlay would only grow the letterbox bars.
+             (h) Aspect preserved and centred by default, with a
+                 "stretch" boolean property for anyone who wants the
+                 drawing distorted to fill the card.
+             (i) The transform belongs to the CORE half, not the
+                 painter -- follow pn_plot_get_paint_state(): core
+                 evaluates the display list and computes the mapping
+                 for a given rectangle, the gui half walks it and
+                 strokes. That is what lets 80.12 assert device
+                 coordinates in a headless test with no cairo anywhere.
        [ ] 80.5 Pen state, HPGL-style: `color`, `fill` / `nofill` with a
              fill colour, `width`, `dash` (solid, dot, dash, dashdot ->
              cairo_set_dash), `font` size. State persists until changed,
