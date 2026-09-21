@@ -23,25 +23,29 @@ G_BEGIN_DECLS
 /* ------------------------------------------------------------------ */
 /*  PnKeypad                                                           */
 /*                                                                     */
-/*  Manual source node whose client area is a pocket-calculator key    */
-/*  pad: ten digits, a decimal point, the four basic operators, "=",   */
-/*  and the two clear keys.  Clicking a key emits exactly one          */
-/*  message naming the key that was pressed — nothing more.  The node  */
-/*  does no arithmetic and keeps no accumulator: it is an input        */
-/*  device, and the sum is whatever the downstream graph makes of the  */
-/*  keystrokes (a #PnExpression "Calculator" is the natural partner).  */
+/*  Manual source node whose client area is a key pad.  Clicking a key */
+/*  emits exactly one message naming the key that was pressed —        */
+/*  nothing more.  The node does no arithmetic and keeps no            */
+/*  accumulator: it is an input device, and the sum is whatever the    */
+/*  downstream graph makes of the keystrokes (a #PnCalcEngine is the   */
+/*  natural partner).                                                  */
+/*                                                                     */
+/*  Which keys the pad carries is the "layout" property — a pocket     */
+/*  calculator or a bare decimal entry pad, see #PnKeypadLayout.       */
 /*                                                                     */
 /*  Every press emits, on the single output:                           */
 /*                                                                     */
-/*    data.key    the key's machine-readable code — "0".."9", ".",     */
-/*                "+", "-", "*", "/", "=", "C", "CE".  The operator    */
-/*                keys paint the typographic signs (× ÷ −) but always  */
-/*                emit the ASCII ones, so the code drops straight into */
-/*                an expression string.                                */
+/*    data.key    the key's machine-readable code — "0".."9", and      */
+/*                then whatever the layout adds: ".", "+", "-", "*",   */
+/*                "/", "=", "C", "CE" on the calculator pad, "*" and   */
+/*                "#" on the decimal one.  The operator keys paint the */
+/*                typographic signs (× ÷ −) but always emit the ASCII  */
+/*                ones, so the code drops straight into an expression  */
+/*                string.                                              */
 /*    data.kind   the key's family: "digit", "point", "operator",      */
-/*                "equals", "clear" or "clear-entry" — a Filter or     */
-/*                Value Router can split the stream without matching   */
-/*                ten separate digit codes.                            */
+/*                "equals", "clear", "clear-entry" or "symbol" — a     */
+/*                Filter or Value Router can split the stream without  */
+/*                matching ten separate digit codes.                   */
 /*    data.value  the numeric value 0..9, digit keys only.  Absent on   */
 /*                every other key, so a downstream numeric node sees    */
 /*                digits and ignores the rest.                         */
@@ -50,12 +54,36 @@ G_BEGIN_DECLS
 /*  header with the keypad body hanging below it.  The body is the     */
 /*  interaction surface rather than a passive readout, so the class    */
 /*  pins #PnNodeClass.paint_plot_skip_zoom — a press lands on a key    */
-/*  instead of lifting the node into the centred zoom overlay.         */
+/*  instead of lifting the node into the centred zoom overlay.  The    */
+/*  node's width follows the layout's column count, so both pads keep  */
+/*  the same key size.                                                 */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_KEYPAD (pn_keypad_get_type ())
 
 G_DECLARE_FINAL_TYPE (PnKeypad, pn_keypad, PN, KEYPAD, PnNode)
+
+/**
+ * PnKeypadLayout:
+ * @PN_KEYPAD_LAYOUT_CALCULATOR: the pocket-calculator pad — ten
+ *   digits, the decimal point, the four operators, "=", "C" and "CE"
+ *   on a 4x5 grid.
+ * @PN_KEYPAD_LAYOUT_DECIMAL: the code-entry pad — the ten digits in
+ *   telephone order plus "*" and "#" on a 3x4 grid, and nothing else.
+ *
+ * Which keys the pad carries.  The numeric values are part of the
+ * saved-file format (the nick is what lands in the JSON), so existing
+ * worksheets keep the calculator pad they were drawn with.
+ */
+typedef enum
+{
+    PN_KEYPAD_LAYOUT_CALCULATOR = 0,
+    PN_KEYPAD_LAYOUT_DECIMAL    = 1,
+} PnKeypadLayout;
+
+#define PN_TYPE_KEYPAD_LAYOUT (pn_keypad_layout_get_type ())
+
+GType pn_keypad_layout_get_type (void) G_GNUC_CONST;
 
 /**
  * PnKeypadKeyKind:
@@ -65,6 +93,9 @@ G_DECLARE_FINAL_TYPE (PnKeypad, pn_keypad, PN, KEYPAD, PnNode)
  * @PN_KEYPAD_EQUALS:      the "=" key
  * @PN_KEYPAD_CLEAR:       "C" — clear everything
  * @PN_KEYPAD_CLEAR_ENTRY: "CE" — clear the current entry
+ * @PN_KEYPAD_SYMBOL:      "*" or "#" on the decimal pad — a key that
+ *                         means nothing by itself, the way it means
+ *                         nothing on a door code panel
  *
  * The family a key belongs to.  Emitted as the message's `data.kind`
  * (see pn_keypad_kind_to_string()) and used by the painter to pick
@@ -78,6 +109,7 @@ typedef enum
     PN_KEYPAD_EQUALS      = 3,
     PN_KEYPAD_CLEAR       = 4,
     PN_KEYPAD_CLEAR_ENTRY = 5,
+    PN_KEYPAD_SYMBOL      = 6,
 } PnKeypadKeyKind;
 
 /**
@@ -91,9 +123,9 @@ typedef enum
  * @colspan: how many columns the key covers (1 for most keys)
  * @rowspan: how many rows the key covers (1 for most keys)
  *
- * One key in the fixed keypad layout.  The table is static, shared by
- * every instance, and published here because the gui-tier painter and
- * the core's hit-test must walk exactly the same grid.
+ * One key in a keypad layout.  The tables are static, shared by every
+ * instance, and published here because the gui-tier painter and the
+ * core's hit-test must walk exactly the same grid.
  */
 typedef struct
 {
@@ -106,38 +138,60 @@ typedef struct
     int              rowspan;
 } PnKeypadKey;
 
-/* Grid dimensions the layout below is expressed in. */
-#define PN_KEYPAD_COLS 4
-#define PN_KEYPAD_ROWS 5
-
 PnKeypad *pn_keypad_new (void);
 
 /**
- * pn_keypad_get_keys:
+ * pn_keypad_get_layout:
+ * @self: the keypad node
+ *
+ * Returns the layout @self currently carries — the key table its
+ * indices refer to.
+ */
+PnKeypadLayout pn_keypad_get_layout (PnKeypad *self);
+
+/**
+ * pn_keypad_layout_get_keys:
+ * @layout:     which pad's table to return
  * @out_n_keys: (out) (optional): number of entries in the returned table
  *
- * Returns the static keypad layout, in paint order.  The table is
- * owned by the node class and lives for the process lifetime.
+ * Returns @layout's key table, in paint order.  The table is owned by
+ * the node class and lives for the process lifetime.  An unknown
+ * @layout falls back to the calculator pad, so a worksheet saved by a
+ * newer build still draws something.
  */
-const PnKeypadKey *pn_keypad_get_keys (guint *out_n_keys);
+const PnKeypadKey *pn_keypad_layout_get_keys (PnKeypadLayout  layout,
+                                              guint          *out_n_keys);
+
+/**
+ * pn_keypad_layout_get_grid:
+ * @layout:    which pad to describe
+ * @out_cols: (out) (optional): the layout's column count
+ * @out_rows: (out) (optional): the layout's row count
+ *
+ * The grid the layout's @col / @row coordinates are expressed in.
+ */
+void pn_keypad_layout_get_grid (PnKeypadLayout  layout,
+                                int            *out_cols,
+                                int            *out_rows);
 
 /**
  * pn_keypad_kind_to_string:
  * @kind: a key family
  *
  * Returns the stable string a message's `data.kind` carries for
- * @kind — "digit", "point", "operator", "equals", "clear" or
- * "clear-entry".  Never %NULL.
+ * @kind — "digit", "point", "operator", "equals", "clear",
+ * "clear-entry" or "symbol".  Never %NULL.
  */
 const gchar *pn_keypad_kind_to_string (PnKeypadKeyKind kind);
 
 /**
  * pn_keypad_key_rect_in:
+ * @layout: the layout @index indexes into
  * @rect_x: left edge of the rectangle the keypad body occupies
  * @rect_y: top edge of that rectangle
  * @rect_w: width of that rectangle
  * @rect_h: height of that rectangle
- * @index:  index into the pn_keypad_get_keys() table
+ * @index:  index into the pn_keypad_layout_get_keys() table
  * @out_x: (out) (optional): the key's left edge
  * @out_y: (out) (optional): the key's top edge
  * @out_w: (out) (optional): the key's width
@@ -149,15 +203,16 @@ const gchar *pn_keypad_kind_to_string (PnKeypadKeyKind kind);
  * to can never disagree.  Returns %FALSE (leaving the outputs
  * untouched) when @index is out of range.
  */
-gboolean pn_keypad_key_rect_in (double  rect_x,
-                                double  rect_y,
-                                double  rect_w,
-                                double  rect_h,
-                                guint   index,
-                                double *out_x,
-                                double *out_y,
-                                double *out_w,
-                                double *out_h);
+gboolean pn_keypad_key_rect_in (PnKeypadLayout layout,
+                                double         rect_x,
+                                double         rect_y,
+                                double         rect_w,
+                                double         rect_h,
+                                guint          index,
+                                double        *out_x,
+                                double        *out_y,
+                                double        *out_w,
+                                double        *out_h);
 
 /**
  * pn_keypad_hit_key:
@@ -178,7 +233,7 @@ gint pn_keypad_hit_key (PnKeypad *self,
 /**
  * pn_keypad_press:
  * @self:  the keypad node
- * @index: index into the pn_keypad_get_keys() table
+ * @index: index into the node's current layout table
  *
  * Presses key @index: emits one message carrying the key's code,
  * kind and (for digits) numeric value, and lights the key's pressed
@@ -197,7 +252,7 @@ void pn_keypad_press (PnKeypad *self,
  *
  * Convenience wrapper around pn_keypad_press() that looks the key up
  * by its emitted code.  Returns %FALSE, pressing nothing, when @code
- * names no key on the pad.
+ * names no key on the pad the node currently wears.
  */
 gboolean pn_keypad_press_code (PnKeypad    *self,
                                const gchar *code);
@@ -230,7 +285,8 @@ typedef struct
     PnColor accent_color;
     PnColor text_color;
 
-    gint    pressed_index;
+    PnKeypadLayout layout;
+    gint           pressed_index;
 } PnKeypadPaintState;
 
 /**

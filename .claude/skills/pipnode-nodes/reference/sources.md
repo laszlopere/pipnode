@@ -194,11 +194,10 @@ the startup shot) does. Startup-announce: one-shot `g_idle` in `constructed()`
 
 ## Keypad
 
-**Purpose** — A pocket-calculator key pad in the node's client area: ten
-digits, `.`, the four operators, `=`, `C` and `CE`. Clicking a key emits one
+**Purpose** — A key pad in the node's client area. Clicking a key emits one
 message naming the key (`pn_keypad_press`, `lib/pn-keypad.c`). Does **no**
 arithmetic and holds no accumulator — it is an input device; the natural
-partner downstream is the Calculator (`PnExpression`) node.
+partner downstream is the Calculator Engine (`PnCalcEngine`).
 
 **When to use** — Hand-type digits/operators into a flow (a setpoint entered
 digit by digit, a test expression, a PIN pad). Use over Knob when the input is
@@ -206,17 +205,35 @@ discrete keystrokes rather than a continuous dial.
 
 **Ports** — `has_input = FALSE`, `has_output = TRUE`.
 
-**Settings** — appearance only: `background-color` (the case), `key-color`
-(digit/point/clear faces), `accent-color` (operator + `=` faces),
+**Layouts** — the `layout` enum picks the key table (`PnKeypadLayout`,
+`lib/pn-keypad.h`):
+- **Basic Calculator** (default, `PN_KEYPAD_LAYOUT_CALCULATOR`) — 4×5 grid:
+  ten digits, `.`, the four operators, `=`, `C`, `CE`. `0` spans two columns,
+  `=` two rows.
+- **Decimal Keyboard** (`PN_KEYPAD_LAYOUT_DECIMAL`) — 3×4 grid, telephone
+  order (`1 2 3` on the TOP row, `* 0 #` on the bottom): the ten digits plus
+  `*` and `#`, kind `symbol`. No point, no operators, no clear keys. Every
+  key a single cell.
+
+The enum **nicks are the saved-file values** ("Basic Calculator" /
+"Decimal Keyboard") and the combo-box labels in the settings dialog. The node
+is a column narrower on the decimal pad (152 px vs 200 px, same height), so
+the key size is identical on both.
+
+**Settings** — `layout` (above) plus appearance: `background-color` (the
+case), `key-color` (digit/point/clear faces), `accent-color` (the picked-out
+keys: operators + `=` on the calculator pad, `*` + `#` on the decimal one),
 `text-color` (legends).
 
 **Emits** — one message per key press. Topic: default. Writes:
-- `key` (string) — the machine-readable code: `0`..`9`, `.`, `+`, `-`, `*`,
-  `/`, `=`, `C`, `CE`. Operator keys *paint* `×` `÷` `−` but always emit the
-  ASCII form, so `data.key` concatenates straight into an expression string.
+- `key` (string) — the machine-readable code: `0`..`9` plus the layout's own
+  (`.`, `+`, `-`, `*`, `/`, `=`, `C`, `CE`, or `*` and `#`). Operator keys
+  *paint* `×` `÷` `−` but always emit the ASCII form, so `data.key`
+  concatenates straight into an expression string.
 - `kind` (string) — `digit`, `point`, `operator`, `equals`, `clear`,
-  `clear-entry`. Lets a Filter/Value Router split the stream without matching
-  ten digit codes.
+  `clear-entry`, `symbol`. Lets a Filter/Value Router split the stream without
+  matching ten digit codes. Note `*` is `operator` on the calculator pad but
+  `symbol` on the decimal one — same code, different meaning.
 - `value` (double) — **digit keys only**, 0..9. Deliberately absent on every
   other key, so a downstream numeric node eats the digits and ignores the rest.
 
@@ -225,9 +242,12 @@ node is silent until a key is pressed. The class pins
 `paint_plot_skip_zoom = TRUE`, so a body press lands on a key instead of
 lifting the node into the centred zoom overlay; the header still selects,
 drags and double-click-opens the settings dialog. A click in the gap between
-two keys presses nothing. The layout table is published in `pn-keypad.h` and
-both the painter (`pn-keypad-gui.c`) and the worksheet hit-test
-(`pn_keypad_hit_key`) place keys through the one shared
+two keys presses nothing. Key **indices are per layout**: `pn_keypad_press()`
+takes an index into the node's *current* table, and switching layout drops the
+pressed highlight for that reason. `pn_keypad_press_code()` returns FALSE for
+a code the current pad lacks (`.` on the decimal one). The layout tables are
+published in `pn-keypad.h` and both the painter (`pn-keypad-gui.c`) and the
+worksheet hit-test (`pn_keypad_hit_key`) place keys through the one shared
 `pn_keypad_key_rect_in()`, so seen pixel and pressed key cannot drift apart.
 Worksheet routing lives alongside the Switch/Inject button handling in
 `pn-worksheet.c` (`hit_test_keypad_key`).

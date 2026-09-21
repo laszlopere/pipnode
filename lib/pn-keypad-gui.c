@@ -16,8 +16,8 @@
 /* ------------------------------------------------------------------ */
 /*  PnKeypad — gui tier.                                               */
 /*                                                                     */
-/*  The cairo painter for the Keypad's client area: a dark case,       */
-/*  eighteen rounded keys, and their legends.  Every key's             */
+/*  The cairo painter for the Keypad's client area: a dark case, the   */
+/*  layout's rounded keys, and their legends.  Every key's             */
 /*  rectangle comes from the core's pn_keypad_key_rect_in(), the same  */
 /*  call the hit-test uses, so the key the user sees under the cursor  */
 /*  is always the key the press resolves to.                           */
@@ -131,7 +131,7 @@ pn_keypad_paint_plot (
     guint              i;
 
     pn_keypad_get_paint_state (self, &st);
-    keys = pn_keypad_get_keys (&n_keys);
+    keys = pn_keypad_layout_get_keys (st.layout, &n_keys);
 
     cairo_save (cr);
 
@@ -147,9 +147,9 @@ pn_keypad_paint_plot (
     cairo_set_line_width (cr, 1.0);
     cairo_stroke (cr);
 
-    /* The keys.  Operator keys and "=" take the accent colour — the
-     * column a pocket calculator picks out — everything else the plain
-     * key colour. */
+    /* The keys.  The operators and "=" on the calculator pad, "*" and
+     * "#" on the decimal one, take the accent colour — the keys a pad
+     * picks out — everything else the plain key colour. */
     for (i = 0; i < n_keys; i++)
     {
         const PnKeypadKey *k = &keys[i];
@@ -157,10 +157,13 @@ pn_keypad_paint_plot (
         const gboolean     pressed = (st.pressed_index == (gint) i);
         double             kx, ky, kw, kh;
 
-        if (!pn_keypad_key_rect_in (x, y, w, h, i, &kx, &ky, &kw, &kh))
+        if (!pn_keypad_key_rect_in (st.layout, x, y, w, h, i,
+                                    &kx, &ky, &kw, &kh))
             continue;
 
-        face = (k->kind == PN_KEYPAD_OPERATOR || k->kind == PN_KEYPAD_EQUALS)
+        face = (k->kind == PN_KEYPAD_OPERATOR ||
+                k->kind == PN_KEYPAD_EQUALS   ||
+                k->kind == PN_KEYPAD_SYMBOL)
                    ? &st.accent_color
                    : &st.key_color;
 

@@ -1145,3 +1145,39 @@
              the last operation, as most pocket calculators do -- deliberately
              NOT implemented, "=" simply re-emits the same result today); a
              sign-change and percent key, which would need keypad keys first.
+
+[ ] 76 A layout property on the Keypad (#74) -- the pad is not only a pocket
+       calculator. "layout" is an enum, so the settings dialog renders it as a
+       combo box, and the key table it picks drives the painter, the hit-test
+       and the node's own width.
+
+       [x] 76.1 PnKeypadLayout enum + GType (nicks "Basic Calculator" /
+             "Decimal Keyboard", which are both the combo labels and what the
+             saved file carries). Default CALCULATOR, so worksheets drawn
+             before this keep the pad they were drawn with.
+       [x] 76.2 The layout tables moved behind a descriptor (keys, cols, rows,
+             width): pn_keypad_layout_get_keys() / _get_grid(), and the layout
+             is now the first argument of pn_keypad_key_rect_in(). Adding a
+             third pad is a table entry plus its key list.
+       [x] 76.3 The Decimal Keyboard itself: 3x4, telephone order (1 2 3 on the
+             TOP row, * 0 # on the bottom), the ten digits plus "*" and "#" as
+             a new PN_KEYPAD_SYMBOL kind -> data.kind "symbol". No point, no
+             operators, no clear keys. "*" is an operator on the calculator pad
+             but a symbol here -- same code, different meaning.
+       [x] 76.4 The node's WIDTH follows the column count (200 -> 152 px, same
+             height), so the keys stay the same size on both pads; the painter
+             gets the layout through PnKeypadPaintState, and a layout change
+             drops the pressed highlight (indices name a different table now).
+       [x] 76.5 Help page PnKeypad.html and the pipnode-nodes skill entry
+             (sources.md) document both layouts and the "symbol" kind.
+       [x] 76.6 Unit tests: the decimal table and its telephone order, the
+             property (default, nicks, node narrows, highlight dropped), "*"/"#"
+             emitting symbol with no data.value, press_code returning FALSE for
+             a code the current pad lacks, and keys-disjoint / hit-test run
+             against BOTH layouts.
+       [ ] 76.7 GUI check by hand: switch a keypad's layout in the settings
+             dialog and watch it redraw as a phone pad, narrower, with * and #
+             in the accent colour; press keys and confirm the Debug output.
+       [ ] 76.8 Candidate follow-ups: a hex pad (0-9 A-F) for byte entry, and a
+             "letters under the digits" variant (ABC/DEF) if a phone-style text
+             entry ever wants one.

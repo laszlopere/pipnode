@@ -14,17 +14,47 @@
 <em>Group:</em> Sources. <em>Type:</em> <code>PnKeypad</code>.
 </p>
 <p>
-A pocket-calculator key pad on the worksheet: ten digits, a decimal
-point, the four basic operators, <code>=</code>, and the two clear
-keys <code>C</code> and <code>CE</code>.  Clicking a key emits exactly
-one message naming the key that was pressed.
+A key pad on the worksheet.  Clicking a key emits exactly one message
+naming the key that was pressed.
 </p>
 <p>
 The node does no arithmetic and keeps no accumulator &mdash; it is an
 input device, not a calculator.  What the keystrokes add up to is up to
 the graph downstream; the natural partner is the
-<a href="PnExpression.html">Calculator</a> node, which evaluates the
-expression the pad types.
+<a href="PnCalcEngine.html">Calculator Engine</a>, which accumulates
+the keystrokes, or the <a href="PnExpression.html">Calculator</a>
+node, which evaluates an expression.
+</p>
+
+<h5>Layouts</h5>
+<p>
+The <code>layout</code> setting picks which keys the pad carries:
+</p>
+<table>
+  <tr><th>Layout</th><th>Keys</th></tr>
+  <tr><td><strong>Basic Calculator</strong> (the default)</td>
+      <td>The pocket-calculator pad on a 4&times;5 grid: ten digits, a
+          decimal point, the four operators, <code>=</code>, and the two
+          clear keys <code>C</code> and <code>CE</code>.</td></tr>
+  <tr><td><strong>Decimal Keyboard</strong></td>
+      <td>The code-entry pad on a 3&times;4 grid: the ten digits in
+          telephone order (<code>1</code>&hellip;<code>3</code> on the
+          top row, <code>0</code> at the bottom) plus the two extra keys
+          <code>*</code> and <code>#</code>.  No decimal point, no
+          operators, no clear keys &mdash; a PIN has none.</td></tr>
+</table>
+<p>
+On the decimal pad <code>*</code> and <code>#</code> emit the
+<code>symbol</code> kind rather than the <code>operator</code> the
+calculator pad's <code>*</code> (multiply) carries, so a flow can tell
+"the user pressed star" from "the user asked for a multiplication".
+It is the graph downstream that decides what they mean &mdash;
+<code>#</code> ending the entry is a convention, not something the node
+implements.
+</p>
+<p>
+Switching layout resizes the node: the decimal pad is one column
+narrower and the same height, so the keys stay the same size on both.
 </p>
 
 <h5>The message a press emits</h5>
@@ -32,13 +62,15 @@ expression the pad types.
   <tr><th>Member</th><th>Description</th></tr>
   <tr><td><code>data.key</code></td>
       <td>The key's machine-readable code: <code>0</code>&hellip;<code>9</code>,
-          <code>.</code>, <code>+</code>, <code>-</code>, <code>*</code>,
-          <code>/</code>, <code>=</code>, <code>C</code> or
-          <code>CE</code>.</td></tr>
+          and then whatever the layout adds &mdash; <code>.</code>,
+          <code>+</code>, <code>-</code>, <code>*</code>,
+          <code>/</code>, <code>=</code>, <code>C</code>, <code>CE</code>
+          on the calculator pad, <code>*</code> and <code>#</code> on the
+          decimal one.</td></tr>
   <tr><td><code>data.kind</code></td>
       <td>The key's family: <code>digit</code>, <code>point</code>,
-          <code>operator</code>, <code>equals</code>, <code>clear</code>
-          or <code>clear-entry</code>.  Lets a
+          <code>operator</code>, <code>equals</code>, <code>clear</code>,
+          <code>clear-entry</code> or <code>symbol</code>.  Lets a
           <a href="PnFilter.html">Filter</a> or a
           <a href="PnValueRouter.html">Value Router</a> split the
           stream without matching ten separate digit codes.</td></tr>
@@ -73,18 +105,22 @@ it has no state to report, so a freshly-loaded worksheet stays quiet
 until the user actually presses something.
 </p>
 
-<h5>Appearance</h5>
+<h5>Settings</h5>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>layout</code></td>
+      <td>Which keys the pad carries &mdash; <em>Basic Calculator</em> or
+          <em>Decimal Keyboard</em>, see above.</td></tr>
   <tr><td><code>background-color</code></td>
       <td>Fill colour of the keypad's case &mdash; the panel the keys
           sit on.</td></tr>
   <tr><td><code>key-color</code></td>
       <td>Face colour of the digit, decimal-point and clear keys.</td></tr>
   <tr><td><code>accent-color</code></td>
-      <td>Face colour of the operator keys and <code>=</code> &mdash; the
-          column a calculator traditionally picks out in a second
-          colour.</td></tr>
+      <td>Face colour of the keys the pad picks out in a second colour:
+          the operators and <code>=</code> on the calculator pad,
+          <code>*</code> and <code>#</code> on the decimal
+          keyboard.</td></tr>
   <tr><td><code>text-color</code></td>
       <td>Colour of the key legends.</td></tr>
 </table>

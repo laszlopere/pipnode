@@ -31,18 +31,19 @@
 /*  Narrower than the data sinks (a keypad is a control, not a         */
 /*  readout) but with the same 40 px standard header and 4 px gap, so  */
 /*  a keypad dropped beside a Knob or a Switch lines up.  The body is  */
-/*  a plain 4x5 grid: every key is one cell, except "=" (two rows) and */
-/*  "0" (two columns), the two places a pocket calculator always       */
-/*  doubles up.                                                        */
+/*  a plain grid of cells, one key each, except where a layout doubles */
+/*  a key up — "=" over two rows and "0" over two columns, the two     */
+/*  places a pocket calculator always does.                            */
+/*                                                                     */
+/*  The width is per layout so the key *size* stays the same on both   */
+/*  pads: dropping a column narrows the node instead of fattening its  */
+/*  keys.  The height is shared, which is what keeps a 4-row and a     */
+/*  5-row pad side by side looking like two members of one family.     */
 /* ------------------------------------------------------------------ */
 
-#define PN_KEYPAD_WIDTH         200.0
 #define PN_KEYPAD_HEADER_HEIGHT  40.0
 #define PN_KEYPAD_GAP             4.0
 #define PN_KEYPAD_BODY_HEIGHT   200.0
-#define PN_KEYPAD_TOTAL_HEIGHT  (PN_KEYPAD_HEADER_HEIGHT + \
-                                 PN_KEYPAD_GAP +           \
-                                 PN_KEYPAD_BODY_HEIGHT)
 
 /* Padding between the body edge and the outermost keys, and the gap
  * between two adjacent keys.  Shared with the painter through
@@ -56,7 +57,7 @@
 #define PN_KEYPAD_PRESS_FLASH_MS 140
 
 /* ------------------------------------------------------------------ */
-/*  The layout                                                         */
+/*  The layouts                                                        */
 /*                                                                     */
 /*  Standard pocket-calculator arrangement, in paint order:            */
 /*                                                                     */
@@ -69,10 +70,10 @@
 /*  The operator keys paint the typographic signs a calculator has on  */
 /*  its buttons but emit the ASCII codes, so `data.key` can be         */
 /*  concatenated straight into an expression string for the            */
-/*  Calculator (#PnExpression) node.                                   */
+/*  Calculator Engine (#PnCalcEngine).                                 */
 /* ------------------------------------------------------------------ */
 
-static const PnKeypadKey keypad_keys[] = {
+static const PnKeypadKey keypad_keys_calculator[] = {
     /* label   code  kind                   col row span_c span_r */
     { "C",     "C",  PN_KEYPAD_CLEAR,        0,  0,  1,  1 },
     { "CE",    "CE", PN_KEYPAD_CLEAR_ENTRY,  1,  0,  1,  1 },
@@ -98,14 +99,117 @@ static const PnKeypadKey keypad_keys[] = {
     { ".",     ".",  PN_KEYPAD_POINT,        2,  4,  1,  1 },
 };
 
-#define PN_KEYPAD_N_KEYS G_N_ELEMENTS (keypad_keys)
+/* ------------------------------------------------------------------ */
+/*  The decimal keyboard — a code-entry pad, in telephone order:       */
+/*                                                                     */
+/*      1   2   3                                                      */
+/*      4   5   6                                                      */
+/*      7   8   9                                                      */
+/*      *   0   #                                                      */
+/*                                                                     */
+/*  Digits ascend down the pad, the way a door panel or a phone lays   */
+/*  them out rather than the calculator's bottom-up rows.  "*" and     */
+/*  "#" are the two extra keys such a pad always carries; they emit    */
+/*  kind "symbol" because on a code pad they mean nothing on their     */
+/*  own — the graph downstream decides whether "#" ends the entry.     */
+/*  No decimal point, no operators, no clear keys: a PIN has none.     */
+/* ------------------------------------------------------------------ */
+
+static const PnKeypadKey keypad_keys_decimal[] = {
+    /* label  code  kind              col row span_c span_r */
+    { "1",    "1",  PN_KEYPAD_DIGIT,   0,  0,  1,  1 },
+    { "2",    "2",  PN_KEYPAD_DIGIT,   1,  0,  1,  1 },
+    { "3",    "3",  PN_KEYPAD_DIGIT,   2,  0,  1,  1 },
+
+    { "4",    "4",  PN_KEYPAD_DIGIT,   0,  1,  1,  1 },
+    { "5",    "5",  PN_KEYPAD_DIGIT,   1,  1,  1,  1 },
+    { "6",    "6",  PN_KEYPAD_DIGIT,   2,  1,  1,  1 },
+
+    { "7",    "7",  PN_KEYPAD_DIGIT,   0,  2,  1,  1 },
+    { "8",    "8",  PN_KEYPAD_DIGIT,   1,  2,  1,  1 },
+    { "9",    "9",  PN_KEYPAD_DIGIT,   2,  2,  1,  1 },
+
+    { "*",    "*",  PN_KEYPAD_SYMBOL,  0,  3,  1,  1 },
+    { "0",    "0",  PN_KEYPAD_DIGIT,   1,  3,  1,  1 },
+    { "#",    "#",  PN_KEYPAD_SYMBOL,  2,  3,  1,  1 },
+};
+
+/* One row per #PnKeypadLayout value, indexed by the enum, so adding a
+ * pad is a table entry plus its key list and nothing else. */
+typedef struct
+{
+    const PnKeypadKey *keys;
+    guint              n_keys;
+    int                cols;
+    int                rows;
+    double             width;
+} PnKeypadLayoutInfo;
+
+static const PnKeypadLayoutInfo keypad_layouts[] = {
+    /* PN_KEYPAD_LAYOUT_CALCULATOR */
+    { keypad_keys_calculator, G_N_ELEMENTS (keypad_keys_calculator),
+      4, 5, 200.0 },
+    /* PN_KEYPAD_LAYOUT_DECIMAL: one column fewer, and 152 px is what
+     * keeps its keys the same 44 px wide as the calculator pad's. */
+    { keypad_keys_decimal,    G_N_ELEMENTS (keypad_keys_decimal),
+      3, 4, 152.0 },
+};
+
+/** The layout descriptor for @layout, falling back to the calculator
+ *  pad for a value this build does not know — a worksheet written by a
+ *  newer one still draws a keypad instead of nothing. */
+static const PnKeypadLayoutInfo *
+layout_info (PnKeypadLayout layout)
+{
+    if ((guint) layout >= G_N_ELEMENTS (keypad_layouts))
+        return &keypad_layouts[PN_KEYPAD_LAYOUT_CALCULATOR];
+    return &keypad_layouts[layout];
+}
+
+GType
+pn_keypad_layout_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        /* The nicks double as the combo-box labels and are what the
+           saved file carries, so they are fixed once shipped. */
+        static const GEnumValue values[] = {
+            { PN_KEYPAD_LAYOUT_CALCULATOR, "PN_KEYPAD_LAYOUT_CALCULATOR",
+              "Basic Calculator" },
+            { PN_KEYPAD_LAYOUT_DECIMAL,    "PN_KEYPAD_LAYOUT_DECIMAL",
+              "Decimal Keyboard" },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnKeypadLayout", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
 
 const PnKeypadKey *
-pn_keypad_get_keys (guint *out_n_keys)
+pn_keypad_layout_get_keys (PnKeypadLayout layout, guint *out_n_keys)
 {
+    const PnKeypadLayoutInfo *info = layout_info (layout);
+
     if (out_n_keys != NULL)
-        *out_n_keys = PN_KEYPAD_N_KEYS;
-    return keypad_keys;
+        *out_n_keys = info->n_keys;
+    return info->keys;
+}
+
+void
+pn_keypad_layout_get_grid (
+        PnKeypadLayout  layout,
+        int            *out_cols,
+        int            *out_rows)
+{
+    const PnKeypadLayoutInfo *info = layout_info (layout);
+
+    if (out_cols != NULL) *out_cols = info->cols;
+    if (out_rows != NULL) *out_rows = info->rows;
 }
 
 const gchar *
@@ -119,6 +223,7 @@ pn_keypad_kind_to_string (PnKeypadKeyKind kind)
     case PN_KEYPAD_EQUALS:      return "equals";
     case PN_KEYPAD_CLEAR:       return "clear";
     case PN_KEYPAD_CLEAR_ENTRY: return "clear-entry";
+    case PN_KEYPAD_SYMBOL:      return "symbol";
     default:                    return "unknown";
     }
 }
@@ -132,6 +237,8 @@ struct _PnKeypad
     PnNode parent_instance;
 
     /* User-facing properties. */
+    PnKeypadLayout layout;
+
     PnColor background_color;
     PnColor key_color;
     PnColor accent_color;
@@ -149,6 +256,7 @@ G_DEFINE_TYPE (PnKeypad, pn_keypad, PN_TYPE_NODE)
 enum
 {
     PROP_0,
+    PROP_LAYOUT,
     PROP_BACKGROUND_COLOR,
     PROP_KEY_COLOR,
     PROP_ACCENT_COLOR,
@@ -169,16 +277,18 @@ static GParamSpec *props[N_PROPS];
 
 gboolean
 pn_keypad_key_rect_in (
-        double  rect_x,
-        double  rect_y,
-        double  rect_w,
-        double  rect_h,
-        guint   index,
-        double *out_x,
-        double *out_y,
-        double *out_w,
-        double *out_h)
+        PnKeypadLayout  layout,
+        double          rect_x,
+        double          rect_y,
+        double          rect_w,
+        double          rect_h,
+        guint           index,
+        double         *out_x,
+        double         *out_y,
+        double         *out_w,
+        double         *out_h)
 {
+    const PnKeypadLayoutInfo *info = layout_info (layout);
     const PnKeypadKey *k;
     const double inset   = PN_KEYPAD_INSET;
     const double gap     = PN_KEYPAD_KEY_GAP;
@@ -186,15 +296,15 @@ pn_keypad_key_rect_in (
     const double inner_h = rect_h - 2.0 * inset;
     double       cell_w, cell_h;
 
-    if (index >= PN_KEYPAD_N_KEYS)
+    if (index >= info->n_keys)
         return FALSE;
     if (inner_w <= 0.0 || inner_h <= 0.0)
         return FALSE;
 
-    k = &keypad_keys[index];
+    k = &info->keys[index];
 
-    cell_w = (inner_w - gap * (PN_KEYPAD_COLS - 1)) / PN_KEYPAD_COLS;
-    cell_h = (inner_h - gap * (PN_KEYPAD_ROWS - 1)) / PN_KEYPAD_ROWS;
+    cell_w = (inner_w - gap * (info->cols - 1)) / info->cols;
+    cell_h = (inner_h - gap * (info->rows - 1)) / info->rows;
 
     if (out_x != NULL)
         *out_x = rect_x + inset + k->col * (cell_w + gap);
@@ -225,7 +335,7 @@ keypad_body_rect (
 
     if (out_x != NULL) *out_x = p->x;
     if (out_y != NULL) *out_y = p->y + PN_KEYPAD_HEADER_HEIGHT + PN_KEYPAD_GAP;
-    if (out_w != NULL) *out_w = PN_KEYPAD_WIDTH;
+    if (out_w != NULL) *out_w = layout_info (self->layout)->width;
     if (out_h != NULL) *out_h = PN_KEYPAD_BODY_HEIGHT;
 }
 
@@ -236,17 +346,19 @@ pn_keypad_hit_key (
         double    py)
 {
     double bx, by, bw, bh;
-    guint  i;
+    guint  n_keys, i;
 
     g_return_val_if_fail (PN_IS_KEYPAD (self), -1);
 
     keypad_body_rect (self, &bx, &by, &bw, &bh);
+    n_keys = layout_info (self->layout)->n_keys;
 
-    for (i = 0; i < PN_KEYPAD_N_KEYS; i++)
+    for (i = 0; i < n_keys; i++)
     {
         double kx, ky, kw, kh;
 
-        if (!pn_keypad_key_rect_in (bx, by, bw, bh, i, &kx, &ky, &kw, &kh))
+        if (!pn_keypad_key_rect_in (self->layout, bx, by, bw, bh, i,
+                                    &kx, &ky, &kw, &kh))
             continue;
 
         if (px >= kx && px < kx + kw &&
@@ -301,14 +413,17 @@ pn_keypad_get_pressed_index (PnKeypad *self)
 void
 pn_keypad_press (PnKeypad *self, guint index)
 {
+    const PnKeypadLayoutInfo *info;
     const PnKeypadKey *k;
     PnNode            *node;
     PnMessage         *msg;
 
     g_return_if_fail (PN_IS_KEYPAD (self));
-    g_return_if_fail (index < PN_KEYPAD_N_KEYS);
 
-    k    = &keypad_keys[index];
+    info = layout_info (self->layout);
+    g_return_if_fail (index < info->n_keys);
+
+    k    = &info->keys[index];
     node = PN_NODE (self);
     msg  = pn_message_new (node, NULL);
 
@@ -339,14 +454,17 @@ pn_keypad_press (PnKeypad *self, guint index)
 gboolean
 pn_keypad_press_code (PnKeypad *self, const gchar *code)
 {
+    const PnKeypadLayoutInfo *info;
     guint i;
 
     g_return_val_if_fail (PN_IS_KEYPAD (self), FALSE);
     g_return_val_if_fail (code != NULL, FALSE);
 
-    for (i = 0; i < PN_KEYPAD_N_KEYS; i++)
+    info = layout_info (self->layout);
+
+    for (i = 0; i < info->n_keys; i++)
     {
-        if (g_strcmp0 (keypad_keys[i].code, code) == 0)
+        if (g_strcmp0 (info->keys[i].code, code) == 0)
         {
             pn_keypad_press (self, i);
             return TRUE;
@@ -354,6 +472,13 @@ pn_keypad_press_code (PnKeypad *self, const gchar *code)
     }
 
     return FALSE;
+}
+
+PnKeypadLayout
+pn_keypad_get_layout (PnKeypad *self)
+{
+    g_return_val_if_fail (PN_IS_KEYPAD (self), PN_KEYPAD_LAYOUT_CALCULATOR);
+    return self->layout;
 }
 
 /* ------------------------------------------------------------------ */
@@ -366,6 +491,7 @@ pn_keypad_get_paint_state (PnKeypad *self, PnKeypadPaintState *out)
     g_return_if_fail (PN_IS_KEYPAD (self));
     g_return_if_fail (out != NULL);
 
+    out->layout           = self->layout;
     out->background_color = self->background_color;
     out->key_color        = self->key_color;
     out->accent_color     = self->accent_color;
@@ -383,9 +509,14 @@ pn_keypad_get_size (
         double *out_width,
         double *out_height)
 {
-    (void) self;
-    if (out_width  != NULL) *out_width  = PN_KEYPAD_WIDTH;
-    if (out_height != NULL) *out_height = PN_KEYPAD_TOTAL_HEIGHT;
+    /* The width follows the layout — the decimal pad is a column
+     * narrower — so a layout change resizes the node on the canvas
+     * rather than stretching its keys. */
+    if (out_width != NULL)
+        *out_width = layout_info (PN_KEYPAD (self)->layout)->width;
+    if (out_height != NULL)
+        *out_height = PN_KEYPAD_HEADER_HEIGHT + PN_KEYPAD_GAP +
+                      PN_KEYPAD_BODY_HEIGHT;
 }
 
 static double
@@ -410,6 +541,9 @@ pn_keypad_get_property (
 
     switch (prop_id)
     {
+    case PROP_LAYOUT:
+        g_value_set_enum (value, self->layout);
+        break;
     case PROP_BACKGROUND_COLOR:
         g_value_set_boxed (value, &self->background_color);
         break;
@@ -438,6 +572,29 @@ pn_keypad_set_property (
 
     switch (prop_id)
     {
+    case PROP_LAYOUT:
+    {
+        PnKeypadLayout v = (PnKeypadLayout) g_value_get_enum (value);
+
+        if (self->layout != v)
+        {
+            self->layout = v;
+            /* Key indices name a different table now, so drop the
+             * pressed highlight instead of lighting whatever key
+             * happens to sit at the old index. */
+            if (self->press_flash_id != 0)
+            {
+                g_source_remove (self->press_flash_id);
+                self->press_flash_id = 0;
+            }
+            self->pressed_index = -1;
+            /* The node's width changes with the column count; a
+             * repaint is what carries the new size onto the canvas,
+             * the way #PnComment resizes. */
+            pn_node_request_repaint (PN_NODE (self));
+        }
+        break;
+    }
     case PROP_BACKGROUND_COLOR:
     {
         const PnColor *c = g_value_get_boxed (value);
@@ -520,6 +677,15 @@ pn_keypad_class_init (PnKeypadClass *klass)
     node_class->has_input    = FALSE;
     node_class->has_output   = TRUE;
 
+    props[PROP_LAYOUT] = g_param_spec_enum (
+            "layout", "Layout",
+            "Which keys the pad carries: the pocket-calculator pad, or "
+            "the decimal keyboard \"0\"..\"9\" + \"*\" and \"#\" a code "
+            "entry pad has.",
+            PN_TYPE_KEYPAD_LAYOUT,
+            PN_KEYPAD_LAYOUT_CALCULATOR,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
             "background-color", "Background colour",
             "Fill colour of the keypad's case — the panel the keys "
@@ -535,8 +701,9 @@ pn_keypad_class_init (PnKeypadClass *klass)
 
     props[PROP_ACCENT_COLOR] = g_param_spec_boxed (
             "accent-color", "Accent colour",
-            "Face colour of the operator keys and \"=\" — the column "
-            "a calculator traditionally picks out in a second colour.",
+            "Face colour of the keys a pad picks out in a second "
+            "colour: the operators and \"=\" on the calculator pad, "
+            "\"*\" and \"#\" on the decimal keyboard.",
             PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -553,6 +720,8 @@ static void
 pn_keypad_init (PnKeypad *self)
 {
     PnNode *node = PN_NODE (self);
+
+    self->layout = PN_KEYPAD_LAYOUT_CALCULATOR;
 
     /* A dark case with light keys and an amber operator column — the
      * look of the pocket calculator the node is imitating. */

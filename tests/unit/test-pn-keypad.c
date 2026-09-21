@@ -13,12 +13,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Unit tests for PnKeypad: the calculator key pad.  A press emits one
- * message naming the key (data.key), its family (data.kind) and, for
- * the digits only, its numeric value (data.value).  The node does no
- * arithmetic and holds no accumulator, so the tests are about the
- * layout, the hit-test that turns a click into a key, and the shape of
- * the message a press produces.
+/* Unit tests for PnKeypad: the key pad.  A press emits one message
+ * naming the key (data.key), its family (data.kind) and, for the
+ * digits only, its numeric value (data.value).  The node does no
+ * arithmetic and holds no accumulator, so the tests are about the two
+ * layouts (the pocket calculator and the decimal code-entry pad), the
+ * hit-test that turns a click into a key, and the shape of the
+ * message a press produces.
  *
  * The grid geometry is exercised through the same GTK-free
  * pn_keypad_key_rect_in() the cairo painter uses, so "what the user
@@ -67,16 +68,38 @@ capture_clear (Capture *cap)
     g_clear_object (&cap->last);
 }
 
-/* Index of the key whose emitted code is @code, or -1. */
+/* Index of the key whose emitted code is @code in @layout, or -1. */
 static gint
-key_index (const gchar *code)
+key_index_in (PnKeypadLayout layout, const gchar *code)
 {
     const PnKeypadKey *keys;
     guint              n = 0, i;
 
-    keys = pn_keypad_get_keys (&n);
+    keys = pn_keypad_layout_get_keys (layout, &n);
     for (i = 0; i < n; i++)
         if (g_strcmp0 (keys[i].code, code) == 0)
+            return (gint) i;
+    return -1;
+}
+
+/* The same on the calculator pad, which is the node's default. */
+static gint
+key_index (const gchar *code)
+{
+    return key_index_in (PN_KEYPAD_LAYOUT_CALCULATOR, code);
+}
+
+/* The key at (@col, @row) of @layout, or -1 -- so a test can state
+ * "7 sits on the third row" without counting table entries. */
+static gint
+key_at (PnKeypadLayout layout, int col, int row)
+{
+    const PnKeypadKey *keys;
+    guint              n = 0, i;
+
+    keys = pn_keypad_layout_get_keys (layout, &n);
+    for (i = 0; i < n; i++)
+        if (keys[i].col == col && keys[i].row == row)
             return (gint) i;
     return -1;
 }
@@ -96,7 +119,7 @@ test_layout_has_every_key (void)
     };
     guint i;
 
-    keys = pn_keypad_get_keys (&n);
+    keys = pn_keypad_layout_get_keys (PN_KEYPAD_LAYOUT_CALCULATOR, &n);
     PN_CHECK (keys != NULL);
 
     /* Ten digits, the point, four operators, "=", and the two clear
@@ -110,7 +133,8 @@ test_layout_has_every_key (void)
 static void
 test_operator_labels_differ_from_codes (void)
 {
-    const PnKeypadKey *keys = pn_keypad_get_keys (NULL);
+    const PnKeypadKey *keys =
+        pn_keypad_layout_get_keys (PN_KEYPAD_LAYOUT_CALCULATOR, NULL);
 
     /* The pad paints the typographic signs a calculator has on its
      * buttons but emits ASCII, so data.key can be pasted straight into
@@ -126,7 +150,8 @@ test_operator_labels_differ_from_codes (void)
 static void
 test_key_kinds (void)
 {
-    const PnKeypadKey *keys = pn_keypad_get_keys (NULL);
+    const PnKeypadKey *keys =
+        pn_keypad_layout_get_keys (PN_KEYPAD_LAYOUT_CALCULATOR, NULL);
 
     PN_CHECK_CMPINT (keys[key_index ("7")].kind,  ==, PN_KEYPAD_DIGIT);
     PN_CHECK_CMPINT (keys[key_index (".")].kind,  ==, PN_KEYPAD_POINT);
@@ -139,15 +164,166 @@ test_key_kinds (void)
                      ==, "digit");
     PN_CHECK_CMPSTR (pn_keypad_kind_to_string (PN_KEYPAD_CLEAR_ENTRY),
                      ==, "clear-entry");
+    PN_CHECK_CMPSTR (pn_keypad_kind_to_string (PN_KEYPAD_SYMBOL),
+                     ==, "symbol");
+}
+
+/* ------------------------------------------------------------------ */
+/*  The decimal keyboard                                               */
+/* ------------------------------------------------------------------ */
+
+static void
+test_decimal_layout_has_only_its_keys (void)
+{
+    const PnKeypadLayout dec = PN_KEYPAD_LAYOUT_DECIMAL;
+    const PnKeypadKey   *keys;
+    guint                n = 0;
+    const gchar         *expected[] = {
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#",
+    };
+    const gchar         *absent[] = { ".", "+", "-", "/", "=", "C", "CE" };
+    guint                i;
+
+    keys = pn_keypad_layout_get_keys (dec, &n);
+    PN_CHECK (keys != NULL);
+
+    /* Ten digits plus the two extra keys a code-entry pad carries --
+     * and nothing a calculator would add. */
+    PN_CHECK_CMPINT (n, ==, G_N_ELEMENTS (expected));
+    for (i = 0; i < G_N_ELEMENTS (expected); i++)
+        PN_CHECK_CMPINT (key_index_in (dec, expected[i]), >=, 0);
+    for (i = 0; i < G_N_ELEMENTS (absent); i++)
+        PN_CHECK_CMPINT (key_index_in (dec, absent[i]), ==, -1);
+
+    /* "*" and "#" are symbols here, not the multiply operator the
+     * calculator pad spells the same way. */
+    PN_CHECK_CMPINT (keys[key_index_in (dec, "*")].kind, ==,
+                     PN_KEYPAD_SYMBOL);
+    PN_CHECK_CMPINT (keys[key_index_in (dec, "#")].kind, ==,
+                     PN_KEYPAD_SYMBOL);
+    PN_CHECK_CMPINT (keys[key_index_in (dec, "7")].kind, ==,
+                     PN_KEYPAD_DIGIT);
+
+    /* Every key is a plain single cell: no spanning keys on this pad. */
+    for (i = 0; i < n; i++)
+    {
+        PN_CHECK_CMPINT (keys[i].colspan, ==, 1);
+        PN_CHECK_CMPINT (keys[i].rowspan, ==, 1);
+    }
 }
 
 static void
-test_keys_do_not_overlap (void)
+test_decimal_layout_is_telephone_order (void)
+{
+    const PnKeypadLayout dec = PN_KEYPAD_LAYOUT_DECIMAL;
+    int                  cols = 0, rows = 0;
+
+    pn_keypad_layout_get_grid (dec, &cols, &rows);
+    PN_CHECK_CMPINT (cols, ==, 3);
+    PN_CHECK_CMPINT (rows, ==, 4);
+
+    /* Digits ascend down the pad -- 1-2-3 on the top row, * 0 # on the
+     * bottom -- the way a door panel lays them out, not the
+     * calculator's bottom-up rows. */
+    PN_CHECK_CMPINT (key_at (dec, 0, 0), ==, key_index_in (dec, "1"));
+    PN_CHECK_CMPINT (key_at (dec, 2, 0), ==, key_index_in (dec, "3"));
+    PN_CHECK_CMPINT (key_at (dec, 0, 2), ==, key_index_in (dec, "7"));
+    PN_CHECK_CMPINT (key_at (dec, 0, 3), ==, key_index_in (dec, "*"));
+    PN_CHECK_CMPINT (key_at (dec, 1, 3), ==, key_index_in (dec, "0"));
+    PN_CHECK_CMPINT (key_at (dec, 2, 3), ==, key_index_in (dec, "#"));
+
+    /* The calculator pad keeps its own order, bottom-up. */
+    PN_CHECK_CMPINT (key_at (PN_KEYPAD_LAYOUT_CALCULATOR, 0, 1), ==,
+                     key_index ("7"));
+}
+
+static void
+test_layout_property_switches_the_pad (void)
+{
+    Capture    cap;
+    PnKeypad  *node = make_node (&cap);
+    GEnumClass *eclass;
+    GEnumValue *ev;
+    double     calc_w, dec_w, h;
+
+    /* Existing worksheets were drawn with the calculator pad, so that
+     * stays the default. */
+    PN_CHECK_CMPINT (pn_keypad_get_layout (node), ==,
+                     PN_KEYPAD_LAYOUT_CALCULATOR);
+    PN_CHECK (pn_keypad_press_code (node, "="));
+    pn_node_get_size (PN_NODE (node), &calc_w, &h);
+
+    g_object_set (node, "layout", PN_KEYPAD_LAYOUT_DECIMAL, NULL);
+    PN_CHECK_CMPINT (pn_keypad_get_layout (node), ==,
+                     PN_KEYPAD_LAYOUT_DECIMAL);
+
+    /* The pressed highlight names a key in the *old* table, so the
+     * switch drops it rather than lighting whatever now sits there. */
+    PN_CHECK_CMPINT (pn_keypad_get_pressed_index (node), ==, -1);
+
+    /* A column fewer: the node narrows instead of fattening its keys,
+     * and the height is shared so the two pads line up. */
+    pn_node_get_size (PN_NODE (node), &dec_w, &h);
+    PN_CHECK (dec_w < calc_w);
+
+    /* The nick is what the saved file carries -- changing one would
+     * silently reset every keypad in every worksheet. */
+    eclass = g_type_class_ref (PN_TYPE_KEYPAD_LAYOUT);
+    PN_CHECK_CMPINT (eclass->n_values, ==, 2);
+    ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_CALCULATOR);
+    PN_CHECK_CMPSTR (ev->value_nick, ==, "Basic Calculator");
+    ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_DECIMAL);
+    PN_CHECK_CMPSTR (ev->value_nick, ==, "Decimal Keyboard");
+    g_type_class_unref (eclass);
+
+    capture_clear (&cap);
+    g_object_unref (node);
+}
+
+static void
+test_decimal_keys_emit_their_own_kinds (void)
+{
+    Capture   cap;
+    PnKeypad *node = make_node (&cap);
+
+    g_object_set (node, "layout", PN_KEYPAD_LAYOUT_DECIMAL, NULL);
+
+    PN_CHECK (pn_keypad_press_code (node, "5"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "digit");
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 5.0, 0.001);
+
+    /* "*" is the multiply operator on the calculator pad; here it is a
+     * code-pad symbol and carries no number. */
+    PN_CHECK (pn_keypad_press_code (node, "*"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "key"),  ==, "*");
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "symbol");
+    PN_CHECK_FALSE  (pn_test_has (cap.last, "value"));
+
+    PN_CHECK (pn_keypad_press_code (node, "#"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "key"),  ==, "#");
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "symbol");
+    PN_CHECK_FALSE  (pn_test_has (cap.last, "value"));
+
+    PN_CHECK_CMPINT (cap.emits, ==, 3);
+
+    /* Keys this pad does not have press nothing -- pressing by a code
+     * the *other* layout carries is a miss, not a stray emission. */
+    PN_CHECK_FALSE  (pn_keypad_press_code (node, "."));
+    PN_CHECK_FALSE  (pn_keypad_press_code (node, "="));
+    PN_CHECK_FALSE  (pn_keypad_press_code (node, "C"));
+    PN_CHECK_CMPINT (cap.emits, ==, 3);
+
+    capture_clear (&cap);
+    g_object_unref (node);
+}
+
+static void
+check_keys_do_not_overlap (PnKeypadLayout layout)
 {
     const double rx = 0.0, ry = 0.0, rw = 200.0, rh = 200.0;
     guint        n = 0, i, j;
 
-    pn_keypad_get_keys (&n);
+    pn_keypad_layout_get_keys (layout, &n);
 
     /* Every key must land inside the body and touch no other key --
      * otherwise a click would be ambiguous and the painter would draw
@@ -156,7 +332,7 @@ test_keys_do_not_overlap (void)
     {
         double ax, ay, aw, ah;
 
-        PN_CHECK (pn_keypad_key_rect_in (rx, ry, rw, rh, i,
+        PN_CHECK (pn_keypad_key_rect_in (layout, rx, ry, rw, rh, i,
                                          &ax, &ay, &aw, &ah));
         PN_CHECK (ax >= rx && ay >= ry);
         PN_CHECK (ax + aw <= rx + rw);
@@ -168,7 +344,8 @@ test_keys_do_not_overlap (void)
             double bx, by, bw, bh;
             gboolean disjoint;
 
-            pn_keypad_key_rect_in (rx, ry, rw, rh, j, &bx, &by, &bw, &bh);
+            pn_keypad_key_rect_in (layout, rx, ry, rw, rh, j,
+                                   &bx, &by, &bw, &bh);
 
             disjoint = (ax + aw <= bx) || (bx + bw <= ax) ||
                        (ay + ah <= by) || (by + bh <= ay);
@@ -178,16 +355,25 @@ test_keys_do_not_overlap (void)
 }
 
 static void
+test_keys_do_not_overlap (void)
+{
+    check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_CALCULATOR);
+    check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_DECIMAL);
+}
+
+static void
 test_wide_and_tall_keys (void)
 {
     const double rw = 200.0, rh = 200.0;
     double       zw, zh, one_w, one_h, eq_h;
 
-    pn_keypad_key_rect_in (0, 0, rw, rh, (guint) key_index ("0"),
+    const PnKeypadLayout calc = PN_KEYPAD_LAYOUT_CALCULATOR;
+
+    pn_keypad_key_rect_in (calc, 0, 0, rw, rh, (guint) key_index ("0"),
                            NULL, NULL, &zw, &zh);
-    pn_keypad_key_rect_in (0, 0, rw, rh, (guint) key_index ("1"),
+    pn_keypad_key_rect_in (calc, 0, 0, rw, rh, (guint) key_index ("1"),
                            NULL, NULL, &one_w, &one_h);
-    pn_keypad_key_rect_in (0, 0, rw, rh, (guint) key_index ("="),
+    pn_keypad_key_rect_in (calc, 0, 0, rw, rh, (guint) key_index ("="),
                            NULL, NULL, NULL, &eq_h);
 
     /* "0" spans two columns and "=" two rows -- and each swallows the
@@ -201,19 +387,25 @@ test_wide_and_tall_keys (void)
 static void
 test_rect_rejects_bad_index (void)
 {
+    const PnKeypadLayout calc = PN_KEYPAD_LAYOUT_CALCULATOR;
     guint  n = 0;
     double x = 42.0;
 
-    pn_keypad_get_keys (&n);
+    pn_keypad_layout_get_keys (calc, &n);
 
-    PN_CHECK_FALSE (pn_keypad_key_rect_in (0, 0, 200, 200, n,
+    PN_CHECK_FALSE (pn_keypad_key_rect_in (calc, 0, 0, 200, 200, n,
                                            &x, NULL, NULL, NULL));
     /* A rejected call leaves the caller's outputs alone. */
     PN_CHECK_NEAR (x, 42.0, 0.001);
 
     /* A degenerate rectangle (a node squeezed to nothing) reports no
      * key rather than negative-width ones. */
-    PN_CHECK_FALSE (pn_keypad_key_rect_in (0, 0, 1.0, 1.0, 0,
+    PN_CHECK_FALSE (pn_keypad_key_rect_in (calc, 0, 0, 1.0, 1.0, 0,
+                                           NULL, NULL, NULL, NULL));
+
+    /* An index the *other*, shorter layout does not reach. */
+    PN_CHECK_FALSE (pn_keypad_key_rect_in (PN_KEYPAD_LAYOUT_DECIMAL,
+                                           0, 0, 200, 200, n - 1,
                                            NULL, NULL, NULL, NULL));
 }
 
@@ -240,7 +432,7 @@ body_rect (PnKeypad *node, double *bx, double *by, double *bw, double *bh)
 }
 
 static void
-test_hit_test_finds_each_key (void)
+check_hit_test_finds_each_key (PnKeypadLayout layout)
 {
     Capture   cap;
     PnKeypad *node = make_node (&cap);
@@ -248,17 +440,20 @@ test_hit_test_finds_each_key (void)
     double    bx, by, bw, bh;
     guint     n = 0, i;
 
+    g_object_set (node, "layout", layout, NULL);
+
     /* Away from the origin, so a hit-test that forgot to add the
      * node's position would fail. */
     pn_node_set_position (PN_NODE (node), &pos);
     body_rect (node, &bx, &by, &bw, &bh);
-    pn_keypad_get_keys (&n);
+    pn_keypad_layout_get_keys (layout, &n);
 
     for (i = 0; i < n; i++)
     {
         double kx, ky, kw, kh;
 
-        pn_keypad_key_rect_in (bx, by, bw, bh, i, &kx, &ky, &kw, &kh);
+        pn_keypad_key_rect_in (layout, bx, by, bw, bh, i,
+                               &kx, &ky, &kw, &kh);
 
         /* The centre of the painted key resolves to that key. */
         PN_CHECK_CMPINT (pn_keypad_hit_key (node,
@@ -269,6 +464,16 @@ test_hit_test_finds_each_key (void)
 
     capture_clear (&cap);
     g_object_unref (node);
+}
+
+static void
+test_hit_test_finds_each_key (void)
+{
+    /* Both pads, since the hit-test reads the node's own layout: on
+     * the decimal one a click must resolve against the narrower grid,
+     * not the calculator's. */
+    check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_CALCULATOR);
+    check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_DECIMAL);
 }
 
 static void
@@ -456,6 +661,10 @@ main (int argc, char **argv)
     pn_test_add ("layout_complete",      test_layout_has_every_key);
     pn_test_add ("operator_labels",      test_operator_labels_differ_from_codes);
     pn_test_add ("key_kinds",            test_key_kinds);
+    pn_test_add ("decimal_layout",       test_decimal_layout_has_only_its_keys);
+    pn_test_add ("decimal_order",        test_decimal_layout_is_telephone_order);
+    pn_test_add ("layout_property",      test_layout_property_switches_the_pad);
+    pn_test_add ("decimal_emission",     test_decimal_keys_emit_their_own_kinds);
     pn_test_add ("keys_disjoint",        test_keys_do_not_overlap);
     pn_test_add ("spanning_keys",        test_wide_and_tall_keys);
     pn_test_add ("rect_bad_index",       test_rect_rejects_bad_index);
