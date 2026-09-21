@@ -2159,14 +2159,71 @@
              (i) The unit test binary wants its own Makefile.am entry
                  in tests/unit alongside the node -- see 80.12 for what
                  goes in it.
-       [ ] 80.10 Errors the user can actually see. A parse failure names
-             the line number and the offending statement, sets
-             pn_node_set_has_error() so the node paints red, and shows
-             the message in the client area instead of a half-drawn
-             figure. Nothing to stdout or g_warning -- pipnode launches
-             from a desktop launcher with no terminal. A runtime NaN or
-             infinity in one statement skips that statement rather than
-             killing the frame.
+       [x] 80.10 DECIDED (2026-09-21): errors the user can actually
+             see -- and for this node the client area is the ONLY
+             channel, which is the decision everything else follows
+             from. Nothing goes to stdout or g_warning, because pipnode
+             launches from a desktop launcher with no terminal; and
+             unlike a plugin node it cannot fall back on emitting
+             success = FALSE either, because 80.8(g) made it a sink
+             with no output port. If the card does not say it, nobody
+             learns it.
+
+             THREE CLASSES, three behaviours, and the split is the
+             whole of this sub-point:
+
+             (a) PROGRAM ERRORS -- unknown verb, wrong arity, bad
+                 format string (80.7c), unterminated string, malformed
+                 colour or dash literal (80.5h), a parse failure in an
+                 argument expression. The program is broken and will
+                 stay broken until someone edits it. NOTHING IS DRAWN;
+                 the client area shows the message with its line and
+                 column, plus the count when there are several
+                 ("3 errors, first on line 7"), per 80.2 rule 9; the
+                 node paints red via pn_node_set_has_error().
+             (b) RUNTIME VALUE PROBLEMS -- a NaN or infinite
+                 coordinate, a degenerate `view` (80.4d), a zero
+                 radius. These are VALUES, not bugs: a knob winding
+                 through zero produces them and the next message cures
+                 them. Skip the offending statement, keep drawing the
+                 rest, and DO NOT paint the node red. A figure that
+                 flashes red as a slider crosses zero teaches the user
+                 to ignore the red.
+             (c) RUNTIME TYPE PROBLEMS -- today, a vector where a
+                 scalar is wanted (80.3f). Unlike (b) this never cures
+                 itself by winding a knob: it means someone wired a
+                 vector source into a figure that cannot animate yet.
+                 So it is treated as (a) -- red node, message, nothing
+                 drawn -- with a message that names the cause and the
+                 fix: "line 12: vector argument; animation is TODO
+                 80.16". When 80.16 lands this class disappears into
+                 the frame indexer.
+
+             (d) EVALUATE FULLY, THEN PAINT. "Nothing is drawn" is only
+                 honest if the whole display list is resolved before a
+                 single stroke goes down -- otherwise statements 1..6
+                 are already on the card when statement 7 fails. Two
+                 phases, which is exactly the core/painter seam 80.4(i)
+                 already asks for: core resolves the display list (and
+                 either succeeds or produces an error), the painter
+                 strokes what it is given.
+             (e) The message is drawn through Pango (80.7e), wrapped
+                 inside the client area, in the error colour, in place
+                 of the figure -- not truncated to one line, because a
+                 parse message with a line and column in it is worth
+                 reading in full.
+             (f) A read-only `error` string property, empty when all is
+                 well, so headless tests (80.12) and the D-Bus
+                 automation can assert the exact text without a
+                 screenshot. CHECKED, not assumed: pn-flow.c skips any
+                 property that is not both readable and writable when
+                 saving, so a read-only property cannot leak into the
+                 worksheet file.
+             (g) The same text belongs under the program editor in the
+                 node dialog (80.11), where the person who typed the
+                 mistake is actually looking.
+             (h) The error clears the moment a valid program is set;
+                 has-error is transient and never serialised.
        [ ] 80.11 Editing the program: pn_param_spec_set_multiline() plus
              full width, or its own dialog tab the way Expression2 gives
              the expression a tab of its own. Twenty lines of drawing
