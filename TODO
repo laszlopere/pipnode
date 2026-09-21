@@ -1553,8 +1553,8 @@
            # weight hanging off the left end
            rect -dx-6, -dy-16, 12, 10
 
-           text -dx, -dy+6, "A", centre
-           text  dx,  dy+6, "B", centre
+           text -dx, -dy+6, "A", "centre"
+           text  dx,  dy+6, "B", "centre"
            value 0, 22, a * 57.2958, 1
 
        This is deliberately NOT another plotting node: PnPlot, PnGraph
@@ -1607,26 +1607,83 @@
              precedence, the function table, `name = expr` statements,
              scalar-or-vector values -- is already in PnExprParser and
              PnVarStore.
-       [ ] 80.2 The grammar, kept boring on purpose. One statement per
-             line; a verb, then comma-separated arguments; `#` to end of
-             line is a comment; blank lines ignored; verbs
-             case-insensitive. A line of the form `name = expr` is an
-             assignment -- the calculator's own statement form -- so a
-             figure can compute intermediates once and reuse them
-             (`r = sqrt(dx*dx + dy*dy)`). No blocks, no nesting, no
-             semicolons in v1.
+       [x] 80.2 DECIDED (2026-09-21): the grammar, kept boring on
+             purpose. One statement per line, and that is the whole
+             shape of it:
 
-             CLASH SPOTTED WHILE WRITING THE SPECIMEN, resolved here:
-             `#` cannot be both the comment character and the hex
-             colour prefix. `#` stays the comment character -- it is
-             what a line-oriented language is expected to use, and the
-             figure programs are full of prose -- so every colour
-             LITERAL is quoted instead: `color "#202020"`,
-             `color "red"`. That also kills the second ambiguity before
-             it appears: an unquoted `red` would be indistinguishable
-             from a variable named red. So the rule is one line long --
-             a quoted argument in a colour position is a colour
-             literal, anything else is three expressions.
+                 program    := line*
+                 line       := blank | comment | assignment | statement
+                 comment    := "#" ... end of line
+                 assignment := IDENT "=" <calculator expression>
+                 statement  := VERB [ arg ("," arg)* ]
+                 arg        := STRING | <calculator expression>
+                 STRING     := text in double quotes, \" and \\ escaped
+
+             An assignment line is handed WHOLE to
+             pn_expr_parser_parse(), which already returns an ASSIGN
+             node, and pn_var_store_evaluate_value() already performs
+             the binding -- no new code, and vector assignments come
+             along free. So `r = sqrt(dx*dx + dy*dy)` works because the
+             calculator works, not because the figure language does
+             anything.
+
+             The rules, each one a decision rather than an accident:
+
+             1. Verb or assignment? The first token is an identifier; if
+                the next non-space character is "=" and not "==", the
+                line is an assignment, otherwise that identifier is a
+                verb. A variable may therefore legally be called `line`.
+                The help page says: do not.
+             2. Verbs are case-insensitive (`Line` == `line`); variable
+                names are case-sensitive, because the expression lexer
+                already is.
+             3. WE split the arguments, not the expression parser: on
+                commas only, at paren depth 0, outside quotes. Depth
+                matters even though every function today takes one
+                argument -- the day atan2/min/max lands, a naive split
+                breaks silently rather than loudly.
+             4. Comment stripping is string-aware for the same reason: a
+                "#" inside quotes is a character, not a comment.
+             5. Continuation: a line whose last non-comment character is
+                a comma continues on the next line. A long `poly` wants
+                this; a backslash continuation would be a second
+                mechanism for one job.
+             6. Leading whitespace is free -- indent to group a figure
+                into its parts. No semicolons, no blocks, no nesting;
+                80.18 gets to revisit that exactly once.
+             7. QUOTED MEANS LITERAL, UNQUOTED MEANS EXPRESSION, in
+                every argument position, not just the colours that
+                forced the rule in 80.1: `text x, y, "A", "centre"`,
+                `dash "dot"`, `color "#202020"`. One rule, no per-verb
+                exceptions to memorise.
+             8. Fixed arity per verb, checked at parse time. The one
+                variadic is `poly` -- an even argument count, at least
+                three points.
+             9. Unknown verb, wrong arity, unterminated string: parse
+                errors. Parse the WHOLE program and collect them all,
+                then report the first with its line and column and say
+                how many there were ("3 errors, first on line 7"). A
+                program with any error draws nothing -- see 80.10.
+            10. An empty program is a blank figure, not an error.
+            11. `view` is pen state like everything else: executed in
+                sequence, applying to what follows, with the default
+                window in force before it. One less special case than
+                making it a global.
+            12. FREE-VARIABLE PRE-BIND -- needed, and found by reading
+                PnVarStore rather than by assuming: an unbound name
+                raises PN_VAR_STORE_ERROR_UNKNOWN_VARIABLE, it does not
+                evaluate to 0, so 80.8's promise that an unwired node
+                still draws needs machinery. At parse time walk the
+                ASTs and collect the program's free identifiers; before
+                each frame bind to 0 every one that no input and no
+                earlier assignment supplies. Cheap, and it hands the
+                dialog a list of what the program expects.
+            13. Per-frame hygiene: pn_var_store_clear() before every
+                frame, or last frame's assignments leak into this one.
+            14. A vector argument raises the type-mismatch error today
+                ("a vector reached a scalar sink"). Leave it an error in
+                v1 -- and make exactly that the seam 80.16 replaces with
+                the frame indexer.
        [ ] 80.3 Reuse the calculator language verbatim -- PnExprParser to
              parse each argument, PnVarStore to evaluate it. No second
              grammar, no second function table: sin/cos/tan/log/log10/
@@ -1663,9 +1720,10 @@
              `rect x,y,w,h`; `poly x1,y1,x2,y2,...` (variadic, closes
              under `fill`). Every one of them honours the current pen
              state and fills when filling is on.
-       [ ] 80.7 Text. `text x, y, "label"` with an alignment argument
-             (left/centre/right, top/middle/baseline) because a label
-             that is not anchored is a label in the wrong place. Numbers
+       [ ] 80.7 Text. `text x, y, "label"` with an alignment argument --
+             quoted, per 80.2 rule 7: "left"/"centre"/"right" and
+             "top"/"middle"/"baseline" -- because a label that is not
+             anchored is a label in the wrong place. Numbers
              inside labels are the interesting half: `value x, y, expr,
              decimals` for a bare readout, and printf-style
              `text x, y, "theta = %.1f deg", theta` for a sentence.
