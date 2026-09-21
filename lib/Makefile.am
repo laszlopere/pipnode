@@ -92,6 +92,8 @@ libpipnode_core_la_SOURCES = \
 	pn-failure.h \
 	pn-fiat.c \
 	pn-fiat.h \
+	pn-figure.c \
+	pn-figure.h \
 	pn-file-viewer.c \
 	pn-file-viewer.h \
 	pn-filedrop.c \
@@ -570,6 +572,7 @@ pipnode_core_headers = \
 	pn-expression2.h \
 	pn-failure.h \
 	pn-fiat.h \
+	pn-figure.h \
 	pn-file-viewer.h \
 	pn-filedrop.h \
 	pn-filter.h \

@@ -2569,9 +2569,44 @@
              decision-first; in BUILD order they come straight after
              80.11 and before 80.12, and nothing from 80.12 onwards can
              start until they exist. Contents:
-             [ ] 80.22.1 The line scanner: comment stripping that knows
-                   about strings, trailing-comma continuation, blank
-                   lines, leading whitespace (80.2 rules 4, 5, 6).
+             [x] 80.22.1 DONE (2026-09-21): the line scanner --
+                   comment stripping that knows about strings,
+                   trailing-comma continuation, blank lines, leading
+                   whitespace (80.2 rules 4, 5, 6). pn_figure_scan()
+                   in lib/pn-figure.c, with PnFigureError (the
+                   collector 80.22.6 will format) and PnFigureLine.
+                   Three things the rules did not already settle, all
+                   decided here:
+                   (a) A logical line is not just a string, because an
+                       error in the tail of a continued `poly` must
+                       still name the line the tail was TYPED on. So
+                       it carries the PIECES it was joined from, and
+                       pn_figure_line_locate() maps an offset in the
+                       joined text back to a source line and column --
+                       which is what hands 80.22.5 and 80.22.6 the
+                       position the expression parser reports as a
+                       bare "position %d". Pieces join with no
+                       separator, unambiguous because a join only ever
+                       happens straight after a comma.
+                   (b) INSIDE a continuation a comment-only line keeps
+                       it going (a long `poly` wants commenting from
+                       the inside) but a truly BLANK line ends it,
+                       leaving the dangling comma in the text for
+                       80.22.2 to complain about. Swallowing the next
+                       statement instead would hide the mistake.
+                   (c) An unterminated string -- the one error the
+                       scanner can find, since it tracks quotes to
+                       find comments at all -- reports at the OPENING
+                       quote and DROPS the whole logical line, so no
+                       later stage re-reports the same broken quoting
+                       and inflates 80.2 rule 9's count.
+                   Columns count characters, not bytes, so a message
+                   points at the right place after a non-ASCII string
+                   literal earlier on the line. Wired into
+                   lib/Makefile.am (core sources and core headers) and
+                   pipnode.h; tests/unit/test-pn-figure.c exists with
+                   eleven scanner cases and is in both Makefile.am
+                   lists, ready for 80.12 to grow the dump cases into.
              [ ] 80.22.2 Statement splitting: verb-or-assignment on one
                    lookahead, commas at paren depth 0 outside quotes,
                    string literals with their escapes (80.2 rules 1,
