@@ -1525,3 +1525,191 @@
              wind w and watch the envelope close in while the fringe spacing
              holds; wind d and watch the fringes crowd and the missing-order
              lamp tick.
+
+[ ] 80 A FIGURE node -- a little drawing language painted live in the
+       node's client area, where every number in the drawing is an
+       expression over the node's inputs. The point is worksheets that
+       look like the plates in a 19th-century physics book -- a lever, a
+       pendulum, a lens with its rays, a Carnot cylinder, a Wheatstone
+       bridge -- except the picture moves, because the numbers behind it
+       arrive down a wire. A program is one statement per line:
+
+           view -10, -10, 110, 60
+           color 0.1, 0.1, 0.1
+           width 2
+           line 0, 0, 100, 0
+           circle x, y, 3
+           rline dx, dy
+           text x, y + 6, "A"
+
+       This is deliberately NOT another plotting node: PnPlot, PnGraph
+       and PnOscilloscope already plot data series. This one draws the
+       APPARATUS, not the curve -- the thing the data is about.
+
+       [ ] 80.1 Choose the language, and write down why. Surveyed:
+             PIC (Kernighan's troff figure language, alive today as
+             pikchr and dpic) -- verb-per-line, `line from ... to ...`,
+             `circle`, `box`, `arrow`, relative motion, variables and
+             expressions, and it was built for exactly this class of
+             textbook line drawing; HPGL (the pen-plotter standard: PU/PD
+             pen up-down, PA/PR absolute/relative, CI circle, SP pen
+             select, LT line type) -- the cleanest existing model for pen
+             STATE; BASIC's graphics statements (LINE (x1,y1)-(x2,y2),
+             CIRCLE (x,y),r, PSET, DRAW) -- which is what the sketch above
+             already reads like; Logo turtle; SVG path data; TikZ and
+             MetaPost -- both far too large. RECOMMENDATION: our own
+             one-statement-per-line grammar, with PIC's verb names and
+             HPGL's pen-state model, because the hard requirement -- every
+             argument is a full calculator expression re-evaluated per
+             frame -- is the one thing no off-the-shelf grammar hands us,
+             and grafting it onto pikchr's parser costs more than the
+             twenty verbs below. Say this in the help page so the
+             resemblance to PIC reads as lineage rather than accident.
+       [ ] 80.2 The grammar, kept boring on purpose. One statement per
+             line; a verb, then comma-separated arguments; `#` to end of
+             line is a comment; blank lines ignored; verbs
+             case-insensitive. A line of the form `name = expr` is an
+             assignment -- the calculator's own statement form -- so a
+             figure can compute intermediates once and reuse them
+             (`r = sqrt(dx*dx + dy*dy)`). No blocks, no nesting, no
+             semicolons in v1.
+       [ ] 80.3 Reuse the calculator language verbatim -- PnExprParser to
+             parse each argument, PnVarStore to evaluate it. No second
+             grammar, no second function table: sin/cos/tan/log/log10/
+             exp/sqrt/abs/floor/ceil, the arithmetic, bitwise and
+             comparison operators, and anything ever added to them, come
+             along for free and stay in step forever. Parse the whole
+             program ONCE when the property is set, into a display list
+             of (verb, argument ASTs); evaluate per repaint. GOTCHA to
+             repeat in the help: `^` is XOR and there is no pow(), so
+             square by multiplying -- the same trap TODO #79.5 hit.
+       [ ] 80.4 Coordinates. `view xmin, ymin, xmax, ymax` declares the
+             user-unit window, mapped onto the client rectangle. Y POINTS
+             UP -- this is a physics figure, not a screen -- so the
+             mapping flips, and that must be stated loudly in the help
+             because it is the first thing everyone gets wrong. Aspect
+             ratio preserved by default (letterboxed inside the client
+             area) with a property to stretch instead; a figure with no
+             `view` gets a sane default window. The view arguments are
+             expressions too, so a figure can follow what it is drawing.
+       [ ] 80.5 Pen state, HPGL-style: `color`, `fill` / `nofill` with a
+             fill colour, `width`, `dash` (solid, dot, dash, dashdot ->
+             cairo_set_dash), `font` size. State persists until changed,
+             so a figure reads as a sequence of pen changes and strokes.
+             Colours accept either three 0..1 expressions or a "#rrggbb"
+             literal; keep a handful of names (black, red, ...) for
+             legibility. Defer `push` / `pop` of the pen state until
+             something actually needs it.
+       [ ] 80.6 Geometry verbs, first cut -- the smallest set that draws a
+             real textbook figure: `move x,y` and `rmove dx,dy` (pen
+             position without drawing); `line x1,y1,x2,y2`; `rline dx,dy`
+             (from the pen position, the relative form the brief asks
+             for); `point x,y`; `circle x,y,r`; `arc x,y,r,a0,a1`;
+             `rect x,y,w,h`; `poly x1,y1,x2,y2,...` (variadic, closes
+             under `fill`). Every one of them honours the current pen
+             state and fills when filling is on.
+       [ ] 80.7 Text. `text x, y, "label"` with an alignment argument
+             (left/centre/right, top/middle/baseline) because a label
+             that is not anchored is a label in the wrong place. Numbers
+             inside labels are the interesting half: `value x, y, expr,
+             decimals` for a bare readout, and printf-style
+             `text x, y, "theta = %.1f deg", theta` for a sentence.
+             Figures in this style are half annotation -- A, B, theta, l1
+             -- so this verb carries more of the lesson than it looks.
+       [ ] 80.8 Inputs become variables. Follow Calculator 2: an `inputs`
+             count property with renameable ports, each input's message
+             members bound as variables (the port's name, plus its named
+             members), last value per input retained so the figure
+             redraws whole when any one input updates. A fresh node with
+             nothing wired must still draw something -- unbound variables
+             evaluate to 0 rather than erroring, or the node is blank and
+             mysterious until the first message.
+       [ ] 80.9 Implementation shape, the now-standard split: PnFigure in
+             libpipnode-core holds the program, the parse, the variable
+             bindings and the error state; pn-figure-gui.c installs the
+             cairo painter as PnNodeClass.paint_plot and is registered
+             from pn_gui_install_builtin_nodes(). Client area sized like
+             PnPlot's (fixed w/h constants to start); the zoom overlay,
+             the drop shadow and the repaint plumbing then come for free.
+             No ABI bump -- this adds a node, not a vfunc.
+       [ ] 80.10 Errors the user can actually see. A parse failure names
+             the line number and the offending statement, sets
+             pn_node_set_has_error() so the node paints red, and shows
+             the message in the client area instead of a half-drawn
+             figure. Nothing to stdout or g_warning -- pipnode launches
+             from a desktop launcher with no terminal. A runtime NaN or
+             infinity in one statement skips that statement rather than
+             killing the frame.
+       [ ] 80.11 Editing the program: pn_param_spec_set_multiline() plus
+             full width, or its own dialog tab the way Expression2 gives
+             the expression a tab of its own. Twenty lines of drawing
+             code does not fit a one-line entry.
+       [ ] 80.12 Unit tests in tests/unit/, headless and pixel-free: feed
+             a program plus variable bindings, dump the evaluated display
+             list (verb + resolved numbers) and compare text. That covers
+             the parser, the expression binding, the pen state machine
+             and the view transform without rendering anything. Cover the
+             error paths too -- bad verb, wrong argument count, unclosed
+             string, division by zero.
+       [ ] 80.13 Prove it runs headless: ./src/pipnode-run -t 3 on a
+             worksheet containing a Figure must parse and evaluate the
+             program with no GTK, no cairo and no CRITICALs. The painter
+             lives in the gui tier; nothing in the core half may reach
+             for it.
+       [ ] 80.14 Help page data/help/PnFigure.html (core node -> data/,
+             listed in data/Makefile.am): every verb with its arguments,
+             the coordinate convention, the pen model, the message
+             contract, and three worked figures short enough to paste.
+             This page IS the language specification -- there is nowhere
+             else it can live.
+       [ ] 80.15 Example worksheets, the reason the node exists. At least
+             two: a simple lever or balance beam whose arms tilt with an
+             input, and a ray-optics bench where an object distance knob
+             moves the object, the rays and the image together. Mind
+             TODO #79.2 -- several examples/ subdirectories are still
+             missing from examples/Makefile.am, so check the new one
+             actually installs.
+       [ ] 80.16 ANIMATION, and not before the above works. When an
+             argument evaluates to a VECTOR the figure becomes a film:
+             frame i takes element i of every vector argument, scalars
+             broadcast unchanged, and the frame count is the longest
+             vector. This falls straight out of PnVarStore already
+             dealing in scalar-or-vector values, and it means a Ramp into
+             a Calculator into a Figure animates with no new plumbing --
+             the same pipeline the Compute examples already build.
+       [ ] 80.17 Animation controls: frames-per-second, and a play mode
+             (once / loop / ping-pong / hold-last). The frame timer and
+             frame index live in the core half so the behaviour is the
+             node's, not the painter's; each tick calls
+             pn_node_request_repaint(). Expose `frame` (the index) and
+             `t` (0..1 through the film) as variables so a program can
+             animate things that did not arrive as a vector. Stop the
+             timer in dispose(), and do not run it at all while the
+             figure has no vector argument.
+       [ ] 80.18 A design tension to settle before 80.16 is coded, not
+             after: a vector means FRAMES, so what draws twenty identical
+             ticks along an axis? Candidate answer is a `repeat n` verb
+             binding an index variable for the statements that follow --
+             which reintroduces the blocks 80.2 refused. Decide then:
+             either a one-statement repeat prefix, or an explicit
+             `repeat` / `end` pair, or nothing at all and let people
+             write the twenty lines out. Do not let it creep in by
+             accident.
+       [ ] 80.19 Later primitives, in the order a physics plate wants
+             them: arrows (a figure of forces without arrowheads is not a
+             figure of forces), angle-mark arcs with a label, dimension
+             lines with ticks, hatching for a wall or a ground plane,
+             bezier curves, and an `axes` helper that draws a labelled
+             pair of axes in one statement. Each one is a verb plus a
+             paragraph in the help page; none of them changes the engine.
+       [ ] 80.20 Export, if it ever earns its place: the display list is
+             backend-agnostic, so the same walk that drives cairo could
+             emit SVG for a figure someone wants in a document, or a PNG
+             sequence for an animated one. Note it and move on -- v1
+             ships without it.
+       [ ] 80.21 GUI check by hand, at the end: wind the input knobs and
+             watch the figure track them; drag a Figure into the zoom
+             overlay and confirm it scales cleanly (vector drawing, so it
+             must); break the program mid-edit and confirm the node turns
+             red with a readable line number instead of drawing garbage;
+             then wire a vector in and watch it move.
