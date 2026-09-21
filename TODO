@@ -1175,9 +1175,9 @@
              emitting symbol with no data.value, press_code returning FALSE for
              a code the current pad lacks, and keys-disjoint / hit-test run
              against BOTH layouts.
-       [ ] 76.7 GUI check by hand: switch a keypad's layout in the settings
-             dialog and watch it redraw as a phone pad, narrower, with * and #
-             in the accent colour; press keys and confirm the Debug output.
+       [x] 76.7 GUI check by hand: DONE -- the layout combo box in the settings
+             dialog switches the pad live, the node redraws as the narrower
+             phone pad, and the keys emit as expected.
        [ ] 76.8 Candidate follow-ups: a hex pad (0-9 A-F) for byte entry, and a
              "letters under the digits" variant (ABC/DEF) if a phone-style text
              entry ever wants one.
