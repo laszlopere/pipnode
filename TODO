@@ -2364,24 +2364,78 @@
                  here: its safety net is the existing Calculator and
                  Calculator 2 tests passing untouched, which is the
                  whole point of calling it a characterization test.
-       [ ] 80.13 Prove it runs headless: ./src/pipnode-run -t 3 on a
-             worksheet containing a Figure must parse and evaluate the
-             program with no GTK, no cairo and no CRITICALs. The painter
-             lives in the gui tier; nothing in the core half may reach
-             for it.
-       [ ] 80.14 Help page data/help/PnFigure.html (core node -> data/,
-             listed in data/Makefile.am): every verb with its arguments,
-             the coordinate convention, the pen model, the message
-             contract, and three worked figures short enough to paste.
-             This page IS the language specification -- there is nowhere
-             else it can live.
-       [ ] 80.15 Example worksheets, the reason the node exists. At least
-             two: a simple lever or balance beam whose arms tilt with an
-             input, and a ray-optics bench where an object distance knob
-             moves the object, the rays and the image together. Mind
-             TODO #79.2 -- several examples/ subdirectories are still
-             missing from examples/Makefile.am, so check the new one
-             actually installs.
+       [ ] 80.13 SETTLED IN ADVANCE (2026-09-21), but STILL TO DO --
+             the check itself waits on the node existing. Proving it
+             runs headless, and the good news is that the build proves
+             most of it for us.
+             Checked lib/Makefile.am: libpipnode_core_la_CFLAGS carries
+             glib, json-glib, soup, gmodule, gdk-pixbuf, mosquitto and
+             the audio flags -- and NO gtk, cairo or pango. So a stray
+             `#include <cairo.h>` in pn-figure.c does not merely link
+             badly, it FAILS TO COMPILE, header not found; and
+             -no-undefined on the core library turns a stray symbol
+             into a link error too. Two automatic guards, neither of
+             which needs a test.
+             What still needs doing by hand: a worksheet with a Figure
+             in it, run as `./src/pipnode-run -t 3` (the --timeout/-t
+             option in src/pn-run.c exits gracefully after N seconds),
+             with no CRITICALs and no warnings. That exercises parse,
+             binding and evaluation on the core path where nothing ever
+             calls paint_plot -- which is the half the editor cannot
+             test for us, because in the editor the painter always
+             runs.
+       [ ] 80.14 CONTENTS SETTLED (2026-09-21), page STILL TO WRITE:
+             data/help/PnFigure.html -- which is not documentation of
+             the node, it IS THE LANGUAGE SPECIFICATION, because there
+             is nowhere else for one to live. Core node, so the file
+             sits in data/help/ and joins pnhelp_DATA in
+             data/Makefile.am; it follows the house skeleton exactly
+             (PnPlot.html is the model): the <title> "Figure (PnFigure)
+             - Pipnode Help", the sibling <link> to help.css, the
+             "back to help index" line, an <h4> with the node name, and
+             the "Group: Sinks. Type: PnFigure." line.
+             What it must carry, and most of it is already written in
+             these sub-points rather than needing invention:
+             the grammar (80.2) with the quoted-means-literal rule; the
+             full verb table -- pen state (80.5), geometry (80.6), text
+             (80.7); Y POINTS UP in bold (80.4); the warning that verb
+             angles are DEGREES while sin/cos take radians (80.6c); the
+             `^`-is-XOR-and-there-is-no-pow trap (80.3e); the function
+             and constant list as it actually stands, which #81 will
+             change; how inputs become variables (80.8); what the three
+             error classes do (80.10); and three worked figures short
+             enough to paste and watch draw. Cross-link PnPlot,
+             PnGraph and PnOscilloscope as the "you wanted a chart, not
+             a figure" escape hatch, and have them link back.
+       [ ] 80.15 PLACEMENT SETTLED (2026-09-21), sheets STILL TO BUILD:
+             example worksheets, the reason the node exists -- and
+             they go in examples/displays/, deliberately. CHECKED: examples/Makefile.am installs
+             image, networking, crypto, home-automation,
+             system-monitoring, speech-and-sound, controls-and-logic,
+             time, displays and misc -- and STILL not Clocks, Compute,
+             meshtastic or panel-applet-ideas, exactly as TODO #79.2
+             found. Rather than make this work depend on that fix,
+             ship into a directory that already installs; #79.2 stays
+             worth doing on its own.
+             Two sheets, both one Figure and a knob column:
+             [ ] 80.15.1 displays/lever.json -- a balance beam on a
+                   fulcrum, arms tilting with an angle knob, a weight
+                   box on each end whose size follows a mass knob, and
+                   the moment m*l printed under each arm. It is the
+                   sub-point 80 header's specimen grown up, and it
+                   proves the boring half: expressions driving
+                   geometry, live.
+             [ ] 80.15.2 displays/ray-optics.json -- a thin lens on an
+                   axis, object distance and focal length as knobs, and
+                   the three construction rays drawn to where they
+                   actually cross, with the image arrow at the
+                   crossing. 1/u + 1/v = 1/f done in the program's own
+                   assignment lines. This is the one that shows why the
+                   node exists: nothing else in pipnode can draw it,
+                   and winding u through f is a physics lesson.
+             [ ] 80.15.3 Both get their line in examples/Makefile.am's
+                   displays_DATA, and then `automake &&
+                   ./config.status` (80.9b) or they will not install.
        [ ] 80.16 ANIMATION, and not before the above works. When an
              argument evaluates to a VECTOR the figure becomes a film:
              frame i takes element i of every vector argument, scalars
