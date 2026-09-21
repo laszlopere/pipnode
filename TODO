@@ -2283,13 +2283,87 @@
                  GType name, so data/help/PnFigure.html (80.14) is
                  reachable the moment it exists. The dialog must NOT
                  grow a verb cheat sheet of its own.
-       [ ] 80.12 Unit tests in tests/unit/, headless and pixel-free: feed
-             a program plus variable bindings, dump the evaluated display
-             list (verb + resolved numbers) and compare text. That covers
-             the parser, the expression binding, the pen state machine
-             and the view transform without rendering anything. Cover the
-             error paths too -- bad verb, wrong argument count, unclosed
-             string, division by zero.
+       [x] 80.12 DECIDED (2026-09-21): unit tests -- headless and
+             pixel-free, testing the RESOLVED DISPLAY LIST as text.
+             Nothing renders; the whole node except the strokes
+             themselves is under test, which is the payoff for the
+             core/painter seam 80.4(i) and 80.10(d) already demanded.
+
+             (a) THE SEAM IS AN API:
+                     gchar *pn_figure_dump (PnFigure *self,
+                                            double x, double y,
+                                            double w, double h);
+                 core tier, newly-allocated multi-line string, one line
+                 per executed statement INCLUDING the state changes, so
+                 the pen machine is observable and not merely implied.
+                 It is not a test-only hack -- it is the debugging tool
+                 and the D-Bus automation surface as well.
+             (b) THE FORMAT, which is the test oracle and therefore has
+                 to be dull and stable:
+
+                     # view 0 0 100 100 scale 1.00 rect 0 0 100 100
+                     color rgb(32,32,32)
+                     width 2.00
+                     line 20.00 20.00 80.00 80.00
+                     fill rgb(128,128,128)
+                     poly 50.00 48.00 42.00 36.00 58.00 36.00
+                     nofill
+                     text 20.00 26.00 centre middle "A"
+                     # skip 12 non-finite
+
+                 DEVICE coordinates at %.2f, so the 80.4 transform is
+                 under test rather than trusted; the leading comment
+                 carries the window and the scale so a transform test
+                 asserts them in one line; colours through
+                 pn_color_to_string() rather than a second formatter;
+                 text as anchor + alignment words + the string, never a
+                 glyph box, because core cannot measure glyphs (80.7f);
+                 and a SKIPPED statement leaves a `# skip <line>
+                 <reason>` marker so 80.10(b) is asserted by presence
+                 instead of by absence.
+             (c) PICK RECTS WHERE THE SCALE IS 1. `view 0,0,100,100`
+                 into a 100x100 rect gives s = 1, no letterbox, and
+                 Y = 100 - v, so every expected number is checkable in
+                 the head. Save the awkward arithmetic for the one
+                 letterbox test that exists to exercise it (the
+                 280x173 case: s = 2.3333, oy = 16.5).
+             (d) LOCALE. Every number in the dump goes through
+                 g_ascii_formatd / g_ascii_dtostr, or a machine with a
+                 comma decimal separator fails every test. Add the
+                 obvious guard: one case that sets LC_NUMERIC to a
+                 comma locale and re-dumps, skipped when that locale is
+                 not installed.
+             (e) WHAT THE CASES COVER, roughly in this order: each verb
+                 once; y-up (user y = 0 lands at device y = h); the
+                 letterbox scale and centring; reversed bounds flipping
+                 an axis; a degenerate `view` skipped with the previous
+                 window standing (80.4d); pen state persisting down the
+                 program AND resetting between frames (dump twice, get
+                 the same string); assignment lines and free-variable
+                 zero-fill (80.2.12); continuation lines, comments, and
+                 a `#` inside a string; input binding and latching via
+                 pn_node_receive_message_on_input(), the idiom
+                 test-pn-expression2.c already uses; the 80.8(e)
+                 snapshot surviving a repaint (receive once, dump
+                 twice); and the three error classes -- (a) unknown
+                 verb, bad arity, unterminated string, a `%s` format
+                 (80.7c), a bad colour or dash literal, each asserted
+                 through the exact `error` property text with an EMPTY
+                 dump; (b) a NaN coordinate leaving a skip marker, the
+                 rest of the figure drawn, `error` empty and has-error
+                 FALSE; (c) a vector argument setting the error and
+                 emptying the dump.
+             (f) PLUMBING: tests/unit/test-pn-figure.c, added to BOTH
+                 check_PROGRAMS (~line 36) and its own
+                 test_pn_figure_SOURCES line in tests/unit/Makefile.am;
+                 TESTS = $(check_PROGRAMS) so ./run-unit-tests.sh picks
+                 it up. Then `automake && ./config.status` again
+                 (80.9b). Usual conventions: pntest.h harness, no
+                 g_test_init, one binary for this node.
+             (g) The pn-expr-bind extraction from 80.8(c) is NOT tested
+                 here: its safety net is the existing Calculator and
+                 Calculator 2 tests passing untouched, which is the
+                 whole point of calling it a characterization test.
        [ ] 80.13 Prove it runs headless: ./src/pipnode-run -t 3 on a
              worksheet containing a Figure must parse and evaluate the
              program with no GTK, no cairo and no CRITICALs. The painter
