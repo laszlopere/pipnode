@@ -47,8 +47,15 @@
 #define PN_M57_HEADER_HEIGHT   40.0
 #define PN_M57_GAP              4.0
 #define PN_M57_BODY_HEIGHT     90.0
-#define PN_M57_TOTAL_HEIGHT  (PN_M57_HEADER_HEIGHT + PN_M57_GAP + PN_M57_BODY_HEIGHT)
 
+/* Rows past the second get their own slice of screen rather than
+ * squeezing the dots: a 20x4 module is physically taller than a 16x2
+ * one, and so is the node.  One and two lines keep the historical
+ * 90 px body, so no existing worksheet moves. */
+#define PN_M57_ROW_HEIGHT      45.0
+
+#define PN_M57_MIN_LINES        1
+#define PN_M57_MAX_LINES        4
 #define PN_M57_DEFAULT_CELLS   16
 
 /* ------------------------------------------------------------------ */
@@ -61,7 +68,7 @@ struct _PnMatrix57
 
     /* Configuration. */
     guint     cells;                  /* visible cell count (1..40)         */
-    gint      lines;                  /* visible rows (1 or 2)              */
+    gint      lines;                  /* visible rows (1..4)                */
     PnColor   frame_color;            /* plastic bezel around the LCD       */
     PnColor   background_color;       /* LCD face                           */
     PnColor   pixel_color;            /* lit (dark) dot                     */
@@ -236,12 +243,25 @@ pn_matrix57_get_paint_state (PnMatrix57           *self,
 /*  Size vfuncs                                                        */
 /* ------------------------------------------------------------------ */
 
+/* Screen height for @lines rows — see #PN_M57_ROW_HEIGHT. */
+static double
+matrix57_body_height (gint lines)
+{
+    if (lines <= 2)
+        return PN_M57_BODY_HEIGHT;
+
+    return PN_M57_BODY_HEIGHT + (double) (lines - 2) * PN_M57_ROW_HEIGHT;
+}
+
 static void
 pn_matrix57_get_size (PnNode *node, double *out_w, double *out_h)
 {
-    (void) node;
+    PnMatrix57 *self = PN_MATRIX57 (node);
+
     if (out_w != NULL) *out_w = PN_M57_WIDTH;
-    if (out_h != NULL) *out_h = PN_M57_TOTAL_HEIGHT;
+    if (out_h != NULL)
+        *out_h = PN_M57_HEADER_HEIGHT + PN_M57_GAP
+                 + matrix57_body_height (self->lines);
 }
 
 static double
@@ -324,9 +344,8 @@ pn_matrix57_set_property (GObject      *object,
     }
     case PROP_LINES:
     {
-        gint v = g_value_get_int (value);
-        if (v < 1) v = 1;
-        if (v > 2) v = 2;
+        gint v = CLAMP (g_value_get_int (value),
+                        PN_M57_MIN_LINES, PN_M57_MAX_LINES);
         if (v != self->lines)
         {
             self->lines = v;
@@ -410,10 +429,12 @@ pn_matrix57_class_init (PnMatrix57Class *klass)
 
     props[PROP_LINES] = g_param_spec_int (
             "lines", "Lines",
-            "How many rows of cells to show — the last line, or the last "
-            "two.  When the incoming text has more newline-separated lines "
-            "than this, the leading ones are dropped.",
-            1, 2, 1,
+            "How many rows of cells to show — one, two or, for the taller "
+            "modules, up to four.  The node grows with the row count so "
+            "the dots stay the same size.  When the incoming text has more "
+            "newline-separated lines than this, the LEADING ones are "
+            "dropped, so the latest output is the one on screen.",
+            PN_M57_MIN_LINES, PN_M57_MAX_LINES, 1,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     props[PROP_FRAME_COLOR] = g_param_spec_boxed (

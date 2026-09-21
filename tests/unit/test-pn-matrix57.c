@@ -87,7 +87,7 @@ test_property_defaults (void)
     PN_CHECK (pspec != NULL && G_IS_PARAM_SPEC_INT (pspec));
     ispec = G_PARAM_SPEC_INT (pspec);
     PN_CHECK_CMPINT (ispec->minimum,       ==, 1);
-    PN_CHECK_CMPINT (ispec->maximum,       ==, 2);
+    PN_CHECK_CMPINT (ispec->maximum,       ==, 4);
     PN_CHECK_CMPINT (ispec->default_value, ==, 1);
 
     g_object_unref (node);
@@ -111,8 +111,8 @@ test_cells_round_trip (void)
     g_object_unref (m);
 }
 
-/* The two valid line counts round-trip through the property and surface in
- * the snapshot.  (The paramspec is bounded to [1, 2], so GObject itself
+/* The valid line counts round-trip through the property and surface in
+ * the snapshot.  (The paramspec is bounded to [1, 4], so GObject itself
  * rejects an out-of-range value before the setter's defensive clamp runs.) */
 static void
 test_lines_round_trip (void)
@@ -127,9 +127,32 @@ test_lines_round_trip (void)
     pn_matrix57_get_paint_state (m, &st);
     PN_CHECK_CMPINT (st.lines, ==, 2);
 
+    /* Three and four are the taller modules — a 20x4 character LCD. */
+    g_object_set (m, "lines", 4, NULL);
+    g_object_get (m, "lines", &lines, NULL);
+    PN_CHECK_CMPINT (lines, ==, 4);
+    pn_matrix57_get_paint_state (m, &st);
+    PN_CHECK_CMPINT (st.lines, ==, 4);
+
     g_object_set (m, "lines", 1, NULL);
     g_object_get (m, "lines", &lines, NULL);
     PN_CHECK_CMPINT (lines, ==, 1);
+
+    /* The node grows with the row count past two, so the dots on a
+     * four-row module stay the size they are on a two-row one — and a
+     * one- or two-row node keeps exactly the footprint it always had. */
+    {
+        double h1 = 0.0, h2 = 0.0, h4 = 0.0;
+
+        pn_node_get_size (PN_NODE (m), NULL, &h1);
+        g_object_set (m, "lines", 2, NULL);
+        pn_node_get_size (PN_NODE (m), NULL, &h2);
+        g_object_set (m, "lines", 4, NULL);
+        pn_node_get_size (PN_NODE (m), NULL, &h4);
+
+        PN_CHECK_NEAR (h1, h2, 1e-9);
+        PN_CHECK (h4 > h2);
+    }
 
     g_object_unref (m);
 }

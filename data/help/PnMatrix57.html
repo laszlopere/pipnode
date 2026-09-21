@@ -29,7 +29,8 @@ laid out left to right and cropped to the configured cell count; a
 message with no string output, or with empty output, blanks the row.
 </p>
 <p>
-The readout can show one or two rows of cells. Lines in the incoming
+The readout can show one to four rows of cells &mdash; a 16&times;2
+module, or one of the taller 20&times;4 ones. Lines in the incoming
 output are split on <code>\n</code> &mdash; a real newline character or
 a backslash-<em>n</em> escape from a Format-style template both work, so
 a source emitting <code>"line1\nline2"</code> breaks onto the second row
@@ -39,9 +40,12 @@ lines than the configured row count, the leading lines are dropped and
 the last <code>lines</code> rows stay on screen.
 </p>
 <p>
-Increasing the line count does not grow the node: both rows share the
-same external rectangle, with the dot pitch shrinking to fit. The same
-applies to the panel-applet mirror, which keeps its panel-row height.
+One and two rows share the same external rectangle, with the dot pitch
+shrinking to fit; past two the node grows taller instead, so the dots on
+a four-row readout are the size they are on a two-row one &mdash; the
+way a real four-line module is a physically bigger part. The
+panel-applet mirror is the exception: it keeps its panel-row height and
+shrinks the pitch whatever the row count.
 </p>
 <p>
 Being a sink, the node never forwards a message. The display repaints
@@ -56,10 +60,11 @@ drive a redraw faster than the readout content moves.
           raise it for longer readouts. Text longer than the row is
           cropped on the right.</td></tr>
   <tr><td><code>lines</code></td>
-      <td>Number of rows of cells to show (1 or 2). Lines in the incoming
-          output are split on <code>\n</code>; when more lines arrive
-          than the configured count, the leading ones are dropped so the
-          latest output stays on screen. Default 1.</td></tr>
+      <td>Number of rows of cells to show (1&ndash;4). Lines in the
+          incoming output are split on <code>\n</code>; when more lines
+          arrive than the configured count, the leading ones are dropped
+          so the latest output stays on screen. Three and four grow the
+          node rather than the dot pitch. Default 1.</td></tr>
   <tr><td><code>frame-color</code></td>
       <td>Fill colour of the plastic bezel framing the LCD &mdash; chunky
           near-black by default, the way a character-LCD module reads.</td></tr>

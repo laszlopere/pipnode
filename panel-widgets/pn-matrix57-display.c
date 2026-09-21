@@ -191,7 +191,7 @@ struct _PnMatrix57Display
                           * has its '\n' separators in place — splitting is
                           * done at paint time. */
     guint   cells;       /* visible cell count (1..40)     */
-    gint    lines;       /* visible rows (1 or 2)          */
+    gint    lines;       /* visible rows (1..4)            */
     gint    height;      /* requested overall pixel height */
 
     gdouble frame_r, frame_g, frame_b; /* plastic bezel      */
@@ -373,9 +373,7 @@ pn_matrix57_display_draw (GtkWidget *widget, cairo_t *cr)
     if (avail_w < 1.0 || avail_h < 1.0)
         return FALSE;
 
-    lines = self->lines;
-    if (lines < 1) lines = 1;
-    if (lines > 2) lines = 2;
+    lines = CLAMP (self->lines, 1, 4);
 
     /* Solve dot-pitch so the rows fit both axes, as in the worksheet
      * painter.  A row of N cells spans (6N - 1) pitches horizontally;
@@ -527,8 +525,7 @@ pn_matrix57_display_set_lines (PnMatrix57Display *self, gint lines)
 {
     g_return_if_fail (PN_IS_MATRIX57_DISPLAY (self));
 
-    if (lines < 1) lines = 1;
-    if (lines > 2) lines = 2;
+    lines = CLAMP (lines, 1, 4);
     if (lines == self->lines)
         return;
 

@@ -310,9 +310,7 @@ pn_matrix57_paint_plot (PnNode  *node,
     cells = st.cells;
     if (cells < 1)  cells = 1;
     if (cells > 40) cells = 40;
-    lines = st.lines;
-    if (lines < 1) lines = 1;
-    if (lines > 2) lines = 2;
+    lines = CLAMP (st.lines, 1, 4);
 
     /* ---- panel: a chunky bezel framing the LCD face. ---- */
     rounded_rect (cr, x, y, w, h, M57_BEZEL_RADIUS);

@@ -46,7 +46,7 @@ void pn_matrix57_display_set_text (PnMatrix57Display *self,
 void pn_matrix57_display_set_cells (PnMatrix57Display *self,
                                     guint              cells);
 
-/* How many rows of cells to show (1 or 2).  Text passed to set_text is
+/* How many rows of cells to show (1..4).  Text passed to set_text is
  * split on '\n'; the dot pitch shrinks within the same external
  * rectangle to fit @lines rows. */
 void pn_matrix57_display_set_lines (PnMatrix57Display *self,

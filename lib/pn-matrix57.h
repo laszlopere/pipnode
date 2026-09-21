@@ -36,10 +36,12 @@ G_BEGIN_DECLS
 /*  matching how a fixed-cell character LCD reads.  Being a pure sink  */
 /*  the node never forwards.                                           */
 /*                                                                     */
-/*  The readout can show one or two rows: a "\n" in the output (real    */
-/*  newline or backslash-escape) splits onto the next line, and any    */
-/*  excess leading lines are dropped so the latest output is the one   */
-/*  on screen.                                                         */
+/*  The readout can show one to four rows -- a 16x2 module, or one of  */
+/*  the taller 20x4 ones: a "\n" in the output (real newline or        */
+/*  backslash-escape) splits onto the next line, and any excess        */
+/*  leading lines are dropped so the latest output is the one on       */
+/*  screen.  Past two rows the node grows taller rather than squeezing */
+/*  the dots, the way a real four-line module is a bigger part.        */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_MATRIX57 (pn_matrix57_get_type ())
@@ -75,7 +77,7 @@ typedef struct
                                     * resolved) and tailed to the last
                                     * @lines rows, joined by '\n' */
     guint         cells;           /* number of 5x7 character cells (1..40) */
-    gint          lines;           /* visible rows (1 or 2) */
+    gint          lines;           /* visible rows (1..4) */
 
     PnColor       frame_color;          /* plastic bezel around the LCD */
     PnColor       background_color;     /* greenish-yellow LCD face */
