@@ -1532,39 +1532,81 @@
        look like the plates in a 19th-century physics book -- a lever, a
        pendulum, a lens with its rays, a Carnot cylinder, a Wheatstone
        bridge -- except the picture moves, because the numbers behind it
-       arrive down a wire. A program is one statement per line:
+       arrive down a wire. A program is one statement per line -- this
+       one is the reference specimen, a lever tilted by its input `a`,
+       and the language was chosen against it (80.1):
 
-           view -10, -10, 110, 60
-           color 0.1, 0.1, 0.1
+           view -60, -25, 60, 35
+           color "#202020"
            width 2
-           line 0, 0, 100, 0
-           circle x, y, 3
-           rline dx, dy
-           text x, y + 6, "A"
+
+           # the beam, tilted by the input angle
+           dx = 50 * cos(a)
+           dy = 50 * sin(a)
+           line -dx, -dy, dx, dy
+
+           # fulcrum
+           fill "#808080"
+           poly 0,-2, -8,-14, 8,-14
+           nofill
+
+           # weight hanging off the left end
+           rect -dx-6, -dy-16, 12, 10
+
+           text -dx, -dy+6, "A", centre
+           text  dx,  dy+6, "B", centre
+           value 0, 22, a * 57.2958, 1
 
        This is deliberately NOT another plotting node: PnPlot, PnGraph
        and PnOscilloscope already plot data series. This one draws the
        APPARATUS, not the curve -- the thing the data is about.
 
-       [ ] 80.1 Choose the language, and write down why. Surveyed:
-             PIC (Kernighan's troff figure language, alive today as
-             pikchr and dpic) -- verb-per-line, `line from ... to ...`,
-             `circle`, `box`, `arrow`, relative motion, variables and
-             expressions, and it was built for exactly this class of
-             textbook line drawing; HPGL (the pen-plotter standard: PU/PD
-             pen up-down, PA/PR absolute/relative, CI circle, SP pen
-             select, LT line type) -- the cleanest existing model for pen
-             STATE; BASIC's graphics statements (LINE (x1,y1)-(x2,y2),
-             CIRCLE (x,y),r, PSET, DRAW) -- which is what the sketch above
-             already reads like; Logo turtle; SVG path data; TikZ and
-             MetaPost -- both far too large. RECOMMENDATION: our own
-             one-statement-per-line grammar, with PIC's verb names and
-             HPGL's pen-state model, because the hard requirement -- every
-             argument is a full calculator expression re-evaluated per
-             frame -- is the one thing no off-the-shelf grammar hands us,
-             and grafting it onto pikchr's parser costs more than the
-             twenty verbs below. Say this in the help page so the
-             resemblance to PIC reads as lineage rather than accident.
+       [x] 80.1 DECIDED (2026-09-21): pipnode's own verb-per-line
+             grammar, taking PIC's verb names and HPGL's pen-state
+             model. Surveyed first: PIC (Kernighan's troff figure
+             language, alive today as pikchr and dpic), HPGL (the
+             pen-plotter standard -- PU/PD, PA/PR, CI, SP, LT), BASIC's
+             graphics statements, Logo turtle, SVG path data, TikZ and
+             MetaPost.
+
+             Why not pikchr, the closest thing to an off-the-shelf
+             answer: its power is IMPLICIT LAYOUT -- direction chains,
+             `last circle`, `A.se` -- and we would use none of it,
+             because our positions come from expressions instead. It
+             has no rotation either, so the tilted beam in any
+             mechanics figure means computing endpoints by hand, which
+             is this grammar with more keywords bolted on; and its
+             expression language is its own, not our calculator. A
+             few-thousand-line grammar for the parts we would throw
+             away. HPGL loses on legibility alone -- unreadable is
+             fatal for a node whose output is teaching material -- but
+             its pen-state machine is the right one and we take it.
+             Logo is wrong as the base (most of a physics plate is
+             "circle at (x,y)", not "forward 50") but `turn` and
+             `forward` are two cheap verbs to add later on top of the
+             pen position 80.6 already keeps.
+
+             Two consequences settled here, so they do not get
+             reopened: (a) STYLING IS PEN STATE, not per-shape option
+             lists -- the Tk-canvas/SVG style `line x1,y1,x2,y2
+             -fill red -width 2` would mix keywords into an argument
+             list that is otherwise pure expressions, and every line
+             would carry its own boilerplate; (b) the resemblance to
+             PIC is lineage, not accident, and the help page says so.
+
+             Three facts about the parser we are building on, checked
+             rather than assumed, that fall out of the choice:
+             the lexer knows NO comma and NO string literal, so the
+             statement splitter must handle both before handing
+             fragments to pn_expr_parser_parse() -- split on commas at
+             paren depth 0, since single-argument calls are all that
+             exists today but atan2/min/max would break a naive split;
+             parse errors already carry a column ("expected ')' at
+             position %d"), so 80.10's "line 7, position 12" costs
+             nothing to produce; and everything else we need --
+             precedence, the function table, `name = expr` statements,
+             scalar-or-vector values -- is already in PnExprParser and
+             PnVarStore.
        [ ] 80.2 The grammar, kept boring on purpose. One statement per
              line; a verb, then comma-separated arguments; `#` to end of
              line is a comment; blank lines ignored; verbs
@@ -1573,6 +1615,18 @@
              figure can compute intermediates once and reuse them
              (`r = sqrt(dx*dx + dy*dy)`). No blocks, no nesting, no
              semicolons in v1.
+
+             CLASH SPOTTED WHILE WRITING THE SPECIMEN, resolved here:
+             `#` cannot be both the comment character and the hex
+             colour prefix. `#` stays the comment character -- it is
+             what a line-oriented language is expected to use, and the
+             figure programs are full of prose -- so every colour
+             LITERAL is quoted instead: `color "#202020"`,
+             `color "red"`. That also kills the second ambiguity before
+             it appears: an unquoted `red` would be indistinguishable
+             from a variable named red. So the rule is one line long --
+             a quoted argument in a colour position is a colour
+             literal, anything else is three expressions.
        [ ] 80.3 Reuse the calculator language verbatim -- PnExprParser to
              parse each argument, PnVarStore to evaluate it. No second
              grammar, no second function table: sin/cos/tan/log/log10/
@@ -1596,10 +1650,11 @@
              fill colour, `width`, `dash` (solid, dot, dash, dashdot ->
              cairo_set_dash), `font` size. State persists until changed,
              so a figure reads as a sequence of pen changes and strokes.
-             Colours accept either three 0..1 expressions or a "#rrggbb"
-             literal; keep a handful of names (black, red, ...) for
-             legibility. Defer `push` / `pop` of the pen state until
-             something actually needs it.
+             Colours accept either three 0..1 expressions or a quoted
+             literal -- "#rrggbb", or one of a handful of names
+             ("black", "red", ...) kept for legibility. Quoted, per the
+             clash resolved in 80.2. Defer `push` / `pop` of the pen
+             state until something actually needs it.
        [ ] 80.6 Geometry verbs, first cut -- the smallest set that draws a
              real textbook figure: `move x,y` and `rmove dx,dy` (pen
              position without drawing); `line x1,y1,x2,y2`; `rline dx,dy`
