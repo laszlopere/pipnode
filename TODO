@@ -2091,14 +2091,74 @@
                  renders an unwired figure with every input at 0,
                  rather than erroring or sitting blank and mysterious
                  until the first message arrives.
-       [ ] 80.9 Implementation shape, the now-standard split: PnFigure in
-             libpipnode-core holds the program, the parse, the variable
-             bindings and the error state; pn-figure-gui.c installs the
-             cairo painter as PnNodeClass.paint_plot and is registered
-             from pn_gui_install_builtin_nodes(). Client area sized like
-             PnPlot's (fixed w/h constants to start); the zoom overlay,
-             the drop shadow and the repaint plumbing then come for free.
-             No ABI bump -- this adds a node, not a vfunc.
+       [x] 80.9 DECIDED (2026-09-21): implementation shape -- the
+             now-standard core/gui split, with every piece of plumbing
+             named so none of it is rediscovered at build time.
+
+             (a) FILES. lib/pn-figure.[ch] in the core tier holds the
+                 program, the parse, the display list, the bindings,
+                 the transform and the error state; lib/pn-figure-gui.c
+                 installs the cairo painter as
+                 PnNodeClass.paint_plot. Four Makefile.am lists to
+                 touch, and they are not adjacent: core sources (~117),
+                 gui sources (~384), core headers (~584), gui headers
+                 (~702). Plus pipnode.h.
+             (b) AND THEN RUN `automake && ./config.status`. There is
+                 no AM_MAINTAINER_MODE in this tree, so an edited
+                 Makefile.am does not regenerate itself and the build
+                 quietly keeps using the old file list. This has cost
+                 time before.
+             (c) REGISTRATION, two lines in two places:
+                 pn_node_factory_register (self, PN_TYPE_FIGURE) in
+                 pn-node-factory.c with its #include, and
+                 pn_figure_gui_install () in pn-gui.c with its
+                 #include. The factory line is what makes "Figure" a
+                 class name saved worksheets can carry.
+             (d) CLASS METADATA, following PnOscilloscope's class_init:
+                     class_name  "Figure"
+                     category    "Sinks"      (where Plot, Graph,
+                                  Table View and Oscilloscope all live)
+                     icon        "\xef\x81\x80"  fa-pencil U+F040
+                     color       { 0.55, 0.36, 0.66, 1.0 }
+                     has_input   TRUE,  has_output FALSE  (80.8g)
+                 The icon is FontAwesome 4.7 and was CHECKED present
+                 with fc-list ":charset=F040", per the standing rule
+                 that FA5 glyphs render as tofu; fa-image (F03E) is
+                 taken by the file viewer and fa-compass (F14E) is
+                 already the weather report's wind glyph, so neither
+                 was reused. The colour is a plum deliberately clear of
+                 the Sinks family's orange, yellow, cyan and green --
+                 and a sepia "old plate" brown was tried on paper and
+                 rejected, because a desaturated mid-tone reads as a
+                 DISABLED node, the same trap the zigbee plugin hit
+                 with mid-blue. Set the icon in both class_init and
+                 init.
+             (e) SIZE: 280 wide like PnPlot, header 40, gap 4, client
+                 210 -- a little taller than PnPlot's 173 so the client
+                 area is roughly 4:3, which is the shape a plate wants
+                 and the shape that wastes least room to 80.4's
+                 letterboxing. Fixed constants to start.
+             (f) WHAT COMES FREE from installing paint_plot: the drop
+                 shadow, the click-to-zoom overlay and its animation,
+                 and the repaint path. Set
+                 paint_plot_zoom_keep_aspect TRUE (80.4g). Unlike
+                 PnOscilloscope this node needs NO pn-worksheet.c
+                 changes at all -- no in-card dragging, no knob
+                 hit-testing -- which is worth stating because that
+                 file is where display nodes usually leak.
+             (g) NO ABI BUMP: this adds a node, not a PnNodeClass
+                 vfunc, so no PN_PLUGIN_ABI_VERSION change and no
+                 plugin reinstall. (The two extractions this work
+                 implies -- pn-expr-bind.[ch] from 80.8c and
+                 pn-expr-funcs.[ch] from #81 -- are likewise additive.)
+             (h) Properties, all plain GObject properties so the save
+                 format picks them up: `program` (multiline, 80.11),
+                 `inputs` (1..8, 80.8d), `background-color`,
+                 `font-family` (80.7i), `stretch` (80.4h). The
+                 animation pair from 80.17 lands later.
+             (i) The unit test binary wants its own Makefile.am entry
+                 in tests/unit alongside the node -- see 80.12 for what
+                 goes in it.
        [ ] 80.10 Errors the user can actually see. A parse failure names
              the line number and the offending statement, sets
              pn_node_set_has_error() so the node paints red, and shows
