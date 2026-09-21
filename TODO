@@ -2224,10 +2224,65 @@
                  mistake is actually looking.
              (h) The error clears the moment a valid program is set;
                  has-error is transient and never serialised.
-       [ ] 80.11 Editing the program: pn_param_spec_set_multiline() plus
-             full width, or its own dialog tab the way Expression2 gives
-             the expression a tab of its own. Twenty lines of drawing
-             code does not fit a one-line entry.
+       [x] 80.11 DECIDED (2026-09-21): editing the program --
+             PN_EDITOR_CODE on a tab of its own, full width.
+
+             (a) CODE, NOT MULTILINE, and it is not taste: 80.10
+                 reports "line 7, column 12". PN_EDITOR_MULTILINE is a
+                 plain GtkTextView; PN_EDITOR_CODE is a GtkSourceView
+                 that the renderer already configures with SHOW LINE
+                 NUMBERS, monospace and tab width 2 (checked in
+                 pn-settings-renderer.c). An error that cites a line
+                 number is useless in an editor that does not show one.
+             (b) The declarative schema, following Expression2's block:
+                     pn_settings_schema_tab   (schema, "Figure");
+                     pn_settings_schema_row   (schema, "program",
+                                               PN_EDITOR_CODE);
+                     pn_settings_schema_row_flags (schema, "program",
+                                               PN_ROW_FLAG_FULL_WIDTH);
+                 No -gui.c companion is needed for the DIALOG; the
+                 painter is a separate matter (80.9).
+             (c) HIGHLIGHTING: pn_settings_schema_code_language()
+                 resolves an id against GtkSourceView's language
+                 manager, and there is no "figure" language. v1 names
+                 "sh" -- close enough that # comments, numbers and
+                 quoted strings all colour correctly, and already
+                 proven in this very dialog by the shell plugin. The
+                 honest fix later is our own figure.lang, installed
+                 into a directory appended to the language manager's
+                 search path, which would colour the VERBS too and make
+                 a typo visibly not-a-keyword. Noted, not built.
+             (d) EDITS APPLY AS YOU TYPE. Checked: the renderer
+                 connects the text buffer's "changed" straight through
+                 to the property, so nothing sits between typing and
+                 the card redrawing -- exactly the live loop a drawing
+                 language wants. It does mean the program re-parses on
+                 every keystroke, which is fine for a few dozen lines,
+                 and is precisely why 80.3(a) parses into a display
+                 list once per property set rather than once per frame.
+             (e) THE ERROR TEXT UNDER THE EDITOR (80.10g) has no
+                 dedicated mechanism in the schema, so use what is
+                 there: a second row on the same tab bound to the
+                 read-only `error` property from 80.10(f), as
+                 PN_EDITOR_LABEL (a read-only SELECTABLE GtkLabel) with
+                 PN_ROW_FLAG_FULL_WIDTH. Selectable matters -- people
+                 copy error text.
+             (f) No new dependency: gtksourceview-4 is already required
+                 by configure.ac, and PN_EDITOR_CODE degrades to a
+                 plain multiline editor where it is missing.
+             (g) A FRESH NODE GETS A DEFAULT PROGRAM, not an empty box
+                 -- the same argument that makes Expression default to
+                 "value". Three lines that draw immediately with every
+                 variable zero-filled and show the shape of the
+                 language:
+                     view 0, 0, 100, 100
+                     circle 50, 50, 40
+                     text 50, 50, "%.1f", value
+             (h) Help needs nothing built: the worksheet's node context
+                 menu already emits help-requested with the node's
+                 GType name, so data/help/PnFigure.html (80.14) is
+                 reachable the moment it exists. The dialog must NOT
+                 grow a verb cheat sheet of its own.
        [ ] 80.12 Unit tests in tests/unit/, headless and pixel-free: feed
              a program plus variable bindings, dump the evaluated display
              list (verb + resolved numbers) and compare text. That covers
