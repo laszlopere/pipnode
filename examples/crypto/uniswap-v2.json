@@ -1,0 +1,764 @@
+{
+ "format": "pipnode",
+ "version": 1,
+ "nodes": [
+  {
+   "type": "PnComment",
+   "uuid": "f06b5513-dd2d-4604-af5b-250cc6f0d0f5",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 20.0
+   },
+   "properties": {
+    "text": "Uniswap V2 in one worksheet  --  the constant-product AMM,  x · y = k\n\nA Uniswap V2 pool holds two reserves, x of ETH and y of USDC, and promises exactly one thing: their product\nk = x · y never shrinks.  A swap that puts Δx ETH in must leave k at least where it was, so the most the pool\ncan pay out is\n\n          Δy  =  (Δx · f · y) / (x + Δx · f)            with  f = 1 - fee   (a 0.30 % fee means f = 0.997)\n\nEvery number here follows from that one line: the price you actually get, the slippage you pay for being big\nrelative to the pool, the fee the LPs keep, and the new mid price the next trader sees.  Spin the knobs on the\nleft -- it is a live model, not a recording.  No network, no wallet, no chain, just the arithmetic on its own.",
+    "width": 1900.0,
+    "height": 235.0,
+    "text-size": 14.0,
+    "background-color": "rgb(250,250,245)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnComment",
+   "uuid": "a9972469-879c-4851-bd2d-248a7e88f185",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 260.0
+   },
+   "properties": {
+    "text": "1 · THE INPUTS\nFour knobs describe the pool and the trade: pool depth (x),\nits price (P0, which fixes the other reserve as y = x · P0),\nyour swap size, and the LP fee in bps -- 30 bps is the real\nUniswap V2 number.\n\nThe swap knob is a PERCENTAGE of the pool, not an ETH amount,\nbecause that ratio is the only thing the maths actually cares\nabout.  CURVE SPAN is the scope's timebase: the sweep runs out\nto that many times your trade, so at 5x your own trade ends\none fifth along the trace.  The last knob is pinned at 0 --\nit is just the Ramp's starting point.",
+    "width": 420.0,
+    "height": 220.0,
+    "text-size": 12.0,
+    "background-color": "rgb(240,246,255)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnComment",
+   "uuid": "685053ff-8994-4f7d-8e3f-472b83dc2847",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 500.0,
+    "y": 260.0
+   },
+   "properties": {
+    "text": "2 · THE AMM MATHS\nTwo Calculator 2 nodes hold the entire model.  The\nupper one solves the single swap you dialled in and\npublishes each intermediate (dy, exec, impact,\nnewmid, lpfee, k0, k1) as its own message field.\n\nThe lower one is the very same arithmetic fed a\n256-element ramp instead of one Δx.  The expression\nlanguage is element-wise, so scalars and vectors mix\nfreely and one message carries a whole curve -- that\nis what lets the plots redraw completely on every\nknob notch instead of filling in over time.",
+    "width": 420.0,
+    "height": 220.0,
+    "text-size": 12.0,
+    "background-color": "rgb(245,240,255)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnComment",
+   "uuid": "be19cb73-4d95-497f-a70d-0a8a30468911",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 260.0
+   },
+   "properties": {
+    "text": "3 · THE READOUTS\ndata.value is the headline reading and the core's\nlast line is dy, so the first LED panel needs no\nhelp at all -- it is wired straight to the core.\n\nThe others pick their field with a one-line\nCalculator: an expression that is just  impact\nrepublishes that field as data.value, which every\ndisplay node knows how to read.  The gauge and the\ntime-series Graph skip even that, since both take a\nJSON key.  The 20x4 character LCD is a Format node\nfilling in a trade ticket.",
+    "width": 420.0,
+    "height": 220.0,
+    "text-size": 12.0,
+    "background-color": "rgb(255,248,240)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnComment",
+   "uuid": "a7bdcb84-3f60-4a6c-b2b5-589f2b3ed82c",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1400.0,
+    "y": 260.0
+   },
+   "properties": {
+    "text": "4 · THE CURVES\nThe sweep message carries $pnvectors, so both of these fill instantly and\ncompletely rather than trickling in over time.  The scope traces the pool's\npath along the hyperbola x · y = k -- selling ETH walks it right and down --\nand the plot below it is price impact against trade size: flat and cheap\nwhile you are small against the pool, then punishing.  Both redraw on every\nnotch of the SWAP SIZE knob.  See the note under the plot for why the scope\nis deliberately not auto-fitting, and how to re-frame it.",
+    "width": 620.0,
+    "height": 220.0,
+    "text-size": 12.0,
+    "background-color": "rgb(240,252,244)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnComment",
+   "uuid": "28d5bcb8-2ddf-4d93-bc74-7237731e24b4",
+   "name": "Comment",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1400.0,
+    "y": 1110.0
+   },
+   "properties": {
+    "text": "WHY THE SCOPE IS NOT AUTO-FITTING\n\nBoth axes are pinned to a fixed window in POOL UNITS -- the curve core divides\nthrough by the reserves, so the trace always starts at (1, 1), the pool exactly as\nit stands, and grows away from that anchor.\n\nThat is deliberate.  The constant-product curve is scale-free: double the pool and\ndouble the trade and you get back an identical picture, so neither reserve nor\nprice can bend it -- only your size relative to the pool can.  On auto-fit the\nscreen rescaled exactly as fast as the trace grew, and the trace never appeared to\nchange at all.  Against a fixed frame you can finally watch it move.\n\nSo: wind SWAP SIZE up and the trace lengthens and bends from a straight line into a\nhard elbow.  When it outgrows the screen, wind CURVE SPAN back down -- that knob is\nthe range control, and it is wired into the maths rather than into the display.\n\nThe scope also carries its own X RANGE, X OFFSET, Y RANGE, Y OFFSET and AUTO knobs\non its front panel: click the screen to maximize it and they are all there, exactly\nas on a real CRT.  Reaching for those overrides the fixed frame by hand.",
+    "width": 620.0,
+    "height": 340.0,
+    "text-size": 12.0,
+    "background-color": "rgb(240,252,244)",
+    "frame-color": "rgb(158,158,158)",
+    "text-color": "rgb(46,51,59)"
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "9b511a27-e761-40ba-9d81-b708f5589429",
+   "name": "ETH reserve  x",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 490.0
+   },
+   "properties": {
+    "min": 200.0,
+    "max": 5000.0,
+    "value": 2000.0
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "c97f4ba4-7b44-4d71-926b-38bfe6b454ea",
+   "name": "mid price  P0",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 580.0
+   },
+   "properties": {
+    "min": 250.0,
+    "max": 6250.0,
+    "value": 2000.0
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "a2d13be0-43fb-42ca-b10f-9716e136fd75",
+   "name": "swap size  (% of pool)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 670.0
+   },
+   "properties": {
+    "min": 0.0,
+    "max": 120.0,
+    "value": 10.0
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "70f63324-e011-4546-a121-ba356860c916",
+   "name": "fee (bps)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 760.0
+   },
+   "properties": {
+    "min": 0.0,
+    "max": 120.0,
+    "value": 30.0
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "bf86d94d-59d8-4a3e-8319-2f137ee4ba72",
+   "name": "curve span  (× trade)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 850.0
+   },
+   "properties": {
+    "min": 0.25,
+    "max": 6.25,
+    "value": 5.0
+   }
+  },
+  {
+   "type": "PnKnob",
+   "uuid": "db40e50c-1546-437d-9b98-e588030753f1",
+   "name": "Δ 0  (ramp start)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 40.0,
+    "y": 1010.0
+   },
+   "properties": {
+    "min": 0.0,
+    "max": 0.0,
+    "value": 0.0
+   }
+  },
+  {
+   "type": "PnExpression2",
+   "uuid": "c1100725-57c0-4982-a9e3-072465dc94da",
+   "name": "sweep span",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 280.0,
+    "y": 830.0
+   },
+   "properties": {
+    "inputs": 3,
+    "expression": "x * (pct / 100 * zoom + 0.005)"
+   },
+   "input-names": {
+    "0": "pct",
+    "1": "x",
+    "2": "zoom"
+   }
+  },
+  {
+   "type": "PnExpression",
+   "uuid": "29868c8b-20b5-4051-b539-d0a56646344b",
+   "name": "re-trigger  N=256",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 280.0,
+    "y": 950.0
+   },
+   "properties": {
+    "expression": "256"
+   }
+  },
+  {
+   "type": "PnRamp",
+   "uuid": "cd00d7b6-90fb-4f09-aa93-14e13333b066",
+   "name": "Δ sweep  0 → x/2",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 280.0,
+    "y": 1010.0
+   },
+   "properties": {},
+   "input-names": {
+    "0": "from",
+    "1": "to",
+    "2": "N"
+   }
+  },
+  {
+   "type": "PnExpression2",
+   "uuid": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "name": "AMM · this swap",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 500.0,
+    "y": 490.0
+   },
+   "properties": {
+    "inputs": 4,
+    "expression": "dx = x * pct / 100\ny = x * p0\nf = 1 - fee / 10000\ndxf = dx * f\ndy = dxf * y / (x + dxf)\nexec = f * y / (x + dxf)\nimpact = (1 - exec / p0) * 100\nx2 = x + dx\ny2 = y - dy\nnewmid = y2 / x2\nlpfee = dx * (fee / 10000) * p0\nk0 = x * y\nk1 = x2 * y2\nkgrow = (k1 / k0 - 1) * 100\ndxs = floor(dx * 10 + 0.5) / 10\npcts = floor(pct * 10 + 0.5) / 10\ndyk = floor(dy / 100 + 0.5) / 10\npxs = floor(exec * 100 + 0.5) / 100\nimps = floor(impact * 100 + 0.5) / 100\nmids = floor(newmid * 100 + 0.5) / 100\ndy"
+   },
+   "input-names": {
+    "0": "x",
+    "1": "p0",
+    "2": "pct",
+    "3": "fee"
+   }
+  },
+  {
+   "type": "PnExpression2",
+   "uuid": "a87a0398-b26d-4e17-ad55-1042451fe17a",
+   "name": "AMM · sweep curve",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 500.0,
+    "y": 1010.0
+   },
+   "properties": {
+    "inputs": 4,
+    "expression": "y = x * p0\nf = 1 - fee / 10000\ndf = d * f\nxv = x + d\nyv = y - (df * y / (x + df))\nex = f * y / (x + df)\nimp = (1 - ex / p0) * 100\nxn = xv / x\nyn = yv / y\nimp"
+   },
+   "input-names": {
+    "0": "d",
+    "1": "x",
+    "2": "p0",
+    "3": "fee"
+   }
+  },
+  {
+   "type": "PnExpression",
+   "uuid": "3d4cf2a8-9ffd-4345-8d28-8be998417fc4",
+   "name": "exec price",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 490.0
+   },
+   "properties": {
+    "expression": "exec"
+   }
+  },
+  {
+   "type": "PnExpression",
+   "uuid": "d7d5f537-d875-42b6-8e14-977ab1502684",
+   "name": "price impact %",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 570.0
+   },
+   "properties": {
+    "expression": "impact"
+   }
+  },
+  {
+   "type": "PnExpression",
+   "uuid": "1026a489-8ed3-4407-847b-a6107aa131ea",
+   "name": "LP fee (USDC)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 650.0
+   },
+   "properties": {
+    "expression": "lpfee"
+   }
+  },
+  {
+   "type": "PnExpression",
+   "uuid": "6c1db6c7-399c-4263-a874-41cdcd29acfd",
+   "name": "impact > 25 %",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 730.0
+   },
+   "properties": {
+    "expression": "impact > 25"
+   }
+  },
+  {
+   "type": "PnFormat",
+   "uuid": "edc7faed-cf54-4ae2-a315-a14d3cf629f5",
+   "name": "mid price text",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 810.0
+   },
+   "properties": {
+    "success-text": "${data/mids}",
+    "failure-text": "----"
+   }
+  },
+  {
+   "type": "PnFormat",
+   "uuid": "4e485d1e-f510-4016-aefe-18d6b4d7fe64",
+   "name": "trade ticket",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 890.0
+   },
+   "properties": {
+    "success-text": "IN ${data/pcts} % = ${data/dxs} ETH\nOUT  ${data/dyk}k USDC\nPRICE ${data/pxs}\nIMPACT ${data/imps} %",
+    "failure-text": "no trade"
+   }
+  },
+  {
+   "type": "PnSuccess",
+   "uuid": "1a2c0186-7803-40af-94dd-3187302d7f56",
+   "name": "vectors only",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 740.0,
+    "y": 1010.0
+   },
+   "properties": {}
+  },
+  {
+   "type": "PnNumeric",
+   "uuid": "59c0bf42-80a5-4d66-9b5a-43f94c97b209",
+   "name": "USDC out",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 490.0
+   },
+   "properties": {
+    "digits": 7,
+    "decimal-places": 2,
+    "background-color": "rgb(10,10,13)",
+    "segment-color": "rgb(38,162,105)",
+    "unlit-segment-color": "rgb(6,26,17)"
+   }
+  },
+  {
+   "type": "PnNumeric",
+   "uuid": "62ed4777-4d28-4b45-89e6-fea3811fa27f",
+   "name": "execution price",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 650.0
+   },
+   "properties": {
+    "digits": 5,
+    "decimal-places": 2,
+    "background-color": "rgb(10,10,13)",
+    "segment-color": "rgb(235,31,20)",
+    "unlit-segment-color": "rgb(38,5,3)"
+   }
+  },
+  {
+   "type": "PnNumeric",
+   "uuid": "8e584792-8745-415f-abe6-7077e48ff082",
+   "name": "price impact  %",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 810.0
+   },
+   "properties": {
+    "digits": 3,
+    "decimal-places": 2,
+    "background-color": "rgb(10,10,13)",
+    "segment-color": "rgb(255,120,0)",
+    "unlit-segment-color": "rgb(41,19,0)"
+   }
+  },
+  {
+   "type": "PnNumeric",
+   "uuid": "962eb91e-d04b-4d01-8ca9-f47a391cf769",
+   "name": "LP fee (USDC)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 970.0
+   },
+   "properties": {
+    "digits": 6,
+    "decimal-places": 2,
+    "background-color": "rgb(10,10,13)",
+    "segment-color": "rgb(28,113,216)",
+    "unlit-segment-color": "rgb(4,18,35)"
+   }
+  },
+  {
+   "type": "PnSegment16",
+   "uuid": "4d083f74-e282-42f6-a043-198e99d6e5e5",
+   "name": "new mid price",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 1130.0
+   },
+   "properties": {
+    "cells": 10,
+    "background-color": "rgb(10,10,13)",
+    "segment-color": "rgb(235,31,20)",
+    "unlit-segment-color": "rgb(38,5,3)"
+   }
+  },
+  {
+   "type": "PnMatrix57",
+   "uuid": "9c07957b-477a-4c75-9466-6f605cfa1973",
+   "name": "trade ticket",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 960.0,
+    "y": 1290.0
+   },
+   "properties": {
+    "cells": 20,
+    "lines": 4,
+    "frame-color": "rgb(0,0,0)",
+    "background-color": "rgb(184,204,71)",
+    "pixel-color": "rgb(15,20,10)",
+    "unlit-pixel-color": "rgb(168,189,66)"
+   }
+  },
+  {
+   "type": "PnDial",
+   "uuid": "80594bb7-8ffe-4e51-b84a-0e5c6ff91510",
+   "name": "price impact",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1400.0,
+    "y": 490.0
+   },
+   "properties": {
+    "key": "data/impact",
+    "min-value": 0.0,
+    "max-value": 60.0,
+    "start-angle": -120.0,
+    "end-angle": 120.0,
+    "major-ticks": 13,
+    "minor-ticks-per-major": 5,
+    "label": "impact",
+    "unit": "%",
+    "green-start": 0.0,
+    "green-end": 5.0,
+    "yellow-start": 5.0,
+    "yellow-end": 25.0,
+    "red-start": 25.0,
+    "red-end": 60.0,
+    "face-color": "rgb(232,232,232)",
+    "scale-color": "rgb(179,26,26)",
+    "needle-color": "rgb(204,26,26)",
+    "label-color": "rgb(38,38,38)",
+    "green-color": "rgba(51,166,64,0.85)",
+    "yellow-color": "rgba(242,204,38,0.85)",
+    "red-color": "rgba(217,51,38,0.85)"
+   }
+  },
+  {
+   "type": "PnLed",
+   "uuid": "da034a2b-baab-4887-b333-08ae1b242734",
+   "name": "slippage > 25 %",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1400.0,
+    "y": 780.0
+   },
+   "properties": {
+    "mode": "Blink Fast",
+    "color": "rgb(229,57,53)"
+   }
+  },
+  {
+   "type": "PnGraph",
+   "uuid": "dce79264-3115-4ee5-9929-589f6b69cfcd",
+   "name": "mid price over time",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1400.0,
+    "y": 860.0
+   },
+   "properties": {
+    "key": "data/newmid",
+    "resolution": "1 minute",
+    "x-buckets": 60,
+    "data-view": "Time series",
+    "draw-style": "Lines",
+    "line-color": "rgb(30,60,140)",
+    "line-width": 2,
+    "axis-color": "rgb(70,70,70)",
+    "background-color": "rgb(255,255,255)",
+    "show-grid": true,
+    "log-y": false,
+    "y-from-zero": false
+   }
+  },
+  {
+   "type": "PnOscilloscope",
+   "uuid": "c76a3a0e-7718-4064-beff-bbb57911db86",
+   "name": "x · y = k   (pool = 1.0)",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1720.0,
+    "y": 490.0
+   },
+   "properties": {
+    "value-key": "yn",
+    "x-key": "xn",
+    "screen-color": "rgb(0,63,2)",
+    "trace-color": "rgb(87,255,115)",
+    "grid-color": "rgb(56,128,77)",
+    "show-graticule": true,
+    "trace-width": 2,
+    "x-from-zero": false,
+    "y-from-zero": false,
+    "x-auto": false,
+    "x-range": 1.2,
+    "x-offset": 1.5,
+    "y-auto": false,
+    "y-range": 0.6,
+    "y-offset": 0.75
+   }
+  },
+  {
+   "type": "PnPlot",
+   "uuid": "10028a01-0ccf-4e57-91ea-192355eb9723",
+   "name": "price impact % across the sweep",
+   "worksheet": "Worksheet",
+   "position": {
+    "x": 1720.0,
+    "y": 860.0
+   },
+   "properties": {
+    "value-key": "value",
+    "x-buckets": 128,
+    "data-view": "Time series",
+    "draw-style": "Lines",
+    "line-color": "rgb(200,40,40)",
+    "line-width": 2,
+    "axis-color": "rgb(70,70,70)",
+    "background-color": "rgb(255,255,255)",
+    "show-grid": true,
+    "y-from-zero": true
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_id": "9b511a27-e761-40ba-9d81-b708f5589429",
+   "target_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa"
+  },
+  {
+   "source_id": "c97f4ba4-7b44-4d71-926b-38bfe6b454ea",
+   "target_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_input": 1
+  },
+  {
+   "source_id": "a2d13be0-43fb-42ca-b10f-9716e136fd75",
+   "target_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_input": 2
+  },
+  {
+   "source_id": "70f63324-e011-4546-a121-ba356860c916",
+   "target_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_input": 3
+  },
+  {
+   "source_id": "a2d13be0-43fb-42ca-b10f-9716e136fd75",
+   "target_id": "c1100725-57c0-4982-a9e3-072465dc94da"
+  },
+  {
+   "source_id": "9b511a27-e761-40ba-9d81-b708f5589429",
+   "target_id": "c1100725-57c0-4982-a9e3-072465dc94da",
+   "target_input": 1
+  },
+  {
+   "source_id": "bf86d94d-59d8-4a3e-8319-2f137ee4ba72",
+   "target_id": "c1100725-57c0-4982-a9e3-072465dc94da",
+   "target_input": 2
+  },
+  {
+   "source_id": "c97f4ba4-7b44-4d71-926b-38bfe6b454ea",
+   "target_id": "29868c8b-20b5-4051-b539-d0a56646344b"
+  },
+  {
+   "source_id": "70f63324-e011-4546-a121-ba356860c916",
+   "target_id": "29868c8b-20b5-4051-b539-d0a56646344b"
+  },
+  {
+   "source_id": "db40e50c-1546-437d-9b98-e588030753f1",
+   "target_id": "cd00d7b6-90fb-4f09-aa93-14e13333b066"
+  },
+  {
+   "source_id": "c1100725-57c0-4982-a9e3-072465dc94da",
+   "target_id": "cd00d7b6-90fb-4f09-aa93-14e13333b066",
+   "target_input": 1
+  },
+  {
+   "source_id": "29868c8b-20b5-4051-b539-d0a56646344b",
+   "target_id": "cd00d7b6-90fb-4f09-aa93-14e13333b066",
+   "target_input": 2
+  },
+  {
+   "source_id": "cd00d7b6-90fb-4f09-aa93-14e13333b066",
+   "target_id": "a87a0398-b26d-4e17-ad55-1042451fe17a"
+  },
+  {
+   "source_id": "9b511a27-e761-40ba-9d81-b708f5589429",
+   "target_id": "a87a0398-b26d-4e17-ad55-1042451fe17a",
+   "target_input": 1
+  },
+  {
+   "source_id": "c97f4ba4-7b44-4d71-926b-38bfe6b454ea",
+   "target_id": "a87a0398-b26d-4e17-ad55-1042451fe17a",
+   "target_input": 2
+  },
+  {
+   "source_id": "70f63324-e011-4546-a121-ba356860c916",
+   "target_id": "a87a0398-b26d-4e17-ad55-1042451fe17a",
+   "target_input": 3
+  },
+  {
+   "source_id": "a87a0398-b26d-4e17-ad55-1042451fe17a",
+   "target_id": "1a2c0186-7803-40af-94dd-3187302d7f56"
+  },
+  {
+   "source_id": "1a2c0186-7803-40af-94dd-3187302d7f56",
+   "target_id": "c76a3a0e-7718-4064-beff-bbb57911db86"
+  },
+  {
+   "source_id": "1a2c0186-7803-40af-94dd-3187302d7f56",
+   "target_id": "10028a01-0ccf-4e57-91ea-192355eb9723"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "59c0bf42-80a5-4d66-9b5a-43f94c97b209"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "3d4cf2a8-9ffd-4345-8d28-8be998417fc4"
+  },
+  {
+   "source_id": "3d4cf2a8-9ffd-4345-8d28-8be998417fc4",
+   "target_id": "62ed4777-4d28-4b45-89e6-fea3811fa27f"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "d7d5f537-d875-42b6-8e14-977ab1502684"
+  },
+  {
+   "source_id": "d7d5f537-d875-42b6-8e14-977ab1502684",
+   "target_id": "8e584792-8745-415f-abe6-7077e48ff082"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "1026a489-8ed3-4407-847b-a6107aa131ea"
+  },
+  {
+   "source_id": "1026a489-8ed3-4407-847b-a6107aa131ea",
+   "target_id": "962eb91e-d04b-4d01-8ca9-f47a391cf769"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "6c1db6c7-399c-4263-a874-41cdcd29acfd"
+  },
+  {
+   "source_id": "6c1db6c7-399c-4263-a874-41cdcd29acfd",
+   "target_id": "da034a2b-baab-4887-b333-08ae1b242734"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "edc7faed-cf54-4ae2-a315-a14d3cf629f5"
+  },
+  {
+   "source_id": "edc7faed-cf54-4ae2-a315-a14d3cf629f5",
+   "target_id": "4d083f74-e282-42f6-a043-198e99d6e5e5"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "4e485d1e-f510-4016-aefe-18d6b4d7fe64"
+  },
+  {
+   "source_id": "4e485d1e-f510-4016-aefe-18d6b4d7fe64",
+   "target_id": "9c07957b-477a-4c75-9466-6f605cfa1973"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "80594bb7-8ffe-4e51-b84a-0e5c6ff91510"
+  },
+  {
+   "source_id": "4d930e68-c0ff-4cb1-bb95-90590ad6e9fa",
+   "target_id": "dce79264-3115-4ee5-9929-589f6b69cfcd"
+  }
+ ],
+ "sheets": [
+  "Worksheet"
+ ],
+ "active_sheet": "Worksheet"
+}

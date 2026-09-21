@@ -26,7 +26,8 @@ crypto_DATA = \
 	crypto/bridge-comparison.json \
 	crypto/crypto-monitor.json \
 	crypto/exchange-monitor.json \
-	crypto/exchange-rates.json
+	crypto/exchange-rates.json \
+	crypto/uniswap-v2.json
 
 homeautomationdir = $(pkgdatadir)/examples/home-automation
 homeautomation_DATA = \
