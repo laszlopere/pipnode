@@ -2286,8 +2286,8 @@
                  grow a verb cheat sheet of its own.
        [ ] 80.12 PLAN SETTLED (2026-09-21), tests STILL TO WRITE --
              headless and pixel-free, testing the RESOLVED DISPLAY
-             LIST as text. Nothing renders; the whole node except the strokes
-             themselves is under test, which is the payoff for the
+             LIST as text. Nothing renders; the whole node except the
+             strokes themselves is under test, which is the payoff for the
              core/painter seam 80.4(i) and 80.10(d) already demanded.
 
              (a) THE SEAM IS AN API:
@@ -2413,8 +2413,9 @@
              they go in examples/displays/, deliberately. CHECKED:
              examples/Makefile.am installs image, networking, crypto,
              home-automation, system-monitoring, speech-and-sound,
-             controls-and-logic, time, displays and misc -- and STILL not Clocks, Compute,
-             meshtastic or panel-applet-ideas, exactly as TODO #79.2
+             controls-and-logic, time, displays and misc -- and STILL
+             not Clocks, Compute, meshtastic or panel-applet-ideas,
+             exactly as TODO #79.2
              found. Rather than make this work depend on that fix,
              ship into a directory that already installs; #79.2 stays
              worth doing on its own.
