@@ -2284,9 +2284,9 @@
                  GType name, so data/help/PnFigure.html (80.14) is
                  reachable the moment it exists. The dialog must NOT
                  grow a verb cheat sheet of its own.
-       [x] 80.12 DECIDED (2026-09-21): unit tests -- headless and
-             pixel-free, testing the RESOLVED DISPLAY LIST as text.
-             Nothing renders; the whole node except the strokes
+       [ ] 80.12 PLAN SETTLED (2026-09-21), tests STILL TO WRITE --
+             headless and pixel-free, testing the RESOLVED DISPLAY
+             LIST as text. Nothing renders; the whole node except the strokes
              themselves is under test, which is the payoff for the
              core/painter seam 80.4(i) and 80.10(d) already demanded.
 
@@ -2560,6 +2560,92 @@
              must); break the program mid-edit and confirm the node turns
              red with a readable line number instead of drawing garbage;
              then wire a vector in and watch it move.
+       [ ] 80.22 THE CODE, part 1 of 4: the front end. lib/pn-figure.c,
+             core tier -- everything that turns the `program` string
+             into a display list, and nothing that evaluates or draws.
+             NOTE ON NUMBERING: 80.22-80.25 are numbered after the
+             design sub-points because this plan was written
+             decision-first; in BUILD order they come straight after
+             80.11 and before 80.12, and nothing from 80.12 onwards can
+             start until they exist. Contents:
+             [ ] 80.22.1 The line scanner: comment stripping that knows
+                   about strings, trailing-comma continuation, blank
+                   lines, leading whitespace (80.2 rules 4, 5, 6).
+             [ ] 80.22.2 Statement splitting: verb-or-assignment on one
+                   lookahead, commas at paren depth 0 outside quotes,
+                   string literals with their escapes (80.2 rules 1,
+                   3).
+             [ ] 80.22.3 The verb table -- name, arity, argument kinds
+                   -- covering 80.5, 80.6 and 80.7, with the
+                   two-spelling colour argument as the single
+                   exception (80.5).
+             [ ] 80.22.4 Literal parsing at PARSE time: colours through
+                   pn_color_parse (80.5a), dash styles, alignment
+                   words, and printf format validation with its
+                   conversion count (80.7c). All of these are errors
+                   the user sees before the figure ever runs.
+             [ ] 80.22.5 Per-argument expression parsing into ASTs,
+                   plus the free-identifier walk, plus constant folding
+                   of any argument that has none (80.3b, 80.2 rule 12).
+             [ ] 80.22.6 Error collection: every error, reported as the
+                   first plus a count, with line and column (80.2 rule
+                   9, 80.10a).
+       [ ] 80.23 THE CODE, part 2 of 4: the back end. Still
+             lib/pn-figure.c, still core, still nothing that draws.
+             [ ] 80.23.1 The binding snapshot and the per-frame
+                   clear-constants-snapshot-run cycle (80.8e, 80.2
+                   rule 13), with pi and e pre-bound until #81 lands
+                   (80.3c, 80.3d).
+             [ ] 80.23.2 The pen-state machine over the whole state
+                   vector of 80.5, reset to defaults every frame.
+             [ ] 80.23.3 The view transform of 80.4, including
+                   letterboxing, reversed bounds and the skip rule for
+                   a degenerate window.
+             [ ] 80.23.4 Resolution into a device-space display list,
+                   with the three error classes of 80.10 and the
+                   evaluate-fully-then-paint contract of 80.10(d).
+             [ ] 80.23.5 pn_figure_dump() in the format 80.12 pins
+                   down -- written WITH the resolver, not bolted on
+                   afterwards, because it is the only way to see what
+                   the resolver did.
+       [ ] 80.24 THE CODE, part 3 of 4: the node object.
+             lib/pn-figure.h plus the GObject half of pn-figure.c.
+             [ ] 80.24.1 Properties and the settings schema (80.9h,
+                   80.11), including the read-only `error` string.
+             [ ] 80.24.2 Ports: sink, 1..8 renameable inputs,
+                   pn_node_set_collate_inputs (80.8a, 80.8d, 80.8g).
+             [ ] 80.24.3 receive() -- rebuild the snapshot, re-resolve,
+                   schedule a coalesced repaint at the 100 ms floor
+                   (80.8h).
+             [ ] 80.24.4 Class metadata, get_size, get_client_area, the
+                   zoom-aspect flag; factory registration (80.9c,
+                   80.9d, 80.9e).
+             [ ] 80.24.5 The default program of 80.11(g), so a
+                   dragged-in node draws something immediately.
+       [ ] 80.25 THE CODE, part 4 of 4: the painter.
+             lib/pn-figure-gui.c, gui tier, installed as
+             PnNodeClass.paint_plot -- and it must stay DUMB: it walks
+             a resolved list and strokes, it does not evaluate.
+             [ ] 80.25.1 Clip and background fill (80.4e, 80.4f).
+             [ ] 80.25.2 Stroke and fill per the pen state, widths and
+                   dashes scaled with the hairline escape (80.5c,
+                   80.5d), fill-then-stroke, round cap and join
+                   (80.5e, 80.5f).
+             [ ] 80.25.3 Arcs and circles: cairo_arc_negative with
+                   NEGATED angles (80.6d) and the save/scale/restore
+                   that keeps them right under `stretch` (80.6e).
+             [ ] 80.25.4 Text through Pango: absolute size, the
+                   alignment offsets core could not compute (80.7e,
+                   80.7f), multi-line `\n`.
+             [ ] 80.25.5 The error text rendering of 80.10(e), and
+                   pn_figure_gui_install().
+       [ ] 80.26 THE CODE, afterwards: animation, and only once
+             80.22-80.25 draw a still figure correctly end to end
+             (80.16 says not before). The frame index at paint time
+             (80.16a), the core-side timer with its no-listener rule
+             (80.17b, 80.17c),
+             the fps / play-mode / frames properties, and `frame` and
+             `t` as vectors with the two-pass count (80.17d, 80.17e).
 
 [ ] 81 Multi-argument functions and constants in the calculator
        language. Today PnVarStore knows exactly ten functions, all of
