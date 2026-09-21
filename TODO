@@ -1204,3 +1204,83 @@
              hit-test now run over ALL FOUR layouts.
        [ ] 76.8.6 GUI check by hand: the hex pad's A-F in the accent colour,
              and the phone pad's letter groups legible under the digits.
+
+[ ] 77 Burglar Alarm node (PnBurglarAlarm) -- the first CONTROLLER: a
+       self-contained state machine that runs a whole appliance rather than
+       transforming one message. Five inputs that mean different things and five
+       outputs that speak at different times, which is what sets the new
+       "Controllers" palette group apart from the Filters groups. Keypad ->
+       Panel -> LCD + siren + voice + radio is a working intruder alarm.
+
+       [x] 77.1 Core lib/pn-burglar-alarm.[ch] (GTK-free, no gui tier -- the node
+             is header-only and the six properties render in the generic
+             settings dialog). Logic seam pn_burglar_alarm_press() / _submit() /
+             _set_zone() / _trip_zone() / _tick() so a headless test can walk a
+             whole burglary without building messages or waiting out a real
+             delay. _tick() deliberately does NOT touch the node's own 1 Hz
+             timer, so a test driving it directly never arms a main-loop source.
+       [x] 77.2 Inputs: 0 keypad (data.key, one keystroke -- what the Keypad's
+             Decimal pad emits; failing that a whole code in data.output, so
+             MQTT can arm remotely), 1 delayed (the entry/exit route), 2..4
+             zone 1-3 (instant). A numeric data.value sets a zone's HELD state
+             (a door contact); NO numeric value is a MOMENTARY trip (a PIR) that
+             leaves the zone closed -- the difference is what decides whether
+             the panel can arm.
+       [x] 77.3 Zone names ARE the input names (pn_node_get_input_name), so a
+             rename on the node's Inputs tab renames the zone in the readout,
+             the spoken sentence and the sms. No bespoke name properties.
+       [x] 77.4 Outputs: 0 alarm (the siren, 0.0/1.0 + data.cause), 1 display
+             (2-4 LCD lines in data.output, countdown seconds in data.value),
+             2 armed (0.0/1.0), 3 speech (one spoken sentence per event, for
+             Text to Speech), 4 sms (one written sentence per IMPORTANT event,
+             for Meshtastic). Every message carries data.state. alarm/armed are
+             written only on a change; sms on arming is opt-in (a radio message
+             per arming is a lot of radio).
+       [x] 77.5 States disarmed -> exit -> armed -> entry -> alarm. Arming is
+             refused while an INSTANT zone is held open (NOT READY names it);
+             the delayed zone may be open -- that is the door being left
+             through. Zones are ignored during the exit delay but re-read the
+             moment arming bites. The siren cuts off after siren-time while the
+             state STAYS alarm, remembering the cause, until a code disarms.
+       [x] 77.6 The panel paints itself red on the worksheet while tripped, via
+             the generic node error state (TODO #71-era pn_node_set_has_error)
+             rather than a bespoke icon swap.
+       [x] 77.7 Startup announce (g_idle, Knob/Switch pattern): display, armed=0
+             and alarm=0 once on load, so a wired LCD is not left blank and a
+             wired siren is told to be quiet -- but SILENT on speech and sms,
+             which would otherwise talk to the room every time the worksheet is
+             opened. The state itself is not serialized: a reloaded worksheet
+             comes up disarmed, the only safe assumption about a house nobody
+             was watching.
+       [x] 77.8 Matrix57 grew from 1-2 to 1-4 lines so the display output has a
+             real 20x4 target (the request was "a two line or a four line LCD").
+             Past two rows the NODE grows (PN_M57_ROW_HEIGHT, 45 px per extra
+             row) instead of the dots shrinking; 1 and 2 keep the historical
+             90 px body so no existing worksheet moves. The panel-applet mirror
+             follows the same range but keeps its panel-row height.
+       [x] 77.9 Factory registration under the new "Controllers" category, help
+             page PnBurglarAlarm.html, pipnode-nodes skill entry (the new
+             reference/controllers.md + the Matrix57 line-count update).
+       [x] 77.10 Unit tests tests/unit/test-pn-burglar-alarm.c -- the whole
+             state machine driven through the logic seam (126 checks): exit and
+             entry delays, zero-delay shortcuts, wrong/empty codes, NOT READY,
+             held vs momentary zones, the siren cut-off and its no-cut-off mode,
+             the 2/3/4-line readouts, the startup announce (and its silence on
+             speech/sms), sms gating, and the message shapes on all five
+             outputs.
+       [x] 77.11 Example worksheet examples/controls-and-logic/burglar-alarm.json
+             (Keypad + four Switches -> Panel -> 20x4 Matrix57, two LEDs, Text to
+             Speech, and a Text View standing in for a Meshtastic node).
+       [ ] 77.12 GUI check by hand: type 1234 # on the pad and watch the LCD
+             count the exit delay down to ARMED; flip the Front door switch and
+             confirm the entry delay counts instead of the siren; flip a window
+             and confirm the siren LED blinks, the node paints red, and the
+             Text View shows the sms text.
+       [ ] 77.13 Candidate follow-ups, deliberately NOT implemented: a keypad
+             lockout / tamper alarm after N wrong codes (real panels do this); a
+             duress code that disarms but still texts; per-zone "chime while
+             disarmed"; a 24-hour zone that trips even when disarmed; and a
+             partial ("night") arm that watches only some zones. The code is
+             stored in the worksheet as PLAIN TEXT -- a certified panel would
+             want it in the PnVault (see #27), which is the one thing here that
+             is a real limitation rather than a missing convenience.

@@ -16,6 +16,7 @@ pnhelp_DATA = \
 	help/PnAutoRandom.html \
 	help/PnBridgeConverter.html \
 	help/PnBridgeQuote.html \
+	help/PnBurglarAlarm.html \
 	help/PnCalcEngine.html \
 	help/PnChat.html \
 	help/PnClockDivider.html \

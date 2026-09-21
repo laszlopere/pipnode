@@ -29,6 +29,7 @@
 #include "pn-auto-random.h"
 #include "pn-bridge-converter.h"
 #include "pn-bridge-quote.h"
+#include "pn-burglar-alarm.h"
 #include "pn-calc-engine.h"
 #include "pn-chat.h"
 #include "pn-comparator.h"
@@ -328,6 +329,11 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_THRESHOLD);
     pn_node_factory_register (self, PN_TYPE_THROTTLE);
     pn_node_factory_register (self, PN_TYPE_WATCHDOG);
+
+    /* Controllers — self-contained state machines that run a whole
+     * appliance rather than transform one message: wire the inputs and
+     * outputs up and the node is the thing. */
+    pn_node_factory_register (self, PN_TYPE_BURGLAR_ALARM);
 
     /* CPU building blocks — a wire-writable register, a self-advancing
      * counter (the program counter), a read/write RAM, and a value-

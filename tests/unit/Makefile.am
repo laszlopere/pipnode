@@ -77,6 +77,7 @@ check_PROGRAMS = \
 	test-pn-inject \
 	test-pn-knob \
 	test-pn-keypad \
+	test-pn-burglar-alarm \
 	test-pn-calc-engine \
 	test-pn-table-model \
 	test-pn-auto-injector \
@@ -257,6 +258,7 @@ test_pn_stats_SOURCES        = test-pn-stats.c        pntest.c pntest.h
 test_pn_inject_SOURCES       = test-pn-inject.c       pntest.c pntest.h
 test_pn_knob_SOURCES         = test-pn-knob.c         pntest.c pntest.h
 test_pn_keypad_SOURCES       = test-pn-keypad.c       pntest.c pntest.h
+test_pn_burglar_alarm_SOURCES = test-pn-burglar-alarm.c pntest.c pntest.h
 test_pn_calc_engine_SOURCES  = test-pn-calc-engine.c  pntest.c pntest.h
 test_pn_table_model_SOURCES  = test-pn-table-model.c  pntest.c pntest.h
 test_pn_auto_injector_SOURCES = test-pn-auto-injector.c pntest.c pntest.h pntimer.h

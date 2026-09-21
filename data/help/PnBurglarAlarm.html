@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Burglar Alarm (PnBurglarAlarm) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnBurglarAlarm">Burglar Alarm</h4>
+<p>
+<em>Group:</em> Controllers. <em>Type:</em> <code>PnBurglarAlarm</code>.
+</p>
+<p>
+The panel of an intruder alarm: the box on the hall wall that watches
+four zones, counts the exit and entry delays, and decides when the
+siren goes off.  It is to a <a href="PnKeypad.html">Keypad</a> what the
+<a href="PnCalcEngine.html">Calculator Engine</a> is &mdash; the state
+machine behind the keys &mdash; only with five inputs and five outputs
+instead of one each, because an alarm panel has more than one thing to
+say.
+</p>
+<p>
+A working panel is five nodes: a Keypad on its
+<code>Decimal Keyboard</code> layout into <code>keypad</code>, four
+sensors into the zones, a <a href="PnMatrix57.html">Matrix57</a>
+character LCD on <code>display</code>, an <a href="PnLed.html">LED</a>
+(or a Tasmota relay) on <code>alarm</code>, and whatever you like on
+<code>speech</code> and <code>sms</code>.  See
+<code>examples/controls-and-logic/burglar-alarm.json</code>.
+</p>
+
+<h5>Inputs</h5>
+<table>
+  <tr><th>Input</th><th>What arrives on it</th></tr>
+  <tr><td><code>keypad</code></td>
+      <td>One keystroke per message, read from <code>data.key</code>
+          &mdash; exactly what the Keypad emits.  Digits build the code,
+          <code>#</code> submits it, <code>*</code> rubs out what has
+          been typed.  A message with no <code>data.key</code> but a
+          <code>data.output</code> string is taken as a <em>whole</em>
+          code submitted at once, so an MQTT feed or a
+          <a href="PnText.html">Text</a> node can arm and disarm the
+          panel remotely.  Anything else on this input is ignored in
+          silence, so a stray reading cannot rub out a half-typed
+          code.</td></tr>
+  <tr><td><code>delayed</code></td>
+      <td>The entry/exit route &mdash; the front door.  Tripping it
+          while armed starts the <em>entry delay</em> instead of the
+          siren, giving whoever came in time to type the code.</td></tr>
+  <tr><td><code>zone 1</code>&hellip;<code>zone 3</code></td>
+      <td>Instant zones.  Tripping one while armed sounds the siren at
+          once.</td></tr>
+</table>
+<p>
+A zone message carrying a numeric <code>data.value</code> sets that
+zone's held state the usual way (&gt; 0.5 is open) &mdash; a door or
+window contact.  A message with <em>no</em> numeric value is a
+momentary trip that leaves the zone closed &mdash; a PIR that only ever
+fires on motion.  The difference matters when arming: a held-open
+instant zone stops the panel arming, a PIR that fired an hour ago does
+not.
+</p>
+<p>
+The zones are named by their <strong>input names</strong>.  Rename an
+input on the node's <em>Inputs</em> tab and the zone is renamed
+everywhere it is announced &mdash; the readout, the spoken sentence and
+the sms all read &ldquo;Kitchen window&rdquo; instead of
+&ldquo;zone 1&rdquo;.
+</p>
+
+<h5>Outputs</h5>
+<table>
+  <tr><th>Output</th><th>What leaves by it</th></tr>
+  <tr><td><code>alarm</code></td>
+      <td>The siren.  <code>data.value</code> is 1.0 while it sounds and
+          0.0 when it does not, so it drives an LED, a Tasmota relay or
+          anything else that reads the boolean encoding.
+          <code>data.output</code> reads
+          <code>ALARM: &lt;zone&gt;</code> or <code>OK</code>, and
+          <code>data.cause</code> carries the zone name on its own.
+          Written only when the siren actually changes.</td></tr>
+  <tr><td><code>display</code></td>
+      <td>The panel's readout as text in <code>data.output</code>, two
+          to four newline-separated lines &mdash; meant for a Matrix57
+          character LCD set to the same line count.
+          <code>data.value</code> carries the running countdown in
+          seconds (0 when nothing is counting), so a
+          <a href="PnNumeric.html">Numeric</a> on the same wire shows
+          the seconds.  Written on every event and once a second while
+          a delay runs.</td></tr>
+  <tr><td><code>armed</code></td>
+      <td><code>data.value</code> 1.0 once the system is armed
+          &mdash; including while it is in entry delay or in alarm
+          &mdash; and 0.0 while it is disarmed or still counting the
+          exit delay.  <code>data.output</code> reads
+          <code>ARMED</code> or <code>DISARMED</code>.  Written only on
+          a change.</td></tr>
+  <tr><td><code>speech</code></td>
+      <td>One short spoken sentence per event in
+          <code>data.output</code>, for a
+          <a href="PnTts.html">Text to Speech</a> node:
+          &ldquo;System armed.&rdquo;, &ldquo;Entry delay. Enter your
+          code.&rdquo;, &ldquo;Alarm! Front door.&rdquo;</td></tr>
+  <tr><td><code>sms</code></td>
+      <td>One longer written sentence per <em>important</em> event, for
+          a <a href="PnMeshtastic.html">Meshtastic</a> node or any other
+          text sink.  Alarms and their clearing always go out; arming
+          and disarming do too only when <code>sms-on-arming</code> is
+          set, because a radio message per arming is a lot of
+          radio.</td></tr>
+</table>
+<p>
+Every emitted message also carries <code>data.state</code> &mdash;
+<code>disarmed</code>, <code>exit</code>, <code>armed</code>,
+<code>entry</code> or <code>alarm</code> &mdash; so a
+<a href="PnValueRouter.html">Value Router</a> or a
+<a href="PnFilter.html">Filter</a> downstream can split the stream
+without parsing the text.  On the speech and sms outputs the same state
+rides in <code>data.value</code> as its number (0&hellip;4).
+</p>
+
+<h5>The state machine</h5>
+<table>
+  <tr><th>State</th><th>What happens in it</th></tr>
+  <tr><td><code>disarmed</code></td>
+      <td>A valid code arms the panel &mdash; but only when no
+          <em>instant</em> zone is held open; otherwise the readout says
+          <code>NOT READY</code> and names what is open.  The delayed
+          zone is allowed to be open: that is the door being walked out
+          of.  Zones are still watched, so the readout always says what
+          is open and why arming was refused.</td></tr>
+  <tr><td><code>exit</code></td>
+      <td>Counting down to armed.  Zones are ignored &mdash; walking
+          through the hall on the way out is not a burglary.  A valid
+          code cancels.</td></tr>
+  <tr><td><code>armed</code></td>
+      <td>The delayed zone starts the entry delay; any instant zone goes
+          straight to alarm.  A zone left open during the exit delay is
+          re-read at the moment arming bites, so a window left open
+          trips then rather than being forgotten.</td></tr>
+  <tr><td><code>entry</code></td>
+      <td>Counting down to the siren.  A valid code disarms.  An instant
+          zone does not wait for the count &mdash; whoever came in
+          walked past the keypad.</td></tr>
+  <tr><td><code>alarm</code></td>
+      <td>The siren sounds for <code>siren-time</code> seconds and then
+          cuts off, the way a bell box must.  The panel stays in alarm,
+          remembering what tripped it, until a valid code disarms it,
+          and paints itself red on the worksheet for as long as it does.
+          A second zone tripping updates the named cause and restarts
+          the siren, but does not send a second sms.</td></tr>
+</table>
+<p>
+The state is <strong>not</strong> saved with the worksheet: a reloaded
+worksheet comes up disarmed, the only safe assumption about a house
+nobody was watching.  On load the node announces that once &mdash;
+display, <code>armed = 0</code> and <code>alarm = 0</code> &mdash; so a
+wired LCD is not left blank and a wired siren is explicitly told to be
+quiet.  It stays silent on the speech and sms outputs, which would
+otherwise talk to the room every time the worksheet is opened.
+</p>
+
+<h5>The keys</h5>
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><code>0</code>&hellip;<code>9</code></td>
+      <td>Appends a digit to the code being typed, up to twelve.  The
+          readout shows it masked as stars.</td></tr>
+  <tr><td><code>#</code> or <code>=</code></td>
+      <td>Submits what has been typed.  <code>#</code> is the Decimal
+          pad's enter key and <code>=</code> the calculator pad's, so
+          either Keypad layout drives the panel.</td></tr>
+  <tr><td><code>*</code>, <code>C</code> or <code>CE</code></td>
+      <td>Rubs out what has been typed and changes nothing else.</td></tr>
+</table>
+<p>
+A wrong code puts <code>WRONG CODE</code> on the readout and says
+&ldquo;Wrong code.&rdquo;  That is a beep, not a latch: the next
+keystroke clears it and the code that follows is judged on its own.
+</p>
+
+<h5>The readout</h5>
+<p>
+Four lines are built, of which the first <code>display-lines</code> are
+emitted &mdash; set that to the line count of the LCD it feeds.
+</p>
+<table>
+  <tr><th>Line</th><th>What it shows</th></tr>
+  <tr><td>1</td>
+      <td>The banner: <code>READY</code>, <code>NOT READY</code>,
+          <code>EXIT 25</code>, <code>ARMED</code>,
+          <code>ENTRY 20</code> or <code>*** ALARM ***</code>.</td></tr>
+  <tr><td>2</td>
+      <td>The detail: which zones are open, <code>Leave now</code>,
+          <code>All secure</code>, <code>Enter code</code>, or the zone
+          that tripped the alarm.  A complaint
+          (<code>WRONG CODE</code>, <code>NOT READY</code>) takes this
+          line until the next keystroke.</td></tr>
+  <tr><td>3</td>
+      <td>The zone map &mdash; <code>Zones ....</code> with an open zone
+          showing its marker (<code>D</code> for the delayed one, then
+          <code>1</code>, <code>2</code>, <code>3</code>) instead of a
+          dot.  So <code>Zones D.2.</code> is the front door and zone 2
+          open.</td></tr>
+  <tr><td>4</td>
+      <td>The code being typed, masked: <code>Code: ****</code>.</td></tr>
+</table>
+<p>
+On a two-line panel there is no room for lines 3 and 4, so the masked
+code takes the detail line while it is being typed &mdash; which is what
+a two-line panel does.
+</p>
+
+<h5>Settings</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>code</code></td>
+      <td>The code that arms and disarms the panel (default
+          <code>1234</code>).  Leave it empty for a panel with no code
+          at all, where a bare <code>#</code> arms and disarms.  It is
+          stored in the worksheet as <strong>plain text</strong> &mdash;
+          this is a demonstration panel, not a certified one.</td></tr>
+  <tr><td><code>exit-delay</code></td>
+      <td>Seconds between a valid code being accepted and the system
+          actually arming &mdash; the time to walk out of the door
+          (0&ndash;600, default 30).  Zero arms immediately.</td></tr>
+  <tr><td><code>entry-delay</code></td>
+      <td>Seconds between the delayed zone tripping and the siren
+          &mdash; the time to reach the keypad (0&ndash;600, default
+          30).  Zero makes the delayed zone behave like an instant
+          one.</td></tr>
+  <tr><td><code>siren-time</code></td>
+      <td>Seconds the siren sounds before it cuts off (0&ndash;3600,
+          default 180).  The panel stays in alarm until a valid code is
+          typed.  Zero means no cut-off: it rings until
+          disarmed.</td></tr>
+  <tr><td><code>display-lines</code></td>
+      <td>How many lines the display output carries (2&ndash;4, default
+          2).  Two gives the state and one line of detail; three adds
+          the zone map; four adds the code being typed on a line of its
+          own.</td></tr>
+  <tr><td><code>sms-on-arming</code></td>
+      <td>Also send an sms message every time the system is armed or
+          disarmed.  Off by default: alarms and their clearing always go
+          out.</td></tr>
+</table>
+
+</body>
+</html>
