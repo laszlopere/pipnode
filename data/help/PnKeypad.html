@@ -42,7 +42,28 @@ The <code>layout</code> setting picks which keys the pad carries:
           top row, <code>0</code> at the bottom) plus the two extra keys
           <code>*</code> and <code>#</code>.  No decimal point, no
           operators, no clear keys &mdash; a PIN has none.</td></tr>
+  <tr><td><strong>Hex Keyboard</strong></td>
+      <td>The byte-entry pad on a 4&times;4 grid:
+          <code>0</code>&hellip;<code>9</code> and
+          <code>A</code>&hellip;<code>F</code>, counting left to right
+          and top to bottom.  The letters are digits like any other
+          &mdash; kind <code>digit</code>, and <code>data.value</code>
+          10&hellip;15 &mdash; so a downstream accumulator can fold a
+          keystroke in with <code>acc &times; 16 + value</code>.  They
+          only <em>paint</em> differently, in the accent colour.</td></tr>
+  <tr><td><strong>Phone Keyboard</strong></td>
+      <td>The decimal pad with the telephone letter groups printed
+          under the digits (<code>2</code> = ABC &hellip;
+          <code>9</code> = WXYZ).  Same codes, same kinds and the same
+          <code>data.value</code> as the decimal pad, so a flow reading
+          digits cannot tell the two apart; the lettered keys simply add
+          <code>data.letters</code>.</td></tr>
 </table>
+<p>
+On the hex pad <code>C</code> is the hex digit twelve, <strong>not</strong>
+the calculator pad's clear key: the layouts are separate key tables, and
+<code>data.kind</code> is what tells the two apart.
+</p>
 <p>
 On the decimal pad <code>*</code> and <code>#</code> emit the
 <code>symbol</code> kind rather than the <code>operator</code> the
@@ -53,8 +74,10 @@ It is the graph downstream that decides what they mean &mdash;
 implements.
 </p>
 <p>
-Switching layout resizes the node: the decimal pad is one column
-narrower and the same height, so the keys stay the same size on both.
+Switching layout resizes the node: a pad with fewer columns is
+narrower rather than fatter-keyed, so the keys stay about the same size
+on all four.  The phone pad is a little wider than the decimal one,
+because <code>PQRS</code> has to fit under the <code>7</code>.
 </p>
 
 <h5>The message a press emits</h5>
@@ -75,10 +98,18 @@ narrower and the same height, so the keys stay the same size on both.
           <a href="PnValueRouter.html">Value Router</a> split the
           stream without matching ten separate digit codes.</td></tr>
   <tr><td><code>data.value</code></td>
-      <td>The numeric value <code>0</code>&hellip;<code>9</code> &mdash;
-          <strong>digit keys only</strong>.  Absent on every other key, so
-          a downstream numeric node consumes the digits and quietly
-          ignores the rest.</td></tr>
+      <td>The digit's numeric value &mdash; <strong>digit keys
+          only</strong>.  <code>0</code>&hellip;<code>9</code>, or
+          <code>0</code>&hellip;<code>15</code> on the hex pad, where
+          <code>A</code>&hellip;<code>F</code> are digits too.  Absent on
+          every other key, so a downstream numeric node consumes the
+          digits and quietly ignores the rest.</td></tr>
+  <tr><td><code>data.letters</code></td>
+      <td>The telephone letter group, e.g. <code>PQRS</code> &mdash;
+          <strong>the phone pad's lettered keys only</strong>.  Absent
+          everywhere else, including <code>1</code>, <code>0</code>,
+          <code>*</code> and <code>#</code>, which a telephone leaves
+          bare.</td></tr>
 </table>
 <p>
 The operator keys paint the typographic signs a calculator has on its
@@ -109,8 +140,9 @@ until the user actually presses something.
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>layout</code></td>
-      <td>Which keys the pad carries &mdash; <em>Basic Calculator</em> or
-          <em>Decimal Keyboard</em>, see above.</td></tr>
+      <td>Which keys the pad carries &mdash; <em>Basic Calculator</em>,
+          <em>Decimal Keyboard</em>, <em>Hex Keyboard</em> or
+          <em>Phone Keyboard</em>, see above.</td></tr>
   <tr><td><code>background-color</code></td>
       <td>Fill colour of the keypad's case &mdash; the panel the keys
           sit on.</td></tr>
@@ -119,8 +151,9 @@ until the user actually presses something.
   <tr><td><code>accent-color</code></td>
       <td>Face colour of the keys the pad picks out in a second colour:
           the operators and <code>=</code> on the calculator pad,
-          <code>*</code> and <code>#</code> on the decimal
-          keyboard.</td></tr>
+          <code>*</code> and <code>#</code> on the decimal and phone
+          keyboards, <code>A</code>&hellip;<code>F</code> on the hex
+          one.</td></tr>
   <tr><td><code>text-color</code></td>
       <td>Colour of the key legends.</td></tr>
 </table>

@@ -74,30 +74,34 @@
 /* ------------------------------------------------------------------ */
 
 static const PnKeypadKey keypad_keys_calculator[] = {
-    /* label   code  kind                   col row span_c span_r */
-    { "C",     "C",  PN_KEYPAD_CLEAR,        0,  0,  1,  1 },
-    { "CE",    "CE", PN_KEYPAD_CLEAR_ENTRY,  1,  0,  1,  1 },
-    { "\xc3\xb7", "/", PN_KEYPAD_OPERATOR,   2,  0,  1,  1 },  /* U+00F7 */
-    { "\xc3\x97", "*", PN_KEYPAD_OPERATOR,   3,  0,  1,  1 },  /* U+00D7 */
+    /* label  code  kind                  col row cspan rspan sub   accent */
+    { "C",    "C",  PN_KEYPAD_CLEAR,       0,  0,  1,  1, NULL, FALSE },
+    { "CE",   "CE", PN_KEYPAD_CLEAR_ENTRY, 1,  0,  1,  1, NULL, FALSE },
+    { "\xc3\xb7", "/", PN_KEYPAD_OPERATOR, 2, 0, 1,  1, NULL, TRUE  },
+    { "\xc3\x97", "*", PN_KEYPAD_OPERATOR, 3, 0, 1,  1, NULL, TRUE  },
 
-    { "7",     "7",  PN_KEYPAD_DIGIT,        0,  1,  1,  1 },
-    { "8",     "8",  PN_KEYPAD_DIGIT,        1,  1,  1,  1 },
-    { "9",     "9",  PN_KEYPAD_DIGIT,        2,  1,  1,  1 },
-    { "\xe2\x88\x92", "-", PN_KEYPAD_OPERATOR, 3, 1, 1,  1 },  /* U+2212 */
+    { "7",    "7",  PN_KEYPAD_DIGIT,       0,  1,  1,  1, NULL, FALSE },
+    { "8",    "8",  PN_KEYPAD_DIGIT,       1,  1,  1,  1, NULL, FALSE },
+    { "9",    "9",  PN_KEYPAD_DIGIT,       2,  1,  1,  1, NULL, FALSE },
+    { "\xe2\x88\x92", "-", PN_KEYPAD_OPERATOR, 3, 1, 1, 1, NULL, TRUE },
 
-    { "4",     "4",  PN_KEYPAD_DIGIT,        0,  2,  1,  1 },
-    { "5",     "5",  PN_KEYPAD_DIGIT,        1,  2,  1,  1 },
-    { "6",     "6",  PN_KEYPAD_DIGIT,        2,  2,  1,  1 },
-    { "+",     "+",  PN_KEYPAD_OPERATOR,     3,  2,  1,  1 },
+    { "4",    "4",  PN_KEYPAD_DIGIT,       0,  2,  1,  1, NULL, FALSE },
+    { "5",    "5",  PN_KEYPAD_DIGIT,       1,  2,  1,  1, NULL, FALSE },
+    { "6",    "6",  PN_KEYPAD_DIGIT,       2,  2,  1,  1, NULL, FALSE },
+    { "+",    "+",  PN_KEYPAD_OPERATOR,    3,  2,  1,  1, NULL, TRUE  },
 
-    { "1",     "1",  PN_KEYPAD_DIGIT,        0,  3,  1,  1 },
-    { "2",     "2",  PN_KEYPAD_DIGIT,        1,  3,  1,  1 },
-    { "3",     "3",  PN_KEYPAD_DIGIT,        2,  3,  1,  1 },
-    { "=",     "=",  PN_KEYPAD_EQUALS,       3,  3,  1,  2 },
+    { "1",    "1",  PN_KEYPAD_DIGIT,       0,  3,  1,  1, NULL, FALSE },
+    { "2",    "2",  PN_KEYPAD_DIGIT,       1,  3,  1,  1, NULL, FALSE },
+    { "3",    "3",  PN_KEYPAD_DIGIT,       2,  3,  1,  1, NULL, FALSE },
+    { "=",    "=",  PN_KEYPAD_EQUALS,      3,  3,  1,  2, NULL, TRUE  },
 
-    { "0",     "0",  PN_KEYPAD_DIGIT,        0,  4,  2,  1 },
-    { ".",     ".",  PN_KEYPAD_POINT,        2,  4,  1,  1 },
+    { "0",    "0",  PN_KEYPAD_DIGIT,       0,  4,  2,  1, NULL, FALSE },
+    { ".",    ".",  PN_KEYPAD_POINT,       2,  4,  1,  1, NULL, FALSE },
 };
+
+/* The typographic signs above: U+00F7 divide, U+00D7 multiply,
+ * U+2212 minus.  They are what the key paints; the ASCII code beside
+ * each is what it emits. */
 
 /* ------------------------------------------------------------------ */
 /*  The decimal keyboard — a code-entry pad, in telephone order:       */
@@ -116,22 +120,97 @@ static const PnKeypadKey keypad_keys_calculator[] = {
 /* ------------------------------------------------------------------ */
 
 static const PnKeypadKey keypad_keys_decimal[] = {
-    /* label  code  kind              col row span_c span_r */
-    { "1",    "1",  PN_KEYPAD_DIGIT,   0,  0,  1,  1 },
-    { "2",    "2",  PN_KEYPAD_DIGIT,   1,  0,  1,  1 },
-    { "3",    "3",  PN_KEYPAD_DIGIT,   2,  0,  1,  1 },
+    /* label  code  kind             col row cspan rspan sub   accent */
+    { "1",    "1",  PN_KEYPAD_DIGIT,  0,  0,  1,  1,  NULL, FALSE },
+    { "2",    "2",  PN_KEYPAD_DIGIT,  1,  0,  1,  1,  NULL, FALSE },
+    { "3",    "3",  PN_KEYPAD_DIGIT,  2,  0,  1,  1,  NULL, FALSE },
 
-    { "4",    "4",  PN_KEYPAD_DIGIT,   0,  1,  1,  1 },
-    { "5",    "5",  PN_KEYPAD_DIGIT,   1,  1,  1,  1 },
-    { "6",    "6",  PN_KEYPAD_DIGIT,   2,  1,  1,  1 },
+    { "4",    "4",  PN_KEYPAD_DIGIT,  0,  1,  1,  1,  NULL, FALSE },
+    { "5",    "5",  PN_KEYPAD_DIGIT,  1,  1,  1,  1,  NULL, FALSE },
+    { "6",    "6",  PN_KEYPAD_DIGIT,  2,  1,  1,  1,  NULL, FALSE },
 
-    { "7",    "7",  PN_KEYPAD_DIGIT,   0,  2,  1,  1 },
-    { "8",    "8",  PN_KEYPAD_DIGIT,   1,  2,  1,  1 },
-    { "9",    "9",  PN_KEYPAD_DIGIT,   2,  2,  1,  1 },
+    { "7",    "7",  PN_KEYPAD_DIGIT,  0,  2,  1,  1,  NULL, FALSE },
+    { "8",    "8",  PN_KEYPAD_DIGIT,  1,  2,  1,  1,  NULL, FALSE },
+    { "9",    "9",  PN_KEYPAD_DIGIT,  2,  2,  1,  1,  NULL, FALSE },
 
-    { "*",    "*",  PN_KEYPAD_SYMBOL,  0,  3,  1,  1 },
-    { "0",    "0",  PN_KEYPAD_DIGIT,   1,  3,  1,  1 },
-    { "#",    "#",  PN_KEYPAD_SYMBOL,  2,  3,  1,  1 },
+    { "*",    "*",  PN_KEYPAD_SYMBOL, 0,  3,  1,  1,  NULL, TRUE  },
+    { "0",    "0",  PN_KEYPAD_DIGIT,  1,  3,  1,  1,  NULL, FALSE },
+    { "#",    "#",  PN_KEYPAD_SYMBOL, 2,  3,  1,  1,  NULL, TRUE  },
+};
+
+/* ------------------------------------------------------------------ */
+/*  The hex pad — byte entry, counting left to right:                  */
+/*                                                                     */
+/*      0   1   2   3                                                  */
+/*      4   5   6   7                                                  */
+/*      8   9   A   B                                                  */
+/*      C   D   E   F                                                  */
+/*                                                                     */
+/*  "A".."F" are digits, not symbols: they carry kind "digit" and a    */
+/*  data.value of 10..15, so a downstream accumulator can fold a       */
+/*  keystroke in with acc * 16 + value without special-casing the      */
+/*  letters.  They only *paint* differently, through the key table's   */
+/*  accent flag.  Note "C" here is the hex digit twelve, not the       */
+/*  calculator pad's clear key — the layouts are separate tables and   */
+/*  the kind tells the two apart.                                      */
+/* ------------------------------------------------------------------ */
+
+static const PnKeypadKey keypad_keys_hex[] = {
+    /* label  code  kind             col row cspan rspan sub   accent */
+    { "0",    "0",  PN_KEYPAD_DIGIT,  0,  0,  1,  1,  NULL, FALSE },
+    { "1",    "1",  PN_KEYPAD_DIGIT,  1,  0,  1,  1,  NULL, FALSE },
+    { "2",    "2",  PN_KEYPAD_DIGIT,  2,  0,  1,  1,  NULL, FALSE },
+    { "3",    "3",  PN_KEYPAD_DIGIT,  3,  0,  1,  1,  NULL, FALSE },
+
+    { "4",    "4",  PN_KEYPAD_DIGIT,  0,  1,  1,  1,  NULL, FALSE },
+    { "5",    "5",  PN_KEYPAD_DIGIT,  1,  1,  1,  1,  NULL, FALSE },
+    { "6",    "6",  PN_KEYPAD_DIGIT,  2,  1,  1,  1,  NULL, FALSE },
+    { "7",    "7",  PN_KEYPAD_DIGIT,  3,  1,  1,  1,  NULL, FALSE },
+
+    { "8",    "8",  PN_KEYPAD_DIGIT,  0,  2,  1,  1,  NULL, FALSE },
+    { "9",    "9",  PN_KEYPAD_DIGIT,  1,  2,  1,  1,  NULL, FALSE },
+    { "A",    "A",  PN_KEYPAD_DIGIT,  2,  2,  1,  1,  NULL, TRUE  },
+    { "B",    "B",  PN_KEYPAD_DIGIT,  3,  2,  1,  1,  NULL, TRUE  },
+
+    { "C",    "C",  PN_KEYPAD_DIGIT,  0,  3,  1,  1,  NULL, TRUE  },
+    { "D",    "D",  PN_KEYPAD_DIGIT,  1,  3,  1,  1,  NULL, TRUE  },
+    { "E",    "E",  PN_KEYPAD_DIGIT,  2,  3,  1,  1,  NULL, TRUE  },
+    { "F",    "F",  PN_KEYPAD_DIGIT,  3,  3,  1,  1,  NULL, TRUE  },
+};
+
+/* ------------------------------------------------------------------ */
+/*  The phone pad — the decimal keyboard with the letter groups        */
+/*  printed under the digits:                                          */
+/*                                                                     */
+/*      1       2 ABC   3 DEF                                          */
+/*      4 GHI   5 JKL   6 MNO                                          */
+/*      7 PQRS  8 TUV   9 WXYZ                                         */
+/*      *       0       #                                              */
+/*                                                                     */
+/*  Same codes, same kinds and the same data.value as the decimal pad  */
+/*  — a flow reading digits cannot tell the two apart, which is the    */
+/*  point.  The lettered keys add data.letters ("PQRS"), so a          */
+/*  downstream node can spell as well as count.  Wider keys than the   */
+/*  decimal pad's, because "PQRS" has to fit under the 7.              */
+/* ------------------------------------------------------------------ */
+
+static const PnKeypadKey keypad_keys_phone[] = {
+    /* label  code  kind             col row cspan rspan sub     accent */
+    { "1",    "1",  PN_KEYPAD_DIGIT,  0,  0,  1,  1,  NULL,   FALSE },
+    { "2",    "2",  PN_KEYPAD_DIGIT,  1,  0,  1,  1,  "ABC",  FALSE },
+    { "3",    "3",  PN_KEYPAD_DIGIT,  2,  0,  1,  1,  "DEF",  FALSE },
+
+    { "4",    "4",  PN_KEYPAD_DIGIT,  0,  1,  1,  1,  "GHI",  FALSE },
+    { "5",    "5",  PN_KEYPAD_DIGIT,  1,  1,  1,  1,  "JKL",  FALSE },
+    { "6",    "6",  PN_KEYPAD_DIGIT,  2,  1,  1,  1,  "MNO",  FALSE },
+
+    { "7",    "7",  PN_KEYPAD_DIGIT,  0,  2,  1,  1,  "PQRS", FALSE },
+    { "8",    "8",  PN_KEYPAD_DIGIT,  1,  2,  1,  1,  "TUV",  FALSE },
+    { "9",    "9",  PN_KEYPAD_DIGIT,  2,  2,  1,  1,  "WXYZ", FALSE },
+
+    { "*",    "*",  PN_KEYPAD_SYMBOL, 0,  3,  1,  1,  NULL,   TRUE  },
+    { "0",    "0",  PN_KEYPAD_DIGIT,  1,  3,  1,  1,  NULL,   FALSE },
+    { "#",    "#",  PN_KEYPAD_SYMBOL, 2,  3,  1,  1,  NULL,   TRUE  },
 };
 
 /* One row per #PnKeypadLayout value, indexed by the enum, so adding a
@@ -153,6 +232,14 @@ static const PnKeypadLayoutInfo keypad_layouts[] = {
      * keeps its keys the same 44 px wide as the calculator pad's. */
     { keypad_keys_decimal,    G_N_ELEMENTS (keypad_keys_decimal),
       3, 4, 152.0 },
+    /* PN_KEYPAD_LAYOUT_HEX: four columns again, so the same width as
+     * the calculator pad and squarer keys (one row fewer). */
+    { keypad_keys_hex,        G_N_ELEMENTS (keypad_keys_hex),
+      4, 4, 200.0 },
+    /* PN_KEYPAD_LAYOUT_PHONE: the decimal grid with wider keys —
+     * 56 px, enough for "PQRS" under the 7. */
+    { keypad_keys_phone,      G_N_ELEMENTS (keypad_keys_phone),
+      3, 4, 188.0 },
 };
 
 /** The layout descriptor for @layout, falling back to the calculator
@@ -180,6 +267,10 @@ pn_keypad_layout_get_type (void)
               "Basic Calculator" },
             { PN_KEYPAD_LAYOUT_DECIMAL,    "PN_KEYPAD_LAYOUT_DECIMAL",
               "Decimal Keyboard" },
+            { PN_KEYPAD_LAYOUT_HEX,        "PN_KEYPAD_LAYOUT_HEX",
+              "Hex Keyboard" },
+            { PN_KEYPAD_LAYOUT_PHONE,      "PN_KEYPAD_LAYOUT_PHONE",
+              "Phone Keyboard" },
             { 0, NULL, NULL }
         };
 
@@ -433,9 +524,22 @@ pn_keypad_press (PnKeypad *self, guint index)
     /* Only the digit keys carry a number.  Leaving `value` off the
      * operator and clear keys is what lets a downstream numeric node
      * consume the digits and quietly ignore everything else, instead
-     * of having to guess what "the value of +" would mean. */
+     * of having to guess what "the value of +" would mean.
+     *
+     * Read as a hex digit, so the hex pad's "A".."F" come through as
+     * 10..15 while "0".."9" keep meaning what they always did. */
     if (k->kind == PN_KEYPAD_DIGIT)
-        pn_message_set_double (msg, "value", (double) (k->code[0] - '0'));
+    {
+        gint v = g_ascii_xdigit_value (k->code[0]);
+
+        if (v >= 0)
+            pn_message_set_double (msg, "value", (double) v);
+    }
+
+    /* The phone pad's letter groups travel with the key, so a flow can
+     * spell as well as count. */
+    if (k->sublabel != NULL)
+        pn_message_set_string (msg, "letters", k->sublabel);
 
     press_flash_start (self, index);
 
@@ -679,9 +783,10 @@ pn_keypad_class_init (PnKeypadClass *klass)
 
     props[PROP_LAYOUT] = g_param_spec_enum (
             "layout", "Layout",
-            "Which keys the pad carries: the pocket-calculator pad, or "
+            "Which keys the pad carries: the pocket-calculator pad, "
             "the decimal keyboard \"0\"..\"9\" + \"*\" and \"#\" a code "
-            "entry pad has.",
+            "entry pad has, the hex pad \"0\"..\"F\" for byte entry, or "
+            "the phone pad with its letter groups under the digits.",
             PN_TYPE_KEYPAD_LAYOUT,
             PN_KEYPAD_LAYOUT_CALCULATOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
@@ -703,7 +808,8 @@ pn_keypad_class_init (PnKeypadClass *klass)
             "accent-color", "Accent colour",
             "Face colour of the keys a pad picks out in a second "
             "colour: the operators and \"=\" on the calculator pad, "
-            "\"*\" and \"#\" on the decimal keyboard.",
+            "\"*\" and \"#\" on the decimal and phone keyboards, "
+            "\"A\"..\"F\" on the hex one.",
             PN_TYPE_COLOR,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 

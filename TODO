@@ -1178,6 +1178,29 @@
        [x] 76.7 GUI check by hand: DONE -- the layout combo box in the settings
              dialog switches the pad live, the node redraws as the narrower
              phone pad, and the keys emit as expected.
-       [ ] 76.8 Candidate follow-ups: a hex pad (0-9 A-F) for byte entry, and a
-             "letters under the digits" variant (ABC/DEF) if a phone-style text
-             entry ever wants one.
+       [ ] 76.8 Two more layouts, the follow-ups #76 listed: a hex pad and a
+             phone pad with letters.
+
+       [x] 76.8.1 PnKeypadKey grew two fields: "sublabel" (a small second line
+             under the legend, NULL on most keys) and "accent" (a PAINT hint,
+             deliberately not a kind -- it is what lets the hex pad highlight
+             A-F while still calling them digits). The painter picks the face
+             colour off the flag instead of switch-ing on the kind.
+       [x] 76.8.2 "Hex Keyboard": 4x4, 0..F counting left to right, A-F are
+             kind "digit" with data.value 10..15 (g_ascii_xdigit_value, so the
+             decimal pads are unaffected) -- a downstream accumulator folds a
+             key in with acc * 16 + value. "C" is twelve here, NOT the
+             calculator pad's clear key; the kind tells them apart.
+       [x] 76.8.3 "Phone Keyboard": the decimal grid key for key, with the
+             telephone letter groups under the digits (2 = ABC .. 9 = WXYZ).
+             Lettered keys add data.letters; 1, 0, * and # stay bare. 188 px
+             wide (vs the decimal pad's 152) so "PQRS" fits under the 7.
+       [x] 76.8.4 The painter draws a sublabel as a smaller second line,
+             centred with the digit as one block and blended 40% toward the
+             key face so the digit still reads first.
+       [x] 76.8.5 Help page, pipnode-nodes skill entry, and unit tests: the hex
+             table + its values, the phone pad matching the decimal one key for
+             key, letters present/absent, the enum nicks, and keys-disjoint /
+             hit-test now run over ALL FOUR layouts.
+       [ ] 76.8.6 GUI check by hand: the hex pad's A-F in the accent colour,
+             and the phone pad's letter groups legible under the digits.

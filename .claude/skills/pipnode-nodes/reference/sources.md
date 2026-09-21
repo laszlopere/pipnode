@@ -214,16 +214,26 @@ discrete keystrokes rather than a continuous dial.
   order (`1 2 3` on the TOP row, `* 0 #` on the bottom): the ten digits plus
   `*` and `#`, kind `symbol`. No point, no operators, no clear keys. Every
   key a single cell.
+- **Hex Keyboard** (`PN_KEYPAD_LAYOUT_HEX`) — 4×4 grid, `0`..`F` counting
+  left to right. `A`..`F` are kind `digit` with `value` 10..15 (fold with
+  `acc * 16 + value`); they differ only in the paint. `C` here is twelve, NOT
+  the calculator's clear key.
+- **Phone Keyboard** (`PN_KEYPAD_LAYOUT_PHONE`) — the decimal grid, key for
+  key, with the letter groups under the digits (`2` = ABC … `9` = WXYZ).
+  Those keys add `letters` to the message; `1`, `0`, `*`, `#` have none.
 
 The enum **nicks are the saved-file values** ("Basic Calculator" /
-"Decimal Keyboard") and the combo-box labels in the settings dialog. The node
-is a column narrower on the decimal pad (152 px vs 200 px, same height), so
-the key size is identical on both.
+"Decimal Keyboard" / "Hex Keyboard" / "Phone Keyboard") and the combo-box
+labels in the settings dialog. The node's **width follows the column count**
+(200 px calculator/hex, 152 px decimal, 188 px phone — wider keys so "PQRS"
+fits; height always the same), so the key size stays about equal on all four.
 
 **Settings** — `layout` (above) plus appearance: `background-color` (the
-case), `key-color` (digit/point/clear faces), `accent-color` (the picked-out
-keys: operators + `=` on the calculator pad, `*` + `#` on the decimal one),
-`text-color` (legends).
+case), `key-color` (plain key faces), `accent-color` (the picked-out keys:
+operators + `=`, `*` + `#`, `A`..`F` — driven by the key table's `accent`
+flag, NOT by `kind`, which is why the hex letters can be highlighted while
+still calling themselves digits), `text-color` (legends; a `sublabel` is
+painted 40% of the way toward the key face).
 
 **Emits** — one message per key press. Topic: default. Writes:
 - `key` (string) — the machine-readable code: `0`..`9` plus the layout's own
@@ -234,8 +244,11 @@ keys: operators + `=` on the calculator pad, `*` + `#` on the decimal one),
   `clear-entry`, `symbol`. Lets a Filter/Value Router split the stream without
   matching ten digit codes. Note `*` is `operator` on the calculator pad but
   `symbol` on the decimal one — same code, different meaning.
-- `value` (double) — **digit keys only**, 0..9. Deliberately absent on every
-  other key, so a downstream numeric node eats the digits and ignores the rest.
+- `value` (double) — **digit keys only**, 0..9 (0..15 on the hex pad, via
+  `g_ascii_xdigit_value`). Deliberately absent on every other key, so a
+  downstream numeric node eats the digits and ignores the rest.
+- `letters` (string) — **the phone pad's lettered keys only**, e.g. `PQRS`.
+  Absent (not empty) everywhere else.
 
 **Gotchas** — No startup announce (nothing to report, unlike Knob/Switch): the
 node is silent until a key is pressed. The class pins

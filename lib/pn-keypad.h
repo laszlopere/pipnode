@@ -31,24 +31,29 @@ G_BEGIN_DECLS
 /*  natural partner).                                                  */
 /*                                                                     */
 /*  Which keys the pad carries is the "layout" property — a pocket     */
-/*  calculator or a bare decimal entry pad, see #PnKeypadLayout.       */
+/*  calculator, a bare decimal entry pad, a hex byte pad or a phone    */
+/*  pad with its letter groups, see #PnKeypadLayout.                   */
 /*                                                                     */
 /*  Every press emits, on the single output:                           */
 /*                                                                     */
 /*    data.key    the key's machine-readable code — "0".."9", and      */
 /*                then whatever the layout adds: ".", "+", "-", "*",   */
 /*                "/", "=", "C", "CE" on the calculator pad, "*" and   */
-/*                "#" on the decimal one.  The operator keys paint the */
-/*                typographic signs (× ÷ −) but always emit the ASCII  */
-/*                ones, so the code drops straight into an expression  */
-/*                string.                                              */
+/*                "#" on the decimal and phone ones, "A".."F" on the   */
+/*                hex one.  The operator keys paint the typographic    */
+/*                signs (× ÷ −) but always emit the ASCII ones, so the */
+/*                code drops straight into an expression string.       */
 /*    data.kind   the key's family: "digit", "point", "operator",      */
 /*                "equals", "clear", "clear-entry" or "symbol" — a     */
 /*                Filter or Value Router can split the stream without  */
 /*                matching ten separate digit codes.                   */
-/*    data.value  the numeric value 0..9, digit keys only.  Absent on   */
-/*                every other key, so a downstream numeric node sees    */
-/*                digits and ignores the rest.                         */
+/*    data.value  the digit's numeric value, digit keys only: 0..9,    */
+/*                or 0..15 on the hex pad, where "A".."F" are digits   */
+/*                like any other.  Absent on every other key, so a     */
+/*                downstream numeric node sees digits and ignores the  */
+/*                rest.                                                */
+/*    data.letters the telephone letter group ("ABC"), on the phone    */
+/*                pad's lettered keys only.                            */
 /*                                                                     */
 /*  Geometry mirrors the other gauge-style nodes: a 40 px standard     */
 /*  header with the keypad body hanging below it.  The body is the     */
@@ -70,6 +75,13 @@ G_DECLARE_FINAL_TYPE (PnKeypad, pn_keypad, PN, KEYPAD, PnNode)
  *   on a 4x5 grid.
  * @PN_KEYPAD_LAYOUT_DECIMAL: the code-entry pad — the ten digits in
  *   telephone order plus "*" and "#" on a 3x4 grid, and nothing else.
+ * @PN_KEYPAD_LAYOUT_HEX: the byte-entry pad — "0".."9" and "A".."F"
+ *   on a 4x4 grid, counting left to right and top to bottom.  The
+ *   letters are digits too: "C" emits `data.value` 12.
+ * @PN_KEYPAD_LAYOUT_PHONE: the decimal pad with the telephone letter
+ *   groups printed under the digits (2 = ABC, 9 = WXYZ).  Those keys
+ *   add `data.letters` to the message; everything else emits exactly
+ *   what the decimal pad emits.
  *
  * Which keys the pad carries.  The numeric values are part of the
  * saved-file format (the nick is what lands in the JSON), so existing
@@ -79,6 +91,8 @@ typedef enum
 {
     PN_KEYPAD_LAYOUT_CALCULATOR = 0,
     PN_KEYPAD_LAYOUT_DECIMAL    = 1,
+    PN_KEYPAD_LAYOUT_HEX        = 2,
+    PN_KEYPAD_LAYOUT_PHONE      = 3,
 } PnKeypadLayout;
 
 #define PN_TYPE_KEYPAD_LAYOUT (pn_keypad_layout_get_type ())
@@ -93,9 +107,9 @@ GType pn_keypad_layout_get_type (void) G_GNUC_CONST;
  * @PN_KEYPAD_EQUALS:      the "=" key
  * @PN_KEYPAD_CLEAR:       "C" — clear everything
  * @PN_KEYPAD_CLEAR_ENTRY: "CE" — clear the current entry
- * @PN_KEYPAD_SYMBOL:      "*" or "#" on the decimal pad — a key that
- *                         means nothing by itself, the way it means
- *                         nothing on a door code panel
+ * @PN_KEYPAD_SYMBOL:      "*" or "#" on the decimal and phone pads —
+ *                         a key that means nothing by itself, the way
+ *                         it means nothing on a door code panel
  *
  * The family a key belongs to.  Emitted as the message's `data.kind`
  * (see pn_keypad_kind_to_string()) and used by the painter to pick
@@ -114,14 +128,21 @@ typedef enum
 
 /**
  * PnKeypadKey:
- * @label:   what the key paints — the typographic operator signs
- *           (×, ÷, −) where they differ from the emitted code
- * @code:    what the key emits under `data.key` (always ASCII)
- * @kind:    the key's family
- * @col:     zero-based grid column of the key's left edge
- * @row:     zero-based grid row of the key's top edge
- * @colspan: how many columns the key covers (1 for most keys)
- * @rowspan: how many rows the key covers (1 for most keys)
+ * @label:    what the key paints — the typographic operator signs
+ *            (×, ÷, −) where they differ from the emitted code
+ * @code:     what the key emits under `data.key` (always ASCII)
+ * @kind:     the key's family
+ * @col:      zero-based grid column of the key's left edge
+ * @row:      zero-based grid row of the key's top edge
+ * @colspan:  how many columns the key covers (1 for most keys)
+ * @rowspan:  how many rows the key covers (1 for most keys)
+ * @sublabel: a small second line under the legend — the telephone
+ *            letter group on the phone pad — or %NULL.  A key that has
+ *            one also emits it as `data.letters`.
+ * @accent:   %TRUE for the keys the pad picks out in accent-color: the
+ *            operators and "=", "*" and "#", "A".."F".  A paint hint
+ *            kept apart from @kind on purpose, so the hex pad can
+ *            highlight its letters while still calling them digits.
  *
  * One key in a keypad layout.  The tables are static, shared by every
  * instance, and published here because the gui-tier painter and the
@@ -136,6 +157,8 @@ typedef struct
     int              row;
     int              colspan;
     int              rowspan;
+    const gchar     *sublabel;
+    gboolean         accent;
 } PnKeypadKey;
 
 PnKeypad *pn_keypad_new (void);

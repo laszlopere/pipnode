@@ -145,6 +145,13 @@ test_operator_labels_differ_from_codes (void)
 
     /* "+" has no separate typographic form. */
     PN_CHECK_CMPSTR (keys[key_index ("+")].label, ==, "+");
+
+    /* The accent flag is a paint hint, not a kind: the operator
+     * column and "=" carry it, the digits and clear keys do not. */
+    PN_CHECK       (keys[key_index ("/")].accent);
+    PN_CHECK       (keys[key_index ("=")].accent);
+    PN_CHECK_FALSE (keys[key_index ("7")].accent);
+    PN_CHECK_FALSE (keys[key_index ("C")].accent);
 }
 
 static void
@@ -166,6 +173,129 @@ test_key_kinds (void)
                      ==, "clear-entry");
     PN_CHECK_CMPSTR (pn_keypad_kind_to_string (PN_KEYPAD_SYMBOL),
                      ==, "symbol");
+}
+
+/* ------------------------------------------------------------------ */
+/*  The hex and phone pads                                             */
+/* ------------------------------------------------------------------ */
+
+static void
+test_hex_layout_letters_are_digits (void)
+{
+    const PnKeypadLayout hex = PN_KEYPAD_LAYOUT_HEX;
+    const PnKeypadKey   *keys;
+    Capture              cap;
+    PnKeypad            *node;
+    guint                n = 0;
+    int                  cols = 0, rows = 0;
+    guint                i;
+    const struct { const gchar *code; double value; } cases[] = {
+        { "0", 0.0 }, { "9", 9.0 }, { "A", 10.0 }, { "C", 12.0 },
+        { "F", 15.0 },
+    };
+
+    keys = pn_keypad_layout_get_keys (hex, &n);
+    PN_CHECK_CMPINT (n, ==, 16);
+    pn_keypad_layout_get_grid (hex, &cols, &rows);
+    PN_CHECK_CMPINT (cols, ==, 4);
+    PN_CHECK_CMPINT (rows, ==, 4);
+
+    /* Counting left to right, top to bottom: 0 in the corner, F in the
+     * opposite one. */
+    PN_CHECK_CMPINT (key_at (hex, 0, 0), ==, key_index_in (hex, "0"));
+    PN_CHECK_CMPINT (key_at (hex, 3, 0), ==, key_index_in (hex, "3"));
+    PN_CHECK_CMPINT (key_at (hex, 3, 3), ==, key_index_in (hex, "F"));
+
+    /* Every key is a digit -- the letters included, which is what lets
+     * a downstream accumulator fold them in with acc * 16 + value. */
+    for (i = 0; i < n; i++)
+    {
+        PN_CHECK_CMPINT (keys[i].kind, ==, PN_KEYPAD_DIGIT);
+        PN_CHECK (keys[i].sublabel == NULL);
+    }
+    /* They only *paint* differently. */
+    PN_CHECK       (keys[key_index_in (hex, "A")].accent);
+    PN_CHECK_FALSE (keys[key_index_in (hex, "9")].accent);
+
+    node = make_node (&cap);
+    g_object_set (node, "layout", hex, NULL);
+
+    for (i = 0; i < G_N_ELEMENTS (cases); i++)
+    {
+        PN_CHECK (pn_keypad_press_code (node, cases[i].code));
+        PN_CHECK_CMPSTR (pn_test_str (cap.last, "key"),  ==, cases[i].code);
+        PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "digit");
+        PN_CHECK_NEAR   (pn_test_num (cap.last, "value"),
+                         cases[i].value, 0.001);
+        PN_CHECK_FALSE  (pn_test_has (cap.last, "letters"));
+    }
+
+    /* "C" is the hex digit twelve here, not the calculator pad's clear
+     * key: same code, and the kind is what tells them apart. */
+    PN_CHECK (pn_keypad_press_code (node, "C"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "digit");
+
+    /* Lower case is not a key: the table spells the letters upper. */
+    PN_CHECK_FALSE (pn_keypad_press_code (node, "a"));
+
+    capture_clear (&cap);
+    g_object_unref (node);
+}
+
+static void
+test_phone_layout_carries_letters (void)
+{
+    const PnKeypadLayout phone = PN_KEYPAD_LAYOUT_PHONE;
+    const PnKeypadKey   *keys;
+    Capture              cap;
+    PnKeypad            *node;
+    guint                n = 0, i;
+
+    keys = pn_keypad_layout_get_keys (phone, &n);
+    PN_CHECK_CMPINT (n, ==, 12);
+
+    /* The decimal pad's grid and codes, key for key -- a flow reading
+     * digits cannot tell the two apart, which is the point. */
+    for (i = 0; i < n; i++)
+    {
+        const PnKeypadKey *d =
+            &pn_keypad_layout_get_keys (PN_KEYPAD_LAYOUT_DECIMAL, NULL)[i];
+
+        PN_CHECK_CMPSTR (keys[i].code, ==, d->code);
+        PN_CHECK_CMPINT (keys[i].kind, ==, d->kind);
+        PN_CHECK_CMPINT (keys[i].col,  ==, d->col);
+        PN_CHECK_CMPINT (keys[i].row,  ==, d->row);
+    }
+
+    /* The letter groups, where a telephone has them. */
+    PN_CHECK_CMPSTR (keys[key_index_in (phone, "2")].sublabel, ==, "ABC");
+    PN_CHECK_CMPSTR (keys[key_index_in (phone, "7")].sublabel, ==, "PQRS");
+    PN_CHECK_CMPSTR (keys[key_index_in (phone, "9")].sublabel, ==, "WXYZ");
+    /* 1, 0, * and # have none, the way a phone has none. */
+    PN_CHECK (keys[key_index_in (phone, "1")].sublabel == NULL);
+    PN_CHECK (keys[key_index_in (phone, "0")].sublabel == NULL);
+    PN_CHECK (keys[key_index_in (phone, "*")].sublabel == NULL);
+
+    node = make_node (&cap);
+    g_object_set (node, "layout", phone, NULL);
+
+    PN_CHECK (pn_keypad_press_code (node, "7"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "key"),     ==, "7");
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"),    ==, "digit");
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 7.0, 0.001);
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "letters"), ==, "PQRS");
+
+    /* A key with no letters carries no `letters` member at all, rather
+     * than an empty string a downstream node would have to filter. */
+    PN_CHECK (pn_keypad_press_code (node, "1"));
+    PN_CHECK_FALSE (pn_test_has (cap.last, "letters"));
+    PN_CHECK (pn_keypad_press_code (node, "#"));
+    PN_CHECK_CMPSTR (pn_test_str (cap.last, "kind"), ==, "symbol");
+    PN_CHECK_FALSE  (pn_test_has (cap.last, "letters"));
+    PN_CHECK_FALSE  (pn_test_has (cap.last, "value"));
+
+    capture_clear (&cap);
+    g_object_unref (node);
 }
 
 /* ------------------------------------------------------------------ */
@@ -269,11 +399,15 @@ test_layout_property_switches_the_pad (void)
     /* The nick is what the saved file carries -- changing one would
      * silently reset every keypad in every worksheet. */
     eclass = g_type_class_ref (PN_TYPE_KEYPAD_LAYOUT);
-    PN_CHECK_CMPINT (eclass->n_values, ==, 2);
+    PN_CHECK_CMPINT (eclass->n_values, ==, 4);
     ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_CALCULATOR);
     PN_CHECK_CMPSTR (ev->value_nick, ==, "Basic Calculator");
     ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_DECIMAL);
     PN_CHECK_CMPSTR (ev->value_nick, ==, "Decimal Keyboard");
+    ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_HEX);
+    PN_CHECK_CMPSTR (ev->value_nick, ==, "Hex Keyboard");
+    ev = g_enum_get_value (eclass, PN_KEYPAD_LAYOUT_PHONE);
+    PN_CHECK_CMPSTR (ev->value_nick, ==, "Phone Keyboard");
     g_type_class_unref (eclass);
 
     capture_clear (&cap);
@@ -359,6 +493,8 @@ test_keys_do_not_overlap (void)
 {
     check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_CALCULATOR);
     check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_DECIMAL);
+    check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_HEX);
+    check_keys_do_not_overlap (PN_KEYPAD_LAYOUT_PHONE);
 }
 
 static void
@@ -469,11 +605,13 @@ check_hit_test_finds_each_key (PnKeypadLayout layout)
 static void
 test_hit_test_finds_each_key (void)
 {
-    /* Both pads, since the hit-test reads the node's own layout: on
+    /* Every pad, since the hit-test reads the node's own layout: on
      * the decimal one a click must resolve against the narrower grid,
      * not the calculator's. */
     check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_CALCULATOR);
     check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_DECIMAL);
+    check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_HEX);
+    check_hit_test_finds_each_key (PN_KEYPAD_LAYOUT_PHONE);
 }
 
 static void
@@ -665,6 +803,8 @@ main (int argc, char **argv)
     pn_test_add ("decimal_order",        test_decimal_layout_is_telephone_order);
     pn_test_add ("layout_property",      test_layout_property_switches_the_pad);
     pn_test_add ("decimal_emission",     test_decimal_keys_emit_their_own_kinds);
+    pn_test_add ("hex_layout",           test_hex_layout_letters_are_digits);
+    pn_test_add ("phone_layout",         test_phone_layout_carries_letters);
     pn_test_add ("keys_disjoint",        test_keys_do_not_overlap);
     pn_test_add ("spanning_keys",        test_wide_and_tall_keys);
     pn_test_add ("rect_bad_index",       test_rect_rejects_bad_index);
