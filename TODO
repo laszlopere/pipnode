@@ -1684,16 +1684,72 @@
                 ("a vector reached a scalar sink"). Leave it an error in
                 v1 -- and make exactly that the seam 80.16 replaces with
                 the frame indexer.
-       [ ] 80.3 Reuse the calculator language verbatim -- PnExprParser to
-             parse each argument, PnVarStore to evaluate it. No second
-             grammar, no second function table: sin/cos/tan/log/log10/
-             exp/sqrt/abs/floor/ceil, the arithmetic, bitwise and
-             comparison operators, and anything ever added to them, come
-             along for free and stay in step forever. Parse the whole
-             program ONCE when the property is set, into a display list
-             of (verb, argument ASTs); evaluate per repaint. GOTCHA to
-             repeat in the help: `^` is XOR and there is no pow(), so
-             square by multiplying -- the same trap TODO #79.5 hit.
+       [x] 80.3 DECIDED (2026-09-21): reuse the calculator language
+             verbatim -- PnExprParser to parse each argument, PnVarStore
+             to evaluate it. No second grammar and NO SECOND FUNCTION
+             TABLE: the moment the figure node grows its own `atan2`,
+             the language has stopped being the calculator's and the two
+             drift forever. What that decision actually buys and costs,
+             read out of the code rather than assumed:
+
+             (a) THE DISPLAY LIST. Parsing happens once, when the
+                 program property is set, producing an array of
+                 { verb, source line, arguments }, each argument being a
+                 string literal, a folded constant, or an AST owned by
+                 the entry and freed with pn_expr_node_free(). Nothing
+                 in it is GTK-aware, so it lives in the core half
+                 (80.9) and the painter merely walks it. Re-parse only
+                 when the property changes; everything runs on the main
+                 loop, so no locking.
+             (b) CONSTANT FOLDING, free of charge. An argument whose AST
+                 has no free identifiers is evaluated once at parse time
+                 and kept as a number. Most of a figure is constants --
+                 the `view`, the widths, every fulcrum coordinate -- so
+                 the per-frame walk shrinks to the handful of arguments
+                 that actually move. The identifier walker that rule
+                 80.2.12 needs anyway is the whole implementation.
+             (c) BINDING PRECEDENCE, which matters precisely because
+                 80.2.12 zero-fills what is left over. The order is:
+                 constants (pi, e) -> input members -> the animation
+                 variables frame and t (80.17) -> assignments as they
+                 execute -> zero-fill of anything still unbound. Get it
+                 wrong and `pi` silently becomes 0 -- a figure that
+                 still draws, just wrongly, which is the worst kind.
+             (d) THERE IS NO `pi`. Verified: PnVarStore binds no
+                 constants whatever, which is why TODO #79.5 writes
+                 3.14159265 out by hand. The Figure node pre-binds `pi`
+                 and `e` itself as step one of (c) rather than blocking
+                 on a core change -- but the smell is real and the fix
+                 belongs in PnVarStore, where every Calculator would
+                 inherit it.
+             (e) THE FUNCTION TABLE IS TEN UNARY FUNCTIONS: sin, cos,
+                 tan, log, log10, exp, sqrt, abs, floor, ceil. No
+                 asin/acos/atan, no atan2, no min/max, no hypot, no
+                 round, no sign, no pow -- and `^` is XOR, so squaring
+                 is a multiplication (the trap TODO #79.5 hit). For
+                 mechanics figures atan2(dy,dx) is the absence that will
+                 hurt first. Multi-argument calls mean changing BOTH
+                 pn-expr-parser.c (parse_factor_body takes exactly one
+                 expression between the parens) and pn-var-store.c (the
+                 table is typed UnaryFn), in shared core, for every
+                 Calculator in every worksheet -- so it wants its own
+                 TODO number, its own tests and a help update, not a
+                 quiet edit buried in a drawing node. Until it exists,
+                 figures spell atan2 out by hand.
+             (f) VECTORS ALREADY BROADCAST -- and the rules are NOT the
+                 ones 80.16 assumed. From pn-var-store.c and
+                 tests/unit/test-pn-var-store.c: scalar OP vector
+                 broadcasts the scalar; vector OP vector is elementwise
+                 but TRUNCATED TO THE SHORTER operand; unary functions
+                 map element by element; and a COMPARISON REDUCES a
+                 vector operand to a single 0/1 scalar. Two consequences
+                 for the animation work, written down now instead of
+                 being discovered in a debugger: the frame count must be
+                 the SHORTEST vector argument, not the longest, or the
+                 figure disagrees with its own arithmetic; and a
+                 per-frame conditional cannot be written as a comparison
+                 against a vector, because the comparison collapses
+                 before the frame indexer ever sees it.
        [ ] 80.4 Coordinates. `view xmin, ymin, xmax, ymax` declares the
              user-unit window, mapped onto the client rectangle. Y POINTS
              UP -- this is a physics figure, not a screen -- so the
@@ -1785,10 +1841,17 @@
        [ ] 80.16 ANIMATION, and not before the above works. When an
              argument evaluates to a VECTOR the figure becomes a film:
              frame i takes element i of every vector argument, scalars
-             broadcast unchanged, and the frame count is the longest
-             vector. This falls straight out of PnVarStore already
-             dealing in scalar-or-vector values, and it means a Ramp into
-             a Calculator into a Figure animates with no new plumbing --
+             broadcast unchanged, and the frame count is the SHORTEST
+             vector -- corrected from "longest" by 80.3(f), because
+             vector OP vector already truncates to the shorter operand
+             and the figure must not disagree with its own arithmetic.
+             Also from 80.3(f): a comparison collapses a vector to one
+             scalar, so `blue = s > 0` cannot vary per frame; if
+             per-frame conditionals are wanted they need arithmetic
+             (mask idioms), not comparisons. This otherwise falls
+             straight out of PnVarStore already dealing in
+             scalar-or-vector values, and it means a Ramp into a
+             Calculator into a Figure animates with no new plumbing --
              the same pipeline the Compute examples already build.
        [ ] 80.17 Animation controls: frames-per-second, and a play mode
              (once / loop / ping-pong / hold-last). The frame timer and
