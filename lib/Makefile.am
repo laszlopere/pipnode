@@ -378,6 +378,8 @@ libpipnode_gui_la_SOURCES = \
 	pn-filedrop-gui.h \
 	pn-filter-gui.c \
 	pn-filter-gui.h \
+	pn-figure-gui.c \
+	pn-figure-gui.h \
 	pn-graph-gui.c \
 	pn-graph-gui.h \
 	pn-graph-draw.h \
@@ -702,6 +704,7 @@ pipnode_gui_headers = \
 	pn-file-viewer-gui.h \
 	pn-filedrop-gui.h \
 	pn-filter-gui.h \
+	pn-figure-gui.h \
 	pn-graph-gui.h \
 	pn-plot-gui.h \
 	pn-xy-graph-gui.h \

@@ -1580,6 +1580,47 @@ test_rect_takes_its_lower_left_corner (void)
 }
 
 static void
+test_an_arc_sweeps_the_way_it_was_written (void)
+{
+    /* 80.6(d)'s own worked example, and the one the y flip is laid for:
+       `0, 90` is a counter-clockwise quarter and `90, 0` the clockwise
+       quarter BACK, not the three quarters the long way round.  Our
+       flip makes a counter-clockwise user sweep a clockwise device one,
+       so the two differ by which cairo call the painter makes -- and
+       the device angles are the same pair either way. */
+    gchar *text = dump100 ("arc 50, 50, 10, 0, 90\n"
+                           "arc 50, 50, 20, 90, 0\n"
+                           "arc 50, 50, 30, 0, 360");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "arc 50.00 50.00 10.00 0.00 -90.00 negative\n"
+                     "arc 50.00 50.00 20.00 -90.00 0.00 positive\n"
+                     "arc 50.00 50.00 30.00 0.00 -360.00 negative\n");
+    g_free (text);
+}
+
+static void
+test_a_reversed_axis_turns_an_arc_around (void)
+{
+    /* With x increasing leftwards the whole picture is mirrored, so the
+       sweep a program wrote counter-clockwise comes out the other way
+       -- and the painter is told so rather than working it out. */
+    Figure  f    = figure ("view 100, 0, 0, 100\n"
+                           "arc 50, 50, 10, 0, 90\n"
+                           "arc 50, 50, 20, 90, 0");
+    gchar  *text = figure_dump (&f, NULL, 100, 100, FALSE, NULL);
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 100 0 0 100 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00\n"
+                     "arc 50.00 50.00 10.00 180.00 270.00 positive\n"
+                     "arc 50.00 50.00 20.00 270.00 180.00 negative\n");
+
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
 test_the_window_is_letterboxed (void)
 {
     Figure  f    = figure ("view -60, -25, 60, 35\nline -60, -25, 60, 35");
@@ -2357,6 +2398,8 @@ main (int argc, char **argv)
     pn_test_add ("back_geometry",       test_the_geometry_verbs);
     pn_test_add ("back_y_up",           test_y_points_up);
     pn_test_add ("back_rect_corner",    test_rect_takes_its_lower_left_corner);
+    pn_test_add ("back_arc_sweep",      test_an_arc_sweeps_the_way_it_was_written);
+    pn_test_add ("back_arc_reversed",   test_a_reversed_axis_turns_an_arc_around);
     pn_test_add ("back_letterbox",      test_the_window_is_letterboxed);
     pn_test_add ("back_reversed",       test_reversed_bounds_flip_an_axis);
     pn_test_add ("back_view_degenerate", test_a_degenerate_view_is_skipped);

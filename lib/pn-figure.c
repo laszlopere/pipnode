@@ -2410,9 +2410,18 @@ resolve_statement (
             break;
 
         view_angle_map (&pen->view, &k, &phi);
-        op->a0       = k * values[3] + phi;
-        op->a1       = k * values[4] + phi;
-        op->negative = k < 0.0;
+        op->a0 = k * values[3] + phi;
+        op->a1 = k * values[4] + phi;
+
+        /* Which way to travel between the two DEVICE angles, which is
+         * simply which of them is larger — cairo_arc() runs up and
+         * cairo_arc_negative() runs down, and each wraps by 2*pi until
+         * its end lies the right side of its start.  Reading the
+         * direction off the VIEW instead (k < 0) is wrong for a sweep
+         * the user wrote BACKWARDS: 80.6(d)'s own example,
+         * `arc 0,0,10,90,0`, is a clockwise quarter and would come out
+         * as the three quarters going the other way round. */
+        op->negative = op->a1 < op->a0;
         break;
     }
 

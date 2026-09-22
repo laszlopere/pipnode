@@ -3109,23 +3109,73 @@
                    raised the input count. Rename the port and the
                    program names it by the new name, which is the
                    workflow the figure actually wants.
-       [ ] 80.25 THE CODE, part 4 of 4: the painter.
+       [x] 80.25 DONE (2026-09-22): THE CODE, part 4 of 4: the painter.
              lib/pn-figure-gui.c, gui tier, installed as
-             PnNodeClass.paint_plot -- and it must stay DUMB: it walks
-             a resolved list and strokes, it does not evaluate.
-             [ ] 80.25.1 Clip and background fill (80.4e, 80.4f).
-             [ ] 80.25.2 Stroke and fill per the pen state, widths and
-                   dashes scaled with the hairline escape (80.5c,
-                   80.5d), fill-then-stroke, round cap and join
+             PnNodeClass.paint_plot -- and it stayed DUMB: it walks a
+             resolved list and strokes, it evaluates nothing and maps
+             nothing. The specimen from the head of #80 draws, and it
+             draws like a plate.
+             (a) AND IT NEEDED A HARNESS, which is now
+                 tools/figure-preview.c, the figure's answer to
+                 osc-preview: it renders a program to a PNG through the
+                 shipped paint_plot with no GTK window and no editor
+                 running, so the styling loop is sub-second and every
+                 claim below was looked at rather than reasoned about.
+                     ./figure-preview [out.png] [W] [H] [program-file]
+                 Default: the reference specimen at the node's own
+                 280x210, with the lever angle in PN_FIGURE_A.
+             (b) IT FOUND A REAL BUG IN 80.23, and the dump could never
+                 have: pn_figure_resolve() set an arc's @negative from
+                 the VIEW (k < 0) rather than from the two device
+                 angles, so a sweep written BACKWARDS -- 80.6(d)'s own
+                 example, `arc 0,0,10,90,0` -- came out as the three
+                 quarters going the long way round instead of the
+                 clockwise quarter. It is `a1 < a0`, which is what
+                 cairo_arc versus cairo_arc_negative actually means.
+                 Fixed in core with two new cases (back_arc_sweep,
+                 back_arc_reversed) that pin both directions and the
+                 reversed-axis pair. Every existing case agreed with
+                 both rules, which is exactly why it survived.
+             [x] 80.25.1 DONE: save, clip to the rectangle (the
+                   worksheet does not clip, 80.4e), and fill it with
+                   `background-color` before the program runs, so the
+                   letterbox bars read as background (80.4f).
+             [x] 80.25.2 DONE: the whole pen state carried off the
+                   display list and nothing held by the painter itself,
+                   which is what 80.5(g)'s reset buys. Widths and
+                   dashes arrive already scaled; `width 0` is the one
+                   thing resolved here, through
+                   cairo_device_to_user_distance, because "one device
+                   pixel however far the worksheet is zoomed in" is a
+                   length only the CTM knows (80.5c, 80.5d).
+                   fill_preserve-then-stroke, round cap and round join
                    (80.5e, 80.5f).
-             [ ] 80.25.3 Arcs and circles: cairo_arc_negative with
-                   NEGATED angles (80.6d) and the save/scale/restore
-                   that keeps them right under `stretch` (80.6e).
-             [ ] 80.25.4 Text through Pango: absolute size, the
-                   alignment offsets core could not compute (80.7e,
-                   80.7f), multi-line `\n`.
-             [ ] 80.25.5 The error text rendering of 80.10(e), and
-                   pn_figure_gui_install().
+             [x] 80.25.3 DONE: cairo_arc / cairo_arc_negative on core's
+                   own device angles -- see (b) -- inside a
+                   save / translate / scale(scale_x, scale_y) /
+                   RESTORE-BEFORE-PAINTING, which is the cairo ellipse
+                   recipe and the reason the stroke width stays uniform
+                   under `stretch` (80.6e). Verified by rendering the
+                   same program with stretch off and on.
+             [x] 80.25.4 DONE: Pango with
+                   pango_font_description_set_absolute_size, the
+                   family left UNSET when the property is empty so
+                   Pango's own default stands, and the alignment
+                   offsets core could not compute (80.7e, 80.7f) --
+                   left/centre/right off the measured width, and
+                   top/middle/baseline/bottom off the first line's
+                   height and pango_layout_get_baseline(). `\n` splits
+                   lines drawn downward at a fixed 1.2x the font size
+                   (80.7d), each anchored per the alignment; all four
+                   horizontal and all four vertical anchorings were
+                   rendered against guide lines and checked by eye.
+             [x] 80.25.5 DONE: the message drawn in place of the figure
+                   through Pango, WRAPPED inside the client area and
+                   not truncated (80.10e), in the same red the
+                   worksheet paints a broken node's header so the card
+                   reads as one thing, sized with the rectangle so the
+                   zoom overlay enlarges it too. Plus
+                   pn_figure_gui_install(), one line in pn-gui.c.
        [ ] 80.26 THE CODE, afterwards: animation, and only once
              80.22-80.25 draw a still figure correctly end to end
              (80.16 says not before). The frame index at paint time
