@@ -3131,9 +3131,129 @@
        [ ] 85.8  OPTICS -- the concave mirror. The ray construction
              80.15.2 does for a lens, done for a mirror, which is the
              other half of the same lesson.
-       [ ] 85.9  OPTICS -- refraction and total internal reflection.
-             Angle of incidence and refractive index as knobs, with
-             the refracted ray vanishing past the critical angle.
+       [x] 85.9  DONE (2026-09-22): OPTICS -- refraction and total
+             internal reflection. examples/displays/refraction.json,
+             one Figure and two knobs, and the plate where the
+             LANGUAGE draws the physics: the refracted ray disappears
+             past the critical angle because asin() of a sine larger
+             than one is not a number, and 80.10(b) skips a statement
+             with a non-finite value in it. Nothing in the program
+             tests for the critical angle. There is no `if` anywhere
+             on the sheet.
+             THE KNOBS, one visible thing each (80.15.1a): ANGLE OF
+             INCIDENCE, 0..85 deg, swings the ray in the glass and
+             opens the refracted one faster than itself; REFRACTIVE
+             INDEX n, 1.00..2.50, moves the critical angle, which the
+             plate draws as a grey dotted ghost ray so the reader can
+             see the threshold before crossing it. The ports are
+             renamed theta and n and the program names them (80.8b);
+             24 detents make a notch 3.5 deg or 0.0625 of index, and
+             the range walks from water (1.33) through glass (1.50) to
+             diamond (2.42). 85 rather than 90 on purpose: at exactly
+             grazing the Fresnel ratio below is 0/0.
+             THE PHYSICS, dense to rare, which is the only direction
+             that has a critical angle at all: n sin(th1) = sin(th2),
+             th2 = asin(n sin th1), thc = asin(1/n). Then FRESNEL,
+             unpolarised -- the mean of the two polarisations -- so
+             each ray is drawn AS THICK AS ITS SHARE OF THE LIGHT.
+             That is the lesson the angles alone do not teach: at
+             normal incidence the reflection is a 4 % hairline lying
+             on top of the incident ray, and it swells continuously to
+             take the whole beam, so total internal reflection arrives
+             as the END of something that was always there rather than
+             as a switch thrown at 41.8 degrees.
+             cos(th2) IS SPELLED TWICE, ON PURPOSE, and this is the
+             whole trick of the sheet: `th2 = asin(s2)` for the
+             geometry, which goes NaN past the critical angle and
+             takes the refracted ray, its arrowhead, its angle arc,
+             its name and the th2 line of the readout out with it; and
+             `c2 = sqrt(max(1 - s2*s2, 0))` for the energy, which
+             stays real on both sides and reaches zero exactly there,
+             which is what drives the Fresnel ratio to one. Same
+             quantity, two spellings, because one of them has to
+             vanish and the other has to arrive.
+             THE EVANESCENT FIELD, and it is the payoff: past the
+             critical angle a little hatched plume appears above the
+             surface -- the light does not stop dead at the boundary,
+             it leaks a fraction of a wavelength into the air and
+             comes back. ev = sqrt(s2*s2 - 1) is the magnitude of the
+             cosine that turned imaginary, so the plume is NaN and
+             therefore absent below the critical angle without being
+             asked to be, and the penetration depth d = lambda/(2 pi
+             ev) both prints in the readout (406 nm just past thc for
+             glass, 43 nm for diamond at 70 deg) and sets the plume's
+             HEIGHT, because the strokes are spaced in units of dp.
+             #86's `repeat` draws all fourteen of them.
+             FOUND BY WRITING IT, and it is a language fact rather
+             than a plate fact: `max` and `min` are fmax/fmin and
+             SWALLOW A NaN -- max(NaN, x) is x -- while `clamp`
+             propagates it, deliberately (lib/pn-expr-funcs.c checks
+             isnan first). So a label that must vanish with its
+             quantity has to be floored with clamp, not max: the first
+             draft's theta-2 label was clamped with max and went on
+             printing itself next to a ray that no longer existed.
+             The rule worth remembering: clamp is the NaN-safe floor,
+             max is the NaN-eating one, and 80.10(b)'s "degenerate is
+             safe" only works through the first.
+             WHAT THE DRAWING DOES BESIDES: arrowheads, hand-built out
+             of `poly` from each ray's own direction the way 85.12
+             built its needles, because 85(b)'s arrows are still
+             80.19's job and a ray diagram without a direction is not
+             one; the two angle marks below the surface drawn as arcs
+             and NOT lettered, so the law of reflection is shown
+             rather than asserted; the rays NAMED instead, each label
+             placed just past the end of its own ray and pushed down
+             by 8*sin^2(theta) so a grazing ray does not write its
+             name across the surface; and the media labelled at the
+             left edge, which the geometry guarantees is empty -- the
+             incident ray is always in the lower left, the reflected
+             always lower right, the refracted always x >= 0.
+             SIZED FOR THE CARD, NOT FOR THE ZOOM, and this is the
+             first of the three plates to be: the first draft used a
+             160-unit view and font 3.8 for the readout, which is 6.6
+             DEVICE PIXELS in the node's own 280x210 client area, and
+             the user said so immediately. 80.4(b) makes every length
+             scale with the view, so legibility at rest is one number
+             -- the view's width -- against the text sizes. The fix
+             was a 132-unit view (s = 2.12 px/unit) and font 4.8 for
+             the readout, ten pixels, and it cost a line: the "each
+             ray is drawn as thick as its share of the light"
+             footnote went to the sheet's Comment node, because a
+             caption too small to read is not a caption. The rule for
+             85.2-85.11: pick the view width so the smallest text you
+             mean anyone to read is about ten device pixels at
+             280x210, and budget the plate's words against that
+             BEFORE drawing, not after. Both earlier plates are
+             smaller than this one at rest and are candidates for the
+             same pass.
+             THE CRITICAL RAY IS NOT LETTERED, which the resizing
+             forced and which turned out to be the better answer:
+             near thc the ghost ray and the incident ray ARE the same
+             ray, so any label on it lands on an orange rod. Knocking
+             the letters out of the drawing with a background-filled
+             rect was tried and rejected on sight -- it cuts the
+             incident ray in two and reads as a broken ray, not as a
+             label. So the ghost carries no letters at all and is
+             tied to its number by COLOUR: the dotted ray and the thc
+             line of the readout are the same grey, which is exactly
+             85.1's red-sliver trick (the number and the mark are
+             obviously one fact) used for the second time.
+             DEGENERATE IS SAFE, as always: unwired both inputs are
+             zero-filled (80.2 rule 12), 1/n is infinite, asin of it
+             is NaN, and the critical-angle line of the readout simply
+             does not print while the rest of the plate still draws.
+             CHECKED: `./src/pipnode-run -t 3` under
+             G_DEBUG=fatal-warnings loads it headless, exits 0, no
+             CRITICALs and no warnings; written against
+             tools/figure-preview at fourteen knob settings -- both
+             ends of both knobs, either side of the critical angle,
+             and unwired -- and read at the node's own 280x210 beside
+             pendulum.json and bar-magnet.json rendered the same way,
+             which is how the type sizes were chosen; in a live
+             editor the figure reports an empty `error`, two inputs,
+             two wires and port names that round-trip as theta/n.
+             Installs beside pendulum.json and bar-magnet.json in
+             examples/displays (85.1's placement answer, unchanged).
        [ ] 85.10 HEAT -- the Carnot cylinder. Piston position through
              the four strokes, the state labelled at each corner.
              Named in #80's own header as a thing the node should be

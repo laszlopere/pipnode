@@ -1,0 +1,88 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "60976d26-4375-4b54-8d1d-69cfba503d5f",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "REFRACTION AND TOTAL INTERNAL REFLECTION -- a physics plate drawn by one Figure node.  A ray inside the glass arrives at the surface from below.  Spin the wheel over the two knobs: ANGLE OF INCIDENCE swings the ray and opens the refracted one faster than itself; REFRACTIVE INDEX moves the critical angle, drawn as the grey dotted ghost ray -- the grey line of the readout is that same ray's number.  Wind the angle past that ghost and the refracted ray does not dim -- it stops existing, because asin() of a sine larger than one is not a number and a statement with a non-finite value in it is simply not drawn.  Nothing in the program tests for the critical angle.  Each ray is drawn as thick as its share of the light (Fresnel, unpolarised), so the hairline reflection at normal incidence is the same beam that later takes all of it; and past the critical angle a little hatched plume appears above the surface -- the evanescent field, which leaks a fraction of a wavelength into the air and comes back.",
+        "width": 900.0,
+        "height": 112.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "d6411fc1-8700-49a5-8153-3777537540db",
+      "name": "Angle of incidence (deg)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 220.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 85.0,
+        "value": 30.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "9ada85e8-578d-4e5a-a364-ab54384f7f80",
+      "name": "Refractive index n",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 300.0
+      },
+      "properties": {
+        "min": 1.0,
+        "max": 2.5,
+        "value": 1.5
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "a66894d7-451b-4ab9-a3bd-a1cb067e2ad7",
+      "name": "Refraction and total internal reflection",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 200.0
+      },
+      "properties": {
+        "program": "# REFRACTION AND TOTAL INTERNAL REFLECTION\n#\n# A ray inside glass, arriving at the surface from below.  Wind the\n# ANGLE up and the refracted ray swings flat, thins, and at the\n# critical angle stops existing -- while the reflected ray, a hairline\n# at normal incidence, quietly takes the whole beam.\n\nview -66, -40, 66, 59\nalign \"centre\", \"middle\"\n\n# --- the two media -------------------------------------------------\ncolor \"#dbe6ea\"\nfill  \"#dbe6ea\"\nrect -66, -40, 132, 40\nnofill\n\nth = radians(theta)\nsi = sin(th)\nco = cos(th)\n\n# Snell's law, dense to rare: n sin(th1) = sin(th2).  Past the\n# critical angle the sine it asks for is bigger than one, asin goes\n# NaN, and every statement that mentions th2 is simply skipped\n# (80.10b).  Nothing here tests for the critical angle; the\n# refracted ray vanishes because the arithmetic says it does.\ns2  = n * si\nth2 = asin(s2)\nthc = degrees(asin(1 / n))\n\n# cos(th2) the OTHER way round, for the energy split: this one is\n# real on both sides of the critical angle and goes to zero there,\n# which is exactly what makes the Fresnel ratio below reach one.\nc2 = sqrt(max(1 - s2 * s2, 0))\n\n# Fresnel, unpolarised -- the mean of the two polarisations.\nrs = (n * co - c2) / (n * co + c2)\nrp = (n * c2 - co) / (n * c2 + co)\nR  = 0.5 * (rs * rs + rp * rp)\nT  = 1 - R\n\nRl = 32\nxi = -Rl * si\nyi = -Rl * co\nxt =  Rl * sin(th2)\nyt =  Rl * cos(th2)\n\n# Each ray is drawn as thick as its share of the light, so the swap\n# from \"mostly through\" to \"all back\" is something you watch happen.\nwi = 2.1\nwr = clamp(wi * R, 0.2, wi)\nwt = clamp(wi * T, 0.2, wi)\n\nah = 2.9\naw = 1.6\n\n# --- the surface and its normal --------------------------------------\ncolor \"#9aa6ab\"\nwidth 0.5\ndash \"dot\"\nline 0, -37, 0, 34\ndash \"solid\"\n\ncolor \"#202020\"\nwidth 0.9\nline -66, 0, 66, 0\n\n# --- the critical angle, drawn as a ghost ray -------------------------\n# Deliberately NOT lettered on the plate: near the critical angle the\n# ghost and the incident ray ARE the same ray, and a label there lands\n# on an orange rod.  It is tied to its number in the readout by colour\n# instead -- the grey dotted ray and the grey line of the readout are\n# the same fact, which is 85.1's red-sliver trick.\ntc = radians(thc)\ncolor \"#7f8d96\"\nwidth 0.5\ndash \"dot\"\nline -Rl * sin(tc), -Rl * cos(tc), 0, 0\ndash \"solid\"\n\n# --- the three rays ---------------------------------------------------\ncolor \"#c2601a\"\nfill  \"#c2601a\"\n\nwidth wi\nline xi, yi, 0, 0\npoly 0.5 * xi, 0.5 * yi,\n     0.5 * xi - ah * si - aw * co, 0.5 * yi - ah * co + aw * si,\n     0.5 * xi - ah * si + aw * co, 0.5 * yi - ah * co - aw * si\n\nwidth wr\nline 0, 0, Rl * si, -Rl * co\npoly 0.62 * Rl * si, -0.62 * Rl * co,\n     0.62 * Rl * si - ah * si + aw * co, -0.62 * Rl * co + ah * co + aw * si,\n     0.62 * Rl * si - ah * si - aw * co, -0.62 * Rl * co + ah * co - aw * si\n\nwidth wt\nline 0, 0, xt, yt\npoly 0.62 * xt, 0.62 * yt,\n     0.62 * xt - ah * xt / Rl - aw * yt / Rl, 0.62 * yt - ah * yt / Rl + aw * xt / Rl,\n     0.62 * xt - ah * xt / Rl + aw * yt / Rl, 0.62 * yt - ah * yt / Rl - aw * xt / Rl\nnofill\n\n# --- the evanescent field, which only exists past the critical angle --\n# The light does not stop dead at the surface: it leaks a fraction of\n# a wavelength into the air and comes back.  ev is the magnitude of\n# the cosine that turned imaginary, so these strokes are NaN -- and\n# therefore absent -- everywhere below the critical angle.\nev = sqrt(s2 * s2 - 1)\ndp = clamp(0.055 * 550 / (2 * pi * ev), 0, 8.5)\ncolor \"#d79a63\"\nwidth 0.45\nrepeat 14\n    ey = (0.15 + 0.24 * i) * dp\n    line 2.4, ey, 2.4 + 8.5 * exp(-ey / dp), ey\nend\n\n# --- the angles, as marks rather than letters -------------------------\n# The two below the surface are always equal, which is the law of\n# reflection drawn instead of asserted; the one above opens faster\n# than either until it lies flat on the glass and goes out.\ncolor \"#202020\"\nwidth 0.55\nra = 13\narc 0, 0, ra, -90, -90 - theta\narc 0, 0, ra, -90, -90 + theta\narc 0, 0, ra + 4, 90, 90 - degrees(th2)\n\nfill \"#202020\"\ncircle 0, 0, 0.85\nnofill\n\n# --- the rays named, each just past the end of its own ray -----------\n# The refracted one carries th2, so past the critical angle the name\n# goes out with the ray it names -- nothing here says \"if\".\ncolor \"#a05014\"\nfont 4.4\nle = Rl + 3\nlo = 2 + 8 * si * si\nalign \"right\", \"middle\"\ntext -le * si - 3, -le * co - lo, \"incident\"\nalign \"left\", \"middle\"\ntext  le * si + 3, -le * co - lo, \"reflected\"\ntext 0.84 * Rl * sin(th2) + 7, 0.84 * Rl * cos(th2) + 4, \"refracted\"\n\n# --- the labels -------------------------------------------------------\ncolor \"#202020\"\nfont 5.6\nalign \"centre\", \"top\"\ntext 0, 59, \"Refraction and total internal reflection\"\n\nfont 4.8\nalign \"left\", \"bottom\"\ntext -64, 3, \"air    n = 1.00\"\nalign \"left\", \"top\"\ntext -64, -3, \"glass  n = %.2f\", n\n\ntext -64, 51.5, \"θ₁ = %.0f°     n = %.2f\", theta, n\ncolor \"#7f8d96\"\ntext -10, 51.5, \"θc = asin(1/n) = %.1f°\", thc\ncolor \"#202020\"\ntext -64, 45.7, \"θ₂ = asin(n sin θ₁) = %.1f°\", degrees(th2)\ncolor \"#b03a2e\"\ntext -64, 45.7, \"θ₂ imaginary -- it leaks %.0f nm and comes back\", 550 / (2 * pi * ev)\ncolor \"#c2601a\"\ntext -64, 39.9, \"reflected %.0f %%      refracted %.0f %%\", 100 * R, 100 * T\n",
+        "inputs": 2,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "theta",
+        "1": "n"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "d6411fc1-8700-49a5-8153-3777537540db",
+      "target_id": "a66894d7-451b-4ab9-a3bd-a1cb067e2ad7"
+    },
+    {
+      "source_id": "9ada85e8-578d-4e5a-a364-ab54384f7f80",
+      "target_id": "a66894d7-451b-4ab9-a3bd-a1cb067e2ad7",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
