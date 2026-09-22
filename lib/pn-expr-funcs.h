@@ -40,19 +40,41 @@ G_BEGIN_DECLS
 typedef gdouble (*PnExprUnaryFn)  (gdouble x);
 typedef gdouble (*PnExprBinaryFn) (gdouble x, gdouble y);
 
+/* Three or more arguments, and the only shape that can serve a function
+ * whose arity is a RANGE: @args holds exactly @n_args values, and @n_args
+ * is within the row's min..max (TODO #83.2). */
+typedef gdouble (*PnExprNaryFn)   (const gdouble *args, gint n_args);
+
 typedef struct
 {
     const gchar    *name;
-    gint            arity;  /* 1 or 2 — how many arguments the call takes */
-    PnExprUnaryFn   fn1;    /* set when @arity == 1 */
-    PnExprBinaryFn  fn2;    /* set when @arity == 2 */
+    gint            min_arity;  /* fewest arguments the call may take */
+    gint            max_arity;  /* most; equal to @min_arity for a fixed
+                                 * arity, larger for `log(x[, base])`  */
+    PnExprUnaryFn   fn1;        /* fixed arity 1 */
+    PnExprBinaryFn  fn2;        /* fixed arity 2 */
+    PnExprNaryFn    fnN;        /* arity 3+, or any range */
 } PnExprFunc;
 
-/* The largest @arity in the table.  The AST represents a call's first
- * argument in PnExprNode.left and its second in .right (TODO #81.2), so
- * the representation itself caps the language here; raising this means
- * finding somewhere for a third argument to live. */
-#define PN_EXPR_MAX_ARITY 2
+/* Use these rather than writing a row out: a function is meant to cost
+ * ONE LINE, and the three shapes are what keep it one line as the struct
+ * grows.  FNR is the ranged form — FNR ("log", 1, 2, expr_log). */
+#define PN_EXPR_FN1(name_, fn_)            { name_, 1, 1, fn_, NULL, NULL }
+#define PN_EXPR_FN2(name_, fn_)            { name_, 2, 2, NULL, fn_, NULL }
+#define PN_EXPR_FNN(name_, arity_, fn_)    { name_, arity_, arity_, \
+                                             NULL, NULL, fn_ }
+#define PN_EXPR_FNR(name_, lo_, hi_, fn_)  { name_, lo_, hi_, NULL, NULL, fn_ }
+
+/* The most arguments any call may take.  This used to be a
+ * REPRESENTATIONAL limit — TODO #81.2 put argument one in
+ * PnExprNode.left and argument two in .right, and a third had nowhere to
+ * live — but 83.1 gave arguments 2..N a chain of PN_EXPR_NODE_ARG nodes,
+ * so the tree no longer cares.  What is left is a POLICY: every call in
+ * this language has a fixed, declared arity so the parser can check it
+ * as the expression is typed (81.3), and a bound keeps that promise
+ * cheap.  The language could do more and elected not to (83.21) — raise
+ * this when a row needs it, and nothing else has to change. */
+#define PN_EXPR_MAX_ARITY 4
 
 /**
  * pn_expr_func_lookup:
@@ -85,6 +107,19 @@ gsize pn_expr_func_count (void);
  *   is out of range.  Static, like pn_expr_func_lookup()'s result.
  */
 const PnExprFunc *pn_expr_func_nth (gsize index);
+
+/**
+ * pn_expr_func_arity_phrase:
+ * @fn: a table entry
+ *
+ * The arity of @fn in words — "1 argument", "2 arguments", "1 or 2
+ * arguments", "2 to 4 arguments" — for an error message.  It exists so
+ * the parser's complaint (at parse time, about a typed program) and the
+ * evaluator's (about a hand-built tree) cannot drift apart.
+ *
+ * Returns: (transfer full): a newly-allocated string.
+ */
+gchar *pn_expr_func_arity_phrase (const PnExprFunc *fn);
 
 /**
  * pn_expr_constant_lookup:

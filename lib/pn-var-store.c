@@ -219,89 +219,118 @@ negate_value (const PnExprValue *a, PnExprValue *out)
 }
 
 /* out = fn(a)  (apply a unary math function to a scalar, or map it over
- * every element of a vector). */
+ * every element of a vector).  A one-operand zip, so unary `~` and
+ * `sin()` share the broadcast with everything else. */
 static void
-map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out)
-{
-    if (a->vec != NULL)
-    {
-        gsize          n = pn_vector_get_len  (a->vec);
-        const gdouble *d = pn_vector_get_data (a->vec);
-        gdouble       *r = g_new (gdouble, n);
-        gsize          i;
-        for (i = 0; i < n; i++)
-            r[i] = fn (d[i]);
-        value_take_buffer (out, r, n);
-    }
-    else
-    {
-        out->scalar = fn (a->scalar);
-    }
-}
+map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out);
 
-/* The per-element rule of a two-operand combination: either one of the
- * language's operators (@op, run through apply_arith) or a two-argument
- * built-in function (@fn).  Exactly one is set.  Carrying both through
- * one struct is what lets zip_value() below serve `a * b` and
- * `atan2(a, b)` from the same code, which is the whole of TODO #81.5 —
- * a function that broadcast differently from `*` would be a second rule
- * for one idea. */
+/* The per-element rule of a combination of N operands: either one of the
+ * language's binary operators (@op, run through apply_arith) or a
+ * built-in function in whichever of the three shapes its row declares.
+ * Exactly one is set.  Carrying them all through one struct is what lets
+ * zipn_value() below serve `a * b`, `sin(a)`, `atan2(a, b)` and
+ * `clamp(a, b, c)` from the same code, which is the whole of TODO #81.5
+ * generalised by 83.19 — a function that broadcast differently from `*`
+ * would be a second rule for one idea. */
 typedef struct
 {
-    gchar          op;   /* operator code, when @fn is NULL */
-    PnExprBinaryFn fn;   /* two-argument built-in, when set */
+    gchar          op;   /* operator code, when every fn is NULL */
+    PnExprUnaryFn  fn1;  /* one-argument built-in                */
+    PnExprBinaryFn fn2;  /* two-argument built-in                */
+    PnExprNaryFn   fnN;  /* three or more, or a ranged arity     */
 } Kernel;
 
 static gdouble
-kernel_apply (const Kernel *k, gdouble x, gdouble y)
+kernel_apply (const Kernel *k, const gdouble *a, gint n)
 {
-    return (k->fn != NULL) ? k->fn (x, y) : apply_arith (k->op, x, y);
+    if (k->fnN != NULL)
+        return k->fnN (a, n);
+    if (k->fn2 != NULL)
+        return k->fn2 (a[0], a[1]);
+    if (k->fn1 != NULL)
+        return k->fn1 (a[0]);
+
+    return apply_arith (k->op, a[0], a[1]);
 }
 
-/* out = a <kernel> b.  Broadcasts a scalar over a vector; elementwise
- * for two vectors; on a length mismatch the result takes the longer
- * length and the surviving tail element passes through verbatim. */
+/* out = k(v[0], …, v[n-1]).  Scalars broadcast over vectors; vectors go
+ * elementwise; on a length mismatch the result takes the LONGEST length
+ * and, at an index where some operand has run out, the kernel is not
+ * applied at all — the FIRST operand that still has an element passes
+ * through verbatim.
+ *
+ * At n == 2 that is exactly the rule 43.7 pinned for `*`, because only
+ * one operand can survive there: `[2,3] * [3,4,5]` = `[6,12,5]`.  At
+ * three and four it is the reading that keeps the same promise — for
+ * every function in this language the first argument is the VALUE and
+ * the rest are parameters, so a bound vector running out leaves the
+ * value passing through untouched rather than clamped against nothing.
+ *
+ * Generalising THIS function rather than writing a second one beside it
+ * is the structural part (83.19): arithmetic, unary maps and calls of
+ * every arity share one broadcast, so a function CANNOT drift from an
+ * operator. */
 static void
-zip_value (const Kernel *k, const PnExprValue *a, const PnExprValue *b,
-           PnExprValue *out)
+zipn_value (const Kernel      *k,
+            const PnExprValue *v,
+            gint               n,
+            PnExprValue       *out)
 {
-    const gdouble *ad = a->vec ? pn_vector_get_data (a->vec) : NULL;
-    const gdouble *bd = b->vec ? pn_vector_get_data (b->vec) : NULL;
-    gsize          la = a->vec ? pn_vector_get_len  (a->vec) : 0;
-    gsize          lb = b->vec ? pn_vector_get_len  (b->vec) : 0;
-    gsize          i;
+    const gdouble *data[PN_EXPR_MAX_ARITY];
+    gsize          lens[PN_EXPR_MAX_ARITY];
+    gdouble        args[PN_EXPR_MAX_ARITY];
+    gsize          len = 0;
+    gdouble       *r;
+    gint           i;
+    gsize          j;
 
-    if (a->vec == NULL && b->vec == NULL)
+    g_assert (n >= 1 && n <= PN_EXPR_MAX_ARITY);
+
+    for (i = 0; i < n; i++)
     {
-        out->scalar = kernel_apply (k, a->scalar, b->scalar);
+        data[i] = v[i].vec != NULL ? pn_vector_get_data (v[i].vec) : NULL;
+        lens[i] = v[i].vec != NULL ? pn_vector_get_len  (v[i].vec) : 0;
+        len     = MAX (len, lens[i]);
+    }
+
+    if (len == 0)                       /* every operand a scalar */
+    {
+        for (i = 0; i < n; i++)
+            args[i] = v[i].scalar;
+        out->scalar = kernel_apply (k, args, n);
         return;
     }
 
-    if (a->vec != NULL && b->vec != NULL)
+    r = g_new (gdouble, len);
+    for (j = 0; j < len; j++)
     {
-        gsize    n  = MAX (la, lb);
-        gsize    mn = MIN (la, lb);
-        gdouble *r  = g_new (gdouble, n);
-        for (i = 0; i < mn; i++)
-            r[i] = kernel_apply (k, ad[i], bd[i]);
-        for (; i < n; i++)                  /* tail: longer operand verbatim */
-            r[i] = (la > lb) ? ad[i] : bd[i];
-        value_take_buffer (out, r, n);
+        gboolean complete   = TRUE;
+        gboolean have_first = FALSE;
+        gdouble  first      = 0.0;
+
+        for (i = 0; i < n; i++)
+        {
+            if (data[i] == NULL)            /* a scalar never runs out */
+                args[i] = v[i].scalar;
+            else if (j < lens[i])
+                args[i] = data[i][j];
+            else                            /* this operand has run out */
+            {
+                complete = FALSE;
+                continue;
+            }
+
+            if (!have_first)
+            {
+                first      = args[i];
+                have_first = TRUE;
+            }
+        }
+
+        r[j] = complete ? kernel_apply (k, args, n) : first;
     }
-    else if (a->vec != NULL)               /* vector OP scalar */
-    {
-        gdouble *r = g_new (gdouble, la);
-        for (i = 0; i < la; i++)
-            r[i] = kernel_apply (k, ad[i], b->scalar);
-        value_take_buffer (out, r, la);
-    }
-    else                                   /* scalar OP vector */
-    {
-        gdouble *r = g_new (gdouble, lb);
-        for (i = 0; i < lb; i++)
-            r[i] = kernel_apply (k, a->scalar, bd[i]);
-        value_take_buffer (out, r, lb);
-    }
+
+    value_take_buffer (out, r, len);
 }
 
 /* out = a OP b for an arithmetic or bitwise operator
@@ -310,18 +339,20 @@ static void
 arith_value (gchar op, const PnExprValue *a, const PnExprValue *b,
              PnExprValue *out)
 {
-    Kernel k = { op, NULL };
-    zip_value (&k, a, b, out);
+    Kernel      k = { op, NULL, NULL, NULL };
+    PnExprValue v[2];
+
+    v[0] = *a;
+    v[1] = *b;
+    zipn_value (&k, v, 2, out);
 }
 
-/* out = fn(a, b) for a two-argument built-in — the same broadcast,
- * elementwise and tail rules as the operators, by construction. */
 static void
-map2_value (PnExprBinaryFn fn, const PnExprValue *a, const PnExprValue *b,
-            PnExprValue *out)
+map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out)
 {
-    Kernel k = { '\0', fn };
-    zip_value (&k, a, b, out);
+    Kernel k = { '\0', fn, NULL, NULL };
+
+    zipn_value (&k, a, 1, out);
 }
 
 /* out = a CMP b for a comparison operator.  ALWAYS reduces to a scalar
@@ -647,8 +678,14 @@ eval_value (PnVarStore       *self,
 
     case PN_EXPR_NODE_CALL:
         {
-            PnExprValue       a  = { NULL, 0.0 }, b = { NULL, 0.0 };
+            const PnExprNode *arg_nodes[PN_EXPR_MAX_ARITY];
+            PnExprValue       args[PN_EXPR_MAX_ARITY];
+            const PnExprNode *chain;
             const PnExprFunc *fn = pn_expr_func_lookup (node->name);
+            Kernel            k;
+            gint              n_args = 0;
+            gint              i;
+            gboolean          ok = TRUE;
 
             if (fn == NULL)
             {
@@ -658,38 +695,64 @@ eval_value (PnVarStore       *self,
                 return FALSE;
             }
 
-            /* The parser already rejected a wrong argument count, so a
-             * mismatch here means a hand-built tree rather than a typed
-             * program — a bad AST, not a user error. */
-            if ((node->right != NULL) != (fn->arity == 2))
+            /* Argument one is .left; two onwards hang off .right as a
+             * chain of ARG nodes (TODO #83.1).  Collect the nodes first
+             * so the count is known before anything is evaluated. */
+            if (node->left != NULL)
+                arg_nodes[n_args++] = node->left;
+
+            for (chain = node->right; chain != NULL; chain = chain->right)
             {
+                if (chain->type != PN_EXPR_NODE_ARG ||
+                    chain->left == NULL ||
+                    n_args == PN_EXPR_MAX_ARITY)
+                {
+                    g_set_error (error, PN_VAR_STORE_ERROR,
+                                 PN_VAR_STORE_ERROR_BAD_AST,
+                                 "malformed argument list for '%s'",
+                                 node->name);
+                    return FALSE;
+                }
+                arg_nodes[n_args++] = chain->left;
+            }
+
+            /* The parser already rejected a wrong argument count against
+             * the same table, so a mismatch here means a hand-built tree
+             * rather than a typed program — a bad AST, not a user error.
+             * The phrase comes from the table either way, so the two
+             * messages cannot drift (TODO #83.2). */
+            if (n_args < fn->min_arity || n_args > fn->max_arity)
+            {
+                gchar *phrase = pn_expr_func_arity_phrase (fn);
                 g_set_error (error, PN_VAR_STORE_ERROR,
                              PN_VAR_STORE_ERROR_BAD_AST,
-                             "'%s' takes %d argument%s", node->name,
-                             fn->arity, fn->arity == 1 ? "" : "s");
+                             "'%s' takes %s", node->name, phrase);
+                g_free (phrase);
                 return FALSE;
             }
 
-            if (!eval_value (self, node->left, &a, error))
-                return FALSE;
-
-            if (fn->arity == 1)
+            for (i = 0; i < n_args; i++)
             {
-                map_value (fn->fn1, &a, out);
-                pn_expr_value_clear (&a);
-                return TRUE;
+                args[i].vec    = NULL;
+                args[i].scalar = 0.0;
             }
 
-            if (!eval_value (self, node->right, &b, error))
+            for (i = 0; i < n_args && ok; i++)
+                ok = eval_value (self, arg_nodes[i], &args[i], error);
+
+            if (ok)
             {
-                pn_expr_value_clear (&a);
-                return FALSE;
+                k.op  = '\0';
+                k.fn1 = fn->fn1;
+                k.fn2 = fn->fn2;
+                k.fnN = fn->fnN;
+                zipn_value (&k, args, n_args, out);
             }
 
-            map2_value (fn->fn2, &a, &b, out);
-            pn_expr_value_clear (&a);
-            pn_expr_value_clear (&b);
-            return TRUE;
+            for (i = 0; i < n_args; i++)
+                pn_expr_value_clear (&args[i]);
+
+            return ok;
         }
 
     case PN_EXPR_NODE_ASSIGN:

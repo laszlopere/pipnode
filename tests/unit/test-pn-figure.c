@@ -1264,6 +1264,38 @@ test_atan2_is_a_function (void)
     split_free (&s);
 }
 
+/* TODO #83.1 predicted this file would need NOTHING: the figure's two
+ * AST walkers recurse into .left and .right generically, so a call's
+ * arguments 2..N riding on a chain of ARG nodes are walked for free.
+ * Re-confirmed rather than assumed, and on the case that would catch a
+ * walker that stops at argument two — a free name in the LAST argument
+ * of a three-argument call, plus a constant fold through the chain. */
+static void
+test_a_three_argument_call_walks (void)
+{
+    Split      s = parsed ("circle 0, 0, clamp(r, 1, 10)\n"
+                           "line 0, 0, clamp(5, 0, 10), log(8, 2)");
+    GPtrArray *names = pn_figure_free_names (s.statements);
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (s.statements->len, ==, 2);
+
+    /* `r` is the only free name, and it is found although it sits in
+     * argument ONE of a call whose other arguments chain behind it. */
+    PN_CHECK_CMPINT (names->len, ==, 1);
+    PN_CHECK_CMPSTR (g_ptr_array_index (names, 0), ==, "r");
+
+    /* The all-constant calls fold, which walks the chain a second way —
+     * three arguments, and a ranged arity taking its two. */
+    PN_CHECK (arg (statement (&s, 1), 2)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 1), 2)->value, 5.0, 1e-12);
+    PN_CHECK (arg (statement (&s, 1), 3)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 1), 3)->value, 3.0, 1e-12);
+
+    g_ptr_array_unref (names);
+    split_free (&s);
+}
+
 static void
 test_non_finite_constant_is_not_an_error (void)
 {
@@ -2389,6 +2421,7 @@ main (int argc, char **argv)
     pn_test_add ("expr_no_position",    test_expression_error_without_a_position);
     pn_test_add ("expr_bad_function",   test_unknown_function_is_a_parse_error);
     pn_test_add ("expr_atan2",          test_atan2_is_a_function);
+    pn_test_add ("expr_three_args",     test_a_three_argument_call_walks);
     pn_test_add ("expr_non_finite",     test_non_finite_constant_is_not_an_error);
     pn_test_add ("report_none",         test_report_nothing_wrong);
     pn_test_add ("report_one",          test_report_one_error);

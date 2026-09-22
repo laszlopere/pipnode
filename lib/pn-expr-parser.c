@@ -317,21 +317,23 @@ static PnExprNode *parse_factor (Ctx *c);
  * already consumed) and build the CALL node, consuming the closing ')'.
  * Takes ownership of @name either way.
  *
- * Arguments chain: the first goes in .left, the second in .right — the
- * field a CALL has never used — so an extra argument costs no growth in
- * PnExprNode (TODO #81.2).  That is not a micro-optimisation:
+ * Arguments: the first goes in .left and the rest hang off .right as a
+ * chain of PN_EXPR_NODE_ARG (TODO #83.1), so a call of any arity costs
+ * no growth in PnExprNode.  That is not a micro-optimisation:
  * pn-expr-parser.h is INSTALLED public API that reaches plugins through
  * pipnode.h, so a bigger struct would be an ABI break of the same class
  * as appending a PnNodeClass vfunc, with every plugin needing a rebuild.
- * Existing one-argument trees stay bit-for-bit what they were.
+ * An appended enum value is not (81.3 did the same to PnExprParserError).
+ * One-argument trees stay bit-for-bit what they were.
  *
  * The COUNT is checked here, at parse time, against the shared arity
  * table — so `atan2(x)` lights the node up as it is typed rather than
- * on the next message (TODO #81.3).  A name the table does not know has
- * no arity to check, so it parses and the evaluator reports it as an
- * unknown function; more than #PN_EXPR_MAX_ARITY arguments is still a
- * parse error, because no function takes that many and the AST has
- * nowhere to put them. */
+ * on the next message (TODO #81.3) — and the table may declare a RANGE,
+ * so `log(1, 2, 3)` is told what `log` actually takes (83.2).  A name
+ * the table does not know has no arity to check, so it parses and the
+ * evaluator reports it as an unknown function; more than
+ * #PN_EXPR_MAX_ARITY arguments is a parse error whatever the name,
+ * because no function in the language takes that many. */
 static PnExprNode *parse_call_args (Ctx *c, gchar *name, gint column);
 
 static PnExprNode *
@@ -456,10 +458,6 @@ parse_factor (Ctx *c)
     return n;
 }
 
-/* left/right hold argument one and two by hand below, so a third would
- * need somewhere new to live rather than just a bigger loop. */
-G_STATIC_ASSERT (PN_EXPR_MAX_ARITY == 2);
-
 static PnExprNode *
 parse_call_args (Ctx   *c,
                  gchar *name,
@@ -469,6 +467,7 @@ parse_call_args (Ctx   *c,
     PnExprNode       *args[PN_EXPR_MAX_ARITY] = { NULL, };
     gint              n_args = 0;
     PnExprNode       *call;
+    PnExprNode       *chain  = NULL;
     gint              i;
 
     for (;;)
@@ -503,22 +502,39 @@ parse_call_args (Ctx   *c,
     }
 
     /* An unknown name has no declared arity; let the evaluator be the one
-     * that says so, which is where it said so before this entry. */
-    if (fn != NULL && fn->arity != n_args)
+     * that says so, which is where it said so before this entry.  A
+     * known one may declare a RANGE (TODO #83.2), so the message comes
+     * from the table rather than from a count — "log takes 1 or 2
+     * arguments, got 3". */
+    if (fn != NULL && (n_args < fn->min_arity || n_args > fn->max_arity))
     {
+        gchar *phrase = pn_expr_func_arity_phrase (fn);
         ctx_set_error (c, PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT,
-                       "%s takes %d argument%s, got %d at position %d",
-                       name, fn->arity, fn->arity == 1 ? "" : "s",
-                       n_args, column);
+                       "%s takes %s, got %d at position %d",
+                       name, phrase, n_args, column);
+        g_free (phrase);
         goto fail;
     }
 
     lex_advance (c);                /* consume the ')' */
 
+    /* Arguments 2..N become a right-leaning chain of ARG nodes hanging
+     * off the call's .right (TODO #83.1).  Built back to front so each
+     * node already has its successor; a two-argument call chains too,
+     * because arity 2 being special is the irregularity 83.1(b) refused
+     * to leave behind. */
+    for (i = n_args - 1; i >= 1; i--)
+    {
+        PnExprNode *arg = node_new (PN_EXPR_NODE_ARG);
+        arg->left  = args[i];
+        arg->right = chain;
+        chain = arg;
+    }
+
     call = node_new (PN_EXPR_NODE_CALL);
     call->name  = name;             /* transfer ownership */
     call->left  = args[0];
-    call->right = args[1];          /* NULL for a one-argument call */
+    call->right = chain;            /* NULL for a one-argument call */
     return call;
 
 fail:

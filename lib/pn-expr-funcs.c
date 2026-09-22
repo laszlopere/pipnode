@@ -21,6 +21,46 @@
 
 #include <math.h>
 
+/* `log(x)` is the natural logarithm and `log(x, base)` is
+ * log(x)/log(base) — the first name in the language whose arity is a
+ * RANGE rather than a number (TODO #83.2/#83.7).  Written as one row
+ * with an N-ary implementation that dispatches on the count it was
+ * actually given; base 10 and base 2 will get their own names later, and
+ * this spelling is for the base a program computes rather than knows. */
+static gdouble
+expr_log (const gdouble *a, gint n)
+{
+    return (n == 1) ? log (a[0]) : log (a[0]) / log (a[1]);
+}
+
+/* clamp(x, lo, hi) — the first THREE-argument function in the language
+ * and the specimen that proves 83.1's argument chain end to end.  It is
+ * here rather than written as min(max(x, lo), hi) because that spelling
+ * is the one people get the argument order wrong in (83.11b).
+ *
+ * Two decisions, both of which 83.11(b) and 83.18 insist are stated
+ * rather than left to fall out:
+ *  - CROSSED BOUNDS (hi < lo) return lo.  The lower bound wins; it is
+ *    defensible, it is deterministic, and silence is not an option.
+ *  - A NaN VALUE passes through as NaN.  fmin/fmax would have quietly
+ *    turned it into a bound, which is the same "a NaN became a real
+ *    number" mistake `sign` refuses to make (81.11).
+ */
+static gdouble
+expr_clamp (const gdouble *a, gint n)
+{
+    const gdouble x = a[0], lo = a[1], hi = a[2];
+
+    (void) n;                       /* fixed arity 3 */
+
+    if (isnan (x))
+        return x;
+    if (hi < lo)
+        return lo;
+
+    return (x < lo) ? lo : (x > hi) ? hi : x;
+}
+
 /* `sign` is the one name in the table with no libm function behind it,
  * so it is written out — and its two edge cases are DECIDED here rather
  * than left to fall out (TODO #81.11):
@@ -53,7 +93,7 @@ expr_sign (gdouble x)
  * mechanics figure (TODO #80) wants atan2(dy, dx) in its first ten
  * lines and the language had no way to spell it.  Adding a function is
  * one row and nothing else, which is what TODO #81.11 then proved by
- * adding ten.
+ * adding ten, and #83 goes on proving at three and four arguments.
  *
  * Where a name means something in C, C wins: `round` is therefore
  * half-AWAY-FROM-ZERO (round(0.5) is 1, round(-0.5) is -1, round(2.5)
@@ -63,29 +103,37 @@ expr_sign (gdouble x)
  * help pages, because a reader cannot guess either one.
  *
  * `pow(x, y)` also exists to catch a mistake: `^` in this language is
- * bitwise XOR, not exponentiation, so `2 ^ 10` is 8 and not 1024. */
+ * bitwise XOR, not exponentiation, so `2 ^ 10` is 8 and not 1024.
+ *
+ * The three macros keep a row to one line whatever the struct grows:
+ * PN_EXPR_FN1/FN2 for a fixed one or two arguments, PN_EXPR_FNN for a
+ * fixed three or more, PN_EXPR_FNR for an arity RANGE (TODO #83.2).
+ * `clamp` and `log(x[, base])` are the specimens that exercise those
+ * last two paths end to end — the chain, the range and the N-operand
+ * broadcast — the way `atan2` was #81's specimen for the comma. */
 static const PnExprFunc builtin_funcs[] = {
-    { "sin",   1, sin,       NULL  },
-    { "cos",   1, cos,       NULL  },
-    { "tan",   1, tan,       NULL  },
-    { "log",   1, log,       NULL  },
-    { "log10", 1, log10,     NULL  },
-    { "exp",   1, exp,       NULL  },
-    { "sqrt",  1, sqrt,      NULL  },
-    { "abs",   1, fabs,      NULL  },
-    { "floor", 1, floor,     NULL  },
-    { "ceil",  1, ceil,      NULL  },
-    { "asin",  1, asin,      NULL  },
-    { "acos",  1, acos,      NULL  },
-    { "atan",  1, atan,      NULL  },
-    { "round", 1, round,     NULL  },
-    { "trunc", 1, trunc,     NULL  },
-    { "sign",  1, expr_sign, NULL  },
-    { "atan2", 2, NULL,      atan2 },
-    { "min",   2, NULL,      fmin  },
-    { "max",   2, NULL,      fmax  },
-    { "pow",   2, NULL,      pow   },
-    { "hypot", 2, NULL,      hypot },
+    PN_EXPR_FN1 ("sin",   sin),
+    PN_EXPR_FN1 ("cos",   cos),
+    PN_EXPR_FN1 ("tan",   tan),
+    PN_EXPR_FN1 ("asin",  asin),
+    PN_EXPR_FN1 ("acos",  acos),
+    PN_EXPR_FN1 ("atan",  atan),
+    PN_EXPR_FNR ("log",   1, 2, expr_log),
+    PN_EXPR_FN1 ("log10", log10),
+    PN_EXPR_FN1 ("exp",   exp),
+    PN_EXPR_FN1 ("sqrt",  sqrt),
+    PN_EXPR_FN1 ("abs",   fabs),
+    PN_EXPR_FN1 ("floor", floor),
+    PN_EXPR_FN1 ("ceil",  ceil),
+    PN_EXPR_FN1 ("round", round),
+    PN_EXPR_FN1 ("trunc", trunc),
+    PN_EXPR_FN1 ("sign",  expr_sign),
+    PN_EXPR_FN2 ("atan2", atan2),
+    PN_EXPR_FN2 ("min",   fmin),
+    PN_EXPR_FN2 ("max",   fmax),
+    PN_EXPR_FN2 ("pow",   pow),
+    PN_EXPR_FN2 ("hypot", hypot),
+    PN_EXPR_FNN ("clamp", 3, expr_clamp),
 };
 
 /* The named constants.  Two, and both of them are here because writing
@@ -114,6 +162,24 @@ pn_expr_func_lookup (const gchar *name)
             return &builtin_funcs[i];
 
     return NULL;
+}
+
+gchar *
+pn_expr_func_arity_phrase (const PnExprFunc *fn)
+{
+    if (fn == NULL)
+        return g_strdup ("no arguments");
+
+    if (fn->min_arity == fn->max_arity)
+        return g_strdup_printf ("%d argument%s", fn->min_arity,
+                                fn->min_arity == 1 ? "" : "s");
+
+    if (fn->max_arity == fn->min_arity + 1)
+        return g_strdup_printf ("%d or %d arguments",
+                                fn->min_arity, fn->max_arity);
+
+    return g_strdup_printf ("%d to %d arguments",
+                            fn->min_arity, fn->max_arity);
 }
 
 gsize

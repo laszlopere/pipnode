@@ -96,7 +96,8 @@ being processed contributes them. The result is written to
       (angles in radians throughout; a value outside a function&rsquo;s
       domain, such as <code>asin(2)</code>, gives <code>nan</code>
       rather than an error),
-      <code>log</code> (natural log), <code>log10</code>,
+      <code>log</code> (natural log; see also the optional
+      second argument below), <code>log10</code>,
       <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
       <code>floor</code>, <code>ceil</code>,
       <code>round</code>, <code>trunc</code> and <code>sign</code>.
@@ -127,10 +128,25 @@ being processed contributes them. The result is written to
       <code>1024</code>); and
       <code>hypot(x,&nbsp;y)</code> &mdash;
       <code>sqrt(x*x&nbsp;+&nbsp;y*y)</code> computed without the
-      overflow the written-out form can suffer.
+      overflow the written-out form can suffer.</li>
+  <li><strong>Functions</strong> (three arguments):
+      <code>clamp(x,&nbsp;lo,&nbsp;hi)</code> &mdash; x held between the
+      two bounds. It exists because
+      <code>min(max(x,&nbsp;lo),&nbsp;hi)</code> is what people write
+      instead and get the order wrong in. If the bounds are crossed
+      (<code>hi</code> below <code>lo</code>) the lower one wins, and a
+      <code>nan</code> value stays <code>nan</code> rather than becoming
+      a bound.</li>
+  <li><strong>A second, optional argument:</strong> a few names take
+      either count. <code>log(x)</code> is the natural logarithm and
+      <code>log(x,&nbsp;base)</code> is the logarithm to that base
+      (<code>log(8,&nbsp;2)</code> is <code>3</code>) &mdash; useful when
+      the base is something the sheet computes rather than knows;
+      <code>log10</code> is still the one to reach for otherwise.
       A call with the wrong number of
       arguments is reported straight away, as a mistake in the
-      expression.</li>
+      expression &mdash; and it says what the function actually takes,
+      down to &ldquo;1 or 2 arguments&rdquo; for one like this.</li>
   <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.
       They are not variables &mdash; an input member actually named
       <code>pi</code> is used in preference, so nothing you bind can

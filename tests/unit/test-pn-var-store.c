@@ -25,8 +25,10 @@
 
 #include "pntest.h"
 #include "pn-var-store.h"
+#include "pn-expr-funcs.h"
 
 #include <math.h>
+#include <string.h>
 
 /* ---- AST builders (stack-allocated; addresses stay valid for the
  *      lifetime of the enclosing test) ---- */
@@ -79,6 +81,53 @@ seq (PnExprNode *stmt, PnExprNode *rest)
     n.right = rest;
     return n;
 }
+
+/* A call of two or more arguments.  Argument one is .left; the rest hang
+ * off .right as a chain of ARG nodes (TODO #83.1), and a two-argument
+ * call chains too — arity 2 is not special.  The chain nodes have to
+ * outlive the call, so the caller lends a CallN to hold them. */
+typedef struct
+{
+    PnExprNode call;
+    PnExprNode arg[PN_EXPR_MAX_ARITY - 1];
+} CallN;
+
+static PnExprNode *
+call_n (CallN *st, const gchar *name, PnExprNode **args, gint n)
+{
+    gint i;
+
+    memset (st, 0, sizeof *st);
+    st->call.type = PN_EXPR_NODE_CALL;
+    st->call.name = (gchar *) name;  /* borrowed; evaluator only reads it */
+    st->call.left = args[0];
+
+    for (i = 1; i < n; i++)
+    {
+        st->arg[i - 1].type  = PN_EXPR_NODE_ARG;
+        st->arg[i - 1].left  = args[i];
+        st->arg[i - 1].right = (i + 1 < n) ? &st->arg[i] : NULL;
+    }
+    st->call.right = (n > 1) ? &st->arg[0] : NULL;
+
+    return &st->call;
+}
+
+static PnExprNode *
+call2 (CallN *st, const gchar *name, PnExprNode *a, PnExprNode *b)
+{
+    PnExprNode *args[2] = { a, b };
+    return call_n (st, name, args, 2);
+}
+
+static PnExprNode *
+call3 (CallN *st, const gchar *name,
+       PnExprNode *a, PnExprNode *b, PnExprNode *c)
+{
+    PnExprNode *args[3] = { a, b, c };
+    return call_n (st, name, args, 3);
+}
+
 
 static void
 test_set_get_clear (void)
@@ -355,23 +404,17 @@ test_eval_functions (void)
     /* atan2(1, 1) == pi/4: the second argument reached the C call, in
      * the right ORDER (atan2(1,1) and atan2(1,-1) differ). */
     {
-        PnExprNode y = num (1.0), x = num (1.0);
-        PnExprNode c = { 0 };
-        c.type  = PN_EXPR_NODE_CALL;
-        c.name  = (gchar *) "atan2";
-        c.left  = &y;
-        c.right = &x;
-        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PnExprNode  y = num (1.0), x = num (1.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &y, &x);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, &err));
         PN_CHECK_NEAR (out, G_PI / 4.0, 1e-12);
     }
     {
-        PnExprNode y = num (1.0), x = num (-1.0);
-        PnExprNode c = { 0 };
-        c.type  = PN_EXPR_NODE_CALL;
-        c.name  = (gchar *) "atan2";
-        c.left  = &y;
-        c.right = &x;
-        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PnExprNode  y = num (1.0), x = num (-1.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &y, &x);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, &err));
         PN_CHECK_NEAR (out, 3.0 * G_PI / 4.0, 1e-12);
     }
 
@@ -390,12 +433,26 @@ test_eval_functions (void)
         g_clear_error (&err);
     }
     {
+        PnExprNode  a = num (1.0), b = num (2.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "sqrt", &a, &b);  /* one too many */
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_AST));
+        g_clear_error (&err);
+    }
+
+    /* A chain that is not a chain: argument two must be an ARG node, so
+     * a raw expression hanging off .right — which is what a two-argument
+     * call looked like before TODO #83.1 — is a malformed argument list
+     * rather than a silently accepted call. */
+    {
         PnExprNode a = num (1.0), b = num (2.0);
         PnExprNode c = { 0 };
         c.type  = PN_EXPR_NODE_CALL;
-        c.name  = (gchar *) "sqrt";
+        c.name  = (gchar *) "atan2";
         c.left  = &a;
-        c.right = &b;               /* one argument too many */
+        c.right = &b;
         PN_CHECK_FALSE (pn_var_store_evaluate (s, &c, &out, &err));
         PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
                                    PN_VAR_STORE_ERROR_BAD_AST));
@@ -479,19 +536,6 @@ call (const gchar *name, PnExprNode *arg)
     n.type = PN_EXPR_NODE_CALL;
     n.name = (gchar *) name;   /* borrowed; evaluator only reads it */
     n.left = arg;
-    return n;
-}
-
-/* A two-argument call: argument two rides in .right, the field a CALL
- * left unused before TODO #81.2, so PnExprNode never grew. */
-static PnExprNode
-call2 (const gchar *name, PnExprNode *arg1, PnExprNode *arg2)
-{
-    PnExprNode n = { 0 };
-    n.type  = PN_EXPR_NODE_CALL;
-    n.name  = (gchar *) name;  /* borrowed; evaluator only reads it */
-    n.left  = arg1;
-    n.right = arg2;
     return n;
 }
 
@@ -612,9 +656,10 @@ test_vector_two_argument_function (void)
     /* scalar, vector -> broadcast: atan2(0, [1,1,7]) = [0, 0, 0]. */
     {
         PnExprNode zero = num (0.0), bv = var ("b");
-        PnExprNode c = call2 ("atan2", &zero, &bv);
-        gdouble    want[] = { 0.0, 0.0, 0.0 };
-        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &zero, &bv);
+        gdouble     want[] = { 0.0, 0.0, 0.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
         check_vec (&out, want, 3);
         pn_expr_value_clear (&out);
     }
@@ -623,9 +668,10 @@ test_vector_two_argument_function (void)
      * atan2([0,1], 1) = [0, pi/4]. */
     {
         PnExprNode av = var ("a"), one = num (1.0);
-        PnExprNode c = call2 ("atan2", &av, &one);
-        gdouble    want[] = { 0.0, G_PI / 4.0 };
-        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &av, &one);
+        gdouble     want[] = { 0.0, G_PI / 4.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
         check_vec (&out, want, 2);
         pn_expr_value_clear (&out);
     }
@@ -635,9 +681,10 @@ test_vector_two_argument_function (void)
      * tail rule, not a truncation. */
     {
         PnExprNode av = var ("a"), bv = var ("b");
-        PnExprNode c = call2 ("atan2", &av, &bv);
-        gdouble    want[] = { 0.0, G_PI / 4.0, 7.0 };
-        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &av, &bv);
+        gdouble     want[] = { 0.0, G_PI / 4.0, 7.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
         check_vec (&out, want, 3);
         pn_expr_value_clear (&out);
     }
@@ -645,9 +692,10 @@ test_vector_two_argument_function (void)
     /* Longer operand on the LEFT: same rule, a[?] would be the tail. */
     {
         PnExprNode bv = var ("b"), av = var ("a");
-        PnExprNode c = call2 ("atan2", &bv, &av);
-        gdouble    want[] = { G_PI / 2.0, atan2 (1.0, 1.0), 7.0 };
-        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        CallN       st;
+        PnExprNode *c = call2 (&st, "atan2", &bv, &av);
+        gdouble     want[] = { G_PI / 2.0, atan2 (1.0, 1.0), 7.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
         check_vec (&out, want, 3);
         pn_expr_value_clear (&out);
     }
@@ -851,9 +899,19 @@ test_builtin_functions (void)
 
 #define CHECK_CALL2(name_, x_, y_, want_)                               \
     G_STMT_START {                                                      \
-        PnExprNode x__ = num (x_), y__ = num (y_);                      \
-        PnExprNode c_  = call2 (name_, &x__, &y__);                     \
-        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call2 (&st_, name_, &x__, &y__);              \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK_CALL3(name_, x_, y_, z_, want_)                           \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_), z__ = num (z_);     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call3 (&st_, name_, &x__, &y__, &z__);        \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
         PN_CHECK_NEAR (out, (want_), 1e-12);                            \
     } G_STMT_END
 
@@ -934,21 +992,174 @@ test_builtin_functions (void)
         gdouble     a[] = { 1.0, 5.0 };
         gdouble     b[] = { 4.0, 2.0, 9.0 };
         gdouble     want[] = { 1.0, 2.0, 9.0 };
-        PnExprNode  av, bv, c;
+        PnExprNode  av, bv;
+        PnExprNode *c;
+        CallN       st;
 
         bind_vec (s, "a", a, 2);
         bind_vec (s, "b", b, 3);
         av = var ("a");
         bv = var ("b");
-        c  = call2 ("min", &av, &bv);
-        PN_CHECK (pn_var_store_evaluate_value (s, &c, &v, NULL));
+        c  = call2 (&st, "min", &av, &bv);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &v, NULL));
         check_vec (&v, want, 3);
         pn_expr_value_clear (&v);
     }
 
 #undef CHECK_CALL1
 #undef CHECK_CALL2
+#undef CHECK_CALL3
 #undef CHECK_CALL1_NAN
+
+    g_object_unref (s);
+}
+
+/* ---- Three arguments and a ranged arity (TODO #83.1, #83.2) ---- */
+
+/* `clamp` is the first three-argument function and the specimen for the
+ * argument chain; `log(x[, base])` is the first whose arity is a RANGE.
+ * Between them they exercise both new paths in the table. */
+static void
+test_arity_three_and_range (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+    GError     *err = NULL;
+
+#define CHECK3(name_, x_, y_, z_, want_)                                \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_), z__ = num (z_);     \
+        CallN       st_;                                                \
+        PnExprNode *c_ = call3 (&st_, name_, &x__, &y__, &z__);         \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    /* Inside, below, above — and the argument ORDER, which is the whole
+     * reason clamp exists rather than min(max(x, lo), hi). */
+    CHECK3 ("clamp",  5.0, 0.0, 10.0,  5.0);
+    CHECK3 ("clamp", -3.0, 0.0, 10.0,  0.0);
+    CHECK3 ("clamp", 42.0, 0.0, 10.0, 10.0);
+    CHECK3 ("clamp",  0.0, 0.0, 10.0,  0.0);   /* the bounds themselves */
+    CHECK3 ("clamp", 10.0, 0.0, 10.0, 10.0);
+
+    /* CROSSED BOUNDS: the lower one wins, whichever side x is on.  A
+     * decision, not an accident (TODO #83.11b). */
+    CHECK3 ("clamp",  5.0, 10.0, 0.0, 10.0);
+    CHECK3 ("clamp", -5.0, 10.0, 0.0, 10.0);
+
+    /* A NaN VALUE stays NaN rather than becoming a bound, which is what
+     * the fmin/fmax spelling would have done silently. */
+    {
+        PnExprNode  x = num (NAN), lo = num (0.0), hi = num (1.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "clamp", &x, &lo, &hi);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK (isnan (out));
+    }
+
+    /* The ranged row: one argument is the natural log, two is the log to
+     * that base, and both come from the SAME row. */
+    {
+        PnExprNode  x = num (G_E);
+        PnExprNode  c1 = call ("log", &x);
+        PN_CHECK (pn_var_store_evaluate (s, &c1, &out, NULL));
+        PN_CHECK_NEAR (out, 1.0, 1e-12);
+    }
+    {
+        PnExprNode  x = num (8.0), b = num (2.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "log", &x, &b);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK_NEAR (out, 3.0, 1e-12);
+    }
+    {
+        PnExprNode  x = num (1000.0), b = num (10.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "log", &x, &b);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK_NEAR (out, 3.0, 1e-12);
+    }
+
+    /* Outside the range it is a BAD_AST, and the message comes from the
+     * table so it reads the way the parser's does. */
+    {
+        PnExprNode  a = num (1.0), b = num (2.0), c3 = num (3.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "log", &a, &b, &c3);
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_AST));
+        PN_CHECK (err != NULL && strstr (err->message, "1 or 2") != NULL);
+        g_clear_error (&err);
+    }
+    {
+        PnExprNode  a = num (1.0), b = num (2.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "clamp", &a, &b);  /* one short */
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_AST));
+        PN_CHECK (err != NULL && strstr (err->message, "3 arguments") != NULL);
+        g_clear_error (&err);
+    }
+
+#undef CHECK3
+
+    g_object_unref (s);
+}
+
+/* The N-operand broadcast (TODO #83.19).  Three operands follow the same
+ * rule two do — scalars broadcast, vectors are elementwise, the result
+ * takes the LONGEST length — and where an operand has run out the first
+ * one that still has an element passes through verbatim.  With three
+ * that means the VALUE passes through unclamped, which is the same
+ * promise `[2,3] * [3,4,5]` makes. */
+static void
+test_vector_three_argument_function (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     xs[] = { -5.0, 0.5, 9.0, 20.0 };
+    gdouble     los[] = { 0.0, 0.0 };
+
+    bind_vec (s, "xs",  xs,  4);
+    bind_vec (s, "los", los, 2);
+
+    /* vector value, scalar bounds: every element clamped. */
+    {
+        PnExprNode  xv = var ("xs"), lo = num (0.0), hi = num (10.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "clamp", &xv, &lo, &hi);
+        gdouble     want[] = { 0.0, 0.5, 9.0, 10.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 4);
+        pn_expr_value_clear (&out);
+    }
+
+    /* A SHORTER bound vector: the first two elements are clamped against
+     * it, and where it has run out the value passes through verbatim —
+     * unclamped, not clamped against nothing. */
+    {
+        PnExprNode  xv = var ("xs"), lov = var ("los"), hi = num (10.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "clamp", &xv, &lov, &hi);
+        gdouble     want[] = { 0.0, 0.5, 9.0, 20.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 4);
+        pn_expr_value_clear (&out);
+    }
+
+    /* All three scalars: still a scalar out, no vector allocated. */
+    {
+        PnExprNode  x = num (42.0), lo = num (0.0), hi = num (10.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "clamp", &x, &lo, &hi);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        PN_CHECK (out.vec == NULL);
+        PN_CHECK_NEAR (out.scalar, 10.0, 1e-12);
+        pn_expr_value_clear (&out);
+    }
 
     g_object_unref (s);
 }
@@ -973,6 +1184,8 @@ main (int argc, char **argv)
     pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
     pn_test_add ("value_to_string",    test_value_to_string);
     pn_test_add ("builtin_functions",  test_builtin_functions);
+    pn_test_add ("arity_three_range",  test_arity_three_and_range);
+    pn_test_add ("vector_fn_3arg",     test_vector_three_argument_function);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();
 }

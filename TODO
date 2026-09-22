@@ -3331,56 +3331,78 @@
        forty-nine additions that guard is the difference between a
        tested batch and a hopeful one.
 
-       [ ] 83.1 THE ARGUMENT CHAIN, and it goes first because eight of
-             the rows below -- `if`, `clamp`, `lerp`, `smoothstep` and
-             the four annuity functions -- cannot be reached without
-             it. Append ONE value to PnExprNodeType --
-             PN_EXPR_NODE_ARG, .left = this argument, .right = the
-             next -- and a call of any arity is a chain, exactly the
-             way PN_EXPR_NODE_SEQ already chains statements. The
-             precedent is in the same enum.
-             (a) THE ABI STORY, which is the whole reason this is
-                 cheap: sizeof (PnExprNode) does not change, no field
-                 changes meaning, and an APPENDED enum value is a
-                 value and not a layout -- the identical class of
-                 change 81.3 already made to PnExprParserError. NO
-                 PN_PLUGIN_ABI_VERSION bump, no plugin reinstall, no
-                 stale-dlopen deadlock. Say that in the commit message
-                 the way 81.10 did, so nobody goes looking for a
-                 reinstall that is not required.
-             (b) MAKE IT UNIFORM rather than backward-bit-compatible:
-                 args 2..N always chain, so a two-argument call's
-                 .right becomes ARG(arg2) instead of arg2 itself. That
-                 IS a change to today's representation, and the
-                 alternative -- arity 2 special, arity 3+ chained --
-                 is an irregularity that will be got wrong later. It
-                 is safe to change because the AST is short-lived and
-                 never serialised: nothing on disk holds one, so no
-                 worksheet needs migrating.
-             (c) VERIFY THE WALKERS. 81.2 checked and only two files
-                 in the tree touch PnExprNode: pn-var-store.c, which
-                 switches on the type and needs the CALL case taught
-                 to walk a chain, and pn-figure.c, whose free-name
-                 walker recurses into .left and .right generically and
-                 should need NOTHING (re-confirm rather than assume --
-                 that is the finding if it is wrong).
-                 pn_expr_node_free() already recurses into both, so a
-                 chain frees itself.
-             (d) PN_EXPR_MAX_ARITY stops being a representational
-                 limit and becomes a POLICY one. Keep the constant,
-                 raise it to whatever the longest row below needs, and
-                 change its comment to say it is a choice -- because
-                 the next person to read it deserves to know the
-                 language could do more and elected not to (83.21).
-       [ ] 83.2 THE ARITY RANGE, the second piece of machinery and the
-             smaller one: PnExprFunc holds a single `arity` today and
-             therefore cannot say "1 or 2", which `log(x, base)` and
-             the four ndigits rounders all need. Give the struct a MIN
-             and a MAX, have the parser check the range, and have the
-             evaluator dispatch on how many arguments it actually got.
-             Keep 81.3's error message honest -- "takes 1 or 2
-             arguments, got 3" -- and keep reporting the FUNCTION
-             NAME's position, per 81.3(a).
+       THE MACHINERY IS BUILT (2026-09-22): 83.1, 83.2 and 83.19 are
+       done, and two specimen rows came through them rather than none
+       -- `clamp(x, lo, hi)` for the chain and `log(x[, base])` for the
+       range -- the same way #81 shipped `atan2` with the comma. That
+       is the entry's expensive half; everything still open below is a
+       row, a decision, or a paragraph of help. NOTE for whoever
+       continues: `clamp` is 83.11(b) and `log(x, base)` is one of
+       83.7's six, both landed early and marked there.
+
+       [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
+             appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
+             this argument, .right = the next -- so a call of any arity
+             is a chain, exactly the way PN_EXPR_NODE_SEQ already
+             chains statements. The precedent was in the same enum and
+             it carried the whole change.
+             (a) THE ABI STORY HELD, and it was checked rather than
+                 argued: `git diff lib/pn-expr-parser.h` changes not
+                 one field line -- sizeof (PnExprNode) is what it was,
+                 no field changed meaning, and the only enum change is
+                 an APPENDED value, the same class of change 81.3 made
+                 to PnExprParserError. PN_PLUGIN_ABI_VERSION untouched,
+                 no plugin rebuilt or reinstalled, no stale-dlopen
+                 deadlock to warn anyone about.
+             (b) UNIFORM, as decided: a two-argument call chains too,
+                 so `atan2(1, 2)` is now CALL(.left=1, .right=ARG(2)).
+                 The evaluator therefore REJECTS the old shape -- a
+                 raw expression hanging off .right is "malformed
+                 argument list", not a silently accepted call -- which
+                 is what catches a stale hand-built tree, and is
+                 pinned by its own case in test-pn-var-store.c.
+             (c) THE WALKERS: confirmed, not assumed. pn-var-store.c's
+                 CALL case was taught to walk the chain (and to collect
+                 the argument NODES before evaluating any of them, so
+                 the count is known first). lib/pn-figure.c needed
+                 NOTHING, exactly as predicted -- is_foldable() and
+                 collect_names() recurse into .left/.right generically.
+                 Re-confirmed with a new test rather than by reading:
+                 expr_three_args parses `circle 0, 0, clamp(r, 1, 10)`
+                 and asserts `r` is still found as a free name, plus a
+                 constant three-argument call and a ranged one folding
+                 through the chain. pn_expr_node_free() already
+                 recursed into both fields, so a chain frees itself.
+             (d) PN_EXPR_MAX_ARITY is now a POLICY and its comment says
+                 so: raised to 4, with the reason spelled out -- every
+                 call in this language has a declared arity so the
+                 parser can check it as the expression is typed (81.3),
+                 and a bound keeps that cheap. The language could do
+                 more and elected not to (83.21).
+
+       [x] 83.2 DONE (2026-09-22): THE ARITY RANGE. PnExprFunc holds
+             `min_arity` and `max_arity` instead of one `arity`, the
+             parser checks the range and the evaluator dispatches on
+             the count it actually got. The message is honest and comes
+             from the table at BOTH ends -- one
+             pn_expr_func_arity_phrase() builds "1 or 2 arguments",
+             "3 arguments", "2 to 4 arguments", and the parser's
+             complaint about a typed program and the evaluator's about
+             a hand-built tree cannot drift apart. Position reporting
+             is unchanged: the FUNCTION NAME's, per 81.3(a).
+             (a) A ROW IS STILL ONE LINE, which a five-field struct
+                 would have destroyed: PN_EXPR_FN1/FN2/FNN/FNR wrap the
+                 shapes, so the table reads
+                 `PN_EXPR_FN1 ("sin", sin)` and
+                 `PN_EXPR_FNR ("log", 1, 2, expr_log)`. That matters
+                 for a forty-nine-row entry more than it did for ten.
+             (b) THE FIRST CUSTOMER came forward with it, because a
+                 range with no ranged row is untestable machinery:
+                 `log(x[, base])` from 83.7, which that entry already
+                 said must be built WITH 83.2 rather than before it.
+                 One argument is the natural log, two is
+                 log(x)/log(base), one row, dispatching on the count.
+
        [ ] 83.3 HYPERBOLICS -- `sinh`, `cosh`, `tanh`. Three rows,
              three libm functions, no domain and no decision. 81.1
              held them back with "until something asks for them" and
@@ -3417,7 +3439,10 @@
              function and exists so a reader can be SURE; abacus
              carries it for that reason alone. `log(x, base)` is
              log(x)/log(base) and is the first name in the language
-             with two arities, so it is built with 83.2, not before.
+             with two arities, so it is built with 83.2, not before --
+             and it WAS, landing with 83.2 on 2026-09-22 as that
+             entry's proving customer, which leaves five rows here
+             (`ln`, `log2`, `exp2`, `expm1`, `log1p`).
              `expm1`/`log1p` are the small-x pair -- exp(x)-1 and
              log(1+x) computed without the cancellation that makes the
              naive spelling lose every significant digit near zero --
@@ -3472,12 +3497,22 @@
                  nobody chose poisons the result. That distinction is
                  the entire value of the row; test it directly with
                  if(0, sqrt(-1), 1) == 1.
-             (b) `clamp` is the guard rail every gauge, dial and
-                 drawing coordinate wants, and min(max(x, lo), hi) is
-                 what people write instead and get the argument order
-                 wrong in. Decide what clamp(x, hi, lo) does with the
-                 bounds crossed -- returning lo is defensible, an
-                 error is defensible, silence is not.
+             (b) DONE (2026-09-22), early, as 83.1's specimen: the
+                 chain needed a three-argument row to be judged on, and
+                 `clamp` was the one with no open questions of its own.
+                 It is the guard rail every gauge, dial and drawing
+                 coordinate wants, and min(max(x, lo), hi) is what
+                 people write instead and get the argument order wrong
+                 in. DECIDED, as this entry demanded: crossed bounds
+                 (hi < lo) return LO, whichever side x is on, and a NaN
+                 VALUE passes through as NaN rather than becoming a
+                 bound -- which the fmin/fmax spelling would have done
+                 silently, the same mistake `sign` refuses in 81.11.
+                 Both pinned in test-pn-var-store.c and written into
+                 both help pages. The other four rows here -- `if`,
+                 `lerp`, `step`, `smoothstep` -- are untouched, and
+                 `if` still wants 83.20's finding in its help before it
+                 is built.
              (c) `lerp(a, b, t)` = a + (b-a)*t, the straight line
                  between two numbers. #82 is ENTIRELY about animating
                  between values, and with `t` already bound as a
@@ -3575,16 +3610,30 @@
              every row obey it. Anything that does raise must use the
              existing error path so the node lights up the way a parse
              error does (pn_node_set_has_error).
-       [ ] 83.19 THE VECTOR RULE, which 81.5 made structural so that a
-             function CANNOT drift from `*`: arith_value() and
-             map2_value() both delegate to one zip_value(). Three- and
-             four-argument functions need that generalised to a zipN
-             -- same rule, N operands: scalars broadcast, vectors take
-             the LONGEST length and the surviving tail passes through
-             verbatim. Generalise the one function; do not write a
-             second one beside it, or the structural guarantee is
-             gone. Every row in this entry maps elementwise, and any
-             row that cannot is the finding.
+       [x] 83.19 DONE (2026-09-22): THE VECTOR RULE, generalised and
+             still structural. zip_value() became zipn_value() over N
+             operands and map_value()/map2_value() were DELETED as
+             separate implementations -- a unary map is now a
+             one-operand zip and arithmetic is a two-operand one, so
+             `~a`, `sin(a)`, `a * b`, `atan2(a, b)` and
+             `clamp(a, b, c)` all broadcast through the same function
+             and a call CANNOT drift from an operator. One Kernel
+             carries the operator code or whichever of the three
+             function shapes the row declares.
+             THE DECISION THE GENERALISATION FORCED, which two
+             operands never had to make: with three, an index where one
+             operand has run out can have SEVERAL survivors, so "the
+             surviving tail passes through verbatim" has to say which.
+             It is the FIRST argument that still has an element. At
+             n == 2 that is exactly today's rule (only one can
+             survive), and at three or more it is the reading that
+             keeps the promise, because in every row of this entry
+             argument one is the VALUE and the rest are parameters --
+             so a bound vector shorter than the value it bounds leaves
+             the rest of the value alone rather than clamping it
+             against nothing. Pinned by vector_fn_3arg, and written
+             into both help pages' vector sections.
+
        [ ] 83.20 A FINDING TO RECORD BEFORE `if` IS BUILT, because it
              limits what 83.11(a) can promise: a COMPARISON in this
              language collapses a vector to a single 1.0/0.0 -- true
@@ -3652,6 +3701,14 @@
              first in the language that are not a single number) and
              the CHAIN from 83.1 -- a four-argument call, a nested
              call in the third position, and one argument too many.
+             THE MACHINERY'S SHARE IS DONE (2026-09-22):
+             arity_three_range and vector_fn_3arg in
+             test-pn-var-store.c, the range and cap errors in
+             test-pn-expr-parser.c's call_arity (with the message TEXT
+             asserted, not only the code), expr_three_args in
+             test-pn-figure.c for 83.1(c), and both specimens in the
+             exhaustive table walk. What is left here is one assertion
+             per ROW as the rows land.
              Each decision taken in 83.11(a), 83.14, 83.18 and 83.9(b)
              gets an assertion, because a policy nobody tested is a
              policy that drifts. Headless, pntest.h,

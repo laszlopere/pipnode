@@ -203,6 +203,12 @@ test_all_builtin_functions (void)
     check_fn (p, vars, seen, "pow(2, 10)",  1024.0);
     check_fn (p, vars, seen, "hypot(3, 4)", 5.0);
 
+    /* TODO #83: the three-argument specimen, and the ranged row in both
+     * of its forms — one argument is the natural log, two is the log to
+     * that base, and both come from one table row. */
+    check_fn (p, vars, seen, "clamp(42, 0, 10)", 10.0);
+    check_fn (p, vars, seen, "log(8, 2)",        3.0);
+
     /* Why `pow` is in the table: `^` is bitwise XOR in this language
      * (TODO #81.7 — no new operators), so the same two numbers written
      * with the operator give 8, not 1024.  Asserted next to the call so
@@ -593,10 +599,25 @@ test_call_arity (void)
     check_parse_error (p, "round(1, 2)",   PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sign(1, 2)",    PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sin(1, 2, 3)",  PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
-    /* More arguments than any function takes: rejected even for a name
-     * the table has never heard of, because the AST has nowhere to put
-     * a third argument. */
-    check_parse_error (p, "frob(1, 2, 3)", PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    /* A RANGED arity reports the range rather than a number (TODO
+     * #83.2), and a three-argument call is checked like any other. */
+    check_parse_error (p, "log(1, 2, 3)",   PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "clamp(1, 2)",    PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "clamp(1,2,3,4)", PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    {
+        GError     *e2  = NULL;
+        PnExprNode *bad = pn_expr_parser_parse (p, "log(1, 2, 3)", &e2);
+        PN_CHECK (bad == NULL);
+        PN_CHECK (e2 != NULL &&
+                  strstr (e2->message, "1 or 2 arguments") != NULL);
+        g_clear_error (&e2);
+    }
+
+    /* More arguments than ANY function takes is still rejected for a
+     * name the table has never heard of.  The cap is a POLICY now rather
+     * than a limit of the tree (83.1d), but it is still a cap. */
+    check_parse_error (p, "frob(1, 2, 3, 4, 5)",
+                       PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
 
     /* A trailing comma and an empty argument are ordinary syntax
      * errors: the parser asks for an expression and finds ')' or ','. */
@@ -605,9 +626,10 @@ test_call_arity (void)
     check_parse_error (p, "sin()",      PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
     check_parse_error (p, "atan2(1, 2", PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
 
-    /* An unknown name with a plausible count parses; the failure is the
+    /* An unknown name with a plausible count parses — at three arguments
+     * as well as two, now that the tree can hold them; the failure is the
      * evaluator's UNKNOWN_FUNCTION, not the parser's. */
-    ast = pn_expr_parser_parse (p, "frobnicate(1, 2)", &err);
+    ast = pn_expr_parser_parse (p, "frobnicate(1, 2, 3)", &err);
     PN_CHECK (ast != NULL && err == NULL);
     if (ast != NULL)
     {

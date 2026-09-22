@@ -25,8 +25,8 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Abstract-syntax-tree node for the little algebraic language the    */
 /*  parser accepts: numbers, variables, the arithmetic and comparison  */
-/*  binary operators, unary minus, one- and two-argument function      */
-/*  calls, variable assignment, and newline-separated statement        */
+/*  binary operators, unary minus, function calls of one or more       */
+/*  arguments, variable assignment, and newline-separated statement     */
 /*  sequences.                                                         */
 /*  The tree is a plain tagged-union struct rather than a GObject — it  */
 /*  is a short-lived value the parser produces and the evaluator        */
@@ -41,9 +41,13 @@ typedef enum
     PN_EXPR_NODE_UNARY,    /* unary op:  .op ('-' or '~'), .left = operand */
     PN_EXPR_NODE_BINARY,   /* binary op: .op, .left/.right (see below)  */
     PN_EXPR_NODE_CALL,     /* function:  .name, .left = arg 1,
-                            *            .right = arg 2 or NULL       */
+                            *            .right = ARG chain or NULL   */
     PN_EXPR_NODE_ASSIGN,   /* name = expr: .name target, .left = value */
     PN_EXPR_NODE_SEQ,      /* stmt list:  .left = stmt, .right = rest   */
+    PN_EXPR_NODE_ARG,      /* call arg 2..N: .left = this argument,
+                            *   .right = the next ARG or NULL.  APPENDED
+                            *   (TODO #83.1): a value, not a layout, so
+                            *   no plugin ABI bump — see below.        */
 } PnExprNodeType;
 
 typedef struct _PnExprNode PnExprNode;
@@ -54,10 +58,25 @@ struct _PnExprNode
     gdouble         number; /* NUMBER */
     gchar          *name;   /* VARIABLE / CALL / ASSIGN target name */
     gchar           op;     /* UNARY '-' / '~'; BINARY op code (below)   */
-    PnExprNode     *left;   /* binary lhs / unary / call arg 1 / assign
-                             *   value / sequence statement             */
-    PnExprNode     *right;  /* binary rhs / call arg 2 (NULL for a
-                             *   one-argument call) / rest of a sequence */
+    PnExprNode     *left;   /* binary lhs / unary / call arg 1 / ARG's
+                             *   own argument / assign value / sequence
+                             *   statement                              */
+    PnExprNode     *right;  /* binary rhs / call's ARG chain (NULL for a
+                             *   one-argument call) / next ARG / rest of
+                             *   a sequence                             */
+
+    /* A CALL of any arity: argument one is .left and arguments two
+     * onwards hang off .right as a right-leaning chain of
+     * PN_EXPR_NODE_ARG, exactly the way PN_EXPR_NODE_SEQ chains
+     * statements — the precedent is in the same enum (TODO #83.1).
+     * That is UNIFORM: even a two-argument call chains, rather than
+     * arity 2 being special and 3+ chained, because the irregularity is
+     * what would be got wrong later (83.1b).  sizeof (PnExprNode) does
+     * not change and no field changes meaning, so this stays what
+     * #81.2 bought: pn-expr-parser.h is INSTALLED public API reaching
+     * plugins through pipnode.h, and neither an appended enum value nor
+     * a chain is an ABI break.  The AST is short-lived and never
+     * serialised, so nothing on disk needed migrating either. */
 
     /* Binary operator codes carried in .op.  Arithmetic operators use
      * their own character; the multi-character comparisons get a single
@@ -124,12 +143,14 @@ PnExprParser *pn_expr_parser_new (void);
  * operators `+ - * / %`, the bitwise operators `<< >> & ^ |` and unary
  * `~`, the comparison operators `< > <= >= == !=` (which yield 1.0 or 0.0
  * and bind looser than everything else), parentheses, unary minus, and
- * function calls of one or two arguments (`sin(x)`, `log(x)`,
- * `atan2(y, x)`, `pow(x, y)`, …), whose arguments are separated by
- * commas — lib/pn-expr-funcs.c holds the whole list and is the only
- * place a name is added.  A call
+ * function calls (`sin(x)`, `atan2(y, x)`, `clamp(x, lo, hi)`, …) whose
+ * comma-separated arguments number whatever the function declares, up to
+ * four — lib/pn-expr-funcs.c holds the whole list and is the only place
+ * a name is added.  A call
  * on a KNOWN function with the wrong number of arguments is a parse
- * error (#PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT), so a typo lights the
+ * error (#PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT) — "log takes 1 or 2
+ * arguments, got 3 at position 5", since an arity may be a RANGE
+ * (TODO #83.2) — so a typo lights the
  * node up as it is typed rather than at the next message; a name the
  * language does not know parses and fails at evaluation instead, since
  * there is no arity to check it against.

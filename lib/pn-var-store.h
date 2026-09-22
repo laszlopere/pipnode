@@ -84,7 +84,7 @@ gchar *pn_var_store_value_to_string (const PnExprValue *value);
 /*  Holds a set of named numeric variables and evaluates a #PnExprNode */
 /*  AST against them.  The store is the symbol table the recursive     */
 /*  evaluator (pn_var_store_evaluate()) reads variables from; built-in */
-/*  functions (sin, cos, atan2, …) and the constants `pi` and `e` are  */
+/*  functions (sin, atan2, clamp, …) and the constants `pi`/`e` are    */
 /*  resolved by the evaluator itself, out of the language's own table  */
 /*  rather than out of the store.                                      */
 /* ------------------------------------------------------------------ */
@@ -215,12 +215,15 @@ void pn_var_store_clear (PnVarStore *self);
  *
  * Recursively walks @node, resolving variables against @self and
  * dispatching function calls to the C math library: one-argument sin,
- * cos, tan, asin, acos, atan, log, log10, exp, sqrt, abs, floor, ceil,
- * round, trunc and sign, and two-argument atan2(y, x), min, max, pow
- * and hypot.  Where a name is also C's, C's semantics stand: round()
- * takes halves AWAY from zero and min/max are fmin/fmax, which skip a
- * NaN operand.  sign() is the one written here — 0 for either zero,
- * NaN for NaN.  A name not bound in @self falls back to
+ * cos, tan, asin, acos, atan, log10, exp, sqrt, abs, floor, ceil,
+ * round, trunc and sign; two-argument atan2(y, x), min, max, pow and
+ * hypot; three-argument clamp(x, lo, hi); and log(x[, base]), whose
+ * arity is a RANGE.  Where a name is also C's, C's semantics stand:
+ * round() takes halves AWAY from zero and min/max are fmin/fmax, which
+ * skip a NaN operand.  sign() and clamp() are the two written here —
+ * sign is 0 for either zero and NaN for NaN, and clamp returns lo when
+ * the bounds are crossed and passes a NaN value straight through.
+ * A name not bound in @self falls back to
  * the language's constants, `pi` and `e`, so a binding of that name
  * SHADOWS the constant and clearing the store cannot lose one.
  * Comparison operators
@@ -264,9 +267,11 @@ gboolean pn_var_store_evaluate (PnVarStore       *self,
  *    as long as the longer operand and the surviving tail element passes
  *    through VERBATIM (`[2,3] * [3,4,5]` = `[6,12,5]`);
  *  - one-argument functions (sin, cos, …) map element-by-element to a
- *    same-length vector, and a two-argument one (atan2, min, …)
- *    broadcasts, pairs up and tails exactly as the binary operators
- *    above do;
+ *    same-length vector, and one of two or more arguments (atan2, min,
+ *    clamp, …) broadcasts, pairs up and tails exactly as the binary
+ *    operators above do — at three operands and more, the index where an
+ *    operand has run out takes the first argument that still has an
+ *    element, which at two is the same tail rule (TODO #83.19);
  *  - comparisons ALWAYS reduce to a single scalar 0.0/1.0, true iff every
  *    compared element passes (all()-semantics; an unequal-length tail is
  *    vacuously true).
