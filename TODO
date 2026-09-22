@@ -2473,38 +2473,35 @@
              ship into a directory that already installs; #79.2 stays
              worth doing on its own.
              Two sheets, both one Figure and a knob column:
-             [x] 80.15.1 DONE (2026-09-22): displays/lever.json -- a
-                   balance beam on a fulcrum, a weight box on each end
-                   whose size follows a mass knob, and the moment m*l
-                   printed under each arm. It is the sub-point 80
-                   header's specimen grown up, and it proves the boring
-                   half: expressions driving geometry, live.
-                   (a) THE ANGLE KNOB IS GONE, and that is the one
-                       deviation from what this sub-point settled. Four
-                       knobs -- mass A, arm A, mass B, arm B -- and the
-                       tilt is COMPUTED from the imbalance of the two
-                       moments, clamped to 16 degrees. Winding an angle
-                       by hand next to a printed m*l invites the
-                       question "why does the beam not care?"; deriving
-                       it makes the sheet the law of the lever rather
-                       than a drawing of one, and it exercises the
-                       expression half harder, not less.
-                   (b) TWO THINGS THE LANGUAGE DID FOR FREE, worth
-                       naming because they were the parts in doubt:
-                       `color 0.72 - 0.60*bal, ...` with
-                       `bal = abs(Mb - Ma) < 0.05` turns the readout
-                       green on balance and red off it, since a
-                       comparison is 1.0/0.0 and a colour takes three
-                       EXPRESSIONS (80.5); and the four ports renamed
-                       to massA / armA / massB / armB are the program's
-                       variable names with nothing in between (80.8b,
-                       80.24.5).
-                   (c) BUILT AGAINST tools/figure-preview (80.25a) --
-                       the program rendered at rest and at both end
-                       stops before the worksheet existed -- and then
-                       checked in a real editor under its own
-                       --dbus-name, where `error` reads empty and the
-                       card draws with the knob values bound by name.
+             [ ] 80.15.1 displays/lever.json -- a balance beam on a
+                   fulcrum, arms tilting with an angle knob, a weight
+                   box on each end whose size follows a mass knob, and
+                   the moment m*l printed under each arm. It is the
+                   sub-point 80 header's specimen grown up, and it
+                   proves the boring half: expressions driving
+                   geometry, live.
+                   (a) ONE ATTEMPT WRITTEN AND THROWN AWAY
+                       (2026-09-22), which is why this stays open. It
+                       dropped the angle knob for four -- mass A, arm
+                       A, mass B, arm B -- and DERIVED the tilt from
+                       the imbalance of the two moments, clamped to 16
+                       degrees, on the reasoning that a hand-wound
+                       angle next to a printed m*l invites "why does
+                       the beam not care?". Rejected on sight as NOT
+                       INTUITIVE. Whatever the second attempt is, the
+                       lesson is that a knob the reader cannot feel in
+                       the drawing is worse than the contradiction it
+                       was meant to remove: each knob must move one
+                       visible thing.
+                   (b) IT DID ITS OTHER JOB, though, as a manual
+                       end-to-end test of 80.22-80.25: a four-input
+                       figure with its ports renamed to the program's
+                       variable names bound correctly (80.8b, 80.24.5),
+                       `error` read empty in a real editor, and
+                       value-driven colour -- `color 0.72 - 0.60*bal,
+                       ...` with `bal = abs(Mb - Ma) < 0.05` -- worked
+                       exactly as 80.5 and 80.3 promised, with no new
+                       language anywhere.
              [ ] 80.15.2 displays/ray-optics.json -- a thin lens on an
                    axis, object distance and focal length as knobs, and
                    the three construction rays drawn to where they
@@ -2516,10 +2513,6 @@
              [ ] 80.15.3 Both get their line in examples/Makefile.am's
                    displays_DATA, and then `automake &&
                    ./config.status` (80.9b) or they will not install.
-                   lever.json IS IN, and `automake examples/Makefile &&
-                   ./config.status examples/Makefile` was run and the
-                   generated Makefile checked for the line. Closes once
-                   80.15.2 has the same.
        [x] 80.16 DECIDED (2026-09-21): ANIMATION -- when an argument
              resolves to a VECTOR the figure becomes a film. Frame i
              takes element i of every vector; scalars broadcast
