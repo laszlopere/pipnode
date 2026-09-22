@@ -1,0 +1,113 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnKnob",
+      "uuid": "49b9a09b-78ae-5fab-b8a9-1a6d980f9bec",
+      "name": "mass A (kg)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "min": 0.5,
+        "max": 5.0,
+        "value": 2.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "6daca67c-6120-5a65-8e6b-38ba49f9a0da",
+      "name": "arm A (m)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 160.0
+      },
+      "properties": {
+        "min": 0.5,
+        "max": 5.0,
+        "value": 3.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "e38c8e1b-bb98-59f5-92f7-f595c386a227",
+      "name": "mass B (kg)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 280.0
+      },
+      "properties": {
+        "min": 0.5,
+        "max": 5.0,
+        "value": 3.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "5c58e04b-c0ef-50c3-ba25-549936687024",
+      "name": "arm B (m)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 400.0
+      },
+      "properties": {
+        "min": 0.5,
+        "max": 5.0,
+        "value": 2.0
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "4e3e1899-562c-5266-81a1-6ac7a8e6f1ee",
+      "name": "the law of the lever",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 340.0,
+        "y": 120.0
+      },
+      "properties": {
+        "program": "# The law of the lever: the beam tips toward the greater moment,\n# and balances when mass x arm is the same on both sides.\nview -55, -30, 55, 52.5\n\n# arms in metres -> drawing units, masses -> the size of a weight\nla = 9 * armA\nlb = 9 * armB\nsa = 3 + 1.8 * massA\nsb = 3 + 1.8 * massB\n\nMa = massA * armA\nMb = massB * armB\n\n# tip toward the greater moment, 16 degrees at most\ntilt = -16 * (Mb - Ma) / (Ma + Mb + 0.001)\nth   = tilt * 0.0174532925\nc    = cos(th)\ns    = sin(th)\n\n# the beam turns about the top of the stand\npy = 4\nax = -la * c\nay = py - la * s\nbx =  lb * c\nby = py + lb * s\n\n# the level the beam is compared against\ncolor \"#a0a0a0\"\nwidth 0\ndash \"dot\"\nline -50, py, 50, py\ndash \"solid\"\n\n# the stand\ncolor \"#202020\"\nfill \"#909090\"\nwidth 1\npoly 0,py, -10,-26, 10,-26\nnofill\ncolor \"#606060\"\nwidth 0.8\nline -30, -26, 30, -26\n\n# the beam\ncolor \"#202020\"\nwidth 2.4\nline ax, ay, bx, by\nwidth 1.4\npoint 0, py\n\n# a weight sitting on each end\nfill \"#4a6fa5\"\nwidth 1\nrect ax - sa/2, ay, sa, sa\nrect bx - sb/2, by, sb, sb\nnofill\n\n# the numbers\nalign \"centre\", \"middle\"\ncolor \"#303030\"\nfont 4.4\ntext -30, 36, \"%.1f kg  x  %.1f m\", massA, armA\ntext  30, 36, \"%.1f kg  x  %.1f m\", massB, armB\nfont 5.4\ntext -30, 28, \"M = %.2f\", Ma\ntext  30, 28, \"M = %.2f\", Mb\n\n# green once it balances, red while it does not\nbal = abs(Mb - Ma) < 0.05\ncolor 0.72 - 0.60*bal, 0.20 + 0.34*bal, 0.20\nfont 6\ntext 0, 46, \"%+.2f N m\", Mb - Ma\n",
+        "inputs": 4,
+        "background-color": "rgb(250,248,242)"
+      },
+      "input-names": {
+        "0": "massA",
+        "1": "armA",
+        "2": "massB",
+        "3": "armB"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "49b9a09b-78ae-5fab-b8a9-1a6d980f9bec",
+      "target_id": "4e3e1899-562c-5266-81a1-6ac7a8e6f1ee",
+      "target_input": 0
+    },
+    {
+      "source_id": "6daca67c-6120-5a65-8e6b-38ba49f9a0da",
+      "target_id": "4e3e1899-562c-5266-81a1-6ac7a8e6f1ee",
+      "target_input": 1
+    },
+    {
+      "source_id": "e38c8e1b-bb98-59f5-92f7-f595c386a227",
+      "target_id": "4e3e1899-562c-5266-81a1-6ac7a8e6f1ee",
+      "target_input": 2
+    },
+    {
+      "source_id": "5c58e04b-c0ef-50c3-ba25-549936687024",
+      "target_id": "4e3e1899-562c-5266-81a1-6ac7a8e6f1ee",
+      "target_input": 3
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
