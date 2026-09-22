@@ -749,6 +749,11 @@ static const VerbInfo verb_table[] =
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
+
+    /* the block (80.18a, #86): the count is an expression like every
+     * other argument, so `repeat cols * rows` needs no new syntax */
+    { "repeat", PN_FIGURE_VERB_REPEAT, 1, 1,          "",    'e', VERB_PLAIN  },
+    { "end",    PN_FIGURE_VERB_END,    0, 0,          "",    0,   VERB_PLAIN  },
 };
 
 /* The table is small and a program is a few dozen lines, so a linear
@@ -920,6 +925,73 @@ pn_figure_check_verbs (
         /* Nothing after this stage should have to ask whether a verb
          * is real, so the bad ones do not travel. */
         g_ptr_array_remove_index (statements, i);
+        ok = FALSE;
+    }
+
+    return ok;
+}
+
+/* ================================================================== */
+/*  Blocks                                                            */
+/* ================================================================== */
+
+gboolean
+pn_figure_check_blocks (
+        GPtrArray *statements,
+        GPtrArray *errors)
+{
+    const PnFigureStatement *open  = NULL; /* the outermost open block */
+    gint                     depth = 0;
+    gboolean                 ok    = TRUE;
+    guint                    i;
+
+    g_return_val_if_fail (statements != NULL, FALSE);
+
+    /* Counting DEPTH rather than holding one flag is what keeps a
+     * nested block from cascading: the inner `repeat` is reported once
+     * and still counted, so the `end` that closes it is not then
+     * reported a second time as an `end` with nothing open. */
+    for (i = 0; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB)
+            continue;
+
+        if (statement->verb == PN_FIGURE_VERB_REPEAT)
+        {
+            /* One level, deliberately (86.2): a grid is one loop and
+             * the floor/mod arithmetic its index affords, and refusing
+             * nesting is what lets the index be a single fixed name. */
+            if (depth > 0)
+            {
+                report_at (errors, statement->source, 0,
+                           "repeat cannot be nested inside another repeat");
+                ok = FALSE;
+            }
+            else
+            {
+                open = statement;
+            }
+            depth++;
+        }
+        else if (statement->verb == PN_FIGURE_VERB_END)
+        {
+            if (depth == 0)
+            {
+                report_at (errors, statement->source, 0,
+                           "end without a repeat");
+                ok = FALSE;
+                continue;
+            }
+            if (--depth == 0)
+                open = NULL;
+        }
+    }
+
+    if (depth > 0 && open != NULL)
+    {
+        report_at (errors, open->source, 0, "repeat without an end");
         ok = FALSE;
     }
 
@@ -2445,6 +2517,14 @@ resolve_statement (
         break;
     }
 
+    case PN_FIGURE_VERB_REPEAT:
+    case PN_FIGURE_VERB_END:
+        /* Control flow is not ink (#86.7), and the walk in
+         * pn_figure_resolve() has already dealt with the pair: what
+         * reaches here is a block the front end never checked, which
+         * is nothing to draw and nothing to complain about either. */
+        break;
+
     default:
         /* PN_FIGURE_VERB_NONE cannot get here: the verb table removed
          * every statement it could not name. */
@@ -2455,6 +2535,66 @@ resolve_statement (
 
     g_free (values);
     return ok;
+}
+
+/* The index of the `end` that closes the `repeat` at @start, or the
+ * statement count when the program has none.  Nesting is a parse error
+ * (#86.2), so the first `end` is always the right one and the scan is
+ * a single pass. */
+static guint
+block_end_index (
+        GPtrArray *statements,
+        guint      start)
+{
+    guint i;
+
+    for (i = start + 1; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_VERB
+            && statement->verb == PN_FIGURE_VERB_END)
+            return i;
+    }
+
+    return statements->len;
+}
+
+/* How many times the block at @statement runs.  A count is a VALUE and
+ * not a program (#86.5): anything unusable skips the block whole, with
+ * the marker that says why, and leaves the rest of the figure to draw.
+ *
+ * Returns %FALSE only for 80.10's class (c) — a vector count, or an
+ * evaluation that could not be done — which empties the figure like any
+ * other type error. */
+static gboolean
+repeat_count (
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        GPtrArray         *ops,
+        GPtrArray         *errors,
+        guint             *out_n)
+{
+    gdouble values[2] = { 0.0, 0.0 };
+    gdouble count;
+
+    *out_n = 0;
+
+    if (!eval_args (statement, store, values, errors))
+        return FALSE;
+
+    count = trunc (values[0]);
+
+    if (!isfinite (values[0]))
+        emit_skip (ops, statement, "non-finite");
+    else if (count < 1.0)
+        emit_skip (ops, statement, "degenerate");
+    else if (count > (gdouble) PN_FIGURE_MAX_REPEAT)
+        emit_skip (ops, statement, "too-many");
+    else
+        *out_n = (guint) count;
+
+    return TRUE;
 }
 
 GPtrArray *
@@ -2504,15 +2644,55 @@ pn_figure_resolve (
 
     errors = pn_figure_errors_new ();
 
-    for (i = 0; i < statements->len; i++)
+    i = 0;
+    while (i < statements->len && !failed)
     {
         PnFigureStatement *statement = g_ptr_array_index (statements, i);
+        guint              end;
+        guint              pass;
+        guint              k;
 
-        if (!resolve_statement (statement, store, &pen, &frame, ops, errors))
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB
+            || statement->verb != PN_FIGURE_VERB_REPEAT)
+        {
+            if (!resolve_statement (statement, store, &pen, &frame,
+                                    ops, errors))
+                failed = TRUE;
+            i++;
+            continue;
+        }
+
+        /* A block is shorthand for writing its statements out n times
+         * (#86.6): the same pen, the same store, no scope of any kind
+         * — only `i` changes, and it changes because the loop binds it
+         * before each pass (#86.4). */
+        end = block_end_index (statements, i);
+
+        if (!repeat_count (statement, store, ops, errors, &pass))
         {
             failed = TRUE;
             break;
         }
+
+        for (k = 0; k < pass && !failed; k++)
+        {
+            guint body;
+
+            /* The index is an ordinary binding, which is why it beats
+             * rule 12's zero-fill without anything being told about
+             * it, and why it is rebound rather than saved (#86.4). */
+            pn_var_store_set (store, PN_FIGURE_INDEX_NAME, (gdouble) k);
+
+            for (body = i + 1; body < end; body++)
+                if (!resolve_statement (g_ptr_array_index (statements, body),
+                                        store, &pen, &frame, ops, errors))
+                {
+                    failed = TRUE;
+                    break;
+                }
+        }
+
+        i = end + 1;
     }
 
     /* Evaluate fully, then paint (80.10d): "nothing is drawn" is only
@@ -2969,6 +3149,7 @@ figure_recompile (
     self->lines      = pn_figure_scan  (self->program, errors);
     self->statements = pn_figure_split (self->lines, errors);
     pn_figure_check_verbs       (self->statements, errors);
+    pn_figure_check_blocks      (self->statements, errors);
     pn_figure_parse_literals    (self->statements, errors);
     pn_figure_parse_expressions (self->statements, errors);
     self->names      = pn_figure_free_names (self->statements);
@@ -3324,7 +3505,10 @@ pn_figure_class_init (
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
             "text.  Pen state, which persists until changed: color, fill, "
-            "nofill, width, dash, font, align.  Every coordinate and every "
+            "nofill, width, dash, font, align.  `repeat n` ... `end` draws "
+            "the lines between them n times with `i` counting 0, 1, 2 …, "
+            "which is how a grid or a row of ticks is written; blocks do "
+            "not nest.  Every coordinate and every "
             "length is in user units and scales with the drawing.  "
             "Arguments are expressions in the calculator language, so "
             "`circle 0, 0, 10 * sin(t)` works; a quoted argument is a "

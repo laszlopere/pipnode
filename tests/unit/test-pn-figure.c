@@ -619,7 +619,17 @@ checked (const gchar *program)
     Split result = split (program);
 
     pn_figure_check_verbs (result.statements, result.errors);
+    pn_figure_check_blocks (result.statements, result.errors);
     return result;
+}
+
+/* The line error @n was reported on, or -1. */
+static gint
+error_line (Split *self, guint n)
+{
+    return n < self->errors->len
+           ? ((PnFigureError *) g_ptr_array_index (self->errors, n))->line
+           : -1;
 }
 
 /* The message of error @n, or NULL. */
@@ -1496,6 +1506,28 @@ dump100 (const gchar *program)
     return text;
 }
 
+/* How many operations a dump holds, for the cases where the interesting
+ * number is a COUNT -- a thousand identical points is not a string
+ * anybody should write out. */
+static gint
+count_lines (const gchar *text)
+{
+    gint n = 0;
+
+    for (; text != NULL && *text != '\0'; text++)
+        if (*text == '\n')
+            n++;
+
+    return n;
+}
+
+/* ... of which this many are the head every dump begins with. */
+static gint
+head_lines (const gchar *head)
+{
+    return count_lines (head);
+}
+
 /* Every frame starts by putting the whole pen state into the display
  * list, so the painter holds no defaults of its own and 80.5(g)'s reset
  * is something a test can see.  Every expected dump begins with it. */
@@ -2079,6 +2111,244 @@ send (PnNode *self, gint input, const gchar *key, gdouble value)
     g_object_unref (message);
 }
 
+/* ------------------------------------------------------------------ */
+/*  The repeat block (TODO #86)                                        */
+/* ------------------------------------------------------------------ */
+
+static void
+test_a_block_runs_its_body_n_times (void)
+{
+    /* Three passes, and `i` counting 0, 1, 2 — which is the whole of
+     * 86.4: the index is an ordinary binding, set before each pass. */
+    gchar *text = dump100 ("repeat 3\n"
+                           "    circle 20 + 30 * i, 50, 5\n"
+                           "end");
+
+    /* Every operation carries the line it came from, so the loop is
+     * assertable by the line numbers repeating (#86.7). */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "circle 20.00 50.00 5.00\n"
+                     "circle 50.00 50.00 5.00\n"
+                     "circle 80.00 50.00 5.00\n");
+    g_free (text);
+}
+
+static void
+test_a_block_leaves_no_operation_of_its_own (void)
+{
+    /* `repeat` and `end` are control flow, not ink, exactly as an
+     * assignment is (#86.7) — a one-pass block draws what the same
+     * statements draw without it. */
+    gchar *with    = dump100 ("repeat 1\nline 0, 0, 10, 10\nend");
+    gchar *without = dump100 ("line 0, 0, 10, 10");
+
+    PN_CHECK_CMPSTR (with, ==, without);
+    g_free (with);
+    g_free (without);
+}
+
+static void
+test_the_index_beats_the_zero_fill (void)
+{
+    /* `i` is collected as a free name and zero-filled like everything
+     * else before the frame runs; the loop rebinds it every pass, and
+     * a binding wins (#86.4).  Outside the block the last value stands
+     * — the block is shorthand, not a scope. */
+    gchar *text = dump100 ("point i, 10\n"
+                           "repeat 2\n"
+                           "    point 20 + i, 50\n"
+                           "end\n"
+                           "point 90, i");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 0.00 90.00 1.00\n"
+                     "point 20.00 50.00 1.00\n"
+                     "point 21.00 50.00 1.00\n"
+                     "point 90.00 99.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_pen_state_and_assignments_carry_across_passes (void)
+{
+    /* 86.6: the block is shorthand for writing the statements out, so
+     * a `width` set inside it survives into the next pass and out the
+     * far side, and an assignment accumulates exactly as the copied
+     * lines would. */
+    gchar *text = dump100 ("w = 1\n"
+                           "repeat 2\n"
+                           "    w = w + 1\n"
+                           "    width w\n"
+                           "    line 0, 0, 10, 10\n"
+                           "end\n"
+                           "line 0, 0, 20, 20");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 2.00\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "width 3.00\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "line 0.00 100.00 20.00 80.00\n");
+    g_free (text);
+}
+
+static void
+test_a_count_is_a_value_not_a_program (void)
+{
+    /* 86.5, which is 80.10(b) seen from the block: a count that is
+     * zero, negative, NaN or infinite draws nothing and says why,
+     * rather than reddening a node because a knob passed through
+     * zero.  The figure after it still draws. */
+    gchar *zero     = dump100 ("repeat 0\nline 0, 0, 10, 10\nend\n"
+                               "point 50, 50");
+    gchar *negative = dump100 ("repeat -3\nline 0, 0, 10, 10\nend");
+    gchar *nan      = dump100 ("repeat 0 / 0\nline 0, 0, 10, 10\nend");
+    gchar *huge     = dump100 ("repeat 1000000\nline 0, 0, 10, 10\nend");
+
+    PN_CHECK_CMPSTR (zero, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "point 50.00 50.00 1.00\n");
+    PN_CHECK_CMPSTR (negative, ==, HEAD_100 "# skip 1 degenerate\n");
+    PN_CHECK_CMPSTR (nan, ==, HEAD_100 "# skip 1 non-finite\n");
+
+    /* And the cap refuses out loud rather than clamping, because a
+     * silently shortened loop draws a lie (#86.5). */
+    PN_CHECK_CMPSTR (huge, ==, HEAD_100 "# skip 1 too-many\n");
+
+    g_free (zero);
+    g_free (negative);
+    g_free (nan);
+    g_free (huge);
+}
+
+static void
+test_the_cap_is_the_last_count_that_runs (void)
+{
+    /* The boundary itself, so the cap cannot drift by one: the limit
+     * runs, one more does not.  Counted by what the body drew. */
+    gchar *at    = dump100 ("repeat 1000\npoint 0, 0\nend");
+    gchar *over  = dump100 ("repeat 1001\npoint 0, 0\nend");
+    gchar *fract = dump100 ("repeat 3.9\npoint 0, 0\nend");
+
+    PN_CHECK_CMPINT (count_lines (at), ==, 1000 + head_lines (HEAD_100));
+    PN_CHECK_CMPSTR (over, ==, HEAD_100 "# skip 1 too-many\n");
+
+    /* A count truncates toward zero rather than rounding (#86.5). */
+    PN_CHECK_CMPINT (count_lines (fract), ==, 3 + head_lines (HEAD_100));
+
+    g_free (at);
+    g_free (over);
+    g_free (fract);
+}
+
+static void
+test_a_grid_is_one_loop (void)
+{
+    /* The arithmetic 85.12 stands on, and the reason nesting is not
+     * missed (#86.2): floor and the modulo it makes turn one index
+     * into a row and a column. */
+    gchar *text = dump100 ("cols = 3\n"
+                           "repeat 6\n"
+                           "    cx = i - cols * floor(i / cols)\n"
+                           "    cy = floor(i / cols)\n"
+                           "    point 20 + 30 * cx, 30 + 30 * cy\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 20.00 70.00 1.00\n"
+                     "point 50.00 70.00 1.00\n"
+                     "point 80.00 70.00 1.00\n"
+                     "point 20.00 40.00 1.00\n"
+                     "point 50.00 40.00 1.00\n"
+                     "point 80.00 40.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_constant_inside_a_block_still_folds (void)
+{
+    /* An argument that does not read `i` is the same every pass, so it
+     * folds exactly as it would outside the block, and one that does
+     * cannot (#86.4). */
+    Split s = parsed ("repeat 4\n"
+                      "    circle 10 * i, 50, 2 + 3\n"
+                      "end");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK (!arg (statement (&s, 1), 0)->folded);   /* 10 * i */
+    PN_CHECK (arg (statement (&s, 1), 2)->folded);    /* 2 + 3  */
+    PN_CHECK_NEAR (arg (statement (&s, 1), 2)->value, 5.0, 1e-12);
+
+    /* The count folds too, being a constant like any other. */
+    PN_CHECK (arg (statement (&s, 0), 0)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 0), 0)->value, 4.0, 1e-12);
+
+    split_free (&s);
+}
+
+static void
+test_an_unclosed_block_is_a_parse_error (void)
+{
+    Split s = checked ("repeat 3\nline 0, 0, 10, 10");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "repeat without an end");
+    PN_CHECK_CMPINT (error_line (&s, 0), ==, 1);
+    split_free (&s);
+}
+
+static void
+test_an_end_without_a_repeat_is_a_parse_error (void)
+{
+    Split s = checked ("line 0, 0, 10, 10\nend");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "end without a repeat");
+    PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
+    split_free (&s);
+}
+
+static void
+test_blocks_do_not_nest (void)
+{
+    /* 86.2, and the scan keeps going: a second structural mistake is
+     * still reported, so the count in the message is honest. */
+    Split s = checked ("repeat 2\n"
+                       "    repeat 3\n"
+                       "        point 0, 0\n"
+                       "    end\n"
+                       "end\n"
+                       "end");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "repeat cannot be nested inside another repeat");
+    PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "end without a repeat");
+    PN_CHECK_CMPINT (error_line (&s, 1), ==, 6);
+    split_free (&s);
+}
+
+static void
+test_a_structural_error_draws_nothing (void)
+{
+    /* A program error is a program error (80.10a): the node paints the
+     * message, not half a figure. */
+    PnFigure *figure = pn_figure_new ();
+    gchar    *text;
+
+    g_object_set (figure, "program",
+                  "line 0, 0, 10, 10\nrepeat 2\npoint 0, 0", NULL);
+
+    text = pn_figure_dump (figure, 0, 0, 100, 100);
+    PN_CHECK_CMPSTR (text, ==, "");
+    PN_CHECK_CMPSTR (pn_figure_get_error (figure), ==,
+                     "line 2, column 1: repeat without an end");
+
+    g_free (text);
+    g_object_unref (figure);
+}
+
 static void
 test_the_node_is_a_sink (void)
 {
@@ -2452,6 +2722,18 @@ main (int argc, char **argv)
     pn_test_add ("back_locale",         test_the_dump_is_locale_independent);
     pn_test_add ("back_specimen",       test_the_specimen_draws);
     pn_test_add ("back_no_room",        test_a_frame_needs_room);
+    pn_test_add ("block_runs_n_times",  test_a_block_runs_its_body_n_times);
+    pn_test_add ("block_no_op",         test_a_block_leaves_no_operation_of_its_own);
+    pn_test_add ("block_index_binds",   test_the_index_beats_the_zero_fill);
+    pn_test_add ("block_state_carries", test_pen_state_and_assignments_carry_across_passes);
+    pn_test_add ("block_count_value",   test_a_count_is_a_value_not_a_program);
+    pn_test_add ("block_cap",           test_the_cap_is_the_last_count_that_runs);
+    pn_test_add ("block_grid",          test_a_grid_is_one_loop);
+    pn_test_add ("block_folding",       test_a_constant_inside_a_block_still_folds);
+    pn_test_add ("block_unclosed",      test_an_unclosed_block_is_a_parse_error);
+    pn_test_add ("block_stray_end",     test_an_end_without_a_repeat_is_a_parse_error);
+    pn_test_add ("block_no_nesting",    test_blocks_do_not_nest);
+    pn_test_add ("block_error_draws_nothing", test_a_structural_error_draws_nothing);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

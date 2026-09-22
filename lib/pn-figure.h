@@ -234,6 +234,10 @@ typedef enum
 
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,
+
+    /* the one block the language has (80.18a, TODO #86) */
+    PN_FIGURE_VERB_REPEAT,
+    PN_FIGURE_VERB_END,
 } PnFigureVerb;
 
 /* A statement borrows the logical line it came from, for
@@ -328,6 +332,42 @@ GPtrArray *pn_figure_split (GPtrArray *lines,
  */
 gboolean pn_figure_check_verbs (GPtrArray *statements,
                                 GPtrArray *errors);
+
+/* ------------------------------------------------------------------ */
+/*  Blocks                                                             */
+/*                                                                     */
+/*  A stage of its own between the verb table and the literals, and    */
+/*  the only one that looks at a statement's NEIGHBOURS: `repeat` and  */
+/*  `end` are ordinary verbs to every other stage, and it is here that */
+/*  they are read as a pair (TODO #86.3).                              */
+/*                                                                     */
+/*  It runs after the verb table because the structure cannot be read  */
+/*  until the verbs are known, and before everything after it because  */
+/*  nothing downstream should have to ask whether the block it stands  */
+/*  in closes.                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_figure_check_blocks:
+ * @statements: (element-type PnFigureStatement): statements already
+ *              through pn_figure_check_verbs()
+ * @errors:     (nullable) (element-type PnFigureError): collector
+ *
+ * Matches every `repeat` with an `end`, reporting the three ways that
+ * can fail: an `end` with no `repeat` open, a `repeat` still open at
+ * the end of the program, and a `repeat` inside a `repeat` — nesting
+ * is refused for now (86.2), so a grid is one loop and the floor/mod
+ * arithmetic its index affords.
+ *
+ * Every failure is reported with its line and the scan goes on, so a
+ * program with two structural mistakes still says how many there were.
+ * Statements are NOT removed: an unmatched block cannot be repaired by
+ * dropping a line, and the program draws nothing anyway (80.10a).
+ *
+ * Returns: %TRUE when every block is closed exactly once.
+ */
+gboolean pn_figure_check_blocks (GPtrArray *statements,
+                                 GPtrArray *errors);
 
 /* ------------------------------------------------------------------ */
 /*  Literals                                                           */
@@ -628,6 +668,18 @@ typedef struct
     gdouble         scale_x;  /* VIEW: x scale over @scale             */
     gdouble         scale_y;  /* VIEW: y scale over @scale             */
 } PnFigureOp;
+
+/* The name a `repeat` block binds its iteration index to (TODO #86.1b):
+ * always this one, never a name the block chooses, so the language has
+ * one form to remember and one paragraph to document.  A program
+ * variable or an input called `i` is shadowed inside the block. */
+#define PN_FIGURE_INDEX_NAME "i"
+
+/* How many times a `repeat` may run (TODO #86.5).  A count above it
+ * skips the block whole rather than clamping: a figure that freezes
+ * the editor for a mistyped exponent is worse than one that refuses
+ * out loud, and a silently shortened loop draws a lie. */
+#define PN_FIGURE_MAX_REPEAT 1000
 
 /**
  * pn_figure_resolve:

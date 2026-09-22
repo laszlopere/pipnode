@@ -3146,3 +3146,115 @@
              grid of compass needles that turn. The one sheet here
              that is a FIELD rather than a mechanism, and the best
              argument for the node's per-element vector rule.
+
+[x] 86 DONE (2026-09-22): a `repeat` BLOCK for the figure language.
+       80.18(a), built, because 85.12 is the "something real" that
+       80.18(c) said to wait for. A field of compass needles is
+       thirty-odd needles that differ only in where they stand; without
+       a loop the program is the same five lines copied thirty times,
+       which is not a plate anyone would read in the node's own dialog.
+       The block changes no engine and no ABI: it is a front-end stage
+       and a jump in the resolver's walk.
+       The FORM was decided in 80.18(a) and is not reopened here; what
+       this entry adds is what that form comes to in code, and the two
+       or three questions 80.18 did not have to answer because nothing
+       was being built.
+       [x] 86.1 THE FORM, as 80.18(a) settled it: `repeat <count>` ...
+             `end`, with the block binding a scalar index. Two things
+             that entry left open, decided here:
+             (a) THE COUNT IS AN EXPRESSION like every other argument,
+                 not a literal -- `repeat cols * rows` is the natural
+                 way to write a grid, and the folding of 80.3(b) makes
+                 a constant count free anyway.
+             (b) THE INDEX IS ALWAYS `i`, not a name the block chooses.
+                 One form is one paragraph in the help and one thing to
+                 remember; a `repeat n as k` spelling buys nothing while
+                 nesting is refused (86.2). An input or an assignment
+                 called `i` is SHADOWED inside the block, and the help
+                 says so.
+       [x] 86.2 NO NESTING, and that is the whole of 80.2 rule 6's
+             "80.18 gets to revisit that exactly once": a `repeat`
+             inside a `repeat` is a parse error with a line. A grid --
+             the actual demand -- is one loop and the floor/mod
+             arithmetic that #81 made cheap, `gx = i - cols *
+             floor(i / cols)`. Refusing nesting keeps the matching a
+             single forward scan and keeps the index question (86.1b)
+             from needing an answer at all. It can be lifted later
+             without changing what a program that works today means.
+       [x] 86.3 A NEW FRONT-END STAGE, pn_figure_check_blocks(), between
+             the verb table and the literals: the verbs must be known
+             before the structure can be read, and nothing after it
+             should have to ask whether the block it is standing in
+             closes. It reports `end` without `repeat`, `repeat`
+             without `end`, and `repeat` inside `repeat` -- each with
+             its line, each collected rather than fatal, so a program
+             with two of them still says how many there were (80.2 rule
+             9). A structural error makes the program draw nothing, like
+             every other program error (80.10a).
+             FOUND BY WRITING IT: the stage counts DEPTH rather than
+             holding one "a block is open" flag, and the difference is
+             not cosmetic. With a flag, a nested `repeat` is reported,
+             then the `end` that closes it is reported AGAIN as an
+             `end` with nothing open -- one mistake, two messages, and
+             the count in "2 errors, first on line 2" lies about how
+             many things are wrong. Depth reports the nesting once and
+             lets the rest of the program balance.
+       [x] 86.4 THE INDEX BINDS LIKE ANY OTHER NAME, which is what makes
+             it cost nothing: the resolver sets `i` in the frame's store
+             at the top of each iteration, and 80.2 rule 12's zero-fill
+             cannot fight it because a binding wins over a zero-fill and
+             the loop rebinds every pass. An argument inside the block
+             that mentions `i` therefore cannot fold (it reads a
+             variable), and one that does not -- a `width`, a colour --
+             folds exactly as it would outside. No new machinery on
+             either path.
+       [x] 86.5 A COUNT IS A VALUE, NOT A PROGRAM (80.10b): zero,
+             negative, NaN or infinite means the block does not run, and
+             leaves ONE skip marker saying why rather than reddening the
+             node -- a knob winding through zero must not latch an
+             error. The count truncates toward zero. And it is CAPPED:
+             above PN_FIGURE_MAX_REPEAT (1000 iterations) the block is
+             skipped whole, with the reason `too-many` in the dump,
+             because a figure that freezes the editor for a mistyped
+             exponent is worse than one that refuses out loud. A vector
+             count is 80.10(c) like every other vector argument, until
+             #82.
+       [x] 86.6 PEN STATE AND ASSIGNMENTS ARE SEQUENTIAL ACROSS
+             ITERATIONS, deliberately: the block is shorthand for
+             writing the statements out n times, not a scope. A `color`
+             set inside the block survives into the next iteration and
+             out the far side, exactly as the copied-out lines would.
+             The alternative -- saving and restoring the pen around each
+             pass -- would make the block the only construct in the
+             language with a scope, and 80.5(i) has not even given us
+             push/pop yet.
+       [x] 86.7 NO OPERATION OF ITS OWN in the display list, for the
+             same reason an assignment leaves none: control flow is not
+             ink. The dump shows each iteration's operations carrying
+             the SAME source line numbers, which is exactly what makes a
+             loop assertable -- three `line` ops from line 4 IS the
+             loop having run three times.
+       [x] 86.8 THE TESTS, in tests/unit/test-pn-figure.c beside the
+             rest: the block runs n times with `i` counting from 0; a
+             zero and a negative count draw nothing and say so; a
+             non-finite count skips; the cap refuses; `end` without
+             `repeat`, `repeat` without `end` and a nested `repeat` are
+             parse errors with their lines; pen state and assignments
+             carry across iterations; a folded argument inside a block
+             is still folded; and one real grid, because the arithmetic
+             85.12 depends on deserves a case of its own.
+       [x] 86.9 WHAT IT DOES NOT DO, so nobody reads more into it:
+             no nesting (86.2), no `break` and no conditional --
+             `if(c,a,b)` is a function in the expression language and
+             a zero radius already skips a statement (80.6i), which
+             between them cover what a plate needs. And 80.18(b)'s
+             invariant stands unchanged: INSIDE a repeat a vector is
+             still a FRAME, never an iteration, and the index is
+             always a scalar. #82 must
+             not quietly reinterpret it.
+       [x] 86.10 THE DOCUMENTATION: the `program` property blurb lists
+             the verbs and grows `repeat`/`end` now, since it is what
+             the dialog shows. The language SPECIFICATION is 80.14's
+             page, which still does not exist -- so 80.14's contents
+             list grows the repeat paragraph and 80.18(b)'s invariant
+             rather than this entry inventing a second home for them.
