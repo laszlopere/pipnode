@@ -181,6 +181,41 @@ typedef enum
     PN_FIGURE_STATEMENT_ASSIGNMENT,
 } PnFigureStatementKind;
 
+/* Every verb the language has, which is every verb 80.5, 80.6 and 80.7
+ * settled and not one more.  PN_FIGURE_VERB_NONE is what an assignment
+ * carries, and what a verb statement carries until
+ * pn_figure_check_verbs() has looked at it. */
+typedef enum
+{
+    PN_FIGURE_VERB_NONE = 0,
+
+    /* pen state (80.5), plus the window (80.2 rule 11) */
+    PN_FIGURE_VERB_VIEW,
+    PN_FIGURE_VERB_COLOR,
+    PN_FIGURE_VERB_FILL,
+    PN_FIGURE_VERB_NOFILL,
+    PN_FIGURE_VERB_WIDTH,
+    PN_FIGURE_VERB_DASH,
+    PN_FIGURE_VERB_FONT,
+    PN_FIGURE_VERB_ALIGN,
+
+    /* geometry (80.6) */
+    PN_FIGURE_VERB_MOVE,
+    PN_FIGURE_VERB_RMOVE,
+    PN_FIGURE_VERB_LINETO,
+    PN_FIGURE_VERB_RLINE,
+    PN_FIGURE_VERB_LINE,
+    PN_FIGURE_VERB_POINT,
+    PN_FIGURE_VERB_CIRCLE,
+    PN_FIGURE_VERB_ARC,
+    PN_FIGURE_VERB_RECT,
+    PN_FIGURE_VERB_POLY,
+    PN_FIGURE_VERB_PATH,
+
+    /* text (80.7) */
+    PN_FIGURE_VERB_TEXT,
+} PnFigureVerb;
+
 /* A statement borrows the logical line it came from, for
  * pn_figure_line_locate(): the line list must outlive the statement
  * list, which it does for the whole of a parse.
@@ -197,6 +232,7 @@ typedef enum
 typedef struct
 {
     PnFigureStatementKind  kind;
+    PnFigureVerb           verb;   /* filled in by pn_figure_check_verbs() */
     gchar                 *name;   /* owned: verb, or assignment target */
     GPtrArray             *args;   /* #PnFigureArg, empty for an assignment */
     const PnFigureLine    *source; /* borrowed                          */
@@ -232,6 +268,45 @@ void pn_figure_statement_free (PnFigureStatement *self);
  */
 GPtrArray *pn_figure_split (GPtrArray *lines,
                             GPtrArray *errors);
+
+/* ------------------------------------------------------------------ */
+/*  The verb table                                                     */
+/*                                                                     */
+/*  Third stage: the only thing in the front end that knows what the   */
+/*  language can draw.  Each verb has a name, an arity and a kind per  */
+/*  argument position, and a statement is measured against its row.    */
+/*                                                                     */
+/*  Two shapes do not fit a plain count, and both were decided rather  */
+/*  than discovered: `poly` and `path` are variadic in PAIRS, at least */
+/*  three points (80.2 rule 8, 80.6g); and a COLOUR argument has two   */
+/*  spellings — one quoted literal, or three-to-four expressions for   */
+/*  r, g, b and an optional a — which is the one two-form arity in the */
+/*  language (80.5).  `text` is variadic too, but plainly so: two      */
+/*  coordinates, a format string, and one expression per conversion.   */
+/*                                                                     */
+/*  What a literal MEANS is still nobody's business here: an unknown   */
+/*  colour name or dash style is 80.22.4's error, not this stage's.    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_figure_check_verbs:
+ * @statements: (element-type PnFigureStatement): statements from
+ *              pn_figure_split(), checked and annotated in place
+ * @errors:     (nullable) (element-type PnFigureError): collector
+ *
+ * Looks each verb statement up in the verb table and fills in its
+ * #PnFigureStatement.verb, checking the argument count and the kind of
+ * every argument on the way.  Assignments are passed over untouched.
+ *
+ * A statement that does not check out is REMOVED from @statements,
+ * since nothing after this stage should have to ask whether a verb is
+ * real; the rest are still checked, so one typo does not hide the next
+ * (80.2 rule 9).
+ *
+ * Returns: %TRUE when every statement checked out.
+ */
+gboolean pn_figure_check_verbs (GPtrArray *statements,
+                                GPtrArray *errors);
 
 G_END_DECLS
 

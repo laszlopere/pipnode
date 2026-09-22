@@ -685,3 +685,234 @@ pn_figure_split (
 
     return statements;
 }
+
+/* ================================================================== */
+/*  The verb table                                                    */
+/* ================================================================== */
+
+typedef enum
+{
+    VERB_PLAIN  = 0,
+    VERB_PAIRS  = 1 << 0, /* an even count: the arguments are x,y points */
+    VERB_COLOUR = 1 << 1, /* one quoted literal, or 3-4 expressions      */
+} VerbFlags;
+
+/* One row of the table.  @kinds gives the required kind of each
+ * argument position — 'e' for an expression, 's' for a string — and
+ * @tail the kind of every position past the end of @kinds, or 0 when
+ * there is none.  Two characters and a tail describe every verb in the
+ * language except the colour pair, which @flags picks out. */
+typedef struct
+{
+    const gchar  *name;
+    PnFigureVerb  verb;
+    guint         min;
+    guint         max;   /* G_MAXUINT when variadic */
+    const gchar  *kinds;
+    gchar         tail;
+    guint         flags;
+} VerbInfo;
+
+static const VerbInfo verb_table[] =
+{
+    /* pen state (80.5) and the window (80.2 rule 11) */
+    { "view",   PN_FIGURE_VERB_VIEW,   4, 4,          "",    'e', VERB_PLAIN  },
+    { "color",  PN_FIGURE_VERB_COLOR,  1, 4,          "",    0,   VERB_COLOUR },
+    { "fill",   PN_FIGURE_VERB_FILL,   1, 4,          "",    0,   VERB_COLOUR },
+    { "nofill", PN_FIGURE_VERB_NOFILL, 0, 0,          "",    0,   VERB_PLAIN  },
+    { "width",  PN_FIGURE_VERB_WIDTH,  1, 1,          "",    'e', VERB_PLAIN  },
+    { "dash",   PN_FIGURE_VERB_DASH,   1, 2,          "se",  0,   VERB_PLAIN  },
+    { "font",   PN_FIGURE_VERB_FONT,   1, 1,          "",    'e', VERB_PLAIN  },
+    { "align",  PN_FIGURE_VERB_ALIGN,  1, 2,          "",    's', VERB_PLAIN  },
+
+    /* geometry (80.6) */
+    { "move",   PN_FIGURE_VERB_MOVE,   2, 2,          "",    'e', VERB_PLAIN  },
+    { "rmove",  PN_FIGURE_VERB_RMOVE,  2, 2,          "",    'e', VERB_PLAIN  },
+    { "lineto", PN_FIGURE_VERB_LINETO, 2, 2,          "",    'e', VERB_PLAIN  },
+    { "rline",  PN_FIGURE_VERB_RLINE,  2, 2,          "",    'e', VERB_PLAIN  },
+    { "line",   PN_FIGURE_VERB_LINE,   4, 4,          "",    'e', VERB_PLAIN  },
+    { "point",  PN_FIGURE_VERB_POINT,  2, 2,          "",    'e', VERB_PLAIN  },
+    { "circle", PN_FIGURE_VERB_CIRCLE, 3, 3,          "",    'e', VERB_PLAIN  },
+    { "arc",    PN_FIGURE_VERB_ARC,    5, 5,          "",    'e', VERB_PLAIN  },
+    { "rect",   PN_FIGURE_VERB_RECT,   4, 4,          "",    'e', VERB_PLAIN  },
+    { "poly",   PN_FIGURE_VERB_POLY,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
+    { "path",   PN_FIGURE_VERB_PATH,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
+
+    /* text (80.7): x, y, format, then one expression per conversion */
+    { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
+};
+
+/* The table is small and a program is a few dozen lines, so a linear
+ * walk is not worth improving on.  @name is already folded. */
+static const VerbInfo *
+verb_lookup (
+        const gchar *name)
+{
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS (verb_table); i++)
+        if (g_strcmp0 (verb_table[i].name, name) == 0)
+            return &verb_table[i];
+
+    return NULL;
+}
+
+/* The kind argument @n must have, or 0 when the table does not say. */
+static gchar
+kind_at (
+        const VerbInfo *info,
+        guint           n)
+{
+    return n < strlen (info->kinds) ? info->kinds[n] : info->tail;
+}
+
+/* Checks one argument's kind, reporting at the argument itself so the
+ * message does not have to say which one it means. */
+static gboolean
+check_kind (
+        const PnFigureStatement *statement,
+        guint                    n,
+        gchar                    want,
+        GPtrArray               *errors)
+{
+    const PnFigureArg *arg = g_ptr_array_index (statement->args, n);
+    PnFigureArgKind    is  = want == 's' ? PN_FIGURE_ARG_STRING
+                                         : PN_FIGURE_ARG_EXPRESSION;
+
+    if (want == 0 || arg->kind == is)
+        return TRUE;
+
+    report_at (errors, statement->source, arg->offset,
+               want == 's' ? "expected a quoted string"
+                           : "expected an expression, not a string");
+    return FALSE;
+}
+
+/* The two-spelling colour argument, and the only place in the language
+ * where the argument COUNT decides what the arguments mean (80.5). */
+static gboolean
+check_colour (
+        const PnFigureStatement *statement,
+        const VerbInfo          *info,
+        GPtrArray               *errors)
+{
+    guint n = statement->args->len;
+    guint i;
+
+    if (n == 1)
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, 0);
+
+        if (arg->kind == PN_FIGURE_ARG_STRING)
+            return TRUE;
+
+        /* The generic "expected a quoted string" would be true and
+         * unhelpful: what someone who wrote `color c` needs to be told
+         * is that the other spelling exists. */
+        report_at (errors, statement->source, arg->offset,
+                   "expected a quoted colour or 3 or 4 numbers");
+        return FALSE;
+    }
+
+    if (n < 3 || n > 4)
+    {
+        report_at (errors, statement->source, 0,
+                   "%s takes a quoted colour or 3 or 4 numbers, not %u",
+                   info->name, n);
+        return FALSE;
+    }
+
+    for (i = 0; i < n; i++)
+        if (!check_kind (statement, i, 'e', errors))
+            return FALSE;
+
+    return TRUE;
+}
+
+/* Measures one statement against its row.  Reports at the verb for a
+ * count that is wrong and at the argument for a kind that is. */
+static gboolean
+check_statement (
+        PnFigureStatement *statement,
+        GPtrArray         *errors)
+{
+    const VerbInfo *info = verb_lookup (statement->name);
+    guint           n    = statement->args->len;
+    guint           i;
+
+    if (info == NULL)
+    {
+        /* Quote what was typed, not what it folded to. */
+        gchar *typed = g_strndup (statement->source->text,
+                                  strlen (statement->name));
+
+        report_at (errors, statement->source, 0, "unknown verb \"%s\"", typed);
+        g_free (typed);
+        return FALSE;
+    }
+
+    statement->verb = info->verb;
+
+    if (info->flags & VERB_COLOUR)
+        return check_colour (statement, info, errors);
+
+    if (n < info->min || n > info->max)
+    {
+        if (info->max == G_MAXUINT)
+            report_at (errors, statement->source, 0,
+                       "%s takes at least %u arguments, not %u",
+                       info->name, info->min, n);
+        else if (info->min != info->max)
+            report_at (errors, statement->source, 0,
+                       "%s takes %u or %u arguments, not %u",
+                       info->name, info->min, info->max, n);
+        else
+            report_at (errors, statement->source, 0,
+                       "%s takes %u argument%s, not %u", info->name,
+                       info->min, info->min == 1 ? "" : "s", n);
+        return FALSE;
+    }
+
+    if ((info->flags & VERB_PAIRS) && (n % 2) != 0)
+    {
+        report_at (errors, statement->source, 0,
+                   "%s takes x and y in pairs", info->name);
+        return FALSE;
+    }
+
+    for (i = 0; i < n; i++)
+        if (!check_kind (statement, i, kind_at (info, i), errors))
+            return FALSE;
+
+    return TRUE;
+}
+
+gboolean
+pn_figure_check_verbs (
+        GPtrArray *statements,
+        GPtrArray *errors)
+{
+    gboolean ok = TRUE;
+    guint    i  = 0;
+
+    g_return_val_if_fail (statements != NULL, FALSE);
+
+    while (i < statements->len)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT
+            || check_statement (statement, errors))
+        {
+            i++;
+            continue;
+        }
+
+        /* Nothing after this stage should have to ask whether a verb
+         * is real, so the bad ones do not travel. */
+        g_ptr_array_remove_index (statements, i);
+        ok = FALSE;
+    }
+
+    return ok;
+}

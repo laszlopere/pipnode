@@ -2646,10 +2646,48 @@
                    A stray ')' does not send the depth negative: it is
                    clamped at 0 so the commas after it still split, and
                    the expression parser gets to give the real message.
-             [ ] 80.22.3 The verb table -- name, arity, argument kinds
-                   -- covering 80.5, 80.6 and 80.7, with the
-                   two-spelling colour argument as the single
-                   exception (80.5).
+             [x] 80.22.3 DONE (2026-09-22): the verb table -- name,
+                   arity, argument kinds -- covering 80.5, 80.6 and
+                   80.7, with the two-spelling colour argument as the
+                   single exception (80.5). All twenty verbs, one
+                   static table in lib/pn-figure.c behind
+                   pn_figure_check_verbs(), which fills in a
+                   PnFigureVerb enum on each statement so no later
+                   stage ever strcmps a verb name again.
+                   (a) THE TABLE SHAPE that fits every verb but the
+                       colour pair: a min and a max count, a `kinds`
+                       string giving the required kind per position
+                       ('e' expression, 's' string) and a `tail` kind
+                       for every position past it. `text` is then
+                       "ees" + tail 'e' -- x, y, format, then one
+                       expression per conversion -- and `poly`/`path`
+                       are tail 'e' with an even-count flag. Nothing
+                       needed a per-verb function.
+                   (b) COLOUR IS CHECKED SEPARATELY, because it is the
+                       one place where the argument COUNT decides what
+                       the arguments MEAN: 1 quoted literal, or 3-4
+                       expressions, and nothing in between.
+                   (c) MESSAGES ARE PLACED, NOT DESCRIBED. A count
+                       that is wrong reports at the verb and names it
+                       ("line takes 4 arguments, not 3"); a kind that
+                       is wrong reports at the ARGUMENT, so it needs
+                       no ordinal ("expected a quoted string"). The
+                       one-argument colour form is the exception and
+                       says "expected a quoted colour or 3 or 4
+                       numbers", because someone who wrote `color c`
+                       needs telling that the other spelling exists,
+                       not that a string was wanted.
+                   (d) An unknown verb is quoted AS TYPED, not as
+                       folded, so a mistyped `Circel` reads back the
+                       way it was written.
+                   (e) A statement that fails is REMOVED from the
+                       list, the rest still checked. Nothing after
+                       this stage should have to ask whether a verb is
+                       real.
+                   NOT done here, deliberately: what a literal MEANS.
+                   `color "banana"` and `dash "wiggly"` pass this
+                   stage and fail 80.22.4, which is the sub-point that
+                   owns pn_color_parse and the dash names.
              [ ] 80.22.4 Literal parsing at PARSE time: colours through
                    pn_color_parse (80.5a), dash styles, alignment
                    words, and printf format validation with its

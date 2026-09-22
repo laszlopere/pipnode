@@ -605,6 +605,244 @@ test_arguments_across_a_continuation (void)
     split_free (&s);
 }
 
+/* ------------------------------------------------------------------ */
+/*  The verb table                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Scan, split and check, which is the whole front end so far. */
+static Split
+checked (const gchar *program)
+{
+    Split result = split (program);
+
+    pn_figure_check_verbs (result.statements, result.errors);
+    return result;
+}
+
+/* The message of error @n, or NULL. */
+static const gchar *
+error_text (Split *self, guint n)
+{
+    return n < self->errors->len
+           ? ((PnFigureError *) g_ptr_array_index (self->errors, n))->message
+           : NULL;
+}
+
+static void
+test_every_verb (void)
+{
+    /* One of everything the language has, at an arity the table
+     * accepts.  What the literals MEAN is 80.22.4's business, so
+     * "black" and "dot" are just strings here. */
+    Split s = checked ("view 0, 0, 100, 100\n"      /*  0 */
+                       "color \"black\"\n"          /*  1 */
+                       "fill 1, 0, 0\n"             /*  2 */
+                       "nofill\n"                   /*  3 */
+                       "width 2\n"                  /*  4 */
+                       "dash \"dot\"\n"             /*  5 */
+                       "dash \"dash\", 2\n"         /*  6 */
+                       "font 10\n"                  /*  7 */
+                       "align \"left\"\n"           /*  8 */
+                       "align \"left\", \"top\"\n"  /*  9 */
+                       "move 1, 2\n"                /* 10 */
+                       "rmove 1, 2\n"               /* 11 */
+                       "lineto 1, 2\n"              /* 12 */
+                       "rline 1, 2\n"               /* 13 */
+                       "line 1, 2, 3, 4\n"          /* 14 */
+                       "point 1, 2\n"               /* 15 */
+                       "circle 1, 2, 3\n"           /* 16 */
+                       "arc 1, 2, 3, 0, 90\n"       /* 17 */
+                       "rect 1, 2, 3, 4\n"          /* 18 */
+                       "poly 0,0, 1,0, 1,1\n"       /* 19 */
+                       "path 0,0, 1,0, 1,1\n"       /* 20 */
+                       "text 50, 50, \"%.1f\", v\n" /* 21 */
+                       "color 1, 0, 0, 0.5");       /* 22 */
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (s.statements->len, ==, 23);
+
+    PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
+    PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
+    PN_CHECK_CMPINT (statement (&s, 12)->verb, ==, PN_FIGURE_VERB_LINETO);
+    PN_CHECK_CMPINT (statement (&s, 19)->verb, ==, PN_FIGURE_VERB_POLY);
+    PN_CHECK_CMPINT (statement (&s, 21)->verb, ==, PN_FIGURE_VERB_TEXT);
+    PN_CHECK_CMPINT (statement (&s, 22)->verb, ==, PN_FIGURE_VERB_COLOR);
+
+    split_free (&s);
+}
+
+static void
+test_assignments_pass_through (void)
+{
+    Split s = checked ("dx = 50 * cos(a)\ncircle 0, 0, dx");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (s.statements->len, ==, 2);
+    /* An assignment has no verb and is not looked for in the table --
+     * which is what lets a variable be called `line` (80.2 rule 1). */
+    PN_CHECK_CMPINT (statement (&s, 0)->verb, ==, PN_FIGURE_VERB_NONE);
+    PN_CHECK_CMPINT (statement (&s, 1)->verb, ==, PN_FIGURE_VERB_CIRCLE);
+
+    split_free (&s);
+}
+
+static void
+test_unknown_verb (void)
+{
+    Split          s = checked ("width 2\nCircel 1, 2, 3\nline = 4");
+    PnFigureError *error;
+
+    /* The bad statement does not travel; the good ones do, including
+     * the assignment that a verb name would have shadowed. */
+    PN_CHECK_CMPINT (s.statements->len, ==, 2);
+    PN_CHECK_CMPSTR (statement (&s, 1)->name, ==, "line");
+    PN_CHECK_CMPINT (statement (&s, 1)->kind, ==,
+                     PN_FIGURE_STATEMENT_ASSIGNMENT);
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPINT (error->line, ==, 2);
+    PN_CHECK_CMPINT (error->column, ==, 1);
+    /* Quoted as typed, not as folded. */
+    PN_CHECK_CMPSTR (error->message, ==, "unknown verb \"Circel\"");
+
+    split_free (&s);
+}
+
+static void
+test_wrong_arity (void)
+{
+    Split s = checked ("line 1, 2, 3\n"
+                       "nofill 1\n"
+                       "width\n"
+                       "poly 0,0, 1,1\n"
+                       "dash \"dot\", 2, 3\n"
+                       "text 0, 0");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 6);
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "line takes 4 arguments, not 3");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "nofill takes 0 arguments, not 1");
+    /* Singular when it is one. */
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "width takes 1 argument, not 0");
+    PN_CHECK_CMPSTR (error_text (&s, 3), ==,
+                     "poly takes at least 6 arguments, not 4");
+    PN_CHECK_CMPSTR (error_text (&s, 4), ==,
+                     "dash takes 1 or 2 arguments, not 3");
+    PN_CHECK_CMPSTR (error_text (&s, 5), ==,
+                     "text takes at least 3 arguments, not 2");
+
+    split_free (&s);
+}
+
+static void
+test_pairs (void)
+{
+    Split          s = checked ("poly 0,0, 1,1, 2,2, 3");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==, "poly takes x and y in pairs");
+    /* At the verb, which is where the count is wrong. */
+    PN_CHECK_CMPINT (error->column, ==, 1);
+
+    split_free (&s);
+}
+
+static void
+test_argument_kinds (void)
+{
+    Split          s = checked ("width \"2\"\n"
+                                "dash 3\n"
+                                "align \"left\", 1\n"
+                                "text 0, 0, 1");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 4);
+
+    /* Reported AT the argument, so the message does not have to say
+     * which one it means. */
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==,
+                     "expected an expression, not a string");
+    PN_CHECK_CMPINT (error->column, ==, 7);
+
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "expected a quoted string");
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "expected a quoted string");
+
+    error = g_ptr_array_index (s.errors, 3);
+    PN_CHECK_CMPSTR (error->message, ==, "expected a quoted string");
+    PN_CHECK_CMPINT (error->column, ==, 12);
+
+    split_free (&s);
+}
+
+static void
+test_colour_has_two_spellings (void)
+{
+    Split s = checked ("color \"#202020\"\n"
+                       "fill 1, 0, 0\n"
+                       "fill 1, 0, 0, 0.5\n"
+                       "color 1, 0");
+
+    /* One quoted literal, or three-to-four expressions, and nothing
+     * between (80.5). */
+    PN_CHECK_CMPINT (s.statements->len, ==, 3);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "color takes a quoted colour or 3 or 4 numbers, not 2");
+
+    split_free (&s);
+}
+
+static void
+test_colour_argument_kinds (void)
+{
+    Split          s = checked ("color c\nfill 1, \"0\", 0");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+
+    /* The one-argument form points at the other spelling rather than
+     * asking for a string and leaving it there. */
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==,
+                     "expected a quoted colour or 3 or 4 numbers");
+    PN_CHECK_CMPINT (error->column, ==, 7);
+
+    error = g_ptr_array_index (s.errors, 1);
+    PN_CHECK_CMPSTR (error->message, ==,
+                     "expected an expression, not a string");
+    PN_CHECK_CMPINT (error->column, ==, 9);
+
+    split_free (&s);
+}
+
+static void
+test_check_returns_and_keeps_going (void)
+{
+    GPtrArray *errors     = pn_figure_errors_new ();
+    GPtrArray *lines      = pn_figure_scan ("width 2\nfoo\nline 1,2,3", errors);
+    GPtrArray *statements = pn_figure_split (lines, errors);
+
+    PN_CHECK_CMPINT (statements->len, ==, 3);
+    PN_CHECK_FALSE (pn_figure_check_verbs (statements, errors));
+    /* Both bad statements were found, not just the first. */
+    PN_CHECK_CMPINT (errors->len, ==, 2);
+    PN_CHECK_CMPINT (statements->len, ==, 1);
+    PN_CHECK (pn_figure_check_verbs (statements, errors));
+
+    g_ptr_array_unref (statements);
+    g_ptr_array_unref (lines);
+    g_ptr_array_unref (errors);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -634,5 +872,14 @@ main (int argc, char **argv)
     pn_test_add ("split_dangling_comma", test_dangling_comma_is_reported_here);
     pn_test_add ("split_not_a_statement", test_not_a_statement);
     pn_test_add ("split_continuation",  test_arguments_across_a_continuation);
+    pn_test_add ("verb_every_one",      test_every_verb);
+    pn_test_add ("verb_assignments",    test_assignments_pass_through);
+    pn_test_add ("verb_unknown",        test_unknown_verb);
+    pn_test_add ("verb_arity",          test_wrong_arity);
+    pn_test_add ("verb_pairs",          test_pairs);
+    pn_test_add ("verb_arg_kinds",      test_argument_kinds);
+    pn_test_add ("verb_colour_forms",   test_colour_has_two_spellings);
+    pn_test_add ("verb_colour_kinds",   test_colour_argument_kinds);
+    pn_test_add ("verb_keeps_going",    test_check_returns_and_keeps_going);
     return pn_test_run ();
 }
