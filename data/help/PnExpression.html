@@ -73,6 +73,17 @@ convert a Celsius reading to Fahrenheit.
       <code>log</code> (natural log), <code>log10</code>,
       <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
       <code>floor</code>, <code>ceil</code>.</li>
+  <li><strong>Functions</strong> (two arguments, separated by a comma):
+      <code>atan2(y,&nbsp;x)</code> &mdash; the angle in radians from the
+      positive x axis to the point <code>(x,&nbsp;y)</code>, using the
+      signs of both to get the right quadrant, which
+      <code>atan(y/x)</code> cannot. A call with the wrong number of
+      arguments is reported straight away, as a mistake in the
+      expression.</li>
+  <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.
+      They are not variables &mdash; an input member actually named
+      <code>pi</code> is used in preference, so nothing you bind can
+      clash with them.</li>
 </ul>
 
 <h5>Vectors</h5>
@@ -92,7 +103,10 @@ Every operator just does the scalar thing element by element:
       <code>[2,&nbsp;3] * [3,&nbsp;4,&nbsp;5]</code> is
       <code>[6,&nbsp;12,&nbsp;5]</code>.</li>
   <li><strong>Functions</strong> map over every element:
-      <code>sin(arr)</code> takes the sine of each.</li>
+      <code>sin(arr)</code> takes the sine of each. A two-argument
+      function follows exactly the operator rules above &mdash;
+      <code>atan2(ys,&nbsp;xs)</code> broadcasts and pairs up element by
+      element just as <code>ys&nbsp;*&nbsp;xs</code> would.</li>
   <li>A <strong>comparison</strong> always collapses to a single
       <code>1.0</code>/<code>0.0</code>: true only when <em>every</em>
       element passes (e.g. <code>arr &gt; 0</code> is <code>1.0</code>

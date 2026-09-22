@@ -95,6 +95,17 @@ being processed contributes them. The result is written to
       <code>log</code> (natural log), <code>log10</code>,
       <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
       <code>floor</code>, <code>ceil</code>.</li>
+  <li><strong>Functions</strong> (two arguments, separated by a comma):
+      <code>atan2(y,&nbsp;x)</code> &mdash; the angle in radians from the
+      positive x axis to the point <code>(x,&nbsp;y)</code>, using the
+      signs of both to get the right quadrant, which
+      <code>atan(y/x)</code> cannot. A call with the wrong number of
+      arguments is reported straight away, as a mistake in the
+      expression.</li>
+  <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.
+      They are not variables &mdash; an input member actually named
+      <code>pi</code> is used in preference, so nothing you bind can
+      clash with them.</li>
   <li><strong>Statements:</strong> several lines, one statement each
       (blank lines ignored). A line may be a bare expression or an
       assignment <code>name = expr</code> that binds <code>name</code>
@@ -104,8 +115,10 @@ being processed contributes them. The result is written to
   <li><strong>Vectors:</strong> an input or sibling that is a
       <code>$pnvector</code> is handled as a bag of numbers &mdash;
       scalars broadcast over it, two vectors combine elementwise (the
-      longer operand's surplus tail passes through unchanged), functions
-      map over every element, and a comparison reduces to a single
+      longer operand's surplus tail passes through unchanged),
+      one-argument functions map over every element and two-argument
+      ones follow the same rules an operator does, and a comparison
+      reduces to a single
       <code>1.0</code>/<code>0.0</code> (true iff every element passes).
       See the <em>Calculator</em> node help for worked examples.</li>
 </ul>

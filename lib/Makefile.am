@@ -84,6 +84,8 @@ libpipnode_core_la_SOURCES = \
 	pn-ethereum-profile.h \
 	pn-expr-bind.c \
 	pn-expr-bind.h \
+	pn-expr-funcs.c \
+	pn-expr-funcs.h \
 	pn-expr-parser.c \
 	pn-expr-parser.h \
 	pn-expression.c \

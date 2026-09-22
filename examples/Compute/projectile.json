@@ -132,7 +132,7 @@
       },
       "properties" : {
         "inputs" : 5,
-        "expression" : "rad = angle * 0.017453293\nvx0 = v0 * cos(rad)\nvy0 = v0 * sin(rad)\ng = 9.81\ntau = mass / k\ndecay = 1 - exp(-t / tau)\nx = vx0 * tau * decay\nyraw = tau * (vy0 + g * tau) * decay - g * tau * t\ny = (yraw + abs(yraw)) / 2\ny"
+        "expression" : "rad = angle * pi / 180\nvx0 = v0 * cos(rad)\nvy0 = v0 * sin(rad)\ng = 9.81\ntau = mass / k\ndecay = 1 - exp(-t / tau)\nx = vx0 * tau * decay\nyraw = tau * (vy0 + g * tau) * decay - g * tau * t\ny = (yraw + abs(yraw)) / 2\ny"
       },
       "input-names" : {
         "0" : "t",

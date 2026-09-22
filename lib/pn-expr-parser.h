@@ -25,8 +25,9 @@ G_BEGIN_DECLS
 /*                                                                     */
 /*  Abstract-syntax-tree node for the little algebraic language the    */
 /*  parser accepts: numbers, variables, the arithmetic and comparison  */
-/*  binary operators, unary minus, single-argument function calls,     */
-/*  variable assignment, and newline-separated statement sequences.    */
+/*  binary operators, unary minus, one- and two-argument function      */
+/*  calls, variable assignment, and newline-separated statement        */
+/*  sequences.                                                         */
 /*  The tree is a plain tagged-union struct rather than a GObject — it  */
 /*  is a short-lived value the parser produces and the evaluator        */
 /*  consumes, and a struct keeps allocation and recursion cheap.  Free  */
@@ -39,7 +40,8 @@ typedef enum
     PN_EXPR_NODE_VARIABLE, /* identifier: uses .name                   */
     PN_EXPR_NODE_UNARY,    /* unary op:  .op ('-' or '~'), .left = operand */
     PN_EXPR_NODE_BINARY,   /* binary op: .op, .left/.right (see below)  */
-    PN_EXPR_NODE_CALL,     /* function:  .name, .left = argument       */
+    PN_EXPR_NODE_CALL,     /* function:  .name, .left = arg 1,
+                            *            .right = arg 2 or NULL       */
     PN_EXPR_NODE_ASSIGN,   /* name = expr: .name target, .left = value */
     PN_EXPR_NODE_SEQ,      /* stmt list:  .left = stmt, .right = rest   */
 } PnExprNodeType;
@@ -52,9 +54,10 @@ struct _PnExprNode
     gdouble         number; /* NUMBER */
     gchar          *name;   /* VARIABLE / CALL / ASSIGN target name */
     gchar           op;     /* UNARY '-' / '~'; BINARY op code (below)   */
-    PnExprNode     *left;   /* binary lhs / unary / call arg / assign value
-                             *   / sequence statement                    */
-    PnExprNode     *right;  /* binary rhs / rest of a sequence */
+    PnExprNode     *left;   /* binary lhs / unary / call arg 1 / assign
+                             *   value / sequence statement             */
+    PnExprNode     *right;  /* binary rhs / call arg 2 (NULL for a
+                             *   one-argument call) / rest of a sequence */
 
     /* Binary operator codes carried in .op.  Arithmetic operators use
      * their own character; the multi-character comparisons get a single
@@ -91,6 +94,7 @@ typedef enum
     PN_EXPR_PARSER_ERROR_SYNTAX,            /* malformed token / number   */
     PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN,  /* token in the wrong place   */
     PN_EXPR_PARSER_ERROR_UNEXPECTED_EOF,    /* ran out of input mid-parse */
+    PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT,    /* call has the wrong arity   */
 } PnExprParserError;
 
 /* ------------------------------------------------------------------ */
@@ -120,7 +124,13 @@ PnExprParser *pn_expr_parser_new (void);
  * operators `+ - * / %`, the bitwise operators `<< >> & ^ |` and unary
  * `~`, the comparison operators `< > <= >= == !=` (which yield 1.0 or 0.0
  * and bind looser than everything else), parentheses, unary minus, and
- * single-argument function calls (`sin(x)`, `cos(x)`, `log(x)`, …).
+ * function calls of one or two arguments (`sin(x)`, `log(x)`,
+ * `atan2(y, x)`, …), whose arguments are separated by commas.  A call
+ * on a KNOWN function with the wrong number of arguments is a parse
+ * error (#PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT), so a typo lights the
+ * node up as it is typed rather than at the next message; a name the
+ * language does not know parses and fails at evaluation instead, since
+ * there is no arity to check it against.
  * Precedence, tightest first: unary, `* / %`, `+ -`, `<< >>`, `&`, `^`,
  * `|`, comparisons — Python's order, so `a & 1 == 1` is `(a & 1) == 1`.
  *

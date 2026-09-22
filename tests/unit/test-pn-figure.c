@@ -25,6 +25,7 @@
 #include "pntest.h"
 #include "pn-figure.h"
 
+#include <math.h>
 #include <locale.h>
 
 /* Borrowed text of logical line @n, or NULL past the end. */
@@ -1243,21 +1244,22 @@ test_unknown_function_is_a_parse_error (void)
 }
 
 static void
-test_atan2_is_not_a_function_yet (void)
+test_atan2_is_a_function (void)
 {
-    /* The gap #81 exists to close.  Our splitter keeps `atan2(1, 2)`
-     * whole, because its comma is at paren depth 1; the calculator's
-     * lexer then meets a comma it has no token for.  Loud, and pointed
-     * straight at the comma, which is the thing that cannot be there
-     * (80.3e). */
-    Split          s = parsed ("circle 0, 0, atan2(1, 2)");
-    PnFigureError *error;
+    /* The gap #81 existed to close, now closed.  The two commas in
+     * `circle 0, 0, atan2(1, 2)` mean different things and the splitter
+     * has always known it: the first two are the verb's separators, the
+     * third is at paren depth 1 and so belongs to the call, which is why
+     * the splitter keeps `atan2(1, 2)` whole and hands it to the
+     * calculator entire.  What used to happen next was a lexer meeting a
+     * comma it had no token for (80.3e); now it is an ordinary
+     * two-argument call, folded because both arguments are constants. */
+    Split s = parsed ("circle 0, 0, atan2(1, 2)");
 
-    PN_CHECK_CMPINT (s.statements->len, ==, 0);
-    PN_CHECK_CMPINT (s.errors->len, ==, 1);
-    error = g_ptr_array_index (s.errors, 0);
-    PN_CHECK_CMPSTR (error->message, ==, "unexpected character ','");
-    PN_CHECK_CMPINT (error->column, ==, 21);
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (s.statements->len, ==, 1);
+    PN_CHECK (arg (statement (&s, 0), 2)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 0), 2)->value, atan2 (1.0, 2.0), 1e-12);
 
     split_free (&s);
 }
@@ -2386,7 +2388,7 @@ main (int argc, char **argv)
     pn_test_add ("expr_parse_error",    test_expression_parse_error);
     pn_test_add ("expr_no_position",    test_expression_error_without_a_position);
     pn_test_add ("expr_bad_function",   test_unknown_function_is_a_parse_error);
-    pn_test_add ("expr_no_atan2",       test_atan2_is_not_a_function_yet);
+    pn_test_add ("expr_atan2",          test_atan2_is_a_function);
     pn_test_add ("expr_non_finite",     test_non_finite_constant_is_not_an_error);
     pn_test_add ("report_none",         test_report_nothing_wrong);
     pn_test_add ("report_one",          test_report_one_error);

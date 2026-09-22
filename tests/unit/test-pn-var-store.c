@@ -352,6 +352,111 @@ test_eval_functions (void)
         g_clear_error (&err);
     }
 
+    /* atan2(1, 1) == pi/4: the second argument reached the C call, in
+     * the right ORDER (atan2(1,1) and atan2(1,-1) differ). */
+    {
+        PnExprNode y = num (1.0), x = num (1.0);
+        PnExprNode c = { 0 };
+        c.type  = PN_EXPR_NODE_CALL;
+        c.name  = (gchar *) "atan2";
+        c.left  = &y;
+        c.right = &x;
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, G_PI / 4.0, 1e-12);
+    }
+    {
+        PnExprNode y = num (1.0), x = num (-1.0);
+        PnExprNode c = { 0 };
+        c.type  = PN_EXPR_NODE_CALL;
+        c.name  = (gchar *) "atan2";
+        c.left  = &y;
+        c.right = &x;
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, 3.0 * G_PI / 4.0, 1e-12);
+    }
+
+    /* The parser never builds one, but a hand-made tree with the wrong
+     * number of arguments is a BAD_AST rather than a wrong answer —
+     * both directions. */
+    {
+        PnExprNode arg = num (1.0);
+        PnExprNode c   = { 0 };
+        c.type = PN_EXPR_NODE_CALL;
+        c.name = (gchar *) "atan2";
+        c.left = &arg;              /* no .right */
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_AST));
+        g_clear_error (&err);
+    }
+    {
+        PnExprNode a = num (1.0), b = num (2.0);
+        PnExprNode c = { 0 };
+        c.type  = PN_EXPR_NODE_CALL;
+        c.name  = (gchar *) "sqrt";
+        c.left  = &a;
+        c.right = &b;               /* one argument too many */
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_AST));
+        g_clear_error (&err);
+    }
+
+    g_object_unref (s);
+}
+
+/* The language's named constants (TODO #81.6).  They resolve in the
+ * VARIABLE case as a FALLBACK, beneath the bindings, which is what
+ * makes them survive pn_var_store_clear() and lets a data-bag member of
+ * the same name shadow one. */
+static void
+test_constants (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+    GError     *err = NULL;
+
+    /* Read with nothing bound at all. */
+    {
+        PnExprNode c = var ("pi");
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, G_PI, 1e-12);
+    }
+    {
+        PnExprNode c = var ("e");
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, G_E, 1e-12);
+    }
+
+    /* A binding of the same name SHADOWS the constant... */
+    pn_var_store_set (s, "pi", 3.0);
+    {
+        PnExprNode c = var ("pi");
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, 3.0, 1e-12);
+    }
+
+    /* ...and clearing brings the constant back, which is the whole
+     * reason it is not pre-bound: pn_var_store_clear() would have
+     * dropped a pre-bound one for good. */
+    pn_var_store_clear (s);
+    {
+        PnExprNode c = var ("pi");
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK_NEAR (out, G_PI, 1e-12);
+    }
+
+    /* A constant is not a binding: pn_var_store_get() still says no,
+     * and an unrelated name still fails as an unknown variable. */
+    PN_CHECK_FALSE (pn_var_store_get (s, "pi", NULL));
+    {
+        PnExprNode c = var ("tau");
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_UNKNOWN_VARIABLE));
+        g_clear_error (&err);
+    }
+
     g_object_unref (s);
 }
 
@@ -374,6 +479,19 @@ call (const gchar *name, PnExprNode *arg)
     n.type = PN_EXPR_NODE_CALL;
     n.name = (gchar *) name;   /* borrowed; evaluator only reads it */
     n.left = arg;
+    return n;
+}
+
+/* A two-argument call: argument two rides in .right, the field a CALL
+ * left unused before TODO #81.2, so PnExprNode never grew. */
+static PnExprNode
+call2 (const gchar *name, PnExprNode *arg1, PnExprNode *arg2)
+{
+    PnExprNode n = { 0 };
+    n.type  = PN_EXPR_NODE_CALL;
+    n.name  = (gchar *) name;  /* borrowed; evaluator only reads it */
+    n.left  = arg1;
+    n.right = arg2;
     return n;
 }
 
@@ -467,6 +585,69 @@ test_vector_elementwise (void)
         PnExprNode add = binary ('+', &bv, &av);
         gdouble    want[] = { 5.0, 7.0, 5.0 };
         PN_CHECK (pn_var_store_evaluate_value (s, &add, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* A TWO-argument function broadcasts exactly as the binary operators do
+ * — that is the whole of TODO #81.5: scalar broadcasts, vector-with-
+ * vector is elementwise, and a length mismatch takes the LONGER length
+ * with the surviving tail passing through verbatim, the same 43.7 rule
+ * test_vector_elementwise pins for `*`.  A function with its own
+ * broadcasting rule would be a second rule for one idea. */
+static void
+test_vector_two_argument_function (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     a[] = { 0.0, 1.0 };
+    gdouble     b[] = { 1.0, 1.0, 7.0 };
+
+    bind_vec (s, "a", a, 2);
+    bind_vec (s, "b", b, 3);
+
+    /* scalar, vector -> broadcast: atan2(0, [1,1,7]) = [0, 0, 0]. */
+    {
+        PnExprNode zero = num (0.0), bv = var ("b");
+        PnExprNode c = call2 ("atan2", &zero, &bv);
+        gdouble    want[] = { 0.0, 0.0, 0.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* vector, scalar -> broadcast the other way:
+     * atan2([0,1], 1) = [0, pi/4]. */
+    {
+        PnExprNode av = var ("a"), one = num (1.0);
+        PnExprNode c = call2 ("atan2", &av, &one);
+        gdouble    want[] = { 0.0, G_PI / 4.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        check_vec (&out, want, 2);
+        pn_expr_value_clear (&out);
+    }
+
+    /* vector, vector of UNEQUAL length: elementwise where both have an
+     * element, then b[2]=7 passes through verbatim — the operators'
+     * tail rule, not a truncation. */
+    {
+        PnExprNode av = var ("a"), bv = var ("b");
+        PnExprNode c = call2 ("atan2", &av, &bv);
+        gdouble    want[] = { 0.0, G_PI / 4.0, 7.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* Longer operand on the LEFT: same rule, a[?] would be the tail. */
+    {
+        PnExprNode bv = var ("b"), av = var ("a");
+        PnExprNode c = call2 ("atan2", &bv, &av);
+        gdouble    want[] = { G_PI / 2.0, atan2 (1.0, 1.0), 7.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
         check_vec (&out, want, 3);
         pn_expr_value_clear (&out);
     }
@@ -657,9 +838,11 @@ main (int argc, char **argv)
     pn_test_add ("eval_comparison_ops", test_eval_comparison_ops);
     pn_test_add ("eval_assign_and_seq", test_eval_assign_and_seq);
     pn_test_add ("eval_functions",     test_eval_functions);
+    pn_test_add ("constants",          test_constants);
     pn_test_add ("vector_broadcast",   test_vector_broadcast);
     pn_test_add ("vector_elementwise", test_vector_elementwise);
     pn_test_add ("vector_fns_unary",   test_vector_functions_and_unary);
+    pn_test_add ("vector_fn_2arg",     test_vector_two_argument_function);
     pn_test_add ("vector_comparison",  test_vector_comparison_reduces);
     pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
     pn_test_add ("value_to_string",    test_value_to_string);

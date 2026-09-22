@@ -156,6 +156,9 @@ test_all_builtin_functions (void)
     PN_CHECK_NEAR (parse_eval (p, vars, "abs(-7)",     &ok), 7.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "floor(2.7)",  &ok), 2.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "ceil(2.1)",   &ok), 3.0, 1e-9); PN_CHECK (ok);
+    /* The one two-argument entry (TODO #81.1): atan2(1,1) is pi/4. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "atan2(1, 1)", &ok), G_PI / 4.0, 1e-9);
+    PN_CHECK (ok);
 
     g_object_unref (vars);
     g_object_unref (p);
@@ -172,6 +175,19 @@ test_functions_nested_and_arg_expr (void)
     PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(9 + 7)",      &ok), 4.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(sqrt(16))",   &ok), 2.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "abs(floor(-2.5))", &ok), 3.0, 1e-9); PN_CHECK (ok);
+
+    /* Both arguments of a two-argument call are full expressions, and a
+     * call nests inside a call's argument list in either position. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "atan2(2 - 2, 3)",    &ok), 0.0, 1e-9);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "atan2(atan2(0,1),3)", &ok), 0.0, 1e-9);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "atan2(sin(0), 1)",   &ok), 0.0, 1e-9);
+    PN_CHECK (ok);
+    /* Whitespace around the comma is insignificant, and the call still
+     * composes with the operators around it. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "2 * atan2(1,1)", &ok), G_PI / 2.0, 1e-9);
+    PN_CHECK (ok);
 
     g_object_unref (vars);
     g_object_unref (p);
@@ -466,8 +482,9 @@ test_eval_semantics (void)
 }
 
 /* Each parse failure maps to its specific error code, not just "an
- * error".  Covers all three PnExprParserError codes plus the distinct
- * "missing ')' after a function argument" path. */
+ * error".  Covers the three general PnExprParserError codes plus the
+ * distinct "missing ')' after a function argument" path; the fourth,
+ * ARGUMENT_COUNT, has test_call_arity to itself. */
 static void
 check_parse_error (PnExprParser *p, const gchar *expr, gint code)
 {
@@ -478,6 +495,96 @@ check_parse_error (PnExprParser *p, const gchar *expr, gint code)
     PN_CHECK (err != NULL && err->domain == PN_EXPR_PARSER_ERROR &&
               err->code == code);
     g_clear_error (&err);
+}
+
+/* The argument COUNT is checked at parse time, against the shared arity
+ * table, so a miscounted call fails the moment it is typed rather than
+ * at the next message (TODO #81.3).  A name the language does not know
+ * has no arity to check against, so it still parses and is left to the
+ * evaluator — the behaviour test_eval_semantics pins. */
+static void
+test_call_arity (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    GError       *err  = NULL;
+    PnExprNode   *ast;
+    gboolean      ok;
+
+    check_parse_error (p, "atan2(1)",      PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "sin(1, 2)",     PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "sin(1, 2, 3)",  PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    /* More arguments than any function takes: rejected even for a name
+     * the table has never heard of, because the AST has nowhere to put
+     * a third argument. */
+    check_parse_error (p, "frob(1, 2, 3)", PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+
+    /* A trailing comma and an empty argument are ordinary syntax
+     * errors: the parser asks for an expression and finds ')' or ','. */
+    check_parse_error (p, "atan2(1,)",  PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "atan2(,1)",  PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "sin()",      PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "atan2(1, 2", PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+
+    /* An unknown name with a plausible count parses; the failure is the
+     * evaluator's UNKNOWN_FUNCTION, not the parser's. */
+    ast = pn_expr_parser_parse (p, "frobnicate(1, 2)", &err);
+    PN_CHECK (ast != NULL && err == NULL);
+    if (ast != NULL)
+    {
+        gdouble out = 0.0;
+        PN_CHECK_FALSE (pn_var_store_evaluate (vars, ast, &out, &err));
+        PN_CHECK (err != NULL && err->domain == PN_VAR_STORE_ERROR &&
+                  err->code == PN_VAR_STORE_ERROR_UNKNOWN_FUNCTION);
+        g_clear_error (&err);
+        pn_expr_node_free (ast);
+    }
+
+    /* A comma outside a call's parentheses is not an operator. */
+    check_parse_error (p, "1, 2",       PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+    check_parse_error (p, "(1, 2)",     PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);
+
+    /* Every existing one-argument call still means what it meant. */
+    PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(16)", &ok), 4.0, 1e-9);
+    PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
+}
+
+/* The language's constants (TODO #81.6): `pi` and `e` read as values
+ * with no binding at all, but a binding of the same name SHADOWS the
+ * constant rather than colliding with it. */
+static void
+test_constants (void)
+{
+    PnExprParser *p    = pn_expr_parser_new ();
+    PnVarStore   *vars = pn_var_store_new ();
+    gboolean      ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, "pi",        &ok), G_PI, 1e-12);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "e",         &ok), G_E,  1e-12);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "cos(pi)",   &ok), -1.0, 1e-12);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "log(e)",    &ok),  1.0, 1e-12);
+    PN_CHECK (ok);
+
+    /* An explicit binding wins: the constant is only a fallback. */
+    pn_var_store_set (vars, "pi", 3.0);
+    PN_CHECK_NEAR (parse_eval (p, vars, "pi", &ok), 3.0, 1e-12);
+    PN_CHECK (ok);
+
+    /* …and the constant comes back once the binding is gone, which a
+     * pre-bound constant could not do (pn_var_store_clear drops every
+     * binding). */
+    pn_var_store_clear (vars);
+    PN_CHECK_NEAR (parse_eval (p, vars, "pi", &ok), G_PI, 1e-12);
+    PN_CHECK (ok);
+
+    g_object_unref (vars);
+    g_object_unref (p);
 }
 
 static void
@@ -610,6 +717,8 @@ main (int argc, char **argv)
     pn_test_add ("number_literals",       test_number_literals);
     pn_test_add ("all_builtin_functions", test_all_builtin_functions);
     pn_test_add ("functions_nested",      test_functions_nested_and_arg_expr);
+    pn_test_add ("call_arity",            test_call_arity);
+    pn_test_add ("constants",             test_constants);
     pn_test_add ("unary_chains",          test_unary_chains);
     pn_test_add ("identifier_forms",      test_identifier_forms);
     pn_test_add ("left_assoc_division",   test_left_associative_division);

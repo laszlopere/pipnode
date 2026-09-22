@@ -84,7 +84,9 @@ gchar *pn_var_store_value_to_string (const PnExprValue *value);
 /*  Holds a set of named numeric variables and evaluates a #PnExprNode */
 /*  AST against them.  The store is the symbol table the recursive     */
 /*  evaluator (pn_var_store_evaluate()) reads variables from; built-in */
-/*  functions (sin, cos, log, …) are resolved by the evaluator itself. */
+/*  functions (sin, cos, atan2, …) and the constants `pi` and `e` are  */
+/*  resolved by the evaluator itself, out of the language's own table  */
+/*  rather than out of the store.                                      */
 /* ------------------------------------------------------------------ */
 
 #define PN_TYPE_VAR_STORE (pn_var_store_get_type ())
@@ -212,8 +214,12 @@ void pn_var_store_clear (PnVarStore *self);
  * @error:     (out) (optional): set on failure
  *
  * Recursively walks @node, resolving variables against @self and
- * dispatching function calls (sin, cos, tan, log, log10, exp, sqrt,
- * abs, floor, ceil) to the C math library.  Comparison operators
+ * dispatching function calls to the C math library: one-argument sin,
+ * cos, tan, log, log10, exp, sqrt, abs, floor and ceil, and the
+ * two-argument atan2(y, x).  A name not bound in @self falls back to
+ * the language's constants, `pi` and `e`, so a binding of that name
+ * SHADOWS the constant and clearing the store cannot lose one.
+ * Comparison operators
  * (`< > <= >= == !=`) evaluate to 1.0 (true) or 0.0 (false).  `%` is a
  * floored modulo (the result takes the divisor's sign).  The bitwise
  * operators (`& | ^ << >>`, unary `~`) truncate their operands to int64;
@@ -253,8 +259,9 @@ gboolean pn_var_store_evaluate (PnVarStore       *self,
  *  - vector OP vector is elementwise; on a length mismatch the result is
  *    as long as the longer operand and the surviving tail element passes
  *    through VERBATIM (`[2,3] * [3,4,5]` = `[6,12,5]`);
- *  - functions (sin, cos, …) map element-by-element to a same-length
- *    vector;
+ *  - one-argument functions (sin, cos, …) map element-by-element to a
+ *    same-length vector, and a two-argument one (atan2) broadcasts,
+ *    pairs up and tails exactly as the binary operators above do;
  *  - comparisons ALWAYS reduce to a single scalar 0.0/1.0, true iff every
  *    compared element passes (all()-semantics; an unequal-length tail is
  *    vacuously true).

@@ -19,6 +19,8 @@
 
 #include "pn-expr-parser.h"
 
+#include "pn-expr-funcs.h"
+
 #include <stdarg.h>
 
 struct _PnExprParser
@@ -88,6 +90,7 @@ typedef enum
     TOK_NE,        /* != */
     TOK_ASSIGN,    /* =  (statement-level assignment) */
     TOK_NEWLINE,   /* one or more newlines: statement separator */
+    TOK_COMMA,     /* ,  (separates a call's arguments) */
     TOK_LPAREN,
     TOK_RPAREN,
     TOK_ERROR,
@@ -223,6 +226,7 @@ lex_advance (Ctx *c)
     case '|': c->tok = TOK_PIPE;   c->p = p + 1; return;
     case '^': c->tok = TOK_CARET;  c->p = p + 1; return;
     case '~': c->tok = TOK_TILDE;  c->p = p + 1; return;
+    case ',': c->tok = TOK_COMMA;  c->p = p + 1; return;
     case '(': c->tok = TOK_LPAREN; c->p = p + 1; return;
     case ')': c->tok = TOK_RPAREN; c->p = p + 1; return;
 
@@ -291,11 +295,12 @@ lex_peek (Ctx *c)
 /*    additive   := term   (('+' | '-') term)*                         */
 /*    term       := factor (('*' | '/' | '%') factor)*                 */
 /*    factor     := NUMBER                                             */
-/*                | IDENT '(' expression ')'   // function call        */
+/*                | IDENT '(' arglist ')'      // function call        */
 /*                | IDENT                       // variable            */
 /*                | '(' expression ')'                                 */
 /*                | ('+' | '-') factor          // unary sign          */
 /*                | '~' factor                  // bitwise not         */
+/*    arglist    := expression (',' expression)*                       */
 /*                                                                     */
 /*  Comparisons sit at the lowest precedence level and are left-       */
 /*  associative like the arithmetic operators; each yields 1.0/0.0.    */
@@ -307,6 +312,27 @@ lex_peek (Ctx *c)
 
 static PnExprNode *parse_expression (Ctx *c);
 static PnExprNode *parse_factor (Ctx *c);
+
+/* Parse the bracketed argument list of a call to @name (the '(' is
+ * already consumed) and build the CALL node, consuming the closing ')'.
+ * Takes ownership of @name either way.
+ *
+ * Arguments chain: the first goes in .left, the second in .right — the
+ * field a CALL has never used — so an extra argument costs no growth in
+ * PnExprNode (TODO #81.2).  That is not a micro-optimisation:
+ * pn-expr-parser.h is INSTALLED public API that reaches plugins through
+ * pipnode.h, so a bigger struct would be an ABI break of the same class
+ * as appending a PnNodeClass vfunc, with every plugin needing a rebuild.
+ * Existing one-argument trees stay bit-for-bit what they were.
+ *
+ * The COUNT is checked here, at parse time, against the shared arity
+ * table — so `atan2(x)` lights the node up as it is typed rather than
+ * on the next message (TODO #81.3).  A name the table does not know has
+ * no arity to check, so it parses and the evaluator reports it as an
+ * unknown function; more than #PN_EXPR_MAX_ARITY arguments is still a
+ * parse error, because no function takes that many and the AST has
+ * nowhere to put them. */
+static PnExprNode *parse_call_args (Ctx *c, gchar *name, gint column);
 
 static PnExprNode *
 parse_factor_body (Ctx *c)
@@ -372,34 +398,17 @@ parse_factor_body (Ctx *c)
 
     case TOK_IDENT:
         {
-            gchar *name = g_strndup (c->ident_start, c->ident_len);
+            gchar *name   = g_strndup (c->ident_start, c->ident_len);
+            gint   column = ctx_column (c);   /* the name, for error messages */
             lex_advance (c);
 
             if (c->tok == TOK_LPAREN)
             {
-                /* Function call: name '(' expression ')'. */
-                PnExprNode *arg, *n;
+                /* Function call: name '(' expression (',' expression)* ')'.
+                 * parse_call_args() owns the whole bracketed part and the
+                 * arity check; it consumes the ')' on success. */
                 lex_advance (c);
-                arg = parse_expression (c);
-                if (arg == NULL)
-                {
-                    g_free (name);
-                    return NULL;
-                }
-                if (c->tok != TOK_RPAREN)
-                {
-                    ctx_set_error (c, PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN,
-                                   "expected ')' after argument to '%s' "
-                                   "at position %d", name, ctx_column (c));
-                    pn_expr_node_free (arg);
-                    g_free (name);
-                    return NULL;
-                }
-                lex_advance (c);
-                n = node_new (PN_EXPR_NODE_CALL);
-                n->name = name;     /* transfer ownership */
-                n->left = arg;
-                return n;
+                return parse_call_args (c, name, column);
             }
             else
             {
@@ -445,6 +454,78 @@ parse_factor (Ctx *c)
     n = parse_factor_body (c);
     c->depth--;
     return n;
+}
+
+/* left/right hold argument one and two by hand below, so a third would
+ * need somewhere new to live rather than just a bigger loop. */
+G_STATIC_ASSERT (PN_EXPR_MAX_ARITY == 2);
+
+static PnExprNode *
+parse_call_args (Ctx   *c,
+                 gchar *name,
+                 gint   column)
+{
+    const PnExprFunc *fn     = pn_expr_func_lookup (name);
+    PnExprNode       *args[PN_EXPR_MAX_ARITY] = { NULL, };
+    gint              n_args = 0;
+    PnExprNode       *call;
+    gint              i;
+
+    for (;;)
+    {
+        PnExprNode *arg = parse_expression (c);
+
+        if (arg == NULL)
+            goto fail;
+
+        if (n_args == PN_EXPR_MAX_ARITY)
+        {
+            pn_expr_node_free (arg);
+            ctx_set_error (c, PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT,
+                           "too many arguments to '%s' at position %d: "
+                           "no function takes more than %d",
+                           name, column, PN_EXPR_MAX_ARITY);
+            goto fail;
+        }
+        args[n_args++] = arg;
+
+        if (c->tok != TOK_COMMA)
+            break;
+        lex_advance (c);
+    }
+
+    if (c->tok != TOK_RPAREN)
+    {
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN,
+                       "expected ')' after argument to '%s' "
+                       "at position %d", name, ctx_column (c));
+        goto fail;
+    }
+
+    /* An unknown name has no declared arity; let the evaluator be the one
+     * that says so, which is where it said so before this entry. */
+    if (fn != NULL && fn->arity != n_args)
+    {
+        ctx_set_error (c, PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT,
+                       "%s takes %d argument%s, got %d at position %d",
+                       name, fn->arity, fn->arity == 1 ? "" : "s",
+                       n_args, column);
+        goto fail;
+    }
+
+    lex_advance (c);                /* consume the ')' */
+
+    call = node_new (PN_EXPR_NODE_CALL);
+    call->name  = name;             /* transfer ownership */
+    call->left  = args[0];
+    call->right = args[1];          /* NULL for a one-argument call */
+    return call;
+
+fail:
+    for (i = 0; i < n_args; i++)
+        pn_expr_node_free (args[i]);
+    g_free (name);
+    return NULL;
 }
 
 static PnExprNode *

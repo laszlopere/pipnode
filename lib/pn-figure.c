@@ -20,6 +20,7 @@
 #include "pn-figure.h"
 
 #include "pn-expr-bind.h"
+#include "pn-expr-funcs.h"
 #include "pn-message.h"
 #include "pn-settings-schema.h"
 #include "pn-var-store.h"
@@ -1147,33 +1148,20 @@ pn_figure_parse_literals (
 /*  Expressions                                                       */
 /* ================================================================== */
 
-/* The language's own constants, which are not names a program expects
- * from outside: they fold like numbers and never reach the collected
- * list.  They live here only until #81 gives PnVarStore constants of
- * its own, at which point this table goes away and nothing else about
- * this file changes (80.3d). */
-static const struct
-{
-    const gchar *name;
-    gdouble      value;
-}
-figure_constants[] =
-{
-    { "pi", G_PI },
-    { "e",  G_E  },
-};
-
+/* The language's own constants (`pi`, `e`), which are not names a
+ * program expects from outside: they fold like numbers and never reach
+ * the collected list.  The table itself moved into the calculator
+ * language where it belongs (TODO #81.6, which was #80.3d's own
+ * prediction); PnVarStore now resolves them as a fallback, so this file
+ * no longer binds them — it only needs to RECOGNISE them, so that a
+ * folded `pi` is not collected as a free name and, more sharply, so
+ * that bind_frame() below does not zero-fill one.  A zero-fill would
+ * win: a binding shadows the fallback. */
 static gboolean
 is_figure_constant (
         const gchar *name)
 {
-    gsize i;
-
-    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
-        if (g_strcmp0 (figure_constants[i].name, name) == 0)
-            return TRUE;
-
-    return FALSE;
+    return pn_expr_constant_lookup (name, NULL);
 }
 
 /* TRUE when @node reads nothing that can change between frames, so its
@@ -1221,19 +1209,15 @@ collect_names (
     collect_names (node->right, names);
 }
 
-/* A store holding the language's constants and nothing else, which is
- * every binding a foldable expression can possibly need. */
+/* A store for folding: empty, because the constants a foldable
+ * expression can need are the only thing it reads and PnVarStore
+ * resolves those itself now.  Kept as a named function anyway — the
+ * call sites say what the store is FOR, and the day folding needs a
+ * binding it has one place to appear. */
 static PnVarStore *
 fold_store_new (void)
 {
-    PnVarStore *store = pn_var_store_new ();
-    gsize       i;
-
-    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
-        pn_var_store_set (store, figure_constants[i].name,
-                          figure_constants[i].value);
-
-    return store;
+    return pn_var_store_new ();
 }
 
 /* Splits the calculator's " at position N" tail off @message, so the
@@ -1567,11 +1551,14 @@ snapshot_apply_one (
 }
 
 /* The per-frame cycle of 80.2 rule 13, refined by 80.8(e): clear, then
- * the constants, then the latched inputs, then zero for whatever the
- * program reads and nothing has supplied.  That last step is not
- * tidiness — an unbound name FAILS an evaluation in PnVarStore rather
- * than reading as 0, so without it an unwired figure would draw nothing
- * at all (80.2 rule 12).
+ * the latched inputs, then zero for whatever the program reads and
+ * nothing has supplied.  The constants no longer need a step of their
+ * own — PnVarStore resolves them beneath every binding (#81.6) — but
+ * they still need EXCLUDING from the zero-fill, which is the one place
+ * 80.3(c)'s precedence still has to be spelled out here.  That zero-fill
+ * step is not tidiness — an unbound name FAILS an evaluation in
+ * PnVarStore rather than reading as 0, so without it an unwired figure
+ * would draw nothing at all (80.2 rule 12).
  *
  * The order is 80.3(c)'s, and the reason it is written down there is
  * that getting it wrong makes `pi` silently 0: a figure that still
@@ -1583,14 +1570,9 @@ bind_frame (
         const PnFigureSnapshot *snapshot,
         GPtrArray              *free_names)
 {
-    gsize i;
     guint n;
 
     pn_var_store_clear (store);
-
-    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
-        pn_var_store_set (store, figure_constants[i].name,
-                          figure_constants[i].value);
 
     if (snapshot != NULL)
         g_hash_table_foreach (snapshot->values, snapshot_apply_one, store);

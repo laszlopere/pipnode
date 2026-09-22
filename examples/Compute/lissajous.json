@@ -73,7 +73,7 @@
         "y" : 100.0
       },
       "properties" : {
-        "expression" : "x = sin(3 * value + 1.5707963)\nsin(2 * value)"
+        "expression" : "x = sin(3 * value + pi / 2)\nsin(2 * value)"
       }
     },
     {
