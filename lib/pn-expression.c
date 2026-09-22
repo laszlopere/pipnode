@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-expression.h"
+#include "pn-expr-bind.h"
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 #include "pn-message.h"
@@ -104,7 +105,6 @@ pn_expression_receive (
         PnMessage *message)
 {
     PnExpression *self = PN_EXPRESSION (node);
-    JsonObject   *data;
     PnExprValue   result = { NULL, 0.0 };
     GError       *error = NULL;
 
@@ -123,38 +123,12 @@ pn_expression_receive (
 
     /* Bind every numeric member of the incoming bag as a variable, so
      * the expression can reference `value` and any sibling numeric
-     * field by name. */
+     * field by name — the FLAT rule, which lives in pn-expr-bind.c so
+     * that Calculator 2 and the figure share one copy of it (80.8c).
+     * A `$pnvector` marker binds as a vector variable so the expression
+     * can broadcast/elementwise over it. */
     pn_var_store_clear (self->vars);
-    data = pn_message_get_data (message);
-    if (data != NULL)
-    {
-        JsonObjectIter  iter;
-        const gchar    *member;
-        JsonNode       *val;
-
-        json_object_iter_init (&iter, data);
-        while (json_object_iter_next (&iter, &member, &val))
-        {
-            if (val == NULL)
-                continue;
-
-            if (JSON_NODE_HOLDS_VALUE (val))
-            {
-                GType vt = json_node_get_value_type (val);
-                if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
-                    pn_var_store_set (self->vars, member,
-                                      json_node_get_double (val));
-            }
-            else
-            {
-                /* A `$pnvector` marker binds as a vector variable so the
-                 * expression can broadcast/elementwise over it. */
-                PnVector *vec = pn_message_resolve_vector (message, val);
-                if (vec != NULL)
-                    pn_var_store_set_vector (self->vars, member, vec);
-            }
-        }
-    }
+    pn_expr_bind_flat (message, pn_expr_bind_to_store, self->vars);
 
     if (pn_var_store_evaluate_value (self->vars, self->ast, &result, &error))
     {

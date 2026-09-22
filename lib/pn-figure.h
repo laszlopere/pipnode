@@ -20,6 +20,7 @@
 
 #include "pn-color.h"
 #include "pn-expr-parser.h"
+#include "pn-node.h"
 #include "pn-var-store.h"
 
 G_BEGIN_DECLS
@@ -695,6 +696,126 @@ GPtrArray *pn_figure_resolve (GPtrArray              *statements,
  * Returns: (transfer full): the text, "" for an empty list.
  */
 gchar *pn_figure_display_to_string (GPtrArray *ops);
+
+/* ------------------------------------------------------------------ */
+/*  The node                                                           */
+/*                                                                     */
+/*  A sink (80.8g): a figure is a readout, not a stage in a chain.     */
+/*  Its inputs become the variables the program reads, latched by the  */
+/*  core and kept in the snapshot so a repaint long after the last     */
+/*  message still draws the same figure.                               */
+/*                                                                     */
+/*  The node owns the whole core half and nothing of the painting:     */
+/*  pn_figure_render() hands back a resolved display list in DEVICE    */
+/*  units, and pn-figure-gui.c walks it (80.4i, 80.10d).               */
+/* ------------------------------------------------------------------ */
+
+/* Geometry, following PnPlot's 280-wide card with a client area a
+ * little taller than its 173, so the drawing area is roughly 4:3 —
+ * the shape a plate wants and the one that wastes least room to the
+ * letterbox of 80.4 (80.9e). */
+#define PN_FIGURE_WIDTH          280.0
+#define PN_FIGURE_HEADER_HEIGHT   40.0
+#define PN_FIGURE_GAP              4.0
+#define PN_FIGURE_CLIENT_HEIGHT  210.0
+#define PN_FIGURE_TOTAL_HEIGHT   (PN_FIGURE_HEADER_HEIGHT + \
+                                  PN_FIGURE_GAP +           \
+                                  PN_FIGURE_CLIENT_HEIGHT)
+
+#define PN_TYPE_FIGURE (pn_figure_get_type ())
+G_DECLARE_FINAL_TYPE (PnFigure, pn_figure, PN, FIGURE, PnNode)
+
+/**
+ * pn_figure_new:
+ *
+ * Returns: (transfer full): a figure carrying the default program of
+ *   80.11(g), so a node dragged in from the palette draws something at
+ *   once instead of showing an empty box.
+ */
+PnFigure *pn_figure_new (void);
+
+/**
+ * pn_figure_render:
+ * @self: the figure
+ * @x:    device rectangle: left
+ * @y:    ... top
+ * @w:    ... width
+ * @h:    ... height
+ *
+ * Resolves one frame into @self's device rectangle and updates the
+ * node's error state — the `error` property and, for the two classes
+ * that deserve it, pn_node_set_has_error() (80.10).
+ *
+ * This is the painter's seam.  A program that did not parse resolves to
+ * an EMPTY list, because a program error draws nothing at all (80.10a);
+ * a runtime value problem leaves its %PN_FIGURE_OP_SKIP marker in an
+ * otherwise complete list and does not colour the node red (80.10b).
+ *
+ * Returns: (transfer full) (element-type PnFigureOp): the display list,
+ *   never %NULL.
+ */
+GPtrArray *pn_figure_render (PnFigure *self,
+                             gdouble   x,
+                             gdouble   y,
+                             gdouble   w,
+                             gdouble   h);
+
+/**
+ * pn_figure_dump:
+ * @self: the figure
+ * @x:    device rectangle: left
+ * @y:    ... top
+ * @w:    ... width
+ * @h:    ... height
+ *
+ * pn_figure_render() rendered as text by pn_figure_display_to_string().
+ * Not a test-only hack (80.12a): it is the debugging tool and the D-Bus
+ * automation surface as well — a figure that draws the wrong thing is
+ * one call away from saying why.
+ *
+ * Returns: (transfer full): the dump, "" when nothing was drawn.
+ */
+gchar *pn_figure_dump (PnFigure *self,
+                       gdouble   x,
+                       gdouble   y,
+                       gdouble   w,
+                       gdouble   h);
+
+/**
+ * pn_figure_get_error:
+ * @self: the figure
+ *
+ * The text the client area shows in place of the figure, and the value
+ * of the read-only `error` property (80.10f).  It reflects the LAST
+ * pn_figure_render() for the runtime classes, and the current program
+ * for the parse class.
+ *
+ * Returns: (transfer none): the message, or "" when all is well.
+ */
+const gchar *pn_figure_get_error (PnFigure *self);
+
+/**
+ * pn_figure_get_background_color:
+ * @self: the figure
+ * @out:  (out): the colour the client rectangle is filled with before
+ *        the program runs (80.4f)
+ *
+ * A painter read-accessor, so the gui half needs no property lookups.
+ */
+void pn_figure_get_background_color (PnFigure *self,
+                                     PnColor  *out);
+
+/**
+ * pn_figure_get_font_family:
+ * @self: the figure
+ *
+ * The family every `text` in this figure is drawn in — a node property
+ * rather than a verb, so one figure is typographically consistent
+ * (80.7i).
+ *
+ * Returns: (transfer none): the family name; "" means the theme default.
+ */
+const gchar *pn_figure_get_font_family (PnFigure *self);
 
 G_END_DECLS
 

@@ -31,6 +31,7 @@
 #include "pn-device-spin.h"
 #include "pn-dial.h"
 #include "pn-edge.h"
+#include "pn-expr-bind.h"
 #include "pn-expr-parser.h"
 #include "pn-expression.h"
 #include "pn-expression2.h"

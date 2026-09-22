@@ -2087,6 +2087,8 @@
                  tests: the Calculator and Calculator 2 unit tests pass
                  untouched before and after, or the extraction is
                  wrong.
+                 DONE (2026-09-22) in 80.24.3(a), as
+                 lib/pn-expr-bind.[ch]; the characterization held.
              (d) INPUT COUNT 1..8, DEFAULT 1, ports renameable,
                  following Expression2's `inputs` property (which
                  allows 2..8). One input is the common case -- the
@@ -2310,28 +2312,41 @@
                      view 0, 0, 100, 100
                      circle 50, 50, 40
                      text 50, 50, "%.1f", value
+                 CORRECTED in 80.24.5: the last line names `value1`,
+                 not `value`. "value1" is input 1's default DISPLAY
+                 NAME and 80.8(b) binds under the display name, so
+                 `value` would have zero-filled forever.
              (h) Help needs nothing built: the worksheet's node context
                  menu already emits help-requested with the node's
                  GType name, so data/help/PnFigure.html (80.14) is
                  reachable the moment it exists. The dialog must NOT
                  grow a verb cheat sheet of its own.
-       [ ] 80.12 PLAN SETTLED (2026-09-21), HALF WRITTEN (2026-09-22)
-             -- headless and pixel-free, testing the RESOLVED DISPLAY
-             LIST as text.  The display-list half of (e) landed with
-             the resolver it tests, in 80.23: every verb, y-up, the
-             letterbox, reversed bounds, the degenerate window, the pen
-             reset, zero-fill, the snapshot surviving a repaint, the
-             skip markers, the vector error and the locale guard.  What
-             is left needs the node: input binding and latching through
-             pn_node_receive_message_on_input(), and the `error`
-             property carrying the text (80.24). Nothing renders; the whole node except the
+       [x] 80.12 DONE (2026-09-22) -- headless and pixel-free, testing
+             the RESOLVED DISPLAY LIST as text.  The display-list half
+             of (e) landed with the resolver it tests, in 80.23: every
+             verb, y-up, the letterbox, reversed bounds, the degenerate
+             window, the pen reset, zero-fill, the snapshot surviving a
+             repaint, the skip markers, the vector error and the locale
+             guard.  The node half landed with 80.24: input binding and
+             latching through pn_node_receive_message_on_input(), a
+             renamed port renaming the variable, a sibling member taking
+             the input number, a string member NOT binding, the snapshot
+             outliving its message, the client-area geometry, and all
+             three error classes asserted through the exact `error`
+             property text.  401 checks in the one binary, valgrind
+             clean.  Nothing renders; the whole node except the
              strokes themselves is under test, which is the payoff for the
              core/painter seam 80.4(i) and 80.10(d) already demanded.
 
-             (a) THE SEAM IS AN API:
-                     gchar *pn_figure_dump (PnFigure *self,
-                                            double x, double y,
-                                            double w, double h);
+             (a) THE SEAM IS AN API, and it shipped with 80.24 as
+                 exactly that signature, over a pn_figure_render() that
+                 hands the painter the same list:
+                     GPtrArray *pn_figure_render (PnFigure *self,
+                                                  double x, double y,
+                                                  double w, double h);
+                     gchar     *pn_figure_dump   (PnFigure *self,
+                                                  double x, double y,
+                                                  double w, double h);
                  core tier, newly-allocated multi-line string, one line
                  per executed statement INCLUDING the state changes, so
                  the pen machine is observable and not merely implied.
@@ -2999,20 +3014,101 @@
                        is there, and skips itself where no comma locale
                        is installed -- which is this machine, so it has
                        been proved by reading rather than by running.
-       [ ] 80.24 THE CODE, part 3 of 4: the node object.
-             lib/pn-figure.h plus the GObject half of pn-figure.c.
-             [ ] 80.24.1 Properties and the settings schema (80.9h,
-                   80.11), including the read-only `error` string.
-             [ ] 80.24.2 Ports: sink, 1..8 renameable inputs,
-                   pn_node_set_collate_inputs (80.8a, 80.8d, 80.8g).
-             [ ] 80.24.3 receive() -- rebuild the snapshot, re-resolve,
-                   schedule a coalesced repaint at the 100 ms floor
-                   (80.8h).
-             [ ] 80.24.4 Class metadata, get_size, get_client_area, the
-                   zoom-aspect flag; factory registration (80.9c,
-                   80.9d, 80.9e).
-             [ ] 80.24.5 The default program of 80.11(g), so a
-                   dragged-in node draws something immediately.
+       [x] 80.24 DONE (2026-09-22): THE CODE, part 3 of 4: the node
+             object. lib/pn-figure.h plus the GObject half of
+             pn-figure.c, and with it the pn-expr-bind extraction
+             80.8(c) asked for. Still nothing that draws: the node
+             resolves, reports and latches, and 80.25 will stroke.
+             Fourteen more cases in tests/unit/test-pn-figure.c (401
+             checks in that binary now), valgrind clean, and the whole
+             suite of 162 binaries green before and after.
+             [x] 80.24.1 DONE: `program`, `inputs`, `background-color`,
+                   `font-family`, `stretch`, and the read-only `error`
+                   string; the schema puts `program` on a "Figure" tab
+                   as a full-width PN_EDITOR_CODE editor highlighted as
+                   "sh", with `error` under it as a full-width
+                   PN_EDITOR_LABEL, and the three appearance properties
+                   on a second tab (80.9h, 80.11b, 80.11c, 80.11e).
+                   (a) THE LABEL EDITOR HAD TO LEARN TO BE LIVE, and
+                       this is the one thing 80.11(e) did not foresee.
+                       build_label_editor() in pn-settings-renderer.c
+                       SAMPLED the property once, at dialog build time
+                       -- which is exactly wrong for `error`, since
+                       80.11(d) has the card and the error text follow
+                       every keystroke. A string-typed row now
+                       g_object_bind_property()s to the label instead
+                       (and wraps, since a parse message is worth
+                       reading in full); other types keep the sampled
+                       rendering, because g_strdup_value_contents() is
+                       not a transform a binding can run. PnFigure is
+                       the first PN_EDITOR_LABEL user in the tree, so
+                       nothing else changes behaviour.
+                   (b) `error` IS READABLE-ONLY, as 80.10(f) decided,
+                       and pn-flow.c therefore leaves it out of the
+                       saved worksheet. The renderer was checked to
+                       make sure it does not drop such a row: it skips
+                       construct-only and missing properties, not
+                       read-only ones.
+             [x] 80.24.2 DONE: sink (has_input TRUE, has_output FALSE),
+                   1..8 inputs defaulting to 1, renameable through the
+                   dialog's own Inputs tab via
+                   pn_node_set_input_count_property ("inputs"), and
+                   pn_node_set_collate_inputs (TRUE) (80.8a, 80.8d,
+                   80.8g).
+             [x] 80.24.3 DONE: receive() clears and refills the
+                   snapshot through the new binder, re-resolves once at
+                   the at-rest client rectangle purely so the `error`
+                   property is right without waiting for a painter
+                   (80.10f), and schedules a repaint through the same
+                   100 ms coalescing idiom PnPlot and PnOscilloscope
+                   keep (80.8h). Nothing is emitted: it is a sink.
+                   (a) THE EXTRACTION OF 80.8(c) LANDED HERE, as
+                       lib/pn-expr-bind.[ch] (core tier):
+                       pn_expr_bind_flat() is Calculator's rule,
+                       pn_expr_bind_collated() is Calculator 2's, both
+                       feeding a #PnExprBindFunc so the calculators can
+                       bind into a #PnVarStore (via the ready-made
+                       pn_expr_bind_to_store) while the figure binds
+                       into its #PnFigureSnapshot. Both calculators now
+                       call it and lost their own copies. The safety
+                       net was the one 80.12(g) named: their unit tests
+                       pass untouched, before and after.
+                   (b) ONE THING THE DESIGN DID NOT KNOW: the core's
+                       collation is a NO-OP below two inputs --
+                       pn_node_latch_inputs() returns early on n < 2 --
+                       so a one-input figure would have seen nothing
+                       bound under `value1` at all. pn_expr_bind_collated
+                       therefore falls back to the message's own
+                       data.value for the ARRIVING input when no
+                       collated member is there. For two inputs and up
+                       it never fires, since the core has just latched
+                       that input, which is why Calculator 2's tests
+                       did not move.
+             [x] 80.24.4 DONE: class metadata exactly as 80.9(d) spells
+                   it (Figure / Sinks / fa-pencil / plum, set in both
+                   class_init and init), get_size 280 x 254 with a
+                   40 px header and the 210 px client area of 80.9(e),
+                   paint_plot_zoom_keep_aspect TRUE (80.4g), and
+                   pn_node_factory_register (self, PN_TYPE_FIGURE).
+                   get_client_area is NOT overridden: PnNode's
+                   geometric default already reports the rectangle
+                   under the header, which is the one the worksheet
+                   hands paint_plot -- asserted rather than assumed, in
+                   the node_client_area case.
+             [x] 80.24.5 DONE, with one CORRECTION to 80.11(g). The
+                   default program is
+                       view 0, 0, 100, 100
+                       circle 50, 50, 40
+                       text 50, 50, "%.1f", value1
+                   -- `value1`, not `value`. The default DISPLAY NAME
+                   of input 1 is "value1" (pn_node_get_input_name), and
+                   80.8(b) binds under the display name, so `value`
+                   would have silently zero-filled forever. Naming the
+                   port "value" instead was considered and rejected: it
+                   would read value, value2, value3 as soon as anyone
+                   raised the input count. Rename the port and the
+                   program names it by the new name, which is the
+                   workflow the figure actually wants.
        [ ] 80.25 THE CODE, part 4 of 4: the painter.
              lib/pn-figure-gui.c, gui tier, installed as
              PnNodeClass.paint_plot -- and it must stay DUMB: it walks

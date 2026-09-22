@@ -19,6 +19,9 @@
 
 #include "pn-figure.h"
 
+#include "pn-expr-bind.h"
+#include "pn-message.h"
+#include "pn-settings-schema.h"
 #include "pn-var-store.h"
 
 #include <math.h>
@@ -1815,6 +1818,14 @@ figure_op_free (
     g_free (self);
 }
 
+/* An empty display list with the right element free function — a frame
+ * about to be filled, or one that drew nothing at all. */
+static GPtrArray *
+figure_ops_new (void)
+{
+    return g_ptr_array_new_with_free_func (figure_op_free);
+}
+
 static PnFigureOp *
 op_add (
         GPtrArray      *ops,
@@ -2467,7 +2478,7 @@ pn_figure_resolve (
         gboolean                stretch,
         gchar                 **out_error)
 {
-    GPtrArray  *ops = g_ptr_array_new_with_free_func (figure_op_free);
+    GPtrArray  *ops = figure_ops_new ();
     GPtrArray  *errors;
     PnVarStore *store;
     Frame       frame;
@@ -2793,4 +2804,666 @@ pn_figure_display_to_string (
     }
 
     return g_string_free (out, FALSE);
+}
+
+/* ================================================================== */
+/*  The node                                                          */
+/*                                                                    */
+/*  The GObject half: properties, ports, receive() and the seam the   */
+/*  painter reads.  Everything above this line is the language; this  */
+/*  part only decides WHEN it runs.                                   */
+/* ================================================================== */
+
+/* Repaint no faster than this, however fast the source feeds us
+ * (80.8h) — the same floor, and the same schedule_repaint() idiom,
+ * PnPlot and PnOscilloscope already keep. */
+#define PN_FIGURE_MIN_REPAINT_INTERVAL_US  (G_TIME_SPAN_MILLISECOND * 100)
+
+#define PN_FIGURE_MIN_INPUTS 1
+#define PN_FIGURE_MAX_INPUTS 8
+#define PN_FIGURE_DEF_INPUTS 1
+
+/* What a node dragged in from the palette draws before it is wired to
+ * anything (80.11g): three lines that show the shape of the language
+ * and render immediately, because every free name zero-fills (80.2
+ * rule 12).  `value1` is the default display name of input 1 — rename
+ * the port and the program names it by the new name. */
+#define PN_FIGURE_DEF_PROGRAM                  \
+    "view 0, 0, 100, 100\n"                    \
+    "circle 50, 50, 40\n"                      \
+    "text 50, 50, \"%.1f\", value1"
+
+struct _PnFigure
+{
+    PnNode parent_instance;
+
+    /* Properties. */
+    gchar    *program;
+    gint      n_inputs;
+    PnColor   background_color;
+    gchar    *font_family;
+    gboolean  stretch;
+
+    /* The front end's verdict on @program, rebuilt on every set.  The
+     * statements point into @lines, so the two live and die together. */
+    GPtrArray *lines;          /* #PnFigureLine                        */
+    GPtrArray *statements;     /* #PnFigureStatement                   */
+    GPtrArray *names;          /* utf8: what the program reads         */
+    gchar     *program_error;  /* the parse report, or %NULL           */
+
+    /* The latched inputs, kept between frames (80.8e) because a figure
+     * repaints long after the message that last changed it. */
+    PnFigureSnapshot *snapshot;
+
+    /* The last pn_figure_render()'s verdict: a runtime TYPE problem,
+     * or %NULL.  A runtime VALUE problem is not here — it left a skip
+     * marker in the list and is deliberately not an error (80.10b). */
+    gchar *runtime_error;
+
+    /* What the `error` property currently reads, so a set that changes
+     * nothing does not notify. */
+    gchar *error;
+
+    /* Repaint throttle — see schedule_repaint(). */
+    gint64 last_repaint_us;
+    guint  pending_repaint_id;
+};
+
+G_DEFINE_TYPE (PnFigure, pn_figure, PN_TYPE_NODE)
+
+enum {
+    PROP_0,
+    PROP_PROGRAM,
+    PROP_INPUTS,
+    PROP_BACKGROUND_COLOR,
+    PROP_FONT_FAMILY,
+    PROP_STRETCH,
+    PROP_ERROR,
+    N_PROPS,
+};
+
+static GParamSpec *props[N_PROPS];
+
+/* ------------------------------------------------------------------ */
+/*  Repaint throttle (mirrors PnPlot / PnOscilloscope)                 */
+/* ------------------------------------------------------------------ */
+
+static gboolean
+on_pending_repaint (gpointer user_data)
+{
+    PnFigure *self = user_data;
+
+    self->pending_repaint_id = 0;
+    self->last_repaint_us    = g_get_monotonic_time ();
+    pn_node_request_repaint (PN_NODE (self));
+
+    return G_SOURCE_REMOVE;
+}
+
+static void
+schedule_repaint (
+        PnFigure *self)
+{
+    gint64 now_us  = g_get_monotonic_time ();
+    gint64 elapsed = now_us - self->last_repaint_us;
+
+    if (self->pending_repaint_id != 0)
+        return;
+
+    if (elapsed >= PN_FIGURE_MIN_REPAINT_INTERVAL_US)
+    {
+        self->last_repaint_us = now_us;
+        pn_node_request_repaint (PN_NODE (self));
+        return;
+    }
+
+    {
+        gint64 remaining_us = PN_FIGURE_MIN_REPAINT_INTERVAL_US - elapsed;
+        guint  delay_ms     = (guint) ((remaining_us + 999) / 1000);
+
+        if (delay_ms == 0)
+            delay_ms = 1;
+        self->pending_repaint_id =
+                g_timeout_add (delay_ms, on_pending_repaint, self);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Error state                                                        */
+/* ------------------------------------------------------------------ */
+
+/* Recompute what the `error` property says, and with it whether the
+ * node paints red.  A PROGRAM error outranks a runtime one: it is the
+ * reason nothing was resolved in the first place.  has-error is set for
+ * both classes that reach here and never for a skipped statement, so a
+ * knob winding through zero does not teach the user to ignore the red
+ * (80.10a, 80.10c versus 80.10b). */
+static void
+figure_refresh_error (
+        PnFigure *self)
+{
+    const gchar *text = self->program_error != NULL ? self->program_error
+                      : self->runtime_error != NULL ? self->runtime_error
+                      : "";
+
+    if (g_strcmp0 (self->error, text) == 0)
+        return;
+
+    g_free (self->error);
+    self->error = g_strdup (text);
+
+    pn_node_set_has_error (PN_NODE (self), *text != '\0');
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_ERROR]);
+}
+
+/* ------------------------------------------------------------------ */
+/*  The front end, once per `program` set                              */
+/* ------------------------------------------------------------------ */
+
+/* Re-run every stage of the front end over @self->program.  Done here,
+ * on the property, rather than per frame: the dialog applies edits as
+ * they are typed (80.11d), and a figure that animates will resolve the
+ * same parse dozens of times a second (80.3a). */
+static void
+figure_recompile (
+        PnFigure *self)
+{
+    GPtrArray *errors = pn_figure_errors_new ();
+
+    g_clear_pointer (&self->names,      g_ptr_array_unref);
+    g_clear_pointer (&self->statements, g_ptr_array_unref);
+    g_clear_pointer (&self->lines,      g_ptr_array_unref);
+    g_clear_pointer (&self->program_error, g_free);
+
+    self->lines      = pn_figure_scan  (self->program, errors);
+    self->statements = pn_figure_split (self->lines, errors);
+    pn_figure_check_verbs       (self->statements, errors);
+    pn_figure_parse_literals    (self->statements, errors);
+    pn_figure_parse_expressions (self->statements, errors);
+    self->names      = pn_figure_free_names (self->statements);
+
+    self->program_error = pn_figure_errors_to_string (errors);
+    g_ptr_array_unref (errors);
+
+    /* A new program makes the old frame's verdict meaningless. */
+    g_clear_pointer (&self->runtime_error, g_free);
+    figure_refresh_error (self);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Rendering                                                          */
+/* ------------------------------------------------------------------ */
+
+GPtrArray *
+pn_figure_render (
+        PnFigure *self,
+        gdouble   x,
+        gdouble   y,
+        gdouble   w,
+        gdouble   h)
+{
+    GPtrArray *ops;
+    gchar     *error = NULL;
+
+    g_return_val_if_fail (PN_IS_FIGURE (self), figure_ops_new ());
+
+    /* A program error draws nothing at all (80.10a) — not the good
+     * statements either, because half a figure is a worse lie than
+     * none. */
+    if (self->program_error != NULL)
+        return figure_ops_new ();
+
+    ops = pn_figure_resolve (self->statements, self->names, self->snapshot,
+                             x, y, w, h, self->stretch, &error);
+
+    g_free (self->runtime_error);
+    self->runtime_error = error;   /* transferred; %NULL when all is well */
+    figure_refresh_error (self);
+
+    return ops;
+}
+
+gchar *
+pn_figure_dump (
+        PnFigure *self,
+        gdouble   x,
+        gdouble   y,
+        gdouble   w,
+        gdouble   h)
+{
+    GPtrArray *ops  = pn_figure_render (self, x, y, w, h);
+    gchar     *text = pn_figure_display_to_string (ops);
+
+    g_ptr_array_unref (ops);
+    return text;
+}
+
+const gchar *
+pn_figure_get_error (
+        PnFigure *self)
+{
+    g_return_val_if_fail (PN_IS_FIGURE (self), "");
+    return self->error != NULL ? self->error : "";
+}
+
+void
+pn_figure_get_background_color (
+        PnFigure *self,
+        PnColor  *out)
+{
+    g_return_if_fail (PN_IS_FIGURE (self));
+    g_return_if_fail (out != NULL);
+
+    *out = self->background_color;
+}
+
+const gchar *
+pn_figure_get_font_family (
+        PnFigure *self)
+{
+    g_return_val_if_fail (PN_IS_FIGURE (self), "");
+    return self->font_family != NULL ? self->font_family : "";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Receive                                                            */
+/* ------------------------------------------------------------------ */
+
+/* One binding from pn_expr_bind_collated() into the snapshot the next
+ * frame will read. */
+static void
+figure_bind_into_snapshot (
+        const gchar *name,
+        gdouble      scalar,
+        PnVector    *vec,
+        gpointer     user_data)
+{
+    PnFigureSnapshot *snapshot = user_data;
+
+    if (vec != NULL)
+        pn_figure_snapshot_set_vector (snapshot, name, vec);
+    else
+        pn_figure_snapshot_set (snapshot, name, scalar);
+}
+
+static void
+pn_figure_receive (
+        PnNode    *node,
+        PnMessage *message)
+{
+    PnFigure  *self = PN_FIGURE (node);
+    GPtrArray *ops;
+
+    /* Re-latch: clear and refill, which is 80.8(e)'s answer to the fact
+     * that a figure repaints long after the message.  The core has
+     * already collated the other inputs' last values into the bag, so
+     * one pass over it holds every input at once. */
+    pn_figure_snapshot_clear (self->snapshot);
+    pn_expr_bind_collated (node, message, figure_bind_into_snapshot,
+                           self->snapshot);
+
+    /* Resolve once at the at-rest client rectangle, purely so the
+     * `error` property is right straight away (80.10f) — a headless
+     * worksheet and the D-Bus automation have no painter to do it for
+     * them.  The list itself is thrown away; the painter resolves for
+     * whatever rectangle it is actually given, which differs the moment
+     * the node is lifted into the zoom overlay. */
+    ops = pn_figure_render (self, 0.0, 0.0,
+                            PN_FIGURE_WIDTH, PN_FIGURE_CLIENT_HEIGHT);
+    g_ptr_array_unref (ops);
+
+    /* A sink (80.8g): nothing is emitted onward. */
+    schedule_repaint (self);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Size vfuncs                                                        */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_figure_get_size (
+        PnNode *node,
+        double *out_width,
+        double *out_height)
+{
+    (void) node;
+    if (out_width  != NULL) *out_width  = PN_FIGURE_WIDTH;
+    if (out_height != NULL) *out_height = PN_FIGURE_TOTAL_HEIGHT;
+}
+
+static double
+pn_figure_get_header_height (
+        PnNode *node)
+{
+    (void) node;
+    return PN_FIGURE_HEADER_HEIGHT;
+}
+
+/* No get_client_area override: the figure's body IS the rectangle under
+ * the header, which is exactly what PnNode's geometric default reports
+ * and exactly what the worksheet hands paint_plot. */
+
+/* ------------------------------------------------------------------ */
+/*  Property plumbing                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_figure_get_property (
+        GObject    *object,
+        guint       prop_id,
+        GValue     *value,
+        GParamSpec *pspec)
+{
+    PnFigure *self = PN_FIGURE (object);
+
+    switch (prop_id)
+    {
+    case PROP_PROGRAM:
+        g_value_set_string (value, self->program);
+        break;
+    case PROP_INPUTS:
+        g_value_set_int (value, self->n_inputs);
+        break;
+    case PROP_BACKGROUND_COLOR:
+        g_value_set_boxed (value, &self->background_color);
+        break;
+    case PROP_FONT_FAMILY:
+        g_value_set_string (value, self->font_family);
+        break;
+    case PROP_STRETCH:
+        g_value_set_boolean (value, self->stretch);
+        break;
+    case PROP_ERROR:
+        g_value_set_string (value, pn_figure_get_error (self));
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void
+pn_figure_set_property (
+        GObject      *object,
+        guint         prop_id,
+        const GValue *value,
+        GParamSpec   *pspec)
+{
+    PnFigure *self = PN_FIGURE (object);
+
+    switch (prop_id)
+    {
+    case PROP_PROGRAM:
+        {
+            const gchar *s = g_value_get_string (value);
+
+            if (g_strcmp0 (self->program, s) != 0)
+            {
+                g_free (self->program);
+                self->program = g_strdup (s != NULL ? s : "");
+                figure_recompile (self);
+                g_object_notify_by_pspec (object, props[PROP_PROGRAM]);
+                /* Straight through, not throttled: this is somebody
+                 * typing, and the whole point of the code editor is
+                 * that the card follows the keystrokes (80.11d). */
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_INPUTS:
+        {
+            gint n = g_value_get_int (value);
+
+            if (n != self->n_inputs)
+            {
+                self->n_inputs = n;
+                /* Resize the live ports; the core grows or shrinks its
+                 * per-input latches to match. */
+                pn_node_set_n_inputs (PN_NODE (self), n);
+                g_object_notify_by_pspec (object, props[PROP_INPUTS]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_BACKGROUND_COLOR:
+        {
+            const PnColor *c = g_value_get_boxed (value);
+
+            if (c != NULL && !pn_color_equal (c, &self->background_color))
+            {
+                self->background_color = *c;
+                g_object_notify_by_pspec (object,
+                                          props[PROP_BACKGROUND_COLOR]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_FONT_FAMILY:
+        {
+            const gchar *s = g_value_get_string (value);
+
+            if (g_strcmp0 (self->font_family, s) != 0)
+            {
+                g_free (self->font_family);
+                self->font_family = g_strdup (s != NULL ? s : "");
+                g_object_notify_by_pspec (object, props[PROP_FONT_FAMILY]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_STRETCH:
+        {
+            gboolean v = g_value_get_boolean (value);
+
+            if (self->stretch != v)
+            {
+                self->stretch = v;
+                g_object_notify_by_pspec (object, props[PROP_STRETCH]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  GObject lifecycle                                                  */
+/* ------------------------------------------------------------------ */
+
+static void
+pn_figure_finalize (
+        GObject *object)
+{
+    PnFigure *self = PN_FIGURE (object);
+
+    if (self->pending_repaint_id != 0)
+    {
+        g_source_remove (self->pending_repaint_id);
+        self->pending_repaint_id = 0;
+    }
+
+    g_clear_pointer (&self->names,         g_ptr_array_unref);
+    g_clear_pointer (&self->statements,    g_ptr_array_unref);
+    g_clear_pointer (&self->lines,         g_ptr_array_unref);
+    g_clear_pointer (&self->program_error, g_free);
+    g_clear_pointer (&self->runtime_error, g_free);
+    g_clear_pointer (&self->error,         g_free);
+    g_clear_pointer (&self->program,       g_free);
+    g_clear_pointer (&self->font_family,   g_free);
+    g_clear_pointer (&self->snapshot,      pn_figure_snapshot_free);
+
+    G_OBJECT_CLASS (pn_figure_parent_class)->finalize (object);
+}
+
+static void
+pn_figure_class_init (
+        PnFigureClass *klass)
+{
+    GObjectClass *object_class = G_OBJECT_CLASS (klass);
+    PnNodeClass  *node_class   = PN_NODE_CLASS (klass);
+
+    object_class->get_property = pn_figure_get_property;
+    object_class->set_property = pn_figure_set_property;
+    object_class->finalize     = pn_figure_finalize;
+
+    node_class->receive           = pn_figure_receive;
+    node_class->get_size          = pn_figure_get_size;
+    node_class->get_header_height = pn_figure_get_header_height;
+    /* The cairo painter (paint_plot) is installed onto this class by the
+     * gui tier — pn_figure_gui_install() in pn-figure-gui.c — so the
+     * headless core carries no cairo and no Pango. */
+
+    node_class->class_name    = "Figure";
+    node_class->icon          = "\xef\x81\x80";  /* fa-pencil U+F040 */
+    node_class->color         = (PnColor){ 0.55, 0.36, 0.66, 1.0 };
+    node_class->category      = "Sinks";
+    node_class->has_input     = TRUE;
+    node_class->has_output    = FALSE;
+
+    /* The figure preserves its own aspect and letterboxes what is left
+     * over, so a stretched overlay would only grow the bars (80.4g). */
+    node_class->paint_plot_zoom_keep_aspect = TRUE;
+
+    props[PROP_PROGRAM] = g_param_spec_string (
+            "program", "Program",
+            "The drawing program, one verb per line.  Y POINTS UP: "
+            "`view xmin, ymin, xmax, ymax` declares the user-unit window "
+            "(0, 0, 100, 100 by default), which is fitted into the card "
+            "preserving aspect and centred.  Geometry: move, rmove, "
+            "lineto, rline, line, point, circle, arc, rect, poly, path, "
+            "text.  Pen state, which persists until changed: color, fill, "
+            "nofill, width, dash, font, align.  Every coordinate and every "
+            "length is in user units and scales with the drawing.  "
+            "Arguments are expressions in the calculator language, so "
+            "`circle 0, 0, 10 * sin(t)` works; a quoted argument is a "
+            "literal.  `name = expr` on a line of its own binds a variable "
+            "for the lines below it.  Each input's last data.value is "
+            "bound under that input's name (value1 … valueN by default, or "
+            "whatever the inputs are renamed to); a name the program reads "
+            "and nothing supplies is 0, so a figure draws even unwired.  "
+            "`#` starts a comment; a line ending in a comma continues onto "
+            "the next.",
+            PN_FIGURE_DEF_PROGRAM,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    pn_param_spec_set_multiline (props[PROP_PROGRAM]);
+
+    props[PROP_INPUTS] = g_param_spec_int (
+            "inputs", "Inputs",
+            "How many inputs the node has.  Each input's last data.value "
+            "is remembered and bound in the program under that input's "
+            "name (value1 … valueN by default, or whatever the inputs are "
+            "renamed to), so every input is available on every repaint, "
+            "not only the one that just fired.",
+            PN_FIGURE_MIN_INPUTS, PN_FIGURE_MAX_INPUTS,
+            PN_FIGURE_DEF_INPUTS,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_BACKGROUND_COLOR] = g_param_spec_boxed (
+            "background-color", "Background colour",
+            "Fill colour of the whole card area behind the drawing, "
+            "including the letterbox bars the fitted window leaves over",
+            PN_TYPE_COLOR,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_FONT_FAMILY] = g_param_spec_string (
+            "font-family", "Font family",
+            "Family every `text` in this figure is drawn in, so one "
+            "drawing stays typographically consistent without repeating "
+            "the family on every label.  Empty means the theme default.",
+            "",
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_STRETCH] = g_param_spec_boolean (
+            "stretch", "Stretch to fit",
+            "Distort the drawing to fill the whole card instead of "
+            "preserving the window's aspect ratio and centring it.  Off by "
+            "default: a figure with a stretched circle in it is rarely "
+            "what anyone meant.",
+            FALSE,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* Read-only on purpose (80.10f): the client area is this node's only
+     * error channel, and a readable-but-not-writable property is one
+     * pn-flow.c leaves out of the saved worksheet. */
+    props[PROP_ERROR] = g_param_spec_string (
+            "error", "Error",
+            "What is wrong with the program, or empty when nothing is.  "
+            "The same text the card shows in place of the figure.",
+            "",
+            G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+    g_object_class_install_properties (object_class, N_PROPS, props);
+
+    /* Declarative settings schema (80.11): the program on a tab of its
+     * own, full width, in the GtkSourceView code editor — which is what
+     * shows the line numbers an error message cites.  "sh" is close
+     * enough to colour `#` comments, numbers and quoted strings; a
+     * figure.lang that would colour the verbs too is noted, not built
+     * (80.11c).  The error text sits under the editor, where the person
+     * who typed the mistake is looking (80.11e). */
+    {
+        PnSettingsSchema *schema = pn_settings_schema_new ();
+
+        pn_settings_schema_tab (schema, "Figure");
+
+        pn_settings_schema_row       (schema, "program", PN_EDITOR_CODE);
+        pn_settings_schema_row_flags (schema, "program",
+                                      PN_ROW_FLAG_FULL_WIDTH);
+        pn_settings_schema_code_language (schema, "program", "sh");
+
+        pn_settings_schema_row       (schema, "error", PN_EDITOR_LABEL);
+        pn_settings_schema_row_flags (schema, "error",
+                                      PN_ROW_FLAG_FULL_WIDTH);
+
+        pn_settings_schema_tab (schema, "Appearance");
+        pn_settings_schema_row (schema, "background-color", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "font-family",      PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "stretch",          PN_EDITOR_AUTO);
+
+        pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
+        pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);
+
+        pn_node_class_set_settings_schema (PN_NODE_CLASS (klass), schema);
+    }
+}
+
+static void
+pn_figure_init (
+        PnFigure *self)
+{
+    PnNode  *node = PN_NODE (self);
+    PnColor  plum = { 0.55, 0.36, 0.66, 1.0 };
+
+    self->n_inputs         = PN_FIGURE_DEF_INPUTS;
+    self->background_color = (PnColor){ 1.0, 1.0, 1.0, 1.0 };
+    self->font_family      = g_strdup ("");
+    self->stretch          = FALSE;
+    self->snapshot         = pn_figure_snapshot_new ();
+    self->error            = g_strdup ("");
+
+    /* Mirror the property default and compile it, so a freshly dropped
+     * node draws instead of sitting blank (80.11g, 80.8i). */
+    self->program = g_strdup (PN_FIGURE_DEF_PROGRAM);
+    figure_recompile (self);
+
+    pn_node_set_class_name (node, "Figure");
+    pn_node_set_icon       (node, "\xef\x81\x80");  /* fa-pencil U+F040 */
+    pn_node_set_color      (node, &plum);
+    pn_node_set_n_inputs   (node, self->n_inputs);  /* 1..8, default 1 */
+    pn_node_set_has_input  (node, TRUE);
+    pn_node_set_has_output (node, FALSE);
+    /* Let the node dialog offer a spin for the input count on its own
+     * "Inputs" tab, beside the editable per-input names (80.24.2). */
+    pn_node_set_input_count_property (node, "inputs");
+    /* Latch each input's /data/value and surface it under the input's
+     * name on every message, so the program sees every input at once
+     * even though only one of them just fired (80.8a). */
+    pn_node_set_collate_inputs (node, TRUE);
+}
+
+PnFigure *
+pn_figure_new (void)
+{
+    return g_object_new (PN_TYPE_FIGURE, NULL);
 }

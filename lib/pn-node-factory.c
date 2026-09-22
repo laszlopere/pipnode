@@ -55,6 +55,7 @@
 #include "pn-file-viewer.h"
 #include "pn-filedrop.h"
 #include "pn-fiat.h"
+#include "pn-figure.h"
 #include "pn-filter.h"
 #include "pn-format.h"
 #include "pn-graph.h"
@@ -361,6 +362,7 @@ register_builtins (PnNodeFactory *self)
     pn_node_factory_register (self, PN_TYPE_PLOT);
     pn_node_factory_register (self, PN_TYPE_XY_GRAPH);
     pn_node_factory_register (self, PN_TYPE_OSCILLOSCOPE);
+    pn_node_factory_register (self, PN_TYPE_FIGURE);
     pn_node_factory_register (self, PN_TYPE_WEATHER_REPORT);
     pn_node_factory_register (self, PN_TYPE_SUN_PATH);
     pn_node_factory_register (self, PN_TYPE_DIAL);

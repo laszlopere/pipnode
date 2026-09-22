@@ -82,6 +82,8 @@ libpipnode_core_la_SOURCES = \
 	pn-edge.h \
 	pn-ethereum-profile.c \
 	pn-ethereum-profile.h \
+	pn-expr-bind.c \
+	pn-expr-bind.h \
 	pn-expr-parser.c \
 	pn-expr-parser.h \
 	pn-expression.c \
@@ -567,6 +569,7 @@ pipnode_core_headers = \
 	pn-desktop-geometry.h \
 	pn-edge.h \
 	pn-ethereum-profile.h \
+	pn-expr-bind.h \
 	pn-expr-parser.h \
 	pn-expression.h \
 	pn-expression2.h \

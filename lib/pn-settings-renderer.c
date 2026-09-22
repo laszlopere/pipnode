@@ -347,7 +347,16 @@ build_choices_editor (GObject            *target,
 
 /* Read-only, selectable label rendering the property's current value —
  * the explicit %PN_EDITOR_LABEL counterpart of the auto dialog's
- * final-fallback label. */
+ * final-fallback label.
+ *
+ * A STRING property is bound to the label rather than sampled, because
+ * the properties worth showing this way are the ones that change while
+ * the dialog is open: #PnFigure's read-only `error` is re-computed on
+ * every keystroke in the code editor above it (TODO 80.11e), and a
+ * snapshot taken at build time would say the wrong thing a moment
+ * later.  Other types keep the sampled rendering; nothing asks for
+ * them to be live, and g_strdup_value_contents() is not a transform
+ * a binding can run. */
 static GtkWidget *
 build_label_editor (GObject    *target,
                     GParamSpec *pspec)
@@ -355,6 +364,18 @@ build_label_editor (GObject    *target,
     GValue     value = G_VALUE_INIT;
     gchar     *text;
     GtkWidget *label;
+
+    if (G_PARAM_SPEC_VALUE_TYPE (pspec) == G_TYPE_STRING)
+    {
+        label = gtk_label_new ("");
+        gtk_widget_set_halign (label, GTK_ALIGN_START);
+        gtk_label_set_xalign  (GTK_LABEL (label), 0.0);
+        gtk_label_set_selectable (GTK_LABEL (label), TRUE);
+        gtk_label_set_line_wrap  (GTK_LABEL (label), TRUE);
+        g_object_bind_property (target, pspec->name, label, "label",
+                                G_BINDING_SYNC_CREATE);
+        return label;
+    }
 
     g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (pspec));
     g_object_get_property (target, pspec->name, &value);

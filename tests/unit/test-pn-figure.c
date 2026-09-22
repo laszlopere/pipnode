@@ -1962,6 +1962,333 @@ test_a_frame_needs_room (void)
     figure_free (&f);
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  The node                                                           */
+/*                                                                     */
+/*  What the front and back ends could not be asked on their own: the  */
+/*  inputs becoming variables, the latch that keeps them between       */
+/*  messages, and the `error` property that is this node's only        */
+/*  channel to the person who typed the program (80.10f, 80.12e).      */
+/* ------------------------------------------------------------------ */
+
+/* A node carrying @program, with the ports already sized. */
+static PnNode *
+node (const gchar *program, gint inputs)
+{
+    PnNode *self = g_object_new (PN_TYPE_FIGURE, NULL);
+
+    if (inputs > 1)
+        g_object_set (self, "inputs", inputs, NULL);
+    if (program != NULL)
+        g_object_set (self, "program", program, NULL);
+    return self;
+}
+
+/* One frame in the 100x100 rectangle, exactly as dump100() does it for
+ * the back end. */
+static gchar *
+node_dump (PnNode *self)
+{
+    return pn_figure_dump (PN_FIGURE (self), 0, 0, 100, 100);
+}
+
+/* Deliver a value on @input, the way the worksheet delivers one. */
+static void
+send (PnNode *self, gint input, const gchar *key, gdouble value)
+{
+    PnMessage *message = pn_message_new (NULL, NULL);
+
+    pn_message_set_double (message, key, value);
+    pn_node_receive_message_on_input (self, message, input);
+    g_object_unref (message);
+}
+
+static void
+test_the_node_is_a_sink (void)
+{
+    PnNode *self = node (NULL, 1);
+
+    PN_CHECK        (pn_node_get_has_input  (self));
+    PN_CHECK_FALSE  (pn_node_get_has_output (self));
+    PN_CHECK_CMPINT (pn_node_get_n_inputs   (self), ==, 1);
+    PN_CHECK_CMPSTR (pn_node_get_class_name (self), ==, "Figure");
+
+    g_object_unref (self);
+}
+
+static void
+test_a_fresh_node_draws (void)
+{
+    PnNode *self = node (NULL, 1);
+    gchar  *text = node_dump (self);
+
+    /* The default program of 80.11(g) draws with every variable
+     * zero-filled, so a node dragged in from the palette is a figure
+     * and not an empty box (80.8i). */
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+    PN_CHECK_FALSE  (pn_node_get_has_error (self));
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     /* The program's own `view` re-states the window it
+                      * was already given -- the default is the same one
+                      * (80.4c), so the numbers repeat. */
+                     "# view 0 0 100 100 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00\n"
+                     "circle 50.00 50.00 40.00\n"
+                     "text 50.00 50.00 centre middle \"0.0\"\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_an_input_becomes_a_variable (void)
+{
+    PnNode *self = node ("line 0, 0, value1, 0", 1);
+    gchar  *text;
+
+    /* Unwired, the name zero-fills and the line is a point. */
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 0.00 100.00\n");
+    g_free (text);
+
+    /* The core does not collate a single-input node, so this is the
+     * message's own data.value bound under the input's display name. */
+    send (self, 0, "value", 60.0);
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 60.00 100.00\n");
+    g_free (text);
+
+    g_object_unref (self);
+}
+
+static void
+test_a_renamed_input_renames_the_variable (void)
+{
+    PnNode *self = node ("line 0, 0, angle, 0", 1);
+    gchar  *text;
+
+    pn_node_set_input_name (self, 0, "angle");
+    send (self, 0, "value", 25.0);
+
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 25.00 100.00\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_the_inputs_are_latched (void)
+{
+    PnNode *self = node ("line 0, 0, value1, value2", 2);
+    gchar  *text;
+
+    /* Input 1 alone: value2 is still unbound and zero-fills. */
+    send (self, 0, "value", 40.0);
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 40.00 100.00\n");
+    g_free (text);
+
+    /* Input 2 arrives and input 1's value is still remembered, which is
+     * the core's collation doing the work for us (80.8a). */
+    send (self, 1, "value", 30.0);
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 40.00 70.00\n");
+    g_free (text);
+
+    g_object_unref (self);
+}
+
+static void
+test_a_sibling_member_takes_the_input_number (void)
+{
+    PnNode *self = node ("line 0, 0, temp1, 0", 1);
+    gchar  *text;
+
+    /* A numeric member that is not the headline value binds with the
+     * arriving input's 1-based number suffixed, exactly as Calculator 2
+     * binds it (80.8b). */
+    send (self, 0, "temp", 75.0);
+
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 75.00 100.00\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_a_string_member_is_not_bound (void)
+{
+    PnNode    *self    = node ("line 0, 0, label1, 0", 1);
+    PnMessage *message = pn_message_new (NULL, NULL);
+    gchar     *text;
+
+    /* A figure draws numbers: a string never becomes a variable, so the
+     * name zero-fills instead (80.8f, and 80.7c from the other side). */
+    pn_message_set_string (message, "label", "23");
+    pn_node_receive_message_on_input (self, message, 0);
+    g_object_unref (message);
+
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 0.00 100.00\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_the_node_snapshot_survives_a_repaint (void)
+{
+    PnNode *self = node ("circle 50, 50, value1", 1);
+    gchar  *first;
+    gchar  *second;
+
+    /* One message, two frames: the bindings outlive the message that
+     * set them, which is the whole reason the node keeps a snapshot
+     * rather than rebuilding from the bag like Calculator 2 (80.8e). */
+    send (self, 0, "value", 20.0);
+    first  = node_dump (self);
+    second = node_dump (self);
+
+    PN_CHECK_CMPSTR (first, ==, HEAD_100 "circle 50.00 50.00 20.00\n");
+    PN_CHECK_CMPSTR (second, ==, first);
+
+    g_free (second);
+    g_free (first);
+    g_object_unref (self);
+}
+
+static void
+test_a_program_error_reaches_the_property (void)
+{
+    PnNode *self = node ("width 2\ncircle 0, 0", 1);
+    gchar  *text = node_dump (self);
+
+    /* Class (a): the program is broken until someone edits it, so the
+     * card shows the message, nothing at all is drawn, and the node
+     * paints red (80.10a). */
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
+                     "line 2, column 1: circle takes 3 arguments, not 2");
+    PN_CHECK        (pn_node_get_has_error (self));
+    PN_CHECK_CMPSTR (text, ==, "");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_the_error_clears_on_a_good_program (void)
+{
+    PnNode *self = node ("circle 0, 0", 1);
+    gchar  *text;
+
+    PN_CHECK (pn_node_get_has_error (self));
+
+    /* The moment a valid program is set the state goes: it is transient
+     * and never serialised (80.10h). */
+    g_object_set (self, "program", "circle 50, 50, 10", NULL);
+
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+    PN_CHECK_FALSE  (pn_node_get_has_error (self));
+
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "circle 50.00 50.00 10.00\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_a_value_problem_does_not_redden_the_node (void)
+{
+    PnNode *self = node ("circle 50, 50, 10 / value1\nrect 0, 0, 10, 10", 1);
+    gchar  *text = node_dump (self);
+
+    /* Class (b): a knob winding through zero produces this and the next
+     * message cures it, so the statement is skipped, the rest of the
+     * figure draws, and the node stays its own colour -- a figure that
+     * flashes red teaches the user to ignore the red (80.10b). */
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+    PN_CHECK_FALSE  (pn_node_get_has_error (self));
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "# skip 1 non-finite\n"
+                     "rect 0.00 90.00 10.00 10.00\n");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_a_vector_input_reddens_the_node (void)
+{
+    PnNode     *self    = node ("line 0, 0, value1, 0", 1);
+    PnMessage  *message = pn_message_new (NULL, NULL);
+    gdouble     numbers[3] = { 1.0, 2.0, 3.0 };
+    PnVector   *vec     = pn_vector_new_copy (numbers, 3);
+    gchar      *text;
+
+    /* Class (c): someone wired a vector source into a figure that
+     * cannot animate yet, and no amount of winding a knob will cure it
+     * -- so it is reported like a program error (80.10c). */
+    pn_message_set_vector (message, "value", vec);
+    pn_node_receive_message_on_input (self, message, 0);
+    g_object_unref (vec);
+    g_object_unref (message);
+
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
+                     "line 1, column 12: vector argument;"
+                     " animation is TODO 80.16");
+    PN_CHECK (pn_node_get_has_error (self));
+
+    text = node_dump (self);
+    PN_CHECK_CMPSTR (text, ==, "");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_the_error_property_reads_back (void)
+{
+    PnNode *self = node ("circle 0, 0", 1);
+    gchar  *text = NULL;
+
+    /* Read-only, so a headless test and the D-Bus automation can assert
+     * the exact text without a screenshot -- and pn-flow.c will not save
+     * it into the worksheet (80.10f). */
+    g_object_get (self, "error", &text, NULL);
+    PN_CHECK_CMPSTR (text, ==,
+                     "line 1, column 1: circle takes 3 arguments, not 2");
+
+    g_free (text);
+    g_object_unref (self);
+}
+
+static void
+test_the_client_area_is_the_body (void)
+{
+    PnNode  *self = node (NULL, 1);
+    double   x = -1, y = -1, w = -1, h = -1;
+    double   width = 0, height = 0;
+
+    pn_node_get_size (self, &width, &height);
+    PN_CHECK_NEAR (width,  PN_FIGURE_WIDTH, 1e-9);
+    PN_CHECK_NEAR (height, PN_FIGURE_TOTAL_HEIGHT, 1e-9);
+
+    /* No override: PnNode's geometric default already reports the
+     * rectangle under the header, which is what the worksheet hands the
+     * painter (80.24.4). */
+    PN_CHECK      (pn_node_get_client_area (self, &x, &y, &w, &h));
+    PN_CHECK_NEAR (w, PN_FIGURE_WIDTH, 1e-9);
+    PN_CHECK_NEAR (h, PN_FIGURE_CLIENT_HEIGHT, 1e-9);
+
+    g_object_unref (self);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -2047,5 +2374,19 @@ main (int argc, char **argv)
     pn_test_add ("back_locale",         test_the_dump_is_locale_independent);
     pn_test_add ("back_specimen",       test_the_specimen_draws);
     pn_test_add ("back_no_room",        test_a_frame_needs_room);
+    pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
+    pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
+    pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);
+    pn_test_add ("node_renamed_input",  test_a_renamed_input_renames_the_variable);
+    pn_test_add ("node_latching",       test_the_inputs_are_latched);
+    pn_test_add ("node_sibling_suffix", test_a_sibling_member_takes_the_input_number);
+    pn_test_add ("node_no_strings",     test_a_string_member_is_not_bound);
+    pn_test_add ("node_snapshot",       test_the_node_snapshot_survives_a_repaint);
+    pn_test_add ("node_program_error",  test_a_program_error_reaches_the_property);
+    pn_test_add ("node_error_clears",   test_the_error_clears_on_a_good_program);
+    pn_test_add ("node_value_problem",  test_a_value_problem_does_not_redden_the_node);
+    pn_test_add ("node_vector_input",   test_a_vector_input_reddens_the_node);
+    pn_test_add ("node_error_property", test_the_error_property_reads_back);
+    pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     return pn_test_run ();
 }

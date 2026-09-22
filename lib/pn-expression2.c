@@ -18,6 +18,7 @@
 #endif
 
 #include "pn-expression2.h"
+#include "pn-expr-bind.h"
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
 #include "pn-message.h"
@@ -87,20 +88,6 @@ expr_recompile (PnExpression2 *self)
 /*  Receive                                                            */
 /* ------------------------------------------------------------------ */
 
-/** TRUE if @name is the display name of one of @node's inputs — i.e. a
- *  member the core's input-value collation injected into the data bag.
- *  Used to tell core-injected per-input headline values (bound by their
- *  own name) apart from this message's own sibling fields (suffixed). */
-static gboolean
-is_input_name (PnNode *node, gint n, const gchar *name)
-{
-    gint i;
-    for (i = 0; i < n; i++)
-        if (g_strcmp0 (pn_node_get_input_name (node, i), name) == 0)
-            return TRUE;
-    return FALSE;
-}
-
 /** Write one program-assigned name onto the outgoing message, so a
  *  multi-statement expression can emit several computed fields, not just
  *  data.value.  A vector assignment is written as a `$pnvector` marker;
@@ -123,21 +110,9 @@ pn_expression2_receive (
         PnNode    *node,
         PnMessage *message)
 {
-    PnExpression2  *self = PN_EXPRESSION2 (node);
-    gint            idx  = pn_node_current_input ();
-    gint            n    = pn_node_get_n_inputs (node);
-    JsonObject     *data;
-    JsonObjectIter  iter;
-    const gchar    *name;
-    JsonNode       *val;
-    PnExprValue     result = { NULL, 0.0 };
-    GError         *error = NULL;
-    gint            i;
-
-    if (idx < 0)
-        idx = 0;
-    else if (idx >= n)
-        idx = n - 1;
+    PnExpression2 *self   = PN_EXPRESSION2 (node);
+    PnExprValue    result = { NULL, 0.0 };
+    GError        *error  = NULL;
 
     /* No usable expression: forward the message flagged as failed so a
      * downstream chain keeps flowing rather than stalling. */
@@ -157,76 +132,12 @@ pn_expression2_receive (
      * /data/value and injected them under the inputs' display names, so
      * value1/value2 (or whatever the inputs are named) are present even
      * for inputs that did not just fire — that is what makes
-     * "value1 + value2" resolve automatically. */
+     * "value1 + value2" resolve automatically.  The rule itself — the
+     * latched headline values, then this message's other numeric members
+     * suffixed with the arriving input number — lives in pn-expr-bind.c,
+     * shared with the figure (80.8c). */
     pn_var_store_clear (self->vars);
-    data = pn_message_get_data (message);
-
-    /* (1) The latched per-input headline values, bound under their input
-     *     names exactly as the core injected them. */
-    for (i = 0; i < n; i++)
-    {
-        const gchar *nm = pn_node_get_input_name (node, i);
-        JsonNode    *vn = (data != NULL) ? json_object_get_member (data, nm)
-                                         : NULL;
-        if (vn == NULL)
-            continue;
-
-        if (JSON_NODE_HOLDS_VALUE (vn))
-        {
-            GType vt = json_node_get_value_type (vn);
-            if (vt == G_TYPE_DOUBLE || vt == G_TYPE_INT64)
-                pn_var_store_set (self->vars, nm, json_node_get_double (vn));
-        }
-        else
-        {
-            PnVector *vec = pn_message_resolve_vector (message, vn);
-            if (vec != NULL)
-                pn_var_store_set_vector (self->vars, nm, vec);
-        }
-    }
-
-    /* (2) Sibling numeric fields from *this* message only, suffixed with
-     *     the 1-based arriving input number (data.temp -> temp1/temp2,
-     *     ...).  Unlike the headline values these are not latched across
-     *     inputs — only the message actually being processed contributes
-     *     them.  Skip the input-name members (the latched values bound
-     *     above) and the bare reserved "value" (already surfaced under
-     *     its input name). */
-    if (data != NULL)
-    {
-        json_object_iter_init (&iter, data);
-        while (json_object_iter_next (&iter, &name, &val))
-        {
-            gchar *vname;
-
-            if (val == NULL)
-                continue;
-            if (g_strcmp0 (name, "value") == 0)
-                continue;
-            if (is_input_name (node, n, name))
-                continue;
-
-            if (JSON_NODE_HOLDS_VALUE (val))
-            {
-                GType vt = json_node_get_value_type (val);
-                if (vt != G_TYPE_DOUBLE && vt != G_TYPE_INT64)
-                    continue;
-                vname = g_strdup_printf ("%s%d", name, idx + 1);
-                pn_var_store_set (self->vars, vname,
-                                  json_node_get_double (val));
-                g_free (vname);
-            }
-            else
-            {
-                PnVector *vec = pn_message_resolve_vector (message, val);
-                if (vec == NULL)
-                    continue;
-                vname = g_strdup_printf ("%s%d", name, idx + 1);
-                pn_var_store_set_vector (self->vars, vname, vec);
-                g_free (vname);
-            }
-        }
-    }
+    pn_expr_bind_collated (node, message, pn_expr_bind_to_store, self->vars);
 
     if (pn_var_store_evaluate_value (self->vars, self->ast, &result, &error))
     {
