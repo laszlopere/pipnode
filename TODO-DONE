@@ -542,3 +542,284 @@
              data.value, and Format reads a missing data.success as
              false, so a success-text-only demo shows nothing.
        [x] 73.5 GUI check by the user.
+
+[x] 81 Multi-argument functions and constants in the calculator
+       language. Today PnVarStore knows exactly ten functions, all of
+       them unary -- sin, cos, tan, log, log10, exp, sqrt, abs, floor,
+       ceil -- and not one constant, which is why TODO #79.5 wrote
+       3.14159265 out by hand (81.10 has since fixed that line). Every
+       Calculator and Calculator 2 in
+       every worksheet shares that gap, and the Figure node (#80) walks
+       straight into it: a mechanics figure wants atan2(dy,dx) in its
+       first ten lines. Raised by 80.3(d) and 80.3(e), which also
+       settled that the figure node must NOT grow a function table of
+       its own -- the fix belongs here, in shared core, once.
+
+       DONE (2026-09-22), in two passes on the same day. The FIRST
+       built the machinery -- the comma, the parse-time arity check,
+       the shared table, the vector rule and the constants -- and put
+       exactly one function through it, `atan2`, plus `pi`/`e`, so the
+       design could be judged on one specimen rather than on eleven.
+       The SECOND (81.11) added the other ten names, and the whole
+       claim of the first pass is that this cost one table row each:
+       it did. Twenty-one functions, two constants, no ABI bump.
+       What 81.11 found on the way out is worth reading before #83
+       adds forty-nine more -- the function list lives in SEVEN places,
+       and the test that says "all built-in functions" now walks the
+       table instead of trusting whoever edits it.
+
+       [x] 81.1 Settle the list, deliberately, rather than importing
+             libm. Constants: `pi`, `e`. Two-argument functions:
+             `atan2(y,x)` (the one that forced this), `min`, `max`,
+             `pow` and `hypot`. One-argument additions that are
+             conspicuous by their absence next to sin/cos/tan: `asin`,
+             `acos`, `atan`, `round`, `trunc`, `sign`. Hyperbolics and
+             the rest stay out until something asks for them.
+             SETTLED AND BUILT: `pi`, `e` and `atan2` in the first
+             pass, the other ten names in 81.11 the same day.
+       [x] 81.2 DONE (2026-09-22): Represent the extra arguments WITHOUT
+             growing PnExprNode. For a CALL the struct's `right` field is
+             unused today (checked) and pn_expr_node_free() already
+             recurses into it, so argument two chains off `right` the
+             way a statement sequence does, and sizeof (PnExprNode)
+             never changes. That matters more than it looks:
+             pn-expr-parser.h is INSTALLED public API (it reaches
+             plugins through pipnode.h and pipnodeinclude_HEADERS), so
+             growing the struct is an ABI hazard of the same class as
+             appending a PnNodeClass vfunc -- it would mean bumping
+             PN_PLUGIN_ABI_VERSION and reinstalling every plugin, with
+             the usual stale-plugin dlopen deadlock for anyone who
+             forgets. Chaining avoids the bump entirely. Existing
+             single-argument trees stay bit-for-bit what they are
+             (right == NULL).
+             Verified by `git diff lib/pn-expr-parser.h`: not one line
+             of the struct changed, only the comments describing what
+             the fields now hold. The only public change is an enum
+             value APPENDED to PnExprParserError (ARGUMENT_COUNT),
+             which is a value, not a layout. lib/pn-figure.c is the one
+             AST walker outside the parser, and it already recursed
+             into both `left` and `right`, so it picked argument two up
+             for free (checked: no other file in the tree touches
+             PnExprNode).
+       [x] 81.3 DONE (2026-09-22): Parser: parse_factor_body() currently
+             takes exactly one expression between the parens. Accept a
+             comma-separated list, and reject the wrong count at PARSE
+             time with the position the lexer already tracks -- "atan2
+             takes 2 arguments, got 1 at position 14" -- rather than at
+             evaluation, so a bad expression lights the node up the
+             moment it is typed.
+             (a) TOK_COMMA is a new token and NOTHING ELSE in the
+                 grammar accepts it, so `1, 2` and `(1, 2)` stay the
+                 errors they were -- a comma means "next argument" and
+                 only that. parse_call_args() owns the whole bracketed
+                 part (both arguments and the closing paren) and takes
+                 ownership of the name either way, which is what keeps
+                 the ten error paths from each needing their own
+                 g_free.
+                 The position reported is the FUNCTION NAME's, not the
+                 first argument's: it is the call that is wrong, and
+                 the name is what the reader has to go and look at.
+             (b) A NAME THE TABLE DOES NOT KNOW still parses and still
+                 fails at evaluation with UNKNOWN_FUNCTION -- there is
+                 no arity to check it against, and moving that error to
+                 parse time was not asked for and would have changed
+                 test_eval_semantics' contract. More than
+                 PN_EXPR_MAX_ARITY arguments IS rejected even for an
+                 unknown name, because the AST has nowhere to put a
+                 third.
+             (c) A trailing comma, an empty argument and `sin()` all
+                 fall out as ordinary UNEXPECTED_TOKEN errors with no
+                 special-casing: the parser asks for an expression and
+                 meets `)` or `,`. Pinned in test_call_arity rather
+                 than assumed.
+       [x] 81.4 DONE (2026-09-22): Where the arity table lives, since
+             both halves need it: the parser needs the arity to
+             validate, the evaluator needs the implementation, and the
+             parser must not start depending on the var store. Put both
+             in a new pn-expr-funcs.[ch] -- name, arity, and a function
+             pointer -- and have pn-var-store.c dispatch through it
+             instead of its private builtin_fns[]. One table, one
+             place to add the eleventh function.
+             The header is deliberately NOT in pipnode_core_headers, so
+             it is not installed: pn-expr-parser.h is public API and
+             anything declared beside it becomes an ABI commitment,
+             while the table is an internal detail of core. The
+             constants live there too (81.6) -- they are the language's
+             other built-in names and have no better home.
+       [x] 81.5 DONE (2026-09-22): Vector semantics must MATCH the
+             binary operators exactly, or the language grows two rules
+             for one idea: scalar broadcasts, vector-with-vector is
+             elementwise. CORRECTION: this entry said "and TRUNCATES TO
+             THE SHORTER operand, per 80.3(f)" -- which was read off
+             80.3(f) BEFORE 80.3(f) was itself corrected on 2026-09-22.
+             The real operator rule, pinned by
+             test-pn-var-store.c's vector_elementwise and by
+             pn_var_store_evaluate_value()'s own docs, takes the LONGER
+             length with the surviving tail passing through VERBATIM.
+             "Match the operators exactly" is the instruction that
+             matters, so the two-argument functions follow the tail
+             rule, not the truncation that was never there.
+             Enforced structurally rather than by care: arith_value()
+             and the new map2_value() both delegate to one zip_value(),
+             which takes a Kernel that is either an operator code or a
+             two-argument function pointer. There is one broadcast
+             implementation in the file, so a function CANNOT drift
+             from `*`.
+       [x] 81.6 DONE (2026-09-22): Constants resolve as a FALLBACK in
+             the VARIABLE case, after the bindings, not by pre-binding
+             them into the store: pn_var_store_clear() drops every
+             binding, so a pre-bound `pi` would evaporate on the next
+             clear and come back only if every caller remembered to
+             re-add it. As a fallback it cannot be lost, and a data-bag
+             member actually named `pi` still shadows it, which is the
+             conservative way round. Once this lands, delete the Figure
+             node's own pi/e pre-bind from 80.3(c) -- it exists only
+             because this entry did not.
+             The figure's table is gone and so is its per-frame
+             pre-bind loop and the constant-seeding in fold_store_new()
+             (now an empty store, kept as a named function so the call
+             sites still say what it is for). What the figure still
+             needs is to RECOGNISE a constant, for the one reason
+             80.3(c) wrote down: bind_frame() zero-fills every free
+             name, and a zero-fill is a binding, so it would SHADOW the
+             fallback and make `pi` silently 0. is_figure_constant() is
+             therefore now a one-line call to pn_expr_constant_lookup()
+             rather than a second table.
+       [x] 81.7 DONE (2026-09-22): No new operators, and say so out
+             loud: `^` stays XOR and there is no `**`. Squaring is
+             still a multiplication or pow(x,2). Every existing
+             worksheet must mean exactly what it meant before -- this
+             entry only ADDS names. Nothing in the diff touches an
+             operator; the one new token is `,`, which no existing
+             program could have contained (it was a lexer error).
+       [x] 81.8 DONE (2026-09-22): Tests, extending the two that
+             already exist rather than starting new binaries:
+             test-pn-expr-parser.c gets the arity errors, nested calls
+             (atan2(atan2(1,2),3)), a trailing comma, an empty
+             argument; test-pn-var-store.c gets the values, the vector
+             broadcast and truncation for two-argument functions, the
+             constants, and a binding named `pi` shadowing the
+             constant. Usual conventions -- pntest.h harness, headless,
+             ./run-unit-tests.sh green.
+             Both extended, plus two new test_constants cases the entry
+             did not ask for and should have: that a constant comes
+             BACK after pn_var_store_clear() (the entire argument of
+             81.6, and the one thing a pre-bound constant fails), and
+             that pn_var_store_get() still reports `pi` as unbound --
+             a constant is not a binding.
+             AND IT CAUGHT A THIRD TEST, which is the interesting one:
+             test-pn-figure.c's `expr_no_atan2` asserted that
+             `circle 0, 0, atan2(1, 2)` FAILS with "unexpected
+             character ','" -- it was a test of the gap, written by
+             80.3(e) to pin the absence. Closing the gap turned it into
+             a segfault (it indexed an error array that was now empty),
+             which is exactly the right way for a stale test to fail.
+             Rewritten as expr_atan2: the same program now folds to
+             atan2(1,2), which also proves the splitter's depth rule
+             end to end -- the first two commas are the verb's, the
+             third is the call's.
+             162 test binaries green.
+       [x] 81.9 DONE (2026-09-22): Help. The function list is written
+             out in TWO node help pages -- data/help/PnExpression.html
+             and PnExpression2.html, both saying "Functions (one
+             argument)" -- so both need splitting into one- and
+             two-argument lists plus a Constants line. The doc comments
+             in pn-expr-parser.h (the grammar paragraph on
+             pn_expr_parser_parse) and pn-var-store.h say the same
+             thing a third and fourth time; update them too, and add
+             the new names to #80's PnFigure.html when it is written.
+             All four updated, plus each page's VECTOR section, which
+             is a fifth place the rule was written down and would have
+             been missed by reading only the function list. PnFigure
+             .html still does not exist, so there was nothing to add to.
+       [x] 81.10 DONE (2026-09-22): Sweep for the workarounds this
+             removes: TODO #79.5's literal 3.14159265, and any example
+             worksheet doing the same by hand. Then verify the whole
+             point of 81.2 -- an existing worksheet with a Calculator
+             in it loads and computes unchanged, and NO plugin ABI bump
+             was needed. Say that in the commit message, so nobody goes
+             looking for a reinstall that is not required.
+             (a) 79.5 is a PLAN, not code, so the sweep there is the
+                 plan's own text, now reading `pi * w * s / lam`.
+             (b) TWO example worksheets were writing it out by hand and
+                 both are fixed: examples/Compute/projectile.json had
+                 `rad = angle * 0.017453293` (pi/180) and
+                 examples/Compute/lissajous.json had
+                 `sin(3 * value + 1.5707963)` (pi/2). Both now say
+                 `pi`, and both are MORE accurate than they were.
+                 lissajous' 6.2831853 knob maxima are left alone: a
+                 property value is not an expression and has nowhere to
+                 put a constant.
+             (c) VERIFIED, not assumed: PN_PLUGIN_ABI_VERSION is
+                 untouched, no plugin was rebuilt or reinstalled, and a
+                 worksheet running `atan2(value, 1) * 4 / pi` through
+                 pipnode-run with the installed plugin set gives
+                 1.409665529398267 for value = 2 -- the new function
+                 and the new constant, end to end, in the same binary
+                 that loads every existing sheet.
+       [x] 81.11 DONE (2026-09-22): THE REST OF 81.1'S LIST, held back
+             deliberately so the machinery could be judged on one
+             function rather than on eleven. Two-argument `min`, `max`,
+             `pow`, `hypot`; one-argument `asin`, `acos`, `atan`,
+             `round`, `trunc`, `sign`. The claim was that each is ONE
+             ROW in builtin_funcs[] and nothing else, and that held:
+             lib/pn-expr-parser.c, lib/pn-var-store.c and lib/pn-figure.c
+             are untouched, PN_EXPR_MAX_ARITY is still 2, no public
+             struct changed and PN_PLUGIN_ABI_VERSION was not bumped, so
+             no plugin was rebuilt or reinstalled.
+             (a) THE THREE DECISIONS, taken here rather than left to
+                 fall out, because each is a question a reader will ask
+                 the help and not the source:
+                 `sign` has no libm function, so it is written out --
+                 sign(0) is 0 AND sign(-0.0) is 0 (zero has no direction
+                 to report, and `sign(a - b)` claiming an order where
+                 there is none is exactly the bug), and sign(NaN) is
+                 NaN (a NaN quietly becoming 0 would read as "equal",
+                 the one answer that is certainly wrong).
+                 `round` is C's, so halves go AWAY from zero --
+                 round(0.5)=1, round(-0.5)=-1, round(2.5)=3 -- which is
+                 the behaviour 83.9(b) will contrast `rint` against.
+                 `min`/`max` are fmin/fmax, which SKIP a NaN operand
+                 rather than propagating it: min(nan, 3) is 3. Nobody
+                 can guess that one, so it is in both help pages.
+             (b) THE FINDING, and 81.11 asked for it: "its name in the
+                 two help pages" undercounts. The function list is
+                 written down in SEVEN places -- data/help/PnExpression
+                 .html and PnExpression2.html (the list in each), the
+                 doc comments on pn_expr_parser_parse and
+                 pn_var_store_evaluate, the `expression` property
+                 blurbs in lib/pn-expression.c and lib/pn-expression2.c
+                 (the text the settings dialog shows, which 81.9 missed
+                 entirely and which was still advertising ten
+                 functions), and the pipnode-nodes skill reference
+                 filters-gate-compute.md. All seven now agree. At #83's
+                 forty-nine additions that list is the thing to fix
+                 first or copy from.
+             (c) THE OTHER FINDING, and it is why (b) cannot happen to
+                 the tests: test-pn-expr-parser.c's
+                 test_all_builtin_functions is named "all" but had no
+                 way to KNOW. It now records the name of every call it
+                 asserts and walks pn_expr_func_count() /
+                 pn_expr_func_nth() at the end, failing -- by name --
+                 for any row nobody checked. Those two accessors are
+                 the only addition to pn-expr-funcs.h, which is not
+                 installed, so they cost nothing in ABI. VERIFIED by
+                 adding a bogus row and watching the test fail with
+                 "no assertion for built-in 'zzz'", then removing it.
+                 Value assertions live in test-pn-var-store.c's new
+                 builtin_functions case (the edge cases: both zeros and
+                 the NaN for `sign`, five halves for `round`, trunc
+                 against floor on a negative, NaN-skipping min/max, and
+                 `min` over two unequal vectors to prove a new
+                 two-argument name inherits the tail rule for free).
+                 162 test binaries green.
+             (d) END TO END, not just in the unit tests: a worksheet
+                 running
+                 `round(0.5)*100 + round(-0.5)*10 + sign(0) + min(2,3)
+                 + hypot(3,4) + pow(2,10)*0.001` through pipnode-run
+                 against the already-installed plugin set gives
+                 98.024 -- which is 100 - 10 + 0 + 2 + 5 + 1.024, and
+                 would be 0 + 0 + ... under ties-to-even. The `^`-is-
+                 XOR trap `pow` exists to catch is asserted next to it
+                 (`2 ^ 10` is 8, `pow(2, 10)` is 1024) in both test
+                 binaries and written into both help pages.

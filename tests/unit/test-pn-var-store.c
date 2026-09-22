@@ -827,6 +827,132 @@ test_eval_bad_ast (void)
     g_object_unref (s);
 }
 
+/* ---- The rest of the built-in table (TODO #81.11) ---- */
+
+/* One assertion per row added by TODO #81.11, plus the three decisions
+ * that are not a libm call and so cannot be read off a man page:
+ * `round` rounds halves AWAY FROM ZERO, `min`/`max` are fmin/fmax and
+ * therefore SKIP a NaN operand, and `sign` is written out here — 0 for
+ * either zero, NaN for NaN.  The `^` line is the reason `pow` exists:
+ * in this language `^` is bitwise XOR, so `2 ^ 10` is 8. */
+static void
+test_builtin_functions (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK_CALL1(name_, arg_, want_)                                 \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK_CALL2(name_, x_, y_, want_)                               \
+    G_STMT_START {                                                      \
+        PnExprNode x__ = num (x_), y__ = num (y_);                      \
+        PnExprNode c_  = call2 (name_, &x__, &y__);                     \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK_CALL1_NAN(name_, arg_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK (isnan (out));                                         \
+    } G_STMT_END
+
+    /* The inverse trig functions, each checked at a point where a wrong
+     * row (asin for acos, say) would give a different answer. */
+    CHECK_CALL1 ("asin", 1.0, G_PI / 2.0);
+    CHECK_CALL1 ("asin", 0.0, 0.0);
+    CHECK_CALL1 ("acos", 1.0, 0.0);
+    CHECK_CALL1 ("acos", 0.0, G_PI / 2.0);
+    CHECK_CALL1 ("atan", 1.0, G_PI / 4.0);
+
+    /* Outside the domain libm returns NaN rather than raising, and the
+     * language passes that straight through — a NaN value, not an
+     * evaluation error. */
+    CHECK_CALL1_NAN ("asin", 2.0);
+    CHECK_CALL1_NAN ("acos", -2.0);
+
+    /* round(): halves go AWAY from zero (C's round(), not the
+     * ties-to-even some calculators use), which is the one thing about
+     * it a reader cannot guess. */
+    CHECK_CALL1 ("round",  2.4,  2.0);
+    CHECK_CALL1 ("round",  0.5,  1.0);
+    CHECK_CALL1 ("round", -0.5, -1.0);
+    CHECK_CALL1 ("round",  2.5,  3.0);
+    CHECK_CALL1 ("round", -2.5, -3.0);
+
+    /* trunc() drops the fraction toward zero, which is where it differs
+     * from floor() on a negative — the reason both exist. */
+    CHECK_CALL1 ("trunc",  1.7,  1.0);
+    CHECK_CALL1 ("trunc", -1.7, -1.0);
+    CHECK_CALL1 ("floor", -1.7, -2.0);
+
+    /* sign(): the two decisions 81.11 asked for, pinned. */
+    CHECK_CALL1 ("sign",  3.5,  1.0);
+    CHECK_CALL1 ("sign", -3.5, -1.0);
+    CHECK_CALL1 ("sign",  0.0,  0.0);
+    CHECK_CALL1 ("sign", -0.0,  0.0);
+    CHECK_CALL1_NAN ("sign", NAN);
+
+    /* min/max, including the ORDER-independent NaN behaviour fmin/fmax
+     * give: a NaN operand is skipped, not propagated. */
+    CHECK_CALL2 ("min", 2.0, 3.0, 2.0);
+    CHECK_CALL2 ("min", 3.0, 2.0, 2.0);
+    CHECK_CALL2 ("max", 2.0, 3.0, 3.0);
+    CHECK_CALL2 ("max", -2.0, -3.0, -2.0);
+    CHECK_CALL2 ("min", NAN, 3.0, 3.0);
+    CHECK_CALL2 ("max", 3.0, NAN, 3.0);
+
+    /* pow() and hypot(). */
+    CHECK_CALL2 ("pow", 2.0, 10.0, 1024.0);
+    CHECK_CALL2 ("pow", 9.0, 0.5, 3.0);
+    CHECK_CALL2 ("pow", -2.0, 3.0, -8.0);
+    CHECK_CALL2 ("hypot", 3.0, 4.0, 5.0);
+    CHECK_CALL2 ("hypot", 0.0, -4.0, 4.0);
+
+    /* Why pow() is in the table at all: `^` is XOR here, so `2 ^ 10` is
+     * 8 and NOT 1024 (TODO #81.7 — no new operators).  Both spellings
+     * asserted together so the trap is visible in one place. */
+    {
+        PnExprNode two = num (2.0), ten = num (10.0);
+        PnExprNode x   = binary ('^', &two, &ten);
+        PN_CHECK (pn_var_store_evaluate (s, &x, &out, NULL));
+        PN_CHECK_NEAR (out, 8.0, 1e-12);
+    }
+
+    /* A new two-argument name broadcasts over vectors exactly as atan2
+     * does: one zip_value(), so it cannot drift (TODO #81.5). */
+    {
+        PnExprValue v   = { NULL, 0.0 };
+        gdouble     a[] = { 1.0, 5.0 };
+        gdouble     b[] = { 4.0, 2.0, 9.0 };
+        gdouble     want[] = { 1.0, 2.0, 9.0 };
+        PnExprNode  av, bv, c;
+
+        bind_vec (s, "a", a, 2);
+        bind_vec (s, "b", b, 3);
+        av = var ("a");
+        bv = var ("b");
+        c  = call2 ("min", &av, &bv);
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &v, NULL));
+        check_vec (&v, want, 3);
+        pn_expr_value_clear (&v);
+    }
+
+#undef CHECK_CALL1
+#undef CHECK_CALL2
+#undef CHECK_CALL1_NAN
+
+    g_object_unref (s);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -846,6 +972,7 @@ main (int argc, char **argv)
     pn_test_add ("vector_comparison",  test_vector_comparison_reduces);
     pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
     pn_test_add ("value_to_string",    test_value_to_string);
+    pn_test_add ("builtin_functions",  test_builtin_functions);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();
 }

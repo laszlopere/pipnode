@@ -65,6 +65,28 @@ typedef struct
 const PnExprFunc *pn_expr_func_lookup (const gchar *name);
 
 /**
+ * pn_expr_func_count:
+ *
+ * The number of functions in the table.  Together with
+ * pn_expr_func_nth() this exists so a TEST can walk the whole table and
+ * insist that every row was exercised (TODO #81.11): adding a row is
+ * meant to be the only work a new function needs, and that is only true
+ * if forgetting its assertion FAILS rather than passing quietly.
+ *
+ * Returns: the row count.
+ */
+gsize pn_expr_func_count (void);
+
+/**
+ * pn_expr_func_nth:
+ * @index: a row index below pn_expr_func_count()
+ *
+ * Returns: (nullable): the @index'th table entry, or %NULL when @index
+ *   is out of range.  Static, like pn_expr_func_lookup()'s result.
+ */
+const PnExprFunc *pn_expr_func_nth (gsize index);
+
+/**
  * pn_expr_constant_lookup:
  * @name:      an identifier as it appears in a program
  * @out_value: (out) (optional): receives the constant's value on success

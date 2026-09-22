@@ -215,8 +215,12 @@ void pn_var_store_clear (PnVarStore *self);
  *
  * Recursively walks @node, resolving variables against @self and
  * dispatching function calls to the C math library: one-argument sin,
- * cos, tan, log, log10, exp, sqrt, abs, floor and ceil, and the
- * two-argument atan2(y, x).  A name not bound in @self falls back to
+ * cos, tan, asin, acos, atan, log, log10, exp, sqrt, abs, floor, ceil,
+ * round, trunc and sign, and two-argument atan2(y, x), min, max, pow
+ * and hypot.  Where a name is also C's, C's semantics stand: round()
+ * takes halves AWAY from zero and min/max are fmin/fmax, which skip a
+ * NaN operand.  sign() is the one written here — 0 for either zero,
+ * NaN for NaN.  A name not bound in @self falls back to
  * the language's constants, `pi` and `e`, so a binding of that name
  * SHADOWS the constant and clearing the store cannot lose one.
  * Comparison operators
@@ -260,8 +264,9 @@ gboolean pn_var_store_evaluate (PnVarStore       *self,
  *    as long as the longer operand and the surviving tail element passes
  *    through VERBATIM (`[2,3] * [3,4,5]` = `[6,12,5]`);
  *  - one-argument functions (sin, cos, …) map element-by-element to a
- *    same-length vector, and a two-argument one (atan2) broadcasts,
- *    pairs up and tails exactly as the binary operators above do;
+ *    same-length vector, and a two-argument one (atan2, min, …)
+ *    broadcasts, pairs up and tails exactly as the binary operators
+ *    above do;
  *  - comparisons ALWAYS reduce to a single scalar 0.0/1.0, true iff every
  *    compared element passes (all()-semantics; an unequal-length tail is
  *    vacuously true).

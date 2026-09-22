@@ -26,8 +26,10 @@
 #include "pntest.h"
 #include "pn-expr-parser.h"
 #include "pn-var-store.h"
+#include "pn-expr-funcs.h"
 
 #include <math.h>
+#include <string.h>
 
 /* Parse @expr, evaluate against @vars, and return the numeric result.
  * Writes TRUE/FALSE to @ok for "parsed and evaluated cleanly".  The
@@ -138,28 +140,91 @@ test_number_literals (void)
 /* The full built-in function table — one assertion per entry so a
  * dropped or mis-wired row is caught.  sin/sqrt are also covered in
  * test_variables_and_functions; repeated here so this one test pins the
- * whole table in a single place. */
+ * whole table in a single place.
+ *
+ * And it pins it EXHAUSTIVELY: check_fn() records the name it exercised
+ * and the walk at the end fails for any row nobody checked (TODO
+ * #81.11).  A new function is meant to cost one row in builtin_funcs[],
+ * its assertion here and its name in the help — the first two are now
+ * enforced, so only the help can be forgotten. */
+static void
+check_fn (PnExprParser *p, PnVarStore *vars, GHashTable *seen,
+          const gchar *expr, gdouble want)
+{
+    const gchar *paren = strchr (expr, '(');
+    gboolean     ok;
+
+    PN_CHECK_NEAR (parse_eval (p, vars, expr, &ok), want, 1e-9);
+    PN_CHECK (ok);
+
+    if (paren != NULL)
+        g_hash_table_add (seen, g_strndup (expr, (gsize) (paren - expr)));
+}
+
 static void
 test_all_builtin_functions (void)
 {
     PnExprParser *p    = pn_expr_parser_new ();
     PnVarStore   *vars = pn_var_store_new ();
-    gboolean      ok;
+    GHashTable   *seen = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                g_free, NULL);
+    gsize         i;
 
-    PN_CHECK_NEAR (parse_eval (p, vars, "sin(0)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "cos(0)",      &ok), 1.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "tan(0)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "log(1)",      &ok), 0.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "log10(1000)", &ok), 3.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "exp(0)",      &ok), 1.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(16)",    &ok), 4.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "abs(-7)",     &ok), 7.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "floor(2.7)",  &ok), 2.0, 1e-9); PN_CHECK (ok);
-    PN_CHECK_NEAR (parse_eval (p, vars, "ceil(2.1)",   &ok), 3.0, 1e-9); PN_CHECK (ok);
-    /* The one two-argument entry (TODO #81.1): atan2(1,1) is pi/4. */
-    PN_CHECK_NEAR (parse_eval (p, vars, "atan2(1, 1)", &ok), G_PI / 4.0, 1e-9);
-    PN_CHECK (ok);
+    check_fn (p, vars, seen, "sin(0)",      0.0);
+    check_fn (p, vars, seen, "cos(0)",      1.0);
+    check_fn (p, vars, seen, "tan(0)",      0.0);
+    check_fn (p, vars, seen, "log(1)",      0.0);
+    check_fn (p, vars, seen, "log10(1000)", 3.0);
+    check_fn (p, vars, seen, "exp(0)",      1.0);
+    check_fn (p, vars, seen, "sqrt(16)",    4.0);
+    check_fn (p, vars, seen, "abs(-7)",     7.0);
+    check_fn (p, vars, seen, "floor(2.7)",  2.0);
+    check_fn (p, vars, seen, "ceil(2.1)",   3.0);
 
+    /* TODO #81.11's one-argument additions.  The inverse trig three are
+     * checked where a wrong row would give a different answer; `round`
+     * is checked on a HALF, which is the only interesting input it has
+     * (away from zero, per C); `trunc` on a negative, which is where it
+     * parts company with `floor`; `sign` on all three of its answers. */
+    check_fn (p, vars, seen, "asin(1)",     G_PI / 2.0);
+    check_fn (p, vars, seen, "acos(1)",     0.0);
+    check_fn (p, vars, seen, "atan(1)",     G_PI / 4.0);
+    check_fn (p, vars, seen, "round(0.5)",  1.0);
+    check_fn (p, vars, seen, "round(-0.5)", -1.0);
+    check_fn (p, vars, seen, "trunc(-1.7)", -1.0);
+    check_fn (p, vars, seen, "sign(-2)",    -1.0);
+    check_fn (p, vars, seen, "sign(0)",     0.0);
+    check_fn (p, vars, seen, "sign(2)",     1.0);
+
+    /* The two-argument entries (TODO #81.1): atan2(1,1) is pi/4. */
+    check_fn (p, vars, seen, "atan2(1, 1)", G_PI / 4.0);
+    check_fn (p, vars, seen, "min(2, 3)",   2.0);
+    check_fn (p, vars, seen, "max(2, 3)",   3.0);
+    check_fn (p, vars, seen, "pow(2, 10)",  1024.0);
+    check_fn (p, vars, seen, "hypot(3, 4)", 5.0);
+
+    /* Why `pow` is in the table: `^` is bitwise XOR in this language
+     * (TODO #81.7 — no new operators), so the same two numbers written
+     * with the operator give 8, not 1024.  Asserted next to the call so
+     * the trap is visible in one place. */
+    {
+        gboolean ok;
+        PN_CHECK_NEAR (parse_eval (p, vars, "2 ^ 10", &ok), 8.0, 1e-9);
+        PN_CHECK (ok);
+    }
+
+    /* Every row of the table was exercised above. */
+    PN_CHECK_CMPINT ((gint) g_hash_table_size (seen), ==,
+                     (gint) pn_expr_func_count ());
+    for (i = 0; i < pn_expr_func_count (); i++)
+    {
+        const PnExprFunc *fn = pn_expr_func_nth (i);
+        if (!g_hash_table_contains (seen, fn->name))
+            g_printerr ("      no assertion for built-in '%s'\n", fn->name);
+        PN_CHECK (g_hash_table_contains (seen, fn->name));
+    }
+
+    g_hash_table_unref (seen);
     g_object_unref (vars);
     g_object_unref (p);
 }
@@ -175,6 +240,14 @@ test_functions_nested_and_arg_expr (void)
     PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(9 + 7)",      &ok), 4.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "sqrt(sqrt(16))",   &ok), 2.0, 1e-9); PN_CHECK (ok);
     PN_CHECK_NEAR (parse_eval (p, vars, "abs(floor(-2.5))", &ok), 3.0, 1e-9); PN_CHECK (ok);
+    /* A two-argument call nests inside a two-argument call, in both
+     * positions (TODO #81.11's names, same grammar). */
+    PN_CHECK_NEAR (parse_eval (p, vars, "max(min(5, 3), hypot(3, 4))", &ok),
+                   5.0, 1e-9);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "round(atan(1) * 4 - pi + 2.5)", &ok),
+                   3.0, 1e-9);
+    PN_CHECK (ok);
 
     /* Both arguments of a two-argument call are full expressions, and a
      * call nests inside a call's argument list in either position. */
@@ -513,6 +586,12 @@ test_call_arity (void)
 
     check_parse_error (p, "atan2(1)",      PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sin(1, 2)",     PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    /* The arities added by TODO #81.11 come from the same table and are
+     * checked the same way, in both directions. */
+    check_parse_error (p, "min(1)",        PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "hypot(3)",      PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "round(1, 2)",   PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "sign(1, 2)",    PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sin(1, 2, 3)",  PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     /* More arguments than any function takes: rejected even for a name
      * the table has never heard of, because the AST has nowhere to put

@@ -70,8 +70,8 @@ being processed contributes them. The result is written to
       (<code>5.5 % 2</code> is <code>1.5</code>).</li>
   <li><strong>Bitwise:</strong> <code>&amp;</code> (and),
       <code>|</code> (or), <code>^</code> (exclusive or &mdash;
-      <em>not</em> a power), <code>&lt;&lt;</code> and
-      <code>&gt;&gt;</code> (shifts), and unary <code>~</code> (not).
+      <em>not</em> a power; that is <code>pow(x,&nbsp;y)</code>),
+      <code>&lt;&lt;</code> and <code>&gt;&gt;</code> (shifts), and unary <code>~</code> (not).
       Each operand is cut to its whole-number part and treated as a
       64-bit signed integer; <code>&gt;&gt;</code> keeps the sign, so
       <code>-8 &gt;&gt; 1</code> is <code>-4</code>. A value that is not a
@@ -92,14 +92,43 @@ being processed contributes them. The result is written to
       (false), e.g. <code>value1 &gt; value2</code>.</li>
   <li><strong>Functions</strong> (one argument):
       <code>sin</code>, <code>cos</code>, <code>tan</code>,
+      <code>asin</code>, <code>acos</code>, <code>atan</code>
+      (angles in radians throughout; a value outside a function&rsquo;s
+      domain, such as <code>asin(2)</code>, gives <code>nan</code>
+      rather than an error),
       <code>log</code> (natural log), <code>log10</code>,
       <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
-      <code>floor</code>, <code>ceil</code>.</li>
+      <code>floor</code>, <code>ceil</code>,
+      <code>round</code>, <code>trunc</code> and <code>sign</code>.
+      The last three are worth a word each:
+      <code>round</code> sends a half <em>away</em> from zero
+      (<code>round(0.5)</code> is <code>1</code>,
+      <code>round(-0.5)</code> is <code>-1</code>,
+      <code>round(2.5)</code> is <code>3</code>) rather than to the
+      nearest even number; <code>trunc</code> cuts toward zero, which is
+      where it differs from <code>floor</code> on a negative
+      (<code>trunc(-1.7)</code> is <code>-1</code>,
+      <code>floor(-1.7)</code> is <code>-2</code>); and
+      <code>sign</code> is <code>-1</code>, <code>0</code> or
+      <code>1</code> &mdash; <code>sign(0)</code> is <code>0</code>,
+      because zero has no direction to report.</li>
   <li><strong>Functions</strong> (two arguments, separated by a comma):
       <code>atan2(y,&nbsp;x)</code> &mdash; the angle in radians from the
       positive x axis to the point <code>(x,&nbsp;y)</code>, using the
       signs of both to get the right quadrant, which
-      <code>atan(y/x)</code> cannot. A call with the wrong number of
+      <code>atan(y/x)</code> cannot;
+      <code>min(a,&nbsp;b)</code> and <code>max(a,&nbsp;b)</code>, which
+      <em>skip</em> a <code>nan</code> operand rather than passing it on
+      (<code>min(nan,&nbsp;3)</code> is <code>3</code>);
+      <code>pow(x,&nbsp;y)</code> &mdash; x raised to the power y, and
+      the <em>only</em> way to spell a power here, because <code>^</code> is
+      bitwise exclusive-or (<code>2&nbsp;^&nbsp;10</code> is
+      <code>8</code>, while <code>pow(2,&nbsp;10)</code> is
+      <code>1024</code>); and
+      <code>hypot(x,&nbsp;y)</code> &mdash;
+      <code>sqrt(x*x&nbsp;+&nbsp;y*y)</code> computed without the
+      overflow the written-out form can suffer.
+      A call with the wrong number of
       arguments is reported straight away, as a mistake in the
       expression.</li>
   <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.

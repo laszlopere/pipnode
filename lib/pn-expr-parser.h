@@ -125,7 +125,9 @@ PnExprParser *pn_expr_parser_new (void);
  * `~`, the comparison operators `< > <= >= == !=` (which yield 1.0 or 0.0
  * and bind looser than everything else), parentheses, unary minus, and
  * function calls of one or two arguments (`sin(x)`, `log(x)`,
- * `atan2(y, x)`, …), whose arguments are separated by commas.  A call
+ * `atan2(y, x)`, `pow(x, y)`, …), whose arguments are separated by
+ * commas — lib/pn-expr-funcs.c holds the whole list and is the only
+ * place a name is added.  A call
  * on a KNOWN function with the wrong number of arguments is a parse
  * error (#PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT), so a typo lights the
  * node up as it is typed rather than at the next message; a name the
