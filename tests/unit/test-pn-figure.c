@@ -1071,6 +1071,335 @@ test_literals_keep_going (void)
     split_free (&s);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Expressions                                                        */
+/* ------------------------------------------------------------------ */
+
+/* The whole front end, every stage of it. */
+static Split
+parsed (const gchar *program)
+{
+    Split result = literals (program);
+
+    pn_figure_parse_expressions (result.statements, result.errors);
+    return result;
+}
+
+static void
+test_constant_folding (void)
+{
+    Split        s = parsed ("view -60, -25, 60, 35\n"
+                             "width 2 * 3\n"
+                             "circle 0, 0, 10 / 4");
+    PnFigureArg *a;
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
+    PN_CHECK_CMPINT (s.statements->len, ==, 3);
+
+    /* Most of a figure is constants, and none of them survive as a
+     * tree to be walked every frame (80.3b). */
+    a = arg (statement (&s, 0), 0);
+    PN_CHECK (a->folded);
+    PN_CHECK (a->ast == NULL);
+    PN_CHECK_NEAR (a->value, -60.0, 1e-12);
+
+    a = arg (statement (&s, 1), 0);
+    PN_CHECK (a->folded);
+    PN_CHECK_NEAR (a->value, 6.0, 1e-12);
+
+    a = arg (statement (&s, 2), 2);
+    PN_CHECK (a->folded);
+    PN_CHECK_NEAR (a->value, 2.5, 1e-12);
+
+    split_free (&s);
+}
+
+static void
+test_variable_arguments_keep_their_tree (void)
+{
+    Split        s = parsed ("line -dx, -dy, dx, dy\ntext 0, 0, \"A\"");
+    PnFigureArg *a;
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+
+    a = arg (statement (&s, 0), 0);
+    PN_CHECK_FALSE (a->folded);
+    PN_CHECK (a->ast != NULL);
+
+    /* A string is not an expression and never grows a tree. */
+    a = arg (statement (&s, 1), 2);
+    PN_CHECK_FALSE (a->folded);
+    PN_CHECK (a->ast == NULL);
+    PN_CHECK_CMPSTR (a->text, ==, "A");
+
+    split_free (&s);
+}
+
+static void
+test_constants_fold_too (void)
+{
+    /* pi and e are the language's own, so an expression using them is
+     * still constant -- and they are not names the program expects
+     * from outside (80.3d). */
+    Split      s     = parsed ("circle 0, 0, 2 * pi\nwidth e");
+    GPtrArray *names = pn_figure_free_names (s.statements);
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK (arg (statement (&s, 0), 2)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 0), 2)->value, 2.0 * G_PI, 1e-12);
+    PN_CHECK_NEAR (arg (statement (&s, 1), 0)->value, G_E, 1e-12);
+    PN_CHECK_CMPINT (names->len, ==, 0);
+
+    g_ptr_array_unref (names);
+    split_free (&s);
+}
+
+static void
+test_assignment_parses_whole (void)
+{
+    Split s = parsed ("dx = 50 * cos(a)\nline 0, 0, dx, 0");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    /* The whole line went to the calculator, which returns the ASSIGN
+     * node the evaluator already knows how to bind. */
+    PN_CHECK (statement (&s, 0)->ast != NULL);
+    PN_CHECK_CMPINT (statement (&s, 0)->ast->type, ==, PN_EXPR_NODE_ASSIGN);
+    PN_CHECK_CMPSTR (statement (&s, 0)->ast->name, ==, "dx");
+
+    split_free (&s);
+}
+
+static void
+test_free_names (void)
+{
+    Split      s = parsed ("dx = 50 * cos(a)\n"
+                           "dy = 50 * sin(a)\n"
+                           "line -dx, -dy, dx, dy\n"
+                           "text 0, 0, \"%.1f\", a * 57.2958");
+    GPtrArray *names = pn_figure_free_names (s.statements);
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    /* Sorted, no repeats, and the assigned names are in it because the
+     * program also reads them. */
+    PN_CHECK_CMPINT (names->len, ==, 3);
+    PN_CHECK_CMPSTR (g_ptr_array_index (names, 0), ==, "a");
+    PN_CHECK_CMPSTR (g_ptr_array_index (names, 1), ==, "dx");
+    PN_CHECK_CMPSTR (g_ptr_array_index (names, 2), ==, "dy");
+
+    g_ptr_array_unref (names);
+    split_free (&s);
+}
+
+static void
+test_expression_parse_error (void)
+{
+    Split          s = parsed ("width 2\ncircle 0, 0, (1 + 2");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 1);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPINT (error->line, ==, 2);
+    /* The argument starts at column 14 and the parser stopped at
+     * position 7 within it, so the column is the two put together and
+     * the message keeps neither. */
+    PN_CHECK_CMPINT (error->column, ==, 20);
+    PN_CHECK_CMPSTR (error->message, ==, "expected ')'");
+
+    split_free (&s);
+}
+
+static void
+test_expression_error_without_a_position (void)
+{
+    /* Not every message carries one; the argument's own place stands
+     * in, which is never wrong, only less precise. */
+    Split          s = parsed ("circle 0, 0, 1 +");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPINT (error->column, ==, 14);
+    PN_CHECK_CMPSTR (error->message, ==, "unexpected end of expression");
+
+    split_free (&s);
+}
+
+static void
+test_unknown_function_is_a_parse_error (void)
+{
+    /* A constant argument is evaluated now, so the one way it can fail
+     * -- a function that does not exist -- is caught now too. */
+    Split s = parsed ("circle 0, 0, wibble(2)");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "unknown function 'wibble'");
+
+    split_free (&s);
+}
+
+static void
+test_atan2_is_not_a_function_yet (void)
+{
+    /* The gap #81 exists to close.  Our splitter keeps `atan2(1, 2)`
+     * whole, because its comma is at paren depth 1; the calculator's
+     * lexer then meets a comma it has no token for.  Loud, and pointed
+     * straight at the comma, which is the thing that cannot be there
+     * (80.3e). */
+    Split          s = parsed ("circle 0, 0, atan2(1, 2)");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==, "unexpected character ','");
+    PN_CHECK_CMPINT (error->column, ==, 21);
+
+    split_free (&s);
+}
+
+static void
+test_non_finite_constant_is_not_an_error (void)
+{
+    /* A value, not a bug (80.10b): the resolver skips the statement
+     * and the node does not go red. */
+    Split s = parsed ("circle 0, 0, 1 / 0");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (s.statements->len, ==, 1);
+    PN_CHECK (arg (statement (&s, 0), 2)->folded);
+    PN_CHECK (isinf (arg (statement (&s, 0), 2)->value));
+
+    split_free (&s);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reporting                                                          */
+/* ------------------------------------------------------------------ */
+
+static void
+test_report_nothing_wrong (void)
+{
+    Split  s    = parsed ("view 0, 0, 100, 100\ncircle 50, 50, 40");
+    gchar *text = pn_figure_errors_to_string (s.errors);
+
+    PN_CHECK (text == NULL);
+    PN_CHECK (pn_figure_errors_to_string (NULL) == NULL);
+
+    g_free (text);
+    split_free (&s);
+}
+
+static void
+test_report_one_error (void)
+{
+    Split  s    = parsed ("width 2\ncircle 0, 0");
+    gchar *text = pn_figure_errors_to_string (s.errors);
+
+    PN_CHECK_CMPSTR (text, ==,
+                     "line 2, column 1: circle takes 3 arguments, not 2");
+
+    g_free (text);
+    split_free (&s);
+}
+
+static void
+test_report_counts_and_takes_the_earliest (void)
+{
+    /* The unterminated string on line 3 is found by the FIRST stage
+     * and the bad verb on line 1 by the third, so list order is not
+     * program order -- and a person reads their program top to
+     * bottom. */
+    Split  s    = parsed ("circle 0, 0\n"
+                          "width 2\n"
+                          "text 0, 0, \"A\n"
+                          "dash \"wiggly\"");
+    gchar *text = pn_figure_errors_to_string (s.errors);
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 3);
+    PN_CHECK_CMPSTR (text, ==,
+                     "line 1, column 1: circle takes 3 arguments, not 2\n"
+                     "3 errors, first on line 1");
+
+    g_free (text);
+    split_free (&s);
+}
+
+/* A statement that fails a stage is removed before the next one sees
+ * it, and each stage gives up on a statement at its first bad
+ * argument -- so no program produces two errors on one line, and the
+ * column tie-break is tested against the formatter directly. */
+static void
+add_error (GPtrArray *errors, gint line, gint column, const gchar *message)
+{
+    PnFigureError *error = g_new0 (PnFigureError, 1);
+
+    error->line    = line;
+    error->column  = column;
+    error->message = g_strdup (message);
+    g_ptr_array_add (errors, error);
+}
+
+static void
+test_report_earliest_on_a_line (void)
+{
+    GPtrArray *errors = pn_figure_errors_new ();
+    gchar     *text;
+
+    add_error (errors, 2, 9, "second");
+    add_error (errors, 5, 1, "later");
+    add_error (errors, 2, 3, "first");
+
+    text = pn_figure_errors_to_string (errors);
+    PN_CHECK_CMPSTR (text, ==, "line 2, column 3: first\n"
+                               "3 errors, first on line 2");
+
+    g_free (text);
+    g_ptr_array_unref (errors);
+}
+
+static void
+test_the_specimen_parses (void)
+{
+    /* The reference specimen from the head of TODO #80, which the
+     * language was chosen against. */
+    Split s = parsed ("view -60, -25, 60, 35\n"
+                      "color \"#202020\"\n"
+                      "width 2\n"
+                      "\n"
+                      "# the beam, tilted by the input angle\n"
+                      "dx = 50 * cos(a)\n"
+                      "dy = 50 * sin(a)\n"
+                      "line -dx, -dy, dx, dy\n"
+                      "\n"
+                      "# fulcrum\n"
+                      "fill \"#808080\"\n"
+                      "poly 0,-2, -8,-14, 8,-14\n"
+                      "nofill\n"
+                      "\n"
+                      "# weight hanging off the left end\n"
+                      "rect -dx-6, -dy-16, 12, 10\n"
+                      "\n"
+                      "text -dx, -dy+6, \"A\"\n"
+                      "text  dx,  dy+6, \"B\"\n"
+                      "text 0, 22, \"%.1f deg\", a * 57.2958");
+    GPtrArray *names;
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
+    PN_CHECK (pn_figure_errors_to_string (s.errors) == NULL);
+    PN_CHECK_CMPINT (s.statements->len, ==, 13);
+
+    /* One input, two working variables. */
+    names = pn_figure_free_names (s.statements);
+    PN_CHECK_CMPINT (names->len, ==, 3);
+    PN_CHECK_CMPSTR (g_ptr_array_index (names, 0), ==, "a");
+
+    g_ptr_array_unref (names);
+    split_free (&s);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1119,5 +1448,20 @@ main (int argc, char **argv)
     pn_test_add ("lit_format_unsafe",   test_format_rejects_unsafe);
     pn_test_add ("lit_format_count",    test_format_value_count);
     pn_test_add ("lit_keeps_going",     test_literals_keep_going);
+    pn_test_add ("expr_folding",        test_constant_folding);
+    pn_test_add ("expr_variables",      test_variable_arguments_keep_their_tree);
+    pn_test_add ("expr_constants",      test_constants_fold_too);
+    pn_test_add ("expr_assignment",     test_assignment_parses_whole);
+    pn_test_add ("expr_free_names",     test_free_names);
+    pn_test_add ("expr_parse_error",    test_expression_parse_error);
+    pn_test_add ("expr_no_position",    test_expression_error_without_a_position);
+    pn_test_add ("expr_bad_function",   test_unknown_function_is_a_parse_error);
+    pn_test_add ("expr_no_atan2",       test_atan2_is_not_a_function_yet);
+    pn_test_add ("expr_non_finite",     test_non_finite_constant_is_not_an_error);
+    pn_test_add ("report_none",         test_report_nothing_wrong);
+    pn_test_add ("report_one",          test_report_one_error);
+    pn_test_add ("report_count",        test_report_counts_and_takes_the_earliest);
+    pn_test_add ("report_leftmost",     test_report_earliest_on_a_line);
+    pn_test_add ("report_specimen",     test_the_specimen_parses);
     return pn_test_run ();
 }

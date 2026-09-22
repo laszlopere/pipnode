@@ -1747,6 +1747,25 @@
                  tests/unit/test-pn-var-store.c: scalar OP vector
                  broadcasts the scalar; vector OP vector is elementwise
                  but TRUNCATED TO THE SHORTER operand; unary functions
+                 --- CORRECTED (2026-09-22, while writing 80.22.5) ---
+                 THE TRUNCATION SENTENCE ABOVE IS WRONG, and it was
+                 read off the header prose rather than the code. The
+                 real rule, pinned by test-pn-var-store.c:440-470 and
+                 stated in pn-var-store.h's own docs for
+                 pn_var_store_evaluate_value(): vector OP vector takes
+                 the LONGER length and the surviving tail passes
+                 through VERBATIM -- [2,3] * [3,4,5] = [6,12,5], the
+                 43.7 pass-through tail rule. So the consequence drawn
+                 below, and 80.16's frame count with it, does not
+                 follow from the arithmetic and must be re-decided in
+                 80.26 rather than inherited. Whatever is chosen there,
+                 note that a figure CANNOT match the arithmetic
+                 exactly: with the tail rule, `a * b` of a 2-vector and
+                 a 3-vector is 3 frames whose last frame used no `a` at
+                 all. Picking the shortest may still be the right
+                 ANSWER; it is just not the arithmetic's answer.
+                 --- end correction ---
+                 unary functions
                  map element by element; and a COMPARISON REDUCES a
                  vector operand to a single 0/1 scalar. Two consequences
                  for the animation work, written down now instead of
@@ -2457,6 +2476,12 @@
              80.3f -- vector OP vector already truncates to the shorter
              operand, and the figure must not disagree with its own
              arithmetic).
+             REOPENED (2026-09-22): that parenthesis rests on a reading
+             of PnVarStore that turned out to be wrong -- the real rule
+             is the LONGER length with a pass-through tail, see the
+             correction in 80.3(f). The frame count is therefore an
+             open choice again and 80.26 has to make it; shortest may
+             well still win, but not for the reason written here.
 
              (a) EVALUATE ONCE FOR THE WHOLE FILM, INDEX AT PAINT TIME.
                  The obvious implementation -- re-run the program per
@@ -2741,12 +2766,79 @@
                    Only the one-argument colour spelling has a literal
                    to read; the 3-4 expression form is evaluated per
                    frame like any other argument.
-             [ ] 80.22.5 Per-argument expression parsing into ASTs,
-                   plus the free-identifier walk, plus constant folding
-                   of any argument that has none (80.3b, 80.2 rule 12).
-             [ ] 80.22.6 Error collection: every error, reported as the
-                   first plus a count, with line and column (80.2 rule
-                   9, 80.10a).
+             [x] 80.22.5 DONE (2026-09-22): per-argument expression
+                   parsing into ASTs, plus the free-identifier walk,
+                   plus constant folding of any argument that has none
+                   (80.3b, 80.2 rule 12). pn_figure_parse_expressions()
+                   and pn_figure_free_names() in lib/pn-figure.c. The
+                   specimen at the head of this entry parses whole,
+                   with three names and thirteen statements, and that
+                   is a test.
+                   (a) THE PARSER'S POSITION GOES IN THE COLUMN, not in
+                       the text. Its messages end in " at position N"
+                       counted within the fragment; that tail is split
+                       off and folded into the argument's own offset,
+                       so the reader gets one position instead of two
+                       that disagree. A message without a tail (there
+                       are a few) falls back on the argument's own
+                       place -- never wrong, only less precise.
+                   (b) `pi` AND `e` FOLD LIKE NUMBERS and never appear
+                       in the collected names, because they are the
+                       language's constants and not something the
+                       program expects from outside. One table in
+                       pn-figure.c, used by the folder and the walker,
+                       which #81 deletes (80.3d).
+                   (c) AN ASSIGNMENT NEVER FOLDS even when its value is
+                       constant: 80.2 rule 13 clears the store every
+                       frame, so the binding has to happen every frame
+                       too.
+                   (d) THE NAME LIST KEEPS NAMES THE PROGRAM ASSIGNS,
+                       when it also reads them. Subtracting them would
+                       read better in a dialog and would BREAK the
+                       promise that an unwired figure draws: a program
+                       that reads `dx` on the line above the one that
+                       assigns it must get 0, not an evaluation
+                       failure.
+                   (e) A CONSTANT ARGUMENT IS EVALUATED NOW, so the one
+                       way it can fail -- a function that does not
+                       exist -- is a parse-time error with a line and
+                       column. A non-finite result is NOT an error
+                       (80.10b): 1/0 folds to inf and the resolver will
+                       skip that statement.
+                   (f) atan2(1,2) REPORTS WELL ALREADY, which is worth
+                       knowing since #81 is about that gap: our
+                       splitter keeps the call whole (its comma is at
+                       paren depth 1), and the calculator's lexer then
+                       meets a comma it has no token for -- "unexpected
+                       character ','", pointed straight at the comma.
+             [x] 80.22.6 DONE (2026-09-22): error collection -- every
+                   error, reported as the first plus a count, with line
+                   and column (80.2 rule 9, 80.10a). Collection itself
+                   was built into every stage from 80.22.1 onwards, so
+                   what this sub-point added is
+                   pn_figure_errors_to_string(): the text 80.10(f)'s
+                   read-only `error` property will carry, one line for
+                   a single error and a second line with the count when
+                   there are several, in rule 9's own words.
+                   (a) "FIRST" MEANS EARLIEST IN THE PROGRAM, not first
+                       in the list, and the two really do differ: an
+                       unterminated string on line 5 is found by the
+                       scanner before a bad verb on line 2 is found by
+                       the verb table. A person reads their program top
+                       to bottom, so the report is scanned for the
+                       smallest (line, column) rather than sorted --
+                       sorting would disturb an order the stages and
+                       their tests rely on.
+                   (b) ONE STATEMENT YIELDS AT MOST ONE ERROR, found
+                       while writing the tests rather than designed:
+                       each stage gives up on a statement at its first
+                       bad argument, and a failed statement is removed
+                       before the next stage sees it. So the count is
+                       the number of BROKEN STATEMENTS, and no program
+                       can put two errors on one line -- which is why
+                       the column tie-break is tested against the
+                       formatter directly instead of through a
+                       program.
        [ ] 80.23 THE CODE, part 2 of 4: the back end. Still
              lib/pn-figure.c, still core, still nothing that draws.
              [ ] 80.23.1 The binding snapshot and the per-frame

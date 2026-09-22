@@ -19,6 +19,9 @@
 
 #include "pn-figure.h"
 
+#include "pn-var-store.h"
+
+#include <math.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -372,6 +375,7 @@ pn_figure_arg_free (
     if (self == NULL)
         return;
 
+    pn_expr_node_free (self->ast);
     g_free (self->text);
     g_free (self);
 }
@@ -383,6 +387,7 @@ pn_figure_statement_free (
     if (self == NULL)
         return;
 
+    pn_expr_node_free (self->ast);
     g_free (self->name);
     if (self->args != NULL)
         g_ptr_array_unref (self->args);
@@ -1133,4 +1138,328 @@ pn_figure_parse_literals (
     }
 
     return ok;
+}
+
+/* ================================================================== */
+/*  Expressions                                                       */
+/* ================================================================== */
+
+/* The language's own constants, which are not names a program expects
+ * from outside: they fold like numbers and never reach the collected
+ * list.  They live here only until #81 gives PnVarStore constants of
+ * its own, at which point this table goes away and nothing else about
+ * this file changes (80.3d). */
+static const struct
+{
+    const gchar *name;
+    gdouble      value;
+}
+figure_constants[] =
+{
+    { "pi", G_PI },
+    { "e",  G_E  },
+};
+
+static gboolean
+is_figure_constant (
+        const gchar *name)
+{
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
+        if (g_strcmp0 (figure_constants[i].name, name) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/* TRUE when @node reads nothing that can change between frames, so its
+ * value can be settled now and never looked at again.  An assignment
+ * never folds: it has to run each frame to bind its name. */
+static gboolean
+is_foldable (
+        const PnExprNode *node)
+{
+    if (node == NULL)
+        return TRUE;
+
+    switch (node->type)
+    {
+    case PN_EXPR_NODE_VARIABLE:
+        return is_figure_constant (node->name);
+
+    case PN_EXPR_NODE_ASSIGN:
+        return FALSE;
+
+    default:
+        return is_foldable (node->left) && is_foldable (node->right);
+    }
+}
+
+/* Adds every variable name @node READS to @names.  A function's name is
+ * not a variable, and neither is an assignment's target — only what the
+ * assignment's value reads. */
+static void
+collect_names (
+        const PnExprNode *node,
+        GHashTable       *names)
+{
+    if (node == NULL)
+        return;
+
+    if (node->type == PN_EXPR_NODE_VARIABLE)
+    {
+        if (!is_figure_constant (node->name))
+            g_hash_table_add (names, g_strdup (node->name));
+        return;
+    }
+
+    collect_names (node->left, names);
+    collect_names (node->right, names);
+}
+
+/* A store holding the language's constants and nothing else, which is
+ * every binding a foldable expression can possibly need. */
+static PnVarStore *
+fold_store_new (void)
+{
+    PnVarStore *store = pn_var_store_new ();
+    gsize       i;
+
+    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
+        pn_var_store_set (store, figure_constants[i].name,
+                          figure_constants[i].value);
+
+    return store;
+}
+
+/* Splits the calculator's " at position N" tail off @message, so the
+ * position can go into the column where it belongs instead of sitting
+ * in the text next to a different one.  Returns the 1-based position,
+ * or 0 when the message does not carry one — in which case the caller
+ * falls back on the fragment's own position, which is never wrong,
+ * only less precise. */
+static gint
+take_position (
+        gchar *message)
+{
+    static const gchar tail[] = " at position ";
+    gchar             *at     = g_strrstr (message, tail);
+    const gchar       *digits;
+    gint               position;
+    gchar             *end;
+
+    if (at == NULL)
+        return 0;
+
+    digits   = at + strlen (tail);
+    position = (gint) g_ascii_strtoll (digits, &end, 10);
+
+    if (end == digits || *end != '\0' || position < 1)
+        return 0;
+
+    *at = '\0';
+    return position;
+}
+
+/* Parses @text with @parser, reporting a failure at @base plus wherever
+ * in @text the parser stopped. */
+static PnExprNode *
+parse_fragment (
+        PnExprParser            *parser,
+        const gchar             *text,
+        const PnFigureStatement *statement,
+        gsize                    base,
+        GPtrArray               *errors)
+{
+    GError     *error = NULL;
+    PnExprNode *ast   = pn_expr_parser_parse (parser, text, &error);
+    gint        position;
+
+    if (ast != NULL)
+        return ast;
+
+    position = take_position (error->message);
+    report_at (errors, statement->source,
+               base + (position > 0 ? (gsize) position - 1 : 0),
+               "%s", error->message);
+    g_error_free (error);
+    return NULL;
+}
+
+/* Parses one statement's expressions, folding what cannot change. */
+static gboolean
+parse_statement_expressions (
+        PnFigureStatement *statement,
+        PnExprParser      *parser,
+        PnVarStore        *folder,
+        GPtrArray         *errors)
+{
+    guint i;
+
+    if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
+    {
+        /* The whole line, which is what already returns an ASSIGN node
+         * the evaluator knows how to bind (80.2). */
+        statement->ast = parse_fragment (parser, statement->source->text,
+                                         statement, 0, errors);
+        return statement->ast != NULL;
+    }
+
+    for (i = 0; i < statement->args->len; i++)
+    {
+        PnFigureArg *arg = g_ptr_array_index (statement->args, i);
+        GError      *error = NULL;
+        gdouble      value;
+
+        if (arg->kind != PN_FIGURE_ARG_EXPRESSION)
+            continue;
+
+        arg->ast = parse_fragment (parser, arg->text, statement,
+                                   arg->offset, errors);
+        if (arg->ast == NULL)
+            return FALSE;
+
+        if (!is_foldable (arg->ast))
+            continue;
+
+        if (!pn_var_store_evaluate (folder, arg->ast, &value, &error))
+        {
+            /* Nothing a frame could cure: the only way a constant
+             * expression fails is a function that does not exist. */
+            report_at (errors, statement->source, arg->offset,
+                       "%s", error->message);
+            g_error_free (error);
+            return FALSE;
+        }
+
+        /* A non-finite constant is a VALUE, not a program error
+         * (80.10b): the resolver skips the statement, and says so. */
+        pn_expr_node_free (arg->ast);
+        arg->ast    = NULL;
+        arg->value  = value;
+        arg->folded = TRUE;
+    }
+
+    return TRUE;
+}
+
+gboolean
+pn_figure_parse_expressions (
+        GPtrArray *statements,
+        GPtrArray *errors)
+{
+    PnExprParser *parser;
+    PnVarStore   *folder;
+    gboolean      ok = TRUE;
+    guint         i  = 0;
+
+    g_return_val_if_fail (statements != NULL, FALSE);
+
+    parser = pn_expr_parser_new ();
+    folder = fold_store_new ();
+
+    while (i < statements->len)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (parse_statement_expressions (statement, parser, folder, errors))
+        {
+            i++;
+            continue;
+        }
+
+        g_ptr_array_remove_index (statements, i);
+        ok = FALSE;
+    }
+
+    g_object_unref (folder);
+    g_object_unref (parser);
+    return ok;
+}
+
+/* g_ptr_array_sort() hands the comparator the ELEMENT SLOTS, not the
+ * elements, and the project's minimum GLib (2.40) has no
+ * g_ptr_array_sort_values(). */
+static gint
+name_sort_cmp (gconstpointer a, gconstpointer b)
+{
+    return g_strcmp0 (*(const gchar * const *) a,
+                      *(const gchar * const *) b);
+}
+
+GPtrArray *
+pn_figure_free_names (
+        GPtrArray *statements)
+{
+    GHashTable     *seen;
+    GPtrArray      *names;
+    GHashTableIter  iter;
+    gpointer        key;
+    guint           i;
+
+    names = g_ptr_array_new_with_free_func (g_free);
+    g_return_val_if_fail (statements != NULL, names);
+
+    seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+
+    for (i = 0; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+        guint                    n;
+
+        collect_names (statement->ast, seen);
+
+        for (n = 0; n < statement->args->len; n++)
+        {
+            const PnFigureArg *arg = g_ptr_array_index (statement->args, n);
+
+            collect_names (arg->ast, seen);
+        }
+    }
+
+    g_hash_table_iter_init (&iter, seen);
+    while (g_hash_table_iter_next (&iter, &key, NULL))
+        g_ptr_array_add (names, g_strdup (key));
+
+    g_ptr_array_sort (names, name_sort_cmp);
+    g_hash_table_destroy (seen);
+    return names;
+}
+
+/* ================================================================== */
+/*  Reporting                                                         */
+/* ================================================================== */
+
+gchar *
+pn_figure_errors_to_string (
+        GPtrArray *errors)
+{
+    const PnFigureError *first = NULL;
+    guint                i;
+
+    if (errors == NULL || errors->len == 0)
+        return NULL;
+
+    /* Earliest in the PROGRAM, which is not the order the stages found
+     * them in: an unterminated string on line 5 is found before a bad
+     * verb on line 2, and a person reads top to bottom. */
+    for (i = 0; i < errors->len; i++)
+    {
+        const PnFigureError *error = g_ptr_array_index (errors, i);
+
+        if (first == NULL
+            || error->line < first->line
+            || (error->line == first->line && error->column < first->column))
+            first = error;
+    }
+
+    if (errors->len == 1)
+        return g_strdup_printf ("line %d, column %d: %s",
+                                first->line, first->column, first->message);
+
+    return g_strdup_printf ("line %d, column %d: %s\n"
+                            "%u errors, first on line %d",
+                            first->line, first->column, first->message,
+                            errors->len, first->line);
 }

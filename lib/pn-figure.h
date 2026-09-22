@@ -19,6 +19,7 @@
 #include <glib.h>
 
 #include "pn-color.h"
+#include "pn-expr-parser.h"
 
 G_BEGIN_DECLS
 
@@ -182,6 +183,14 @@ typedef struct
      * how many values it wants. */
     PnColor          color;
     gint             word;
+
+    /* Filled in by pn_figure_parse_expressions(), for an expression
+     * argument: either a tree to evaluate every frame, or — when the
+     * argument names nothing that can change — the number it always
+     * comes to.  Most of a figure is the second kind. */
+    PnExprNode      *ast;    /* owned, %NULL when folded or a string  */
+    gdouble          value;  /* the constant, when @folded            */
+    gboolean         folded;
 } PnFigureArg;
 
 typedef enum
@@ -245,6 +254,7 @@ typedef struct
     gchar                 *name;   /* owned: verb, or assignment target */
     GPtrArray             *args;   /* #PnFigureArg, empty for an assignment */
     const PnFigureLine    *source; /* borrowed                          */
+    PnExprNode            *ast;    /* owned: an assignment's whole line */
 } PnFigureStatement;
 
 /**
@@ -377,6 +387,87 @@ typedef enum
  */
 gboolean pn_figure_parse_literals (GPtrArray *statements,
                                    GPtrArray *errors);
+
+/* ------------------------------------------------------------------ */
+/*  Expressions                                                        */
+/*                                                                     */
+/*  Fifth stage: every unquoted argument becomes an AST, through the   */
+/*  calculator's own parser and nothing else (80.3).  An assignment    */
+/*  line goes to that parser WHOLE, since it already understands       */
+/*  `name = expr` and already returns the ASSIGN node the evaluator    */
+/*  wants (80.2).                                                      */
+/*                                                                     */
+/*  Two things fall out of the same walk.  An argument that names      */
+/*  nothing which can change is evaluated once, here, and kept as a    */
+/*  number: most of a figure is its `view`, its widths and its fixed   */
+/*  coordinates, so the per-frame work shrinks to the handful of       */
+/*  arguments that actually move (80.3b).  And what IS named is        */
+/*  collected, because an unbound name is an evaluation FAILURE in     */
+/*  PnVarStore rather than a zero — so an unwired figure only draws at */
+/*  all if someone binds those names to 0 first (80.2 rule 12).        */
+/*                                                                     */
+/*  `pi` and `e` are the language's own constants, not names a program */
+/*  expects from outside: they fold like numbers and never appear in   */
+/*  the collected list.  They live here only until #81 gives PnVarStore */
+/*  constants of its own (80.3d).                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_figure_parse_expressions:
+ * @statements: (element-type PnFigureStatement): statements already
+ *              through pn_figure_parse_literals(), filled in in place
+ * @errors:     (nullable) (element-type PnFigureError): collector
+ *
+ * Parses every expression argument and every assignment line, folding
+ * the arguments that cannot change into constants.  A parse failure is
+ * reported at the character it happened at, not merely at the argument:
+ * the calculator's messages carry a position within the fragment, which
+ * this stage folds into the column and leaves out of the text.
+ *
+ * A statement that fails is removed, the rest still parsed.
+ *
+ * Returns: %TRUE when everything parsed.
+ */
+gboolean pn_figure_parse_expressions (GPtrArray *statements,
+                                      GPtrArray *errors);
+
+/**
+ * pn_figure_free_names:
+ * @statements: (element-type PnFigureStatement): parsed statements
+ *
+ * Every variable name the program READS, sorted and without repeats —
+ * which is what has to be bound before a frame runs, whether from an
+ * input, from an assignment the program makes on the way, or from the
+ * zero-fill that keeps an unwired figure drawing.
+ *
+ * A name the program assigns is included when the program also reads
+ * it, deliberately: the read may come FIRST, and a figure that draws
+ * has to survive that too.
+ *
+ * Returns: (transfer full) (element-type utf8): the names.
+ */
+GPtrArray *pn_figure_free_names (GPtrArray *statements);
+
+/* ------------------------------------------------------------------ */
+/*  Reporting                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * pn_figure_errors_to_string:
+ * @errors: (nullable) (element-type PnFigureError): everything the
+ *          front end collected
+ *
+ * Renders the collected errors the way the client area shows them: the
+ * EARLIEST one in the program, with its line and column, and — when
+ * there are several — a second line saying how many there were (80.2
+ * rule 9, 80.10a).  Earliest by position, not by the order the stages
+ * happened to find them in, because a person reads their program top
+ * to bottom.
+ *
+ * Returns: (transfer full) (nullable): the text, or %NULL when there
+ *   are no errors at all.
+ */
+gchar *pn_figure_errors_to_string (GPtrArray *errors);
 
 G_END_DECLS
 
