@@ -3501,237 +3501,396 @@
              write; whoever writes it covers animation from here, and
              if it is already written by then it gains a section.
 
+
 [ ] 83 THE SECOND BATCH OF FUNCTIONS for the calculator language --
        the one PnVarStore shares with the Calculator, Calculator 2 and
        the Figure node (#80), so every name added here lands in all
        three at once. TODO #81 built the machinery and proved it on
        `atan2`; 81.11 is the rest of the list #81 itself settled --
        min, max, pow, hypot, asin, acos, atan, round, trunc, sign --
-       and this entry is what comes AFTER that, chosen by reading a
-       language that has already had the argument: mcp-abacus
-       (~/projects/mcp-abacus), whose `help(section="functions")`
-       lists about fifty. Not all fifty belong here, and the choosing
-       is most of the work in this entry.
+       and this entry is what comes after that: FORTY-FOUR NEW NAMES
+       AND FIVE NEW CALL FORMS on names the language already has --
+       forty-nine additions in all -- taken from three sources and no
+       others.
 
-       THE PRINCIPLE, so the list can be argued with rather than
-       merely extended: abacus is a TYPE-FAITHFUL calculator -- fixed
-       point, rational, float -- and much of its table exists to say
-       where a result rounded. The calculator language has exactly one
-       numeric type, the double, so we take abacus's NAMES and
-       SEMANTICS and none of its exactness apparatus. Where a name
-       already means something in C, C wins, because the
-       implementation is one row pointing at libm.
+       THE THREE SOURCES, because "add more functions" is how a
+       language ends up with libm bolted to its side:
+       (a) mcp-abacus (~/projects/mcp-abacus), whose
+           `help(section="functions")` lists about fifty and which has
+           already had the argument about what a calculator should
+           know. It is a TYPE-FAITHFUL calculator -- fixed point,
+           rational, float -- and much of its table exists to say
+           where a result rounded; this language has exactly one
+           numeric type, so we take its NAMES and SEMANTICS and none
+           of its exactness apparatus.
+       (b) libm, but only where a name is standard, one row long and
+           answers a question the language cannot already answer.
+       (c) THE WORKSHEETS THEMSELVES -- the idioms our own TODO
+           entries have been hand-rolling. 79.6 spends a paragraph on
+           sin(x)/x and its removable singularity, which is `sinc`.
+           79.10's mask idiom is `if` written out in multiplication.
+           #82's whole subject is interpolating between two numbers,
+           which is `lerp`. 81.10 found 0.017453293 twice, which is
+           `radians`. These are the best-earned rows in the entry
+           because something already wanted them.
 
-       TWENTY-FOUR ADDITIONS, grouped below by what they are for:
-       nineteen new names -- sinh, cosh, tanh, asinh, acosh, atanh,
-       cot, degrees, radians, ln, log2, cbrt, factorial, gcd, lcm,
-       pct, pct_change, bps, time -- plus five new CALL FORMS on names
-       the language already has: log(x, base) and the ndigits form of
-       round, floor, ceil and trunc. That is the whole of abacus's
-       table that fits a language whose functions take one or two
-       arguments and map over a vector; the count is not a target, it
-       is what was left after 83.14 took out the variadic, the
-       symbolic and the three-argument rows, and each of those three
-       exclusions is a decision that can be revisited on its own.
+       Where a name means something in C, C wins -- the implementation
+       is then one row pointing at libm and cannot be got wrong.
 
-       DEPENDS ON 81.11: it is the same table, the same test and the
-       same two help pages, and several rows here sit next to rows it
-       adds (asin/acos/atan vs their hyperbolic inverses, round/trunc
-       vs the ndigits form). Doing 81.11 first makes this entry a
-       repeat of a motion rather than a second argument about it.
+       THE CAP IS THE FIRST THING TO GO. 81.2 put a call's first
+       argument in PnExprNode.left and its second in .right and capped
+       the language at two, deliberately, because a third had nowhere
+       to live and growing the public struct is an ABI hazard. 83.1
+       shows the cap is representational rather than structural: an
+       ARGUMENT CHAIN costs an appended enum value and not one byte of
+       layout. That unlocks `clamp`, `lerp`, `smoothstep`, `if` and
+       the annuity family, which is most of what makes this batch
+       worth the trouble -- a two-argument language cannot express a
+       CHOICE, and a drawing language that cannot choose is a
+       straitjacket.
 
-       [ ] 83.1 HYPERBOLICS -- `sinh`, `cosh`, `tanh`. Three rows, three
-             libm functions, no domain to check and no decision to
-             make; 81.1 held them back with "until something asks for
-             them" and the catenary is what asks: a hanging cable, a
-             chain between two posts, is cosh and nothing else, and it
-             is exactly the kind of plate the Figure node exists to
-             draw.
-       [ ] 83.2 INVERSE HYPERBOLICS -- `asinh`, `acosh`, `atanh`. Also
-             libm, but unlike 83.1 they have DOMAINS: acosh wants
-             x >= 1 and atanh wants |x| < 1, and outside them libm
-             returns NaN rather than raising. Whatever 83.12 decides
-             about NaN applies here first, because these are the rows
-             most likely to meet it.
-       [ ] 83.3 `cot` -- cotangent, cos(x)/sin(x), the one reciprocal
-             trig function abacus carries. It is not in libm under
-             that name, so it is written the way `sign` is in 81.11:
-             one line in pn-expr-funcs.c, with the pole at every
-             multiple of pi (including 0) documented rather than
-             special-cased. `sec` and `csc` are NOT added -- abacus
-             does not have them either, and 1/cos(x) is not hard to
-             type. Say so in the help so the omission reads as a
-             decision.
-       [ ] 83.4 `degrees` and `radians` -- the two most USEFUL names in
-             this whole entry, and the least mathematical. Every trig
-             function in the language takes radians while every knob,
-             dial and compass bearing a worksheet actually carries is
-             in degrees, which is why 81.10 found TWO example
-             worksheets with a hand-written 0.017453293 in them. With
-             `pi` those lines became `angle * pi / 180`; with this
-             they become `radians(angle)`, which is what they meant.
-             Expect a third sweep of the examples when this lands.
-       [ ] 83.5 THE OTHER LOGARITHMS -- `ln`, `log2`, and `log(x,
-             base)`. Three rows and one trap: the language's `log` IS
-             the natural log (matching C, and matching abacus), which
-             surprises everyone who expects base 10, and `log10` is
-             the one they wanted. `ln` is the unambiguous spelling of
-             the same function and exists to let a reader be sure;
-             abacus carries it for exactly that reason. `log2`
-             completes the set. `log(x, base)` is the general
-             logarithm log(x)/log(base) -- note that it makes `log`
-             the first name in the language with TWO arities, so it
-             depends on 83.11's machinery and should be built with it,
-             not before.
-       [ ] 83.6 `cbrt` -- cube root, and worth a row of its own because
-             it is the one root that ACCEPTS NEGATIVES: cbrt(-8) is
-             -2 while sqrt(-8) is NaN, an odd root being defined where
-             an even one is not. Anything raising a signed quantity to
-             a third power and coming back -- a volume to a length, a
-             cooling law -- wants it, and pow(x, 1.0/3.0) gets the
-             negative case wrong.
-       [ ] 83.7 `factorial` -- n!, and the only combinatorial name in
-             the batch. Three decisions the row has to make and the
-             help has to state: non-integer arguments (refuse, or
-             truncate -- refusing is more honest and matches abacus),
-             negatives (refuse), and the cap, since 171! overflows a
-             double to +inf. Abacus caps at 1000 for its own reasons;
-             here the double's own limit is the natural one, so about
-             170 with anything above it an error rather than a silent
-             inf.
-       [ ] 83.8 `gcd` and `lcm`, in their TWO-ARGUMENT form only --
-             abacus spells both variadic, and the binary pair is the
-             part that fits (83.14). Integer-only functions in a
-             language with one double type, so the row decides what a
-             fractional argument does; sign is dropped, as abacus
-             does, and lcm of anything with 0 is 0.
-       [ ] 83.9 THE PERCENT FAMILY -- `pct(x, p)` = x*p/100,
+       DEPENDS ON 81.11: same table, same tests, same two help pages,
+       and several rows here sit directly beside rows it adds. Do it
+       first.
+
+       [ ] 83.1 THE ARGUMENT CHAIN, and it goes first because eight of
+             the rows below -- `if`, `clamp`, `lerp`, `smoothstep` and
+             the four annuity functions -- cannot be reached without
+             it. Append ONE value to PnExprNodeType --
+             PN_EXPR_NODE_ARG, .left = this argument, .right = the
+             next -- and a call of any arity is a chain, exactly the
+             way PN_EXPR_NODE_SEQ already chains statements. The
+             precedent is in the same enum.
+             (a) THE ABI STORY, which is the whole reason this is
+                 cheap: sizeof (PnExprNode) does not change, no field
+                 changes meaning, and an APPENDED enum value is a
+                 value and not a layout -- the identical class of
+                 change 81.3 already made to PnExprParserError. NO
+                 PN_PLUGIN_ABI_VERSION bump, no plugin reinstall, no
+                 stale-dlopen deadlock. Say that in the commit message
+                 the way 81.10 did, so nobody goes looking for a
+                 reinstall that is not required.
+             (b) MAKE IT UNIFORM rather than backward-bit-compatible:
+                 args 2..N always chain, so a two-argument call's
+                 .right becomes ARG(arg2) instead of arg2 itself. That
+                 IS a change to today's representation, and the
+                 alternative -- arity 2 special, arity 3+ chained --
+                 is an irregularity that will be got wrong later. It
+                 is safe to change because the AST is short-lived and
+                 never serialised: nothing on disk holds one, so no
+                 worksheet needs migrating.
+             (c) VERIFY THE WALKERS. 81.2 checked and only two files
+                 in the tree touch PnExprNode: pn-var-store.c, which
+                 switches on the type and needs the CALL case taught
+                 to walk a chain, and pn-figure.c, whose free-name
+                 walker recurses into .left and .right generically and
+                 should need NOTHING (re-confirm rather than assume --
+                 that is the finding if it is wrong).
+                 pn_expr_node_free() already recurses into both, so a
+                 chain frees itself.
+             (d) PN_EXPR_MAX_ARITY stops being a representational
+                 limit and becomes a POLICY one. Keep the constant,
+                 raise it to whatever the longest row below needs, and
+                 change its comment to say it is a choice -- because
+                 the next person to read it deserves to know the
+                 language could do more and elected not to (83.21).
+       [ ] 83.2 THE ARITY RANGE, the second piece of machinery and the
+             smaller one: PnExprFunc holds a single `arity` today and
+             therefore cannot say "1 or 2", which `log(x, base)` and
+             the four ndigits rounders all need. Give the struct a MIN
+             and a MAX, have the parser check the range, and have the
+             evaluator dispatch on how many arguments it actually got.
+             Keep 81.3's error message honest -- "takes 1 or 2
+             arguments, got 3" -- and keep reporting the FUNCTION
+             NAME's position, per 81.3(a).
+       [ ] 83.3 HYPERBOLICS -- `sinh`, `cosh`, `tanh`. Three rows,
+             three libm functions, no domain and no decision. 81.1
+             held them back with "until something asks for them" and
+             the catenary is what asks: a hanging cable is cosh and
+             nothing else, and it is exactly the kind of plate the
+             Figure node exists to draw.
+       [ ] 83.4 INVERSE HYPERBOLICS -- `asinh`, `acosh`, `atanh`. Also
+             libm, but unlike 83.3 they have DOMAINS: acosh wants
+             x >= 1, atanh wants |x| < 1, and outside them libm
+             returns NaN rather than raising. Whatever 83.18 decides
+             applies here first.
+       [ ] 83.5 RECIPROCAL TRIG -- `cot`, `sec`, `csc`. Abacus carries
+             only cot; the other two are added anyway because a set of
+             three missing one member is a puzzle, and each is a
+             single division. None is in libm under that name, so all
+             three are written the way `sign` is in 81.11, with the
+             poles documented rather than special-cased: cot at every
+             multiple of pi (including 0), sec and csc a quarter turn
+             apart from each other.
+       [ ] 83.6 `degrees` and `radians` -- the two most USEFUL names in
+             the entry and the least mathematical. Every trig function
+             here takes radians while every knob, dial and compass
+             bearing a worksheet carries is in degrees, which is why
+             81.10 found TWO examples with a hand-written 0.017453293
+             in them. With `pi` those became `angle * pi / 180`; with
+             this they become `radians(angle)`, which is what they
+             meant. Expect a third sweep of examples/ when it lands.
+       [ ] 83.7 THE OTHER LOGARITHMS AND EXPONENTIALS -- `ln`, `log2`,
+             `log(x, base)`, `exp2`, `expm1`, `log1p`. Six rows and
+             one trap: the language's `log` IS the natural log
+             (matching C and matching abacus), which surprises
+             everyone who expects base ten, and `log10` is the one
+             they wanted. `ln` is the unambiguous spelling of the same
+             function and exists so a reader can be SURE; abacus
+             carries it for that reason alone. `log(x, base)` is
+             log(x)/log(base) and is the first name in the language
+             with two arities, so it is built with 83.2, not before.
+             `expm1`/`log1p` are the small-x pair -- exp(x)-1 and
+             log(1+x) computed without the cancellation that makes the
+             naive spelling lose every significant digit near zero --
+             and they belong here because a worksheet computing a
+             small interest rate or a decay over a short interval
+             hits exactly that.
+       [ ] 83.8 `cbrt` -- cube root, worth its own row because it is
+             the one root that ACCEPTS NEGATIVES: cbrt(-8) is -2 while
+             sqrt(-8) is NaN, an odd root being defined where an even
+             one is not. pow(x, 1.0/3.0) gets the negative case wrong,
+             which is the mistake this row exists to remove.
+       [ ] 83.9 THE ROUNDING FAMILY, six additions and only two new
+             names:
+             (a) `round(x, n)`, `floor(x, n)`, `ceil(x, n)`,
+                 `trunc(x, n)` -- the same four verbs the language
+                 already has, given an optional SECOND argument that
+                 rounds to n decimal places. No new rows; this is
+                 83.2's arity range and its first customer.
+             (b) `rint(x)` -- round to nearest with ties to EVEN,
+                 which is what abacus's `round` does and what C's
+                 round() deliberately does not (81.11 chose
+                 half-away-from-zero). Both behaviours are wanted, so
+                 both get a name and the help says which is which;
+                 that is cheaper than arguing about one name.
+             (c) `frac(x)` -- the fractional part, x - floor(x),
+                 always in [0, 1). One line, and the sawtooth that
+                 every phase accumulator and repeating animation in
+                 #82 will want.
+             Say plainly in the help that these are for QUANTISING a
+             value before it travels on -- a price to the cent, a
+             bearing to a tenth of a degree -- and not for formatting
+             a number for display, which is the Numeric node's
+             decimals property.
+       [ ] 83.10 `fmod` and `copysign`. `fmod(x, y)` is C's TRUNCATED
+             remainder and the language's `%` operator is FLOORED
+             (the header says so: the result takes the divisor's
+             sign), so they disagree on negative operands and both
+             behaviours have their uses -- having only the operator
+             means the other one gets hand-rolled wrongly.
+             `copysign(x, y)` gives x the sign of y, the clean way to
+             say "same direction as" in a figure without a comparison.
+       [ ] 83.11 SELECTION AND SHAPING -- the five rows that need
+             83.1's chain and the reason it is worth building:
+             `if(cond, a, b)`, `clamp(x, lo, hi)`, `lerp(a, b, t)`,
+             `step(edge, x)`, `smoothstep(lo, hi, x)`.
+             (a) `if` is the one that changes the language. Today a
+                 choice is written as 79.10's mask idiom, a
+                 multiplication by a 1.0/0.0 comparison, and every
+                 worksheet that needs one re-derives it. IMPLEMENT IT
+                 AS A TRUE SELECT -- evaluate both arms, return one --
+                 and NOT as cond*a + (1-cond)*b, or a NaN in the arm
+                 nobody chose poisons the result. That distinction is
+                 the entire value of the row; test it directly with
+                 if(0, sqrt(-1), 1) == 1.
+             (b) `clamp` is the guard rail every gauge, dial and
+                 drawing coordinate wants, and min(max(x, lo), hi) is
+                 what people write instead and get the argument order
+                 wrong in. Decide what clamp(x, hi, lo) does with the
+                 bounds crossed -- returning lo is defensible, an
+                 error is defensible, silence is not.
+             (c) `lerp(a, b, t)` = a + (b-a)*t, the straight line
+                 between two numbers. #82 is ENTIRELY about animating
+                 between values, and with `t` already bound as a
+                 vector over [0, 1] (82.5) a whole animation becomes
+                 lerp(start, end, t) on one line. Use the a + (b-a)*t
+                 spelling rather than (1-t)*a + t*b so that lerp with
+                 t = 1 returns b exactly.
+             (d) `step(edge, x)` is 0 below the edge and 1 at or above
+                 it -- the mask idiom given a name -- and
+                 `smoothstep(lo, hi, x)` is its eased twin, the
+                 classic 3t^2-2t^3 with the ends clamped. Together
+                 with (c) they are the easing vocabulary #82's
+                 animations will otherwise hand-roll.
+       [ ] 83.12 CLASSIFICATION -- `isnan`, `isinf`, `isfinite`,
+             returning the language's usual 1.0/0.0. Small rows with a
+             specific job: this language lets a NaN travel (83.18),
+             and without these there is NO WAY to test for one --
+             x != x works in C and is exactly the trick nobody should
+             have to know. With `if` from 83.11 they become a usable
+             guard: if(isfinite(v), v, 0).
+       [ ] 83.13 THE SPECIAL FUNCTIONS, five rows earned by the physics
+             sheets rather than by completeness:
+             (a) `sinc(x)` = sin(x)/x with the removable singularity
+                 handled -- sinc(0) is 1, not NaN. TODO #79.6 spends a
+                 whole paragraph on this exact 0/0 and offsets its
+                 sample grid by 1e-9 to dodge it; this row is the
+                 real fix, and the diffraction sheet's envelope IS
+                 sinc. Use the unnormalised form (sin(x)/x, not
+                 sin(pi*x)/(pi*x)) and say which in the help, because
+                 the two conventions differ and both are common.
+             (b) `erf`, `erfc` -- libm, one row each, and the shape of
+                 every diffusion, noise and measurement-error curve
+                 there is. The Gaussian's integral has no elementary
+                 spelling, so without these it cannot be written at
+                 all.
+             (c) `j0`, `j1` -- Bessel functions of the first kind,
+                 also libm. Niche, except that they are precisely what
+                 #79's sheet needs the moment it moves from a slit to
+                 a CIRCULAR aperture: the Airy pattern is j1, the way
+                 the slit's is sinc. Two rows for a whole second
+                 plate.
+       [ ] 83.14 `factorial`, `gcd`, `lcm` -- the integer-minded three,
+             in a language with one double type, so each has to say
+             what it does with a fractional argument. Abacus refuses,
+             which is more honest than truncating; follow it.
+             factorial also needs a cap: 171! overflows a double to
+             +inf, so about 170 is the natural limit here and anything
+             above it is an error rather than a silent infinity.
+             Negatives refuse. gcd and lcm are the TWO-argument forms
+             only (abacus spells both variadic, see 83.21), sign
+             dropped, and lcm of anything with 0 is 0.
+       [ ] 83.15 THE PERCENT FAMILY -- `pct(x, p)` = x*p/100,
              `pct_change(old, new)` = (new-old)/old, `bps(x, b)` =
              x*b/10000. Trivial arithmetic, which is the point: they
              exist so nobody hand-rolls /100 and nobody confuses a
              percent with a basis point. Two warnings for the help:
              pct_change divides by zero when `old` is 0, and the
-             argument ORDER is old-then-new, which is the one thing
+             argument order is old-then-new, which is the one thing
              about it that can silently be got backwards.
-       [ ] 83.10 `time()` -- current Unix epoch seconds, a ZERO-argument
-             function and the only impure name abacus carries. It is
-             listed here to be DECIDED, not assumed: the language is
-             otherwise a pure function of its inputs, an expression
+       [ ] 83.16 THE ANNUITY FAMILY -- `compound(principal, rate,
+             periods)`, `fv(pmt, rate, nper)`, `pv(pmt, rate, nper)`,
+             `pmt(pv, rate, nper)`. Four three-argument rows, straight
+             from abacus and unreachable before 83.1. They are here
+             because a worksheet that reads an energy meter is one
+             expression away from reading a bill, and because each is
+             a formula people get wrong from memory. Two things the
+             help must state, as abacus's own text does: the rate is
+             PER PERIOD and `periods` counts the same unit, and the
+             r = 0 case is not a division but a limit (pmt*nper), so
+             each row special-cases it rather than returning inf.
+       [ ] 83.17 `time()` -- current Unix epoch seconds, a
+             ZERO-argument function and the only impure name abacus
+             carries. Listed to be DECIDED, not assumed: the language
+             is otherwise a pure function of its inputs, an expression
              that changes value when nothing arrived breaks the
              evaluate-once rule #82 depends on, and pipnode already
              has a Clock node whose whole job is to put a timestamp on
              a wire. The recommendation is to LEAVE IT OUT and say so
-             in the help next to the Clock node's name. If it does go
-             in, it is also the first zero-argument function and needs
-             `time()` to parse with an empty argument list, which
-             81.3(c) explicitly made an error.
-       [ ] 83.11 AN OPTIONAL SECOND ARGUMENT -- `round(x, n)`,
-             `floor(x, n)`, `ceil(x, n)`, `trunc(x, n)`, rounding to n
-             decimal places rather than to a whole number. Four names
-             the language ALREADY HAS in their one-argument form, so
-             no new row is added; what changes is the table, which
-             today holds a single `arity` and therefore cannot say "1
-             or 2". This is the one piece of real machinery in the
-             entry: give PnExprFunc a MIN and MAX arity, have the
-             parser check the range instead of the number, and have
-             the evaluator dispatch on how many arguments it actually
-             got. Everything else here is a row. Do this before 83.5's
-             two-argument `log`, which is the second customer for it,
-             and keep 81.3's error message honest -- "takes 1 or 2
-             arguments, got 3".
-             Formatting a number for DISPLAY is not what these are
-             for; the Numeric node's decimals property is. These are
-             for quantising a value -- a price to the cent, a bearing
-             to a tenth of a degree -- before it travels on.
-       [ ] 83.12 THE NaN AND DOMAIN POLICY, settled ONCE for the whole
+             in the help beside the Clock node's name. If it does go
+             in it is also the first zero-argument call, and `time()`
+             with an empty argument list is something 81.3(c)
+             explicitly made an error -- so it is a grammar change,
+             not a row.
+       [ ] 83.18 THE NaN AND DOMAIN POLICY, settled ONCE for the whole
              batch rather than row by row, because this is the first
-             batch where most of the rows have a domain: acosh, atanh,
-             cbrt's neighbours, log's non-positive arguments,
-             factorial's negatives, cot's poles. The language today
-             lets sqrt(-1) evaluate to NaN and pass down the wire, so
-             the conservative answer is that libm's NaN stays NaN and
-             nothing new raises -- but factorial(-1) and gcd(1.5, 2)
-             are ARGUMENT errors rather than mathematical ones, and
-             those two probably should fail loudly. Decide, write it
-             in one paragraph of the help, and make the rows obey it.
-             If anything does raise, it must use the existing error
-             path so the node lights up the way a parse error does
-             (see the generic error state, pn_node_set_has_error).
-       [ ] 83.13 THE VECTOR RULE IS NOT NEGOTIABLE and should need no
-             work at all: 81.5 made arith_value() and map2_value()
-             delegate to ONE zip_value(), so a new two-argument
-             function cannot drift from `*` even if its author tries.
-             Every row in this entry maps elementwise over a vector
-             and every two-argument row broadcasts and takes the
-             longer length with the tail passing through verbatim.
-             The finding, if there is one, is any row that CANNOT obey
-             that -- and by construction there is none in this list,
-             which is part of why the list stops where it does.
-       [ ] 83.14 WHAT IS DELIBERATELY LEFT OUT, and it is most of
-             abacus's table:
+             batch where most rows have a domain: acosh, atanh, log's
+             non-positive arguments, the reciprocal trig poles,
+             factorial's negatives, gcd's fractions, sinc's zero.
+             The language today lets sqrt(-1) evaluate to NaN and pass
+             down the wire, so the conservative answer is that libm's
+             NaN stays NaN and nothing new raises -- but
+             factorial(-1) and gcd(1.5, 2) are ARGUMENT errors rather
+             than mathematical ones and probably should fail loudly.
+             Decide, write it in ONE paragraph of the help, and make
+             every row obey it. Anything that does raise must use the
+             existing error path so the node lights up the way a parse
+             error does (pn_node_set_has_error).
+       [ ] 83.19 THE VECTOR RULE, which 81.5 made structural so that a
+             function CANNOT drift from `*`: arith_value() and
+             map2_value() both delegate to one zip_value(). Three- and
+             four-argument functions need that generalised to a zipN
+             -- same rule, N operands: scalars broadcast, vectors take
+             the LONGEST length and the surviving tail passes through
+             verbatim. Generalise the one function; do not write a
+             second one beside it, or the structural guarantee is
+             gone. Every row in this entry maps elementwise, and any
+             row that cannot is the finding.
+       [ ] 83.20 A FINDING TO RECORD BEFORE `if` IS BUILT, because it
+             limits what 83.11(a) can promise: a COMPARISON in this
+             language collapses a vector to a single 1.0/0.0 -- true
+             only when every element passes, as both help pages state
+             -- so `if(v > 0, a, b)` has a SCALAR condition and
+             chooses once for the whole vector, not per element.
+             That is also why 79.10's mask idiom is a scalar gate
+             rather than a mask. Per-element selection would need an
+             elementwise comparison, which is a language change and a
+             separate entry; for now write the limitation into `if`'s
+             help paragraph rather than letting someone discover it
+             with a wrong picture on screen.
+       [ ] 83.21 WHAT IS STILL LEFT OUT, and note that 83.1 changes the
+             REASON for the first one:
              (a) THE VARIADIC ONES -- avg, median, stddev, variance,
                  and the unbounded spellings of min, max, gcd, lcm.
-                 The AST holds a call's arguments in `left` and
-                 `right` (81.2) and that is the whole representation;
-                 an argument LIST would mean growing PnExprNode, which
-                 is installed public API and an ABI hazard 81.2 went
-                 out of its way to avoid.
-             (b) THE TEMPTING RE-READING of (a), which deserves its
-                 own line because it will come up: in THIS language a
+                 The argument chain makes them REPRESENTABLE, so this
+                 is now a choice rather than a limit: a fixed arity is
+                 checkable at parse time, which is the property 81.3
+                 was built for and the one that lights a node up as
+                 the expression is typed. Leaving them out keeps every
+                 call in the language checkable. Revisit deliberately
+                 or not at all.
+             (b) THE TEMPTING RE-READING of (a): in THIS language a
                  vector is a single value, so avg(v), median(v) and
-                 stddev(v) could be UNARY functions that reduce a
-                 vector to a scalar. That is a real and attractive
-                 idea and it is still not this entry -- it breaks the
-                 one rule 83.13 just called non-negotiable (functions
-                 map, they do not reduce), and pipnode already has a
-                 Reduce node that sums, averages and takes extrema of
-                 a vector on a wire. If it is ever wanted it is a
-                 separate entry with its own argument, not a row.
+                 stddev(v) could be UNARY functions reducing a vector
+                 to a scalar. Real, attractive, and still not this
+                 entry -- it breaks the rule 83.19 calls structural
+                 (functions map, they do not reduce), and pipnode
+                 already has a Reduce node that sums, averages and
+                 takes the extrema of a vector on a wire. A separate
+                 entry with its own argument, not a row.
              (c) THE SYMBOLIC ONES -- sum, product, diff, integral.
                  They take an UNEVALUATED expression and a bare
                  variable NAME as arguments, which is a different
-                 language from the one we have; nothing in the parser
-                 can express "do not evaluate this yet".
-             (d) THE THREE-ARGUMENT FINANCIAL ONES -- compound, fv,
-                 pv, pmt. Simple formulas, genuinely useful for an
-                 energy-cost or loan readout, and blocked only by
-                 PN_EXPR_MAX_ARITY being 2 for the representational
-                 reason in (a). Raising it to 3 is a real change and
-                 wants its own entry if a worksheet ever asks; until
-                 then compound(p, r, n) is p * pow(1 + r, n) and the
-                 help can say so.
-       [ ] 83.15 NAMES MUST MATCH ABACUS WHERE BOTH HAVE THEM, because
-             the user drives both and a name that means two things is
-             worse than a name that exists in only one. Two known
-             divergences to check and record rather than discover
-             later: abacus documents `atan2(x, y)` while the language
-             shipped `atan2(y, x)` in 81.1 -- C's order, which is also
-             what every other language does, so the language keeps it
-             and the help says which way round it is. And abacus's
-             `round` is ties-to-EVEN while 81.11 chose C's
-             round-half-away-from-zero; that one is already decided,
-             but 83.11 reopens the same row, so confirm it did not
-             quietly change and state it once in the help. Walk the
-             finished table against abacus's list one last time before
-             closing.
-       [ ] 83.16 TESTS, in the shape 81.8 set and in the SAME binaries:
-             test-pn-var-store.c gets a value assertion per row plus
-             the vector broadcast for each new two-argument function,
-             and test-pn-expr-parser.c gets the arity cases -- which
-             for this entry means the RANGE cases from 83.11, the
-             first arity errors in the language that are not a single
-             number ("1 or 2"). The domain and NaN decisions from
-             83.12 get assertions too, one per decision, because a
-             policy nobody tested is a policy that drifts. Headless,
-             pntest.h, ./run-unit-tests.sh green.
-       [ ] 83.17 HELP, and 81.9 already found how many places the
-             function list is written down: data/help/PnExpression.html
-             and PnExpression2.html (the list AND the vector section in
+                 language from this one; nothing in the parser can
+                 express "do not evaluate this yet". 83.1's chain does
+                 not help, because the problem is evaluation and not
+                 arity.
+             (d) NO NEW OPERATORS, restating 81.7 because a batch this
+                 size is exactly when one gets smuggled in: `^` stays
+                 XOR, there is no `**`, and squaring is still a
+                 multiplication or pow(x, 2). This entry ADDS NAMES
+                 and changes nothing about what an existing worksheet
+                 means.
+       [ ] 83.22 NAMES MUST MATCH ABACUS WHERE BOTH HAVE THEM, because
+             the user drives both and a name meaning two things is
+             worse than a name existing in only one. Three known
+             divergences to record rather than discover later: abacus
+             documents `atan2(x, y)` while the language shipped C's
+             `atan2(y, x)` in 81.1 -- C's order stays and the help
+             says which way round it is; abacus's `round` is
+             ties-to-even while 81.11 chose half-away-from-zero, which
+             83.9(b) resolves by giving the other behaviour its own
+             name; and abacus's `log(x, y)` two-arg form must mean
+             base y here too, not something cleverer. Walk the
+             finished table against abacus's list once more before
+             closing the entry.
+       [ ] 83.23 TESTS, in the shape 81.8 set and in the SAME binaries
+             rather than new ones. test-pn-var-store.c gets a value
+             assertion per row, the vector broadcast for every
+             multi-argument function, and the zipN tail rule at arity
+             3 and 4. test-pn-expr-parser.c gets the arity cases,
+             which for this entry are the RANGE errors from 83.2 (the
+             first in the language that are not a single number) and
+             the CHAIN from 83.1 -- a four-argument call, a nested
+             call in the third position, and one argument too many.
+             Each decision taken in 83.11(a), 83.14, 83.18 and 83.9(b)
+             gets an assertion, because a policy nobody tested is a
+             policy that drifts. Headless, pntest.h,
+             ./run-unit-tests.sh green.
+       [ ] 83.24 HELP, and 81.9 already counted the places the function
+             list is written down: data/help/PnExpression.html and
+             PnExpression2.html (the list AND the vector section in
              each), the grammar paragraph on pn_expr_parser_parse in
              pn-expr-parser.h, and pn-var-store.h. PnFigure.html --
              which 81.9 could not update because it did not exist --
-             is #80.14 and by then should. Twenty-eight names is
-             enough that a flat comma-separated list stops being
-             readable, so group them on the page the way this entry
-             groups them; the reader looking for `radians` is looking
-             for a heading, not for a word in a paragraph.
+             is 80.14 and by then should. At forty-nine additions a
+             flat
+             comma-separated list stops being readable, so group them
+             on the page the way this entry groups them, with a
+             one-line gloss per name: the reader looking for `radians`
+             is looking for a heading, not for a word in a paragraph.
+             Three paragraphs are worth more than the list itself --
+             the NaN policy from 83.18, `if`'s scalar-condition
+             limitation from 83.20, and the `^`-is-XOR trap pointing
+             at pow, which 81.11 already owes the page.
