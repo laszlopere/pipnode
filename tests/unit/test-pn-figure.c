@@ -843,6 +843,234 @@ test_check_returns_and_keeps_going (void)
     g_ptr_array_unref (errors);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Literals                                                           */
+/* ------------------------------------------------------------------ */
+
+/* The whole front end as it stands: scan, split, check, read literals. */
+static Split
+literals (const gchar *program)
+{
+    Split result = checked (program);
+
+    pn_figure_parse_literals (result.statements, result.errors);
+    return result;
+}
+
+static void
+test_colour_literals (void)
+{
+    Split        s = literals ("color \"#202020\"\n"
+                               "fill \"red\"\n"
+                               "color \"transparent\"\n"
+                               "fill 1, 0, 0");
+    PnFigureArg *a;
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
+    PN_CHECK_CMPINT (s.statements->len, ==, 4);
+
+    a = arg (statement (&s, 0), 0);
+    PN_CHECK_NEAR (a->color.red,   32 / 255.0, 1e-9);
+    PN_CHECK_NEAR (a->color.alpha, 1.0,        1e-9);
+
+    /* A name, through the table 80.5(b) put in pn-color.c. */
+    a = arg (statement (&s, 1), 0);
+    PN_CHECK_NEAR (a->color.red,   1.0, 1e-9);
+    PN_CHECK_NEAR (a->color.green, 0.0, 1e-9);
+
+    a = arg (statement (&s, 2), 0);
+    PN_CHECK_NEAR (a->color.alpha, 0.0, 1e-9);
+
+    split_free (&s);
+}
+
+static void
+test_bad_colour_literal (void)
+{
+    Split          s = literals ("color \"banana\"\nfill \"#12345\"\nwidth 2");
+    PnFigureError *error;
+
+    /* Caught while reading the program, so there is no such thing as a
+     * runtime colour error (80.5h). */
+    PN_CHECK_CMPINT (s.statements->len, ==, 1);
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==, "unknown colour \"banana\"");
+    PN_CHECK_CMPINT (error->line, ==, 1);
+    PN_CHECK_CMPINT (error->column, ==, 7);
+
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "unknown colour \"#12345\"");
+
+    split_free (&s);
+}
+
+static void
+test_dash_styles (void)
+{
+    Split s = literals ("dash \"solid\"\n"
+                        "dash \"dot\", 2\n"
+                        "dash \"dash\"\n"
+                        "dash \"dashdot\"");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (arg (statement (&s, 0), 0)->word, ==,
+                     PN_FIGURE_DASH_SOLID);
+    PN_CHECK_CMPINT (arg (statement (&s, 1), 0)->word, ==,
+                     PN_FIGURE_DASH_DOT);
+    PN_CHECK_CMPINT (arg (statement (&s, 2), 0)->word, ==,
+                     PN_FIGURE_DASH_DASH);
+    PN_CHECK_CMPINT (arg (statement (&s, 3), 0)->word, ==,
+                     PN_FIGURE_DASH_DASHDOT);
+
+    split_free (&s);
+}
+
+static void
+test_bad_dash_style (void)
+{
+    Split          s = literals ("dash \"wiggly\"");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 1);
+    error = g_ptr_array_index (s.errors, 0);
+    /* The message names the whole vocabulary, since it is short. */
+    PN_CHECK_CMPSTR (error->message, ==,
+                     "expected \"solid\", \"dot\", \"dash\" or \"dashdot\"");
+    PN_CHECK_CMPINT (error->column, ==, 6);
+
+    split_free (&s);
+}
+
+static void
+test_alignment_words (void)
+{
+    Split s = literals ("align \"left\"\n"
+                        "align \"centre\", \"baseline\"\n"
+                        "align \"center\", \"top\"\n"
+                        "align \"right\", \"bottom\"");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (arg (statement (&s, 0), 0)->word, ==,
+                     PN_FIGURE_HALIGN_LEFT);
+    PN_CHECK_CMPINT (arg (statement (&s, 1), 0)->word, ==,
+                     PN_FIGURE_HALIGN_CENTRE);
+    PN_CHECK_CMPINT (arg (statement (&s, 1), 1)->word, ==,
+                     PN_FIGURE_VALIGN_BASELINE);
+    /* Both spellings of centre, for the same reason pn-color.c takes
+     * both grey and gray. */
+    PN_CHECK_CMPINT (arg (statement (&s, 2), 0)->word, ==,
+                     PN_FIGURE_HALIGN_CENTRE);
+    PN_CHECK_CMPINT (arg (statement (&s, 3), 1)->word, ==,
+                     PN_FIGURE_VALIGN_BOTTOM);
+
+    split_free (&s);
+}
+
+static void
+test_alignment_words_are_per_axis (void)
+{
+    /* "middle" is a real word in the wrong place, and the message says
+     * which words belong there rather than that this one is unknown. */
+    Split s = literals ("align \"middle\"\nalign \"left\", \"right\"");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "expected \"left\", \"centre\" or \"right\"");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==,
+                     "expected \"top\", \"middle\", \"baseline\" or \"bottom\"");
+
+    split_free (&s);
+}
+
+static void
+test_format_conversions (void)
+{
+    Split s = literals ("text 0, 0, \"A\"\n"
+                        "text 0, 0, \"%.1f deg\", a * 57.2958\n"
+                        "text 0, 0, \"100%%\"\n"
+                        "text 0, 0, \"%-8.3e and %+G\", u, v\n"
+                        "text 0, 0, \"%f\", a");
+
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
+    PN_CHECK_CMPINT (s.statements->len, ==, 5);
+
+    /* The conversion count lands on the format argument. */
+    PN_CHECK_CMPINT (arg (statement (&s, 0), 2)->word, ==, 0);
+    PN_CHECK_CMPINT (arg (statement (&s, 1), 2)->word, ==, 1);
+    /* "%%" is a literal per cent, not a conversion. */
+    PN_CHECK_CMPINT (arg (statement (&s, 2), 2)->word, ==, 0);
+    PN_CHECK_CMPINT (arg (statement (&s, 3), 2)->word, ==, 2);
+
+    split_free (&s);
+}
+
+static void
+test_format_rejects_unsafe (void)
+{
+    /* This one is safety, not style: %s would dereference a double and
+     * %n would write through one (80.7c). */
+    Split s = literals ("text 0, 0, \"%s\", a\n"
+                        "text 0, 0, \"%n\", a\n"
+                        "text 0, 0, \"%d\", a\n"
+                        "text 0, 0, \"%*f\", a\n"
+                        "text 0, 0, \"%lf\", a\n"
+                        "text 0, 0, \"100%\"");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 6);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "unsupported conversion \"%s\"");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "unsupported conversion \"%n\"");
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "unsupported conversion \"%d\"");
+    /* A "*" width would eat one of the values. */
+    PN_CHECK_CMPSTR (error_text (&s, 3), ==, "unsupported conversion \"%*\"");
+    /* A length modifier would change the argument's type. */
+    PN_CHECK_CMPSTR (error_text (&s, 4), ==, "unsupported conversion \"%l\"");
+    /* A trailing per cent is an unfinished conversion. */
+    PN_CHECK_CMPSTR (error_text (&s, 5), ==, "unsupported conversion \"%\"");
+
+    split_free (&s);
+}
+
+static void
+test_format_value_count (void)
+{
+    Split          s = literals ("text 0, 0, \"%.1f %.1f\", a\n"
+                                 "text 0, 0, \"A\", a\n"
+                                 "text 0, 0, \"%f\"");
+    PnFigureError *error;
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 3);
+
+    error = g_ptr_array_index (s.errors, 0);
+    PN_CHECK_CMPSTR (error->message, ==, "format needs 2 values, not 1");
+    /* Reported at the format, which is the thing to go and count. */
+    PN_CHECK_CMPINT (error->column, ==, 12);
+
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "format needs 0 values, not 1");
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "format needs 1 value, not 0");
+
+    split_free (&s);
+}
+
+static void
+test_literals_keep_going (void)
+{
+    Split s = literals ("color \"banana\"\ndash \"wiggly\"\nwidth 2\n"
+                        "text 0, 0, \"%.1f\", a");
+
+    /* Every bad literal found in one pass, the good statements kept. */
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+    PN_CHECK_CMPINT (s.statements->len, ==, 2);
+    PN_CHECK_CMPSTR (statement (&s, 0)->name, ==, "width");
+    PN_CHECK_CMPSTR (statement (&s, 1)->name, ==, "text");
+
+    split_free (&s);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -881,5 +1109,15 @@ main (int argc, char **argv)
     pn_test_add ("verb_colour_forms",   test_colour_has_two_spellings);
     pn_test_add ("verb_colour_kinds",   test_colour_argument_kinds);
     pn_test_add ("verb_keeps_going",    test_check_returns_and_keeps_going);
+    pn_test_add ("lit_colours",         test_colour_literals);
+    pn_test_add ("lit_bad_colour",      test_bad_colour_literal);
+    pn_test_add ("lit_dash",            test_dash_styles);
+    pn_test_add ("lit_bad_dash",        test_bad_dash_style);
+    pn_test_add ("lit_align",           test_alignment_words);
+    pn_test_add ("lit_align_axes",      test_alignment_words_are_per_axis);
+    pn_test_add ("lit_format",          test_format_conversions);
+    pn_test_add ("lit_format_unsafe",   test_format_rejects_unsafe);
+    pn_test_add ("lit_format_count",    test_format_value_count);
+    pn_test_add ("lit_keeps_going",     test_literals_keep_going);
     return pn_test_run ();
 }

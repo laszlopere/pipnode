@@ -916,3 +916,221 @@ pn_figure_check_verbs (
 
     return ok;
 }
+
+/* ================================================================== */
+/*  Literals                                                          */
+/* ================================================================== */
+
+/* A word table shared by the dash styles and the two alignment axes:
+ * each is a short closed vocabulary, and a message that names the whole
+ * vocabulary is worth more than one that only says the word was
+ * wrong. */
+typedef struct
+{
+    const gchar *word;
+    gint         value;
+} WordEntry;
+
+static const WordEntry dash_words[] =
+{
+    { "solid",   PN_FIGURE_DASH_SOLID   },
+    { "dot",     PN_FIGURE_DASH_DOT     },
+    { "dash",    PN_FIGURE_DASH_DASH    },
+    { "dashdot", PN_FIGURE_DASH_DASHDOT },
+};
+
+/* "center" is here beside "centre" for the same reason pn-color.c
+ * carries both "grey" and "gray": the word is unavoidable and the
+ * spelling is not worth an error message. */
+static const WordEntry halign_words[] =
+{
+    { "left",   PN_FIGURE_HALIGN_LEFT   },
+    { "centre", PN_FIGURE_HALIGN_CENTRE },
+    { "center", PN_FIGURE_HALIGN_CENTRE },
+    { "right",  PN_FIGURE_HALIGN_RIGHT  },
+};
+
+static const WordEntry valign_words[] =
+{
+    { "top",      PN_FIGURE_VALIGN_TOP      },
+    { "middle",   PN_FIGURE_VALIGN_MIDDLE   },
+    { "baseline", PN_FIGURE_VALIGN_BASELINE },
+    { "bottom",   PN_FIGURE_VALIGN_BOTTOM   },
+};
+
+/* Looks argument @n up in @words, storing what it names in its .word.
+ * @vocabulary is the message to give when it is not there — spelled
+ * out rather than generated, because the two centre spellings would
+ * make a generated list read oddly. */
+static gboolean
+parse_word (
+        const PnFigureStatement *statement,
+        guint                    n,
+        const WordEntry         *words,
+        gsize                    n_words,
+        const gchar             *vocabulary,
+        GPtrArray               *errors)
+{
+    PnFigureArg *arg = g_ptr_array_index (statement->args, n);
+    gsize        i;
+
+    for (i = 0; i < n_words; i++)
+        if (g_strcmp0 (words[i].word, arg->text) == 0)
+        {
+            arg->word = words[i].value;
+            return TRUE;
+        }
+
+    report_at (errors, statement->source, arg->offset, "expected %s",
+               vocabulary);
+    return FALSE;
+}
+
+/* Validates a `text` format and counts its conversions.  Only "%%" and
+ * the numeric conversions are allowed through, with optional flags,
+ * width and precision — no "*", which would eat an argument, and no
+ * length modifier, which would change the argument's type (80.7c). */
+static gboolean
+parse_format (
+        const PnFigureStatement *statement,
+        GPtrArray               *errors)
+{
+    PnFigureArg *arg    = g_ptr_array_index (statement->args, 2);
+    const gchar *format = arg->text;
+    guint        wanted = statement->args->len - 3;
+    guint        found  = 0;
+    gsize        i;
+
+    for (i = 0; format[i] != '\0'; i++)
+    {
+        gsize start;
+
+        if (format[i] != '%')
+            continue;
+
+        start = i++;
+
+        if (format[i] == '%')
+            continue;
+
+        while (format[i] == '-' || format[i] == '+' || format[i] == ' '
+               || format[i] == '#' || format[i] == '0')
+            i++;
+        while (g_ascii_isdigit (format[i]))
+            i++;
+        if (format[i] == '.')
+        {
+            i++;
+            while (g_ascii_isdigit (format[i]))
+                i++;
+        }
+
+        /* The NUL test comes first on purpose: strchr() finds the
+         * terminator of its own search string and would say yes. */
+        if (format[i] == '\0' || strchr ("feEgGF", format[i]) == NULL)
+        {
+            /* Show it from the "%" to whatever went wrong, which is
+             * what the person has to go and look at. */
+            gsize end = format[i] == '\0' ? i : i + 1;
+
+            report_at (errors, statement->source, arg->offset,
+                       "unsupported conversion \"%.*s\"",
+                       (int) (end - start), format + start);
+            return FALSE;
+        }
+
+        found++;
+    }
+
+    if (found != wanted)
+    {
+        report_at (errors, statement->source, arg->offset,
+                   "format needs %u value%s, not %u",
+                   found, found == 1 ? "" : "s", wanted);
+        return FALSE;
+    }
+
+    arg->word = (gint) found;
+    return TRUE;
+}
+
+/* Gives one statement's literals their meaning. */
+static gboolean
+parse_statement_literals (
+        PnFigureStatement *statement,
+        GPtrArray         *errors)
+{
+    switch (statement->verb)
+    {
+    case PN_FIGURE_VERB_COLOR:
+    case PN_FIGURE_VERB_FILL:
+    {
+        PnFigureArg *arg;
+
+        /* Only the one-argument spelling carries a literal; the other
+         * is three or four expressions evaluated per frame. */
+        if (statement->args->len != 1)
+            return TRUE;
+
+        arg = g_ptr_array_index (statement->args, 0);
+        if (pn_color_parse (&arg->color, arg->text))
+            return TRUE;
+
+        report_at (errors, statement->source, arg->offset,
+                   "unknown colour \"%s\"", arg->text);
+        return FALSE;
+    }
+
+    case PN_FIGURE_VERB_DASH:
+        return parse_word (statement, 0, dash_words,
+                           G_N_ELEMENTS (dash_words),
+                           "\"solid\", \"dot\", \"dash\" or \"dashdot\"",
+                           errors);
+
+    case PN_FIGURE_VERB_ALIGN:
+        if (!parse_word (statement, 0, halign_words,
+                         G_N_ELEMENTS (halign_words),
+                         "\"left\", \"centre\" or \"right\"", errors))
+            return FALSE;
+        if (statement->args->len < 2)
+            return TRUE;
+        return parse_word (statement, 1, valign_words,
+                           G_N_ELEMENTS (valign_words),
+                           "\"top\", \"middle\", \"baseline\" or \"bottom\"",
+                           errors);
+
+    case PN_FIGURE_VERB_TEXT:
+        return parse_format (statement, errors);
+
+    default:
+        return TRUE;
+    }
+}
+
+gboolean
+pn_figure_parse_literals (
+        GPtrArray *statements,
+        GPtrArray *errors)
+{
+    gboolean ok = TRUE;
+    guint    i  = 0;
+
+    g_return_val_if_fail (statements != NULL, FALSE);
+
+    while (i < statements->len)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT
+            || parse_statement_literals (statement, errors))
+        {
+            i++;
+            continue;
+        }
+
+        g_ptr_array_remove_index (statements, i);
+        ok = FALSE;
+    }
+
+    return ok;
+}

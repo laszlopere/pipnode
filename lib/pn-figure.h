@@ -18,6 +18,8 @@
 
 #include <glib.h>
 
+#include "pn-color.h"
+
 G_BEGIN_DECLS
 
 /* ------------------------------------------------------------------ */
@@ -173,6 +175,13 @@ typedef struct
     PnFigureArgKind  kind;
     gchar           *text;   /* owned: the fragment, or the contents   */
     gsize            offset; /* where it starts in PnFigureLine.text   */
+
+    /* Filled in by pn_figure_parse_literals(), for the string
+     * arguments whose verb gives them a meaning: a colour, or the
+     * dash / alignment word this one names, or — for a format string —
+     * how many values it wants. */
+    PnColor          color;
+    gint             word;
 } PnFigureArg;
 
 typedef enum
@@ -307,6 +316,67 @@ GPtrArray *pn_figure_split (GPtrArray *lines,
  */
 gboolean pn_figure_check_verbs (GPtrArray *statements,
                                 GPtrArray *errors);
+
+/* ------------------------------------------------------------------ */
+/*  Literals                                                           */
+/*                                                                     */
+/*  Fourth stage, and the last one that can be done without evaluating */
+/*  anything: what the quoted literals MEAN.  Quoted means literal     */
+/*  (80.2 rule 7), so a colour, a dash style, an alignment word and a  */
+/*  `text` format are all known while the program is being read — and  */
+/*  are therefore all errors with a line and a column, rather than     */
+/*  surprises discovered mid-frame.  Runtime colour errors simply do   */
+/*  not exist (80.5h).                                                 */
+/*                                                                     */
+/*  The format check is safety, not tidiness: handing a user-typed     */
+/*  format to printf with double arguments is how "%s" dereferences a  */
+/*  double.  Only "%%" and the numeric conversions get through, with   */
+/*  their count matched against the values that follow (80.7c).        */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_FIGURE_DASH_SOLID = 0,
+    PN_FIGURE_DASH_DOT,
+    PN_FIGURE_DASH_DASH,
+    PN_FIGURE_DASH_DASHDOT,
+} PnFigureDash;
+
+typedef enum
+{
+    PN_FIGURE_HALIGN_LEFT = 0,
+    PN_FIGURE_HALIGN_CENTRE,
+    PN_FIGURE_HALIGN_RIGHT,
+} PnFigureHAlign;
+
+typedef enum
+{
+    PN_FIGURE_VALIGN_TOP = 0,
+    PN_FIGURE_VALIGN_MIDDLE,
+    PN_FIGURE_VALIGN_BASELINE,
+    PN_FIGURE_VALIGN_BOTTOM,
+} PnFigureVAlign;
+
+/**
+ * pn_figure_parse_literals:
+ * @statements: (element-type PnFigureStatement): statements already
+ *              through pn_figure_check_verbs(), annotated in place
+ * @errors:     (nullable) (element-type PnFigureError): collector
+ *
+ * Gives every quoted literal its meaning: a colour through
+ * pn_color_parse(), a dash style, an alignment word, and a `text`
+ * format validated conversion by conversion with its count matched
+ * against the expressions that follow it.  The result lands in
+ * #PnFigureArg.color or #PnFigureArg.word, the latter holding the
+ * conversion count for a format string.
+ *
+ * As in the stage before, a statement that fails is removed and the
+ * rest are still read, so one bad literal does not hide the next.
+ *
+ * Returns: %TRUE when every literal made sense.
+ */
+gboolean pn_figure_parse_literals (GPtrArray *statements,
+                                   GPtrArray *errors);
 
 G_END_DECLS
 

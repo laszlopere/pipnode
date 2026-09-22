@@ -2699,11 +2699,48 @@
                    `color "banana"` and `dash "wiggly"` pass this
                    stage and fail 80.22.4, which is the sub-point that
                    owns pn_color_parse and the dash names.
-             [ ] 80.22.4 Literal parsing at PARSE time: colours through
-                   pn_color_parse (80.5a), dash styles, alignment
-                   words, and printf format validation with its
-                   conversion count (80.7c). All of these are errors
-                   the user sees before the figure ever runs.
+             [x] 80.22.4 DONE (2026-09-22): literal parsing at PARSE
+                   time -- colours through pn_color_parse (80.5a),
+                   dash styles, alignment words, and printf format
+                   validation with its conversion count (80.7c). All
+                   of these are errors the user sees before the figure
+                   ever runs. pn_figure_parse_literals() in
+                   lib/pn-figure.c, storing what it read on the
+                   argument itself: a PnColor, or the word the literal
+                   names, or -- for a format -- how many values it
+                   wants. Needed 80.5(b)'s colour-name table first,
+                   which landed in its own commit as that sub-point
+                   required.
+                   (a) A CLOSED VOCABULARY IS WORTH SPELLING OUT. The
+                       dash and alignment messages name every word
+                       that belongs there (expected "solid", "dot",
+                       "dash" or "dashdot") rather than reporting that
+                       this one is unknown. It matters most for
+                       `align "middle"`, where the word is real and
+                       only in the wrong place, and the useful message
+                       is which axis takes what.
+                       Colour has no closed vocabulary, so it keeps
+                       the plain "unknown colour" form.
+                   (b) `align` TAKES BOTH SPELLINGS OF CENTRE, for the
+                       same reason pn-color.c takes both grey and
+                       gray: the word is unavoidable and the spelling
+                       is not worth an error message.
+                   (c) THE FORMAT CHECK IS SAFETY. Flags, width and
+                       precision are allowed; a `*` width is not,
+                       because it would eat one of the values, and a
+                       length modifier is not, because it would change
+                       the argument's type. A trailing `%` reads as an
+                       unfinished conversion and reports as one. The
+                       NUL check has to come BEFORE the strchr of
+                       allowed conversion letters, or strchr finds its
+                       own terminator and lets `"%"` through -- the
+                       classic trap, and a real one here.
+                   (d) The count mismatch reports at the FORMAT, not
+                       at the values, because the format is the thing
+                       to go and count.
+                   Only the one-argument colour spelling has a literal
+                   to read; the 3-4 expression form is evaluated per
+                   frame like any other argument.
              [ ] 80.22.5 Per-argument expression parsing into ASTs,
                    plus the free-identifier walk, plus constant folding
                    of any argument that has none (80.3b, 80.2 rule 12).
