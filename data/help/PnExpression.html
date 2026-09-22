@@ -68,18 +68,48 @@ convert a Celsius reading to Fahrenheit.
       and evaluate to <code>1.0</code> (true) or <code>0.0</code>
       (false), so a comparison result can feed straight into further
       arithmetic &mdash; e.g. <code>(value &gt; 100) * 5</code>.</li>
-  <li><strong>Functions</strong> (one argument):
-      <code>sin</code>, <code>cos</code>, <code>tan</code>,
-      <code>asin</code>, <code>acos</code>, <code>atan</code>
-      (angles in radians throughout; a value outside a function&rsquo;s
-      domain, such as <code>asin(2)</code>, gives <code>nan</code>
-      rather than an error),
-      <code>log</code> (natural log; see also the optional
-      second argument below), <code>log10</code>,
-      <code>exp</code>, <code>sqrt</code>, <code>abs</code>,
-      <code>floor</code>, <code>ceil</code>,
-      <code>round</code>, <code>trunc</code> and <code>sign</code>.
-      The last three are worth a word each:
+  <li><strong>Functions &mdash; trigonometry</strong> (angles in
+      <em>radians</em> throughout): <code>sin</code>, <code>cos</code>,
+      <code>tan</code>, their inverses <code>asin</code>,
+      <code>acos</code>, <code>atan</code>, the reciprocals
+      <code>cot</code>, <code>sec</code>, <code>csc</code>, and
+      <code>atan2(y,&nbsp;x)</code> &mdash; the angle from the positive x
+      axis to the point <code>(x,&nbsp;y)</code>, using the signs of both
+      to get the right quadrant, which <code>atan(y/x)</code> cannot.
+      The reciprocals have poles and do not hide them:
+      <code>cot</code> and <code>csc</code> are infinite at every
+      multiple of <code>pi</code>, <code>sec</code> a quarter turn
+      away.</li>
+  <li><strong>Functions &mdash; angles:</strong>
+      <code>degrees(x)</code> and <code>radians(x)</code>. Every trig
+      function above wants radians while every knob, dial and compass
+      bearing is in degrees, so <code>sin(radians(bearing))</code> is
+      the shape most sheets want &mdash; and it is what
+      <code>bearing&nbsp;*&nbsp;pi&nbsp;/&nbsp;180</code> was trying to
+      say.</li>
+  <li><strong>Functions &mdash; hyperbolic:</strong>
+      <code>sinh</code>, <code>cosh</code>, <code>tanh</code> and the
+      inverses <code>asinh</code>, <code>acosh</code>,
+      <code>atanh</code>. <code>cosh</code> is the shape of a hanging
+      cable; <code>tanh</code> is the S-curve that squashes any number
+      into &minus;1&hellip;1 without a comparison.</li>
+  <li><strong>Functions &mdash; powers, roots and logarithms:</strong>
+      <code>sqrt</code>, <code>exp</code>,
+      <code>pow(x,&nbsp;y)</code> &mdash; x raised to the power y, and
+      the <em>only</em> way to spell a power here, because
+      <code>^</code> is bitwise exclusive-or
+      (<code>2&nbsp;^&nbsp;10</code> is <code>8</code>, while
+      <code>pow(2,&nbsp;10)</code> is <code>1024</code>);
+      <code>hypot(x,&nbsp;y)</code> &mdash;
+      <code>sqrt(x*x&nbsp;+&nbsp;y*y)</code> without the overflow the
+      written-out form can suffer; <code>log(x)</code>, which is the
+      <em>natural</em> logarithm, <code>log(x,&nbsp;base)</code> for the
+      logarithm to a base the sheet computes, and <code>log10</code>,
+      which is the one most people mean when they write
+      <code>log</code>.</li>
+  <li><strong>Functions &mdash; rounding and sign:</strong>
+      <code>abs</code>, <code>floor</code>, <code>ceil</code>,
+      <code>round</code>, <code>trunc</code>, <code>sign</code>.
       <code>round</code> sends a half <em>away</em> from zero
       (<code>round(0.5)</code> is <code>1</code>,
       <code>round(-0.5)</code> is <code>-1</code>,
@@ -91,45 +121,39 @@ convert a Celsius reading to Fahrenheit.
       <code>sign</code> is <code>-1</code>, <code>0</code> or
       <code>1</code> &mdash; <code>sign(0)</code> is <code>0</code>,
       because zero has no direction to report.</li>
-  <li><strong>Functions</strong> (two arguments, separated by a comma):
-      <code>atan2(y,&nbsp;x)</code> &mdash; the angle in radians from the
-      positive x axis to the point <code>(x,&nbsp;y)</code>, using the
-      signs of both to get the right quadrant, which
-      <code>atan(y/x)</code> cannot;
+  <li><strong>Functions &mdash; choosing and bounding:</strong>
       <code>min(a,&nbsp;b)</code> and <code>max(a,&nbsp;b)</code>, which
       <em>skip</em> a <code>nan</code> operand rather than passing it on
-      (<code>min(nan,&nbsp;3)</code> is <code>3</code>);
-      <code>pow(x,&nbsp;y)</code> &mdash; x raised to the power y, and
-      the <em>only</em> way to spell a power here, because <code>^</code> is
-      bitwise exclusive-or (<code>2&nbsp;^&nbsp;10</code> is
-      <code>8</code>, while <code>pow(2,&nbsp;10)</code> is
-      <code>1024</code>); and
-      <code>hypot(x,&nbsp;y)</code> &mdash;
-      <code>sqrt(x*x&nbsp;+&nbsp;y*y)</code> computed without the
-      overflow the written-out form can suffer.</li>
-  <li><strong>Functions</strong> (three arguments):
-      <code>clamp(x,&nbsp;lo,&nbsp;hi)</code> &mdash; x held between the
-      two bounds. It exists because
+      (<code>min(nan,&nbsp;3)</code> is <code>3</code>), and
+      <code>clamp(x,&nbsp;lo,&nbsp;hi)</code>, which holds x between the
+      two bounds. <code>clamp</code> exists because
       <code>min(max(x,&nbsp;lo),&nbsp;hi)</code> is what people write
-      instead and get the order wrong in. If the bounds are crossed
+      instead and get the order wrong in; if the bounds are crossed
       (<code>hi</code> below <code>lo</code>) the lower one wins, and a
       <code>nan</code> value stays <code>nan</code> rather than becoming
       a bound.</li>
-  <li><strong>A second, optional argument:</strong> a few names take
-      either count. <code>log(x)</code> is the natural logarithm and
-      <code>log(x,&nbsp;base)</code> is the logarithm to that base
-      (<code>log(8,&nbsp;2)</code> is <code>3</code>) &mdash; useful when
-      the base is something the sheet computes rather than knows;
-      <code>log10</code> is still the one to reach for otherwise.
-      A call with the wrong number of
-      arguments is reported straight away, as a mistake in the
-      expression &mdash; and it says what the function actually takes,
-      down to &ldquo;1 or 2 arguments&rdquo; for one like this.</li>
+  <li><strong>Arguments</strong> are separated by commas, and a call
+      with the wrong number of them is reported straight away, as a
+      mistake in the expression &mdash; saying what the function
+      actually takes, down to &ldquo;1 or 2 arguments&rdquo; for one
+      like <code>log</code> that accepts either.</li>
   <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.
       They are not variables &mdash; an input member actually named
       <code>pi</code> is used in preference, so nothing you bind can
       clash with them.</li>
 </ul>
+
+<p>
+<strong>When there is no answer.</strong> A result mathematics does not
+define is a <em>value</em> here, not an error: <code>sqrt(-1)</code>,
+<code>acosh(0)</code> and <code>asin(2)</code> are <code>nan</code>,
+<code>log(0)</code> and <code>cot(0)</code> are infinite, and each
+travels on down the wire like any other number &mdash; exactly as
+<code>1&nbsp;/&nbsp;0</code> always has. No function stops the sheet.
+That is deliberate: a gap in one sample of a curve should not take the
+whole plate down with it.
+</p>
+
 
 <h5>Vectors</h5>
 <p>

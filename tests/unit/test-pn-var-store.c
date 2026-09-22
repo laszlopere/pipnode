@@ -1014,6 +1014,112 @@ test_builtin_functions (void)
     g_object_unref (s);
 }
 
+/* ---- The NaN and domain policy (TODO #83.18) ---- */
+
+/* Settled once for the whole table and asserted here rather than left in
+ * prose: a result mathematics does not define is a VALUE, not an error.
+ * Nothing in the table raises; a NaN or an infinity travels down the
+ * wire like any other number, exactly as `1 / 0` already did. */
+static void
+test_domain_policy (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+    GError     *err = NULL;
+
+#define EVAL1(name_, arg_)                                              \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, &err));          \
+        PN_CHECK (err == NULL);                                         \
+    } G_STMT_END
+
+    /* Outside the domain: NaN, and the evaluation SUCCEEDS. */
+    EVAL1 ("acosh", 0.5);   PN_CHECK (isnan (out));
+    EVAL1 ("atanh", 2.0);   PN_CHECK (isnan (out));
+    EVAL1 ("sqrt", -1.0);   PN_CHECK (isnan (out));
+    EVAL1 ("log",  -1.0);   PN_CHECK (isnan (out));
+
+    /* At the edge of the domain, and at a pole: infinite, also a value.
+     * cot and csc blow up at every multiple of pi; atanh at ±1. */
+    EVAL1 ("atanh", 1.0);   PN_CHECK (isinf (out) && out > 0.0);
+    EVAL1 ("log",   0.0);   PN_CHECK (isinf (out) && out < 0.0);
+    EVAL1 ("cot",   0.0);   PN_CHECK (isinf (out) && out > 0.0);
+    EVAL1 ("csc",   0.0);   PN_CHECK (isinf (out) && out > 0.0);
+
+    /* `sec` is a quarter turn away from those two — and its pole is not
+     * reachable from a program, because pi/2 is not exactly
+     * representable: the answer is enormous rather than infinite, which
+     * is the honest thing to assert. */
+    EVAL1 ("sec", G_PI / 2.0);
+    PN_CHECK (isfinite (out) && fabs (out) > 1e15);
+
+#undef EVAL1
+
+    g_object_unref (s);
+}
+
+/* ---- Trigonometry, hyperbolics and the angle pair ---- */
+
+/* The rows TODO #83.3, #83.4, #83.5 and #83.6 add, checked where a
+ * mis-wired row would give a different answer rather than at 0 where
+ * several agree. */
+static void
+test_trig_and_hyperbolic_rows (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK1(name_, arg_, want_)                                      \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    /* Hyperbolics: the definitions, so a row pointing at the wrong libm
+     * function is caught. */
+    CHECK1 ("sinh", 1.0, (exp (1.0) - exp (-1.0)) / 2.0);
+    CHECK1 ("cosh", 1.0, (exp (1.0) + exp (-1.0)) / 2.0);
+    CHECK1 ("tanh", 1.0, sinh (1.0) / cosh (1.0));
+    CHECK1 ("cosh", 0.0, 1.0);          /* the catenary's lowest point */
+
+    /* Inverse hyperbolics, each against its own forward function. */
+    CHECK1 ("asinh", sinh (0.7), 0.7);
+    CHECK1 ("acosh", cosh (0.7), 0.7);
+    CHECK1 ("atanh", tanh (0.7), 0.7);
+
+    /* Reciprocal trig: each is the reciprocal it claims to be, at an
+     * angle where all three differ. */
+    CHECK1 ("cot", 0.7, cos (0.7) / sin (0.7));
+    CHECK1 ("sec", 0.7, 1.0 / cos (0.7));
+    CHECK1 ("csc", 0.7, 1.0 / sin (0.7));
+    CHECK1 ("cot", G_PI / 4.0, 1.0);
+
+    /* The angle pair, in both directions and round trip.  radians() is
+     * exactly what `angle * pi / 180` was, which is what two example
+     * worksheets were writing by hand. */
+    CHECK1 ("degrees", G_PI, 180.0);
+    CHECK1 ("degrees", G_PI / 2.0, 90.0);
+    CHECK1 ("radians", 180.0, G_PI);
+    CHECK1 ("radians", 90.0, G_PI / 2.0);
+    CHECK1 ("degrees", 0.0, 0.0);
+
+    {
+        PnExprNode a = num (37.0);
+        PnExprNode inner = call ("radians", &a);
+        PnExprNode outer = call ("degrees", &inner);
+        PN_CHECK (pn_var_store_evaluate (s, &outer, &out, NULL));
+        PN_CHECK_NEAR (out, 37.0, 1e-12);
+    }
+
+#undef CHECK1
+
+    g_object_unref (s);
+}
+
 /* ---- Three arguments and a ranged arity (TODO #83.1, #83.2) ---- */
 
 /* `clamp` is the first three-argument function and the specimen for the
@@ -1184,6 +1290,8 @@ main (int argc, char **argv)
     pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
     pn_test_add ("value_to_string",    test_value_to_string);
     pn_test_add ("builtin_functions",  test_builtin_functions);
+    pn_test_add ("domain_policy",      test_domain_policy);
+    pn_test_add ("trig_hyperbolic",    test_trig_and_hyperbolic_rows);
     pn_test_add ("arity_three_range",  test_arity_three_and_range);
     pn_test_add ("vector_fn_3arg",     test_vector_three_argument_function);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);

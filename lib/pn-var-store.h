@@ -215,10 +215,13 @@ void pn_var_store_clear (PnVarStore *self);
  *
  * Recursively walks @node, resolving variables against @self and
  * dispatching function calls to the C math library: one-argument sin,
- * cos, tan, asin, acos, atan, log10, exp, sqrt, abs, floor, ceil,
+ * cos, tan, asin, acos, atan, cot, sec, csc, degrees, radians, sinh,
+ * cosh, tanh, asinh, acosh, atanh, log10, exp, sqrt, abs, floor, ceil,
  * round, trunc and sign; two-argument atan2(y, x), min, max, pow and
  * hypot; three-argument clamp(x, lo, hi); and log(x[, base]), whose
- * arity is a RANGE.  Where a name is also C's, C's semantics stand:
+ * arity is a RANGE.  An undefined result is a VALUE and not an error
+ * (TODO #83.18): sqrt(-1) and acosh(0) are NaN, log(0) and cot(0) are
+ * infinite, and each evaluates successfully and travels on.  Where a name is also C's, C's semantics stand:
  * round() takes halves AWAY from zero and min/max are fmin/fmax, which
  * skip a NaN operand.  sign() and clamp() are the two written here —
  * sign is 0 for either zero and NaN for NaN, and clamp returns lo when

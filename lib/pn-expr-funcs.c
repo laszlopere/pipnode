@@ -21,6 +21,49 @@
 
 #include <math.h>
 
+/* THE RECIPROCAL TRIG THREE (TODO #83.5).  None is in libm under that
+ * name, so each is the single division it is — written out the way
+ * `sign` is, rather than special-cased.  Their POLES are documented and
+ * not defended against: cot and csc blow up at every multiple of pi
+ * (cot(0) is +inf), sec a quarter turn away at pi/2 and every pi after
+ * it.  An infinity is a value here (see THE NaN AND DOMAIN POLICY
+ * below), so a pole travels down the wire like any other number. */
+static gdouble
+expr_cot (gdouble x)
+{
+    return cos (x) / sin (x);
+}
+
+static gdouble
+expr_sec (gdouble x)
+{
+    return 1.0 / cos (x);
+}
+
+static gdouble
+expr_csc (gdouble x)
+{
+    return 1.0 / sin (x);
+}
+
+/* `degrees` and `radians` (TODO #83.6) — the least mathematical rows in
+ * the table and among the most useful.  Every trig function here takes
+ * radians while every knob, dial and compass bearing a worksheet carries
+ * is in degrees, which is why two example sheets had a hand-written
+ * 0.017453293 in them until #81 gave them `pi` and this gives them the
+ * name they meant. */
+static gdouble
+expr_degrees (gdouble x)
+{
+    return x * (180.0 / G_PI);
+}
+
+static gdouble
+expr_radians (gdouble x)
+{
+    return x * (G_PI / 180.0);
+}
+
 /* `log(x)` is the natural logarithm and `log(x, base)` is
  * log(x)/log(base) — the first name in the language whose arity is a
  * RANGE rather than a number (TODO #83.2/#83.7).  Written as one row
@@ -110,7 +153,26 @@ expr_sign (gdouble x)
  * fixed three or more, PN_EXPR_FNR for an arity RANGE (TODO #83.2).
  * `clamp` and `log(x[, base])` are the specimens that exercise those
  * last two paths end to end — the chain, the range and the N-operand
- * broadcast — the way `atan2` was #81's specimen for the comma. */
+ * broadcast — the way `atan2` was #81's specimen for the comma.
+ *
+ * THE NaN AND DOMAIN POLICY, settled once for the whole table rather
+ * than row by row (TODO #83.18), because this is where most rows first
+ * have a domain — acosh below 1, atanh outside (-1, 1), log at and
+ * below 0, the reciprocal trig poles, sqrt of a negative:
+ *
+ *   A result mathematics does not define is a VALUE, not an error.
+ *   sqrt(-1), acosh(0) and atanh(2) are NaN; log(0), cot(0) and
+ *   csc(0) are infinite; and each travels down the wire like any
+ *   other number, exactly as `1 / 0` already did before this entry.
+ *   NOTHING in this table raises.
+ *
+ * What may raise, when those rows land, is an argument wrong in KIND
+ * rather than out of range — factorial(-1), factorial(1.5),
+ * gcd(1.5, 2) (83.14).  The test is whether the question has an answer
+ * this language can carry: "the square root of -1" has one, and NaN is
+ * how a double says it; "the factorial of a half" has none, because
+ * that is a different function.  A program tests for the first kind
+ * with isnan/isfinite (83.12) and is stopped by the second. */
 static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN1 ("sin",   sin),
     PN_EXPR_FN1 ("cos",   cos),
@@ -118,6 +180,17 @@ static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN1 ("asin",  asin),
     PN_EXPR_FN1 ("acos",  acos),
     PN_EXPR_FN1 ("atan",  atan),
+    PN_EXPR_FN1 ("cot",   expr_cot),
+    PN_EXPR_FN1 ("sec",   expr_sec),
+    PN_EXPR_FN1 ("csc",   expr_csc),
+    PN_EXPR_FN1 ("degrees", expr_degrees),
+    PN_EXPR_FN1 ("radians", expr_radians),
+    PN_EXPR_FN1 ("sinh",  sinh),
+    PN_EXPR_FN1 ("cosh",  cosh),
+    PN_EXPR_FN1 ("tanh",  tanh),
+    PN_EXPR_FN1 ("asinh", asinh),
+    PN_EXPR_FN1 ("acosh", acosh),
+    PN_EXPR_FN1 ("atanh", atanh),
     PN_EXPR_FNR ("log",   1, 2, expr_log),
     PN_EXPR_FN1 ("log10", log10),
     PN_EXPR_FN1 ("exp",   exp),

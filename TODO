@@ -3340,6 +3340,16 @@
        continues: `clamp` is 83.11(b) and `log(x, base)` is one of
        83.7's six, both landed early and marked there.
 
+       THE POLICY AND THE ANGLE FAMILY FOLLOWED (2026-09-22): 83.18
+       settled first, on paper and in one paragraph, because every row
+       with a domain obeys it -- then 83.3, 83.4, 83.5 and 83.6, which
+       is eleven names and not one line of machinery. THIRTY-THREE
+       functions in the table now. The help pages' flat list broke at
+       that size, which 83.24 predicted, so the GROUPING it asks for
+       landed with them: trigonometry, angles, hyperbolic, powers and
+       logarithms, rounding and sign, choosing and bounding. Whoever
+       adds the next row adds it to a heading, not to a paragraph.
+
        [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
              appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
              this argument, .right = the next -- so a call of any arity
@@ -3403,33 +3413,48 @@
                  One argument is the natural log, two is
                  log(x)/log(base), one row, dispatching on the count.
 
-       [ ] 83.3 HYPERBOLICS -- `sinh`, `cosh`, `tanh`. Three rows,
-             three libm functions, no domain and no decision. 81.1
-             held them back with "until something asks for them" and
-             the catenary is what asks: a hanging cable is cosh and
-             nothing else, and it is exactly the kind of plate the
-             Figure node exists to draw.
-       [ ] 83.4 INVERSE HYPERBOLICS -- `asinh`, `acosh`, `atanh`. Also
-             libm, but unlike 83.3 they have DOMAINS: acosh wants
-             x >= 1, atanh wants |x| < 1, and outside them libm
-             returns NaN rather than raising. Whatever 83.18 decides
-             applies here first.
-       [ ] 83.5 RECIPROCAL TRIG -- `cot`, `sec`, `csc`. Abacus carries
-             only cot; the other two are added anyway because a set of
-             three missing one member is a puzzle, and each is a
-             single division. None is in libm under that name, so all
-             three are written the way `sign` is in 81.11, with the
-             poles documented rather than special-cased: cot at every
-             multiple of pi (including 0), sec and csc a quarter turn
-             apart from each other.
-       [ ] 83.6 `degrees` and `radians` -- the two most USEFUL names in
-             the entry and the least mathematical. Every trig function
-             here takes radians while every knob, dial and compass
-             bearing a worksheet carries is in degrees, which is why
-             81.10 found TWO examples with a hand-written 0.017453293
-             in them. With `pi` those became `angle * pi / 180`; with
-             this they become `radians(angle)`, which is what they
-             meant. Expect a third sweep of examples/ when it lands.
+       [x] 83.3 DONE (2026-09-22): HYPERBOLICS -- `sinh`, `cosh`,
+             `tanh`. Three rows, three libm functions, no domain and no
+             decision, exactly as written. 81.1 held them back with
+             "until something asks for them" and the catenary is what
+             asked: a hanging cable is cosh and nothing else, and it is
+             exactly the kind of plate the Figure node exists to draw.
+             Asserted against their definitions -- (e^x - e^-x)/2 and
+             so on -- rather than at 0, where all three agree and a
+             mis-wired row would pass.
+       [x] 83.4 DONE (2026-09-22): INVERSE HYPERBOLICS -- `asinh`,
+             `acosh`, `atanh`. Also libm, and the first rows to need
+             83.18: acosh below 1 and atanh outside (-1, 1) are NaN,
+             atanh AT 1 is +inf, and all three evaluate SUCCESSFULLY --
+             the policy applied here first, as this entry predicted.
+             Each is checked against its own forward function
+             (asinh(sinh(0.7)) == 0.7), which is the assertion that
+             catches a row pointing at the wrong libm name.
+       [x] 83.5 DONE (2026-09-22): RECIPROCAL TRIG -- `cot`, `sec`,
+             `csc`, written out the way `sign` is because none is in
+             libm under that name: cos/sin, 1/cos, 1/sin. The POLES are
+             documented and not special-cased, per this entry and
+             83.18: cot and csc are +inf at 0 and infinite at every
+             multiple of pi, sec a quarter turn away.
+             ONE THING WORTH KNOWING, found by writing the test rather
+             than by thinking about it: sec's pole is NOT REACHABLE
+             from a program, because pi/2 is not exactly representable
+             as a double -- sec(pi/2) is about 1.6e16, enormous but
+             finite. The test asserts that rather than an infinity,
+             which is the honest thing to pin and a reminder that a
+             pole in a floating-point language is a cliff, not a wall.
+       [x] 83.6 DONE (2026-09-22): `degrees` and `radians` -- the two
+             most USEFUL names in the entry and the least mathematical.
+             Every trig function takes radians while every knob, dial
+             and compass bearing a worksheet carries is in degrees,
+             which is why 81.10 found TWO examples with a hand-written
+             0.017453293 in them. THE THIRD SWEEP of examples/ is done
+             and it was one line: examples/Compute/projectile.json's
+             `rad = angle * pi / 180` -- already improved once by
+             81.10(b) -- now reads `rad = radians(angle)`, which is
+             what it meant both times. lissajous.json's other constant
+             is pi/2, a quarter turn and not a conversion, so it stays
+             as it is; nothing else in examples/ converts an angle.
        [ ] 83.7 THE OTHER LOGARITHMS AND EXPONENTIALS -- `ln`, `log2`,
              `log(x, base)`, `exp2`, `expm1`, `log1p`. Six rows and
              one trap: the language's `log` IS the natural log
@@ -3596,20 +3621,34 @@
              with an empty argument list is something 81.3(c)
              explicitly made an error -- so it is a grammar change,
              not a row.
-       [ ] 83.18 THE NaN AND DOMAIN POLICY, settled ONCE for the whole
-             batch rather than row by row, because this is the first
-             batch where most rows have a domain: acosh, atanh, log's
-             non-positive arguments, the reciprocal trig poles,
-             factorial's negatives, gcd's fractions, sinc's zero.
-             The language today lets sqrt(-1) evaluate to NaN and pass
-             down the wire, so the conservative answer is that libm's
-             NaN stays NaN and nothing new raises -- but
-             factorial(-1) and gcd(1.5, 2) are ARGUMENT errors rather
-             than mathematical ones and probably should fail loudly.
-             Decide, write it in ONE paragraph of the help, and make
-             every row obey it. Anything that does raise must use the
-             existing error path so the node lights up the way a parse
-             error does (pn_node_set_has_error).
+       [x] 83.18 DONE (2026-09-22): THE NaN AND DOMAIN POLICY, settled
+             ONCE for the whole batch and BEFORE the rows that need it,
+             which is what this entry asked for. The rule, in the one
+             paragraph it asked for and now written in both help pages,
+             the table's own comment and pn-var-store.h:
+               A RESULT MATHEMATICS DOES NOT DEFINE IS A VALUE, NOT AN
+               ERROR. sqrt(-1), acosh(0), atanh(2) and asin(2) are NaN;
+               log(0), cot(0) and csc(0) are infinite; each evaluates
+               SUCCESSFULLY and travels on down the wire, exactly as
+               `1 / 0` already did before this entry. Nothing in the
+               table raises.
+             The reason is the Figure node's reason: a gap in one
+             sample of a curve must not take the whole plate down with
+             it -- and 79.6's removable singularities are the same
+             argument from the other side.
+             WHAT MAY STILL RAISE, when those rows land, is an argument
+             wrong in KIND rather than out of range -- factorial(-1),
+             factorial(1.5), gcd(1.5, 2) (83.14). The test to apply
+             there: does the question have an answer this language can
+             carry? "The square root of -1" has one, and NaN is how a
+             double says "not a real number"; "the factorial of a half"
+             has none, because that is a different function. Anything
+             that does raise uses the existing error path so the node
+             lights up the way a parse error does.
+             Pinned by domain_policy in test-pn-var-store.c -- eight
+             undefined results asserted to be NaN or infinite AND to
+             evaluate without an error -- so the policy cannot drift
+             into a raise by accident.
        [x] 83.19 DONE (2026-09-22): THE VECTOR RULE, generalised and
              still structural. zip_value() became zipn_value() over N
              operands and map_value()/map2_value() were DELETED as
@@ -3714,7 +3753,15 @@
              policy that drifts. Headless, pntest.h,
              ./run-unit-tests.sh green.
        [ ] 83.24 HELP, and 81.9 already counted the places the function
-             list is written down: data/help/PnExpression.html and
+             list is written down -- PARTLY DONE (2026-09-22): the
+             GROUPING this entry asks for is in both node help pages
+             already, because the flat list stopped being readable at
+             thirty-three names, and the NaN paragraph from 83.18 is
+             written beneath it. What is left here is a heading for
+             each group still to come and the other two paragraphs
+             (83.20's scalar-condition limitation on `if`, and the
+             `^`-is-XOR trap, which is already in the powers group).
+             The places: data/help/PnExpression.html and
              PnExpression2.html (the list AND the vector section in
              each), the grammar paragraph on pn_expr_parser_parse in
              pn-expr-parser.h, and pn-var-store.h. PnFigure.html --

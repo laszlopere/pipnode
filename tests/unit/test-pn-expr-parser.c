@@ -196,6 +196,23 @@ test_all_builtin_functions (void)
     check_fn (p, vars, seen, "sign(0)",     0.0);
     check_fn (p, vars, seen, "sign(2)",     1.0);
 
+    /* TODO #83.3/83.4/83.5/83.6.  The hyperbolics at 0, where each has a
+     * different answer, so a mis-wired row cannot hide; the inverse
+     * three against their own forward function; the reciprocal three a
+     * quarter turn apart; and the two angle conversions, which are the
+     * rows a worksheet reaches for most. */
+    check_fn (p, vars, seen, "sinh(0)",      0.0);
+    check_fn (p, vars, seen, "cosh(0)",      1.0);
+    check_fn (p, vars, seen, "tanh(0)",      0.0);
+    check_fn (p, vars, seen, "asinh(sinh(1))", 1.0);
+    check_fn (p, vars, seen, "acosh(1)",     0.0);
+    check_fn (p, vars, seen, "atanh(0)",     0.0);
+    check_fn (p, vars, seen, "cot(pi / 4)",  1.0);
+    check_fn (p, vars, seen, "sec(0)",       1.0);
+    check_fn (p, vars, seen, "csc(pi / 2)",  1.0);
+    check_fn (p, vars, seen, "degrees(pi)",  180.0);
+    check_fn (p, vars, seen, "radians(180)", G_PI);
+
     /* The two-argument entries (TODO #81.1): atan2(1,1) is pi/4. */
     check_fn (p, vars, seen, "atan2(1, 1)", G_PI / 4.0);
     check_fn (p, vars, seen, "min(2, 3)",   2.0);
