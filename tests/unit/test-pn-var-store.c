@@ -1326,6 +1326,189 @@ test_arity_three_and_range (void)
     g_object_unref (s);
 }
 
+/* ---- Selection and shaping (TODO #83.11) ---- */
+
+/* The four rows the argument chain was built for.  `if` carries the
+ * assertion that matters most in the whole entry: it SELECTS rather than
+ * weighs, so a NaN in the arm nobody chose cannot poison the answer. */
+static void
+test_selection_rows (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK3(name_, x_, y_, z_, want_)                                \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_), z__ = num (z_);     \
+        CallN       st_;                                                \
+        PnExprNode *c_ = call3 (&st_, name_, &x__, &y__, &z__);         \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK2(name_, x_, y_, want_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_ = call2 (&st_, name_, &x__, &y__);               \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    /* THE ONE THAT MATTERS (83.11a): a NaN in the unchosen arm does not
+     * reach the answer.  Under the arithmetic spelling
+     * cond*a + (1-cond)*b this is NaN; under a select it is 1. */
+    {
+        PnExprNode  zero = num (0.0), neg = num (-1.0), one = num (1.0);
+        PnExprNode  bad  = call ("sqrt", &neg);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "if", &zero, &bad, &one);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK_NEAR (out, 1.0, 1e-12);
+        PN_CHECK_FALSE (isnan (out));
+    }
+    /* …and the same the other way round, so the test is not passing by
+     * accident of which arm holds the NaN. */
+    {
+        PnExprNode  one = num (1.0), neg = num (-1.0), ten = num (10.0);
+        PnExprNode  bad = call ("sqrt", &neg);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "if", &one, &ten, &bad);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK_NEAR (out, 10.0, 1e-12);
+    }
+
+    /* Truth is NON-ZERO, zero is false. */
+    CHECK3 ("if",  1.0, 2.0, 3.0, 2.0);
+    CHECK3 ("if",  0.0, 2.0, 3.0, 3.0);
+    CHECK3 ("if", -1.0, 2.0, 3.0, 2.0);
+    CHECK3 ("if",  0.5, 2.0, 3.0, 2.0);
+
+    /* A NaN condition is a question with no answer, so neither has the
+     * choice.  (A COMPARISON of a NaN is plain false, so it takes
+     * writing `if(v, …)` with a NaN v to get here.) */
+    {
+        PnExprNode  c1 = num (NAN), a = num (2.0), b = num (3.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "if", &c1, &a, &b);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK (isnan (out));
+    }
+
+    /* lerp: the ends, the middle, and past the ends. */
+    CHECK3 ("lerp", 10.0, 20.0, 0.0,  10.0);
+    CHECK3 ("lerp", 10.0, 20.0, 0.5,  15.0);
+    CHECK3 ("lerp", 10.0, 20.0, 2.0,  30.0);   /* unclamped: extrapolates */
+    CHECK3 ("lerp", 10.0, 20.0, -1.0,  0.0);
+    /* t = 1 returns b EXACTLY, which is why the a + (b-a)*t spelling was
+     * chosen over (1-t)*a + t*b — the last frame is the one a reader
+     * checks.  Asserted with ==, not a tolerance. */
+    {
+        PnExprNode  a = num (0.1), b = num (0.3), t = num (1.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "lerp", &a, &b, &t);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK (out == 0.3);
+    }
+
+    /* step: 0 below the edge, 1 AT it and above — and it agrees with
+     * `x >= edge` for a NaN too, because it is that comparison named. */
+    CHECK2 ("step", 5.0, 4.9, 0.0);
+    CHECK2 ("step", 5.0, 5.0, 1.0);
+    CHECK2 ("step", 5.0, 5.1, 1.0);
+    CHECK2 ("step", 5.0, NAN, 0.0);
+
+    /* smoothstep: flat outside, S-shaped between, symmetric about the
+     * middle, and 0.5 at it. */
+    CHECK3 ("smoothstep", 0.0, 10.0, -1.0, 0.0);
+    CHECK3 ("smoothstep", 0.0, 10.0,  0.0, 0.0);
+    CHECK3 ("smoothstep", 0.0, 10.0,  5.0, 0.5);
+    CHECK3 ("smoothstep", 0.0, 10.0, 10.0, 1.0);
+    CHECK3 ("smoothstep", 0.0, 10.0, 11.0, 1.0);
+    CHECK3 ("smoothstep", 0.0, 10.0,  2.5, 0.15625);
+    CHECK3 ("smoothstep", 0.0, 10.0,  7.5, 1.0 - 0.15625);
+
+    /* EQUAL bounds are a ramp of zero width, which is a step. */
+    CHECK3 ("smoothstep", 5.0, 5.0, 4.9, 0.0);
+    CHECK3 ("smoothstep", 5.0, 5.0, 5.0, 1.0);
+    /* CROSSED bounds reverse the ramp, which falls out of the division
+     * and is worth keeping: 1 at and below hi, 0 at and above lo, and
+     * the same S-curve read backwards in between. */
+    CHECK3 ("smoothstep", 10.0, 0.0, -1.0, 1.0);
+    CHECK3 ("smoothstep", 10.0, 0.0,  0.0, 1.0);
+    CHECK3 ("smoothstep", 10.0, 0.0, 10.0, 0.0);
+    CHECK3 ("smoothstep", 10.0, 0.0, 11.0, 0.0);
+    CHECK3 ("smoothstep", 10.0, 0.0,  5.0, 0.5);
+    /* …and it mirrors the ascending one exactly: descending at 2.5 is
+     * ascending at 7.5. */
+    CHECK3 ("smoothstep", 10.0, 0.0,  2.5, 1.0 - 0.15625);
+
+#undef CHECK2
+#undef CHECK3
+
+    g_object_unref (s);
+}
+
+/* `if` over a vector, which is where 83.20's finding lives — and the
+ * finding is sharper than the entry expected.  What collapses a vector
+ * to a single 1.0/0.0 is a COMPARISON, not `if`: so `if(v > 0, …)`
+ * chooses ONCE for the whole vector, while a condition built by a
+ * function that MAPS — isfinite, step, sign — chooses per element. */
+static void
+test_if_over_a_vector (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     v[] = { -2.0, 5.0, -8.0 };
+
+    bind_vec (s, "v", v, 3);
+
+    /* Per element: isfinite/step/sign map, so the condition is a vector
+     * and each element picks its own arm. */
+    {
+        PnExprNode  zero = num (0.0), vv = var ("v"), hundred = num (100.0);
+        CallN       st_step, st_if;
+        PnExprNode *cond = call2 (&st_step, "step", &zero, &vv);
+        PnExprNode *c    = call3 (&st_if, "if", cond, &vv, &hundred);
+        gdouble     want[] = { 100.0, 5.0, 100.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* Once for the whole vector: a comparison reduces to one 1.0/0.0,
+     * true only when EVERY element passes — so this is the scalar gate
+     * 79.10's mask idiom always was, and the answer is a scalar. */
+    {
+        PnExprNode  vv = var ("v"), zero = num (0.0);
+        PnExprNode  cmp = binary ('>', &vv, &zero);
+        PnExprNode  one = num (1.0), two = num (2.0);
+        CallN       st;
+        PnExprNode *c = call3 (&st, "if", &cmp, &one, &two);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        PN_CHECK (out.vec == NULL);
+        PN_CHECK_NEAR (out.scalar, 2.0, 1e-12);   /* not every element > 0 */
+        pn_expr_value_clear (&out);
+    }
+
+    /* The arms may be vectors too, and lerp over a vector `t` is what
+     * TODO #82's animations will be written with. */
+    {
+        PnExprNode  a = num (0.0), b = num (10.0), tv = var ("t");
+        CallN       st;
+        PnExprNode *c;
+        gdouble     ts[] = { 0.0, 0.5, 1.0 };
+        gdouble     want[] = { 0.0, 5.0, 10.0 };
+        bind_vec (s, "t", ts, 3);
+        c = call3 (&st, "lerp", &a, &b, &tv);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
 /* The N-operand broadcast (TODO #83.19).  Three operands follow the same
  * rule two do — scalars broadcast, vectors are elementwise, the result
  * takes the LONGEST length — and where an operand has run out the first
@@ -1405,6 +1588,8 @@ main (int argc, char **argv)
     pn_test_add ("roots_and_special",  test_roots_remainders_and_special);
     pn_test_add ("trig_hyperbolic",    test_trig_and_hyperbolic_rows);
     pn_test_add ("arity_three_range",  test_arity_three_and_range);
+    pn_test_add ("selection_rows",     test_selection_rows);
+    pn_test_add ("if_over_a_vector",   test_if_over_a_vector);
     pn_test_add ("vector_fn_3arg",     test_vector_three_argument_function);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();

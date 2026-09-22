@@ -214,19 +214,32 @@ void pn_var_store_clear (PnVarStore *self);
  * @error:     (out) (optional): set on failure
  *
  * Recursively walks @node, resolving variables against @self and
- * dispatching function calls to the C math library: one-argument sin,
- * cos, tan, asin, acos, atan, cot, sec, csc, degrees, radians, sinh,
- * cosh, tanh, asinh, acosh, atanh, log10, ln, log2, log1p, exp, exp2,
- * expm1, sqrt, cbrt, abs, floor, ceil, round, trunc, sign, isnan,
- * isinf, isfinite, sinc, erf, erfc, j0 and j1; two-argument
- * atan2(y, x), min, max, pow, hypot, fmod and copysign; three-argument clamp(x, lo, hi); and log(x[, base]), whose
- * arity is a RANGE.  An undefined result is a VALUE and not an error
- * (TODO #83.18): sqrt(-1) and acosh(0) are NaN, log(0) and cot(0) are
- * infinite, and each evaluates successfully and travels on.  Where a name is also C's, C's semantics stand:
- * round() takes halves AWAY from zero and min/max are fmin/fmax, which
- * skip a NaN operand.  sign() and clamp() are the two written here —
- * sign is 0 for either zero and NaN for NaN, and clamp returns lo when
- * the bounds are crossed and passes a NaN value straight through.
+ * dispatching function calls through lib/pn-expr-funcs.c, which holds
+ * the whole table and is the only place a name is added:
+ *
+ *  - one argument: sin, cos, tan, asin, acos, atan, cot, sec, csc,
+ *    degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, ln,
+ *    log10, log2, log1p, exp, exp2, expm1, sqrt, cbrt, abs, floor,
+ *    ceil, round, trunc, sign, isnan, isinf, isfinite, sinc, erf,
+ *    erfc, j0, j1;
+ *  - two: atan2(y, x), min, max, pow, hypot, fmod, copysign,
+ *    step(edge, x);
+ *  - three: clamp(x, lo, hi), if(cond, a, b), lerp(a, b, t),
+ *    smoothstep(lo, hi, x);
+ *  - one OR two: log(x[, base]), the one row whose arity is a range.
+ *
+ * An undefined result is a VALUE and not an error (TODO #83.18):
+ * sqrt(-1) and acosh(0) are NaN, log(0) and cot(0) are infinite, and
+ * each evaluates successfully and travels on.  Where a name is also
+ * C's, C's semantics stand: round() takes halves AWAY from zero and
+ * min/max are fmin/fmax, which skip a NaN operand.  The written-here
+ * rows state their own edges: sign() is 0 for either zero and NaN for
+ * NaN; clamp() returns lo when the bounds are crossed and passes a NaN
+ * value through; if() SELECTS an arm rather than weighing both, so a
+ * NaN in the arm not chosen cannot reach the result, and its condition
+ * chooses per element only when it is a VECTOR — which a comparison
+ * never is (TODO #83.20).
+ *
  * A name not bound in @self falls back to
  * the language's constants, `pi` and `e`, so a binding of that name
  * SHADOWS the constant and clearing the store cannot lose one.

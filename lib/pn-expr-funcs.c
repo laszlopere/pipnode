@@ -64,6 +64,85 @@ expr_radians (gdouble x)
     return x * (G_PI / 180.0);
 }
 
+/* SELECTION AND SHAPING (TODO #83.11) — the four rows the argument
+ * chain was built for.  A two-argument language cannot express a
+ * CHOICE, and a drawing language that cannot choose is a straitjacket.
+ *
+ * `if(cond, a, b)` is a TRUE SELECT: it returns one arm, it does not
+ * weigh them.  The obvious arithmetic spelling, cond*a + (1-cond)*b, is
+ * WRONG here and that is the whole point of the row — a NaN or an
+ * infinity in the arm nobody chose would poison the answer, so
+ * `if(0, sqrt(-1), 1)` has to be 1 and under the multiplication it is
+ * NaN.  (Both arms are still evaluated: this language has no
+ * short-circuit and 83.18 means evaluating one cannot fail anyway.)
+ *
+ * Truth is NON-ZERO, the way C reads it, and zero is false.  A NaN
+ * condition answers NaN: the question itself had no answer, so neither
+ * does the choice — and note that it takes writing `if(v, …)` with a
+ * NaN v to get there, because a COMPARISON of a NaN is plain false. */
+static gdouble
+expr_if (const gdouble *a, gint n)
+{
+    (void) n;
+
+    if (isnan (a[0]))
+        return a[0];
+
+    return (a[0] != 0.0) ? a[1] : a[2];
+}
+
+/* `lerp(a, b, t)` = a + (b - a) * t, the straight line between two
+ * numbers.  Written in THAT spelling and not (1-t)*a + t*b, so that
+ * lerp(a, b, 1) returns b EXACTLY rather than to within a rounding
+ * error — which matters because the last frame of an animation is the
+ * one a reader checks.  Unclamped on purpose: t outside [0, 1]
+ * extrapolates along the same line, which is what an overshooting ease
+ * wants. */
+static gdouble
+expr_lerp (const gdouble *a, gint n)
+{
+    (void) n;
+
+    return a[0] + (a[1] - a[0]) * a[2];
+}
+
+/* `step(edge, x)` — 0 below the edge, 1 at or above it: the mask idiom
+ * given a name.  It answers exactly what `x >= edge` answers, including
+ * for a NaN x (false, so 0), because it IS that comparison under a name
+ * and the two must not disagree. */
+static gdouble
+expr_step (gdouble edge, gdouble x)
+{
+    return (x >= edge) ? 1.0 : 0.0;
+}
+
+/* `smoothstep(lo, hi, x)` — step's eased twin: 0 below lo, 1 above hi,
+ * and the classic 3t^2 - 2t^3 S-curve between, which leaves the ends
+ * flat (its slope is 0 at both).
+ *
+ * Two edge cases decided rather than left to fall out:
+ *  - EQUAL BOUNDS would be 0/0.  A ramp of zero width IS a step, so
+ *    that is what it degenerates to, rather than a NaN.
+ *  - CROSSED BOUNDS (hi < lo) reverse the ramp — 1 below lo, 0 above —
+ *    which falls out of the division and is useful enough to keep and
+ *    document rather than reject. */
+static gdouble
+expr_smoothstep (const gdouble *a, gint n)
+{
+    const gdouble lo = a[0], hi = a[1], x = a[2];
+    gdouble       t;
+
+    (void) n;
+
+    if (hi == lo)
+        return (x < lo) ? 0.0 : 1.0;
+
+    t = (x - lo) / (hi - lo);
+    t = (t < 0.0) ? 0.0 : (t > 1.0) ? 1.0 : t;
+
+    return t * t * (3.0 - 2.0 * t);
+}
+
 /* THE CLASSIFICATION THREE (TODO #83.12).  C's isnan/isinf/isfinite are
  * MACROS, so there is no address to put in a row, and each needs the
  * one-line wrapper below anyway to answer in the language's own 1.0/0.0
@@ -267,6 +346,10 @@ static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN2 ("fmod",  fmod),
     PN_EXPR_FN2 ("copysign", copysign),
     PN_EXPR_FNN ("clamp", 3, expr_clamp),
+    PN_EXPR_FNN ("if",    3, expr_if),
+    PN_EXPR_FNN ("lerp",  3, expr_lerp),
+    PN_EXPR_FN2 ("step",  expr_step),
+    PN_EXPR_FNN ("smoothstep", 3, expr_smoothstep),
 };
 
 /* The named constants.  Two, and both of them are here because writing

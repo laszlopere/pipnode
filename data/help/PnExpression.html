@@ -171,6 +171,25 @@ convert a Celsius reading to Fahrenheit.
       (<code>hi</code> below <code>lo</code>) the lower one wins, and a
       <code>nan</code> value stays <code>nan</code> rather than becoming
       a bound.</li>
+  <li><strong>Functions &mdash; choosing, shaping and easing:</strong>
+      <code>if(cond,&nbsp;a,&nbsp;b)</code> &mdash; <em>a</em> when
+      <code>cond</code> is anything but zero, <em>b</em> when it is zero
+      (see below); <code>lerp(a,&nbsp;b,&nbsp;t)</code> &mdash; the
+      straight line between two numbers,
+      <code>a&nbsp;+&nbsp;(b&nbsp;-&nbsp;a)&nbsp;*&nbsp;t</code>, so
+      <code>t&nbsp;=&nbsp;0</code> gives <em>a</em> and
+      <code>t&nbsp;=&nbsp;1</code> gives <em>b</em> exactly, and a
+      <code>t</code> outside that range carries on along the same line;
+      <code>step(edge,&nbsp;x)</code> &mdash; <code>0</code> below the
+      edge and <code>1</code> at or above it, which is
+      <code>x&nbsp;&gt;=&nbsp;edge</code> under a name; and
+      <code>smoothstep(lo,&nbsp;hi,&nbsp;x)</code> &mdash; step&rsquo;s
+      eased twin, flat at <code>0</code> below <code>lo</code>, flat at
+      <code>1</code> above <code>hi</code>, and an S-curve between whose
+      slope is zero at both ends. Bounds the same way round are a ramp of
+      no width, so <code>smoothstep</code> becomes <code>step</code>;
+      bounds the other way round run the ramp backwards, which is a
+      handy way to fade something out.</li>
   <li><strong>Arguments</strong> are separated by commas, and a call
       with the wrong number of them is reported straight away, as a
       mistake in the expression &mdash; saying what the function
@@ -181,6 +200,33 @@ convert a Celsius reading to Fahrenheit.
       <code>pi</code> is used in preference, so nothing you bind can
       clash with them.</li>
 </ul>
+
+<p>
+<strong>Choosing with <code>if</code>.</strong> It picks an arm, it does
+not weigh them: <code>if(0,&nbsp;sqrt(-1),&nbsp;1)</code> is
+<code>1</code>, where the multiplication trick this replaces &mdash;
+<code>cond&nbsp;*&nbsp;a&nbsp;+&nbsp;(1&nbsp;-&nbsp;cond)&nbsp;*&nbsp;b</code>
+&mdash; would give <code>nan</code>, because the arm nobody chose still
+gets multiplied in. Zero is false and any other number is true, so a
+comparison (<code>1.0</code>/<code>0.0</code>) drops straight in; a
+<code>nan</code> condition gives <code>nan</code>, since a question with
+no answer cannot pick an arm either.
+</p>
+<p>
+<strong>One thing to know about <code>if</code> and vectors.</strong> A
+<em>comparison</em> collapses a vector to a single
+<code>1.0</code>/<code>0.0</code> &mdash; true only when every element
+passes &mdash; so <code>if(arr&nbsp;&gt;&nbsp;0,&nbsp;a,&nbsp;b)</code>
+chooses <em>once for the whole vector</em>, not element by element. A
+condition built from a <em>function</em> behaves differently, because
+functions map: <code>step(0,&nbsp;arr)</code>,
+<code>isfinite(arr)</code> and <code>sign(arr)</code> each give a vector
+of <code>1</code>s and <code>0</code>s, and
+<code>if(isfinite(arr),&nbsp;arr,&nbsp;0)</code> therefore does choose
+per element. If you want a per-element decision, build the condition
+with a function rather than with <code>&lt;</code> or
+<code>&gt;</code>.
+</p>
 
 <p>
 <strong>When there is no answer.</strong> A result mathematics does not

@@ -248,6 +248,14 @@ test_all_builtin_functions (void)
      * of its forms — one argument is the natural log, two is the log to
      * that base, and both come from one table row. */
     check_fn (p, vars, seen, "clamp(42, 0, 10)", 10.0);
+
+    /* TODO #83.11: selection and shaping.  `if` is checked with a NaN
+     * in the arm it does NOT choose, which is the one assertion that
+     * separates a select from cond*a + (1-cond)*b. */
+    check_fn (p, vars, seen, "if(0, sqrt(-1), 1)",     1.0);
+    check_fn (p, vars, seen, "lerp(10, 20, 0.25)",     12.5);
+    check_fn (p, vars, seen, "step(5, 5)",             1.0);
+    check_fn (p, vars, seen, "smoothstep(0, 10, 5)",   0.5);
     check_fn (p, vars, seen, "log(8, 2)",        3.0);
 
     /* Why `pow` is in the table: `^` is bitwise XOR in this language
@@ -681,6 +689,16 @@ test_call_arity (void)
         g_clear_error (&err);
         pn_expr_node_free (ast);
     }
+
+    /* A function name is not a reserved word: a data-bag member called
+     * `if` still reads as a variable, because it is the '(' that makes
+     * a call.  Worth pinning now that the language has a name people
+     * also use as a keyword. */
+    pn_var_store_set (vars, "if", 7.0);
+    PN_CHECK_NEAR (parse_eval (p, vars, "if + 1", &ok), 8.0, 1e-9);
+    PN_CHECK (ok);
+    PN_CHECK_NEAR (parse_eval (p, vars, "if(1, 2, 3)", &ok), 2.0, 1e-9);
+    PN_CHECK (ok);
 
     /* A comma outside a call's parentheses is not an operator. */
     check_parse_error (p, "1, 2",       PN_EXPR_PARSER_ERROR_UNEXPECTED_TOKEN);

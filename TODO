@@ -3353,11 +3353,15 @@
        Whoever adds the next row adds it to a heading, not to a
        paragraph.
 
+       THE CHAIN'S PAYLOAD LANDED (2026-09-22): 83.11 -- `if`, `lerp`,
+       `step`, `smoothstep` beside the `clamp` that came early -- and
+       83.20 with it, sharper than expected (the vector collapse is the
+       COMPARISON's, not `if`'s, so `if(isfinite(v), v, 0)` does choose
+       per element). FIFTY-THREE functions.
+
        WHAT IS LEFT: 83.9 (the rounding family, 83.2's other customer),
-       83.11 minus `clamp` (`if`, `lerp`, `step`, `smoothstep` -- the
-       rows the chain was built for), 83.14, 83.15, 83.16, the decision
-       in 83.17, and the recording entries 83.20, 83.21, 83.22, plus
-       the running tests and help.
+       83.14, 83.15, 83.16, the decision in 83.17, and the recording
+       entries 83.21 and 83.22, plus the running tests and help.
 
        [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
              appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
@@ -3516,19 +3520,27 @@
              test case so the difference is visible in one place.
              `copysign(x, y)` gives x the sign of y, which is how a
              figure says "the same direction as" without a comparison.
-       [ ] 83.11 SELECTION AND SHAPING -- the five rows that need
-             83.1's chain and the reason it is worth building:
-             `if(cond, a, b)`, `clamp(x, lo, hi)`, `lerp(a, b, t)`,
-             `step(edge, x)`, `smoothstep(lo, hi, x)`.
-             (a) `if` is the one that changes the language. Today a
-                 choice is written as 79.10's mask idiom, a
-                 multiplication by a 1.0/0.0 comparison, and every
-                 worksheet that needs one re-derives it. IMPLEMENT IT
-                 AS A TRUE SELECT -- evaluate both arms, return one --
-                 and NOT as cond*a + (1-cond)*b, or a NaN in the arm
-                 nobody chose poisons the result. That distinction is
-                 the entire value of the row; test it directly with
-                 if(0, sqrt(-1), 1) == 1.
+       [x] 83.11 DONE (2026-09-22): SELECTION AND SHAPING -- the five
+             rows that need 83.1's chain and the reason it was worth
+             building: `if(cond, a, b)`, `clamp(x, lo, hi)`,
+             `lerp(a, b, t)`, `step(edge, x)`, `smoothstep(lo, hi, x)`.
+             A two-argument language cannot express a CHOICE; now it
+             can.
+             (a) `if` IS A TRUE SELECT, as this entry insisted -- it
+                 returns an arm rather than weighing both, so the
+                 assertion that matters is `if(0, sqrt(-1), 1)` == 1,
+                 where cond*a + (1-cond)*b gives NaN. Tested in BOTH
+                 directions, so it cannot pass by accident of which arm
+                 holds the NaN. (Both arms are still EVALUATED: the
+                 language has no short-circuit, and after 83.18
+                 evaluating one cannot fail anyway -- what `if` avoids
+                 is the arithmetic, not the work.)
+                 DECIDED while building: truth is NON-ZERO and zero is
+                 false, the way C reads it, so a comparison's
+                 1.0/0.0 drops straight in; and a NaN CONDITION gives
+                 NaN, because a question with no answer cannot pick an
+                 arm either. It takes writing `if(v, ...)` with a NaN v
+                 to reach that -- a comparison of a NaN is plain false.
              (b) DONE (2026-09-22), early, as 83.1's specimen: the
                  chain needed a three-argument row to be judged on, and
                  `clamp` was the one with no open questions of its own.
@@ -3540,24 +3552,32 @@
                  VALUE passes through as NaN rather than becoming a
                  bound -- which the fmin/fmax spelling would have done
                  silently, the same mistake `sign` refuses in 81.11.
-                 Both pinned in test-pn-var-store.c and written into
-                 both help pages. The other four rows here -- `if`,
-                 `lerp`, `step`, `smoothstep` -- are untouched, and
-                 `if` still wants 83.20's finding in its help before it
-                 is built.
-             (c) `lerp(a, b, t)` = a + (b-a)*t, the straight line
-                 between two numbers. #82 is ENTIRELY about animating
-                 between values, and with `t` already bound as a
-                 vector over [0, 1] (82.5) a whole animation becomes
-                 lerp(start, end, t) on one line. Use the a + (b-a)*t
-                 spelling rather than (1-t)*a + t*b so that lerp with
-                 t = 1 returns b exactly.
+             (c) `lerp(a, b, t)` = a + (b-a)*t, in THAT spelling and
+                 not (1-t)*a + t*b, so lerp(a, b, 1) returns b EXACTLY
+                 -- asserted with `==` and not a tolerance, because the
+                 last frame of an animation is the one a reader checks.
+                 Unclamped on purpose: a t outside [0, 1] carries on
+                 along the same line, which is what an overshooting
+                 ease wants. #82 can now write a whole animation as
+                 lerp(start, end, t) once `t` is a vector (82.5), and
+                 the test binds a vector t to prove it.
              (d) `step(edge, x)` is 0 below the edge and 1 at or above
-                 it -- the mask idiom given a name -- and
-                 `smoothstep(lo, hi, x)` is its eased twin, the
-                 classic 3t^2-2t^3 with the ends clamped. Together
-                 with (c) they are the easing vocabulary #82's
-                 animations will otherwise hand-roll.
+                 it. It IS `x >= edge` under a name, so it answers the
+                 same for a NaN x (false, hence 0) -- the two must not
+                 disagree, and the test says so.
+                 `smoothstep(lo, hi, x)` is the classic 3t^2-2t^3 with
+                 the ends clamped, and two edges decided rather than
+                 left to fall out: EQUAL bounds are a ramp of zero
+                 width, which is a step, not a 0/0 NaN; CROSSED bounds
+                 run the ramp BACKWARDS, which falls out of the
+                 division, mirrors the ascending curve exactly (tested)
+                 and is useful enough to document rather than reject.
+             (e) A FINDING NOBODY ASKED FOR: `if` is not a reserved
+                 word. A data-bag member called `if` still reads as a
+                 variable, because it is the '(' that makes a call --
+                 `if + 1` and `if(1, 2, 3)` both work, in the same
+                 program. Pinned in test-pn-expr-parser.c, because it
+                 is the kind of thing that breaks quietly later.
        [x] 83.12 DONE (2026-09-22): CLASSIFICATION -- `isnan`,
              `isinf`, `isfinite`, answering in the language's own
              1.0/0.0. The rows that make 83.18 usable rather than
@@ -3686,18 +3706,29 @@
              against nothing. Pinned by vector_fn_3arg, and written
              into both help pages' vector sections.
 
-       [ ] 83.20 A FINDING TO RECORD BEFORE `if` IS BUILT, because it
-             limits what 83.11(a) can promise: a COMPARISON in this
-             language collapses a vector to a single 1.0/0.0 -- true
-             only when every element passes, as both help pages state
-             -- so `if(v > 0, a, b)` has a SCALAR condition and
-             chooses once for the whole vector, not per element.
-             That is also why 79.10's mask idiom is a scalar gate
-             rather than a mask. Per-element selection would need an
-             elementwise comparison, which is a language change and a
-             separate entry; for now write the limitation into `if`'s
-             help paragraph rather than letting someone discover it
-             with a wrong picture on screen.
+       [x] 83.20 DONE (2026-09-22): RECORDED, and SHARPER than this
+             entry expected -- the limitation belongs to the COMPARISON
+             and not to `if`.
+             A comparison collapses a vector to a single 1.0/0.0, true
+             only when every element passes, so
+             `if(arr > 0, a, b)` does have a SCALAR condition and does
+             choose once for the whole vector: that much was right, and
+             it is why 79.10's mask idiom is a scalar gate.
+             BUT a condition built from a FUNCTION maps, because 83.19
+             makes every function elementwise -- `step(0, arr)`,
+             `isfinite(arr)` and `sign(arr)` are each a vector of ones
+             and zeros, and `if(isfinite(arr), arr, 0)` therefore
+             chooses PER ELEMENT. So per-element selection does not
+             need a language change after all; it needs a condition
+             spelled with a function instead of with `<` or `>`.
+             Both cases are asserted side by side in
+             test-pn-var-store.c's if_over_a_vector, and the advice --
+             "if you want a per-element decision, build the condition
+             with a function" -- is in both help pages' `if` paragraph
+             rather than left to be discovered with a wrong picture on
+             screen. An elementwise COMPARISON operator is still a
+             language change and still a separate entry, but it is now
+             a convenience rather than the only road.
        [ ] 83.21 WHAT IS STILL LEFT OUT, and note that 83.1 changes the
              REASON for the first one:
              (a) THE VARIADIC ONES -- avg, median, stddev, variance,
