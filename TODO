@@ -2315,9 +2315,16 @@
                  GType name, so data/help/PnFigure.html (80.14) is
                  reachable the moment it exists. The dialog must NOT
                  grow a verb cheat sheet of its own.
-       [ ] 80.12 PLAN SETTLED (2026-09-21), tests STILL TO WRITE --
-             headless and pixel-free, testing the RESOLVED DISPLAY
-             LIST as text. Nothing renders; the whole node except the
+       [ ] 80.12 PLAN SETTLED (2026-09-21), HALF WRITTEN (2026-09-22)
+             -- headless and pixel-free, testing the RESOLVED DISPLAY
+             LIST as text.  The display-list half of (e) landed with
+             the resolver it tests, in 80.23: every verb, y-up, the
+             letterbox, reversed bounds, the degenerate window, the pen
+             reset, zero-fill, the snapshot surviving a repaint, the
+             skip markers, the vector error and the locale guard.  What
+             is left needs the node: input binding and latching through
+             pn_node_receive_message_on_input(), and the `error`
+             property carrying the text (80.24). Nothing renders; the whole node except the
              strokes themselves is under test, which is the payoff for the
              core/painter seam 80.4(i) and 80.10(d) already demanded.
 
@@ -2839,24 +2846,159 @@
                        the column tie-break is tested against the
                        formatter directly instead of through a
                        program.
-       [ ] 80.23 THE CODE, part 2 of 4: the back end. Still
-             lib/pn-figure.c, still core, still nothing that draws.
-             [ ] 80.23.1 The binding snapshot and the per-frame
-                   clear-constants-snapshot-run cycle (80.8e, 80.2
-                   rule 13), with pi and e pre-bound until #81 lands
+       [x] 80.23 DONE (2026-09-22): THE CODE, part 2 of 4: the back
+             end. Still lib/pn-figure.c, still core, still nothing that
+             draws. pn_figure_resolve() runs one frame into a
+             device-space display list and
+             pn_figure_display_to_string() prints it; twenty-two cases
+             in tests/unit/test-pn-figure.c, valgrind clean, and the
+             specimen from the head of #80 resolves into the node's own
+             280x173 client area with every number checked by hand.
+             [x] 80.23.1 DONE: the binding snapshot (#PnFigureSnapshot)
+                   and the per-frame cycle, with pi and e pre-bound
                    (80.3c, 80.3d).
-             [ ] 80.23.2 The pen-state machine over the whole state
-                   vector of 80.5, reset to defaults every frame.
-             [ ] 80.23.3 The view transform of 80.4, including
+                   (a) THE CLEAR IS A NEW STORE. 80.2 rule 13 asks for
+                       pn_var_store_clear() before every frame;
+                       building the store inside pn_figure_resolve()
+                       and dropping it at the end says the same thing
+                       and cannot forget. Last frame's assignments
+                       cannot leak into this one if they were never
+                       there. One GObject per repaint, at a 100 ms
+                       floor, is not a cost worth designing around.
+                   (b) THE SNAPSHOT HOLDS PnExprValue, vectors
+                       included, and objects to none of them: a vector
+                       is an error only where it reaches an ARGUMENT,
+                       which is the one place a message can name the
+                       line it went wrong on (80.10c). A vector may
+                       therefore be bound, assigned and never read
+                       without hurting anybody.
+                   (c) ZERO-FILL SKIPS WHAT THE SNAPSHOT HAS, which is
+                       the whole of 80.3(c)'s precedence in one `if`:
+                       an input beats the zero-fill, an assignment
+                       beats the input because it runs later, and the
+                       constants come first because pi silently
+                       becoming 0 is the worst kind of bug.
+             [x] 80.23.2 DONE: the pen-state machine over the whole
+                   state vector of 80.5, reset to defaults every frame.
+                   (a) THE STATE IS KEPT IN USER UNITS and resolved to
+                       device units as it is emitted, which is the only
+                       reading of `width 2` that survives a `view`
+                       halfway down the program. So a `view` that
+                       CHANGES THE SCALE re-emits the state that
+                       depended on it -- width, dash, font -- and the
+                       dump shows it happening. The alternative,
+                       resolving at use time, would have put the
+                       conversion in the painter, which is exactly what
+                       80.4(i) is trying to keep out of it.
+                   (b) THE FRAME OPENS WITH THE WHOLE PEN STATE in the
+                       display list -- colour, nofill, width, dash,
+                       font, align. It is not padding: it is 80.5(g)'s
+                       reset made visible, and it means the painter
+                       holds no defaults of its own, so a figure cannot
+                       inherit a colour or a width from the frame
+                       before it even by accident. Seven lines of
+                       preamble on every dump is the price, and the
+                       tests spell it once in a macro.
+                   (c) THE DEFAULTS, which 80.5 left unsaid: stroke
+                       black, fill black but OFF, width 1 user unit,
+                       solid, align centre/middle (80.7g), pen at the
+                       user origin (80.6a), the window of 80.4(c). Font
+                       size 5 USER UNITS -- a label about a twentieth
+                       of the default hundred-unit window high, which
+                       is what a plate's labels are.
+                   (d) `align "left"` LEAVES THE VERTICAL AXIS ALONE
+                       rather than resetting it, because that is what
+                       pen state means: one verb moves one thing.
+             [x] 80.23.3 DONE: the view transform of 80.4, including
                    letterboxing, reversed bounds and the skip rule for
                    a degenerate window.
-             [ ] 80.23.4 Resolution into a device-space display list,
-                   with the three error classes of 80.10 and the
+                   (a) THE SIGNED SCALES MAKE REVERSED BOUNDS FREE, as
+                       80.4(d) said they would: sx and sy carry the
+                       direction, and nothing downstream has a special
+                       case. `stretch` is two scales instead of one and
+                       is the same three lines.
+                   (b) ARC ANGLES ARE RESOLVED IN CORE, which was not
+                       planned and is plainly right. 80.6(d) says the
+                       painter calls cairo_arc_negative with negated
+                       angles -- true for the ordinary view and WRONG
+                       under a reversed bound, where one flip cancels
+                       the other. Core knows the signs, so core maps
+                       the angle (device = k * user + phi, k and phi
+                       from the two signs) and the operation carries
+                       @negative, which says plainly which of
+                       cairo_arc() and cairo_arc_negative() to call.
+                       The map is LINEAR on purpose: going through
+                       atan2() would wrap 360 degrees to 0 and turn a
+                       full circle into nothing.
+                   (c) A DEGENERATE CLIENT AREA is not an error either
+                       -- zero width or height returns an empty list
+                       and no message, since a card mid-animation is
+                       briefly that shape.
+             [x] 80.23.4 DONE: resolution into a device-space display
+                   list, with the three error classes of 80.10 and the
                    evaluate-fully-then-paint contract of 80.10(d).
-             [ ] 80.23.5 pn_figure_dump() in the format 80.12 pins
-                   down -- written WITH the resolver, not bolted on
-                   afterwards, because it is the only way to see what
-                   the resolver did.
+                   (a) THE VERBS COLLAPSE ON THE WAY IN: `lineto`,
+                       `rline` and `line` are one LINE operation
+                       between two device points, `rmove` is an
+                       absolute MOVE, and a `circle` is an ARC's
+                       simpler cousin. Resolving them is the back end's
+                       job precisely so the painter never has to know
+                       the pen is in user units.
+                   (b) AN ASSIGNMENT LEAVES NO OPERATION. It changes a
+                       variable, not the drawing, and its effect is
+                       already in the numbers of the statements that
+                       follow it. The dump is the display list, not the
+                       program.
+                   (c) TWO SKIP REASONS, not one: "non-finite" for a
+                       NaN or an infinity anywhere in the arguments,
+                       and "degenerate" for a value that had to be
+                       positive and was not -- a zero radius, a zero
+                       font size, a negative width, a dash scale of 0,
+                       a window with no extent. Both are 80.10(b) and
+                       neither paints the node red.
+                   (d) THE FINITE CHECK COMES FIRST, before any verb
+                       looks at its arguments, so `circle 0,0,1/0` is
+                       reported as non-finite rather than as a
+                       degenerate radius. One rule, checked in one
+                       place.
+                   (e) ONE FAILED STATEMENT EMPTIES THE LIST, which is
+                       what makes 80.10(d)'s promise honest: the
+                       statements after it are not run and the ones
+                       before it are thrown away, so "nothing is drawn"
+                       means nothing.
+             [x] 80.23.5 DONE: the dump, written WITH the resolver, in
+                   the format 80.12 pins down -- which is the only way
+                   to see what the resolver did, and it found two of
+                   the bullets above.
+                   (a) IT IS TWO FUNCTIONS, NOT pn_figure_dump() YET.
+                       That name takes a PnFigure, and the GObject is
+                       80.24's; the seam here is pn_figure_resolve()
+                       plus pn_figure_display_to_string(), which the
+                       node's pn_figure_dump() will be four lines on
+                       top of. Splitting them also lets the painter
+                       take the list the tests assert on, rather than a
+                       string.
+                   (b) DEVICE NUMBERS AT %.2f, INCLUDING THE VIEW'S
+                       DEVICE BOX -- 80.12(b)'s sketch writes that box
+                       as "rect 0 0 100 100", but it is a device
+                       rectangle like every other and gets the same two
+                       decimals. The WINDOW keeps %g, because that is
+                       what the program typed. A negative zero, and a
+                       coordinate that lands a hair under zero, print
+                       as "0.00": the same place, and only one of them
+                       can be an expected string.
+                   (c) AN ARC PRINTS "negative" OR "positive", not
+                       "clockwise": clockwise would have to say
+                       clockwise IN WHICH SPACE, and that is 80.6(d)'s
+                       whole trap. The words are the cairo calls.
+                   (d) THE TEXT IS FILLED IN THROUGH g_ascii_formatd(),
+                       conversion by conversion, not through
+                       g_strdup_printf(): a label must not read "12,3"
+                       on a machine with a comma separator, and 80.12's
+                       locale case would catch it if it did. The case
+                       is there, and skips itself where no comma locale
+                       is installed -- which is this machine, so it has
+                       been proved by reading rather than by running.
        [ ] 80.24 THE CODE, part 3 of 4: the node object.
              lib/pn-figure.h plus the GObject half of pn-figure.c.
              [ ] 80.24.1 Properties and the settings schema (80.9h,

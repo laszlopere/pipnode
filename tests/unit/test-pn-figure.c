@@ -25,6 +25,8 @@
 #include "pntest.h"
 #include "pn-figure.h"
 
+#include <locale.h>
+
 /* Borrowed text of logical line @n, or NULL past the end. */
 static const gchar *
 line_text (GPtrArray *lines, guint n)
@@ -1400,6 +1402,566 @@ test_the_specimen_parses (void)
     split_free (&s);
 }
 
+/* ------------------------------------------------------------------ */
+/*  The back end                                                       */
+/* ------------------------------------------------------------------ */
+
+/* A program plus what it reads, so a case can resolve the SAME parse
+ * more than once -- which is how the promises that survive a repaint
+ * are tested at all (80.5g, 80.8e). */
+typedef struct
+{
+    Split      parse;
+    GPtrArray *names;
+} Figure;
+
+static Figure
+figure (const gchar *program)
+{
+    Figure self;
+
+    self.parse = parsed (program);
+    self.names = pn_figure_free_names (self.parse.statements);
+    return self;
+}
+
+static void
+figure_free (Figure *self)
+{
+    g_ptr_array_unref (self->names);
+    split_free (&self->parse);
+}
+
+static gchar *
+figure_dump (Figure           *self,
+             PnFigureSnapshot *snapshot,
+             gdouble           w,
+             gdouble           h,
+             gboolean          stretch,
+             gchar           **out_error)
+{
+    GPtrArray *ops  = pn_figure_resolve (self->parse.statements, self->names,
+                                         snapshot, 0, 0, w, h, stretch,
+                                         out_error);
+    gchar     *text = pn_figure_display_to_string (ops);
+
+    g_ptr_array_unref (ops);
+    return text;
+}
+
+/* One program, one frame, in the 100x100 rectangle where the scale is 1
+ * and every expected number can be checked in the head: X = u and
+ * Y = 100 - v (80.12c). */
+static gchar *
+dump100 (const gchar *program)
+{
+    Figure  f    = figure (program);
+    gchar  *text = figure_dump (&f, NULL, 100, 100, FALSE, NULL);
+
+    figure_free (&f);
+    return text;
+}
+
+/* Every frame starts by putting the whole pen state into the display
+ * list, so the painter holds no defaults of its own and 80.5(g)'s reset
+ * is something a test can see.  Every expected dump begins with it. */
+#define HEAD_100 \
+    "# view 0 0 100 100 scale 1.00 rect 0.00 0.00 100.00 100.00\n" \
+    "color rgb(0,0,0)\n" \
+    "nofill\n" \
+    "width 1.00\n" \
+    "dash solid\n" \
+    "font 5.00\n" \
+    "align centre middle\n"
+
+/* The same in the node's own 280x173 client area, where the default
+ * window is letterboxed: s = 1.73, and 173 of the 280 pixels are used
+ * with the other 107 split between the two bars. */
+#define HEAD_280 \
+    "# view 0 0 100 100 scale 1.73 rect 53.50 0.00 173.00 173.00\n" \
+    "color rgb(0,0,0)\n" \
+    "nofill\n" \
+    "width 1.73\n" \
+    "dash solid\n" \
+    "font 8.65\n" \
+    "align centre middle\n"
+
+static void
+test_an_empty_program_is_a_blank_figure (void)
+{
+    gchar *text = dump100 ("");
+
+    /* Not an error, not nothing: the window is still established, which
+     * is what makes an empty figure read as a deliberate area. */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100);
+    g_free (text);
+}
+
+static void
+test_the_state_verbs (void)
+{
+    gchar *text = dump100 ("color \"#202020\"\n"
+                           "fill \"grey\"\n"
+                           "nofill\n"
+                           "width 2\n"
+                           "dash \"dot\"\n"
+                           "font 10\n"
+                           "align \"left\", \"top\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(32,32,32)\n"
+                     "fill rgb(128,128,128)\n"
+                     "nofill\n"
+                     "width 2.00\n"
+                     "dash 0.50 1.50\n"
+                     "font 10.00\n"
+                     "align left top\n");
+    g_free (text);
+}
+
+static void
+test_the_geometry_verbs (void)
+{
+    gchar *text = dump100 ("move 10, 10\n"
+                           "rmove 5, 0\n"
+                           "lineto 30, 40\n"
+                           "rline 10, 10\n"
+                           "line 0, 0, 50, 50\n"
+                           "point 20, 20\n"
+                           "circle 50, 50, 10\n"
+                           "arc 50, 50, 10, 0, 90\n"
+                           "rect 10, 20, 30, 40\n"
+                           "poly 0,0, 10,0, 10,10\n"
+                           "path 0,0, 10,0, 10,10\n"
+                           "text 5, 5, \"%.1f\", 2.5");
+
+    /* `move`, `lineto`, `rline` and `line` all resolve against the pen,
+     * which starts each frame at the user origin and follows every
+     * segment's far end (80.6a); the shapes leave it alone. */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "move 10.00 90.00\n"
+                     "move 15.00 90.00\n"
+                     "line 15.00 90.00 30.00 60.00\n"
+                     "line 30.00 60.00 40.00 50.00\n"
+                     "line 0.00 100.00 50.00 50.00\n"
+                     "point 20.00 80.00 1.00\n"
+                     "circle 50.00 50.00 10.00\n"
+                     "arc 50.00 50.00 10.00 0.00 -90.00 negative\n"
+                     "rect 10.00 40.00 30.00 40.00\n"
+                     "poly 0.00 100.00 10.00 100.00 10.00 90.00\n"
+                     "path 0.00 100.00 10.00 100.00 10.00 90.00\n"
+                     "text 5.00 95.00 centre middle \"2.5\"\n");
+    g_free (text);
+}
+
+static void
+test_y_points_up (void)
+{
+    /* The first thing everyone gets wrong (80.4), so it gets a case of
+     * its own: user y = 0 is the BOTTOM of the client area. */
+    gchar *text = dump100 ("line 0, 0, 0, 100");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 0.00 0.00\n");
+    g_free (text);
+}
+
+static void
+test_rect_takes_its_lower_left_corner (void)
+{
+    /* Which is a DIFFERENT device corner, and a negative extent takes
+     * the other one again (80.6f). */
+    gchar *a = dump100 ("rect 10, 20, 30, 40");
+    gchar *b = dump100 ("rect 40, 60, -30, -40");
+
+    PN_CHECK_CMPSTR (a, ==, HEAD_100 "rect 10.00 40.00 30.00 40.00\n");
+    PN_CHECK_CMPSTR (b, ==, a);
+    g_free (a);
+    g_free (b);
+}
+
+static void
+test_the_window_is_letterboxed (void)
+{
+    Figure  f    = figure ("view -60, -25, 60, 35\nline -60, -25, 60, 35");
+    gchar  *text = figure_dump (&f, NULL, 280, 173, FALSE, NULL);
+
+    /* 120 by 60 user units into 280 by 173 device ones: the width runs
+     * out first, so s = 2.3333, the drawing is 280 by 140, and the 33
+     * pixels left over are split into two bars of 16.5.
+     *
+     * A new scale also re-emits the state that DEPENDS on it: the pen
+     * is in user units, so `width 1` is 1.73 device pixels before the
+     * view and 2.33 after it. */
+    PN_CHECK_CMPSTR (text, ==, HEAD_280
+                     "# view -60 -25 60 35 scale 2.33"
+                     " rect 0.00 16.50 280.00 140.00\n"
+                     "width 2.33\n"
+                     "dash solid\n"
+                     "font 11.67\n"
+                     "line 0.00 156.50 280.00 16.50\n");
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
+test_reversed_bounds_flip_an_axis (void)
+{
+    /* Legal, and it costs nothing: x now increases leftwards (80.4d).
+     * The scale is unchanged, so nothing is re-emitted. */
+    gchar *text = dump100 ("view 100, 0, 0, 100\n"
+                           "line 0, 0, 100, 0\n"
+                           "arc 50, 50, 10, 0, 90");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 100 0 0 100 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00\n"
+                     "line 100.00 100.00 0.00 100.00\n"
+                     /* One flip cancels the other: the sweep goes the
+                      * positive way round after all (80.6d). */
+                     "arc 50.00 50.00 10.00 180.00 270.00 positive\n");
+    g_free (text);
+}
+
+static void
+test_a_degenerate_view_is_skipped (void)
+{
+    /* A window with no extent is a VALUE, not a program error -- a knob
+     * winding through zero makes one -- so the statement is skipped and
+     * the previous window stands (80.4d, 80.10b). */
+    gchar *text = dump100 ("view -50, -50, 50, 50\n"
+                           "view 0, 0, 0, 100\n"
+                           "line -50, -50, 50, 50");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view -50 -50 50 50 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00\n"
+                     "# skip 2 degenerate\n"
+                     "line 0.00 100.00 100.00 0.00\n");
+    g_free (text);
+}
+
+static void
+test_the_pen_resets_every_frame (void)
+{
+    Figure  f = figure ("color \"red\"\n"
+                        "width 4\n"
+                        "fill \"blue\"\n"
+                        "align \"left\"\n"
+                        "move 10, 10\n"
+                        "rline 20, 0\n"
+                        "text 0, 0, \"x\"");
+    gchar  *first  = figure_dump (&f, NULL, 100, 100, FALSE, NULL);
+    gchar  *second = figure_dump (&f, NULL, 100, 100, FALSE, NULL);
+
+    /* Twice the same program, twice the same picture.  Persisting the
+     * pen -- or the pen POSITION, which `rline` and `text` both read --
+     * would make frame N depend on frame N-1 (80.5g). */
+    PN_CHECK_CMPSTR (second, ==, first);
+    PN_CHECK_CMPSTR (first, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "width 4.00\n"
+                     "fill rgb(0,0,255)\n"
+                     "align left middle\n"
+                     "move 10.00 90.00\n"
+                     "line 10.00 90.00 30.00 90.00\n"
+                     "text 0.00 100.00 left middle \"x\"\n");
+    g_free (first);
+    g_free (second);
+    figure_free (&f);
+}
+
+static void
+test_an_unwired_figure_still_draws (void)
+{
+    /* `a` is bound by nothing at all, and an unbound name FAILS an
+     * evaluation in PnVarStore rather than reading as zero -- so
+     * without the zero-fill of 80.2 rule 12 this program would draw
+     * nothing and say something unhelpful. */
+    gchar *text = dump100 ("dx = 50 * cos(a)\nline 0, 0, dx, 0");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 50.00 100.00\n");
+    g_free (text);
+}
+
+static void
+test_the_constants_are_bound (void)
+{
+    /* `pi` folds at parse time in an argument, but an assignment never
+     * folds (80.22.5c), so the store has to carry the constants too or
+     * `r` here would fail to evaluate. */
+    gchar *text = dump100 ("r = 10 * pi / pi\ncircle 50, 50, r");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "circle 50.00 50.00 10.00\n");
+    g_free (text);
+}
+
+static void
+test_the_snapshot_survives_a_repaint (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, a, 0");
+    gchar            *first;
+    gchar            *second;
+
+    pn_figure_snapshot_set (snapshot, "a", 30.0);
+
+    first  = figure_dump (&f, snapshot, 100, 100, FALSE, NULL);
+    second = figure_dump (&f, snapshot, 100, 100, FALSE, NULL);
+
+    /* A figure repaints long after the message that last changed it, so
+     * the latched inputs have to outlive the message (80.8e).  The
+     * second frame is the repaint. */
+    PN_CHECK_CMPSTR (first, ==, HEAD_100 "line 0.00 100.00 30.00 100.00\n");
+    PN_CHECK_CMPSTR (second, ==, first);
+
+    g_free (first);
+    g_free (second);
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_input_beats_the_zero_fill (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, a, 0");
+    gchar            *text;
+
+    pn_figure_snapshot_set (snapshot, "a", 0.0);
+    text = figure_dump (&f, snapshot, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 0.00 100.00\n");
+    g_free (text);
+
+    /* And an assignment beats the input, because it runs later (80.3c). */
+    figure_free (&f);
+    f    = figure ("a = 70\nline 0, 0, a, 0");
+    text = figure_dump (&f, snapshot, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 70.00 100.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_stretch_fills_the_rectangle (void)
+{
+    Figure  f    = figure ("view 0, 0, 100, 50\nline 0, 0, 100, 50");
+    gchar  *text = figure_dump (&f, NULL, 100, 100, TRUE, NULL);
+
+    /* Aspect thrown away: 50 user units up the page become 100 device
+     * ones, and the two per-axis scales part company.  They are what a
+     * circle is drawn inside so it becomes the right ellipse (80.6e),
+     * so the dump says them. */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 0 0 100 50 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00 stretch 1.00 2.00\n"
+                     "line 0.00 100.00 100.00 0.00\n");
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
+test_width_zero_is_a_hairline (void)
+{
+    /* The PostScript convention and the one escape from "widths scale
+     * with the view" (80.5c); everything else is clamped so a fine line
+     * cannot vanish, and a dot is never smaller than that either. */
+    gchar *text = dump100 ("width 0\npoint 10, 10\nwidth 0.1\npoint 20, 20");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 0.00\n"
+                     "point 10.00 90.00 0.75\n"
+                     "width 0.75\n"
+                     "point 20.00 80.00 0.75\n");
+    g_free (text);
+}
+
+static void
+test_a_non_finite_value_skips_its_statement (void)
+{
+    gchar *error = NULL;
+    Figure f     = figure ("circle 50, 50, 1/0\n"
+                           "circle 50, 50, 0/x\n"
+                           "line 0, 0, 10, 10");
+    gchar *text  = figure_dump (&f, NULL, 100, 100, FALSE, &error);
+
+    /* An infinity folded at parse time and a NaN computed this frame
+     * are the same thing: the statement is skipped, the rest of the
+     * figure is drawn, and NOTHING is red (80.10b). */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 non-finite\n"
+                     "# skip 2 non-finite\n"
+                     "line 0.00 100.00 10.00 90.00\n");
+    PN_CHECK_CMPSTR (error, ==, NULL);
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
+test_a_zero_radius_skips_its_statement (void)
+{
+    gchar *text = dump100 ("circle 50, 50, 0\n"
+                           "arc 50, 50, -1, 0, 90\n"
+                           "font 0\n"
+                           "width -1\n"
+                           "dash \"dot\", 0\n"
+                           "line 0, 0, 10, 10");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n"
+                     "# skip 3 degenerate\n"
+                     "# skip 4 degenerate\n"
+                     "# skip 5 degenerate\n"
+                     "line 0.00 100.00 10.00 90.00\n");
+    g_free (text);
+}
+
+static void
+test_a_vector_argument_is_an_error (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, v, 0\ncircle 5, 5, 5");
+    gdouble           numbers[3] = { 1.0, 2.0, 3.0 };
+    PnVector         *vec = pn_vector_new_copy (numbers, 3);
+    gchar            *error = NULL;
+    gchar            *text;
+
+    pn_figure_snapshot_set_vector (snapshot, "v", vec);
+    g_object_unref (vec);
+
+    text = figure_dump (&f, snapshot, 100, 100, FALSE, &error);
+
+    /* Unlike a NaN this never cures itself: someone wired a vector into
+     * a figure that cannot animate yet.  So it is treated as a program
+     * error -- nothing drawn, the node red -- with a message that names
+     * the cause and the fix (80.10c).  Nothing at all is drawn, not
+     * even the circle that came after it (80.10d). */
+    PN_CHECK_CMPSTR (text, ==, "");
+    PN_CHECK_CMPSTR (error, ==,
+                     "line 1, column 12: vector argument;"
+                     " animation is TODO 80.16");
+
+    g_free (error);
+    g_free (text);
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_the_text_format_is_filled_in (void)
+{
+    gchar *text = dump100 ("text 50, 50, \"%.1f%% of %g\\nline two\", 12.34, 8");
+
+    /* The conversions were checked at parse time, so the only work left
+     * is the filling in -- through g_ascii_formatd(), because a label
+     * must not read "12,3" on a machine with a comma separator. */
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "text 50.00 50.00 centre middle"
+                     " \"12.3% of 8\\nline two\"\n");
+    g_free (text);
+}
+
+static void
+test_the_dump_is_locale_independent (void)
+{
+    gchar *saved = g_strdup (setlocale (LC_NUMERIC, NULL));
+    gchar *text;
+
+    if (setlocale (LC_NUMERIC, "de_DE.UTF-8") == NULL
+        && setlocale (LC_NUMERIC, "fr_FR.UTF-8") == NULL
+        && setlocale (LC_NUMERIC, "de_DE") == NULL)
+    {
+        /* No comma locale installed here, and the case must not fail
+         * because of the machine it runs on (80.12d). */
+        PN_CHECK (TRUE);
+        g_free (saved);
+        return;
+    }
+
+    text = dump100 ("line 0, 0, 12.5, 0\ntext 0, 0, \"%.1f\", 1.5");
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 12.50 100.00\n"
+                     "text 0.00 100.00 centre middle \"1.5\"\n");
+    g_free (text);
+
+    setlocale (LC_NUMERIC, saved != NULL ? saved : "C");
+    g_free (saved);
+}
+
+static void
+test_the_specimen_draws (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f;
+    gchar            *error = NULL;
+    gchar            *text;
+
+    /* The reference specimen from the head of TODO #80, in the node's
+     * own client area, with its one input at rest. */
+    f = figure ("view -60, -25, 60, 35\n"
+                "color \"#202020\"\n"
+                "width 2\n"
+                "\n"
+                "# the beam, tilted by the input angle\n"
+                "dx = 50 * cos(a)\n"
+                "dy = 50 * sin(a)\n"
+                "line -dx, -dy, dx, dy\n"
+                "\n"
+                "# fulcrum\n"
+                "fill \"#808080\"\n"
+                "poly 0,-2, -8,-14, 8,-14\n"
+                "nofill\n"
+                "\n"
+                "# weight hanging off the left end\n"
+                "rect -dx-6, -dy-16, 12, 10\n"
+                "\n"
+                "text -dx, -dy+6, \"A\"\n"
+                "text  dx,  dy+6, \"B\"\n"
+                "text 0, 22, \"%.1f deg\", a * 57.2958\n");
+
+    PN_CHECK_CMPINT (f.parse.errors->len, ==, 0);
+
+    pn_figure_snapshot_set (snapshot, "a", 0.0);
+    text = figure_dump (&f, snapshot, 280, 173, FALSE, &error);
+
+    PN_CHECK_CMPSTR (error, ==, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_280
+                     "# view -60 -25 60 35 scale 2.33"
+                     " rect 0.00 16.50 280.00 140.00\n"
+                     "width 2.33\n"
+                     "dash solid\n"
+                     "font 11.67\n"
+                     "color rgb(32,32,32)\n"
+                     "width 4.67\n"
+                     "line 23.33 98.17 256.67 98.17\n"
+                     "fill rgb(128,128,128)\n"
+                     "poly 140.00 102.83 121.33 130.83 158.67 130.83\n"
+                     "nofill\n"
+                     "rect 9.33 112.17 28.00 23.33\n"
+                     "text 23.33 84.17 centre middle \"A\"\n"
+                     "text 256.67 84.17 centre middle \"B\"\n"
+                     "text 140.00 46.83 centre middle \"0.0 deg\"\n");
+
+    g_free (text);
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_frame_needs_room (void)
+{
+    Figure  f    = figure ("line 0, 0, 10, 10");
+    gchar  *text = figure_dump (&f, NULL, 0, 0, FALSE, NULL);
+
+    /* A client area with no room in it maps nothing, and is not an
+     * error either -- a card mid-animation is briefly this shape. */
+    PN_CHECK_CMPSTR (text, ==, "");
+    g_free (text);
+    figure_free (&f);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1463,5 +2025,27 @@ main (int argc, char **argv)
     pn_test_add ("report_count",        test_report_counts_and_takes_the_earliest);
     pn_test_add ("report_leftmost",     test_report_earliest_on_a_line);
     pn_test_add ("report_specimen",     test_the_specimen_parses);
+    pn_test_add ("back_empty",          test_an_empty_program_is_a_blank_figure);
+    pn_test_add ("back_state_verbs",    test_the_state_verbs);
+    pn_test_add ("back_geometry",       test_the_geometry_verbs);
+    pn_test_add ("back_y_up",           test_y_points_up);
+    pn_test_add ("back_rect_corner",    test_rect_takes_its_lower_left_corner);
+    pn_test_add ("back_letterbox",      test_the_window_is_letterboxed);
+    pn_test_add ("back_reversed",       test_reversed_bounds_flip_an_axis);
+    pn_test_add ("back_view_degenerate", test_a_degenerate_view_is_skipped);
+    pn_test_add ("back_pen_resets",     test_the_pen_resets_every_frame);
+    pn_test_add ("back_zero_fill",      test_an_unwired_figure_still_draws);
+    pn_test_add ("back_constants",      test_the_constants_are_bound);
+    pn_test_add ("back_snapshot",       test_the_snapshot_survives_a_repaint);
+    pn_test_add ("back_binding_order",  test_an_input_beats_the_zero_fill);
+    pn_test_add ("back_stretch",        test_stretch_fills_the_rectangle);
+    pn_test_add ("back_hairline",       test_width_zero_is_a_hairline);
+    pn_test_add ("back_skip_non_finite", test_a_non_finite_value_skips_its_statement);
+    pn_test_add ("back_skip_degenerate", test_a_zero_radius_skips_its_statement);
+    pn_test_add ("back_vector",         test_a_vector_argument_is_an_error);
+    pn_test_add ("back_text_format",    test_the_text_format_is_filled_in);
+    pn_test_add ("back_locale",         test_the_dump_is_locale_independent);
+    pn_test_add ("back_specimen",       test_the_specimen_draws);
+    pn_test_add ("back_no_room",        test_a_frame_needs_room);
     return pn_test_run ();
 }

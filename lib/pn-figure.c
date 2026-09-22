@@ -1463,3 +1463,1334 @@ pn_figure_errors_to_string (
                             first->line, first->column, first->message,
                             errors->len, first->line);
 }
+
+/* ================================================================== */
+/*  The binding snapshot                                              */
+/* ================================================================== */
+
+struct _PnFigureSnapshot
+{
+    GHashTable *values; /* gchar * -> PnExprValue *, both owned */
+};
+
+static void
+snapshot_value_free (
+        gpointer data)
+{
+    PnExprValue *value = data;
+
+    pn_expr_value_clear (value);
+    g_free (value);
+}
+
+PnFigureSnapshot *
+pn_figure_snapshot_new (void)
+{
+    PnFigureSnapshot *self = g_new0 (PnFigureSnapshot, 1);
+
+    self->values = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                          g_free, snapshot_value_free);
+    return self;
+}
+
+void
+pn_figure_snapshot_free (
+        PnFigureSnapshot *self)
+{
+    if (self == NULL)
+        return;
+
+    g_hash_table_destroy (self->values);
+    g_free (self);
+}
+
+void
+pn_figure_snapshot_clear (
+        PnFigureSnapshot *self)
+{
+    g_return_if_fail (self != NULL);
+
+    g_hash_table_remove_all (self->values);
+}
+
+void
+pn_figure_snapshot_set (
+        PnFigureSnapshot *self,
+        const gchar      *name,
+        gdouble           value)
+{
+    PnExprValue *slot;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (name != NULL);
+
+    slot         = g_new0 (PnExprValue, 1);
+    slot->scalar = value;
+    g_hash_table_insert (self->values, g_strdup (name), slot);
+}
+
+void
+pn_figure_snapshot_set_vector (
+        PnFigureSnapshot *self,
+        const gchar      *name,
+        PnVector         *vec)
+{
+    PnExprValue *slot;
+
+    g_return_if_fail (self != NULL);
+    g_return_if_fail (name != NULL);
+    g_return_if_fail (vec != NULL);
+
+    slot      = g_new0 (PnExprValue, 1);
+    slot->vec = g_object_ref (vec);
+    g_hash_table_insert (self->values, g_strdup (name), slot);
+}
+
+/* Puts one snapshot entry into the store the frame will run against. */
+static void
+snapshot_apply_one (
+        gpointer key,
+        gpointer data,
+        gpointer user_data)
+{
+    const gchar *name  = key;
+    PnExprValue *value = data;
+    PnVarStore  *store = user_data;
+
+    if (value->vec != NULL)
+        pn_var_store_set_vector (store, name, value->vec);
+    else
+        pn_var_store_set (store, name, value->scalar);
+}
+
+/* The per-frame cycle of 80.2 rule 13, refined by 80.8(e): clear, then
+ * the constants, then the latched inputs, then zero for whatever the
+ * program reads and nothing has supplied.  That last step is not
+ * tidiness — an unbound name FAILS an evaluation in PnVarStore rather
+ * than reading as 0, so without it an unwired figure would draw nothing
+ * at all (80.2 rule 12).
+ *
+ * The order is 80.3(c)'s, and the reason it is written down there is
+ * that getting it wrong makes `pi` silently 0: a figure that still
+ * draws, just wrongly.  Assignments bind themselves as they execute,
+ * which is why they come last and are not this function's business. */
+static void
+bind_frame (
+        PnVarStore             *store,
+        const PnFigureSnapshot *snapshot,
+        GPtrArray              *free_names)
+{
+    gsize i;
+    guint n;
+
+    pn_var_store_clear (store);
+
+    for (i = 0; i < G_N_ELEMENTS (figure_constants); i++)
+        pn_var_store_set (store, figure_constants[i].name,
+                          figure_constants[i].value);
+
+    if (snapshot != NULL)
+        g_hash_table_foreach (snapshot->values, snapshot_apply_one, store);
+
+    for (n = 0; free_names != NULL && n < free_names->len; n++)
+    {
+        const gchar *name = g_ptr_array_index (free_names, n);
+
+        if (is_figure_constant (name))
+            continue;
+        if (snapshot != NULL
+            && g_hash_table_contains (snapshot->values, name))
+            continue;
+
+        pn_var_store_set (store, name, 0.0);
+    }
+}
+
+/* ================================================================== */
+/*  The view transform                                                */
+/* ================================================================== */
+
+/* The default window (80.4c): fixed, round and documented, never fitted
+ * to the drawing — an auto window breathes as the values change, which
+ * turns every animation into an accidental zoom. */
+#define FIGURE_VIEW_XMIN 0.0
+#define FIGURE_VIEW_YMIN 0.0
+#define FIGURE_VIEW_XMAX 100.0
+#define FIGURE_VIEW_YMAX 100.0
+
+/* A stroked line never thinner than this many device pixels, so a fine
+ * line does not vanish at rest (80.4b).  `width 0` is the deliberate
+ * escape and stays a hairline. */
+#define FIGURE_MIN_WIDTH 0.75
+
+/* The window fitted into a device rectangle: what 80.4 works out, kept
+ * as the numbers the mapping actually uses.  @sx and @sy are SIGNED, so
+ * reversed bounds are nothing special, and @s is the length scale that
+ * widths, radii and font sizes are multiplied by. */
+typedef struct
+{
+    gdouble xmin, ymin, xmax, ymax; /* the window, user units          */
+    gdouble ox, oy;                 /* device corner of the fitted box */
+    gdouble boxw, boxh;             /* its size, device units          */
+    gdouble sx, sy;                 /* device units per user unit      */
+    gdouble s;                      /* the length scale                */
+} View;
+
+/* The device rectangle a frame is being resolved into. */
+typedef struct
+{
+    gdouble  x, y, w, h;
+    gboolean stretch;
+} Frame;
+
+/* Fits the window into @frame.  Returns %FALSE for a DEGENERATE window
+ * — zero extent, NaN, infinite — which is a runtime value and not a
+ * program error: a knob winding through zero must not latch the node
+ * red, so the caller skips the statement and the previous window stands
+ * (80.4d). */
+static gboolean
+view_set (
+        View        *self,
+        const Frame *frame,
+        gdouble      xmin,
+        gdouble      ymin,
+        gdouble      xmax,
+        gdouble      ymax)
+{
+    gdouble ex = xmax - xmin;
+    gdouble ey = ymax - ymin;
+    gdouble kx, ky;
+
+    if (!isfinite (xmin) || !isfinite (ymin)
+        || !isfinite (ex) || !isfinite (ey)
+        || ex == 0.0 || ey == 0.0)
+        return FALSE;
+
+    if (frame->stretch)
+    {
+        kx = frame->w / fabs (ex);
+        ky = frame->h / fabs (ey);
+    }
+    else
+    {
+        kx = ky = MIN (frame->w / fabs (ex), frame->h / fabs (ey));
+    }
+
+    self->xmin = xmin;
+    self->ymin = ymin;
+    self->xmax = xmax;
+    self->ymax = ymax;
+
+    /* The flip lives here and not in the cairo matrix (80.4a): a
+     * negative-y CTM mirrors every glyph the `text` verb draws. */
+    self->sx   = ex > 0.0 ?  kx : -kx;
+    self->sy   = ey > 0.0 ? -ky :  ky;
+    self->boxw = kx * fabs (ex);
+    self->boxh = ky * fabs (ey);
+    self->ox   = frame->x + (frame->w - self->boxw) / 2.0;
+    self->oy   = frame->y + (frame->h - self->boxh) / 2.0;
+    self->s    = MIN (kx, ky);
+    return TRUE;
+}
+
+static gdouble
+view_map_x (
+        const View *self,
+        gdouble     u)
+{
+    return self->ox + (u - self->xmin) * self->sx;
+}
+
+static gdouble
+view_map_y (
+        const View *self,
+        gdouble     v)
+{
+    return self->oy + self->boxh + (v - self->ymin) * self->sy;
+}
+
+/* A user angle in DEVICE degrees, plus which way the sweep goes.
+ *
+ * Our y flip means a counter-clockwise user sweep is a clockwise device
+ * one, which is 80.6(d)'s gotcha; a reversed bound flips it back, and
+ * reversing both flips the angles instead of the direction.  The map is
+ * always device = @out_k * user + @out_phi, linear on purpose: going
+ * through atan2() would wrap 360 degrees to 0 and turn a full circle
+ * into nothing. */
+static void
+view_angle_map (
+        const View *self,
+        gdouble    *out_k,
+        gdouble    *out_phi)
+{
+    *out_k   = ((self->sx > 0.0) == (self->sy < 0.0)) ? -1.0 : 1.0;
+    *out_phi = self->sx < 0.0 ? 180.0 : 0.0;
+}
+
+/* ================================================================== */
+/*  The pen state machine                                             */
+/* ================================================================== */
+
+/* The whole state vector of 80.5, in USER units — which is the point:
+ * `width 2` means two user units whatever the view is, so a `view` that
+ * changes the scale changes what the same pen state comes to in device
+ * units, and the resolver re-emits it.
+ *
+ * It is reset to these defaults at the start of every frame (80.5g);
+ * persisting it would make frame N depend on frame N-1, which is the
+ * bug class a film has no way to debug. */
+typedef struct
+{
+    PnColor        stroke;
+    PnColor        fill;
+    gboolean       filling;
+    gdouble        width;      /* user units, 0 = a device hairline   */
+    PnFigureDash   dash;
+    gdouble        dash_scale;
+    gdouble        font;       /* user units                          */
+    PnFigureHAlign halign;
+    PnFigureVAlign valign;
+    gdouble        px, py;     /* the pen, user units                 */
+    View           view;
+} Pen;
+
+/* The dash patterns of 80.5(d), in user units before the scale. */
+static const struct
+{
+    gint    n;
+    gdouble on_off[4];
+}
+dash_patterns[] =
+{
+    { 0, { 0.0, 0.0, 0.0, 0.0 } }, /* solid   */
+    { 2, { 0.5, 1.5, 0.0, 0.0 } }, /* dot     */
+    { 2, { 3.0, 2.0, 0.0, 0.0 } }, /* dash    */
+    { 4, { 3.0, 2.0, 0.5, 2.0 } }, /* dashdot */
+};
+
+/* The default font size, in user units.  Nothing decides this but
+ * taste: five units in the default hundred-unit window is a label about
+ * a twentieth of the plate high, which is what a plate's labels are. */
+#define FIGURE_DEFAULT_FONT 5.0
+
+static void
+pen_init (
+        Pen         *self,
+        const Frame *frame)
+{
+    static const PnColor black = { 0.0, 0.0, 0.0, 1.0 };
+
+    self->stroke     = black;
+    self->fill       = black;
+    self->filling    = FALSE;
+    self->width      = 1.0;
+    self->dash       = PN_FIGURE_DASH_SOLID;
+    self->dash_scale = 1.0;
+    self->font       = FIGURE_DEFAULT_FONT;
+    self->halign     = PN_FIGURE_HALIGN_CENTRE; /* 80.7g */
+    self->valign     = PN_FIGURE_VALIGN_MIDDLE;
+    self->px         = 0.0;                     /* 80.6a */
+    self->py         = 0.0;
+
+    view_set (&self->view, frame, FIGURE_VIEW_XMIN, FIGURE_VIEW_YMIN,
+              FIGURE_VIEW_XMAX, FIGURE_VIEW_YMAX);
+}
+
+/* ================================================================== */
+/*  The display list                                                  */
+/* ================================================================== */
+
+static void
+figure_op_free (
+        gpointer data)
+{
+    PnFigureOp *self = data;
+
+    if (self == NULL)
+        return;
+
+    if (self->points != NULL)
+        g_array_unref (self->points);
+    g_free (self->text);
+    g_free (self);
+}
+
+static PnFigureOp *
+op_add (
+        GPtrArray      *ops,
+        PnFigureOpKind  kind,
+        gint            line)
+{
+    PnFigureOp *op = g_new0 (PnFigureOp, 1);
+
+    op->kind = kind;
+    op->line = line;
+    g_ptr_array_add (ops, op);
+    return op;
+}
+
+/* The three state operations whose device numbers depend on the scale,
+ * which is why each is a function: a `view` statement emits them again.
+ */
+static void
+emit_width (
+        GPtrArray *ops,
+        const Pen *pen,
+        gint       line)
+{
+    PnFigureOp *op = op_add (ops, PN_FIGURE_OP_WIDTH, line);
+
+    /* `width 0` is the PostScript hairline and the one escape from
+     * 80.4(b)'s rule that widths scale with the view (80.5c). */
+    op->value = pen->width == 0.0
+                ? 0.0
+                : MAX (pen->width * pen->view.s, FIGURE_MIN_WIDTH);
+}
+
+static void
+emit_dash (
+        GPtrArray *ops,
+        const Pen *pen,
+        gint       line)
+{
+    PnFigureOp *op = op_add (ops, PN_FIGURE_OP_DASH, line);
+    gint        i;
+
+    op->n_dashes = dash_patterns[pen->dash].n;
+    for (i = 0; i < op->n_dashes; i++)
+        op->dashes[i] = dash_patterns[pen->dash].on_off[i]
+                        * pen->dash_scale * pen->view.s;
+}
+
+static void
+emit_font (
+        GPtrArray *ops,
+        const Pen *pen,
+        gint       line)
+{
+    PnFigureOp *op = op_add (ops, PN_FIGURE_OP_FONT, line);
+
+    op->value = pen->font * pen->view.s;
+}
+
+/* The whole pen state, at the top of every frame.  It is not padding:
+ * it is 80.5(g)'s reset made visible, and it is what lets the painter
+ * hold no defaults of its own — the list describes the frame from
+ * nothing, so a figure cannot inherit a colour or a width from the
+ * frame before it even by accident. */
+static void
+emit_pen (
+        GPtrArray *ops,
+        const Pen *pen,
+        gint       line)
+{
+    PnFigureOp *op;
+
+    op_add (ops, PN_FIGURE_OP_COLOR, line)->color = pen->stroke;
+    op_add (ops, PN_FIGURE_OP_NOFILL, line);
+    emit_width (ops, pen, line);
+    emit_dash (ops, pen, line);
+    emit_font (ops, pen, line);
+
+    op         = op_add (ops, PN_FIGURE_OP_ALIGN, line);
+    op->halign = pen->halign;
+    op->valign = pen->valign;
+}
+
+static void
+emit_view (
+        GPtrArray *ops,
+        const Pen *pen,
+        gint       line)
+{
+    PnFigureOp *op = op_add (ops, PN_FIGURE_OP_VIEW, line);
+
+    op->window[0] = pen->view.xmin;
+    op->window[1] = pen->view.ymin;
+    op->window[2] = pen->view.xmax;
+    op->window[3] = pen->view.ymax;
+    op->x         = pen->view.ox;
+    op->y         = pen->view.oy;
+    op->w         = pen->view.boxw;
+    op->h         = pen->view.boxh;
+    op->scale     = pen->view.s;
+    op->scale_x   = fabs (pen->view.sx) / pen->view.s;
+    op->scale_y   = fabs (pen->view.sy) / pen->view.s;
+}
+
+/* A point list in device units, from @n user pairs. */
+static GArray *
+device_points (
+        const View    *view,
+        const gdouble *values,
+        guint          n)
+{
+    GArray *points = g_array_sized_new (FALSE, FALSE, sizeof (gdouble), n);
+    guint   i;
+
+    for (i = 0; i + 1 < n; i += 2)
+    {
+        gdouble xy[2];
+
+        xy[0] = view_map_x (view, values[i]);
+        xy[1] = view_map_y (view, values[i + 1]);
+        g_array_append_vals (points, xy, 2);
+    }
+
+    return points;
+}
+
+static void
+emit_segment (
+        GPtrArray  *ops,
+        const View *view,
+        gint        line,
+        gdouble     x1,
+        gdouble     y1,
+        gdouble     x2,
+        gdouble     y2)
+{
+    PnFigureOp *op     = op_add (ops, PN_FIGURE_OP_LINE, line);
+    gdouble     ends[4];
+
+    ends[0] = x1;
+    ends[1] = y1;
+    ends[2] = x2;
+    ends[3] = y2;
+    op->points = device_points (view, ends, 4);
+}
+
+/* ================================================================== */
+/*  The resolver                                                      */
+/* ================================================================== */
+
+/* The `text` verb's format, filled in.  It was validated conversion by
+ * conversion at parse time (80.7c), so nothing here has to defend
+ * itself — but every number still goes through g_ascii_formatd(), or a
+ * machine with a comma decimal separator would draw "1,5" and fail
+ * every test in 80.12. */
+static gchar *
+format_text (
+        const gchar   *format,
+        const gdouble *values,
+        guint          n)
+{
+    GString *out  = g_string_new (NULL);
+    guint    used = 0;
+    gsize    i;
+
+    for (i = 0; format[i] != '\0'; i++)
+    {
+        gchar spec[64];
+        gchar buf[512];
+        gsize start;
+        gsize len;
+
+        if (format[i] != '%')
+        {
+            g_string_append_c (out, format[i]);
+            continue;
+        }
+
+        start = i++;
+
+        if (format[i] == '%')
+        {
+            g_string_append_c (out, '%');
+            continue;
+        }
+
+        while (format[i] != '\0' && strchr ("-+ #0", format[i]) != NULL)
+            i++;
+        while (g_ascii_isdigit (format[i]))
+            i++;
+        if (format[i] == '.')
+        {
+            i++;
+            while (g_ascii_isdigit (format[i]))
+                i++;
+        }
+
+        len = i - start + 1;
+        if (len >= sizeof spec)
+        {
+            /* A width with fifty digits in it: nothing can be made of
+             * it, and truncating the spec would make it a lie. */
+            used++;
+            continue;
+        }
+
+        memcpy (spec, format + start, len);
+        spec[len] = '\0';
+
+        if (g_ascii_formatd (buf, sizeof buf, spec,
+                             used < n ? values[used] : 0.0) != NULL)
+            g_string_append (out, buf);
+        used++;
+    }
+
+    return g_string_free (out, FALSE);
+}
+
+/* Evaluates every expression argument into @values, which the caller
+ * sized to the argument count.  A string argument leaves its slot at 0.
+ *
+ * The one failure here is 80.10's class (c): a vector where a scalar is
+ * wanted, or an evaluation that could not be done at all.  Unlike a
+ * NaN, winding a knob will not cure either, so both stop the frame. */
+static gboolean
+eval_args (
+        const PnFigureStatement *statement,
+        PnVarStore              *store,
+        gdouble                 *values,
+        GPtrArray               *errors)
+{
+    guint i;
+
+    for (i = 0; i < statement->args->len; i++)
+    {
+        PnFigureArg *arg   = g_ptr_array_index (statement->args, i);
+        PnExprValue  value = { NULL, 0.0 };
+        GError      *error = NULL;
+
+        values[i] = 0.0;
+
+        if (arg->kind != PN_FIGURE_ARG_EXPRESSION)
+            continue;
+
+        if (arg->folded)
+        {
+            values[i] = arg->value;
+            continue;
+        }
+
+        if (!pn_var_store_evaluate_value (store, arg->ast, &value, &error))
+        {
+            report_at (errors, statement->source, arg->offset,
+                       "%s", error->message);
+            g_error_free (error);
+            return FALSE;
+        }
+
+        if (value.vec != NULL)
+        {
+            pn_expr_value_clear (&value);
+            report_at (errors, statement->source, arg->offset,
+                       "vector argument; animation is TODO 80.16");
+            return FALSE;
+        }
+
+        values[i] = value.scalar;
+    }
+
+    return TRUE;
+}
+
+/* TRUE when every expression argument came out a finite number.  A NaN
+ * or an infinity is a VALUE, not a bug (80.10b), so the caller skips
+ * the statement and says so rather than failing the frame. */
+static gboolean
+args_are_finite (
+        const PnFigureStatement *statement,
+        const gdouble           *values)
+{
+    guint i;
+
+    for (i = 0; i < statement->args->len; i++)
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, i);
+
+        if (arg->kind == PN_FIGURE_ARG_EXPRESSION && !isfinite (values[i]))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+static void
+emit_skip (
+        GPtrArray               *ops,
+        const PnFigureStatement *statement,
+        const gchar             *reason)
+{
+    gint        line = 0;
+    PnFigureOp *op;
+
+    pn_figure_line_locate (statement->source, 0, &line, NULL);
+    op       = op_add (ops, PN_FIGURE_OP_SKIP, line);
+    op->text = g_strdup (reason);
+}
+
+/* The colour of a `color` or `fill` statement in either of its two
+ * spellings (80.5): the one quoted literal the front end already
+ * parsed, or three-to-four expressions just evaluated. */
+static PnColor
+statement_colour (
+        const PnFigureStatement *statement,
+        const gdouble           *values)
+{
+    PnColor            color;
+    const PnFigureArg *arg;
+
+    if (statement->args->len == 1)
+    {
+        arg = g_ptr_array_index (statement->args, 0);
+        return arg->color;
+    }
+
+    color.red   = values[0];
+    color.green = values[1];
+    color.blue  = values[2];
+    color.alpha = statement->args->len > 3 ? values[3] : 1.0;
+    return color;
+}
+
+/* Runs one statement.  Returns %FALSE only for 80.10's class (c), the
+ * error that empties the whole figure; a skipped statement is a %TRUE
+ * that drew nothing. */
+static gboolean
+resolve_statement (
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        Pen               *pen,
+        const Frame       *frame,
+        GPtrArray         *ops,
+        GPtrArray         *errors)
+{
+    guint      n = statement->args->len;
+    gdouble   *values;
+    gint       line = 0;
+    gboolean   ok   = TRUE;
+
+    pn_figure_line_locate (statement->source, 0, &line, NULL);
+
+    if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
+    {
+        PnExprValue value = { NULL, 0.0 };
+        GError     *error = NULL;
+
+        /* An assignment leaves no operation: it binds a name, and its
+         * effect is already in the numbers of what follows.  A vector
+         * binding is fine here and only becomes an error where it
+         * reaches an argument. */
+        if (!pn_var_store_evaluate_value (store, statement->ast,
+                                          &value, &error))
+        {
+            report_at (errors, statement->source, 0, "%s", error->message);
+            g_error_free (error);
+            return FALSE;
+        }
+
+        pn_expr_value_clear (&value);
+        return TRUE;
+    }
+
+    values = g_new0 (gdouble, n + 1);
+
+    if (!eval_args (statement, store, values, errors))
+    {
+        g_free (values);
+        return FALSE;
+    }
+
+    if (!args_are_finite (statement, values))
+    {
+        emit_skip (ops, statement, "non-finite");
+        g_free (values);
+        return TRUE;
+    }
+
+    switch (statement->verb)
+    {
+    case PN_FIGURE_VERB_VIEW:
+    {
+        View    view;
+        gdouble was = pen->view.s;
+
+        if (!view_set (&view, frame, values[0], values[1],
+                       values[2], values[3]))
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+
+        pen->view = view;
+        emit_view (ops, pen, line);
+
+        /* The pen state is in user units, so a new scale changes what
+         * it comes to in device units.  Re-emitting is what keeps the
+         * painter free of the conversion — and it shows in the dump,
+         * which is the honest place for it. */
+        if (pen->view.s != was)
+        {
+            emit_width (ops, pen, line);
+            emit_dash (ops, pen, line);
+            emit_font (ops, pen, line);
+        }
+        break;
+    }
+
+    case PN_FIGURE_VERB_COLOR:
+        pen->stroke = statement_colour (statement, values);
+        op_add (ops, PN_FIGURE_OP_COLOR, line)->color = pen->stroke;
+        break;
+
+    case PN_FIGURE_VERB_FILL:
+        pen->fill    = statement_colour (statement, values);
+        pen->filling = TRUE;
+        op_add (ops, PN_FIGURE_OP_FILL, line)->color = pen->fill;
+        break;
+
+    case PN_FIGURE_VERB_NOFILL:
+        pen->filling = FALSE;
+        op_add (ops, PN_FIGURE_OP_NOFILL, line);
+        break;
+
+    case PN_FIGURE_VERB_WIDTH:
+        if (values[0] < 0.0)
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+        pen->width = values[0];
+        emit_width (ops, pen, line);
+        break;
+
+    case PN_FIGURE_VERB_DASH:
+    {
+        const PnFigureArg *arg   = g_ptr_array_index (statement->args, 0);
+        gdouble            scale = n > 1 ? values[1] : 1.0;
+
+        if (scale <= 0.0)
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+
+        pen->dash       = (PnFigureDash) arg->word;
+        pen->dash_scale = scale;
+        emit_dash (ops, pen, line);
+        break;
+    }
+
+    case PN_FIGURE_VERB_FONT:
+        if (!(values[0] > 0.0))
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+        pen->font = values[0];
+        emit_font (ops, pen, line);
+        break;
+
+    case PN_FIGURE_VERB_ALIGN:
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, 0);
+        PnFigureOp        *op;
+
+        pen->halign = (PnFigureHAlign) arg->word;
+
+        /* Omitting the vertical word leaves that axis alone, which is
+         * what pen state means: `align "left"` moves one thing. */
+        if (n > 1)
+        {
+            arg         = g_ptr_array_index (statement->args, 1);
+            pen->valign = (PnFigureVAlign) arg->word;
+        }
+
+        op         = op_add (ops, PN_FIGURE_OP_ALIGN, line);
+        op->halign = pen->halign;
+        op->valign = pen->valign;
+        break;
+    }
+
+    case PN_FIGURE_VERB_MOVE:
+    case PN_FIGURE_VERB_RMOVE:
+    {
+        PnFigureOp *op;
+
+        if (statement->verb == PN_FIGURE_VERB_MOVE)
+        {
+            pen->px = values[0];
+            pen->py = values[1];
+        }
+        else
+        {
+            pen->px += values[0];
+            pen->py += values[1];
+        }
+
+        op    = op_add (ops, PN_FIGURE_OP_MOVE, line);
+        op->x = view_map_x (&pen->view, pen->px);
+        op->y = view_map_y (&pen->view, pen->py);
+        break;
+    }
+
+    case PN_FIGURE_VERB_LINETO:
+    case PN_FIGURE_VERB_RLINE:
+    case PN_FIGURE_VERB_LINE:
+    {
+        gdouble x1 = pen->px;
+        gdouble y1 = pen->py;
+        gdouble x2, y2;
+
+        if (statement->verb == PN_FIGURE_VERB_LINE)
+        {
+            x1 = values[0];
+            y1 = values[1];
+            x2 = values[2];
+            y2 = values[3];
+        }
+        else if (statement->verb == PN_FIGURE_VERB_LINETO)
+        {
+            x2 = values[0];
+            y2 = values[1];
+        }
+        else
+        {
+            x2 = pen->px + values[0];
+            y2 = pen->py + values[1];
+        }
+
+        emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+
+        /* A segment leaves the pen at its far end, so a `line` then
+         * `rline` chain works (80.6a). */
+        pen->px = x2;
+        pen->py = y2;
+        break;
+    }
+
+    case PN_FIGURE_VERB_POINT:
+    {
+        PnFigureOp *op = op_add (ops, PN_FIGURE_OP_POINT, line);
+
+        op->x = view_map_x (&pen->view, values[0]);
+        op->y = view_map_y (&pen->view, values[1]);
+
+        /* A disc of radius = the current line width, in the stroke
+         * colour, so `width` sizes the dots and no new state appears
+         * (80.6h).  A hairline still has to be visible as a dot. */
+        op->r = pen->width == 0.0
+                ? FIGURE_MIN_WIDTH
+                : MAX (pen->width * pen->view.s, FIGURE_MIN_WIDTH);
+        break;
+    }
+
+    case PN_FIGURE_VERB_CIRCLE:
+    case PN_FIGURE_VERB_ARC:
+    {
+        PnFigureOp *op;
+        gdouble     k, phi;
+
+        if (!(values[2] > 0.0))
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+
+        op = op_add (ops, statement->verb == PN_FIGURE_VERB_ARC
+                          ? PN_FIGURE_OP_ARC : PN_FIGURE_OP_CIRCLE, line);
+        op->x = view_map_x (&pen->view, values[0]);
+        op->y = view_map_y (&pen->view, values[1]);
+        op->r = values[2] * pen->view.s;
+
+        if (statement->verb != PN_FIGURE_VERB_ARC)
+            break;
+
+        view_angle_map (&pen->view, &k, &phi);
+        op->a0       = k * values[3] + phi;
+        op->a1       = k * values[4] + phi;
+        op->negative = k < 0.0;
+        break;
+    }
+
+    case PN_FIGURE_VERB_RECT:
+    {
+        PnFigureOp *op = op_add (ops, PN_FIGURE_OP_RECT, line);
+        gdouble     x1 = view_map_x (&pen->view, values[0]);
+        gdouble     x2 = view_map_x (&pen->view, values[0] + values[2]);
+        gdouble     y1 = view_map_y (&pen->view, values[1]);
+        gdouble     y2 = view_map_y (&pen->view, values[1] + values[3]);
+
+        /* `rect` takes the LOWER-LEFT corner because y points up
+         * (80.6f); which device corner that is depends on the view, and
+         * a negative width extends the other way, so normalise. */
+        op->x = MIN (x1, x2);
+        op->y = MIN (y1, y2);
+        op->w = fabs (x2 - x1);
+        op->h = fabs (y2 - y1);
+        break;
+    }
+
+    case PN_FIGURE_VERB_POLY:
+    case PN_FIGURE_VERB_PATH:
+        op_add (ops, statement->verb == PN_FIGURE_VERB_POLY
+                     ? PN_FIGURE_OP_POLY : PN_FIGURE_OP_PATH, line)->points
+            = device_points (&pen->view, values, n);
+        break;
+
+    case PN_FIGURE_VERB_TEXT:
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, 2);
+        PnFigureOp        *op  = op_add (ops, PN_FIGURE_OP_TEXT, line);
+
+        op->x      = view_map_x (&pen->view, values[0]);
+        op->y      = view_map_y (&pen->view, values[1]);
+        op->halign = pen->halign;
+        op->valign = pen->valign;
+        op->text   = format_text (arg->text, values + 3, n - 3);
+        break;
+    }
+
+    default:
+        /* PN_FIGURE_VERB_NONE cannot get here: the verb table removed
+         * every statement it could not name. */
+        g_warn_if_reached ();
+        ok = FALSE;
+        break;
+    }
+
+    g_free (values);
+    return ok;
+}
+
+GPtrArray *
+pn_figure_resolve (
+        GPtrArray              *statements,
+        GPtrArray              *free_names,
+        const PnFigureSnapshot *snapshot,
+        gdouble                 x,
+        gdouble                 y,
+        gdouble                 w,
+        gdouble                 h,
+        gboolean                stretch,
+        gchar                 **out_error)
+{
+    GPtrArray  *ops = g_ptr_array_new_with_free_func (figure_op_free);
+    GPtrArray  *errors;
+    PnVarStore *store;
+    Frame       frame;
+    Pen         pen;
+    gboolean    failed = FALSE;
+    guint       i;
+
+    if (out_error != NULL)
+        *out_error = NULL;
+
+    g_return_val_if_fail (statements != NULL, ops);
+
+    /* A client area with no room in it maps nothing, and dividing by
+     * its extent would hand every coordinate an infinity. */
+    if (!(w > 0.0) || !(h > 0.0))
+        return ops;
+
+    frame.x       = x;
+    frame.y       = y;
+    frame.w       = w;
+    frame.h       = h;
+    frame.stretch = stretch;
+
+    /* A store per frame IS 80.2 rule 13's clear: last frame's
+     * assignments cannot leak into this one if they were never here. */
+    store = pn_var_store_new ();
+    bind_frame (store, snapshot, free_names);
+
+    pen_init (&pen, &frame);
+    emit_view (ops, &pen, 0);
+    emit_pen (ops, &pen, 0);
+
+    errors = pn_figure_errors_new ();
+
+    for (i = 0; i < statements->len; i++)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (!resolve_statement (statement, store, &pen, &frame, ops, errors))
+        {
+            failed = TRUE;
+            break;
+        }
+    }
+
+    /* Evaluate fully, then paint (80.10d): "nothing is drawn" is only
+     * honest if the whole list is resolved before a single stroke goes
+     * down, so a failure takes the list with it. */
+    if (failed || errors->len > 0)
+    {
+        if (out_error != NULL)
+            *out_error = pn_figure_errors_to_string (errors);
+
+        g_ptr_array_set_size (ops, 0);
+    }
+
+    g_ptr_array_unref (errors);
+    g_object_unref (store);
+    return ops;
+}
+
+/* ================================================================== */
+/*  The dump                                                          */
+/* ================================================================== */
+
+/* Every number in the dump goes through g_ascii_formatd(), or a machine
+ * with a comma decimal separator fails every test in 80.12. */
+static void
+append_number (
+        GString     *out,
+        gdouble      value,
+        const gchar *format)
+{
+    gchar        buf[G_ASCII_DTOSTR_BUF_SIZE];
+    const gchar *text = g_ascii_formatd (buf, sizeof buf, format, value);
+
+    if (text == NULL)
+        return;
+
+    /* Negative zero, and a coordinate that lands a hair under zero
+     * after the arithmetic, both print as "-0.00" -- which is the same
+     * place as "0.00", and only one of them can be an expected
+     * string. */
+    if (text[0] == '-' && strspn (text + 1, "0.") == strlen (text + 1))
+        text++;
+
+    g_string_append (out, text);
+}
+
+/* Device numbers at two decimals, so the 80.4 transform is under test
+ * rather than trusted. */
+static void
+append_device (
+        GString *out,
+        gdouble  value)
+{
+    g_string_append_c (out, ' ');
+    append_number (out, value, "%.2f");
+}
+
+/* A window is what the program TYPED, in user units, so it is printed
+ * the way it was written rather than padded out to two decimals. */
+static void
+append_user (
+        GString *out,
+        gdouble  value)
+{
+    g_string_append_c (out, ' ');
+    append_number (out, value, "%g");
+}
+
+static void
+append_quoted (
+        GString     *out,
+        const gchar *text)
+{
+    const gchar *p;
+
+    g_string_append_c (out, '"');
+    for (p = text; *p != '\0'; p++)
+    {
+        switch (*p)
+        {
+        case '"':  g_string_append (out, "\\\""); break;
+        case '\\': g_string_append (out, "\\\\"); break;
+        case '\n': g_string_append (out, "\\n");  break;
+        default:   g_string_append_c (out, *p);   break;
+        }
+    }
+    g_string_append_c (out, '"');
+}
+
+static const gchar *
+halign_word (
+        PnFigureHAlign align)
+{
+    switch (align)
+    {
+    case PN_FIGURE_HALIGN_LEFT:  return "left";
+    case PN_FIGURE_HALIGN_RIGHT: return "right";
+    default:                     return "centre";
+    }
+}
+
+static const gchar *
+valign_word (
+        PnFigureVAlign align)
+{
+    switch (align)
+    {
+    case PN_FIGURE_VALIGN_TOP:      return "top";
+    case PN_FIGURE_VALIGN_BASELINE: return "baseline";
+    case PN_FIGURE_VALIGN_BOTTOM:   return "bottom";
+    default:                        return "middle";
+    }
+}
+
+static void
+append_points (
+        GString      *out,
+        const GArray *points)
+{
+    guint i;
+
+    for (i = 0; points != NULL && i < points->len; i++)
+        append_device (out, g_array_index (points, gdouble, i));
+}
+
+gchar *
+pn_figure_display_to_string (
+        GPtrArray *ops)
+{
+    GString *out = g_string_new (NULL);
+    guint    i;
+
+    for (i = 0; ops != NULL && i < ops->len; i++)
+    {
+        const PnFigureOp *op = g_ptr_array_index (ops, i);
+        gint              n;
+
+        switch (op->kind)
+        {
+        case PN_FIGURE_OP_VIEW:
+            g_string_append (out, "# view");
+            append_user (out, op->window[0]);
+            append_user (out, op->window[1]);
+            append_user (out, op->window[2]);
+            append_user (out, op->window[3]);
+            g_string_append (out, " scale");
+            append_device (out, op->scale);
+            g_string_append (out, " rect");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            append_device (out, op->w);
+            append_device (out, op->h);
+
+            /* The per-axis scales are both 1 unless `stretch` is on,
+             * and a line that says so on every figure would be noise. */
+            if (op->scale_x != 1.0 || op->scale_y != 1.0)
+            {
+                g_string_append (out, " stretch");
+                append_device (out, op->scale_x);
+                append_device (out, op->scale_y);
+            }
+            break;
+
+        case PN_FIGURE_OP_COLOR:
+        case PN_FIGURE_OP_FILL:
+        {
+            gchar *text = pn_color_to_string (&op->color);
+
+            g_string_append (out, op->kind == PN_FIGURE_OP_FILL
+                                  ? "fill " : "color ");
+            g_string_append (out, text);
+            g_free (text);
+            break;
+        }
+
+        case PN_FIGURE_OP_NOFILL:
+            g_string_append (out, "nofill");
+            break;
+
+        case PN_FIGURE_OP_WIDTH:
+            g_string_append (out, "width");
+            append_device (out, op->value);
+            break;
+
+        case PN_FIGURE_OP_DASH:
+            g_string_append (out, "dash");
+            if (op->n_dashes == 0)
+                g_string_append (out, " solid");
+            for (n = 0; n < op->n_dashes; n++)
+                append_device (out, op->dashes[n]);
+            break;
+
+        case PN_FIGURE_OP_FONT:
+            g_string_append (out, "font");
+            append_device (out, op->value);
+            break;
+
+        case PN_FIGURE_OP_ALIGN:
+            g_string_append_printf (out, "align %s %s",
+                                    halign_word (op->halign),
+                                    valign_word (op->valign));
+            break;
+
+        case PN_FIGURE_OP_MOVE:
+            g_string_append (out, "move");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            break;
+
+        case PN_FIGURE_OP_LINE:
+            g_string_append (out, "line");
+            append_points (out, op->points);
+            break;
+
+        case PN_FIGURE_OP_POINT:
+            g_string_append (out, "point");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            append_device (out, op->r);
+            break;
+
+        case PN_FIGURE_OP_CIRCLE:
+            g_string_append (out, "circle");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            append_device (out, op->r);
+            break;
+
+        case PN_FIGURE_OP_ARC:
+            g_string_append (out, "arc");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            append_device (out, op->r);
+            append_device (out, op->a0);
+            append_device (out, op->a1);
+
+            /* Which of cairo_arc() and cairo_arc_negative() the painter
+             * calls, in those words: "clockwise" would have to say
+             * clockwise IN WHICH SPACE, and that is 80.6(d)'s whole
+             * trap. */
+            g_string_append (out, op->negative ? " negative" : " positive");
+            break;
+
+        case PN_FIGURE_OP_RECT:
+            g_string_append (out, "rect");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            append_device (out, op->w);
+            append_device (out, op->h);
+            break;
+
+        case PN_FIGURE_OP_POLY:
+        case PN_FIGURE_OP_PATH:
+            g_string_append (out, op->kind == PN_FIGURE_OP_POLY
+                                  ? "poly" : "path");
+            append_points (out, op->points);
+            break;
+
+        case PN_FIGURE_OP_TEXT:
+            g_string_append (out, "text");
+            append_device (out, op->x);
+            append_device (out, op->y);
+            g_string_append_printf (out, " %s %s ",
+                                    halign_word (op->halign),
+                                    valign_word (op->valign));
+            append_quoted (out, op->text != NULL ? op->text : "");
+            break;
+
+        case PN_FIGURE_OP_SKIP:
+            g_string_append_printf (out, "# skip %d %s", op->line,
+                                    op->text != NULL ? op->text : "");
+            break;
+
+        default:
+            g_warn_if_reached ();
+            break;
+        }
+
+        g_string_append_c (out, '\n');
+    }
+
+    return g_string_free (out, FALSE);
+}

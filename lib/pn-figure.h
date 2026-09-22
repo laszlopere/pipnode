@@ -20,6 +20,7 @@
 
 #include "pn-color.h"
 #include "pn-expr-parser.h"
+#include "pn-var-store.h"
 
 G_BEGIN_DECLS
 
@@ -468,6 +469,232 @@ GPtrArray *pn_figure_free_names (GPtrArray *statements);
  *   are no errors at all.
  */
 gchar *pn_figure_errors_to_string (GPtrArray *errors);
+
+/* ------------------------------------------------------------------ */
+/*  The binding snapshot                                               */
+/*                                                                     */
+/*  A figure REPAINTS -- on an expose, on a zoom, later on a timer --  */
+/*  long after the message that last changed it, so unlike Calculator  */
+/*  2 it cannot rebuild its variables from the message in hand.  It    */
+/*  keeps them, and the snapshot is that keeping (80.8e): a small      */
+/*  name -> value table the node refills when a message arrives and    */
+/*  the resolver re-applies to a cleared store before every frame.     */
+/*                                                                     */
+/*  A value may be a vector, because an input may be one.  Nothing     */
+/*  here objects: a vector is an error only where it reaches an        */
+/*  ARGUMENT, which is the one place a message can name the line it    */
+/*  went wrong on (80.10c).                                            */
+/* ------------------------------------------------------------------ */
+
+typedef struct _PnFigureSnapshot PnFigureSnapshot;
+
+/**
+ * pn_figure_snapshot_new:
+ *
+ * Returns: (transfer full): an empty snapshot.
+ */
+PnFigureSnapshot *pn_figure_snapshot_new (void);
+
+/**
+ * pn_figure_snapshot_free:
+ * @self: (nullable) (transfer full): a snapshot, or %NULL
+ *
+ * Frees @self and every value in it.  Safe to call with %NULL.
+ */
+void pn_figure_snapshot_free (PnFigureSnapshot *self);
+
+/**
+ * pn_figure_snapshot_clear:
+ * @self: the snapshot
+ *
+ * Drops every name, which is what a node does before re-latching a
+ * message's inputs into it.
+ */
+void pn_figure_snapshot_clear (PnFigureSnapshot *self);
+
+/**
+ * pn_figure_snapshot_set:
+ * @self:  the snapshot
+ * @name:  the variable name
+ * @value: the value to bind
+ *
+ * Binds @name, replacing any previous binding.
+ */
+void pn_figure_snapshot_set (PnFigureSnapshot *self,
+                             const gchar      *name,
+                             gdouble           value);
+
+/**
+ * pn_figure_snapshot_set_vector:
+ * @self: the snapshot
+ * @name: the variable name
+ * @vec:  the vector; the snapshot takes its own reference
+ *
+ * Binds @name to a vector, replacing any previous binding.
+ */
+void pn_figure_snapshot_set_vector (PnFigureSnapshot *self,
+                                    const gchar      *name,
+                                    PnVector         *vec);
+
+/* ------------------------------------------------------------------ */
+/*  The resolved display list                                          */
+/*                                                                     */
+/*  What a frame comes to: every expression evaluated, every user      */
+/*  coordinate mapped through the view transform of 80.4, every length */
+/*  scaled -- a list of operations in DEVICE units that the painter    */
+/*  walks and strokes without evaluating anything (80.4i, 80.10d).     */
+/*                                                                     */
+/*  The list is a transcript of the program and not only of its ink:   */
+/*  a pen-state change is an operation too, so the state machine is    */
+/*  observable in pn_figure_display_to_string() rather than merely     */
+/*  implied by the shapes that follow (80.12a).  The painter carries   */
+/*  the state as it walks; it never has to work anything out.          */
+/*                                                                     */
+/*  The language's verbs collapse on the way in: `lineto`, `rline` and */
+/*  `line` are all %PN_FIGURE_OP_LINE between two device points, and   */
+/*  `rmove` is an absolute %PN_FIGURE_OP_MOVE.  Resolving them is the  */
+/*  back end's job precisely so the painter does not have to know the  */
+/*  pen is in user units.                                              */
+/*                                                                     */
+/*  An assignment leaves NO operation: it changes a variable, not the  */
+/*  drawing, and its effect is already in the numbers of the           */
+/*  statements that follow it.                                         */
+/* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    PN_FIGURE_OP_VIEW,   /* a window came into force; see @window      */
+    PN_FIGURE_OP_COLOR,  /* stroke colour <- @color                    */
+    PN_FIGURE_OP_FILL,   /* fill colour <- @color, and filling ON      */
+    PN_FIGURE_OP_NOFILL, /* filling OFF                                */
+    PN_FIGURE_OP_WIDTH,  /* stroke width <- @value, 0 = device hairline */
+    PN_FIGURE_OP_DASH,   /* dash pattern <- @dashes                    */
+    PN_FIGURE_OP_FONT,   /* text size <- @value                        */
+    PN_FIGURE_OP_ALIGN,  /* text anchoring <- @halign, @valign         */
+
+    PN_FIGURE_OP_MOVE,   /* pen to (@x, @y), no ink                    */
+    PN_FIGURE_OP_LINE,   /* @points: one segment, two points           */
+    PN_FIGURE_OP_POINT,  /* a filled disc, centre (@x, @y), radius @r  */
+    PN_FIGURE_OP_CIRCLE, /* centre (@x, @y), radius @r                 */
+    PN_FIGURE_OP_ARC,    /* ... from @a0 to @a1, DEVICE degrees        */
+    PN_FIGURE_OP_RECT,   /* @x, @y, @w, @h, already normalised         */
+    PN_FIGURE_OP_POLY,   /* @points, closed                            */
+    PN_FIGURE_OP_PATH,   /* @points, open                              */
+    PN_FIGURE_OP_TEXT,   /* @text at (@x, @y), anchored @halign/@valign */
+
+    PN_FIGURE_OP_SKIP,   /* a statement that was not run, and why      */
+} PnFigureOpKind;
+
+/* One operation.  A plain struct with a field per need rather than a
+ * union: there are a few dozen of these in a frame, the kind says which
+ * fields mean anything, and a union buys nothing but casts.
+ *
+ * Lengths -- @value, @r, @dashes -- are DEVICE units, already scaled by
+ * the view and clamped (80.4b), which is why a `view` that changes the
+ * scale re-emits the state that depended on it.
+ *
+ * @a0 and @a1 are DEVICE degrees, not the user degrees the program
+ * wrote: our y flip turns a counter-clockwise user sweep into a
+ * clockwise device one, and a reversed bound (80.4d) turns it back.
+ * Core knows the signs, so core does the arithmetic and @negative says
+ * plainly which of cairo_arc() and cairo_arc_negative() to call (80.6d).
+ *
+ * @scale_x and @scale_y on a %PN_FIGURE_OP_VIEW are the per-axis scales
+ * divided by @scale: both 1 unless `stretch` is on, and what a circle
+ * is drawn inside so that it becomes the right ellipse (80.6e). */
+typedef struct
+{
+    PnFigureOpKind  kind;
+    gint            line;     /* the source line it came from          */
+
+    PnColor         color;    /* COLOR, FILL                           */
+    gdouble         value;    /* WIDTH, FONT                           */
+    gdouble         dashes[4];/* DASH                                  */
+    gint            n_dashes; /* DASH: 0 for solid                     */
+    PnFigureHAlign  halign;   /* ALIGN, TEXT                           */
+    PnFigureVAlign  valign;   /* ALIGN, TEXT                           */
+
+    gdouble         x, y;     /* MOVE, POINT, CIRCLE, ARC, RECT, TEXT  */
+    gdouble         w, h;     /* RECT; VIEW: the device box            */
+    gdouble         r;        /* POINT, CIRCLE, ARC                    */
+    gdouble         a0, a1;   /* ARC, in device degrees                */
+    gboolean        negative; /* ARC: sweep clockwise in device space  */
+    GArray         *points;   /* LINE, POLY, PATH: #gdouble, x,y pairs */
+    gchar          *text;     /* TEXT: the label; SKIP: the reason     */
+
+    gdouble         window[4];/* VIEW: xmin, ymin, xmax, ymax, user    */
+    gdouble         scale;    /* VIEW: device units per user unit      */
+    gdouble         scale_x;  /* VIEW: x scale over @scale             */
+    gdouble         scale_y;  /* VIEW: y scale over @scale             */
+} PnFigureOp;
+
+/**
+ * pn_figure_resolve:
+ * @statements: (element-type PnFigureStatement): the parsed program,
+ *              whose lines must still be alive
+ * @free_names: (nullable) (element-type utf8): what the program reads,
+ *              from pn_figure_free_names(); anything the snapshot does
+ *              not supply is bound to 0 (80.2 rule 12)
+ * @snapshot:   (nullable): the latched inputs (80.8e)
+ * @x:          device rectangle: left
+ * @y:          ... top
+ * @w:          ... width
+ * @h:          ... height
+ * @stretch:    %TRUE to fill the rectangle instead of preserving the
+ *              drawing's aspect and centring it (80.4h)
+ * @out_error:  (out) (optional) (nullable): a message when the frame
+ *              could not be resolved at all, %NULL when it could
+ *
+ * Runs one frame: a store cleared to the language's constants and the
+ * snapshot, then every statement in order, into a device-space display
+ * list.
+ *
+ * The three error classes of 80.10 are three different things here.  A
+ * PROGRAM error never reaches this function -- the front end kept the
+ * statement out.  A runtime VALUE problem, which is what a knob winding
+ * through zero produces, skips its statement, leaves a
+ * %PN_FIGURE_OP_SKIP marker saying why, and lets the rest of the figure
+ * draw.  A runtime TYPE problem -- a vector where a scalar is wanted --
+ * is none of those: winding a knob will not cure it, so it empties the
+ * list and sets @out_error, and the node paints red.
+ *
+ * Nothing is drawn until everything is resolved (80.10d), which is what
+ * makes "nothing is drawn" honest: the list this returns is either the
+ * whole figure or empty.
+ *
+ * Returns: (transfer full) (element-type PnFigureOp): the display list,
+ *   never %NULL, empty when @out_error was set.
+ */
+GPtrArray *pn_figure_resolve (GPtrArray              *statements,
+                              GPtrArray              *free_names,
+                              const PnFigureSnapshot *snapshot,
+                              gdouble                 x,
+                              gdouble                 y,
+                              gdouble                 w,
+                              gdouble                 h,
+                              gboolean                stretch,
+                              gchar                 **out_error);
+
+/**
+ * pn_figure_display_to_string:
+ * @ops: (nullable) (element-type PnFigureOp): a resolved display list
+ *
+ * The display list as text, one line per operation, device numbers at
+ * two decimals and every one of them locale-independent.  It is what
+ * 80.12's headless tests assert, and it is the debugging tool as well:
+ * a figure that draws the wrong thing is a dump away from saying why.
+ *
+ * The first line is a comment carrying the window, the scale and the
+ * device box the window was fitted into, so a transform is one line to
+ * check; a `view` statement that changes any of it prints another.  The
+ * whole pen state follows it, because a frame begins by resetting it
+ * (80.5g) and the reset is worth seeing.  A skipped statement prints
+ * `# skip <line> <reason>`, so 80.10(b) is asserted by what is there
+ * rather than by what is missing.
+ *
+ * Returns: (transfer full): the text, "" for an empty list.
+ */
+gchar *pn_figure_display_to_string (GPtrArray *ops);
 
 G_END_DECLS
 
