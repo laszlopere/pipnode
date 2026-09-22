@@ -227,6 +227,109 @@ expr_clamp (const gdouble *a, gint n)
     return (x < lo) ? lo : (x > hi) ? hi : x;
 }
 
+/* THE ROUNDING FAMILY (TODO #83.9).  Six additions and only two new
+ * names, because four of them are the verbs the language already has
+ * given an optional SECOND argument — 83.2's arity range finding its
+ * real customer, where `log(x[, base])` was only its specimen.
+ *
+ * WHAT THEY ARE FOR, and the help says this plainly: QUANTISING a value
+ * before it travels on — a price to the cent, a bearing to a tenth of a
+ * degree, a reading to the precision the instrument actually has.  They
+ * are NOT for formatting a number for display; that is the Numeric
+ * node's decimal-places setting, and rounding a value to make it LOOK
+ * right throws away data every node downstream might have wanted.
+ *
+ * `n` counts decimal places, and a NEGATIVE n quantises the other way —
+ * round(1234, -2) is 1200 — which falls out of the scale and is useful
+ * enough to keep and document rather than reject (abacus reads it the
+ * same way).
+ *
+ * THE ONE INPUT WITH NO ANSWER: an n below about -308 asks for a grid
+ * no double can name, the scale underflows to zero, and the result is
+ * the NaN that 0/0 gives.  That is 83.18's rule doing its job rather
+ * than a hole — the answer really is outside the type.  In the other
+ * direction there IS an answer and it is given: when the scaled value
+ * leaves a double's range the grid is finer than the value's own
+ * precision, so there is nothing to round away and the value passes
+ * through. */
+static gdouble
+quantise (gdouble (*verb) (gdouble), const gdouble *a, gint n_args)
+{
+    gdouble scale, y;
+
+    if (n_args == 1)                /* the bare verb, unchanged */
+        return verb (a[0]);
+
+    scale = pow (10.0, a[1]);
+    y     = a[0] * scale;
+
+    if (!isfinite (y))              /* a grid finer than the value itself */
+        return a[0];
+
+    return verb (y) / scale;
+}
+
+static gdouble
+expr_floor (const gdouble *a, gint n)
+{
+    return quantise (floor, a, n);
+}
+
+static gdouble
+expr_ceil (const gdouble *a, gint n)
+{
+    return quantise (ceil, a, n);
+}
+
+static gdouble
+expr_round (const gdouble *a, gint n)
+{
+    return quantise (round, a, n);
+}
+
+static gdouble
+expr_trunc (const gdouble *a, gint n)
+{
+    return quantise (trunc, a, n);
+}
+
+/* `rint` is the OTHER rounding rule, and it is here because both are
+ * wanted and arguing about one name is more expensive than having two
+ * (TODO #83.9b, #83.22).  C's round() sends a half AWAY from zero,
+ * which 81.11 chose and this language keeps; C's rint() sends it to the
+ * nearest EVEN, which is what abacus's `round` does and what a bank
+ * does to a half cent.  round(2.5) is 3 and rint(2.5) is 2, and the
+ * help says so beside both names.
+ *
+ * rint() rounds in the CURRENT floating-point mode, which is
+ * ties-to-even unless something calls fesetround(); nothing in pipnode
+ * does, and taking C's own function is the entry's rule for a name C
+ * already has.
+ *
+ * It takes the optional place count too, which is one addition more
+ * than 83.9 asked for and earned it the same day 83.16 landed: rounding
+ * money to the cent with a banker's tie rule is the canonical use of
+ * this rule, and `rint(amount, 2)` is how it is spelled. */
+static gdouble
+expr_rint (const gdouble *a, gint n)
+{
+    return quantise (rint, a, n);
+}
+
+/* `frac(x)` = x - floor(x), the fractional part, ALWAYS in [0, 1) —
+ * frac(-0.25) is 0.75 and not -0.25, because this is the sawtooth a
+ * phase accumulator wants and a sawtooth does not change shape below
+ * zero (TODO #83.9c).  A program that wants the signed leftover has
+ * `x - trunc(x)`, or `fmod(x, 1)`, which is that under a name.
+ *
+ * Above 2^52 a double has no fractional part left to report and the
+ * answer is 0, which is the truth rather than a limitation. */
+static gdouble
+expr_frac (gdouble x)
+{
+    return x - floor (x);
+}
+
 /* THE INTEGER-MINDED THREE (TODO #83.14) — `factorial`, `gcd` and `lcm`,
  * the only rows in the table that can REFUSE an argument.
  *
@@ -461,7 +564,8 @@ expr_sign (gdouble x)
  *
  * Where a name means something in C, C wins: `round` is therefore
  * half-AWAY-FROM-ZERO (round(0.5) is 1, round(-0.5) is -1, round(2.5)
- * is 3), not the banker's ties-to-even that some calculators use, and
+ * is 3), not the banker's ties-to-even that some calculators use — that
+ * rule has C's other name, `rint`, and its own row (TODO #83.9b) — and
  * `min`/`max` are fmin/fmax, which SKIP a NaN operand rather than
  * propagating it — min(nan, 3) is 3.  Both are written down in the two
  * help pages, because a reader cannot guess either one.
@@ -475,7 +579,8 @@ expr_sign (gdouble x)
  * the FN1C/FN2C pair for the three rows that carry an argument CHECK
  * (TODO #83.14).  `clamp` and `log(x[, base])` are the specimens that
  * exercise the chain, the range and the N-operand broadcast end to end
- * — the way `atan2` was #81's specimen for the comma.
+ * — the way `atan2` was #81's specimen for the comma; the range then
+ * found its real customer in the five rounding verbs (TODO #83.9).
  *
  * THE NaN AND DOMAIN POLICY, settled once for the whole table rather
  * than row by row (TODO #83.18), because this is where most rows first
@@ -525,10 +630,12 @@ static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN1 ("sqrt",  sqrt),
     PN_EXPR_FN1 ("cbrt",  cbrt),
     PN_EXPR_FN1 ("abs",   fabs),
-    PN_EXPR_FN1 ("floor", floor),
-    PN_EXPR_FN1 ("ceil",  ceil),
-    PN_EXPR_FN1 ("round", round),
-    PN_EXPR_FN1 ("trunc", trunc),
+    PN_EXPR_FNR ("floor", 1, 2, expr_floor),
+    PN_EXPR_FNR ("ceil",  1, 2, expr_ceil),
+    PN_EXPR_FNR ("round", 1, 2, expr_round),
+    PN_EXPR_FNR ("trunc", 1, 2, expr_trunc),
+    PN_EXPR_FNR ("rint",  1, 2, expr_rint),
+    PN_EXPR_FN1 ("frac",  expr_frac),
     PN_EXPR_FN1 ("sign",  expr_sign),
     PN_EXPR_FN1 ("isnan", expr_isnan),
     PN_EXPR_FN1 ("isinf", expr_isinf),

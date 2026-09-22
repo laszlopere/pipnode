@@ -119,17 +119,32 @@ convert a Celsius reading to Fahrenheit.
       or a decay over a short interval.</li>
   <li><strong>Functions &mdash; rounding, remainder and sign:</strong>
       <code>abs</code>, <code>floor</code>, <code>ceil</code>,
-      <code>round</code>, <code>trunc</code>, <code>sign</code>,
+      <code>round</code>, <code>trunc</code>, <code>rint</code>,
+      <code>frac</code>, <code>sign</code>,
       <code>fmod(x,&nbsp;y)</code> and
       <code>copysign(x,&nbsp;y)</code>.
+      <strong>There are two rounding rules and both have a name.</strong>
       <code>round</code> sends a half <em>away</em> from zero
       (<code>round(0.5)</code> is <code>1</code>,
       <code>round(-0.5)</code> is <code>-1</code>,
-      <code>round(2.5)</code> is <code>3</code>) rather than to the
-      nearest even number; <code>trunc</code> cuts toward zero, which is
+      <code>round(2.5)</code> is <code>3</code>), while
+      <code>rint</code> sends it to the nearest <em>even</em>
+      (<code>rint(0.5)</code> is <code>0</code>,
+      <code>rint(2.5)</code> is <code>2</code>,
+      <code>rint(3.5)</code> is <code>4</code>) &mdash; which is what a
+      bank does to a half cent, and what most calculators call
+      &ldquo;round&rdquo;. Pick the one you mean.
+      <code>trunc</code> cuts toward zero, which is
       where it differs from <code>floor</code> on a negative
       (<code>trunc(-1.7)</code> is <code>-1</code>,
       <code>floor(-1.7)</code> is <code>-2</code>);
+      <code>frac(x)</code> is what <code>floor</code> cuts off,
+      <code>x&nbsp;-&nbsp;floor(x)</code>, and it is <em>always</em>
+      between <code>0</code> and <code>1</code> &mdash;
+      <code>frac(-0.25)</code> is <code>0.75</code>, because it is a
+      sawtooth and a sawtooth does not change shape below zero (if you
+      want the signed leftover, that is
+      <code>fmod(x,&nbsp;1)</code>);
       <code>sign</code> is <code>-1</code>, <code>0</code> or
       <code>1</code> &mdash; <code>sign(0)</code> is <code>0</code>,
       because zero has no direction to report;
@@ -140,6 +155,25 @@ convert a Celsius reading to Fahrenheit.
       wanted); and <code>copysign</code> gives x the sign of y, which is
       how to say &ldquo;the same direction as&rdquo; without a
       comparison.</li>
+  <li><strong>Functions &mdash; rounding to a place:</strong> all five
+      verbs take an <em>optional second argument</em> counting decimal
+      places &mdash; <code>round(x,&nbsp;2)</code> to the cent,
+      <code>floor(x,&nbsp;1)</code> to a tenth,
+      <code>rint(price,&nbsp;2)</code> for a banker&rsquo;s half cent.
+      A <em>negative</em> place count quantises the other way:
+      <code>round(1234,&nbsp;-2)</code> is <code>1200</code>.
+      <strong>These are for quantising a value before it travels on</strong>
+      &mdash; a price to the cent, a bearing to a tenth of a degree, a
+      reading to the precision the instrument actually has &mdash; and
+      <em>not</em> for making a number look right on screen. Every
+      display node does its own formatting (the Numeric node has a
+      decimal places setting), and rounding a value to format it throws
+      away data that every node downstream might have wanted.
+      One warning that is about binary and not about this language:
+      a decimal that looks like a tie usually is not one, so
+      <code>round(1.005,&nbsp;2)</code> is <code>1.00</code> &mdash;
+      <code>1.005</code> is really <code>1.00499&hellip;</code> as soon
+      as it is a number.</li>
   <li><strong>Functions &mdash; whole numbers:</strong>
       <code>factorial(n)</code>, <code>gcd(a,&nbsp;b)</code> and
       <code>lcm(a,&nbsp;b)</code>. Every value here is a decimal number,
@@ -239,7 +273,8 @@ convert a Celsius reading to Fahrenheit.
       with the wrong number of them is reported straight away, as a
       mistake in the expression &mdash; saying what the function
       actually takes, down to &ldquo;1 or 2 arguments&rdquo; for one
-      like <code>log</code> that accepts either.</li>
+      like <code>log</code> or <code>round</code> that accepts
+      either.</li>
   <li><strong>Constants:</strong> <code>pi</code> and <code>e</code>.
       They are not variables &mdash; an input member actually named
       <code>pi</code> is used in preference, so nothing you bind can

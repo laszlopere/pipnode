@@ -279,6 +279,21 @@ test_all_builtin_functions (void)
     check_fn (p, vars, seen, "pv(100, 0, 12)",          1200.0);
     check_fn (p, vars, seen, "pmt(1200, 0, 12)",        100.0);
 
+    /* TODO #83.9: the rounding family.  `rint` and `frac` are the two
+     * new names; the four old verbs are checked in their NEW two-
+     * argument form, which is 83.2's arity range with a customer that
+     * is not `log`.  The two tie rules are asserted on the same input
+     * so the disagreement is visible here too. */
+    check_fn (p, vars, seen, "rint(2.5)",         2.0);
+    check_fn (p, vars, seen, "round(2.5)",        3.0);
+    check_fn (p, vars, seen, "frac(-0.25)",       0.75);
+    check_fn (p, vars, seen, "round(1.2345, 2)",  1.23);
+    check_fn (p, vars, seen, "floor(-1.234, 1)",  -1.3);
+    check_fn (p, vars, seen, "ceil(1.234, 2)",    1.24);
+    check_fn (p, vars, seen, "trunc(-1.789, 2)",  -1.78);
+    check_fn (p, vars, seen, "rint(0.125, 2)",    0.12);
+    check_fn (p, vars, seen, "round(1234, -2)",   1200.0);
+
     /* Why `pow` is in the table: `^` is bitwise XOR in this language
      * (TODO #81.7 — no new operators), so the same two numbers written
      * with the operator give 8, not 1024.  Asserted next to the call so
@@ -666,8 +681,14 @@ test_call_arity (void)
      * checked the same way, in both directions. */
     check_parse_error (p, "min(1)",        PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "hypot(3)",      PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
-    check_parse_error (p, "round(1, 2)",   PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sign(1, 2)",    PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    /* `round(1, 2)` was an arity error until TODO #83.9 gave the four
+     * rounding verbs an optional place count — it is now legal, and
+     * THREE arguments is where the range runs out.  Kept as a pair so
+     * the change is visible rather than silently absent. */
+    check_parse_error (p, "round(1, 2, 3)", PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "rint(1, 2, 3)",  PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
+    check_parse_error (p, "frac(1, 2)",     PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     check_parse_error (p, "sin(1, 2, 3)",  PN_EXPR_PARSER_ERROR_ARGUMENT_COUNT);
     /* A RANGED arity reports the range rather than a number (TODO
      * #83.2), and a three-argument call is checked like any other. */
@@ -681,6 +702,24 @@ test_call_arity (void)
         PN_CHECK (e2 != NULL &&
                   strstr (e2->message, "1 or 2 arguments") != NULL);
         g_clear_error (&e2);
+    }
+    /* The same phrase for the rounding verbs, which is the range's
+     * real customer rather than its specimen (TODO #83.9). */
+    {
+        GError     *e3  = NULL;
+        PnExprNode *bad = pn_expr_parser_parse (p, "floor(1, 2, 3)", &e3);
+        PN_CHECK (bad == NULL);
+        PN_CHECK (e3 != NULL &&
+                  strstr (e3->message, "1 or 2 arguments") != NULL);
+        g_clear_error (&e3);
+    }
+    /* And the legal two-argument forms parse, which is the other half
+     * of the claim — the range widened rather than moved. */
+    {
+        GError     *e4  = NULL;
+        PnExprNode *good = pn_expr_parser_parse (p, "round(1.005, 2)", &e4);
+        PN_CHECK (good != NULL && e4 == NULL);
+        pn_expr_node_free (good);
     }
 
     /* More arguments than ANY function takes is still rejected for a

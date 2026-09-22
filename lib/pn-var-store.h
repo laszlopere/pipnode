@@ -220,21 +220,26 @@ void pn_var_store_clear (PnVarStore *self);
  *
  *  - one argument: sin, cos, tan, asin, acos, atan, cot, sec, csc,
  *    degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, ln,
- *    log10, log2, log1p, exp, exp2, expm1, sqrt, cbrt, abs, floor,
- *    ceil, round, trunc, sign, factorial, isnan, isinf, isfinite,
- *    sinc, erf, erfc, j0, j1;
+ *    log10, log2, log1p, exp, exp2, expm1, sqrt, cbrt, abs, frac,
+ *    sign, factorial, isnan, isinf, isfinite, sinc, erf, erfc, j0, j1;
  *  - two: atan2(y, x), min, max, pow, hypot, fmod, copysign, gcd, lcm,
  *    pct(x, p), pct_change(old, new), bps(x, b), step(edge, x);
  *  - three: clamp(x, lo, hi), if(cond, a, b), lerp(a, b, t),
  *    smoothstep(lo, hi, x), compound(principal, rate, periods),
  *    fv(pmt, rate, nper), pv(pmt, rate, nper), pmt(pv, rate, nper);
- *  - one OR two: log(x[, base]), the one row whose arity is a range.
+ *  - one OR two, the rows whose arity is a RANGE: log(x[, base]) and
+ *    the five rounding verbs floor/ceil/round/trunc/rint(x[, n]),
+ *    where @n is a count of decimal places (negative quantises to
+ *    tens and hundreds: round(1234, -2) is 1200).
  *
  * An undefined result is a VALUE and not an error (TODO #83.18):
  * sqrt(-1) and acosh(0) are NaN, log(0) and cot(0) are infinite, and
  * each evaluates successfully and travels on.  Where a name is also
- * C's, C's semantics stand: round() takes halves AWAY from zero and
- * min/max are fmin/fmax, which skip a NaN operand.  The written-here
+ * C's, C's semantics stand: round() takes halves AWAY from zero while
+ * rint() takes them to the nearest EVEN (round(2.5) is 3, rint(2.5)
+ * is 2 — both rules are wanted, so both have a name), frac() is
+ * x - floor(x) and therefore always in [0, 1), and min/max are
+ * fmin/fmax, which skip a NaN operand.  The written-here
  * rows state their own edges: sign() is 0 for either zero and NaN for
  * NaN; clamp() returns lo when the bounds are crossed and passes a NaN
  * value through; if() SELECTS an arm rather than weighing both, so a

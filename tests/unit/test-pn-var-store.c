@@ -1870,6 +1870,173 @@ test_annuity_rows (void)
     g_object_unref (s);
 }
 
+/* ---- The rounding family (TODO #83.9) ---- */
+
+/* Six additions and only two new names: the four verbs the language
+ * already had, given the optional place count that 83.2's arity range
+ * was built for, plus `rint` (the OTHER tie rule) and `frac`.
+ *
+ * The assertions that matter are the ones a reader cannot guess: the
+ * two tie rules disagreeing on the same input, the place count in both
+ * directions, and frac on a NEGATIVE, which is the whole decision in
+ * that row. */
+static void
+test_rounding_family (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK1(name_, arg_, want_)                                      \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK2(name_, x_, n_, want_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), n__ = num (n_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call2 (&st_, name_, &x__, &n__);              \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    /* THE TWO TIE RULES, on the same four inputs, so the disagreement
+     * is visible in one place: `round` goes away from zero, `rint` goes
+     * to the nearest even (TODO #83.9b, #83.22). */
+    CHECK1 ("round",  0.5,  1.0);   CHECK1 ("rint",  0.5,  0.0);
+    CHECK1 ("round",  1.5,  2.0);   CHECK1 ("rint",  1.5,  2.0);
+    CHECK1 ("round",  2.5,  3.0);   CHECK1 ("rint",  2.5,  2.0);
+    CHECK1 ("round", -2.5, -3.0);   CHECK1 ("rint", -2.5, -2.0);
+    CHECK1 ("round",  3.5,  4.0);   CHECK1 ("rint",  3.5,  4.0);
+
+    /* Away from a tie the two agree, which is the other half of the
+     * claim — they differ ONLY on a half. */
+    CHECK1 ("round",  2.4,  2.0);   CHECK1 ("rint",  2.4,  2.0);
+    CHECK1 ("round",  2.6,  3.0);   CHECK1 ("rint",  2.6,  3.0);
+
+    /* One argument still means exactly what it meant before this
+     * entry: the four verbs are unchanged at arity 1. */
+    CHECK1 ("floor", -1.7, -2.0);
+    CHECK1 ("ceil",  -1.7, -1.0);
+    CHECK1 ("trunc", -1.7, -1.0);
+    CHECK1 ("floor",  1.7,  1.0);
+
+    /* THE PLACE COUNT.  Each verb at 2 places on a value where the
+     * verb's own direction decides the answer, so a row wired to the
+     * wrong verb cannot pass. */
+    CHECK2 ("round", 1.2345,  2.0,  1.23);
+    CHECK2 ("round", 1.2355,  2.0,  1.24);
+    CHECK2 ("floor", -1.234,  1.0, -1.3);
+    CHECK2 ("ceil",   1.234,  2.0,  1.24);
+    CHECK2 ("trunc", -1.789,  2.0, -1.78);
+    CHECK2 ("rint",   1.005,  2.0,  1.0);
+
+    /* Banker's rounding to the cent, which is why `rint` took the
+     * place count too: 0.125 is an EXACT half at two places (a power
+     * of two), so the tie rule really does decide it. */
+    CHECK2 ("rint",  0.125, 2.0, 0.12);
+    CHECK2 ("round", 0.125, 2.0, 0.13);
+    CHECK2 ("rint",  0.135, 2.0, 0.14);   /* 0.135 is not a real tie */
+
+    /* A place count of 0 is the bare verb. */
+    CHECK2 ("round", 2.5, 0.0, 3.0);
+    CHECK2 ("rint",  2.5, 0.0, 2.0);
+
+    /* NEGATIVE places quantise the other way — tens, hundreds. */
+    CHECK2 ("round", 1234.0, -2.0, 1200.0);
+    CHECK2 ("round", 1250.0, -2.0, 1300.0);
+    CHECK2 ("floor", 1299.0, -2.0, 1200.0);
+    CHECK2 ("ceil",  1201.0, -2.0, 1300.0);
+    CHECK2 ("trunc", -1299.0, -2.0, -1200.0);
+
+    /* A grid FINER than the value's own precision leaves the value
+     * alone rather than answering the NaN that inf/inf would give. */
+    CHECK2 ("round", 2.5, 400.0, 2.5);
+    CHECK2 ("floor", -1.7, 400.0, -1.7);
+
+    /* And a non-finite value passes through whichever path it takes. */
+    {
+        PnExprNode  x = num (NAN), n2 = num (2.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "round", &x, &n2);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK (isnan (out));
+    }
+
+    /* `frac`: always in [0, 1), which is the decision in the row —
+     * frac(-0.25) is 0.75 and NOT -0.25. */
+    CHECK1 ("frac",  0.25, 0.25);
+    CHECK1 ("frac",  2.25, 0.25);
+    CHECK1 ("frac", -0.25, 0.75);
+    CHECK1 ("frac", -2.25, 0.75);
+    CHECK1 ("frac",  3.0,  0.0);
+    CHECK1 ("frac", -3.0,  0.0);
+
+    /* Above 2^52 there is no fraction left to report. */
+    CHECK1 ("frac", 1e16, 0.0);
+
+#undef CHECK1
+#undef CHECK2
+
+    g_object_unref (s);
+}
+
+/* A ranged row over a VECTOR: the place count broadcasts as a scalar
+ * exactly as `clamp`'s bounds do, and the arity that reached the kernel
+ * is the arity the call was written with (TODO #83.9 over #83.19). */
+static void
+test_rounding_over_a_vector (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     xs[] = { 1.2345, -1.2345, 2.5 };
+
+    bind_vec (s, "xs", xs, 3);
+
+    /* One argument: the bare verb, mapped. */
+    {
+        PnExprNode v = var ("xs");
+        PnExprNode c = call ("round", &v);
+        gdouble    want[] = { 1.0, -1.0, 3.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* Two: the scalar place count broadcasts over every element. */
+    {
+        PnExprNode  v = var ("xs"), n = num (2.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "round", &v, &n);
+        gdouble     want[] = { 1.23, -1.23, 2.5 };
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* A per-element place count is a vector like any other operand. */
+    {
+        gdouble     ns[] = { 0.0, 1.0, 3.0 };
+        PnExprNode  v, nv;
+        CallN       st;
+        PnExprNode *c;
+        gdouble     want[] = { 1.0, -1.2, 2.5 };
+
+        bind_vec (s, "ns", ns, 3);
+        v  = var ("xs");
+        nv = var ("ns");
+        c  = call2 (&st, "round", &v, &nv);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1901,6 +2068,8 @@ main (int argc, char **argv)
     pn_test_add ("checked_row_vector", test_checked_row_over_a_vector);
     pn_test_add ("percent_rows",       test_percent_rows);
     pn_test_add ("annuity_rows",       test_annuity_rows);
+    pn_test_add ("rounding_family",    test_rounding_family);
+    pn_test_add ("rounding_vector",    test_rounding_over_a_vector);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();
 }

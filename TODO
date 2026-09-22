@@ -3374,9 +3374,27 @@
        83.17 was DECIDED rather than built: `time()` stays out, and
        both help pages now say so and point at the Clock node.
 
-       WHAT IS LEFT: 83.9 (the rounding family, 83.2's other customer)
-       and the recording entries 83.21 and 83.22, plus the running
-       tests and help.
+       THE ROUNDING FAMILY AND THE WALK (2026-09-22): 83.9 last,
+       because it is the arity range's real customer rather than its
+       specimen -- four verbs gained an optional place count, `rint`
+       and `frac` are the two new names, and `rint` took the place
+       count too (one addition more than 83.9 asked for, earned by
+       83.16: a banker's half cent is `rint(amount, 2)`).
+       SIXTY-FIVE functions, up from eleven when #81 closed.
+       Then 83.21 and 83.22, the two recording entries. 83.21's four
+       exclusions all held, and (d) is now VERIFIED rather than
+       asserted: pn-expr-parser.c gained no operator, no token and no
+       lexer branch across the whole batch. 83.22's walk against
+       abacus came out better than feared -- of the three predicted
+       divergences one was real (`round`, resolved by `rint`), one was
+       a doc-line artefact on abacus's side (`atan2` behaves as C's
+       everywhere), and one was never a divergence (`log(x, base)`).
+       The one systematic split is 83.18's: abacus RAISES where this
+       language returns a value.
+
+       WHAT IS LEFT: nothing but the closing paragraphs -- 83.23's
+       running assertions and 83.24's help, both of which have kept
+       pace with every row as it landed.
 
        [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
              appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
@@ -3504,28 +3522,66 @@
              side by side. An odd root is defined where an even one is
              not, and pow cannot know that its exponent was meant as a
              third.
-       [ ] 83.9 THE ROUNDING FAMILY, six additions and only two new
-             names:
-             (a) `round(x, n)`, `floor(x, n)`, `ceil(x, n)`,
-                 `trunc(x, n)` -- the same four verbs the language
-                 already has, given an optional SECOND argument that
-                 rounds to n decimal places. No new rows; this is
-                 83.2's arity range and its first customer.
-             (b) `rint(x)` -- round to nearest with ties to EVEN,
-                 which is what abacus's `round` does and what C's
-                 round() deliberately does not (81.11 chose
-                 half-away-from-zero). Both behaviours are wanted, so
-                 both get a name and the help says which is which;
-                 that is cheaper than arguing about one name.
-             (c) `frac(x)` -- the fractional part, x - floor(x),
-                 always in [0, 1). One line, and the sawtooth that
-                 every phase accumulator and repeating animation in
-                 #82 will want.
-             Say plainly in the help that these are for QUANTISING a
-             value before it travels on -- a price to the cent, a
-             bearing to a tenth of a degree -- and not for formatting
-             a number for display, which is the Numeric node's
-             decimals property.
+       [x] 83.9 DONE (2026-09-22): THE ROUNDING FAMILY -- SEVEN
+             additions and two new names, one more than this entry
+             planned, and the entry says below which one and why.
+             (a) DONE: `round(x, n)`, `floor(x, n)`, `ceil(x, n)`,
+                 `trunc(x, n)` -- the four verbs the language already
+                 had, given the optional SECOND argument. No new rows:
+                 each FN1 row became an FNR 1..2 pointing at a
+                 four-line `quantise()` that is verb(x * 10^n) / 10^n,
+                 and at one argument it is the bare verb, so an
+                 existing worksheet cannot notice. This is 83.2's
+                 arity range finding its REAL customer -- `log` was
+                 only its specimen, and five rows now share the range
+                 with it.
+             (b) DONE: `rint(x)` -- ties to EVEN, which is what
+                 abacus's `round` does and what C's round()
+                 deliberately does not. Both rules are wanted, so both
+                 have a name and the help puts them side by side:
+                 round(2.5) is 3, rint(2.5) is 2. C's own function,
+                 one row (it rounds in the CURRENT FP mode, which is
+                 ties-to-even unless something calls fesetround, and
+                 nothing in pipnode does).
+                 THE ONE DEPARTURE FROM THIS ENTRY: `rint` took the
+                 optional place count TOO, which makes seven additions
+                 rather than six. It earned it the same day 83.16
+                 landed -- rounding money to the cent with a banker's
+                 tie rule is the canonical use of this rule, and
+                 `rint(amount, 2)` is how it is spelled. Leaving it
+                 unary would have made the one row that exists FOR
+                 money the only one that could not do the money job.
+             (c) DONE: `frac(x)` = x - floor(x), ALWAYS in [0, 1), so
+                 frac(-0.25) is 0.75 and not -0.25 -- it is a
+                 sawtooth and a sawtooth does not change shape below
+                 zero. A program that wants the signed leftover has
+                 `fmod(x, 1)`, which is that under a name, and the
+                 help says so.
+             SAID PLAINLY IN THE HELP, in a group of its own
+             ("rounding to a place"): these QUANTISE a value before it
+             travels on -- a price to the cent, a bearing to a tenth
+             of a degree, a reading to the precision the instrument
+             actually has -- and are NOT for formatting a number for
+             display, which is the Numeric node's decimal-places
+             setting; rounding a value to make it LOOK right throws
+             away data every node downstream might have wanted.
+             TWO EDGES DECIDED rather than left to fall out:
+              - A NEGATIVE n quantises the other way -- round(1234, -2)
+                is 1200. It falls out of the scale, abacus reads it the
+                same way, and it is documented rather than rejected.
+              - An n so LARGE the scaled value leaves a double's range
+                asks for a grid finer than the value's own precision,
+                so there is nothing to round away and the value passes
+                through (rather than the NaN inf/inf would give). In
+                the other direction, an n below about -308 asks for a
+                grid no double can NAME and answers NaN -- 83.18's
+                rule doing its job, because the answer really is
+                outside the type.
+             ONE WARNING IN THE HELP that is about binary and not about
+             this language: a decimal that looks like a tie usually is
+             not one, so round(1.005, 2) is 1.00 -- 1.005 is really
+             1.00499... as soon as it is a number. (Checked against
+             abacus, which answers the same.)
        [x] 83.10 DONE (2026-09-22): `fmod` and `copysign`. The pair
              that exists because the OPERATOR was not enough: `%` is
              floored (the result takes the divisor's sign) and fmod is
@@ -3786,8 +3842,10 @@
              screen. An elementwise COMPARISON operator is still a
              language change and still a separate entry, but it is now
              a convenience rather than the only road.
-       [ ] 83.21 WHAT IS STILL LEFT OUT, and note that 83.1 changes the
-             REASON for the first one:
+       [x] 83.21 DONE (2026-09-22) -- RECORDED, and every one of the
+             four held through sixty-five functions. WHAT IS STILL
+             LEFT OUT, and note that 83.1 changes the REASON for the
+             first one:
              (a) THE VARIADIC ONES -- avg, median, stddev, variance,
                  and the unbounded spellings of min, max, gcd, lcm.
                  The argument chain makes them REPRESENTABLE, so this
@@ -3821,20 +3879,77 @@
                  multiplication or pow(x, 2). This entry ADDS NAMES
                  and changes nothing about what an existing worksheet
                  means.
-       [ ] 83.22 NAMES MUST MATCH ABACUS WHERE BOTH HAVE THEM, because
-             the user drives both and a name meaning two things is
-             worse than a name existing in only one. Three known
-             divergences to record rather than discover later: abacus
-             documents `atan2(x, y)` while the language shipped C's
-             `atan2(y, x)` in 81.1 -- C's order stays and the help
-             says which way round it is; abacus's `round` is
-             ties-to-even while 81.11 chose half-away-from-zero, which
-             83.9(b) resolves by giving the other behaviour its own
-             name; and abacus's `log(x, y)` two-arg form must mean
-             base y here too, not something cleverer. Walk the
-             finished table against abacus's list once more before
-             closing the entry.
-       [ ] 83.23 TESTS, in the shape 81.8 set and in the SAME binaries
+                 VERIFIED (2026-09-22) rather than asserted: across
+                 the whole batch, lib/pn-expr-parser.c gained no case
+                 label, no token and no lexer branch -- its only diff
+                 since 81.11 is 83.1's argument chain and 83.2's
+                 ranged arity message. Every one of the fifty-four
+                 names this entry added is a row in one table.
+                 The ONE place a name changed shape is 83.9's optional
+                 place count, and it cannot change an existing sheet's
+                 meaning either: `round(x, n)` was a PARSE ERROR
+                 before, so no saved worksheet can contain one, and at
+                 a single argument the four verbs are bit-for-bit what
+                 they were.
+       [x] 83.22 DONE (2026-09-22): NAMES MUST MATCH ABACUS WHERE BOTH
+             HAVE THEM, because the user drives both and a name
+             meaning two things is worse than a name existing in only
+             one. The finished table was WALKED against abacus's
+             help(section="functions"), name by name, and the three
+             divergences this entry predicted came out two, one and
+             none:
+             (a) `atan2` -- NOT A DIVERGENCE. abacus's help line
+                 spells the parameters `atan2(x, y)`, but its
+                 IMPLEMENTATION is C's: abacus answers atan2(1, 0) =
+                 pi/2 and atan2(0, 1) = 0, which is (y, x) exactly as
+                 here. Its doc line names the arguments the other way
+                 round and its behaviour does not. Nothing to fix on
+                 this side; the help already says which way round ours
+                 is.
+             (b) `round` -- REAL, and resolved as planned. abacus is
+                 ties-to-even (round(2.5) = 2, round(0.5) = 0,
+                 round(3.5) = 4, confirmed by running it); 81.11 chose
+                 C's half-away-from-zero. 83.9(b) gives the other
+                 behaviour C's other name, `rint`, and both help pages
+                 put the two side by side on the same inputs.
+             (c) `log(x, y)` -- MATCHES. Both mean log(x)/log(base);
+                 abacus answers log(8, 2) = 3 and so do we.
+             AND THE ndigits FORMS MATCH, which this entry did not
+             think to check: abacus's ceil/floor/round/trunc take an
+             optional ndigits and read a NEGATIVE one as tens and
+             hundreds (round(1234, -2) = 1200), which is exactly what
+             83.9(a) shipped -- including round(1.005, 2) = 1.00, for
+             the same binary reason.
+
+             THE ONE SYSTEMATIC DIVERGENCE, which is about SEMANTICS
+             and not names, and is deliberate on both sides: abacus
+             RAISES where this language returns a value. abacus
+             refuses sqrt(-1) ("square root of a negative value") and
+             1/0 ("float division by zero"); here both are values that
+             travel on (83.18), because a gap in one sample of a curve
+             must not take the whole plate down with it, and abacus is
+             a calculator answering one question at a time where this
+             is a language evaluated per message and per sample. The
+             same split covers log(0), the reciprocal-trig poles and
+             asin(2). Where we DO refuse -- factorial, gcd, lcm
+             (83.14) -- we refuse the same arguments abacus does.
+
+             NAMES ABACUS HAS AND WE DO NOT, each with its entry:
+             avg/median/stddev/variance and the variadic min/max/gcd/
+             lcm (83.21a and 83.21b), sum/product/diff/integral
+             (83.21c), time (83.17). One shape difference beside
+             those: abacus spells its constants `pi()` and `e()` as
+             zero-argument calls as well as bare names, and this
+             language has NO zero-argument call at all (81.3c), so
+             `pi` and `e` are bare only.
+
+             NAMES WE HAVE AND ABACUS DOES NOT, so they cannot clash:
+             sec, csc, log1p, exp2, expm1, hypot, fmod, copysign,
+             isnan, isinf, isfinite, sinc, erf, erfc, j0, j1, rint,
+             frac, step, clamp, if, lerp, smoothstep. Every one is
+             from source (b) libm or source (c) the worksheets, which
+             is what those two sources are for.
+       [x] 83.23 DONE (2026-09-22): TESTS, in the shape 81.8 set and in the SAME binaries
              rather than new ones. test-pn-var-store.c gets a value
              assertion per row, the vector broadcast for every
              multi-argument function, and the zipN tail rule at arity
@@ -3859,12 +3974,22 @@
              per-element check over a vector with the bad element in the
              MIDDLE (so the half-built buffer is proved to be freed
              rather than returned). What is left here is one assertion
-             per ROW as 83.9's rows land.
+             per ROW as the rows land -- and as of 2026-09-22 there
+             are no rows left: 83.9's seven additions brought
+             rounding_family and rounding_vector (the two tie rules on
+             the same five inputs, every verb at a place count in both
+             directions, the vector broadcast of a scalar AND a
+             per-element place count), and test-pn-expr-parser.c's
+             call_arity gained the other half of the range -- three
+             arguments to a rounding verb is the error now, and
+             `round(1, 2)` is asserted to PARSE where it used to be
+             asserted to fail.
              Each decision taken in 83.11(a), 83.14, 83.18 and 83.9(b)
              gets an assertion, because a policy nobody tested is a
              policy that drifts. Headless, pntest.h,
              ./run-unit-tests.sh green.
-       [ ] 83.24 HELP, and 81.9 already counted the places the function
+       [x] 83.24 DONE (2026-09-22, less what belongs to 80.14):
+             HELP, and 81.9 already counted the places the function
              list is written down. FURTHER ALONG (2026-09-22): the
              groups "whole numbers" and "percentages and money" landed
              with 83.14/83.15/83.16, and so did three of the paragraphs
@@ -3877,6 +4002,15 @@
              SKILL's reference/filters-gate-compute.md carries the
              whole list too, and it had silently fallen a batch behind
              (it was missing 83.11's four names). Brought current.
+             AND AGAIN WITH 83.9 (2026-09-22): a ninth group,
+             "rounding to a place", carrying the QUANTISE-not-format
+             paragraph 83.9 asked for, the two tie rules side by side
+             under "rounding, remainder and sign", and the 1.005
+             warning. Both help pages, both node property
+             descriptions, pn-var-store.h and the skill reference were
+             updated in the same pass. What remains of 83.24 is the
+             `^`-is-XOR trap, which is already written into the powers
+             group, and PnFigure.html, which is 80.14's to create.
              PARTLY DONE (2026-09-22): the
              GROUPING this entry asks for is in both node help pages
              already, because the flat list stopped being readable at
