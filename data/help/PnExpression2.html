@@ -116,7 +116,10 @@ being processed contributes them. The result is written to
       cable; <code>tanh</code> is the S-curve that squashes any number
       into &minus;1&hellip;1 without a comparison.</li>
   <li><strong>Functions &mdash; powers, roots and logarithms:</strong>
-      <code>sqrt</code>, <code>exp</code>,
+      <code>sqrt</code>, <code>cbrt</code> &mdash; the cube root, and the
+      one root that accepts a negative (<code>cbrt(-8)</code> is
+      <code>-2</code>, while <code>pow(-8,&nbsp;1/3)</code> is
+      <code>nan</code>); <code>exp</code>, <code>exp2</code>;
       <code>pow(x,&nbsp;y)</code> &mdash; x raised to the power y, and
       the <em>only</em> way to spell a power here, because
       <code>^</code> is bitwise exclusive-or
@@ -124,14 +127,23 @@ being processed contributes them. The result is written to
       <code>pow(2,&nbsp;10)</code> is <code>1024</code>);
       <code>hypot(x,&nbsp;y)</code> &mdash;
       <code>sqrt(x*x&nbsp;+&nbsp;y*y)</code> without the overflow the
-      written-out form can suffer; <code>log(x)</code>, which is the
-      <em>natural</em> logarithm, <code>log(x,&nbsp;base)</code> for the
-      logarithm to a base the sheet computes, and <code>log10</code>,
-      which is the one most people mean when they write
-      <code>log</code>.</li>
-  <li><strong>Functions &mdash; rounding and sign:</strong>
+      written-out form can suffer; and the logarithms
+      <code>log(x)</code>, which is the <em>natural</em> one,
+      <code>ln(x)</code>, which is the same function spelled so you can
+      be sure, <code>log10</code>, which is what most people mean when
+      they write <code>log</code>, <code>log2</code>, and
+      <code>log(x,&nbsp;base)</code> for a base the sheet computes.
+      <code>expm1(x)</code> and <code>log1p(x)</code> are
+      <code>exp(x)&nbsp;-&nbsp;1</code> and
+      <code>log(1&nbsp;+&nbsp;x)</code> computed without the
+      cancellation that costs the written-out form every significant
+      digit near zero &mdash; reach for them for a small interest rate
+      or a decay over a short interval.</li>
+  <li><strong>Functions &mdash; rounding, remainder and sign:</strong>
       <code>abs</code>, <code>floor</code>, <code>ceil</code>,
-      <code>round</code>, <code>trunc</code>, <code>sign</code>.
+      <code>round</code>, <code>trunc</code>, <code>sign</code>,
+      <code>fmod(x,&nbsp;y)</code> and
+      <code>copysign(x,&nbsp;y)</code>.
       <code>round</code> sends a half <em>away</em> from zero
       (<code>round(0.5)</code> is <code>1</code>,
       <code>round(-0.5)</code> is <code>-1</code>,
@@ -139,10 +151,37 @@ being processed contributes them. The result is written to
       nearest even number; <code>trunc</code> cuts toward zero, which is
       where it differs from <code>floor</code> on a negative
       (<code>trunc(-1.7)</code> is <code>-1</code>,
-      <code>floor(-1.7)</code> is <code>-2</code>); and
+      <code>floor(-1.7)</code> is <code>-2</code>);
       <code>sign</code> is <code>-1</code>, <code>0</code> or
       <code>1</code> &mdash; <code>sign(0)</code> is <code>0</code>,
-      because zero has no direction to report.</li>
+      because zero has no direction to report;
+      <code>fmod</code> is the remainder that keeps the sign of
+      <em>x</em>, where the <code>%</code> operator keeps the sign of
+      the divisor (<code>fmod(-7,&nbsp;3)</code> is <code>-1</code> and
+      <code>-7&nbsp;%&nbsp;3</code> is <code>2</code>, and both are
+      wanted); and <code>copysign</code> gives x the sign of y, which is
+      how to say &ldquo;the same direction as&rdquo; without a
+      comparison.</li>
+  <li><strong>Functions &mdash; testing a value:</strong>
+      <code>isnan(x)</code>, <code>isinf(x)</code> and
+      <code>isfinite(x)</code>, each <code>1.0</code> or
+      <code>0.0</code>. Since an undefined result travels on rather than
+      stopping the sheet (below), these are how a program asks about
+      one &mdash; <code>isinf</code> answers for an infinity of either
+      sign, and a program that cares which asks <code>sign</code> as
+      well. They multiply straight into a gate:
+      <code>isfinite(v)&nbsp;*&nbsp;v</code>.</li>
+  <li><strong>Functions &mdash; curves with names:</strong>
+      <code>sinc(x)</code> is <code>sin(x)/x</code> with the hole at
+      zero filled in (<code>sinc(0)</code> is <code>1</code>, not
+      <code>nan</code>) &mdash; the <em>unnormalised</em> convention, so
+      its first zero is at <code>pi</code>, and it is the envelope of a
+      single slit&rsquo;s diffraction pattern. <code>erf(x)</code> and
+      <code>erfc(x)</code> are the error function and its complement,
+      the shape of every diffusion, noise and measurement-error curve
+      (they sum to 1). <code>j0(x)</code> and <code>j1(x)</code> are the
+      Bessel functions of the first kind &mdash; what a <em>circular</em>
+      aperture needs where a slit needed <code>sinc</code>.</li>
   <li><strong>Functions &mdash; choosing and bounding:</strong>
       <code>min(a,&nbsp;b)</code> and <code>max(a,&nbsp;b)</code>, which
       <em>skip</em> a <code>nan</code> operand rather than passing it on

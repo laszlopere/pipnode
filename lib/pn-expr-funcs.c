@@ -64,6 +64,50 @@ expr_radians (gdouble x)
     return x * (G_PI / 180.0);
 }
 
+/* THE CLASSIFICATION THREE (TODO #83.12).  C's isnan/isinf/isfinite are
+ * MACROS, so there is no address to put in a row, and each needs the
+ * one-line wrapper below anyway to answer in the language's own 1.0/0.0
+ * rather than a C int.  They are small and they matter: 83.18 lets a NaN
+ * travel, and without these a program has no way to ASK — `x != x` is
+ * the C trick and nobody should have to know it.  `isinf` answers 1 for
+ * an infinity of either sign; a program that cares which asks `sign`. */
+static gdouble
+expr_isnan (gdouble x)
+{
+    return isnan (x) ? 1.0 : 0.0;
+}
+
+static gdouble
+expr_isinf (gdouble x)
+{
+    return isinf (x) ? 1.0 : 0.0;
+}
+
+static gdouble
+expr_isfinite (gdouble x)
+{
+    return isfinite (x) ? 1.0 : 0.0;
+}
+
+/* `sinc(x)` = sin(x)/x, with the removable singularity REMOVED: sinc(0)
+ * is 1, not the NaN that 0/0 gives (TODO #83.13a).  TODO #79.6 spends a
+ * paragraph on this exact hole and offsets its sample grid by 1e-9 to
+ * step around it; this row is the real fix, and a single slit's
+ * diffraction envelope IS sinc.
+ *
+ * UNNORMALISED (sin(x)/x), not the signal-processing convention
+ * sin(pi*x)/(pi*x).  Both are common, both are called sinc, and the help
+ * says which this is — the physics sheets that asked for it want the
+ * unnormalised one, whose first zero is at pi rather than at 1. */
+static gdouble
+expr_sinc (gdouble x)
+{
+    if (x == 0.0)
+        return 1.0;
+
+    return sin (x) / x;
+}
+
 /* `log(x)` is the natural logarithm and `log(x, base)` is
  * log(x)/log(base) — the first name in the language whose arity is a
  * RANGE rather than a number (TODO #83.2/#83.7).  Written as one row
@@ -192,20 +236,36 @@ static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN1 ("acosh", acosh),
     PN_EXPR_FN1 ("atanh", atanh),
     PN_EXPR_FNR ("log",   1, 2, expr_log),
+    PN_EXPR_FN1 ("ln",    log),
     PN_EXPR_FN1 ("log10", log10),
+    PN_EXPR_FN1 ("log2",  log2),
+    PN_EXPR_FN1 ("log1p", log1p),
     PN_EXPR_FN1 ("exp",   exp),
+    PN_EXPR_FN1 ("exp2",  exp2),
+    PN_EXPR_FN1 ("expm1", expm1),
     PN_EXPR_FN1 ("sqrt",  sqrt),
+    PN_EXPR_FN1 ("cbrt",  cbrt),
     PN_EXPR_FN1 ("abs",   fabs),
     PN_EXPR_FN1 ("floor", floor),
     PN_EXPR_FN1 ("ceil",  ceil),
     PN_EXPR_FN1 ("round", round),
     PN_EXPR_FN1 ("trunc", trunc),
     PN_EXPR_FN1 ("sign",  expr_sign),
+    PN_EXPR_FN1 ("isnan", expr_isnan),
+    PN_EXPR_FN1 ("isinf", expr_isinf),
+    PN_EXPR_FN1 ("isfinite", expr_isfinite),
+    PN_EXPR_FN1 ("sinc",  expr_sinc),
+    PN_EXPR_FN1 ("erf",   erf),
+    PN_EXPR_FN1 ("erfc",  erfc),
+    PN_EXPR_FN1 ("j0",    j0),
+    PN_EXPR_FN1 ("j1",    j1),
     PN_EXPR_FN2 ("atan2", atan2),
     PN_EXPR_FN2 ("min",   fmin),
     PN_EXPR_FN2 ("max",   fmax),
     PN_EXPR_FN2 ("pow",   pow),
     PN_EXPR_FN2 ("hypot", hypot),
+    PN_EXPR_FN2 ("fmod",  fmod),
+    PN_EXPR_FN2 ("copysign", copysign),
     PN_EXPR_FNN ("clamp", 3, expr_clamp),
 };
 

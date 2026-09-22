@@ -220,6 +220,30 @@ test_all_builtin_functions (void)
     check_fn (p, vars, seen, "pow(2, 10)",  1024.0);
     check_fn (p, vars, seen, "hypot(3, 4)", 5.0);
 
+    /* TODO #83.7/83.8/83.10/83.12/83.13.  `ln` is the same function as
+     * `log` under the name a reader can be sure of; log2/exp2 are the
+     * binary pair; log1p/expm1 are the small-x pair, checked where the
+     * naive spelling would lose every digit; cbrt is the root that
+     * accepts a negative; fmod/copysign are the sign pair; the three
+     * classifiers answer 1.0/0.0; and the special five are the physics
+     * sheets' rows. */
+    check_fn (p, vars, seen, "ln(e)",           1.0);
+    check_fn (p, vars, seen, "log2(1024)",      10.0);
+    check_fn (p, vars, seen, "exp2(10)",        1024.0);
+    check_fn (p, vars, seen, "log1p(0)",        0.0);
+    check_fn (p, vars, seen, "expm1(0)",        0.0);
+    check_fn (p, vars, seen, "cbrt(-8)",        -2.0);
+    check_fn (p, vars, seen, "fmod(-7, 3)",     -1.0);
+    check_fn (p, vars, seen, "copysign(3, -1)", -3.0);
+    check_fn (p, vars, seen, "isnan(sqrt(-1))", 1.0);
+    check_fn (p, vars, seen, "isinf(1 / 0)",    1.0);
+    check_fn (p, vars, seen, "isfinite(1)",     1.0);
+    check_fn (p, vars, seen, "sinc(0)",         1.0);
+    check_fn (p, vars, seen, "erf(0)",          0.0);
+    check_fn (p, vars, seen, "erfc(0)",         1.0);
+    check_fn (p, vars, seen, "j0(0)",           1.0);
+    check_fn (p, vars, seen, "j1(0)",           0.0);
+
     /* TODO #83: the three-argument specimen, and the ranged row in both
      * of its forms — one argument is the natural log, two is the log to
      * that base, and both come from one table row. */

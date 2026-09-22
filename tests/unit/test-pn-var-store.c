@@ -1120,6 +1120,117 @@ test_trig_and_hyperbolic_rows (void)
     g_object_unref (s);
 }
 
+/* ---- Roots, remainders, classifiers and the special five ---- */
+
+/* The rows TODO #83.7, #83.8, #83.10, #83.12 and #83.13 add, each
+ * checked where it DIFFERS from the name beside it — that is the whole
+ * reason most of them earned a row. */
+static void
+test_roots_remainders_and_special (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK1(name_, arg_, want_)                                      \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, NULL));          \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+#define CHECK2(name_, x_, y_, want_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_ = call2 (&st_, name_, &x__, &y__);               \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    /* `ln` IS `log`, spelled so a reader can be certain — and neither is
+     * log10, which is the trap the pair exists to defuse. */
+    CHECK1 ("ln",    G_E,    1.0);
+    CHECK1 ("log",   G_E,    1.0);
+    CHECK1 ("log10", 1000.0, 3.0);
+    CHECK1 ("log2",  1024.0, 10.0);
+    CHECK1 ("exp2",  10.0,   1024.0);
+
+    /* The small-x pair, at an argument where the naive spelling loses
+     * every significant digit: exp(1e-15) - 1 computed the obvious way
+     * is 1.11e-15, wrong in the second digit. */
+    CHECK1 ("expm1", 1e-15, 1e-15);
+    CHECK1 ("log1p", 1e-15, 1e-15);
+
+    /* cbrt is the root that ACCEPTS a negative, which is the mistake
+     * pow(x, 1.0/3.0) makes and the reason for the row. */
+    CHECK1 ("cbrt",  8.0,  2.0);
+    CHECK1 ("cbrt", -8.0, -2.0);
+    CHECK1 ("cbrt",  0.0,  0.0);
+    {
+        PnExprNode x = num (-8.0), y = num (1.0 / 3.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "pow", &x, &y);
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, NULL));
+        PN_CHECK (isnan (out));         /* …which is what cbrt fixes */
+    }
+
+    /* fmod is C's TRUNCATED remainder and `%` is FLOORED, so they
+     * disagree on a negative — both behaviours wanted, which is why
+     * the operator was not enough. */
+    CHECK2 ("fmod", -7.0, 3.0, -1.0);
+    CHECK2 ("fmod",  7.0, 3.0,  1.0);
+    {
+        PnExprNode a = num (-7.0), b = num (3.0);
+        PnExprNode m = binary ('%', &a, &b);
+        PN_CHECK (pn_var_store_evaluate (s, &m, &out, NULL));
+        PN_CHECK_NEAR (out, 2.0, 1e-12);        /* floored, not -1 */
+    }
+
+    /* copysign: "same direction as", without a comparison. */
+    CHECK2 ("copysign",  3.0, -1.0, -3.0);
+    CHECK2 ("copysign", -3.0,  1.0,  3.0);
+    CHECK2 ("copysign",  0.0, -1.0,  0.0);      /* -0.0, which is 0.0 */
+
+    /* The classifiers, which are the only way to ASK about a value the
+     * language lets travel (83.18 + 83.12). */
+    CHECK1 ("isnan", 0.0, 0.0);
+    CHECK1 ("isnan", NAN, 1.0);
+    CHECK1 ("isinf", INFINITY, 1.0);
+    CHECK1 ("isinf", -INFINITY, 1.0);
+    CHECK1 ("isinf", NAN, 0.0);
+    CHECK1 ("isfinite", 1.0, 1.0);
+    CHECK1 ("isfinite", INFINITY, 0.0);
+    CHECK1 ("isfinite", NAN, 0.0);
+
+    /* sinc, with the removable singularity actually removed, and in the
+     * UNNORMALISED convention: the first zero is at pi, not at 1. */
+    CHECK1 ("sinc", 0.0, 1.0);
+    CHECK1 ("sinc", 1.0, sin (1.0) / 1.0);
+    CHECK1 ("sinc", G_PI, 0.0);
+    CHECK1 ("sinc", 1.0e-12, 1.0);
+
+    /* erf/erfc are complementary by definition, and the Bessel pair is
+     * checked at 0 where they differ from each other. */
+    CHECK1 ("erf",  0.0, 0.0);
+    CHECK1 ("erfc", 0.0, 1.0);
+    {
+        PnExprNode a = num (0.7);
+        PnExprNode e = call ("erf", &a), c = call ("erfc", &a);
+        PnExprNode sum = binary ('+', &e, &c);
+        PN_CHECK (pn_var_store_evaluate (s, &sum, &out, NULL));
+        PN_CHECK_NEAR (out, 1.0, 1e-12);
+    }
+    CHECK1 ("j0", 0.0, 1.0);
+    CHECK1 ("j1", 0.0, 0.0);
+    CHECK1 ("j0", 2.404825557695773, 0.0);   /* its first zero, to 1e-12 */
+
+#undef CHECK1
+#undef CHECK2
+
+    g_object_unref (s);
+}
+
 /* ---- Three arguments and a ranged arity (TODO #83.1, #83.2) ---- */
 
 /* `clamp` is the first three-argument function and the specimen for the
@@ -1291,6 +1402,7 @@ main (int argc, char **argv)
     pn_test_add ("value_to_string",    test_value_to_string);
     pn_test_add ("builtin_functions",  test_builtin_functions);
     pn_test_add ("domain_policy",      test_domain_policy);
+    pn_test_add ("roots_and_special",  test_roots_remainders_and_special);
     pn_test_add ("trig_hyperbolic",    test_trig_and_hyperbolic_rows);
     pn_test_add ("arity_three_range",  test_arity_three_and_range);
     pn_test_add ("vector_fn_3arg",     test_vector_three_argument_function);

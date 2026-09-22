@@ -3340,15 +3340,24 @@
        continues: `clamp` is 83.11(b) and `log(x, base)` is one of
        83.7's six, both landed early and marked there.
 
-       THE POLICY AND THE ANGLE FAMILY FOLLOWED (2026-09-22): 83.18
+       THE POLICY AND THE LIBM BULK FOLLOWED (2026-09-22): 83.18
        settled first, on paper and in one paragraph, because every row
-       with a domain obeys it -- then 83.3, 83.4, 83.5 and 83.6, which
-       is eleven names and not one line of machinery. THIRTY-THREE
-       functions in the table now. The help pages' flat list broke at
-       that size, which 83.24 predicted, so the GROUPING it asks for
-       landed with them: trigonometry, angles, hyperbolic, powers and
-       logarithms, rounding and sign, choosing and bounding. Whoever
-       adds the next row adds it to a heading, not to a paragraph.
+       with a domain obeys it -- then 83.3, 83.4, 83.5, 83.6, and in a
+       second pass 83.7, 83.8, 83.10, 83.12 and 83.13. That is
+       twenty-seven names and not one line of machinery: FORTY-NINE
+       functions in the table, up from eleven when #81 closed. The help
+       pages' flat list broke on the way, which 83.24 predicted, so the
+       GROUPING it asks for landed too -- trigonometry, angles,
+       hyperbolic, powers/roots/logarithms, rounding/remainder/sign,
+       testing a value, curves with names, choosing and bounding.
+       Whoever adds the next row adds it to a heading, not to a
+       paragraph.
+
+       WHAT IS LEFT: 83.9 (the rounding family, 83.2's other customer),
+       83.11 minus `clamp` (`if`, `lerp`, `step`, `smoothstep` -- the
+       rows the chain was built for), 83.14, 83.15, 83.16, the decision
+       in 83.17, and the recording entries 83.20, 83.21, 83.22, plus
+       the running tests and help.
 
        [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
              appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
@@ -3455,30 +3464,27 @@
              what it meant both times. lissajous.json's other constant
              is pi/2, a quarter turn and not a conversion, so it stays
              as it is; nothing else in examples/ converts an angle.
-       [ ] 83.7 THE OTHER LOGARITHMS AND EXPONENTIALS -- `ln`, `log2`,
-             `log(x, base)`, `exp2`, `expm1`, `log1p`. Six rows and
-             one trap: the language's `log` IS the natural log
-             (matching C and matching abacus), which surprises
-             everyone who expects base ten, and `log10` is the one
-             they wanted. `ln` is the unambiguous spelling of the same
-             function and exists so a reader can be SURE; abacus
-             carries it for that reason alone. `log(x, base)` is
-             log(x)/log(base) and is the first name in the language
-             with two arities, so it is built with 83.2, not before --
-             and it WAS, landing with 83.2 on 2026-09-22 as that
-             entry's proving customer, which leaves five rows here
-             (`ln`, `log2`, `exp2`, `expm1`, `log1p`).
-             `expm1`/`log1p` are the small-x pair -- exp(x)-1 and
-             log(1+x) computed without the cancellation that makes the
-             naive spelling lose every significant digit near zero --
-             and they belong here because a worksheet computing a
-             small interest rate or a decay over a short interval
-             hits exactly that.
-       [ ] 83.8 `cbrt` -- cube root, worth its own row because it is
-             the one root that ACCEPTS NEGATIVES: cbrt(-8) is -2 while
-             sqrt(-8) is NaN, an odd root being defined where an even
-             one is not. pow(x, 1.0/3.0) gets the negative case wrong,
-             which is the mistake this row exists to remove.
+       [x] 83.7 DONE (2026-09-22): THE OTHER LOGARITHMS AND
+             EXPONENTIALS -- `ln`, `log2`, `log(x, base)`, `exp2`,
+             `expm1`, `log1p`. `log(x, base)` landed earlier the same
+             day with 83.2, as that entry's proving customer; the other
+             five are libm one-liners. The trap this entry named is now
+             defused in the help by writing the three spellings next to
+             each other: `log` IS the natural log (matching C and
+             abacus), `ln` is the same function under the name a reader
+             can be SURE of, and `log10` is the one most people mean
+             when they type `log`.
+             `expm1`/`log1p` are asserted at 1e-15, which is exactly
+             where the naive spelling collapses -- exp(1e-15) - 1
+             computed the obvious way is wrong in its second digit --
+             so the test shows what the row is FOR rather than that it
+             is wired up.
+       [x] 83.8 DONE (2026-09-22): `cbrt` -- one libm row, and the
+             test says why it is its own row rather than a spelling of
+             `pow`: cbrt(-8) is -2 while pow(-8, 1/3) is NaN, asserted
+             side by side. An odd root is defined where an even one is
+             not, and pow cannot know that its exponent was meant as a
+             third.
        [ ] 83.9 THE ROUNDING FAMILY, six additions and only two new
              names:
              (a) `round(x, n)`, `floor(x, n)`, `ceil(x, n)`,
@@ -3501,14 +3507,15 @@
              bearing to a tenth of a degree -- and not for formatting
              a number for display, which is the Numeric node's
              decimals property.
-       [ ] 83.10 `fmod` and `copysign`. `fmod(x, y)` is C's TRUNCATED
-             remainder and the language's `%` operator is FLOORED
-             (the header says so: the result takes the divisor's
-             sign), so they disagree on negative operands and both
-             behaviours have their uses -- having only the operator
-             means the other one gets hand-rolled wrongly.
-             `copysign(x, y)` gives x the sign of y, the clean way to
-             say "same direction as" in a figure without a comparison.
+       [x] 83.10 DONE (2026-09-22): `fmod` and `copysign`. The pair
+             that exists because the OPERATOR was not enough: `%` is
+             floored (the result takes the divisor's sign) and fmod is
+             C's truncated remainder (it takes x's), so they disagree
+             on a negative -- fmod(-7, 3) is -1 and -7 % 3 is 2, both
+             wanted, both now spellable, and both asserted in the same
+             test case so the difference is visible in one place.
+             `copysign(x, y)` gives x the sign of y, which is how a
+             figure says "the same direction as" without a comparison.
        [ ] 83.11 SELECTION AND SHAPING -- the five rows that need
              83.1's chain and the reason it is worth building:
              `if(cond, a, b)`, `clamp(x, lo, hi)`, `lerp(a, b, t)`,
@@ -3551,34 +3558,40 @@
                  classic 3t^2-2t^3 with the ends clamped. Together
                  with (c) they are the easing vocabulary #82's
                  animations will otherwise hand-roll.
-       [ ] 83.12 CLASSIFICATION -- `isnan`, `isinf`, `isfinite`,
-             returning the language's usual 1.0/0.0. Small rows with a
-             specific job: this language lets a NaN travel (83.18),
-             and without these there is NO WAY to test for one --
-             x != x works in C and is exactly the trick nobody should
-             have to know. With `if` from 83.11 they become a usable
-             guard: if(isfinite(v), v, 0).
-       [ ] 83.13 THE SPECIAL FUNCTIONS, five rows earned by the physics
-             sheets rather than by completeness:
+       [x] 83.12 DONE (2026-09-22): CLASSIFICATION -- `isnan`,
+             `isinf`, `isfinite`, answering in the language's own
+             1.0/0.0. The rows that make 83.18 usable rather than
+             merely tolerable: the language lets a NaN travel, and
+             without these a program has NO WAY to ask about one --
+             `x != x` is the C trick and nobody should have to know it.
+             IMPLEMENTATION NOTE for the next person: C's isnan/isinf/
+             isfinite are MACROS, so there is no address to put in a
+             row; each is a one-line wrapper, which it needed anyway to
+             answer 1.0/0.0 instead of a C int. `isinf` answers for an
+             infinity of either sign; a program that cares which asks
+             `sign` too, and the help says so.
+             They already work as a gate without `if`:
+             `isfinite(v) * v` is the mask idiom, and 83.11(a) will
+             make it a choice.
+       [x] 83.13 DONE (2026-09-22): THE SPECIAL FUNCTIONS -- `sinc`,
+             `erf`, `erfc`, `j0`, `j1`, five rows earned by the physics
+             sheets rather than by completeness.
              (a) `sinc(x)` = sin(x)/x with the removable singularity
-                 handled -- sinc(0) is 1, not NaN. TODO #79.6 spends a
-                 whole paragraph on this exact 0/0 and offsets its
-                 sample grid by 1e-9 to dodge it; this row is the
-                 real fix, and the diffraction sheet's envelope IS
-                 sinc. Use the unnormalised form (sin(x)/x, not
-                 sin(pi*x)/(pi*x)) and say which in the help, because
-                 the two conventions differ and both are common.
-             (b) `erf`, `erfc` -- libm, one row each, and the shape of
-                 every diffusion, noise and measurement-error curve
-                 there is. The Gaussian's integral has no elementary
-                 spelling, so without these it cannot be written at
-                 all.
-             (c) `j0`, `j1` -- Bessel functions of the first kind,
-                 also libm. Niche, except that they are precisely what
-                 #79's sheet needs the moment it moves from a slit to
-                 a CIRCULAR aperture: the Airy pattern is j1, the way
-                 the slit's is sinc. Two rows for a whole second
-                 plate.
+                 actually REMOVED: sinc(0) is 1, not NaN. TODO #79.6
+                 spends a paragraph on this exact 0/0 and offsets its
+                 sample grid by 1e-9 to step around it; this row is the
+                 real fix, and 79.5's envelope can now say `sinc(al)`
+                 instead of `(sin(al)/al)` with an offset -- worth
+                 revisiting that plan's text when the sheet is built.
+                 UNNORMALISED (sin(x)/x), so its first zero is at pi,
+                 and the help says which convention it is because both
+                 are called sinc.
+             (b) `erf`, `erfc` -- libm, one row each, asserted to sum
+                 to 1 rather than against a table of values.
+             (c) `j0`, `j1` -- libm too (POSIX rather than ISO C, and
+                 glibc has them with no extra define). j0 is checked at
+                 its first zero, 2.404825557695773, which is the number
+                 an Airy pattern is actually made of.
        [ ] 83.14 `factorial`, `gcd`, `lcm` -- the integer-minded three,
              in a language with one double type, so each has to say
              what it does with a fractional argument. Abacus refuses,
