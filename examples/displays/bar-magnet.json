@@ -1,0 +1,88 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "5252a26a-4499-4d85-8eb6-4441b9656dce",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "THE FIELD OF A BAR MAGNET -- forty compass needles, each one turned by the field where it stands, drawn by a single `repeat` block inside one Figure node.  MAGNET BEARING turns the bar and the whole field turns with it.  EARTH FIELD adds a uniform field up the page, which is what a real compass on a real table also feels: wind it up and the distant needles stop caring about the magnet and all point north.  Between those two regimes sit the NEUTRAL POINTS -- the places where the magnet's field exactly cancels the earth's -- and because each needle is drawn as long as the field it stands in, they show up as a limp pair that moves inwards as the earth field grows.  Set the earth field to 0 for the textbook bar-magnet plate on its own.",
+        "width": 900.0,
+        "height": 108.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "7330d820-278f-417e-8f3d-1576ddff59c2",
+      "name": "Magnet bearing (deg)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 220.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 360.0,
+        "value": 30.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "1a90164b-7641-49cb-8c7a-5ab87a8715a2",
+      "name": "Earth field",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 300.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 8.0,
+        "value": 1.5
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "bc3fe798-4aac-4147-90de-e277f18d6e98",
+      "name": "The field of a bar magnet",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 200.0
+      },
+      "properties": {
+        "program": "# THE FIELD OF A BAR MAGNET\n# A grid of compass needles, each one turned by the field where it\n# stands.  Nothing here is drawn twice: one `repeat` block places all\n# thirty-six of them.\n\nview -62, -56, 62, 48\nalign \"centre\", \"middle\"\n\n# --- the magnet ---------------------------------------------------\n# bearing 0 points its north pole up the page; the poles sit at +/- d\n# along that axis, and the whole field follows from the pair.\nth = radians(bearing)\nux = sin(th)\nuy = cos(th)\n\nd  = 4.5\np  = 1000\nhl = 6\nhw = 2.4\n\n# the magnet's own axis and the perpendicular to it, which every\n# corner of the bar is a step along\nax =  hl * ux\nay =  hl * uy\nqx = -hw * uy\nqy =  hw * ux\n\n# --- the needles --------------------------------------------------\n# Eight columns and five rows.  The columns straddle the magnet --\n# four to its left and four to its right, none on top of it -- so the\n# middle row can run along the equator, which is where the interesting\n# thing happens.\nrepeat 40\n    k  = i - 8 * floor(i / 8)\n    gx = (12 + 12 * (k - 4 * floor(k / 4))) * (2 * floor(k / 4) - 1)\n    gy =  36 - 18 * floor(i / 8)\n\n    # the field of two poles, each falling off as 1/r^2, plus the\n    # earth's own field pointing up the page\n    r1 = pow(hypot(gx - d * ux, gy - d * uy), 3)\n    r2 = pow(hypot(gx + d * ux, gy + d * uy), 3)\n    bx = p * (gx - d * ux) / r1 - p * (gx + d * ux) / r2\n    by = p * (gy - d * uy) / r1 - p * (gy + d * uy) / r2 + earth\n\n    a  = atan2(by, bx)\n    nx = cos(a)\n    ny = sin(a)\n\n    # a needle is as long as the field is strong, so the places where\n    # the two fields cancel show up as needles that have gone limp\n    nl = clamp(4.2 * pow(hypot(bx, by) / 1.2, 0.25), 1.1, 3.8)\n    nw = 0.34 * nl\n\n    color \"#303030\"\n    width 0.25\n    fill \"#c03028\"\n    poly gx + nl * nx, gy + nl * ny,\n         gx - nw * ny, gy + nw * nx,\n         gx + nw * ny, gy - nw * nx\n    fill \"#e8e8e8\"\n    poly gx - nl * nx, gy - nl * ny,\n         gx - nw * ny, gy + nw * nx,\n         gx + nw * ny, gy - nw * nx\n    nofill\nend\n\n# --- the magnet itself, on top of the grid ------------------------\ncolor \"#202020\"\nwidth 0.6\nfill \"#c03028\"\npoly  ax + qx,  ay + qy,\n      ax - qx,  ay - qy,\n         - qx,     - qy,\n           qx,       qy\nfill \"#e8e8e8\"\npoly -ax - qx, -ay - qy,\n     -ax + qx, -ay + qy,\n           qx,       qy,\n         - qx,     - qy\nnofill\n\nfont 5\ncolor \"#ffffff\"\ntext 0.55 * hl * ux, 0.55 * hl * uy, \"N\"\ncolor \"#202020\"\ntext -0.55 * hl * ux, -0.55 * hl * uy, \"S\"\n\n# --- the labels ---------------------------------------------------\nfont 5.5\nalign \"centre\", \"top\"\ntext 0, 47, \"The field of a bar magnet\"\n\nfont 3.8\nalign \"left\", \"top\"\ntext -58, -40, \"bearing %.0f°      earth field %.2f\", bearing, earth\ntext -58, -45, \"each needle is as long as the field it stands in\"\ntext -58, -50, \"wind the earth field: the limp pair are the neutral points\"\n",
+        "inputs": 2,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "bearing",
+        "1": "earth"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "7330d820-278f-417e-8f3d-1576ddff59c2",
+      "target_id": "bc3fe798-4aac-4147-90de-e277f18d6e98"
+    },
+    {
+      "source_id": "1a90164b-7641-49cb-8c7a-5ab87a8715a2",
+      "target_id": "bc3fe798-4aac-4147-90de-e277f18d6e98",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}

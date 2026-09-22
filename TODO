@@ -3142,10 +3142,54 @@
              resistances as knobs, the galvanometer needle answering,
              and balance shown rather than asserted. Also named in
              #80's header.
-       [ ] 85.12 MAGNETISM -- the field of a bar magnet, drawn as a
-             grid of compass needles that turn. The one sheet here
-             that is a FIELD rather than a mechanism, and the best
-             argument for the node's per-element vector rule.
+       [x] 85.12 DONE (2026-09-22): MAGNETISM -- the field of a bar
+             magnet. examples/displays/bar-magnet.json, forty compass
+             needles placed by ONE `repeat` block, which is the plate
+             that asked for #86 and the reason that entry exists.
+             THE KNOBS, one visible thing each (80.15.1a): MAGNET
+             BEARING, 0..360 deg, turns the bar and the whole field
+             turns with it; EARTH FIELD, 0..8, adds a uniform field up
+             the page. At 0 the sheet is the textbook bar-magnet plate
+             on its own; wind it up and the far needles stop caring
+             about the magnet and all point north, which is what a
+             compass on a real table actually does.
+             THE PHYSICS: two poles, +p and -p, sitting at +/- d along
+             the magnet's axis, each falling off as 1/r^2, summed with
+             the uniform field, and the needle laid along the sum
+             (atan2, which #81 made available). Two poles rather than
+             an ideal dipole on purpose -- it is what a bar magnet IS
+             in the plate tradition, and it keeps the near field
+             visibly different from the far one.
+             THE NEUTRAL POINTS, and this is the sheet's real lesson:
+             each needle is drawn AS LONG AS THE FIELD IT STANDS IN,
+             clamped at both ends, so the places where the magnet's
+             field exactly cancels the earth's show up as a limp pair
+             that walks inwards as the earth field grows. With the
+             magnet's north up they sit on the equator at
+             r = (2*p*d/E)^(1/3) -- and nothing in the program computes
+             that: the grid FINDS them, which is the whole argument for
+             drawing a field as needles instead of as a formula.
+             THE GRID STRADDLES THE MAGNET: eight columns at +/- 12,
+             24, 36, 48 and five rows at 0 and +/- 18, 36, so the middle
+             row runs along the equator where the interesting thing
+             happens and no needle ever lands on the bar. That is what
+             the column formula's sign trick is for --
+             (12 + 12 * (k - 4 * floor(k / 4))) * (2 * floor(k / 4) - 1)
+             -- and it is the concrete answer to 86.2's claim that one
+             loop plus floor arithmetic is enough for a grid.
+             WHAT IT COST THE LANGUAGE: #86 and nothing else. No arrows
+             (85b) and no rotated labels: N and S are letters placed at
+             POINTS that rotate with the bar, which sidesteps 80.7(h)
+             rather than solving it.
+             CHECKED: `./src/pipnode-run -t 3` under
+             G_DEBUG=fatal-warnings loads it headless, exits 0, no
+             CRITICALs and no warnings; written against
+             tools/figure-preview at seven knob settings and at the
+             node's own 280x210; in a live editor the figure reports
+             an empty `error`, two inputs, two wires, and its port
+             names round-trip as bearing/earth. Installs beside
+             pendulum.json in examples/displays (85.1's placement
+             answer, unchanged).
 
 [x] 86 DONE (2026-09-22): a `repeat` BLOCK for the figure language.
        80.18(a), built, because 85.12 is the "something real" that

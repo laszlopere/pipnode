@@ -76,6 +76,7 @@ time_DATA = \
 displaysdir = $(pkgdatadir)/examples/displays
 displays_DATA = \
 	displays/LED-displays.json \
+	displays/bar-magnet.json \
 	displays/pendulum.json
 
 miscdir = $(pkgdatadir)/examples/misc
