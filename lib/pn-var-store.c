@@ -234,10 +234,11 @@ map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out);
  * would be a second rule for one idea. */
 typedef struct
 {
-    gchar          op;   /* operator code, when every fn is NULL */
-    PnExprUnaryFn  fn1;  /* one-argument built-in                */
-    PnExprBinaryFn fn2;  /* two-argument built-in                */
-    PnExprNaryFn   fnN;  /* three or more, or a ranged arity     */
+    gchar          op;    /* operator code, when every fn is NULL */
+    PnExprUnaryFn  fn1;   /* one-argument built-in                */
+    PnExprBinaryFn fn2;   /* two-argument built-in                */
+    PnExprNaryFn   fnN;   /* three or more, or a ranged arity     */
+    PnExprCheckFn  check; /* the row's argument check, or NULL    */
 } Kernel;
 
 static gdouble
@@ -269,8 +270,15 @@ kernel_apply (const Kernel *k, const gdouble *a, gint n)
  * Generalising THIS function rather than writing a second one beside it
  * is the structural part (83.19): arithmetic, unary maps and calls of
  * every arity share one broadcast, so a function CANNOT drift from an
- * operator. */
-static void
+ * operator.
+ *
+ * A row carrying an argument CHECK (TODO #83.14 — `factorial`, `gcd`,
+ * `lcm`, and nothing else in the table) runs it PER ELEMENT, just before
+ * the kernel, so one bad element in a vector refuses the whole call
+ * rather than quietly poisoning one slot.  Returns %NULL on success, or
+ * the check's message with @out left cleared.  Every other caller passes
+ * a kernel with no check and can only get %NULL. */
+static const gchar *
 zipn_value (const Kernel      *k,
             const PnExprValue *v,
             gint               n,
@@ -297,8 +305,16 @@ zipn_value (const Kernel      *k,
     {
         for (i = 0; i < n; i++)
             args[i] = v[i].scalar;
+
+        if (k->check != NULL)
+        {
+            const gchar *bad = k->check (args, n);
+            if (bad != NULL)
+                return bad;
+        }
+
         out->scalar = kernel_apply (k, args, n);
-        return;
+        return NULL;
     }
 
     r = g_new (gdouble, len);
@@ -327,10 +343,21 @@ zipn_value (const Kernel      *k,
             }
         }
 
+        if (complete && k->check != NULL)
+        {
+            const gchar *bad = k->check (args, n);
+            if (bad != NULL)
+            {
+                g_free (r);
+                return bad;
+            }
+        }
+
         r[j] = complete ? kernel_apply (k, args, n) : first;
     }
 
     value_take_buffer (out, r, len);
+    return NULL;
 }
 
 /* out = a OP b for an arithmetic or bitwise operator
@@ -339,20 +366,20 @@ static void
 arith_value (gchar op, const PnExprValue *a, const PnExprValue *b,
              PnExprValue *out)
 {
-    Kernel      k = { op, NULL, NULL, NULL };
+    Kernel      k = { op, NULL, NULL, NULL, NULL };
     PnExprValue v[2];
 
     v[0] = *a;
     v[1] = *b;
-    zipn_value (&k, v, 2, out);
+    (void) zipn_value (&k, v, 2, out);  /* no check on an operator */
 }
 
 static void
 map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out)
 {
-    Kernel k = { '\0', fn, NULL, NULL };
+    Kernel k = { '\0', fn, NULL, NULL, NULL };
 
-    zipn_value (&k, a, 1, out);
+    (void) zipn_value (&k, a, 1, out);  /* no check on a unary map */
 }
 
 /* out = a CMP b for a comparison operator.  ALWAYS reduces to a scalar
@@ -742,11 +769,27 @@ eval_value (PnVarStore       *self,
 
             if (ok)
             {
-                k.op  = '\0';
-                k.fn1 = fn->fn1;
-                k.fn2 = fn->fn2;
-                k.fnN = fn->fnN;
-                zipn_value (&k, args, n_args, out);
+                const gchar *bad;
+
+                k.op    = '\0';
+                k.fn1   = fn->fn1;
+                k.fn2   = fn->fn2;
+                k.fnN   = fn->fnN;
+                k.check = fn->check;
+
+                /* The only way a call in this language FAILS on its
+                 * values rather than its shape (TODO #83.14): three
+                 * rows refuse an argument wrong in KIND, and the rest
+                 * of the table has no check at all, so `bad` is NULL
+                 * for every one of them. */
+                bad = zipn_value (&k, args, n_args, out);
+                if (bad != NULL)
+                {
+                    g_set_error (error, PN_VAR_STORE_ERROR,
+                                 PN_VAR_STORE_ERROR_BAD_ARGUMENT,
+                                 "%s: %s", node->name, bad);
+                    ok = FALSE;
+                }
             }
 
             for (i = 0; i < n_args; i++)

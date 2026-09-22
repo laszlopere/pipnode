@@ -37,6 +37,7 @@ typedef enum
     PN_VAR_STORE_ERROR_UNKNOWN_FUNCTION, /* AST calls an unknown function   */
     PN_VAR_STORE_ERROR_BAD_AST,          /* malformed / corrupt AST node    */
     PN_VAR_STORE_ERROR_TYPE_MISMATCH,    /* a vector reached a scalar sink  */
+    PN_VAR_STORE_ERROR_BAD_ARGUMENT,     /* a function refused an argument  */
 } PnVarStoreError;
 
 /* ------------------------------------------------------------------ */
@@ -220,12 +221,13 @@ void pn_var_store_clear (PnVarStore *self);
  *  - one argument: sin, cos, tan, asin, acos, atan, cot, sec, csc,
  *    degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, ln,
  *    log10, log2, log1p, exp, exp2, expm1, sqrt, cbrt, abs, floor,
- *    ceil, round, trunc, sign, isnan, isinf, isfinite, sinc, erf,
- *    erfc, j0, j1;
- *  - two: atan2(y, x), min, max, pow, hypot, fmod, copysign,
- *    step(edge, x);
+ *    ceil, round, trunc, sign, factorial, isnan, isinf, isfinite,
+ *    sinc, erf, erfc, j0, j1;
+ *  - two: atan2(y, x), min, max, pow, hypot, fmod, copysign, gcd, lcm,
+ *    pct(x, p), pct_change(old, new), bps(x, b), step(edge, x);
  *  - three: clamp(x, lo, hi), if(cond, a, b), lerp(a, b, t),
- *    smoothstep(lo, hi, x);
+ *    smoothstep(lo, hi, x), compound(principal, rate, periods),
+ *    fv(pmt, rate, nper), pv(pmt, rate, nper), pmt(pv, rate, nper);
  *  - one OR two: log(x[, base]), the one row whose arity is a range.
  *
  * An undefined result is a VALUE and not an error (TODO #83.18):
@@ -238,7 +240,17 @@ void pn_var_store_clear (PnVarStore *self);
  * value through; if() SELECTS an arm rather than weighing both, so a
  * NaN in the arm not chosen cannot reach the result, and its condition
  * chooses per element only when it is a VECTOR — which a comparison
- * never is (TODO #83.20).
+ * never is (TODO #83.20).  The annuity three treat a zero rate as a
+ * LIMIT rather than a division (fv/pv are pmt * nper, pmt is pv/nper),
+ * and their rate is PER PERIOD with `nper` counting the same unit.
+ *
+ * THE ONE EXCEPTION to "nothing raises" is about the ARGUMENT and not
+ * the result (TODO #83.14): factorial(), gcd() and lcm() want WHOLE
+ * numbers, and factorial() also wants 0..170 because 171! overflows a
+ * double.  Anything else — a fraction, a negative, a NaN, an infinity
+ * — fails with #PN_VAR_STORE_ERROR_BAD_ARGUMENT rather than answering,
+ * because "the factorial of a half" is a different function and not a
+ * number this language can carry.
  *
  * A name not bound in @self falls back to
  * the language's constants, `pi` and `e`, so a binding of that name

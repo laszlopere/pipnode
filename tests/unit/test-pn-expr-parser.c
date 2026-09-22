@@ -258,6 +258,27 @@ test_all_builtin_functions (void)
     check_fn (p, vars, seen, "smoothstep(0, 10, 5)",   0.5);
     check_fn (p, vars, seen, "log(8, 2)",        3.0);
 
+    /* TODO #83.14: the integer-minded three.  Values here; the refusals
+     * that make them the only checked rows in the table are pinned in
+     * test-pn-var-store.c, where the error code and message live. */
+    check_fn (p, vars, seen, "factorial(5)",     120.0);
+    check_fn (p, vars, seen, "gcd(12, 18)",      6.0);
+    check_fn (p, vars, seen, "lcm(4, 6)",        12.0);
+
+    /* TODO #83.15: the percent family, checked at the one input that
+     * separates a percent from a basis point. */
+    check_fn (p, vars, seen, "pct(200, 25)",         50.0);
+    check_fn (p, vars, seen, "bps(200, 25)",         0.5);
+    check_fn (p, vars, seen, "pct_change(100, 125)", 0.25);
+
+    /* TODO #83.16: the annuity family, each at the r = 0 LIMIT, which
+     * is the case a row that just wrote the formula out would get
+     * wrong (it would divide by zero and answer inf). */
+    check_fn (p, vars, seen, "compound(1000, 0.05, 2)", 1102.5);
+    check_fn (p, vars, seen, "fv(100, 0, 12)",          1200.0);
+    check_fn (p, vars, seen, "pv(100, 0, 12)",          1200.0);
+    check_fn (p, vars, seen, "pmt(1200, 0, 12)",        100.0);
+
     /* Why `pow` is in the table: `^` is bitwise XOR in this language
      * (TODO #81.7 — no new operators), so the same two numbers written
      * with the operator give 8, not 1024.  Asserted next to the call so

@@ -227,6 +227,204 @@ expr_clamp (const gdouble *a, gint n)
     return (x < lo) ? lo : (x > hi) ? hi : x;
 }
 
+/* THE INTEGER-MINDED THREE (TODO #83.14) — `factorial`, `gcd` and `lcm`,
+ * the only rows in the table that can REFUSE an argument.
+ *
+ * This language has one numeric type and it is a double, so each of the
+ * three has to say what it does with a fraction.  It refuses, which is
+ * what abacus does and is more honest than truncating: the test 83.18
+ * sets is whether the question has an answer this language can carry,
+ * and "the greatest common divisor of 1.5 and 2" does not have one —
+ * unlike "the square root of -1", which has NaN.  A NaN or an infinity
+ * is not a whole number either, so the same check stops it; these three
+ * are the one place a value that has been travelling down the wire since
+ * 83.18 let it through is finally made to answer for itself.
+ *
+ * factorial also needs a CAP.  171! overflows a double to +inf, so 170
+ * is the natural limit and anything above it is an error rather than a
+ * silent infinity — the one refusal here that is about size rather than
+ * kind, and it is a refusal because a silent +inf is exactly the kind of
+ * answer that gets plotted. */
+static gboolean
+is_whole (gdouble x)
+{
+    return isfinite (x) && x == floor (x);
+}
+
+static const gchar *
+check_factorial (const gdouble *a, gint n)
+{
+    (void) n;
+
+    if (!is_whole (a[0]))
+        return "takes a whole number";
+    if (a[0] < 0.0)
+        return "is not defined below 0";
+    if (a[0] > 170.0)
+        return "above 170 does not fit a double";
+
+    return NULL;
+}
+
+/* gcd and lcm share one check because they share one requirement, and
+ * it applies to BOTH arguments — a[0] alone would let gcd(4, 1.5)
+ * through. */
+static const gchar *
+check_whole_pair (const gdouble *a, gint n)
+{
+    gint i;
+
+    for (i = 0; i < n; i++)
+        if (!is_whole (a[i]))
+            return "takes whole numbers";
+
+    return NULL;
+}
+
+/* Written out as the product rather than as tgamma(x + 1): glibc's
+ * tgamma is accurate to within an ulp and that is not the same as
+ * EXACT, so tgamma(13) is 479001599.99999994 where a reader who typed
+ * factorial(12) expects 479001600 and will check.  The loop gives the
+ * exact answer for every n whose factorial a double can hold exactly. */
+static gdouble
+expr_factorial (gdouble x)
+{
+    gdouble r = 1.0;
+    gint    i, n = (gint) x;        /* the check guarantees 0..170 */
+
+    for (i = 2; i <= n; i++)
+        r *= (gdouble) i;
+
+    return r;
+}
+
+/* Euclid, run on doubles with fmod — which is exact for whole numbers,
+ * so this is integer arithmetic in all but the type.  The sign is
+ * dropped (a divisor's sign is not information), gcd(0, 0) is 0, and
+ * gcd(n, 0) is n, all of which fall out of the loop. */
+static gdouble
+expr_gcd (gdouble x, gdouble y)
+{
+    gdouble a = fabs (x), b = fabs (y);
+
+    while (b > 0.0)
+    {
+        gdouble t = fmod (a, b);
+        a = b;
+        b = t;
+    }
+
+    return a;
+}
+
+/* lcm(a, b) = |a * b| / gcd(a, b), divided FIRST so the product cannot
+ * overflow a case the answer itself would fit.  Any zero gives 0 —
+ * there is no smallest common multiple of something and nothing, and 0
+ * is the answer every other language settled on. */
+static gdouble
+expr_lcm (gdouble x, gdouble y)
+{
+    gdouble g = expr_gcd (x, y);
+
+    if (g == 0.0)
+        return 0.0;
+
+    return fabs (x / g * y);
+}
+
+/* THE PERCENT FAMILY (TODO #83.15) — three rows of trivial arithmetic,
+ * which is exactly the point.  They exist so that nobody hand-rolls
+ * `/ 100` in a sheet and nobody writes a basis point where they meant a
+ * percent: a Tasmota power reading scaled by the wrong factor of a
+ * hundred looks plausible all the way to the graph.
+ *
+ * `pct_change` has the one trap worth stating twice: its arguments are
+ * OLD then NEW, and getting them backwards gives an answer that is
+ * wrong without looking wrong.  It divides by zero when `old` is 0, and
+ * under 83.18 that is an infinity travelling on rather than an error. */
+static gdouble
+expr_pct (gdouble x, gdouble p)
+{
+    return x * p / 100.0;
+}
+
+static gdouble
+expr_pct_change (gdouble old_value, gdouble new_value)
+{
+    return (new_value - old_value) / old_value;
+}
+
+static gdouble
+expr_bps (gdouble x, gdouble b)
+{
+    return x * b / 10000.0;
+}
+
+/* THE ANNUITY FAMILY (TODO #83.16) — `compound`, `fv`, `pv` and `pmt`,
+ * four three-argument rows taken from abacus and unreachable before the
+ * argument chain.  A worksheet that reads an energy meter is one
+ * expression away from reading a bill, and each of these is a formula
+ * people get wrong from memory.
+ *
+ * TWO THINGS THAT MUST BE SAID, and the help says them too:
+ *  - THE RATE IS PER PERIOD and `periods`/`nper` counts the SAME unit.
+ *    A yearly 5% over 24 months is compound(p, 0.05 / 12, 24), not
+ *    compound(p, 0.05, 24); nothing here can catch that mistake.
+ *  - r = 0 IS A LIMIT, NOT A DIVISION.  Every one of the three annuity
+ *    rows has r in a denominator and a limit that is perfectly
+ *    well-behaved as r approaches zero — a stream of payments with no
+ *    interest is worth pmt * nper — so each special-cases it rather
+ *    than returning the inf the formula would give.  That is the one
+ *    place these rows depart from writing the textbook formula out. */
+static gdouble
+expr_compound (const gdouble *a, gint n)
+{
+    const gdouble principal = a[0], rate = a[1], periods = a[2];
+
+    (void) n;                       /* fixed arity 3 */
+
+    return principal * pow (1.0 + rate, periods);
+}
+
+static gdouble
+expr_fv (const gdouble *a, gint n)
+{
+    const gdouble pmt = a[0], rate = a[1], nper = a[2];
+
+    (void) n;
+
+    if (rate == 0.0)
+        return pmt * nper;
+
+    return pmt * (pow (1.0 + rate, nper) - 1.0) / rate;
+}
+
+static gdouble
+expr_pv (const gdouble *a, gint n)
+{
+    const gdouble pmt = a[0], rate = a[1], nper = a[2];
+
+    (void) n;
+
+    if (rate == 0.0)
+        return pmt * nper;
+
+    return pmt * (1.0 - pow (1.0 + rate, -nper)) / rate;
+}
+
+static gdouble
+expr_pmt (const gdouble *a, gint n)
+{
+    const gdouble present = a[0], rate = a[1], nper = a[2];
+
+    (void) n;
+
+    if (rate == 0.0)
+        return present / nper;
+
+    return present * rate / (1.0 - pow (1.0 + rate, -nper));
+}
+
 /* `sign` is the one name in the table with no libm function behind it,
  * so it is written out — and its two edge cases are DECIDED here rather
  * than left to fall out (TODO #81.11):
@@ -271,12 +469,13 @@ expr_sign (gdouble x)
  * `pow(x, y)` also exists to catch a mistake: `^` in this language is
  * bitwise XOR, not exponentiation, so `2 ^ 10` is 8 and not 1024.
  *
- * The three macros keep a row to one line whatever the struct grows:
+ * The macros keep a row to one line whatever the struct grows:
  * PN_EXPR_FN1/FN2 for a fixed one or two arguments, PN_EXPR_FNN for a
- * fixed three or more, PN_EXPR_FNR for an arity RANGE (TODO #83.2).
- * `clamp` and `log(x[, base])` are the specimens that exercise those
- * last two paths end to end — the chain, the range and the N-operand
- * broadcast — the way `atan2` was #81's specimen for the comma.
+ * fixed three or more, PN_EXPR_FNR for an arity RANGE (TODO #83.2), and
+ * the FN1C/FN2C pair for the three rows that carry an argument CHECK
+ * (TODO #83.14).  `clamp` and `log(x[, base])` are the specimens that
+ * exercise the chain, the range and the N-operand broadcast end to end
+ * — the way `atan2` was #81's specimen for the comma.
  *
  * THE NaN AND DOMAIN POLICY, settled once for the whole table rather
  * than row by row (TODO #83.18), because this is where most rows first
@@ -287,15 +486,16 @@ expr_sign (gdouble x)
  *   sqrt(-1), acosh(0) and atanh(2) are NaN; log(0), cot(0) and
  *   csc(0) are infinite; and each travels down the wire like any
  *   other number, exactly as `1 / 0` already did before this entry.
- *   NOTHING in this table raises.
  *
- * What may raise, when those rows land, is an argument wrong in KIND
- * rather than out of range — factorial(-1), factorial(1.5),
- * gcd(1.5, 2) (83.14).  The test is whether the question has an answer
- * this language can carry: "the square root of -1" has one, and NaN is
- * how a double says it; "the factorial of a half" has none, because
- * that is a different function.  A program tests for the first kind
- * with isnan/isfinite (83.12) and is stopped by the second. */
+ * THE ONE EXCEPTION, and it is about the ARGUMENT rather than the
+ * result: three rows carry a CHECK (see PnExprCheckFn) and refuse an
+ * argument wrong in KIND rather than out of range — factorial(-1),
+ * factorial(1.5), gcd(1.5, 2) (83.14).  The test is whether the
+ * question has an answer this language can carry: "the square root of
+ * -1" has one, and NaN is how a double says it; "the factorial of a
+ * half" has none, because that is a different function.  A program
+ * tests for the first kind with isnan/isfinite (83.12) and is stopped
+ * by the second. */
 static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN1 ("sin",   sin),
     PN_EXPR_FN1 ("cos",   cos),
@@ -345,11 +545,21 @@ static const PnExprFunc builtin_funcs[] = {
     PN_EXPR_FN2 ("hypot", hypot),
     PN_EXPR_FN2 ("fmod",  fmod),
     PN_EXPR_FN2 ("copysign", copysign),
+    PN_EXPR_FN1C ("factorial", expr_factorial, check_factorial),
+    PN_EXPR_FN2C ("gcd",  expr_gcd, check_whole_pair),
+    PN_EXPR_FN2C ("lcm",  expr_lcm, check_whole_pair),
+    PN_EXPR_FN2 ("pct",   expr_pct),
+    PN_EXPR_FN2 ("pct_change", expr_pct_change),
+    PN_EXPR_FN2 ("bps",   expr_bps),
     PN_EXPR_FNN ("clamp", 3, expr_clamp),
     PN_EXPR_FNN ("if",    3, expr_if),
     PN_EXPR_FNN ("lerp",  3, expr_lerp),
     PN_EXPR_FN2 ("step",  expr_step),
     PN_EXPR_FNN ("smoothstep", 3, expr_smoothstep),
+    PN_EXPR_FNN ("compound", 3, expr_compound),
+    PN_EXPR_FNN ("fv",    3, expr_fv),
+    PN_EXPR_FNN ("pv",    3, expr_pv),
+    PN_EXPR_FNN ("pmt",   3, expr_pmt),
 };
 
 /* The named constants.  Two, and both of them are here because writing

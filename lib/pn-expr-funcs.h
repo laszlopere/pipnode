@@ -45,6 +45,22 @@ typedef gdouble (*PnExprBinaryFn) (gdouble x, gdouble y);
  * is within the row's min..max (TODO #83.2). */
 typedef gdouble (*PnExprNaryFn)   (const gdouble *args, gint n_args);
 
+/* A row's ARGUMENT CHECK, and the only thing in the whole table that can
+ * make a call FAIL rather than return a number (TODO #83.14).  The NaN
+ * and domain policy (83.18) says a result mathematics does not define is
+ * a VALUE — sqrt(-1) is NaN and travels on — but it draws one line: an
+ * argument wrong in KIND rather than out of range has no answer this
+ * language can carry.  "The factorial of a half" is not a large number
+ * or a NaN, it is a different function, so `factorial`, `gcd` and `lcm`
+ * carry a check and nothing else does.
+ *
+ * Returns %NULL when @args are acceptable, or a STATIC message saying
+ * what is wrong with them — rendered as "<name>: <message>", so the
+ * message is the predicate and not the sentence.  It runs PER ELEMENT
+ * of a vector call, before the implementation sees the arguments.
+ */
+typedef const gchar *(*PnExprCheckFn) (const gdouble *args, gint n_args);
+
 typedef struct
 {
     const gchar    *name;
@@ -54,16 +70,30 @@ typedef struct
     PnExprUnaryFn   fn1;        /* fixed arity 1 */
     PnExprBinaryFn  fn2;        /* fixed arity 2 */
     PnExprNaryFn    fnN;        /* arity 3+, or any range */
+    PnExprCheckFn   check;      /* argument check, or %NULL for the
+                                 * overwhelming majority that cannot
+                                 * refuse an argument at all */
 } PnExprFunc;
 
 /* Use these rather than writing a row out: a function is meant to cost
- * ONE LINE, and the three shapes are what keep it one line as the struct
+ * ONE LINE, and these shapes are what keep it one line as the struct
  * grows.  FNR is the ranged form — FNR ("log", 1, 2, expr_log). */
-#define PN_EXPR_FN1(name_, fn_)            { name_, 1, 1, fn_, NULL, NULL }
-#define PN_EXPR_FN2(name_, fn_)            { name_, 2, 2, NULL, fn_, NULL }
+#define PN_EXPR_FN1(name_, fn_)            { name_, 1, 1, fn_, NULL, NULL, \
+                                             NULL }
+#define PN_EXPR_FN2(name_, fn_)            { name_, 2, 2, NULL, fn_, NULL, \
+                                             NULL }
 #define PN_EXPR_FNN(name_, arity_, fn_)    { name_, arity_, arity_, \
-                                             NULL, NULL, fn_ }
-#define PN_EXPR_FNR(name_, lo_, hi_, fn_)  { name_, lo_, hi_, NULL, NULL, fn_ }
+                                             NULL, NULL, fn_, NULL }
+#define PN_EXPR_FNR(name_, lo_, hi_, fn_)  { name_, lo_, hi_, NULL, NULL, \
+                                             fn_, NULL }
+
+/* The CHECKED forms (TODO #83.14).  Three rows in the table use them and
+ * the shape is deliberately awkward to reach for: a function that can
+ * refuse an argument stops a sheet, so adding one is a decision. */
+#define PN_EXPR_FN1C(name_, fn_, check_)   { name_, 1, 1, fn_, NULL, NULL, \
+                                             check_ }
+#define PN_EXPR_FN2C(name_, fn_, check_)   { name_, 2, 2, NULL, fn_, NULL, \
+                                             check_ }
 
 /* The most arguments any call may take.  This used to be a
  * REPRESENTATIONAL limit — TODO #81.2 put argument one in

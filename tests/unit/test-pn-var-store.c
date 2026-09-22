@@ -1564,6 +1564,312 @@ test_vector_three_argument_function (void)
     g_object_unref (s);
 }
 
+/* ---- The integer-minded three (TODO #83.14) ---- */
+
+/* `factorial`, `gcd` and `lcm`, and the decision that makes them the
+ * only rows in the table with a CHECK: an argument wrong in KIND has no
+ * answer this language can carry, so it RAISES where an undefined
+ * RESULT (83.18) would have been a NaN travelling on.  Both halves are
+ * asserted — the values, and every refusal, with its error code and its
+ * message text, because a policy nobody tested is one that drifts. */
+static void
+test_whole_number_rows (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+    GError     *err = NULL;
+
+#define OK1(name_, arg_, want_)                                         \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK (pn_var_store_evaluate (s, &c_, &out, &err));          \
+        PN_CHECK (err == NULL);                                         \
+        PN_CHECK_NEAR (out, (want_), 1e-9);                             \
+    } G_STMT_END
+
+#define OK2(name_, x_, y_, want_)                                       \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call2 (&st_, name_, &x__, &y__);              \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, &err));           \
+        PN_CHECK (err == NULL);                                         \
+        PN_CHECK_NEAR (out, (want_), 1e-9);                             \
+    } G_STMT_END
+
+/* A refusal: FALSE, the BAD_ARGUMENT code, and the message text — which
+ * is asserted rather than only the code so the "<name>: <predicate>"
+ * shape the help promises cannot quietly change. */
+#define REFUSE1(name_, arg_, msg_)                                      \
+    G_STMT_START {                                                      \
+        PnExprNode a_ = num (arg_);                                     \
+        PnExprNode c_ = call (name_, &a_);                              \
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, &c_, &out, &err));    \
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,             \
+                                   PN_VAR_STORE_ERROR_BAD_ARGUMENT));  \
+        if (err != NULL)                                                \
+            PN_CHECK_CMPSTR (err->message, ==, (msg_));                     \
+        g_clear_error (&err);                                           \
+    } G_STMT_END
+
+#define REFUSE2(name_, x_, y_, msg_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call2 (&st_, name_, &x__, &y__);              \
+        PN_CHECK_FALSE (pn_var_store_evaluate (s, c_, &out, &err));     \
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,             \
+                                   PN_VAR_STORE_ERROR_BAD_ARGUMENT));  \
+        if (err != NULL)                                                \
+            PN_CHECK_CMPSTR (err->message, ==, (msg_));                     \
+        g_clear_error (&err);                                           \
+    } G_STMT_END
+
+    /* factorial: exact where a double can be exact, which is the reason
+     * it is a product rather than tgamma(n + 1) — glibc's tgamma(13) is
+     * 479001599.99999994, and a reader who typed factorial(12) checks. */
+    OK1 ("factorial",  0.0, 1.0);
+    OK1 ("factorial",  1.0, 1.0);
+    OK1 ("factorial",  5.0, 120.0);
+    OK1 ("factorial", 12.0, 479001600.0);
+    OK1 ("factorial", 20.0, 2432902008176640000.0);
+
+    /* And at the cap: 170! is the largest that fits, 171! is not.  The
+     * comparison is RELATIVE — 170! is ~7.26e306, where an absolute
+     * tolerance means nothing — and the reference is libm's own
+     * tgamma, which agrees to within a handful of ulps up here even
+     * though it cannot be trusted for the small exact ones above. */
+    {
+        PnExprNode a = num (170.0);
+        PnExprNode c = call ("factorial", &a);
+        PN_CHECK (pn_var_store_evaluate (s, &c, &out, &err));
+        PN_CHECK (err == NULL);
+        PN_CHECK (isfinite (out));
+        PN_CHECK (fabs (out / tgamma (171.0) - 1.0) < 1e-12);
+    }
+
+    REFUSE1 ("factorial", 1.5,  "factorial: takes a whole number");
+    REFUSE1 ("factorial", -1.0, "factorial: is not defined below 0");
+    REFUSE1 ("factorial", 171.0,
+             "factorial: above 170 does not fit a double");
+
+    /* A NaN and an infinity are not whole numbers either — so these
+     * three are where a value that 83.18 let travel finally stops. */
+    REFUSE1 ("factorial", NAN,       "factorial: takes a whole number");
+    REFUSE1 ("factorial", INFINITY,  "factorial: takes a whole number");
+
+    /* gcd: sign dropped, gcd(n, 0) is n, gcd(0, 0) is 0. */
+    OK2 ("gcd", 12.0, 18.0, 6.0);
+    OK2 ("gcd", 18.0, 12.0, 6.0);
+    OK2 ("gcd", -12.0, 18.0, 6.0);
+    OK2 ("gcd", 12.0, -18.0, 6.0);
+    OK2 ("gcd", 7.0, 13.0, 1.0);
+    OK2 ("gcd", 7.0, 0.0, 7.0);
+    OK2 ("gcd", 0.0, 0.0, 0.0);
+
+    /* lcm: any zero gives 0, and the divide-first spelling keeps a
+     * product that would overflow from overflowing. */
+    OK2 ("lcm", 4.0, 6.0, 12.0);
+    OK2 ("lcm", 6.0, 4.0, 12.0);
+    OK2 ("lcm", -4.0, 6.0, 12.0);
+    OK2 ("lcm", 7.0, 0.0, 0.0);
+    OK2 ("lcm", 0.0, 0.0, 0.0);
+    OK2 ("lcm", 1e9, 2e9, 2e9);
+
+    /* The check looks at BOTH arguments, not only the first. */
+    REFUSE2 ("gcd", 1.5, 2.0, "gcd: takes whole numbers");
+    REFUSE2 ("gcd", 4.0, 1.5, "gcd: takes whole numbers");
+    REFUSE2 ("lcm", 1.5, 2.0, "lcm: takes whole numbers");
+    REFUSE2 ("lcm", 4.0, NAN, "lcm: takes whole numbers");
+
+#undef OK1
+#undef OK2
+#undef REFUSE1
+#undef REFUSE2
+
+    g_object_unref (s);
+}
+
+/* A checked row over a VECTOR: the check runs per element, so ONE bad
+ * element refuses the whole call rather than spoiling a single slot —
+ * and a vector of whole numbers maps the way every other function does
+ * (TODO #83.14 over #83.19). */
+static void
+test_checked_row_over_a_vector (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    GError     *err = NULL;
+    gdouble     good[] = { 0.0, 3.0, 5.0 };
+    gdouble     bad[]  = { 1.0, 2.5, 3.0 };
+    gdouble     want[] = { 1.0, 6.0, 120.0 };
+
+    bind_vec (s, "good", good, 3);
+    bind_vec (s, "bad",  bad,  3);
+
+    {
+        PnExprNode v = var ("good");
+        PnExprNode c = call ("factorial", &v);
+        PN_CHECK (pn_var_store_evaluate_value (s, &c, &out, &err));
+        PN_CHECK (err == NULL);
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* The fraction is in the MIDDLE, so the first element had already
+     * been computed when the check refused: the whole call fails and
+     * the half-built buffer is released rather than returned. */
+    {
+        PnExprNode v = var ("bad");
+        PnExprNode c = call ("factorial", &v);
+        PN_CHECK_FALSE (pn_var_store_evaluate_value (s, &c, &out, &err));
+        PN_CHECK (g_error_matches (err, PN_VAR_STORE_ERROR,
+                                   PN_VAR_STORE_ERROR_BAD_ARGUMENT));
+        PN_CHECK (out.vec == NULL);
+        g_clear_error (&err);
+    }
+
+    /* A scalar second argument broadcasts over a checked two-argument
+     * row exactly as it does over `min` — the check does not opt out of
+     * the shared zipN. */
+    {
+        gdouble     twelve[] = { 12.0, 18.0, 30.0 };
+        gdouble     w[]      = { 6.0, 6.0, 6.0 };
+        PnExprNode  xv, six = num (6.0);
+        CallN       st;
+        PnExprNode *c;
+
+        bind_vec (s, "xs", twelve, 3);
+        xv = var ("xs");
+        c  = call2 (&st, "gcd", &xv, &six);
+        PN_CHECK (pn_var_store_evaluate_value (s, c, &out, NULL));
+        check_vec (&out, w, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
+/* ---- The percent family (TODO #83.15) ---- */
+
+/* Three rows of one division each.  They are here so nobody hand-rolls
+ * `/ 100` and nobody writes a basis point where they meant a percent —
+ * so what is worth asserting is the FACTOR (100 vs 10000) and the
+ * ARGUMENT ORDER of pct_change, which is the one thing about it that
+ * can silently be got backwards. */
+static void
+test_percent_rows (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK2(name_, x_, y_, want_)                                    \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_);                     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call2 (&st_, name_, &x__, &y__);              \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-12);                            \
+    } G_STMT_END
+
+    CHECK2 ("pct", 200.0, 15.0, 30.0);
+    CHECK2 ("pct", 200.0, 100.0, 200.0);
+    CHECK2 ("pct", 200.0, -10.0, -20.0);
+
+    /* bps is pct's hundredth: 25 basis points of 200 is 0.5, where 25
+     * PERCENT of 200 is 50.  Asserted side by side, because that factor
+     * of a hundred is the mistake the two names exist to prevent. */
+    CHECK2 ("bps", 200.0, 25.0, 0.5);
+    CHECK2 ("pct", 200.0, 25.0, 50.0);
+    CHECK2 ("bps", 10000.0, 1.0, 1.0);
+
+    /* pct_change is OLD then NEW, and the two orders give different
+     * answers — which is the whole warning. */
+    CHECK2 ("pct_change", 100.0, 125.0,  0.25);
+    CHECK2 ("pct_change", 125.0, 100.0, -0.2);
+    CHECK2 ("pct_change", 100.0, 100.0,  0.0);
+
+    /* Division by zero when `old` is 0: an infinity travelling on, not
+     * an error (TODO #83.18 — the percent rows carry no check). */
+    {
+        PnExprNode  x = num (0.0), y = num (5.0);
+        CallN       st;
+        PnExprNode *c = call2 (&st, "pct_change", &x, &y);
+        GError     *err = NULL;
+        PN_CHECK (pn_var_store_evaluate (s, c, &out, &err));
+        PN_CHECK (err == NULL);
+        PN_CHECK (isinf (out) && out > 0.0);
+    }
+
+#undef CHECK2
+
+    g_object_unref (s);
+}
+
+/* ---- The annuity family (TODO #83.16) ---- */
+
+/* Four three-argument rows, each checked against a hand-computed figure
+ * and each at r = 0, which is the one case that is a LIMIT rather than
+ * the formula: every one of them has r in a denominator, and a stream
+ * of payments at no interest is worth pmt * nper rather than infinity. */
+static void
+test_annuity_rows (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    gdouble     out = 0.0;
+
+#define CHECK3(name_, x_, y_, z_, want_)                                \
+    G_STMT_START {                                                      \
+        PnExprNode  x__ = num (x_), y__ = num (y_), z__ = num (z_);     \
+        CallN       st_;                                                \
+        PnExprNode *c_  = call3 (&st_, name_, &x__, &y__, &z__);        \
+        PN_CHECK (pn_var_store_evaluate (s, c_, &out, NULL));           \
+        PN_CHECK_NEAR (out, (want_), 1e-9);                             \
+    } G_STMT_END
+
+    /* compound(principal, rate, periods) = principal * (1 + r)^n. */
+    CHECK3 ("compound", 1000.0, 0.05, 2.0, 1102.5);
+    CHECK3 ("compound", 1000.0, 0.0,  10.0, 1000.0);
+    CHECK3 ("compound", 1000.0, 0.05, 0.0, 1000.0);
+    /* The rate is PER PERIOD and `periods` counts the same unit: a
+     * yearly 5% over two years of MONTHS is 0.05/12 over 24, and the
+     * two spellings give different answers. */
+    CHECK3 ("compound", 1000.0, 0.05 / 12.0, 24.0,
+            1000.0 * pow (1.0 + 0.05 / 12.0, 24.0));
+
+    /* fv(pmt, rate, nper) = pmt * ((1 + r)^n - 1) / r.  At 5% for three
+     * periods: 100 * (1.05^3 - 1) / 0.05 = 315.25. */
+    CHECK3 ("fv", 100.0, 0.05, 3.0, 100.0 * (pow (1.05, 3.0) - 1.0) / 0.05);
+    CHECK3 ("fv", 100.0, 0.05, 1.0, 100.0);
+    CHECK3 ("fv", 100.0, 0.0,  12.0, 1200.0);    /* the limit, not inf */
+
+    /* pv(pmt, rate, nper) = pmt * (1 - (1 + r)^-n) / r, and pv and fv
+     * are the same money a number of periods apart. */
+    CHECK3 ("pv", 100.0, 0.05, 3.0,
+            100.0 * (1.0 - pow (1.05, -3.0)) / 0.05);
+    CHECK3 ("pv", 100.0, 0.0, 12.0, 1200.0);     /* the limit again */
+
+    /* pmt(pv, rate, nper) inverts pv: the payment that amortises a
+     * present sum to nothing.  Asserted as the round trip, which is the
+     * assertion a wrong sign or a flipped exponent cannot survive. */
+    {
+        const gdouble r = 0.05, n = 3.0, principal = 1000.0;
+        gdouble       payment;
+
+        CHECK3 ("pmt", principal, r, n,
+                principal * r / (1.0 - pow (1.0 + r, -n)));
+        payment = out;
+        CHECK3 ("pv", payment, r, n, principal);
+    }
+
+    CHECK3 ("pmt", 1200.0, 0.0, 12.0, 100.0);    /* pv / nper */
+
+#undef CHECK3
+
+    g_object_unref (s);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1591,6 +1897,10 @@ main (int argc, char **argv)
     pn_test_add ("selection_rows",     test_selection_rows);
     pn_test_add ("if_over_a_vector",   test_if_over_a_vector);
     pn_test_add ("vector_fn_3arg",     test_vector_three_argument_function);
+    pn_test_add ("whole_number_rows",  test_whole_number_rows);
+    pn_test_add ("checked_row_vector", test_checked_row_over_a_vector);
+    pn_test_add ("percent_rows",       test_percent_rows);
+    pn_test_add ("annuity_rows",       test_annuity_rows);
     pn_test_add ("eval_bad_ast",       test_eval_bad_ast);
     return pn_test_run ();
 }

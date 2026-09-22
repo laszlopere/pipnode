@@ -140,6 +140,51 @@ convert a Celsius reading to Fahrenheit.
       wanted); and <code>copysign</code> gives x the sign of y, which is
       how to say &ldquo;the same direction as&rdquo; without a
       comparison.</li>
+  <li><strong>Functions &mdash; whole numbers:</strong>
+      <code>factorial(n)</code>, <code>gcd(a,&nbsp;b)</code> and
+      <code>lcm(a,&nbsp;b)</code>. Every value here is a decimal number,
+      so these three have to say what they do with a fraction, and what
+      they do is <strong>refuse</strong> it &mdash; they are the only
+      names in the language that stop a sheet rather than answer (see
+      below). <code>factorial</code> also stops above
+      <code>170</code>, because <code>171!</code> is larger than any
+      number this language can hold and a silent infinity is exactly the
+      sort of answer that ends up plotted. <code>gcd</code> ignores the
+      signs, <code>gcd(0,&nbsp;0)</code> is <code>0</code>, and
+      <code>lcm</code> of anything with <code>0</code> is
+      <code>0</code>.</li>
+  <li><strong>Functions &mdash; percentages:</strong>
+      <code>pct(x,&nbsp;p)</code> is p percent of x,
+      <code>bps(x,&nbsp;b)</code> is b basis points of x (a hundredth of
+      a percent), and <code>pct_change(old,&nbsp;new)</code> is the
+      signed relative change <code>(new&nbsp;-&nbsp;old)&nbsp;/&nbsp;old</code>.
+      They are one division each, which is the point: nobody has to
+      hand-roll <code>/&nbsp;100</code> and nobody writes a basis point
+      where they meant a percent. <strong>Two warnings.</strong>
+      <code>pct_change</code> takes <em>old</em> first and <em>new</em>
+      second, and swapping them gives an answer that is wrong without
+      looking wrong; and it divides by zero when <code>old</code> is
+      <code>0</code>, which is an infinity travelling on rather than an
+      error.</li>
+  <li><strong>Functions &mdash; money over time:</strong> the four that
+      answer a question about a bill.
+      <code>compound(principal,&nbsp;rate,&nbsp;periods)</code> &mdash;
+      what a principal grows to;
+      <code>fv(pmt,&nbsp;rate,&nbsp;nper)</code> and
+      <code>pv(pmt,&nbsp;rate,&nbsp;nper)</code> &mdash; the future and
+      present value of a stream of <code>nper</code> equal payments; and
+      <code>pmt(pv,&nbsp;rate,&nbsp;nper)</code> &mdash; the payment
+      that pays a present sum off to nothing over
+      <code>nper</code> periods. <strong>The rate is
+      <em>per period</em></strong> and <code>periods</code> /
+      <code>nper</code> counts the <em>same</em> unit, so a yearly 5%
+      over two years of monthly payments is
+      <code>0.05&nbsp;/&nbsp;12</code> and <code>24</code> &mdash;
+      nothing here can catch that mistake for you. A rate of
+      <code>0</code> is a limit rather than a division, so
+      <code>fv</code> and <code>pv</code> give
+      <code>pmt&nbsp;*&nbsp;nper</code> and <code>pmt</code> gives
+      <code>pv&nbsp;/&nbsp;nper</code>, all finite.</li>
   <li><strong>Functions &mdash; testing a value:</strong>
       <code>isnan(x)</code>, <code>isinf(x)</code> and
       <code>isfinite(x)</code>, each <code>1.0</code> or
@@ -234,9 +279,33 @@ define is a <em>value</em> here, not an error: <code>sqrt(-1)</code>,
 <code>acosh(0)</code> and <code>asin(2)</code> are <code>nan</code>,
 <code>log(0)</code> and <code>cot(0)</code> are infinite, and each
 travels on down the wire like any other number &mdash; exactly as
-<code>1&nbsp;/&nbsp;0</code> always has. No function stops the sheet.
-That is deliberate: a gap in one sample of a curve should not take the
-whole plate down with it.
+<code>1&nbsp;/&nbsp;0</code> always has. That is deliberate: a gap in one
+sample of a curve should not take the whole plate down with it.
+</p>
+<p>
+<strong>The one exception</strong> is about the <em>argument</em> rather
+than the answer. <code>factorial</code>, <code>gcd</code> and
+<code>lcm</code> want whole numbers, and <code>factorial</code> wants one
+between <code>0</code> and <code>170</code>; anything else &mdash; a
+fraction, a negative, a <code>nan</code>, an infinity &mdash; lights the
+node up with a message instead of returning a number. The test is whether
+the question has an answer this language can carry: the square root of
+<code>-1</code> has one, and <code>nan</code> is how a decimal number says
+it, but the factorial of a half is simply a different function. So these
+three are also where a <code>nan</code> that has been travelling quietly
+since it was made finally stops &mdash; if that matters, screen it with
+<code>isfinite</code> first.
+</p>
+<p>
+<strong>There is no <code>time()</code>.</strong> An expression here is a
+function of the message that arrived: evaluate it twice with the same
+input and you get the same answer, which is what lets a sheet be read and
+re-read. A name whose value changes when nothing arrived would break
+that, so the current time is not a function &mdash; it is a
+<strong>message</strong>. Use the <strong>Clock</strong> node, whose
+<code>value</code> is the Unix epoch in seconds (and whose
+<code>epoch</code>, <code>year</code>, <code>hour</code> and the rest
+arrive with it), and wire it into the Calculator as an input.
 </p>
 
 
@@ -266,7 +335,10 @@ Every operator just does the scalar thing element by element:
       another it runs out, and from there the first argument that still
       has an element passes through unchanged &mdash; so a bound vector
       shorter than the value it bounds leaves the rest of the value
-      alone rather than clamping it against nothing.</li>
+      alone rather than clamping it against nothing. The three
+      whole-number names check <em>every</em> element, so a single
+      fraction anywhere in a vector refuses the whole call rather than
+      spoiling one slot of the answer.</li>
   <li>A <strong>comparison</strong> always collapses to a single
       <code>1.0</code>/<code>0.0</code>: true only when <em>every</em>
       element passes (e.g. <code>arr &gt; 0</code> is <code>1.0</code>

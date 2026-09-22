@@ -3359,9 +3359,24 @@
        COMPARISON's, not `if`'s, so `if(isfinite(v), v, 0)` does choose
        per element). FIFTY-THREE functions.
 
-       WHAT IS LEFT: 83.9 (the rounding family, 83.2's other customer),
-       83.14, 83.15, 83.16, the decision in 83.17, and the recording
-       entries 83.21 and 83.22, plus the running tests and help.
+       THE LAST ROWS, AND THE ONE REFUSAL (2026-09-22): 83.14, 83.15
+       and 83.16 -- the integer-minded three, the percent family and
+       the annuity family, ten names and SIXTY-THREE functions in the
+       table. 83.14 turned out to need machinery after all, which no
+       other row in this entry did: 83.18 had settled that NOTHING in
+       the table raises, so there was no error path out of a row, and
+       `factorial`, `gcd` and `lcm` needed one. It cost an appended
+       struct field (PnExprCheckFn), two macros and a return value on
+       zipn_value -- threaded through the SAME broadcast 83.19
+       generalised, so a checked row maps exactly as `min` does and
+       the check runs per element. Three rows in sixty-three can stop
+       a sheet; everything else in the language still travels.
+       83.17 was DECIDED rather than built: `time()` stays out, and
+       both help pages now say so and point at the Clock node.
+
+       WHAT IS LEFT: 83.9 (the rounding family, 83.2's other customer)
+       and the recording entries 83.21 and 83.22, plus the running
+       tests and help.
 
        [x] 83.1 DONE (2026-09-22): THE ARGUMENT CHAIN. One value
              appended to PnExprNodeType -- PN_EXPR_NODE_ARG, .left =
@@ -3612,48 +3627,90 @@
                  glibc has them with no extra define). j0 is checked at
                  its first zero, 2.404825557695773, which is the number
                  an Airy pattern is actually made of.
-       [ ] 83.14 `factorial`, `gcd`, `lcm` -- the integer-minded three,
-             in a language with one double type, so each has to say
-             what it does with a fractional argument. Abacus refuses,
-             which is more honest than truncating; follow it.
-             factorial also needs a cap: 171! overflows a double to
-             +inf, so about 170 is the natural limit here and anything
-             above it is an error rather than a silent infinity.
-             Negatives refuse. gcd and lcm are the TWO-argument forms
-             only (abacus spells both variadic, see 83.21), sign
-             dropped, and lcm of anything with 0 is 0.
-       [ ] 83.15 THE PERCENT FAMILY -- `pct(x, p)` = x*p/100,
-             `pct_change(old, new)` = (new-old)/old, `bps(x, b)` =
-             x*b/10000. Trivial arithmetic, which is the point: they
-             exist so nobody hand-rolls /100 and nobody confuses a
-             percent with a basis point. Two warnings for the help:
-             pct_change divides by zero when `old` is 0, and the
-             argument order is old-then-new, which is the one thing
-             about it that can silently be got backwards.
-       [ ] 83.16 THE ANNUITY FAMILY -- `compound(principal, rate,
-             periods)`, `fv(pmt, rate, nper)`, `pv(pmt, rate, nper)`,
+       [x] 83.14 DONE (2026-09-22): `factorial`, `gcd`, `lcm` -- the
+             integer-minded three, and the only rows in the table that
+             can REFUSE an argument. Each follows abacus rather than
+             truncating: whole numbers only, factorial capped at 170
+             (171! overflows a double to +inf, and a silent infinity is
+             exactly the answer that ends up plotted), negatives
+             refused, gcd and lcm the TWO-argument forms with the sign
+             dropped and lcm of anything with 0 = 0.
+             THE MACHINERY THIS NEEDED, which the entry did not
+             anticipate: 83.18 settled that NOTHING in the table
+             raises, so there was no error path out of a row at all.
+             One appended struct field gives it one -- PnExprCheckFn,
+             a per-element predicate returning NULL or a static
+             message, reached through the FN1C/FN2C macros (the shape
+             is deliberately awkward: a row that can stop a sheet is a
+             decision, not a row). It is threaded through the SAME
+             zipn_value 83.19 generalised rather than beside it, so a
+             checked row broadcasts exactly as `min` does and the
+             check runs PER ELEMENT -- one fraction anywhere in a
+             vector refuses the whole call and the half-built buffer is
+             freed. zipn_value now returns the message or NULL; the
+             CALL branch turns it into the new
+             PN_VAR_STORE_ERROR_BAD_ARGUMENT, appended to the enum (no
+             ABI bump: appending an error code is not a struct).
+             The message reads "<name>: <predicate>" -- "factorial:
+             takes a whole number", "gcd: takes whole numbers" -- and
+             the TEXT is asserted, not only the code.
+             ONE CONSEQUENCE WORTH KNOWING, written into both help
+             pages: a NaN or an infinity is not a whole number either,
+             so these three are where a value that 83.18 has been
+             letting travel since it was made finally stops. Screen it
+             with isfinite() first if that matters.
+             `factorial` is a PRODUCT and not tgamma(n + 1): glibc's
+             tgamma(13) is 479001599.99999994, and a reader who typed
+             factorial(12) checks.
+       [x] 83.15 DONE (2026-09-22): THE PERCENT FAMILY -- `pct(x, p)`
+             = x*p/100, `pct_change(old, new)` = (new-old)/old,
+             `bps(x, b)` = x*b/10000. Three rows of one division each,
+             which is the point. Both warnings are in the help and in
+             the test: pct_change divides by zero when `old` is 0 (an
+             infinity travelling on, since these rows carry no check),
+             and the argument order is OLD-then-NEW. The test asserts
+             `bps(200, 25)` and `pct(200, 25)` side by side -- 0.5 and
+             50 -- because that factor of a hundred is the mistake the
+             two names exist to prevent.
+       [x] 83.16 DONE (2026-09-22): THE ANNUITY FAMILY --
+             `compound(principal, rate, periods)`,
+             `fv(pmt, rate, nper)`, `pv(pmt, rate, nper)`,
              `pmt(pv, rate, nper)`. Four three-argument rows, straight
-             from abacus and unreachable before 83.1. They are here
-             because a worksheet that reads an energy meter is one
-             expression away from reading a bill, and because each is
-             a formula people get wrong from memory. Two things the
-             help must state, as abacus's own text does: the rate is
-             PER PERIOD and `periods` counts the same unit, and the
-             r = 0 case is not a division but a limit (pmt*nper), so
-             each row special-cases it rather than returning inf.
-       [ ] 83.17 `time()` -- current Unix epoch seconds, a
-             ZERO-argument function and the only impure name abacus
-             carries. Listed to be DECIDED, not assumed: the language
-             is otherwise a pure function of its inputs, an expression
-             that changes value when nothing arrived breaks the
-             evaluate-once rule #82 depends on, and pipnode already
-             has a Clock node whose whole job is to put a timestamp on
-             a wire. The recommendation is to LEAVE IT OUT and say so
-             in the help beside the Clock node's name. If it does go
-             in it is also the first zero-argument call, and `time()`
-             with an empty argument list is something 81.3(c)
-             explicitly made an error -- so it is a grammar change,
-             not a row.
+             from abacus and unreachable before 83.1. Both things the
+             entry asked for are stated in both help pages, in the
+             table's own comment and in the header: the rate is PER
+             PERIOD with `nper` counting the same unit (a yearly 5%
+             over two years of months is 0.05/12 and 24, and nothing
+             here can catch that mistake for you), and r = 0 is a
+             LIMIT and not a division -- fv/pv give pmt*nper, pmt gives
+             pv/nper, all finite, each special-cased rather than
+             returning the inf the formula would. The test asserts
+             every row at r = 0 and pins pmt against pv as a ROUND
+             TRIP, which a flipped sign or exponent cannot survive.
+       [x] 83.17 DECIDED (2026-09-22): `time()` STAYS OUT, which is
+             the recommendation this entry carried and the reasons it
+             gave all held up. The language is a function of the
+             message that arrived: evaluate it twice with the same
+             input and you get the same answer, which is what lets a
+             sheet be read and re-read and what #82 depends on. A name
+             whose value changes when nothing arrived breaks that. And
+             the capability is not missing -- pipnode's Clock node
+             emits `value` = the Unix epoch in seconds (plus `epoch`
+             as a full-width int64, and year/month/dom/hour/minute/
+             second beside it), so the current time is a MESSAGE here
+             and not a function, which is the shape the rest of the
+             program is already in.
+             The grammar argument seals it: `time()` is a
+             zero-argument call and 81.3(c) deliberately made an empty
+             argument list an error, so admitting it is a grammar
+             change to buy a name that duplicates a node.
+             WRITTEN DOWN where someone will look for it: a "There is
+             no time()" paragraph in both help pages, naming the Clock
+             node and how to wire it in. This is the ONE place the
+             language deliberately diverges from abacus's list (83.22
+             records the three where a shared name means two things;
+             this is the fourth kind -- a name abacus has and this
+             language refuses).
        [x] 83.18 DONE (2026-09-22): THE NaN AND DOMAIN POLICY, settled
              ONCE for the whole batch and BEFORE the rows that need it,
              which is what this entry asked for. The rule, in the one
@@ -3739,7 +3796,9 @@
                  was built for and the one that lights a node up as
                  the expression is typed. Leaving them out keeps every
                  call in the language checkable. Revisit deliberately
-                 or not at all.
+                 or not at all. 83.14 shipped `gcd` and `lcm` as the
+                 TWO-argument forms on exactly this reasoning, where
+                 abacus spells both variadic.
              (b) THE TEMPTING RE-READING of (a): in THIS language a
                  vector is a single value, so avg(v), median(v) and
                  stddev(v) could be UNARY functions reducing a vector
@@ -3790,14 +3849,35 @@
              test-pn-expr-parser.c's call_arity (with the message TEXT
              asserted, not only the code), expr_three_args in
              test-pn-figure.c for 83.1(c), and both specimens in the
-             exhaustive table walk. What is left here is one assertion
-             per ROW as the rows land.
+             exhaustive table walk.
+             THE ROWS' SHARE FOLLOWED (2026-09-22): every name added by
+             83.3-83.8, 83.10-83.16 has its assertion in the table walk
+             and its own test beside it -- whole_number_rows,
+             checked_row_vector, percent_rows and annuity_rows in
+             test-pn-var-store.c for this batch, including 83.14's
+             REFUSALS with the error CODE and the message TEXT, and the
+             per-element check over a vector with the bad element in the
+             MIDDLE (so the half-built buffer is proved to be freed
+             rather than returned). What is left here is one assertion
+             per ROW as 83.9's rows land.
              Each decision taken in 83.11(a), 83.14, 83.18 and 83.9(b)
              gets an assertion, because a policy nobody tested is a
              policy that drifts. Headless, pntest.h,
              ./run-unit-tests.sh green.
        [ ] 83.24 HELP, and 81.9 already counted the places the function
-             list is written down -- PARTLY DONE (2026-09-22): the
+             list is written down. FURTHER ALONG (2026-09-22): the
+             groups "whole numbers" and "percentages and money" landed
+             with 83.14/83.15/83.16, and so did three of the paragraphs
+             -- 83.20's scalar-condition limitation on `if`, the ONE
+             EXCEPTION to "no function stops the sheet" (83.14's
+             refusals, with the advice to screen a NaN with isfinite
+             first), and "There is no time()" naming the Clock node
+             (83.17). An EIGHTH place turned up that 81.9 did not
+             count and this entry did not either: the pipnode-nodes
+             SKILL's reference/filters-gate-compute.md carries the
+             whole list too, and it had silently fallen a batch behind
+             (it was missing 83.11's four names). Brought current.
+             PARTLY DONE (2026-09-22): the
              GROUPING this entry asks for is in both node help pages
              already, because the flat list stopped being readable at
              thirty-three names, and the NaN paragraph from 83.18 is
