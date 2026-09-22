@@ -1,0 +1,88 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "c2a58e68-fa76-46ab-b280-3e7be188568c",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "THE SIMPLE PENDULUM -- a physics plate drawn by one Figure node.  Spin the wheel over the two knobs: LENGTH stretches the rod and moves the period bar at the foot of the plate; RELEASE ANGLE swings the bob and adds only the thin red tail on the end of that bar.  That red tail is the whole lesson -- at 10 degrees the period is 0.2 % longer than the textbook 2*pi*sqrt(L/g), and you have to reach 45 degrees before it is 4 %.  Nothing on the plate is a picture: every coordinate in the Figure's program is an expression over the two knob values, and the period is computed in the program's own assignment lines.",
+        "width": 900.0,
+        "height": 92.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "38226cd5-568a-4f52-a872-6e90203730a2",
+      "name": "Length L (m)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 200.0
+      },
+      "properties": {
+        "min": 0.5,
+        "max": 2.0,
+        "value": 1.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "7ef9781d-61c3-4b61-a015-fcfdf878fe85",
+      "name": "Release angle (deg)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 280.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 80.0,
+        "value": 30.0
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "c1aad135-17a4-4937-9e5a-9bed8f6526ef",
+      "name": "The simple pendulum",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 180.0
+      },
+      "properties": {
+        "program": "# THE SIMPLE PENDULUM\n#\n# Two knobs: the LENGTH of the rod and the ANGLE it is released\n# from.  The period listens to one of them and very nearly ignores\n# the other, which is the whole lesson of the plate: wind the angle\n# and watch the red sliver on the period bar refuse to grow.\n\nview -76, -95, 76, 22\nalign \"centre\", \"middle\"\ncolor \"#202020\"\n\ng  = 9.80665\nth = radians(theta)\n\n# The rod is drawn 32 units to the metre, so a pendulum twice as\n# long really is twice as long on the plate.\nLd = 32 * L\nxb =  Ld * sin(th)\nyb = -Ld * cos(th)\nrb = clamp(0.085 * Ld, 1.8, 5)\n\n# --- the support, hatched the way a plate hatches a wall ----------\nwidth 1.4\nline -26, 0, 26, 0\nwidth 0.7\nline -24, 0, -30, 6\nline -16, 0, -22, 6\nline  -8, 0, -14, 6\nline   0, 0,  -6, 6\nline   8, 0,   2, 6\nline  16, 0,  10, 6\nline  24, 0,  18, 6\n\n# --- the plumb line, and the arc the bob actually travels ---------\ncolor \"#909090\"\nwidth 0.5\ndash \"dot\"\nline 0, 0, 0, -Ld - 6\narc 0, 0, Ld, -90 - theta, -90 + theta\ndash \"solid\"\n\n# --- the far extreme, drawn hollow: a swing has two ends ----------\nline 0, 0, -xb, yb\ncircle -xb, yb, rb\n\n# --- the angle at the pivot ---------------------------------------\n# The mark sits on the bisector, but never closer to the vertical\n# than 12 degrees and never further out than the bob -- a small\n# angle on a short rod would otherwise print the label on the rod.\nra = min(clamp(0.45 * Ld, 5, 20), 0.75 * Ld)\nha = max(th / 2, radians(12))\nrl = min(ra + 6, 0.62 * Ld)\ncolor \"#202020\"\nwidth 0.6\narc 0, 0, ra, -90, -90 + theta\nfont 5\ntext rl * sin(ha), -rl * cos(ha), \"θ₀\"\n\n# --- the rod and the bob ------------------------------------------\nwidth 1.6\nline 0, 0, xb, yb\nfill \"#3a4a6b\"\ncircle xb, yb, rb\nnofill\n\n# the pivot last, so it sits on top of both rods\nfill \"#606060\"\ncircle 0, 0, 1.8\nnofill\n\n# ==================================================================\n#  THE PERIOD\n#  T0 is the small-angle answer, T adds the first two terms of the\n#  correction the release angle brings with it.\n# ==================================================================\nT0 = 2 * pi * sqrt(L / g)\nT  = T0 * (1 + th * th / 16 + 11 * th * th * th * th / 3072)\n\n# Drawn as a LENGTH on a seconds scale, so sqrt(L) is something you\n# watch grow.  The bar is clamped to the scale, so a hand-widened\n# knob cannot draw off the plate; the printed number stays exact.\nsc = 36\nbx = -62\nby = -76\nTc = min(T, 3.5)\n\ncolor \"#202020\"\nwidth 0.6\nline bx, by, bx + 3.5 * sc, by\nline bx,            by, bx,            by - 3\nline bx + 0.5 * sc, by, bx + 0.5 * sc, by - 2\nline bx + 1.0 * sc, by, bx + 1.0 * sc, by - 3\nline bx + 1.5 * sc, by, bx + 1.5 * sc, by - 2\nline bx + 2.0 * sc, by, bx + 2.0 * sc, by - 3\nline bx + 2.5 * sc, by, bx + 2.5 * sc, by - 2\nline bx + 3.0 * sc, by, bx + 3.0 * sc, by - 3\nline bx + 3.5 * sc, by, bx + 3.5 * sc, by - 2\n\nfont 4\nalign \"centre\", \"top\"\ntext bx,            by - 4.5, \"0\"\ntext bx + 1.0 * sc, by - 4.5, \"1\"\ntext bx + 2.0 * sc, by - 4.5, \"2\"\ntext bx + 3.0 * sc, by - 4.5, \"3 s\"\n\n# blue is the small-angle period; the red tail on the end is\n# everything the release angle added to it\nwidth 0.4\nfill \"#3a4a6b\"\nrect bx, by + 1.5, T0 * sc, 4\nfill \"#b03a2e\"\nrect bx + T0 * sc, by + 1.5, (Tc - T0) * sc, 4\nnofill\n\ncolor \"#202020\"\nfont 4.6\nalign \"right\", \"bottom\"\ntext 74, by + 7, \"T = %.3f s\", T\n\n# --- the numbers, in the corners the pendulum can never reach -----\nfont 5\nalign \"right\", \"top\"\ntext 74, 20, \"The simple pendulum\"\n\nfont 4\nalign \"left\", \"top\"\ntext -74, 20,   \"L = %.2f m    θ₀ = %.0f°\", L, theta\ntext -74, 15.2, \"T₀ = 2π√(L/g) = %.3f s\", T0\ncolor \"#b03a2e\"\ntext -74, 10.4, \"the angle adds %.2f %%\", 100 * (T / T0 - 1)\ncolor \"#202020\"\ntext -74, 5.6,  \"the mass adds nothing\"\n",
+        "inputs": 2,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "L",
+        "1": "theta"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "38226cd5-568a-4f52-a872-6e90203730a2",
+      "target_id": "c1aad135-17a4-4937-9e5a-9bed8f6526ef"
+    },
+    {
+      "source_id": "7ef9781d-61c3-4b61-a015-fcfdf878fe85",
+      "target_id": "c1aad135-17a4-4937-9e5a-9bed8f6526ef",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}

@@ -3042,8 +3042,77 @@
        rather than competing.
 
        THE TWELVE, grouped the way a textbook groups them:
-       [ ] 85.1  MECHANICS -- the simple pendulum. Length and release
-             angle as knobs; the period printed from the length.
+       [x] 85.1  DONE (2026-09-22): MECHANICS -- the simple pendulum.
+             examples/displays/pendulum.json, one Figure and two knobs,
+             and the first of the twelve because it is the one
+             MECHANICS plate that does not want 85(b)'s arrows: a
+             pendulum is a rod, a bob and an angle, and there is not a
+             single force vector on it.
+             THE KNOBS, per 80.15.1(a)'s rule that each knob must move
+             one visible thing: LENGTH L, 0.5..2.0 m, which stretches
+             the rod (drawn 32 units to the metre, so twice as long
+             really is twice as long) and moves the period bar;
+             RELEASE ANGLE, 0..80 deg, which swings the bob and opens
+             the angle mark. The ports are renamed L and theta and the
+             program names them (80.8b, 80.24.5); 24 wheel detents
+             cross a range, so a notch is 0.0625 m or 3.3 deg.
+             THE PHYSICS, and the reason the sheet is worth opening:
+             T0 = 2*pi*sqrt(L/g) is the small-angle period, and the
+             plate prints the real one beside it,
+             T = T0 * (1 + th^2/16 + 11*th^4/3072) -- the first two
+             terms of the amplitude series, spelled with
+             multiplications because `^` is XOR (80.3e). The whole
+             lesson is how LITTLE that correction is: 0.2 % at 10
+             degrees, and you must reach 45 before it is 4 %. So the
+             period is drawn as a LENGTH on a 0..3.5 s scale at the
+             foot of the plate, blue up to T0 and RED for everything
+             the angle added -- a sliver that stays invisible however
+             hard the reader winds the angle knob, next to a blue bar
+             that visibly grows as sqrt(L). The third line of the
+             corner readout is printed in the same red, so the number
+             and the sliver are obviously the same fact. A fourth line
+             says the mass adds nothing, which is the other half of
+             the lesson and cannot be drawn at all.
+             WHAT THE DRAWING DOES BESIDES: a hatched support (seven
+             hand-written strokes -- 80.18's `repeat` is not in v1 and
+             this is exactly the demand it deferred), a dotted plumb
+             line, the dotted arc the bob actually travels, the far
+             extreme drawn hollow so a swing has two ends, and the
+             angle mark at the pivot.
+             THREE THINGS THE LANGUAGE MADE EASY, worth recording
+             because they are what a plate needs from it:
+             (a) EVERY AWKWARD CASE IS A clamp(), not a special case.
+                 The bob radius is clamp(0.085*Ld, 1.8, 5) so a short
+                 pendulum does not become a blob on a stick; the angle
+                 mark is min(clamp(0.45*Ld,5,20), 0.75*Ld); and the
+                 theta label sits on the bisector but never closer to
+                 the vertical than 12 degrees and never further out
+                 than the bob, or a small angle on a short rod prints
+                 the label straight onto the rod. All of #81's doing --
+                 clamp, min and max did not exist when #80 was
+                 designed.
+             (b) DEGENERATE IS SAFE, and the unwired figure proves it:
+                 with both inputs zero-filled (80.2 rule 12) the rod
+                 and the bob vanish rather than erroring, and the red
+                 line disappears on its own because T/T0 is 0/0 and a
+                 non-finite statement is skipped (80.10). A plate that
+                 still draws before anything is wired.
+             (c) THE BAR IS CLAMPED TO ITS SCALE (Tc = min(T, 3.5)) so
+                 a hand-widened knob cannot draw off the plate, while
+                 the PRINTED number stays exact. Cheap, and the kind of
+                 thing a sheet shipped as an example should get right.
+             CHECKED: `./src/pipnode-run -t 3` under
+             G_DEBUG=fatal-warnings loads it headless, exits 0, no
+             CRITICALs and no warnings; the program was written against
+             tools/figure-preview (80.25a) at five knob settings and at
+             the node's own 280x210; `make -C examples install
+             DESTDIR=...` puts it in place after the automake &&
+             ./config.status of 80.15.3.
+             PLACEMENT, answering 85(d) for the first one: into
+             examples/displays/ with 80.15's sheets, because that
+             directory already installs. Twelve sheets still deserve a
+             directory of their own -- that is #79.2's fix and it stays
+             its own job.
        [ ] 85.2  MECHANICS -- projectile motion. Launch angle and
              speed as knobs; the arc, the apex and the range marked.
        [ ] 85.3  MECHANICS -- the inclined plane. Slope angle as a
