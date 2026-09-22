@@ -1758,7 +1758,8 @@
                  43.7 pass-through tail rule. So the consequence drawn
                  below, and 80.16's frame count with it, does not
                  follow from the arithmetic and must be re-decided in
-                 80.26 rather than inherited. Whatever is chosen there,
+                 TODO #82.1 rather than inherited. Whatever is chosen
+                 there,
                  note that a figure CANNOT match the arithmetic
                  exactly: with the tail rule, `a * b` of a 2-vector and
                  a 3-vector is 3 frames whose last frame used no `a` at
@@ -2524,8 +2525,11 @@
              of PnVarStore that turned out to be wrong -- the real rule
              is the LONGER length with a pass-through tail, see the
              correction in 80.3(f). The frame count is therefore an
-             open choice again and 80.26 has to make it; shortest may
-             well still win, but not for the reason written here.
+             open choice again and TODO #82.1 has to make it; shortest
+             may well still win, but not for the reason written here.
+             The whole animation strand left this entry with it: #80
+             closes on the still figure, and #82 is where the film is
+             built.
 
              (a) EVALUATE ONCE FOR THE WHOLE FILM, INDEX AT PAINT TIME.
                  The obvious implementation -- re-run the program per
@@ -3198,13 +3202,6 @@
                    reads as one thing, sized with the rectangle so the
                    zoom overlay enlarges it too. Plus
                    pn_figure_gui_install(), one line in pn-gui.c.
-       [ ] 80.26 THE CODE, afterwards: animation, and only once
-             80.22-80.25 draw a still figure correctly end to end
-             (80.16 says not before). The frame index at paint time
-             (80.16a), the core-side timer with its no-listener rule
-             (80.17b, 80.17c),
-             the fps / play-mode / frames properties, and `frame` and
-             `t` as vectors with the two-pass count (80.17d, 80.17e).
 
 [ ] 81 Multi-argument functions and constants in the calculator
        language. Today PnVarStore knows exactly ten functions, all of
@@ -3298,3 +3295,71 @@
              computes unchanged, and NO plugin ABI bump was needed. Say
              that in the commit message, so nobody goes looking for a
              reinstall that is not required.
+
+[ ] 82 ANIMATION IN THE FIGURE NODE -- when an argument resolves to a
+       VECTOR the figure becomes a film. This was 80.26, lifted out so
+       that TODO #80 can close on the still figure it already draws
+       correctly end to end; nothing about it is new, and nothing about
+       it was started. The DESIGN stays where it was decided and is not
+       copied here: 80.16 is the vector-is-a-film rule and its
+       evaluate-once consequence, 80.17 is the controls. Read those two
+       sub-points first, then this entry for what is left to build.
+
+       The precondition 80.16 set is already met -- 80.22 through 80.25
+       are done and a still figure draws -- so this is buildable now,
+       not blocked.
+
+       [ ] 82.1 THE FRAME COUNT, and it goes first because everything
+             else indexes with it. 80.16 chose "the shortest vector"
+             on the reasoning that vector OP vector truncates to the
+             shorter operand; 80.3(f) was CORRECTED on 2026-09-22 after
+             reading pn-var-store.c rather than its prose, and the real
+             rule is the LONGER length with the surviving tail passing
+             through verbatim -- [2,3] * [3,4,5] = [6,12,5]. So the
+             figure cannot match its own arithmetic exactly whichever
+             way it goes: under the tail rule a 2-vector times a
+             3-vector is three frames whose last frame used no first
+             operand at all. Shortest may well still be the right
+             answer -- it just needs a new reason. Whatever is chosen,
+             fix 80.16's parenthesis to match instead of leaving the
+             two entries contradicting each other.
+       [ ] 82.2 THE FRAME INDEX AT PAINT TIME (80.16a): evaluate the
+             program ONCE for the whole film and take element i of
+             every vector when painting frame i, scalars broadcasting
+             unchanged. Not a re-run per frame -- PnVarStore is already
+             elementwise, so the per-frame re-evaluation is both slower
+             and further from what the language means.
+       [ ] 82.3 THE TIMER, in the CORE half so the behaviour belongs to
+             the node and not to the painter (80.17b): a g_timeout at
+             1000/fps advances the index and calls
+             pn_node_request_repaint(), stopped in dispose(), never
+             started when the frame count is 1, and the index reset to
+             0 when new data arrives. Plus 80.17(c)'s no-listener rule
+             -- nothing connected to "repaint-needed" means headless,
+             and a headless figure must not spin a timer nobody
+             watches. Confirm the signal-handler check behaves as
+             assumed at implementation time.
+       [ ] 82.4 THE PROPERTIES (80.17a): `fps` (default 25, capped at
+             60), `play-mode` (once / loop / ping-pong) and `frames`,
+             an explicit count where 0 means "take it from the data".
+             Plain GObject properties like the rest, so the save format
+             picks them up, and rows in the node's existing settings
+             schema.
+       [ ] 82.5 `frame` AND `t` AS VECTORS (80.17d, 80.17e): bind
+             `frame` as [0..N-1] and `t` as [0..1] so they animate
+             through the same indexing as everything else, with no
+             re-evaluation and no special case in the painter. The
+             chicken-and-egg -- N comes from the data but `t` is part
+             of it -- is answered by 80.2 rule 12's free-identifier
+             walker: when `frames` > 0 the count is explicit and a
+             figure with NO inputs can still animate, and when it is 0
+             a second evaluation pass learns N first, run only for the
+             programs that actually mention `t` or `frame`. At most two
+             evaluations, only on input change.
+       [ ] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
+             pixel-free, asserting the frame count, the index-to-value
+             mapping and the timer's no-listener rule in
+             tests/unit/test-pn-figure.c rather than a new binary, and
+             ./run-unit-tests.sh green. The help page 80.14 is still to
+             write; whoever writes it covers animation from here, and
+             if it is already written by then it gains a section.
