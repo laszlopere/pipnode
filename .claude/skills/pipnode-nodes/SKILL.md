@@ -12,8 +12,8 @@ registered in `lib/pn-node-factory.c` (`register_builtins`) and implemented in
 `lib/pn-*.c` — **plus the nodes from the in-tree bundled plugins** under
 `plugins/` (host-monitoring, network/Ping/DNS, ollama, image, tasmota, shell,
 sound-effects, …), which ship in this same repo and are part of the project.
-Each bundled plugin gets its own `reference/plugins-<name>.md` file (see the
-index below); so far **tasmota** is documented. Nodes from plugins that live in
+Each bundled plugin gets its own `reference/plugins-<name>.md` file — **all
+seven are documented** (see the index below). Nodes from plugins that live in
 **separate repositories** (kodi, zigbee, rtl-sdr, ethereum, …) are **not**
 covered here — those are external projects.
 
@@ -25,11 +25,12 @@ Core nodes, by category:
 
 - [`reference/sources.md`](reference/sources.md) — **Sources** (emit messages): Clock, Injector, FileDrop, Switch, Knob, Keypad, Panel Input, AutoInjector, AutoRandom, Astronomical, Daily Timer, Pipe Reader
 - [`reference/network.md`](reference/network.md) — **Network**: Http Client, MQTT Source, MQTT Sink, Weather, Bridge Quote, Bridge Converter, Meshtastic
-- [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI**: Comparator, Dedup, Edge, Filter, Topic Demux, Value Router, Value Trend, Round Robin, Success, Failure, Threshold, Calculator, Calculator 2, Calculator Engine, JMESPath, Parse JSON, FX Converter, Fiat Converter, Throughput
+- [`reference/filters-gate-compute.md`](reference/filters-gate-compute.md) — **Filters/Gate, Expressions, Compute & AI, Vectors**: Comparator, Dedup, Edge, Filter, Topic Demux, Value Router, Value Trend, Round Robin, Success, Failure, Threshold, Calculator, Calculator 2, Calculator Engine, JMESPath, Parse JSON, FX Converter, Fiat Converter, Throughput, **Vectors**: Ramp, Reduce
 - [`reference/filters-reshape-timing.md`](reference/filters-reshape-timing.md) — **Filters/Reshape, Timing, Deadline**: Format, PROM, Rewrite, Set, Text, Topic, Value, Table Model, Delay, Tapped Delay, Staircase, Throttle, Watchdog, Deadline
 - [`reference/controllers.md`](reference/controllers.md) — **Controllers** (self-contained state machines that run a whole appliance, several inputs and outputs each): Burglar Alarm
 - [`reference/cpu.md`](reference/cpu.md) — **CPU** (building blocks for a clocked machine, with the silent-store rule that makes feedback loops safe): Register, Counter, RAM, Mux, Shift Register, Clock Divider
-- [`reference/sinks.md`](reference/sinks.md) — **Sinks** (consume/visualise): Debug Print, Graph, XY Graph, Weather Report, Sun Path, Chat, Sound, Text to Speech, Notify, FileViewer, Text View, Table, Table View, Panel Display, Pipe Writer
+- [`reference/routing-annotation.md`](reference/routing-annotation.md) — **Routing** (named wireless connections that cross sheets) and **Annotation** (canvas documentation): Jump In, Jump Out, Comment
+- [`reference/sinks.md`](reference/sinks.md) — **Sinks** (consume/visualise): Debug Print, Logger, Graph, XY Graph, Plot, Oscilloscope, Figure, Weather Report, Sun Path, Chat, Sound, Text to Speech, Notify, FileViewer, Text View, Table, Table View, Panel Display, Pipe Writer
 - [`reference/gui-displays-gauges.md`](reference/gui-displays-gauges.md) — **GUI/Displays & Gauges + indicator sinks**: Numeric, Segment16, Matrix57, DigitalClock, Label, AnalogClock, AnalogMeter, Dial, LED, Countdown
 
 Bundled-plugin nodes (in-tree, under `plugins/`):

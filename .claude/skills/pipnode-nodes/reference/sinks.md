@@ -15,19 +15,25 @@ configurable JSON path); Table reads each configured `Title:path`; Table View
 reads a structured `data.table`; Debug Print can serialise the entire
 envelope+bag as JSON. The exact key each one reads is documented per node.
 
-Display sinks paint with cairo/Pango (and PLplot for the plot family) in a
+Display sinks paint with cairo/Pango (PLplot for the 2D plot family, **MathGL for Graph's 3D stacked-Z views**, and pure cairo for Oscilloscope and Figure) in a
 companion `pn-<name>-gui.c` "gui tier" that is installed onto the class only in
 the editor build — the headless core never pulls GTK. Several plot/card sinks
 share a common 280×173 footprint (a 40 px header, a 4 px gap, then a body)
-deliberately so a row of mixed Graph / XY Graph / Weather Report / Sun Path /
-Chat / Table / Table View / Text View nodes lines up cleanly on the canvas.
+deliberately so a row of mixed Graph / XY Graph / Plot / Weather Report /
+Sun Path / Table / Table View / Text View nodes lines up cleanly on the canvas.
+**Chat is not one of them** — its body is 220 px (`PN_CHAT_BODY_HEIGHT`,
+`lib/pn-chat.c:40`) — and Oscilloscope (260×254) and Figure (280×254) have
+footprints of their own.
+
+**LED** is a Sinks-category node too, but it is documented with the indicator
+family in [`gui-displays-gauges.md`](gui-displays-gauges.md).
 
 ---
 
 ## Debug Print
 
 **Purpose** — Print every received message to a chosen destination in a chosen
-format. The flow-inspection tool of first resort. `lib/pn-debug.c:289`
+format. The flow-inspection tool of first resort. `lib/pn-debug.c:400`
 (`pn_debug_receive`).
 
 **When to use** — To see what is actually on a wire. Pick **Debug Print** (not
@@ -36,22 +42,25 @@ Text View) when you want the *envelope* — topic, id, created, source, the whol
 want the output in the collapsible debug pane / status bar / stdout / stderr
 rather than painted on the canvas.
 
-**Ports** — input only; no output. `lib/pn-debug.c:411`.
+**Ports** — input only; no output. `lib/pn-debug.c:508`+.
 
 **Settings**
 - `target` (enum, default **Standard Error**) — where rendered text goes:
   *Debug View* (the collapsible pane from View→Debug View), *Status Bar* (main
-  window footer), *Standard Output*, *Standard Error*. `lib/pn-debug.c:421`.
+  window footer), *Standard Output*, *Standard Error*. `lib/pn-debug.c:532`.
 - `format` (enum, default **JSON**) — how each message renders:
   *text* = just `data.output`; *oneliner* = compact human trace
   `[name] from= topic= id= created= data={…}`; *JSON* = one pretty JSON object
-  wrapping type/from/from_id/topic/id/created/data. `lib/pn-debug.c:428`,
-  formatters at `lib/pn-debug.c:220` / `:248` / `:264`.
+  wrapping type/from/from_id/topic/id/created/data. `lib/pn-debug.c:539`,
+  formatters at `lib/pn-debug.c:329` (oneliner) / `:359` (JSON) / `:375` (text).
+  The JSON and oneliner formats **collapse `$pnvector` markers** into a bounded
+  sample like `"[0, 1, 2, …] (256 values)"` rather than dumping the buffer
+  (`marker_sample_string`, `lib/pn-debug.c:137`; `humanize_vectors`, `:161`).
 
 **Renders / acts** — Formats the message per `format` then writes it: stdout via
 `g_print`, stderr via `g_printerr`, or emits the `status-message` /
 `debug-message` signal the worksheet forwards to the footer / debug pane.
-`lib/pn-debug.c:311`.
+`lib/pn-debug.c:400`+.
 
 **Gotchas** — *Debug View target needs the pane wired*: the `debug-message`
 signal only reaches the collapsible pane when the worksheet/main window is
@@ -62,35 +71,69 @@ with no string `output` emits a blank line.
 
 ---
 
+## Logger
+
+**Purpose** — Appends every message that reaches it to a log file, with **internal** size-based rotation — no external `logrotate` binary is ever invoked. (`lib/pn-logger.c`)
+
+**When to use** — Keeping a durable record of a flow: an audit trail, an overnight capture you will grep in the morning, evidence that a sensor really did go quiet at 03:00. Vs **Debug Print**, which is a transient on-canvas pane; vs **Pipe Writer**, which hands bytes to another process rather than to a rotated file.
+
+**Tier** — **No gui tier at all**: there is no `pn-logger-gui.c`, so the node behaves identically under `pipnode-run` and in the editor.
+
+**Ports** — one unnamed input, no output (`pn-logger.c:545`).
+
+**Settings** (`pn-logger.c:564`+) — a **single page, no tabs** (`:548`).
+- `file-path` (string, default `""`, `PN_EDITOR_FILE`) — `~` is expanded via `pn_path_expand` (`:438`). **Empty disables logging entirely.** Parent directories must already exist.
+- `format` (enum `PnLoggerFormat`, default **`Lines`**; nicks `Lines` / `JSON`, `:79`).
+- `logrotate` (bool, default **TRUE**) — rotate internally at the size cap.
+- `max-size-mb` (int, **1–G_MAXINT, default 10**).
+- `max-files` (int, **0–1000, default 5**) — `0` means no archives at all, just a `g_unlink` (`:293`).
+- `flush` (bool, default **FALSE**) — fsync-per-line rather than buffered.
+
+`max-size-mb` and `max-files` are greyed out when `logrotate` is off, via `pn_settings_schema_enable_when_truthy(…, "logrotate")`. Unlike Plot and Oscilloscope, the inherited `topic` row is **not** hidden.
+
+**Reads** — In `Lines` format, `data.output` (missing or non-string ⇒ an empty payload, `read_output`, `:116`); and `data.success`, falling back to `data.value > 0.5`, defaulting to SUCCESS when neither is present (`:137`). In `JSON` format the whole envelope is serialised as one line: `type`, `from`, `from_id`, `topic`, `id`, `created`, `data` (`message_to_json_object`, `:166`). **Writes nothing** — pure sink.
+
+**Line format** — `"%Y-%m-%dT%H:%M:%S SUCCESS|FAILURE <payload>\n"`, in **local** time (`:354`).
+
+**Gotchas**
+- A fresh Logger is **red with `❗` until `file-path` is set**: `constructed()` calls `pn_node_set_has_error (node, TRUE)` (`:641`), and clearing the path re-reddens it (`:443`).
+- The stream is held open across messages, and `cur_size` is seeded from `g_stat`, so a restart rotates against the file's real size rather than from zero.
+- An open failure is warned **once per path** via `g_warning` (`:263`) — invisible from a desktop launcher, and there is no output port to report on, so a bad path silently drops everything. Check the node body for red.
+- Rotation happens *after* the write, so the live file can overshoot the cap by one line.
+- Help page `data/help/PnLogger.html`. No example worksheet ships with it.
+
+---
+
 ## Graph
 
 **Purpose** — Summarise one numeric value plucked from each message and plot it
 over a rolling time window (time-series) or as a value histogram
-(distribution). `lib/pn-graph.c:599` (`pn_graph_receive`). Plotting is done
-with **PLplot** in `lib/pn-graph-gui.c`.
+(distribution). `lib/pn-graph.c:728` (`pn_graph_receive`). Plotting is done
+with **PLplot** for the 2D views and **MathGL** for the 3D stacked-Z views, both
+in `lib/pn-graph-gui.c`.
 
 **When to use** — When the X axis should be the message's *arrival time* (or a
 value-frequency distribution). Use **Graph** for "this number over time"; use
 **XY Graph** instead when each message carries an explicit (x, y) pair.
 
-**Ports** — input only; no output. `lib/pn-graph.c:1033`.
+**Ports** — input only; no output. `lib/pn-graph.c:1674`.
 
-**Settings** (two dialog tabs: *Appearance* | *Data*, `lib/pn-graph.c:1172`)
+**Settings** (two dialog tabs: *Appearance* | *Data*, `lib/pn-graph.c:1838`)
 - `key` (string, default `data/value`) — `/`-separated JSON path to the numeric
   Y value; numbers, decimal strings, and `0x…` hex strings are accepted, others
-  dropped. `lib/pn-graph.c:1036`.
+  dropped. `lib/pn-graph.c:1678`.
 - `resolution` (enum, default **1 minute**) — total time span: 1 min / 15 min /
-  1 hour / 1 day / 1 week. `lib/pn-graph.c:1043`.
+  1 hour / 1 day / 1 week. `lib/pn-graph.c:1685`.
 - `x-buckets` (uint 2–200, default 200) — number of time buckets the window is
-  split into (time-series only). `lib/pn-graph.c:1052`.
+  split into (time-series only). `lib/pn-graph.c:1694`.
 - `data-view` (enum, default **Time series**) — Time series vs Distribution.
-  `lib/pn-graph.c:1065`.
+  `lib/pn-graph.c:1707`.
 - `draw-style` (enum, default **Lines**) — Points / Lines / Bars / Error bars.
-  `lib/pn-graph.c:1079`.
+  `lib/pn-graph.c:1721`.
 - `line-color` / `line-width` (1–8, default 2) / `axis-color` /
   `background-color` (default white) / `show-grid` (default off).
 - `log-y` (default off, distribution only) / `y-from-zero` (default off,
-  time-series linear only). `lib/pn-graph.c:1129` / `:1138`.
+  time-series linear only). `lib/pn-graph.c:1771` / `:1780`.
 - `save-data` (bool, default **off**) — persist the collected data into the
   worksheet file and restore it on load. Bounded, in-window only: per series the
   time buckets (at most `x-buckets`, so ≤ 200; they drive the time-series view)
@@ -113,7 +156,10 @@ axis scrolling between messages. `lib/pn-graph.c:634`.
 
 **Gotchas** — *Multi-topic auto-3D*: each distinct `msg.topic` becomes its own
 series; a 2nd topic flips both views into a stacked-Z 3D projection (series
-hues walk the golden-angle wheel from `line-color`). Capped at 12 topics — a
+hues walk the golden-angle wheel from `line-color`), and a multi-series plot
+draws a **colour-key legend labelled with the feeding node's name** — the
+message's `from` label, captured per series at `lib/pn-graph.c:758` and drawn in
+`lib/pn-graph-gui.c`. Capped at 12 topics — a
 13th is dropped silently. The PLplot stream is owned lazily by the gui tier;
 the core never links PLplot.
 
@@ -130,9 +176,9 @@ e.g. plotting one measured quantity against another (a parabola demo, a
 sensor-vs-sensor correlation). Contrast **Graph**, whose X axis is arrival
 time.
 
-**Ports** — input only; no output. `lib/pn-xy-graph.c:752`.
+**Ports** — input only; no output. `lib/pn-xy-graph.c:1027`.
 
-**Settings** (two tabs: *Appearance* | *Data*, `lib/pn-xy-graph.c:835`)
+**Settings** (two tabs: *Appearance* | *Data*, `lib/pn-xy-graph.c:1137`)
 - `x-key` (string, default `data/x`) and `key` (Y, default `data/value`) —
   JSON paths; both must resolve to finite numbers or the whole sample is
   dropped. `lib/pn-xy-graph.c:762` / `:755`.
@@ -157,6 +203,106 @@ order and auto-ranges both axes. `lib/pn-xy-graph.c:459`.
 `msg.topic` overlays on the same axes in its own golden-angle hue, capped at 12
 topics (13th dropped). No time window or resolution — the X axis is a value, so
 there is nothing time-based to configure.
+
+---
+
+## Plot
+
+**Purpose** — The **vector-fed sibling of Graph** (TODO #48.2): one message carrying a `$pnvector` on a bag member is distributed across M consecutive X-buckets, each aggregated to count / mean / sd / min / max and drawn as a point or an error bar. The X axis is the **bucket index, not time**. (`lib/pn-plot.c` + `lib/pn-plot-gui.c`)
+
+**When to use** — When the whole curve arrives in one message — a **Ramp** sweep run through a Calculator, a batch of samples, a computed series — rather than accumulating a point per message. Because it fills instantly and deterministically from a single message, it is also the testable one: no waiting for a window to fill. Vs **Graph**: Graph's X is arrival time and it accumulates across messages; Plot redraws the whole picture from each message. Vs **Oscilloscope**: Plot aggregates buckets with spread; Oscilloscope traces Y against X faithfully.
+
+**Ports** — input only. Footprint 280×173 body / 217 total — the Graph family's (`pn-plot.c:51`).
+
+**Settings** (`pn-plot.c:618`+) — two tabs *Appearance* | *Data*, mirroring Graph (`:713`); the inherited `topic` row is hidden.
+- `value-key` (string, default **`"value"`**) — ⚠ a **flat top-level member name**, read with `pn_message_get_member`, **not** Graph's `/`-separated path. This is the single most likely thing to trip up a reader arriving from the Graph entry.
+- `x-buckets` (uint, **2–200** = `PN_GRAPH_MAX_BINS`, default **16** = `PN_PLOT_DEF_BINS`, `pn-plot.c:65`).
+- `data-view` (enum `PnGraphView`, default `Time series`; nicks `Time series` / `Distribution`).
+- `draw-style` (enum `PnGraphStyle`, default **`Error bars`** — note this differs from Graph's `Lines`).
+- `line-color` (dark blue 30/60/140), `line-width` (uint 1–8, default 2), `axis-color` (dark grey 70³), `background-color` (white), `show-grid` (FALSE), `log-y` (FALSE), `y-from-zero` (FALSE).
+
+**No `save-data` / `saved-data`** — unlike Graph, Plot persists nothing.
+
+**Reads** — exactly one member, which must resolve through `pn_message_resolve_vector` (`pn-plot.c:288`); a **scalar is silently ignored**. Writes nothing.
+
+**Tier split** — core owns the type, properties, `receive`, `rebucket` (`:203`), the repaint throttle and the read seam `pn_plot_get_paint_state()` / `_peek_series()` / `_get_n_bins()`, filling PnGraph's own `PnGraphBin` / `PnGraphSample` structs so the painter and the headless test share one plain-data view. The gui tier owns the PLplot+cairo painter, a lazily-boxed per-instance PLplot stream, and reuses `pn_graph_draw_error_bars_2d` / `_series_2d`. Installed by `pn_plot_gui_install()` (`lib/pn-plot-gui.c:279`) from `lib/pn-gui.c:88`.
+
+**Gotchas**
+- **Each message replaces the whole plot** — `rebucket` calls `series_reset` first (`:212`). There is no cross-message history.
+- Bucket *b* owns `[b·N/M, (b+1)·N/M)`; with M > N the trailing buckets stay unused and are skipped.
+- The vector is adopted **by reference**, so changing `x-buckets` re-bins immediately — but changing `value-key` does not (the next message applies it).
+- The Distribution view mirrors only the **leading 2048** elements into the sample ring, stamped `G_MAXINT64` so they never age out.
+- Single series only — no multi-topic, no 3D. 10 Hz repaint throttle. No error state.
+- Examples `examples/Compute/error-bars.json`, `examples/crypto/uniswap-v2.json`; help `PnPlot.html`; test `tests/unit/test-pn-plot.c`.
+
+---
+
+## Oscilloscope
+
+**Purpose** — A green-phosphor CRT that traces Y against X, where **each of X and Y may independently be a scalar or a `$pnvector`** (TODO #44). Pure cairo, no PLplot. (`lib/pn-oscilloscope.c` + `lib/pn-oscilloscope-gui.c`)
+
+**When to use** — To see a waveform's *shape*: a Lissajous figure (vector X and vector Y), a computed trace, a slow-moving scalar leaving a phosphor streak. Vs **Plot**: no bucketing or error bars — the trace is the data. Vs **Graph**: no time window.
+
+**There are exactly two states**, and they **evict each other**:
+- **snapshot** — a vector arrives and *is* the trace;
+- **point** — a scalar arrives and is drawn as one dot, with **no history**.
+
+A snapshot clears the point, the accumulated bounds and the afterglow; a point clears both vectors.
+
+**Ports** — input only. Footprint **260 wide × 254** (40 header + 4 gap + 210 screen, `pn-oscilloscope.c:51`) — deliberately *not* the 280×173 plot family.
+
+**Settings** (`pn-oscilloscope.c:2196`+) — **three tabs** Appearance | Data | Scale, plus a hidden `topic` and a hidden `cursors` (`:2324`). Eighteen properties:
+- *Data* — `value-key` (`"value"`), `x-key` (`"x"`) — again **flat member names, not paths**; an absent `x-key` plots a vector against its sample index and puts a scalar dot at X = 0. `x-from-zero` (FALSE), `y-from-zero` (FALSE).
+- *Appearance* — `screen-color` (0.02, 0.05, 0.03), `trace-color` (0.34, 1.00, 0.45), `grid-color` (0.22, 0.50, 0.30), `show-graticule` (TRUE), `trace-width` (uint 1–8, default 2), `focus` (double **0–1, default 1.0**), `intensity` (double **0–1, default 1.0**) — both clamped in the setter (`:2040`, `:2051`).
+- *Scale* — `x-auto` (TRUE), `x-range` (0–G_MAXDOUBLE, default 1.0), `x-offset` (±G_MAXDOUBLE, default 0.0), and the same three for Y.
+- *Hidden* — `cursors` (string, default `""`): four `;`-separated tokens `V1;V2;H1;H2` in **data coordinates**, written locale-independently (`:1502`, `:1524`).
+
+**Reads** — `value-key`, then `x-key` if set. The vector branch wins; the scalar branch accepts int64, double **and a numeric string** including `0x` hex (`parse_numeric_string`, `:197`). Neither ⇒ silent no-op. Writes nothing.
+
+**Tier split** — the GTK-free core owns the type, all eighteen properties, `receive`, `set_snapshot` / `push_scalar`, the afterglow ring, `compute_raw_bounds`, the size vfuncs, and — unusually — **the entire maximized control panel's geometry, hit-testing and value maths**: six knobs (`PnOscKnob` X_RANGE / X_OFFSET / Y_RANGE / Y_OFFSET / FOCUS / INTENSITY), two Auto buttons and four cursors, all public in `lib/pn-oscilloscope.h:219`–`423`, so the painter and the worksheet's pointer handlers share one source of truth. Read seam `pn_oscilloscope_get_paint_state()` / `_read_trace()` (which decimates to **per-bucket min/max extrema, never averages**) / `_read_afterglow()`. `pn_oscilloscope_gui_install()` (`-gui.c:1508`) sets `paint_plot`, `paint_plot_corner_radius = 16.0` and `paint_plot_zoom_keep_aspect = TRUE`; called from `lib/pn-gui.c:90`.
+
+**Gotchas**
+- **Scalar framing is an accumulating envelope**: bounds only ever grow until the next snapshot, so one past outlier permanently widens the frame.
+- Afterglow: 64-point cap, 800 ms persistence, 40 ms fade tick; a repeated identical value leaves no streak; it returns 0 in snapshot mode.
+- **Setting any of `x-range` / `x-offset` / `y-range` / `y-offset` silently flips that axis out of auto** (`:2082`) — easy to trip from D-Bus or a loaded file.
+- `maximized` is runtime-only, not a property, wired through `PN_IS_OSCILLOSCOPE` checks in `lib/pn-worksheet.c` (the in-card drag interaction). Cursors, by contrast, do persist.
+- 10 Hz repaint throttle. No error state, no saved data.
+- Examples `examples/Compute/oscilloscope.json`, `lissajous.json` (X *and* Y vectors), `projectile.json`, `examples/crypto/uniswap-v2.json`; help `PnOscilloscope.html`; PNG harness `tools/osc-preview.c`.
+
+---
+
+## Figure
+
+**Purpose** — A **programmable vector-drawing sink**: you type a small drawing program into the node and it paints live in its own card, with each input's last `data.value` bound as a variable. Built (TODO #80) for worksheets that look like the plates in a 19th-century physics book — it draws the *apparatus*, not the curve. (`lib/pn-figure.c` + `lib/pn-figure-gui.c`)
+
+**When to use** — When the picture *is* the explanation: a pendulum whose bob hangs at the angle a Knob says, a compass grid that finds a magnet's neutral points, a schematic whose dimensions follow live readings. Vs Graph/Plot/Oscilloscope, which all draw *data*; Figure draws whatever you tell it to.
+
+**Ports** — **1–8 inputs** via the `inputs` property (`pn_node_set_input_count_property`, `:3633`, which also adds an "Inputs" tab), with `pn_node_set_collate_inputs (TRUE)` (`:3637`) so the program sees **every** input on every repaint, not just the one that fired. **Each input's value binds under that port's display name** — `value1`…`valueN` by default, so renaming a port renames the variable. No output.
+
+**Settings** (`pn-figure.c:3500`+) — tab **Figure** = `program` as `PN_EDITOR_CODE` full width (language `"sh"`; a real `figure.lang` is noted as not built) with `error` as a full-width `PN_EDITOR_LABEL` beneath it; tab **Appearance** = `background-color`, `font-family`, `stretch`. Inherited `topic` hidden (`:3581`).
+- `program` (string, **multiline**, default `view 0, 0, 100, 100` / `circle 50, 50, 40` / `text 50, 50, "%.1f", value1` — `PN_FIGURE_DEF_PROGRAM`, `:3002`) so a fresh node is never blank.
+- `inputs` (int, **1–8, default 1**).
+- `background-color` (boxed, **white**) — fills the letterbox bars too.
+- `font-family` (string, `""`), `stretch` (bool, FALSE).
+- `error` (string, `""`, **`G_PARAM_READABLE` only**, `:3564`) — never serialised.
+
+Size **280 × 254** (40 header + 4 gap + 210 client, `lib/pn-figure.h:769`); `paint_plot_zoom_keep_aspect = TRUE` (`:3498`).
+
+**Reads** — via `pn_expr_bind_collated` (`:3274`, implementation `lib/pn-expr-bind.c:107`): `data.<input-name>` per input (for a single-input node the message's own `data.value` binds under input 0's name), plus every **other** numeric `data.*` member of the arriving message suffixed with its 1-based input number (`data.temp` → `temp1`). Any name the program uses but nothing supplies is **0** — "zero-fill" — so a figure draws fully even unwired. **Writes nothing, emits nothing.**
+
+**The language** — `pn_figure_scan` (strips `#` comments, joins a line ending in a comma onto the next, keeps a piece table so errors cite the right source line) → `pn_figure_split` (`name = expr` is an assignment statement) → `check_verbs` → `pn_figure_check_blocks` → `parse_literals` → `parse_expressions`, all core, recompiled whenever `program` is set (`figure_recompile`, `:3140`). Verbs (`:725`): `view` (**Y points up**); pen state `color fill nofill width dash font align`; geometry `move rmove lineto rline line point circle arc rect poly path`; `text x, y, "fmt", …` (a validated printf subset); and `repeat` / `end`. Every argument is an expression in the shared calculator language (`clamp min max atan2 pow hypot floor …`, `pi`, `e`) — so **`^` is XOR, not power**. Resolution yields a device-unit display list (`PnFigureOp`) that `pn_figure_display_to_string()` dumps, which is what makes the whole thing unit-testable.
+
+**`repeat` (TODO #86)** — `repeat <count>` … `end`. The count is an **expression**; the index is **always `i`**, counting from 0, shadowing any input or assignment of that name (`PN_FIGURE_INDEX_NAME`, `lib/pn-figure.h:676`). **No nesting** — a nested `repeat` is a parse error, and a grid is one loop plus floor/mod arithmetic. `pn_figure_check_blocks()` counts *depth* rather than a flag, so one nesting mistake yields exactly one message. A count of zero, negative, NaN or ∞ leaves **one `OP_SKIP` marker** instead of reddening the node; the cap is `PN_FIGURE_MAX_REPEAT` = **1000** (`lib/pn-figure.h:682`, reason `"too-many"`). Pen state and assignments are **sequential across iterations** — the block is shorthand, not a scope. It has no display-list op of its own, and each iteration's ops carry the **same source line numbers**, which is what makes a loop assertable.
+
+**Gotchas**
+- Serialised: `program`, `inputs`, `background-color`, `font-family`, `stretch`, plus the core's input-name map. **Not** serialised: `error` and the latched input snapshot.
+- `figure_refresh_error` (`:3103`) sets `pn_node_set_has_error()` and paints the error text **instead of** the figure: a program error draws **nothing at all**, deliberately — half a figure is a worse lie than none. A *skipped* statement, by contrast, never reddens the node.
+- A **vector argument is a hard error** (`:2144`, "animation is TODO 80.16").
+- Errors are collected and shown as e.g. "3 errors, first on line 7".
+- Repaint throttle 100 ms, but a `program` set goes through **unthrottled** (`:3379`) so the editor follows keystrokes.
+- `receive` resolves once at the at-rest rect purely so `error` is correct headless (`:3281`); that display list is thrown away.
+- **No help page yet** — neither `data/help/PnFigure.html` nor `Figure.html` exists (TODO 80.14, the language spec page, is still open), so the `program` property blurb is currently the only user-facing language documentation. Tests `tests/unit/test-pn-figure.c`; headless preview harness `tools/figure-preview.c`.
+- Plates built on it so far: `examples/displays/pendulum.json` (TODO #85.1) and `examples/displays/bar-magnet.json` (#85.12). TODO #85 (twelve physics plates) is still open — 85.2–85.11 wait partly on 80.19, since there are **no arrows, angle-mark arcs, rotated labels or hatching yet**.
 
 ---
 
@@ -190,8 +336,13 @@ survives past the borrowed message) and repaints. Reads the named members the
 Weather node promotes — `city`, `country`, `temperature`, `humidity`,
 `wind_speed`, `weather_code`, `description`, `success`, `output` — plus the raw
 Open-Meteo passthrough at `data/raw/current` (apparent_temperature, is_day,
-cloud_cover, pressure_msl, precipitation, wind_direction_10m, time); falls back
-to `data/raw/weather` for the Bright Sky provider. `lib/pn-weather-report.c:355`.
+cloud_cover, pressure_msl, precipitation, wind_direction_10m); falls back
+to `data/raw/weather` for the Bright Sky provider. Two **fallback chains** are
+worth knowing: temperature falls back from `data/temperature` to `data/value`
+(`lib/pn-weather-report-gui.c:481`), and pressure from `raw/current/pressure_msl`
+to `raw/current/surface_pressure` to `raw/weather/pressure_msl` (`:490`).
+`lib/pn-weather-report.c:355`. Note the card's clock is **local wall time** —
+`raw/current/time` is never read (`lib/pn-weather-report-gui.c:636`).
 
 **Gotchas** — Mirrors current conditions onto the node's own header glyph
 (`condition_glyph`, `lib/pn-weather-report.c:329`) so the at-rest node shows the
@@ -238,7 +389,11 @@ reading it re-samples the 24 h arc at 5-min steps via
 **Gotchas** — Drag orbits the camera (left/right = yaw, up/down = pitch,
 clamped 6°–84°); the mouse wheel spins the house heading; both persist with the
 worksheet. A failed lookup drops the old arc so no stale path shows under a "no
-position" notice. Same 280×173 footprint as Weather Report / Graph.
+position" notice. **A message with `success = TRUE` but no `sun_azimuth` +
+`sun_altitude` is dropped entirely** (`lib/pn-sun-path.c:275`) and the card keeps
+showing "Waiting for sun position" rather than parking the Sun at (0, 0) — most
+often this is a Weather report wired in by mistake. Explicit failures
+(`success = FALSE`) *do* pass through, to drive the "No position" notice. Same 280×173 footprint as Weather Report / Graph.
 
 ---
 
@@ -272,9 +427,10 @@ suppressed so a wrap-back wire does not double a sent bubble.
 **Renders / acts** — Each received message resolves `text-path`/`sender-path`
 to scalars and pushes one bubble (newest pinned to bottom). Pressing
 Enter / clicking Send emits a fresh message: `data/output` = typed text,
-`data/from_long_name` = `me-name`, topic from the node's PnNode topic template;
-the same text is pushed locally as a "mine" bubble. `lib/pn-chat.c:237`,
-`:554`.
+`data/success` = **TRUE** (`lib/pn-chat.c:555`), `data/from_long_name` =
+`me-name`, topic from the node's PnNode topic template; the same text is pushed
+locally as a "mine" bubble. A whitespace-only draft is silently discarded
+(`lib/pn-chat.c:538`). `lib/pn-chat.c:237`, `:554`.
 
 **Gotchas** — Fully canvas-resident text input (no real `GtkEntry`): a blinking
 caret, UTF-8-aware draft editing, and the worksheet routing keystrokes only
@@ -287,30 +443,37 @@ overlay. 10 Hz repaint throttle.
 
 **Purpose** — Play a short audio clip whenever any message arrives. The message
 *contents are ignored* — the trigger fact alone fires the sound.
-`lib/pn-sound.c:194` (`pn_sound_receive`).
+`lib/pn-sound.c:349` (`pn_sound_receive`).
 
 **When to use** — An audible "ping" on an event (alert fired, job done). Use
 **Sound** for a fixed clip; **TTS** to speak the message's `data.output` text;
 **Notify** for a visual desktop bubble.
 
-**Ports** — input only; no output. `lib/pn-sound.c:330`.
+**Ports** — input only; no output. `lib/pn-sound.c:484`.
 
 **Settings**
 - `sound` (string, default NULL/unconfigured) — a freedesktop sound-theme id
   (e.g. `bell`, resolved under `/usr/share/sounds/freedesktop/stereo/<id>.oga`)
   or an absolute audio-file path. Empty paints the node red with a ❗.
-  `lib/pn-sound.c:340`, resolver `lib/pn-sound.c:133`.
+  `lib/pn-sound.c:495`, resolver `lib/pn-sound.c:133`.
 - `dead-period` (uint 0–3600 s, default 0) — mandatory silence after each
-  playback; messages within it are dropped. `lib/pn-sound.c:347`.
+  playback; messages within it are dropped. `lib/pn-sound.c:502`.
 
-**Renders / acts** — Spawns `paplay <path>` asynchronously (not
-canberra-gtk-play, which would honour the often-off `gtk-enable-event-sounds`).
-`lib/pn-sound.c:155`.
+**Renders / acts** — In the **default build** the clip is decoded and streamed
+**in process** on a worker thread via libsndfile + libpulse-simple
+(`play_in_thread`, `lib/pn-sound.c:121`, kicked off at `:288`). Spawning
+`paplay <path>` is only the `#else` fallback, compiled when those two libraries
+are not both present (`:304`–`:330`); `HAVE_PN_AUDIO` is defined whenever
+`sndfile libpulse-simple` are found (`configure.ac:164`). `paplay` is used
+rather than canberra-gtk-play, which would honour the often-off
+`gtk-enable-event-sounds`. `pn_sound_backend_description()` (`:335`) reports
+which mode is in effect, and the settings dialog shows it.
 
 **Gotchas** — No overlap: a message arriving while a clip is still `playing`,
 or within the dead period after one ends, is dropped (`lib/pn-sound.c:205`).
-Depends on `paplay` (PulseAudio); themed ids need the freedesktop sound theme
-installed. The settings dialog offers a Preview button (`pn_sound_preview`,
+Themed ids need the freedesktop sound theme installed. The node depends on
+`paplay` **only in the fallback build** — check
+`pn_sound_backend_description()` before blaming a missing PulseAudio utility. The settings dialog offers a Preview button (`pn_sound_preview`,
 `lib/pn-sound.c:386`).
 
 ---
@@ -318,39 +481,45 @@ installed. The settings dialog offers a Preview button (`pn_sound_preview`,
 ## Text to Speech
 
 **Purpose** — Speak each incoming `data.output` string aloud by piping it
-through a Linux TTS program. `lib/pn-tts.c:540` (`pn_tts_receive`),
-`lib/pn-tts.c:362` (`pn_tts_speak`).
+through a Linux TTS program. `lib/pn-tts.c:743` (`pn_tts_receive`),
+`lib/pn-tts.c:516` (`pn_tts_speak`).
 
 **When to use** — When the message's text should be heard, not seen — read out
 an LLM reply, a chat message, an alert summary. Contrast **Sound** (fixed clip,
 ignores content) and **Notify** (silent visual bubble).
 
-**Ports** — input only; no output. `lib/pn-tts.c:850`.
+**Ports** — input only; no output. `lib/pn-tts.c:1144`.
 
 **Settings**
 - `engine` (string, default = first installed) — one of `piper`, `espeak-ng`,
   `espeak`, `festival`, `flite`; picking an uninstalled one turns the node red
-  with a ❗ and a status message. `lib/pn-tts.c:860`, engine table
+  with a ❗ and a status message. `lib/pn-tts.c:1155`, engine table
   `lib/pn-tts.c:89`.
 - `model` (string, dialog label "Voice", default the Lessac en_US piper onnx) —
   a `.onnx` path for piper, an engine voice name otherwise, empty for
-  Festival. `lib/pn-tts.c:870`.
+  Festival. `lib/pn-tts.c:1165`.
+- `language` (string, default **`"en_US"`**) — the locale the Voice list is
+  restricted to (e.g. `"hu_HU"`); empty offers every installed voice. It filters
+  both the Voice combo and the per-source voice pool
+  (`pick_voice_for_message`, `lib/pn-tts.c:676`). **Only piper voices are
+  locale-tagged**, so it has no effect on the other engines.
+  `lib/pn-tts.c:1178`.
 - `speed` (double 0.5–2.0, default 1.0) — mapped to each engine's own rate knob;
-  Festival ignores it. `lib/pn-tts.c:883`.
+  Festival ignores it. `lib/pn-tts.c:1192`.
 - `sink` (string, dialog label "Output", default empty=default sink) —
   PulseAudio sink (`paplay -d` for piper, `PULSE_SINK` env for the rest).
-  `lib/pn-tts.c:894`.
+  `lib/pn-tts.c:1203`.
 - `per-source-voice` (bool, default TRUE) — hash the source-node name to pick a
-  voice deterministically per speaker. `lib/pn-tts.c:911`.
+  voice deterministically per speaker. `lib/pn-tts.c:1220`.
 - `max-queue` (int −1..MAXINT, default 16) — backlog cap while speaking: 0 =
-  drop-while-busy, −1 = unbounded, N = cap+drop. `lib/pn-tts.c:927`.
-- `last-error` is read-only/transient (not serialised). `lib/pn-tts.c:905`.
+  drop-while-busy, −1 = unbounded, N = cap+drop. `lib/pn-tts.c:1236`.
+- `last-error` is read-only/transient (not serialised). `lib/pn-tts.c:1214`.
 
 **Renders / acts** — Reads only string `data.output`; missing/non-string is
 ignored. Spawns the engine's shell pipeline, feeding the text (with line breaks
 flattened to spaces so piper speaks the whole reply) to its stdin; queued
-utterances drain in arrival order from `on_speak_done`. `lib/pn-tts.c:550`,
-`:315`.
+utterances drain in arrival order from `on_speak_done`
+(`lib/pn-tts.c:359`, which also drains the next pending utterance).
 
 **Gotchas** — Pure-C subprocess spawn, no helper at runtime; errors surface via
 `pn_node_log_*` not stdout (no terminal). Needs at least one TTS program
@@ -454,9 +623,12 @@ scroll-back history), repaints (10 Hz throttle), then forwards the message.
 A message with no string `output` clears the view to its "waiting" state but is
 still forwarded. `lib/pn-text-view.c:101`, `:185`.
 
-**Gotchas** — Mouse-wheel scroll moves through long output one line at a time;
-the painter clamps the offset back to live extents. Same 280×173 footprint as
-Table View.
+**Gotchas** — Mouse-wheel scroll moves **three lines per notch** —
+`lround(dy * 3.0)` (`lib/pn-text-view.c:269`); a single line is only the
+rounding fallback for a very small `dy`. The painter clamps the offset back to
+live extents. **Every received message resets `scroll_offset` to 0**
+(`lib/pn-text-view.c:193`), so a new arrival snaps the pane back to the top.
+Same 280×173 footprint as Table View.
 
 ---
 
@@ -491,7 +663,11 @@ booleans true/false, strings verbatim, missing `—`, objects/arrays as
 
 **Gotchas** — Reads each configured `Title:path`, not a fixed `data.*` key.
 Click-to-zoom lifts the table into the shared overlay where the wheel scrolls
-rows; the on-canvas scroll offset resets when a new message lands.
+rows. Table **does not** reset its scroll offset on a new message —
+`pn_table_receive` never touches `scroll_offset` — so a scrolled-back view
+stays where you left it. (Table **View** does reset; see its entry.) A JSON
+`null` cell renders as the literal string `"null"`, not as an em dash
+(`lib/pn-table.c:266`).
 
 ---
 
@@ -522,7 +698,9 @@ the snapshot every message; a payload with no `data.table` clears to the empty
 
 **Gotchas** — Replace-not-append (unlike Table). Cell rendering reads only the
 `text` member, leaving room for future per-cell decorations. Click-to-zoom +
-wheel scroll, same 280×173 footprint as Table.
+wheel scroll, same 280×173 footprint as Table. **Every received message resets
+the on-canvas scroll offset to 0** (`lib/pn-table-view.c:311`) — this is the
+node that does it, unlike Table.
 
 ---
 
@@ -571,7 +749,7 @@ done < /tmp/x.fifo`) or, in *JSON message* format, to pass whole messages to
 another pipnode process's Pipe Reader. Use Logger instead when the lines must
 persist on disk.
 
-**Ports** — input only; no output (`lib/pn-pipe-writer.c:363`).
+**Ports** — input only; no output (`lib/pn-pipe-writer.c:383`).
 
 **Settings**
 - `pipe-path` (string, file editor, default `""`) — the FIFO; a leading `~`

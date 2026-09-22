@@ -8,9 +8,11 @@ bag members are `data.value` (canonical numeric reading, booleans encoded as
 `data.success` (boolean). Sources split into three flavours by *what makes
 them fire*: **periodic** ones subclass `PnAutoTrigger` (a background worker
 thread ticks every `period` seconds — Clock, AutoInjector, AutoRandom,
-Astronomical); **manual** ones fire on a user gesture (Injector click, Knob
-wheel, Switch click, Keypad key press, FileDrop drop, Panel Input
-applet click); and the manual
+Astronomical, Daily Timer); **manual** ones fire on a user gesture (Injector
+click, Knob wheel, Switch click, Keypad key press, FileDrop drop, Panel Input
+applet click); and **Pipe Reader** stands outside both — a plain `PnNode`
+driven by an fd watch, firing whenever the far end of the pipe writes
+(`pn-pipe-reader.c:51`). The manual
 latch/value sources (Knob, Switch, Panel Input) additionally **announce once**
 shortly after load via a one-shot `g_idle` scheduled in `constructed()`, so
 downstream nodes learn their state without a first gesture.
@@ -141,13 +143,14 @@ only Source here with an input.
   flips the visual state *without* emitting; use `pn_switch_toggle()` to flip
   and emit.
 
-**Emits** — Three triggers, all via the overridable `build_outbound_message`
-vfunc (`pn-switch.c:117`):
-1. user click / `pn_switch_toggle()`;
-2. startup-announce one-shot;
-3. passthrough of an inbound message whose `value` crosses the 0.5 midpoint.
-Default outbound writes `value` (1.0/0.0) and `success` (mirrors `on`). Topic:
-default.
+**Emits** — Three triggers. Two of them mint a message through the overridable
+`build_outbound_message` vfunc (`pn-switch.c:117`): the user click /
+`pn_switch_toggle()`, and the startup-announce one-shot. The third — an
+inbound message whose `value` crosses the 0.5 midpoint — is **forwarded
+verbatim** via `pn_node_emit_message (node, message)` (`pn-switch.c:235`) and
+does *not* go through the vfunc, so a subclass that overrides the outbound
+message shapes the gestures but not the passthrough. Default outbound writes
+`value` (1.0/0.0) and `success` (mirrors `on`). Topic: default.
 
 **Gotchas** — `receive()` (`pn-switch.c:182`) is a *latch with edge-trigger*:
 an inbound `value` equal to the current latch is **dropped on the floor** (no
@@ -423,7 +426,11 @@ the schedule's verdict.
 **Ports** — `has_input = FALSE`, `has_output = TRUE`.
 
 **Settings** — plus inherited `period`:
-- `schedule` (string, default `"[]"`) — canonical JSON array of
+- `schedule` (string, default **one example interval**
+  `[{"day":-1,"on_hour":7,"on_minute":0,"off_hour":9,"off_minute":0}]` —
+  `PN_DAILY_TIMER_DEFAULT_SCHEDULE`, `pn-daily-timer.c:51`; dropping a Daily
+  Timer and opening it shows what an interval looks like rather than a blank
+  grid. Clearing every row leaves `"[]"`, which is always off) — canonical JSON array of
   `{day, on_hour, on_minute, off_hour, off_minute}` objects. `day` is 1
   (Monday) … 7 (Sunday) matching `g_date_time_get_day_of_week()`, or `-1` for
   every day. Normally edited through the dialog's row editor (day combo + four
