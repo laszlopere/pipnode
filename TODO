@@ -2999,3 +2999,81 @@
              this click" vfunc, which is an ABI bump (see
              reference_node_class_vfunc_abi). That cost is why this is
              an entry to plan rather than a row to add.
+
+[ ] 85 TWELVE PHYSICS PLATES for the Figure node (#80) -- the teaching
+       collection the node was built for, planned here as a LIST and
+       nothing more. #80's own header says the point is "worksheets
+       that look like the plates in a 19th-century physics book", and
+       #80.15 ships exactly two sheets to prove the engine works
+       (lever, ray-optics). This entry is the other thing: a dozen
+       sheets that are worth opening because of what they TEACH, not
+       because of what they test.
+       DELIBERATELY NOT DESIGNED YET. Each line below is a subject and
+       a sentence, and that is all it is meant to be today. When one is
+       picked up it gets its own sub-item with the knobs, the program
+       and the physics written out -- twelve designs written in advance
+       would be twelve designs written before the node's last verbs
+       exist.
+
+       WHAT THIS DEPENDS ON, so nobody starts on the wrong day:
+       (a) #80 IS NOT FINISHED. The engine draws (80.22-80.25 are
+           done), but 80.13, 80.14, 80.15, 80.19 and 80.21 are open.
+       (b) 80.19'S LATER PRIMITIVES GATE SEVERAL OF THESE. The verbs
+           today are view, color, width, fill, nofill, move, line,
+           rect, circle, arc, poly, dot, text -- there are NO ARROWS,
+           no angle-mark arcs, no rotated labels and no hatching. A
+           plate of forces without arrowheads is not a plate of
+           forces (80.19 says so itself), so the mechanics sheets want
+           80.19 first. The wave and circuit ones do not.
+       (c) #82's ANIMATION would turn about half of these from a
+           picture you wind by hand into a film. Not required for any
+           of them; worth knowing before choosing which to build
+           first.
+       (d) PLACEMENT IS NOT SETTLED. 80.15 ships into
+           examples/displays/ because that directory already installs
+           and #79.2's Makefile.am gap is still open. Twelve sheets is
+           enough to deserve a directory of their own -- but that
+           means fixing #79.2 first. Decide when the first one lands,
+           not now.
+       NOT TO BE CONFUSED WITH: #80.15's two proving sheets (the
+       engine's own tests, which stay in #80), and #79's wave-optics
+       teaching sheet, which PLOTS intensity curves -- this node draws
+       the apparatus, not the curve, and the two are complementary
+       rather than competing.
+
+       THE TWELVE, grouped the way a textbook groups them:
+       [ ] 85.1  MECHANICS -- the simple pendulum. Length and release
+             angle as knobs; the period printed from the length.
+       [ ] 85.2  MECHANICS -- projectile motion. Launch angle and
+             speed as knobs; the arc, the apex and the range marked.
+       [ ] 85.3  MECHANICS -- the inclined plane. Slope angle as a
+             knob; the weight resolved into its two components. Wants
+             80.19's arrows and angle marks more than any other sheet
+             here.
+       [ ] 85.4  GRAVITATION -- Kepler's equal areas. A planet on an
+             ellipse with the sun at a focus, and the swept sector
+             drawn as the planet moves.
+       [ ] 85.5  WAVES -- the standing wave on a string. Harmonic
+             number as a knob; nodes and antinodes marked.
+       [ ] 85.6  WAVES -- two-source interference, the ripple-tank
+             plate. Source separation and wavelength as knobs.
+       [ ] 85.7  WAVES -- the Doppler effect. A moving source and the
+             wavefronts bunching ahead of it; speed as a knob.
+       [ ] 85.8  OPTICS -- the concave mirror. The ray construction
+             80.15.2 does for a lens, done for a mirror, which is the
+             other half of the same lesson.
+       [ ] 85.9  OPTICS -- refraction and total internal reflection.
+             Angle of incidence and refractive index as knobs, with
+             the refracted ray vanishing past the critical angle.
+       [ ] 85.10 HEAT -- the Carnot cylinder. Piston position through
+             the four strokes, the state labelled at each corner.
+             Named in #80's own header as a thing the node should be
+             able to draw.
+       [ ] 85.11 ELECTRICITY -- the Wheatstone bridge. Three known
+             resistances as knobs, the galvanometer needle answering,
+             and balance shown rather than asserted. Also named in
+             #80's header.
+       [ ] 85.12 MAGNETISM -- the field of a bar magnet, drawn as a
+             grid of compass needles that turn. The one sheet here
+             that is a FIELD rather than a mechanism, and the best
+             argument for the node's per-element vector rule.
