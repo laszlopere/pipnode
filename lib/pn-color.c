@@ -140,6 +140,64 @@ parse_hex (
     return TRUE;
 }
 
+/* A short colour-name table, so a figure can say `color "red"` and a
+ * preference can hold a name a person typed.  Every entry is a CSS /
+ * X11 name carrying the CSS value, which is what gdk_rgba_parse()
+ * answers for it — tests/unit/test-pn-color.c pins that agreement name
+ * by name, so "green" is the dark CSS green and not bright lime, and
+ * nobody has to remember which of the two this project chose.
+ *
+ * Matching is case-insensitive, which also makes the long-standing
+ * "transparent" keyword case-insensitive; it is a strict superset of
+ * what this function accepted before, so no existing string changes
+ * meaning, and pn_color_to_string() still emits rgb()/rgba() so the
+ * save format is untouched. */
+typedef struct
+{
+    const char *name;
+    guint8      red, green, blue, alpha;
+} NamedColor;
+
+static const NamedColor named_colors[] = {
+    { "black",       0x00, 0x00, 0x00, 0xff },
+    { "white",       0xff, 0xff, 0xff, 0xff },
+    { "red",         0xff, 0x00, 0x00, 0xff },
+    { "green",       0x00, 0x80, 0x00, 0xff },
+    { "blue",        0x00, 0x00, 0xff, 0xff },
+    { "yellow",      0xff, 0xff, 0x00, 0xff },
+    { "cyan",        0x00, 0xff, 0xff, 0xff },
+    { "magenta",     0xff, 0x00, 0xff, 0xff },
+    { "grey",        0x80, 0x80, 0x80, 0xff },
+    { "gray",        0x80, 0x80, 0x80, 0xff },
+    { "orange",      0xff, 0xa5, 0x00, 0xff },
+    { "brown",       0xa5, 0x2a, 0x2a, 0xff },
+    { "transparent", 0x00, 0x00, 0x00, 0x00 },
+};
+
+static gboolean
+parse_name (
+        const char *spec,
+        PnColor    *self)
+{
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS (named_colors); i++)
+    {
+        const NamedColor *n = &named_colors[i];
+
+        if (g_ascii_strcasecmp (n->name, spec) == 0)
+        {
+            self->red   = n->red   / 255.0;
+            self->green = n->green / 255.0;
+            self->blue  = n->blue  / 255.0;
+            self->alpha = n->alpha / 255.0;
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
 gboolean
 pn_color_parse (
         PnColor    *self,
@@ -167,11 +225,9 @@ pn_color_parse (
     {
         ok = parse_rgb_func (s, FALSE, self);
     }
-    else if (g_strcmp0 (s, "transparent") == 0)
+    else
     {
-        PnColor c = { 0.0, 0.0, 0.0, 0.0 };
-        *self = c;
-        ok = TRUE;
+        ok = parse_name (s, self);
     }
 
     g_free (s);

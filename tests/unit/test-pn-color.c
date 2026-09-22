@@ -224,6 +224,58 @@ test_equal_and_boxed (void)
     }
 }
 
+static void
+test_parse_names_match_gdk (void)
+{
+    /* The short name table (TODO #80.5b).  Every name carries its CSS
+     * value, so gdk_rgba_parse() is the reference for these too — which
+     * is what stops "green" quietly meaning something different here
+     * than it does everywhere else in the tree. */
+    static const char *names[] = {
+        "black", "white", "red", "green", "blue", "yellow",
+        "cyan", "magenta", "grey", "gray", "orange", "brown",
+        /* "transparent" is ours alone — gdk_rgba_parse() rejects it,
+         * and test_parse_extra_forms() is where it is pinned. */
+    };
+
+    for (gsize i = 0; i < G_N_ELEMENTS (names); i++)
+    {
+        PnColor  ours;
+        GdkRGBA  ref;
+        gboolean ok_ours = pn_color_parse (&ours, names[i]);
+        gboolean ok_ref  = gdk_rgba_parse (&ref, names[i]);
+
+        PN_CHECK (ok_ours);
+        PN_CHECK (ok_ref);
+        if (ok_ours && ok_ref)
+        {
+            PN_CHECK_NEAR (ours.red,   ref.red,   1e-9);
+            PN_CHECK_NEAR (ours.green, ref.green, 1e-9);
+            PN_CHECK_NEAR (ours.blue,  ref.blue,  1e-9);
+            PN_CHECK_NEAR (ours.alpha, ref.alpha, 1e-9);
+        }
+    }
+}
+
+static void
+test_parse_names_are_lenient (void)
+{
+    PnColor c = { 0.1, 0.2, 0.3, 0.4 };
+
+    /* Case and surrounding space do not matter, which also makes the
+     * long-standing "transparent" keyword case-insensitive. */
+    PN_CHECK (pn_color_parse (&c, "Red"));
+    PN_CHECK_NEAR (c.red, 1.0, 1e-12);
+    PN_CHECK (pn_color_parse (&c, "  GREY  "));
+    PN_CHECK_NEAR (c.green, 128.0 / 255.0, 1e-12);
+    PN_CHECK (pn_color_parse (&c, "Transparent"));
+    PN_CHECK_NEAR (c.alpha, 0.0, 1e-12);
+
+    /* A name that is not in the table is still not a colour. */
+    PN_CHECK_FALSE (pn_color_parse (&c, "banana"));
+    PN_CHECK_FALSE (pn_color_parse (&c, "lightgoldenrodyellow"));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -233,6 +285,8 @@ main (int argc, char **argv)
     pn_test_add ("roundtrip_through_string", test_roundtrip_through_string);
     pn_test_add ("parse_matches_gdk", test_parse_matches_gdk);
     pn_test_add ("parse_extra_forms", test_parse_extra_forms);
+    pn_test_add ("parse_names_match_gdk", test_parse_names_match_gdk);
+    pn_test_add ("parse_names_lenient", test_parse_names_are_lenient);
     pn_test_add ("parse_rejects_garbage", test_parse_rejects_garbage);
     pn_test_add ("equal_and_boxed", test_equal_and_boxed);
     return pn_test_run ();

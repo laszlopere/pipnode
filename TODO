@@ -1867,6 +1867,17 @@
                  change all the same, so it lands with its cases added
                  to the existing tests/unit/test-pn-color.c rather than
                  riding in on a drawing node's commit.
+                 DONE (2026-09-22), in its own commit as required. Two
+                 refinements found by writing it: matching is
+                 case-insensitive, which also makes the long-standing
+                 "transparent" keyword case-insensitive; and every
+                 name carries its CSS value so gdk_rgba_parse() is the
+                 reference for names as it already is for the rgb()
+                 and hex forms -- the test pins all twelve name by
+                 name, which is what stops "green" meaning the dark
+                 CSS green here and bright lime somewhere else.
+                 "transparent" stays the one name gdk rejects, pinned
+                 by the existing extra-forms case instead.
              (c) DEFAULT WIDTH IS 1 USER UNIT, and `width 0` means a
                  device hairline -- the PostScript convention, and the
                  escape hatch from 80.4(b)'s rule that widths scale
