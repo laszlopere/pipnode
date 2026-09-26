@@ -83,7 +83,8 @@ displays_DATA = \
 	displays/ray-optics.json \
 	displays/refraction.json \
 	displays/swinging-pendulum.json \
-	displays/tower-crane.json
+	displays/tower-crane.json \
+	displays/wheatstone-bridge.json
 
 miscdir = $(pkgdatadir)/examples/misc
 misc_DATA = \

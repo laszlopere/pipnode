@@ -3499,8 +3499,37 @@
                  x 15, limited 1, Mfront = Mback = 190.5, and the
                  figure's `error` is empty at every setting; installs
                  via make -C examples install DESTDIR=...
-       [ ] 88.2 Candidates for the next one: a self-balancing Wheatstone
-             bridge (85.11 with a servo on the ratio arm, galvanometer
-             held at zero); an artillery piece that aims itself at a
-             knob-placed target (85.2 with the elevation solved, falling
-             short at 45 deg when out of range).
+       [x] 88.2 DONE (2026-09-26): displays/wheatstone-bridge.json -- the
+             self-balancing bridge, as the temperature recorder it
+             historically was.  A Pt100 (100 ohm at 0 C, alpha 0.00385)
+             sits in the unknown arm Rx.  Knobs TEMPERATURE T -50..450 C
+             and RATIO ARM R1 50..200 ohm (R2 fixed at 100).  Three
+             calculators, one job each, one headline per wire (88.1a):
+             PT100 SENSOR (T -> Rx), SERVO (Rx, R1 -> R3 = R1 Rx / R2,
+             clamped to the rheostat's 0..400 ohm) and READING (R3, R1
+             -> Tm, the temperature read back off R3 -- all a real
+             instrument can see).  The five-input figure (T, R1, Rx, R3,
+             Tm) decides nothing: it works out the galvanometer current
+             from the whole circuit by Thevenin across B-D (2 V battery,
+             Rg 50 ohm, 50 uA full scale) and swings the needle from it.
+             EQUILIBRIUM: the blue pointer climbs the rheostat's dial,
+             the reading tracks T exactly and the needle sits on zero.
+             SPECIAL STATE: turning R1 up shrinks the range; once R3
+             needs more than 400 ohm the pointer rests on a red stop,
+             the needle deflects in red, "off the end of R3" prints and
+             the reading sticks at the range's top (259.7 C at R1 200).
+             No `if`: the red marks divide a coordinate by `off` or by
+             (R3 >= R3max).  Resistor boxes on the 45-degree arms are
+             `poly`s with their corners resolved onto the axes.
+             CHECKED: tools/figure-preview at six (T, R1) settings;
+             pipnode-run -t 3 under G_DEBUG=fatal-warnings exits 0; in a
+             throwaway editor (265, 200) gives Rx 202.0, R3 400, Tm
+             259.7 and (-50, 50) gives R3 40.4, Tm -50.0, with the
+             figure's `error` empty throughout; installs via
+             make -C examples install DESTDIR=...
+             Not a replacement for 85.11, which is the MANUAL bridge
+             (three resistances as knobs, balance found by hand); this
+             sheet is its automatic sibling.
+       [ ] 88.3 Candidate for the next one: an artillery piece that aims
+             itself at a knob-placed target (85.2 with the elevation
+             solved, falling short at 45 deg when out of range).

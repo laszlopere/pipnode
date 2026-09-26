@@ -1,0 +1,177 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnComment",
+      "uuid" : "86e4858a-3ac5-441f-80ff-a8ef2c67a588",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "text" : "THE SELF-BALANCING WHEATSTONE BRIDGE -- the instrument that recorded furnace and process temperatures for most of the twentieth century.  A platinum sensor (Pt100: 100 Ω at 0 °C, 0.385 % more per degree) sits in the unknown arm Rx.  The two knobs are the world and the operator: TEMPERATURE T heats the sensor, RATIO ARM R1 sets the bridge's range.  The three calculators are the instrument, one job each.  PT100 SENSOR: the sensor's resistance at T.  SERVO: the motor that turns the rheostat R3 until the bridge balances, R3 = R1·Rx / R2 -- but R3 ends at 400 Ω, so the servo can only go that far.  READING: the temperature the instrument reads back off R3, the only thing a real one can see.  The figure takes all five numbers on five named inputs and decides nothing; it works the galvanometer current out itself, from the whole circuit, and draws the needle from it.  Wind the temperature and the servo chases it: the blue pointer climbs the dial, the reading follows T exactly, and the needle stays dead on zero -- balance does not even depend on the battery.  Turn R1 up and the same temperature needs more of R3: the range shrinks, until the pointer hits the red stop at the top of the dial.  Then the bridge is out of balance, the needle kicks red, and the reading sticks at the highest temperature this range can show.",
+        "width" : 1000.0,
+        "height" : 180.0,
+        "text-size" : 13.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "2f640d41-3c43-4c8a-9527-285d0cd999d7",
+      "name" : "Temperature T (°C)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 240.0
+      },
+      "properties" : {
+        "min" : -50.0,
+        "max" : 450.0,
+        "value" : 20.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "c03b5bd7-1242-4d10-9229-a357b37494a7",
+      "name" : "Ratio arm R1 (Ω)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 320.0
+      },
+      "properties" : {
+        "min" : 50.0,
+        "max" : 200.0,
+        "value" : 100.0
+      }
+    },
+    {
+      "type" : "PnExpression",
+      "uuid" : "cc3e0642-8ba4-4f37-a9c1-7f8c8feadad5",
+      "name" : "Pt100 sensor",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 230.0
+      },
+      "properties" : {
+        "expression" : "T = value\nR0 = 100\nalpha = 0.00385\n\nRx = R0 * (1 + alpha * T)\n"
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "86acb657-4dd5-4c5c-86fb-a60c66bf310a",
+      "name" : "Servo",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 330.0
+      },
+      "properties" : {
+        "inputs" : 2,
+        "expression" : "R2 = 100\nR3max = 400\n\nR3 = clamp(R1 * Rx / R2, 0, R3max)\n"
+      },
+      "input-names" : {
+        "0" : "Rx",
+        "1" : "R1"
+      }
+    },
+    {
+      "type" : "PnExpression2",
+      "uuid" : "fbb4eedf-e60d-4b7c-bdc6-97ae1c56c477",
+      "name" : "Reading",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 300.0,
+        "y" : 430.0
+      },
+      "properties" : {
+        "inputs" : 2,
+        "expression" : "R2 = 100\nR0 = 100\nalpha = 0.00385\n\nTm = (R3 * R2 / R1 / R0 - 1) / alpha\n"
+      },
+      "input-names" : {
+        "0" : "R3",
+        "1" : "R1"
+      }
+    },
+    {
+      "type" : "PnFigure",
+      "uuid" : "7ace5cd2-c870-4149-8060-a86279a40910",
+      "name" : "Wheatstone bridge",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 640.0,
+        "y" : 220.0
+      },
+      "properties" : {
+        "program" : "# THE SELF-BALANCING WHEATSTONE BRIDGE\n#\n# Five inputs, one per wire: the temperature T and the ratio arm R1,\n# straight from the knobs; Rx, the platinum sensor's resistance at T\n# (the Pt100 sensor); R3, where the servo turned the balancing\n# rheostat (the Servo); and Tm, the temperature the instrument reads\n# off R3 (the Reading).  The figure decides nothing.  It checks the\n# balance itself: the galvanometer current below is worked out here,\n# from the whole circuit, and the needle is drawn from it.\n\n# --- the circuit's fixed parts ----------------------------------------\nR2    = 100        # the other ratio arm, ohms\nR3max = 400        # the end of the rheostat\nV     = 2          # the battery, volts\nRg    = 50         # the galvanometer's own resistance\nIfs   = 50e-6      # its full-scale current, amperes\n\n# --- what the galvanometer sees: Thevenin across B and D ----------------\nVth = V * (R2 / (R1 + R2) - Rx / (R3 + Rx))\nRth = R1 * R2 / (R1 + R2) + R3 * Rx / (R3 + Rx)\nIg  = Vth / (Rth + Rg)\nuA  = round(Ig * 1e6, 1) + 0\noff = abs(uA) >= 0.1\nphi = radians(55 * clamp(Ig / Ifs, -1, 1))\n\nview -66, -49.5, 66, 49.5\nalign \"centre\", \"middle\"\n\n# --- the four corners of the diamond ------------------------------------\nxa = -26\nya = 28\nxb = -54\nxd = 2\nyc = -28\nxs = 18         # the rheostat's dial\n\n# --- the wires ----------------------------------------------------------\ncolor \"#202020\"\nwidth 0.6\nline xa, ya, xb, 0\nline xb, 0, xa, yc\nline xa, ya, xd, 0\nline xd, 0, xa, yc\nline xb, 0, xa - 8, 0\nline xa + 8, 0, xd, 0\n# the battery, across the top and bottom corners\nline xa, ya, xa, 40\nline xa, 40, -64, 40\nline -64, 40, -64, -40\nline -64, -40, -46, -40\nline -42, -40, xa, -40\nline xa, -40, xa, yc\nwidth 1\nline -46, -44, -46, -36\nwidth 2\nline -43, -42, -43, -38\nwidth 0.6\nline -43, -40, -42, -40\nfont 3.6\nalign \"centre\", \"bottom\"\ntext -46, -34.5, \"+\"\nalign \"right\", \"bottom\"\ntext -49, -39, \"%.0f V\", V\n\n# --- the four arms, as boxes laid along the wires -----------------------\n# a box of half-length 6 and half-width 2.2 on a 45-degree wire: a and b\n# are those two lengths resolved onto the axes\na = 6 * 0.7071\nb = 2.2 * 0.7071\nfill \"rgb(250,249,245)\"\nwidth 0.5\npoly -40 + a - b, 14 + a + b, -40 + a + b, 14 + a - b,\n     -40 - a + b, 14 - a - b, -40 - a - b, 14 - a + b\npoly -40 + a + b, -14 - a + b, -40 + a - b, -14 - a - b,\n     -40 - a - b, -14 + a - b, -40 - a + b, -14 + a + b\npoly -12 + a + b, 14 - a + b, -12 + a - b, 14 - a - b,\n     -12 - a - b, 14 + a - b, -12 - a + b, 14 + a + b\nfill \"#e8dcc8\"\npoly -12 + a - b, -14 + a + b, -12 + a + b, -14 + a - b,\n     -12 - a + b, -14 - a - b, -12 - a - b, -14 - a + b\nnofill\n\n# R3 is the rheostat: an arrow drawn through its box, which the servo\n# turns -- tied to the motor by a dotted shaft\nwidth 0.5\nline -19, 7, -4.5, 21.5\nfill \"#202020\"\npoly -3.5, 22.5, -6.5, 21.9, -4.1, 19.5\nnofill\ncolor \"#606060\"\nwidth 0.35\ndash \"dot\"\nline -3.5, 22.5, xs - 3.4, 38\ndash \"solid\"\n\n# --- the labels -----------------------------------------------------------\ncolor \"#202020\"\nfont 3.8\nalign \"right\", \"middle\"\ntext -45, 21, \"R1 %.0f Ω\", R1\ntext -45, -21, \"R2 %.0f Ω\", R2\nalign \"left\", \"middle\"\ntext -1, 15, \"R3\"\ntext -7, -21, \"Rx %.1f Ω\", Rx\ncolor \"#8a5a2b\"\nfont 3.2\ntext -7, -26, \"Pt100, %.0f °C\", T\ncolor \"#202020\"\nfont 3.4\nalign \"left\", \"bottom\"\ntext xa + 1.5, ya + 1, \"A\"\nalign \"right\", \"middle\"\ntext xb - 1.5, 0, \"B\"\nalign \"left\", \"top\"\ntext xa + 1.5, yc - 1, \"C\"\nalign \"left\", \"middle\"\ntext xd + 1.5, 0, \"D\"\n\n# --- the galvanometer --------------------------------------------------------\nfill \"rgb(250,249,245)\"\nwidth 0.6\ncircle xa, 0, 8\nnofill\nwidth 0.3\nline xa, 5.4, xa, 7\nfont 2.8\nalign \"centre\", \"middle\"\ntext xa, -6.4, \"G\"\ncolor \"#202020\"\nwidth 0.5\nline xa, -3, xa + 8.4 * sin(phi), -3 + 8.4 * cos(phi)\ncolor \"#c0392b\"\nline xa / off, -3, xa + 8.4 * sin(phi), -3 + 8.4 * cos(phi)\ncolor \"#202020\"\nfill \"#202020\"\ncircle xa, -3, 0.7\nnofill\n\n# --- the motor and the rheostat's dial -------------------------------------\ny0  = -36\ny1  = 28\nyp  = y0 + (y1 - y0) * R3 / R3max\nwidth 0.5\ncircle xs, 38, 3.4\nfont 3.2\ntext xs, 38, \"M\"\ncolor \"#606060\"\nwidth 0.35\ndash \"dot\"\nline xs, 34.6, xs, yp\ndash \"solid\"\ncolor \"#202020\"\nwidth 0.5\nline xs, y0, xs, y1\nwidth 0.3\nrepeat 9\n  line xs, y0 + (y1 - y0) * i / 8, xs + 1.5 + 1.5 * (i % 2 == 0), y0 + (y1 - y0) * i / 8\nend\nfont 2.8\nalign \"left\", \"middle\"\nrepeat 5\n  text xs + 4, y0 + (y1 - y0) * i / 4, \"%.0f\", 100 * i\nend\nfill \"#606060\"\nrect xs - 2, y1, 4, 1\nfill \"#c0392b\"\nrect (xs - 2) / (R3 >= R3max - 0.001), y1, 4, 1\nfill \"#3a5a9b\"\ncolor \"#3a5a9b\"\npoly xs - 0.5, yp, xs - 4, yp + 1.8, xs - 4, yp - 1.8\nnofill\n\n# ========================================================================\n#  THE READOUT\n# ========================================================================\ncolor \"#202020\"\nfont 4.6\nalign \"left\", \"top\"\ntext 29, 46, \"Self-balancing\"\ntext 29, 41, \"bridge\"\nfont 4\ntext 29, 32, \"R3 = R1·Rx / R2\"\ntext 29, 27, \"     = %.1f Ω\", R3\ntext 29, 21, \"Ig = %.1f µA\", uA\ncolor \"#3a5a9b\"\nfont 4.6\ntext 29, 12, \"reads %.1f °C\", Tm\ncolor \"#c0392b\"\nfont 3.8\ntext 29 / off, 5.5, \"off the end of R3\"\n",
+        "inputs" : 5,
+        "background-color" : "rgb(250,249,245)",
+        "font-family" : "",
+        "stretch" : false
+      },
+      "input-names" : {
+        "0" : "T",
+        "1" : "R1",
+        "2" : "Rx",
+        "3" : "R3",
+        "4" : "Tm"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "2f640d41-3c43-4c8a-9527-285d0cd999d7",
+      "target_id" : "cc3e0642-8ba4-4f37-a9c1-7f8c8feadad5"
+    },
+    {
+      "source_id" : "cc3e0642-8ba4-4f37-a9c1-7f8c8feadad5",
+      "target_id" : "86acb657-4dd5-4c5c-86fb-a60c66bf310a"
+    },
+    {
+      "source_id" : "c03b5bd7-1242-4d10-9229-a357b37494a7",
+      "target_id" : "86acb657-4dd5-4c5c-86fb-a60c66bf310a",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "86acb657-4dd5-4c5c-86fb-a60c66bf310a",
+      "target_id" : "fbb4eedf-e60d-4b7c-bdc6-97ae1c56c477"
+    },
+    {
+      "source_id" : "c03b5bd7-1242-4d10-9229-a357b37494a7",
+      "target_id" : "fbb4eedf-e60d-4b7c-bdc6-97ae1c56c477",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "2f640d41-3c43-4c8a-9527-285d0cd999d7",
+      "target_id" : "7ace5cd2-c870-4149-8060-a86279a40910"
+    },
+    {
+      "source_id" : "c03b5bd7-1242-4d10-9229-a357b37494a7",
+      "target_id" : "7ace5cd2-c870-4149-8060-a86279a40910",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "cc3e0642-8ba4-4f37-a9c1-7f8c8feadad5",
+      "target_id" : "7ace5cd2-c870-4149-8060-a86279a40910",
+      "target_input" : 2
+    },
+    {
+      "source_id" : "86acb657-4dd5-4c5c-86fb-a60c66bf310a",
+      "target_id" : "7ace5cd2-c870-4149-8060-a86279a40910",
+      "target_input" : 3
+    },
+    {
+      "source_id" : "fbb4eedf-e60d-4b7c-bdc6-97ae1c56c477",
+      "target_id" : "7ace5cd2-c870-4149-8060-a86279a40910",
+      "target_input" : 4
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
