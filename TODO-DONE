@@ -1152,6 +1152,264 @@
                  (`2 ^ 10` is 8, `pow(2, 10)` is 1024) in both test
                  binaries and written into both help pages.
 
+[x] 82 ANIMATION IN THE FIGURE NODE -- when an argument resolves to a
+       VECTOR the figure becomes a film. This was 80.26, lifted out so
+       that TODO #80 can close on the still figure it already draws
+       correctly end to end; nothing about it is new, and nothing about
+       it was started. The DESIGN stays where it was decided and is not
+       copied here: 80.16 is the vector-is-a-film rule and its
+       evaluate-once consequence, 80.17 is the controls. Read those two
+       sub-points first, then this entry for what is left to build.
+
+       The precondition 80.16 set is already met -- 80.22 through 80.25
+       are done and a still figure draws -- so this is buildable now,
+       not blocked.
+
+       DONE (2026-09-26; user GUI sign-off the same day on a knob-driven
+       pendulum, saved as examples/displays/swinging-pendulum.json).
+       The film rewinds only when its LENGTH changes (82.3d, amended
+       after that GUI run). The help page data/help/PnFigure.html was
+       written here and closes 80.14 as well.
+
+       [x] 82.1 DECIDED AND BUILT (2026-09-26): THE FRAME COUNT IS THE
+             SHORTEST VECTOR INPUT THE PROGRAM READS, with `frames`,
+             when non-zero, as one more length in that minimum.
+             pn_figure_frame_count() in lib/pn-figure.c. The new
+             reason, since the old one did not survive 80.3(f)'s
+             correction:
+             (a) MEASURED AT THE INPUTS, NOT AT THE ARGUMENTS. Read
+                 out of pn-expr-funcs.c and pn-var-store.c: every
+                 operator and every function is elementwise, a
+                 comparison collapses to a scalar, and nothing builds
+                 a vector from scalars. So a vector can only ENTER a
+                 program through a bound variable, and since the tail
+                 rule only ever lengthens, every vector argument is at
+                 least as long as the shortest input it depends on.
+                 The frame indexer (82.2) therefore never runs off an
+                 end and needs no rule for "past the end".
+             (b) SHORTEST, because every frame of that film is drawn
+                 from REAL values of every input. The tail rule is
+                 arithmetic's way of answering instead of failing; as
+                 a picture it would be a lever still swinging on data
+                 it no longer has. The figure deliberately does not
+                 match the arithmetic: `a * b` of a 2-vector and a
+                 3-vector is two frames, and the product's third
+                 element is never shown. Say so in the help (82.6).
+             (c) ONLY INPUTS THE PROGRAM READS count (the free-name
+                 list of 80.2 rule 12), so a wire the program ignores
+                 cannot cut the film short. Known limit: an input the
+                 program shadows with an assignment still counts,
+                 because free_names includes assigned-and-read names
+                 on purpose.
+             (d) `frames` > 0 JOINS THE MINIMUM rather than overriding
+                 it: with no vector input it IS the film (the turning
+                 wheel of 80.17e); with one it can shorten the film,
+                 never stretch it past the data -- the same "every
+                 frame is real" rule, applied once more.
+             (e) AN EMPTY VECTOR the program reads gives 0 frames,
+                 whatever `frames` says -- there is no element 0 to
+                 draw. How the node SHOWS a zero-frame film is 82.2's
+                 to decide (likely the 80.10c message path: nothing
+                 drawn, a line saying which input is empty).
+             (f) KNOWN BEFORE THE PROGRAM RUNS -- the real dividend:
+                 see the note added to 82.5.
+             Tests: film_still, film_shortest, film_unread,
+             film_explicit, film_empty in tests/unit/test-pn-figure.c.
+       [x] 82.2 DONE (2026-09-26): THE FRAME INDEX AT PAINT TIME
+             (80.16a). eval_args() takes element i of a vector
+             argument instead of raising the old "animation is TODO
+             80.16" error; scalars broadcast unchanged. The index is
+             threaded through pn_figure_resolve() (new `index`
+             parameter), resolve_statement() and repeat_count(), so a
+             vector pen-state argument (80.16c) and a vector `repeat`
+             count (80.18b) animate with no special case.
+             (a) WHAT "EVALUATE ONCE" CAME TO. The program is never
+                 re-run with vectors swapped for their elements, which
+                 is the part 80.16(a) was about. It IS still evaluated
+                 once per PAINT, as a still always has been, and the
+                 index is applied where the value reaches an argument.
+                 A cached user-space film was not built: `repeat`
+                 bodies evaluate once per pass with a different `i`,
+                 so a per-statement cache would need a whole
+                 intermediate display list keyed by (statement, pass).
+                 The cost of not caching is O(film length) per vector
+                 op per paint, which is nothing at 25 fps. Revisit only
+                 if a real sheet stutters.
+             (b) THE ONE REMAINING TYPE ERROR is a vector argument with
+                 no element i: "empty vector argument; nothing to draw"
+                 (82.1e, now decided: located, red) or "frame N is past
+                 the end of a K-element vector" (a caller that
+                 miscounted the film). Deliberately not clamped: a
+                 quiet clamp hides a miscount behind a plausible
+                 picture.
+             (c) THE NODE keeps a `frame` field (0 until 82.3 moves
+                 it). pn_figure_get_frame() clamps it into the current
+                 film, so a new message with a shorter vector cannot
+                 leave it past the end. pn_figure_get_frame_count()
+                 wraps pn_figure_frame_count() and still passes 0 for
+                 `frames`; 82.4 wires the property in.
+                 pn_figure_render() draws the current frame;
+                 pn_figure_dump() grows the frame argument of 80.16(f)
+                 and does not move the frame on screen. Known side
+                 effect: dumping a frame past the end sets the node's
+                 runtime error until the next render, like any other
+                 render would.
+             Tests: film_indexes, film_assignment, film_pen_state,
+             film_repeat_count, film_past_the_end, film_empty_argument,
+             and node_vector_input rewritten from "reddens the node" to
+             "is a film".
+       [x] 82.3 DONE (2026-09-26): THE TIMER, in the core half
+             (80.17b). A g_timeout at 1000/fps steps the frame and
+             calls pn_node_request_repaint() DIRECTLY -- the node's
+             schedule_repaint() throttle is 100 ms and would cap every
+             film at 10 fps. Removed in the new pn_figure_dispose().
+             (a) THE STEP RULE IS A PURE FUNCTION,
+                 pn_figure_step_frame (mode, count, &frame, &direction),
+                 so all three play modes are tested without a clock:
+                 loop wraps; once stops on the last frame and returns
+                 FALSE ("hold last" for free); ping-pong bounces
+                 without showing an end frame twice (0 1 2 1 0 1 2).
+                 The node carries `play_mode` and `fps` as FIELDS with
+                 defaults LOOP and 25 -- 82.4 turns them into
+                 properties. LOOP as the default is a choice 82.4
+                 should confirm, not something 80.17 decided.
+             (b) THE NO-LISTENER RULE (80.17c) CONFIRMED to behave as
+                 assumed: g_signal_has_handler_pending (self,
+                 repaint-needed, 0, FALSE) -- the same check pn-node.c
+                 already makes for processing-changed. It is checked
+                 when starting AND on every tick, so a node removed
+                 from its worksheet (it lives on in the undo history)
+                 stops at its next tick. Blocked handlers do not count.
+             (c) WHERE A FILM STARTS: figure_ensure_film() is called on
+                 receive, on a program change, and from
+                 pn_figure_render(). The last one matters: the
+                 painter calling render is itself the proof something
+                 is watching, which covers data arriving before a
+                 worksheet connects (a loaded sheet) and, later,
+                 `frames` > 0 films with no input at all. It does not
+                 restart a ONCE film sitting on its last frame.
+             (d) THE INDEX RESETS TO 0 on new data AND on a program
+                 edit -- a different program is a different film.
+                 AMENDED (2026-09-26), after the first GUI run with
+                 knobs on the pendulum: every knob step snapped the
+                 swing back to frame 0, so turning a knob froze it. Now
+                 figure_continue_film() rewinds ONLY WHEN THE FRAME
+                 COUNT CHANGES; the same length with new values (a
+                 knob, a same-length vector, an edit) keeps the frame.
+                 Consequence worth knowing: a finished ONCE film is not
+                 replayed by same-length data any more. Test:
+                 timer_knob; timer_watched now asserts both halves.
+             (e) KNOWN AND ACCEPTED: the long-lived engine
+                 (--gapplication-service) keeps worksheets in a hidden
+                 window, so they are listeners and a film there ticks
+                 with no window on screen. It costs one queue_draw per
+                 frame on an unmapped widget. If it ever shows up in a
+                 profile, the fix is in the worksheet (don't forward
+                 repaints while unmapped), not here.
+             Tests: timer_play_modes, timer_past_the_end,
+             timer_headless, timer_watched (plays, restarts on data,
+             stops when the listener goes), timer_still,
+             timer_late_watcher (starts on paint, dispose removes the
+             timer); test-pn-figure clean under valgrind.
+       [x] 82.4 DONE (2026-09-26): THE PROPERTIES (80.17a), plain
+             GObject properties on a new "Animation" tab of the
+             settings schema (PN_EDITOR_AUTO rows):
+             - `play-mode`: enum PnFigurePlayMode, nicks once / loop /
+               ping-pong, saved by nick like every other enum in
+               pn-flow.c. DEFAULT LOOP, confirming 82.3(a): a figure
+               is a readout on a card, and a film that plays once and
+               freezes is over before anybody looks.
+             - `fps`: int 1..60, default 25; the cap is the
+               GParamSpec's maximum.
+             - `frames`: int 0..PN_FIGURE_MAX_FRAMES (10000, 400 s at
+               25 fps), 0 = from the data. Bounded because 82.5 builds
+               `t` and `frame` as vectors of this length.
+             What a change does to a running film: `fps` retimes it
+             without rewinding; `play-mode` keeps the frame, resets the
+             ping-pong direction, and restarts a finished ONCE film
+             that now has somewhere to go; `frames` is a different
+             film and rewinds to 0. pn_figure_get_frame_count() now
+             passes `frames` through, so `frames` > 0 with nothing
+             wired plays (identical frames until 82.5 binds `t`).
+             Tests: anim_defaults, anim_frames, anim_once,
+             anim_round_trip (pn_flow_to_string ->
+             pn_flow_load_from_data). The figure test binary passed
+             128 cases, so tests/unit/pntest.c's PN_TEST_MAX went
+             from 128 to 256 in a commit of its own.
+       [x] 82.5 `frame` AND `t` AS VECTORS (80.17d, 80.17e): bind
+             `frame` as [0..N-1] and `t` as [0..1] so they animate
+             through the same indexing as everything else, with no
+             re-evaluation and no special case in the painter. The
+             chicken-and-egg -- N comes from the data but `t` is part
+             of it -- is answered by 80.2 rule 12's free-identifier
+             walker: when `frames` > 0 the count is explicit and a
+             figure with NO inputs can still animate, and when it is 0
+             a second evaluation pass learns N first, run only for the
+             programs that actually mention `t` or `frame`. At most two
+             evaluations, only on input change.
+             NOTE FROM 82.1 (2026-09-26): the second pass is NO LONGER
+             NEEDED. The frame count is measured from the snapshot
+             before anything is evaluated, so `t` and `frame` can be
+             bound up front in every case and one evaluation does it.
+             The free-identifier check is still worth keeping, to skip
+             building the two vectors for programs that never read
+             them.
+             DONE (2026-09-26), as the 82.1 note said: ONE
+             evaluation. bind_frame() computes the frame count from the
+             snapshot and `frames`, then binds `frame` and `t` between
+             the inputs and the zero-fill (80.3c's order), and only
+             when the program reads them (the free-name check).
+             (a) `t` DEPENDS ON THE PLAY MODE -- chosen by the user on
+                 2026-09-26 over "always k/(N-1)" and "always k/N":
+                 LOOP takes k/N, so the frame after the last is t = 1 =
+                 t = 0 and sin(2 pi t) wraps with no repeated pose;
+                 ONCE and PING-PONG take k/(N-1), so the held or turned
+                 end frame is exactly t = 1. Consequence: changing
+                 play-mode changes the picture, so that setter now
+                 repaints.
+             (b) AN INPUT NAMED `t` OR `frame` WINS, as it does over the
+                 zero-fill: an input is a wire somebody named. An
+                 assignment runs after everything and wins over both.
+             (c) A STILL binds both as plain 0, not one-element
+                 vectors. An empty-vector film binds neither; the
+                 zero-fill makes them 0 and the empty input is
+                 reported where it lands (82.2b).
+             (d) pn_figure_resolve() now takes a nullable
+                 `const PnFigureFilm *` { index, frames, mode } in
+                 place of the bare index -- the resolver needs the
+                 film's length and mode to build `t`, and twelve
+                 positional parameters was one too many. NULL = still.
+                 The play-mode enum moved up the header to sit before
+                 it. Names: PN_FIGURE_FRAME_NAME, PN_FIGURE_TIME_NAME.
+             The `program` blurb now mentions films, `frame` and `t`.
+             Tests: film_frame_and_t, film_t_ends_on_one,
+             film_t_from_data, film_still_t, film_input_t_wins,
+             film_assign_t_wins, anim_node_t; valgrind clean.
+       [x] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
+             pixel-free, asserting the frame count, the index-to-value
+             mapping and the timer's no-listener rule in
+             tests/unit/test-pn-figure.c rather than a new binary, and
+             ./run-unit-tests.sh green. The help page 80.14 is still to
+             write; whoever writes it covers animation from here, and
+             if it is already written by then it gains a section.
+             DONE (2026-09-26). The tests landed with each of 82.1-82.5
+             (the film_*, timer_* and anim_* cases, 162 binaries
+             green). The help page did not exist, so it was WRITTEN
+             here, animation section included -- which also closes
+             80.14. data/help/PnFigure.html: the language spec (grammar,
+             quoted-means-literal, pen-state and geometry tables, Y UP
+             in bold, degrees-vs-radians, `^` is XOR, binding order,
+             repeat, animation, the three error classes, properties
+             and tabs). The function list is NOT duplicated: it links
+             to PnExpression2.html's, which is the same table. The
+             three worked figures (lever, pendulum, spoked wheel) were
+             rendered through tools/figure-preview and checked by eye,
+             mid-film frames by prepending `t = 0.3`. Back-links from
+             PnPlot, PnGraph and PnOscilloscope, and a sentence in
+             help-index.html's vectors paragraph. The film section says
+             outright that `a * b` of a 2- and a 3-vector is two frames
+             (82.1b).
+
 [x] 83 THE SECOND BATCH OF FUNCTIONS for the calculator language --
        the one PnVarStore shares with the Calculator, Calculator 2 and
        the Figure node (#80), so every name added here lands in all
