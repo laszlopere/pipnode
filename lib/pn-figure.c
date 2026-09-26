@@ -2661,6 +2661,64 @@ repeat_count (
     return TRUE;
 }
 
+gboolean
+pn_figure_step_frame (
+        PnFigurePlayMode  mode,
+        guint             count,
+        guint            *frame,
+        gint             *direction)
+{
+    g_return_val_if_fail (frame != NULL, FALSE);
+    g_return_val_if_fail (direction != NULL, FALSE);
+
+    if (count <= 1)
+    {
+        *frame = 0;
+        return FALSE;
+    }
+
+    if (*frame >= count)
+        *frame = count - 1;
+
+    switch (mode)
+    {
+    case PN_FIGURE_PLAY_ONCE:
+        if (*frame + 1 < count)
+            *frame += 1;
+        return *frame + 1 < count;
+
+    case PN_FIGURE_PLAY_PING_PONG:
+        /* Bounce off both ends without showing an end frame twice:
+         * 0 1 2 1 0 1 2, never 0 1 2 2 1. */
+        if (*direction < 0)
+        {
+            if (*frame == 0)
+            {
+                *direction = 1;
+                *frame     = 1;
+            }
+            else
+                *frame -= 1;
+        }
+        else
+        {
+            if (*frame + 1 >= count)
+            {
+                *direction = -1;
+                *frame     = count - 2;
+            }
+            else
+                *frame += 1;
+        }
+        return TRUE;
+
+    case PN_FIGURE_PLAY_LOOP:
+    default:
+        *frame = (*frame + 1) % count;
+        return TRUE;
+    }
+}
+
 GPtrArray *
 pn_figure_resolve (
         GPtrArray              *statements,
@@ -3092,10 +3150,17 @@ struct _PnFigure
      * repaints long after the message that last changed it. */
     PnFigureSnapshot *snapshot;
 
-    /* The frame of the film being shown (82.2).  Nothing moves it yet --
-     * the timer is 82.3 -- so it stays 0 and a film shows its first
-     * frame; pn_figure_get_frame() keeps it inside the film anyway. */
+    /* The frame of the film being shown (82.2), moved by the timer
+     * (82.3); pn_figure_get_frame() keeps it inside the film. */
     guint frame;
+    gint  direction;           /* +1 / -1, for ping-pong               */
+
+    /* How the film plays.  Fixed defaults until 82.4 makes them
+     * properties. */
+    PnFigurePlayMode play_mode;
+    guint            fps;
+
+    guint anim_id;             /* the film timer, 0 when stopped       */
 
     /* The last pn_figure_render()'s verdict: a runtime TYPE problem,
      * or %NULL.  A runtime VALUE problem is not here — it left a skip
@@ -3234,6 +3299,118 @@ figure_recompile (
 }
 
 /* ------------------------------------------------------------------ */
+/*  The film timer (82.3)                                              */
+/* ------------------------------------------------------------------ */
+
+/* Whether anything is connected to repaint-needed -- the worksheet, the
+ * layout editor, the panel engine.  Nothing means headless: no painter,
+ * so nobody would ever see the frames the timer turns (80.17c).  A
+ * blocked handler does not count; it would not see them either. */
+static gboolean
+figure_is_watched (
+        PnFigure *self)
+{
+    static guint signal_id = 0;
+
+    if (signal_id == 0)
+        signal_id = g_signal_lookup ("repaint-needed", PN_TYPE_NODE);
+
+    return g_signal_has_handler_pending (self, signal_id, 0, FALSE);
+}
+
+static void
+figure_stop_film (
+        PnFigure *self)
+{
+    if (self->anim_id != 0)
+    {
+        g_source_remove (self->anim_id);
+        self->anim_id = 0;
+    }
+}
+
+static gboolean
+on_film_tick (
+        gpointer user_data)
+{
+    PnFigure *self = user_data;
+    gboolean  more;
+
+    /* Re-checked every tick rather than only at the start, because the
+     * listener can go -- a node removed from its worksheet keeps
+     * living in the undo history, and must stop ticking there. */
+    if (!figure_is_watched (self))
+    {
+        self->anim_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+
+    more = pn_figure_step_frame (self->play_mode,
+                                 pn_figure_get_frame_count (self),
+                                 &self->frame, &self->direction);
+
+    /* Straight through, not schedule_repaint(): its 100 ms throttle
+     * would cap every film at 10 fps. */
+    pn_node_request_repaint (PN_NODE (self));
+
+    if (!more)
+    {
+        self->anim_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/* Start the timer if there is a film, it has somewhere to go, and
+ * somebody is watching.  Cheap enough to call from every place a film
+ * can begin -- a message, a program edit, a paint. */
+static void
+figure_ensure_film (
+        PnFigure *self)
+{
+    guint count;
+    guint fps;
+
+    if (self->anim_id != 0 || self->program_error != NULL)
+        return;
+
+    count = pn_figure_get_frame_count (self);
+    if (count <= 1)
+        return;
+
+    /* A film played once and finished stays finished: a repaint must
+     * not start a timer that would only find it at the end again. */
+    if (self->play_mode == PN_FIGURE_PLAY_ONCE
+        && pn_figure_get_frame (self) + 1 >= count)
+        return;
+
+    if (!figure_is_watched (self))
+        return;
+
+    fps           = CLAMP (self->fps, 1, PN_FIGURE_MAX_FPS);
+    self->anim_id = g_timeout_add (1000 / fps, on_film_tick, self);
+}
+
+/* A new film starts at the beginning (80.17b). */
+static void
+figure_restart_film (
+        PnFigure *self)
+{
+    figure_stop_film (self);
+    self->frame     = 0;
+    self->direction = 1;
+    figure_ensure_film (self);
+}
+
+gboolean
+pn_figure_is_playing (
+        PnFigure *self)
+{
+    g_return_val_if_fail (PN_IS_FIGURE (self), FALSE);
+    return self->anim_id != 0;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Rendering                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -3299,10 +3476,17 @@ pn_figure_render (
         gdouble   w,
         gdouble   h)
 {
+    GPtrArray *ops;
+
     g_return_val_if_fail (PN_IS_FIGURE (self), figure_ops_new ());
 
-    return figure_render_frame (self, pn_figure_get_frame (self),
-                                x, y, w, h);
+    ops = figure_render_frame (self, pn_figure_get_frame (self),
+                               x, y, w, h);
+
+    /* The film may have been waiting for a watcher: loaded, or
+     * receiving, before any worksheet was listening. */
+    figure_ensure_film (self);
+    return ops;
 }
 
 gchar *
@@ -3389,6 +3573,10 @@ pn_figure_receive (
     pn_figure_snapshot_clear (self->snapshot);
     pn_expr_bind_collated (node, message, figure_bind_into_snapshot,
                            self->snapshot);
+
+    /* New data is a new film (80.17b) -- before the render below, so
+     * the error state is judged on frame 0 and not a stale index. */
+    figure_restart_film (self);
 
     /* Resolve once at the at-rest client rectangle, purely so the
      * `error` property is right straight away (80.10f) — a headless
@@ -3489,6 +3677,8 @@ pn_figure_set_property (
                 g_free (self->program);
                 self->program = g_strdup (s != NULL ? s : "");
                 figure_recompile (self);
+                /* A different program is a different film. */
+                figure_restart_film (self);
                 g_object_notify_by_pspec (object, props[PROP_PROGRAM]);
                 /* Straight through, not throttled: this is somebody
                  * typing, and the whole point of the code editor is
@@ -3560,6 +3750,17 @@ pn_figure_set_property (
 /* ------------------------------------------------------------------ */
 
 static void
+pn_figure_dispose (
+        GObject *object)
+{
+    /* The timer holds a plain pointer, so it must go before the object
+     * does (80.17b). */
+    figure_stop_film (PN_FIGURE (object));
+
+    G_OBJECT_CLASS (pn_figure_parent_class)->dispose (object);
+}
+
+static void
 pn_figure_finalize (
         GObject *object)
 {
@@ -3593,6 +3794,7 @@ pn_figure_class_init (
 
     object_class->get_property = pn_figure_get_property;
     object_class->set_property = pn_figure_set_property;
+    object_class->dispose      = pn_figure_dispose;
     object_class->finalize     = pn_figure_finalize;
 
     node_class->receive           = pn_figure_receive;
@@ -3732,6 +3934,9 @@ pn_figure_init (
     self->stretch          = FALSE;
     self->snapshot         = pn_figure_snapshot_new ();
     self->error            = g_strdup ("");
+    self->direction        = 1;
+    self->play_mode        = PN_FIGURE_PLAY_LOOP;
+    self->fps              = PN_FIGURE_DEFAULT_FPS;
 
     /* Mirror the property default and compile it, so a freshly dropped
      * node draws instead of sitting blank (80.11g, 80.8i). */

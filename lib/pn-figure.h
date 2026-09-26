@@ -808,6 +808,41 @@ gchar *pn_figure_display_to_string (GPtrArray *ops);
                                   PN_FIGURE_GAP +           \
                                   PN_FIGURE_CLIENT_HEIGHT)
 
+/* How a film plays (80.17a).  ONCE stops on the last frame and holds
+ * it, which is why there is no fourth "hold last" mode. */
+typedef enum
+{
+    PN_FIGURE_PLAY_ONCE,
+    PN_FIGURE_PLAY_LOOP,
+    PN_FIGURE_PLAY_PING_PONG,
+} PnFigurePlayMode;
+
+/* Frames per second when nothing says otherwise, and the most anyone
+ * may ask for (80.17a). */
+#define PN_FIGURE_DEFAULT_FPS 25
+#define PN_FIGURE_MAX_FPS     60
+
+/**
+ * pn_figure_step_frame:
+ * @mode:      how the film plays
+ * @count:     the frame count, from pn_figure_frame_count()
+ * @frame:     (inout): the frame being shown, moved to the next one
+ * @direction: (inout): +1 or -1; only %PN_FIGURE_PLAY_PING_PONG reads
+ *             or writes it, and anything else counts as +1
+ *
+ * One tick of the timer (TODO #82.3), with no timer in it, so every
+ * mode is testable without a clock.  A @frame past the end of the film
+ * is brought inside it first.
+ *
+ * Returns: %TRUE when there is another tick to come, %FALSE when the
+ *   film is standing still -- a still (@count of 1 or less) or a
+ *   %PN_FIGURE_PLAY_ONCE film that has reached its last frame.
+ */
+gboolean pn_figure_step_frame (PnFigurePlayMode  mode,
+                               guint             count,
+                               guint            *frame,
+                               gint             *direction);
+
 #define PN_TYPE_FIGURE (pn_figure_get_type ())
 G_DECLARE_FINAL_TYPE (PnFigure, pn_figure, PN, FIGURE, PnNode)
 
@@ -843,6 +878,19 @@ guint pn_figure_get_frame_count (PnFigure *self);
 guint pn_figure_get_frame (PnFigure *self);
 
 /**
+ * pn_figure_is_playing:
+ * @self: the figure
+ *
+ * Whether the film timer is running.  It runs only while the film has
+ * more than one frame, has somewhere left to go, and something is
+ * connected to #PnNode::repaint-needed -- a headless figure has no
+ * painter, and a timer nobody watches is pure waste (80.17c).
+ *
+ * Returns: %TRUE while the timer is running.
+ */
+gboolean pn_figure_is_playing (PnFigure *self);
+
+/**
  * pn_figure_render:
  * @self: the figure
  * @x:    device rectangle: left
@@ -851,7 +899,9 @@ guint pn_figure_get_frame (PnFigure *self);
  * @h:    ... height
  *
  * Resolves the current frame (pn_figure_get_frame()) into @self's
- * device rectangle and updates the
+ * device rectangle, starts the film timer if a film is waiting for one
+ * -- a call from the painter is the proof that something is watching --
+ * and updates the
  * node's error state — the `error` property and, for the two classes
  * that deserve it, pn_node_set_has_error() (80.10).
  *

@@ -2975,16 +2975,50 @@
              film_repeat_count, film_past_the_end, film_empty_argument,
              and node_vector_input rewritten from "reddens the node" to
              "is a film".
-       [ ] 82.3 THE TIMER, in the CORE half so the behaviour belongs to
-             the node and not to the painter (80.17b): a g_timeout at
-             1000/fps advances the index and calls
-             pn_node_request_repaint(), stopped in dispose(), never
-             started when the frame count is 1, and the index reset to
-             0 when new data arrives. Plus 80.17(c)'s no-listener rule
-             -- nothing connected to "repaint-needed" means headless,
-             and a headless figure must not spin a timer nobody
-             watches. Confirm the signal-handler check behaves as
-             assumed at implementation time.
+       [x] 82.3 DONE (2026-09-26): THE TIMER, in the core half
+             (80.17b). A g_timeout at 1000/fps steps the frame and
+             calls pn_node_request_repaint() DIRECTLY -- the node's
+             schedule_repaint() throttle is 100 ms and would cap every
+             film at 10 fps. Removed in the new pn_figure_dispose().
+             (a) THE STEP RULE IS A PURE FUNCTION,
+                 pn_figure_step_frame (mode, count, &frame, &direction),
+                 so all three play modes are tested without a clock:
+                 loop wraps; once stops on the last frame and returns
+                 FALSE ("hold last" for free); ping-pong bounces
+                 without showing an end frame twice (0 1 2 1 0 1 2).
+                 The node carries `play_mode` and `fps` as FIELDS with
+                 defaults LOOP and 25 -- 82.4 turns them into
+                 properties. LOOP as the default is a choice 82.4
+                 should confirm, not something 80.17 decided.
+             (b) THE NO-LISTENER RULE (80.17c) CONFIRMED to behave as
+                 assumed: g_signal_has_handler_pending (self,
+                 repaint-needed, 0, FALSE) -- the same check pn-node.c
+                 already makes for processing-changed. It is checked
+                 when starting AND on every tick, so a node removed
+                 from its worksheet (it lives on in the undo history)
+                 stops at its next tick. Blocked handlers do not count.
+             (c) WHERE A FILM STARTS: figure_ensure_film() is called on
+                 receive, on a program change, and from
+                 pn_figure_render(). The last one matters: the
+                 painter calling render is itself the proof something
+                 is watching, which covers data arriving before a
+                 worksheet connects (a loaded sheet) and, later,
+                 `frames` > 0 films with no input at all. It does not
+                 restart a ONCE film sitting on its last frame.
+             (d) THE INDEX RESETS TO 0 on new data AND on a program
+                 edit -- a different program is a different film.
+             (e) KNOWN AND ACCEPTED: the long-lived engine
+                 (--gapplication-service) keeps worksheets in a hidden
+                 window, so they are listeners and a film there ticks
+                 with no window on screen. It costs one queue_draw per
+                 frame on an unmapped widget. If it ever shows up in a
+                 profile, the fix is in the worksheet (don't forward
+                 repaints while unmapped), not here.
+             Tests: timer_play_modes, timer_past_the_end,
+             timer_headless, timer_watched (plays, restarts on data,
+             stops when the listener goes), timer_still,
+             timer_late_watcher (starts on paint, dispose removes the
+             timer); test-pn-figure clean under valgrind.
        [ ] 82.4 THE PROPERTIES (80.17a): `fps` (default 25, capped at
              60), `play-mode` (once / loop / ping-pong) and `frames`,
              an explicit count where 0 means "take it from the data".

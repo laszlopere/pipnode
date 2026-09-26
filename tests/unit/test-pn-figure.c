@@ -2858,6 +2858,208 @@ test_a_vector_input_is_a_film (void)
     g_object_unref (self);
 }
 
+/* The steps @mode takes from frame 0 through a film of @count frames,
+ * as "0 1 2 ...", @n ticks long; a tick that ends the film prints
+ * "|" after its frame. */
+static gchar *
+steps (PnFigurePlayMode mode, guint count, gint n)
+{
+    GString *out       = g_string_new ("0");
+    guint    frame     = 0;
+    gint     direction = 1;
+    gint     k;
+
+    for (k = 0; k < n; k++)
+    {
+        gboolean more = pn_figure_step_frame (mode, count, &frame, &direction);
+
+        g_string_append_printf (out, " %u%s", frame, more ? "" : "|");
+    }
+
+    return g_string_free (out, FALSE);
+}
+
+static void
+test_the_play_modes_step (void)
+{
+    gchar *text;
+
+    /* Loop wraps; once stops on the last frame and says so, and keeps
+     * holding it; ping-pong bounces without showing an end twice
+     * (80.17a). */
+    text = steps (PN_FIGURE_PLAY_LOOP, 3, 5);
+    PN_CHECK_CMPSTR (text, ==, "0 1 2 0 1 2");
+    g_free (text);
+
+    text = steps (PN_FIGURE_PLAY_ONCE, 3, 3);
+    PN_CHECK_CMPSTR (text, ==, "0 1 2| 2|");
+    g_free (text);
+
+    text = steps (PN_FIGURE_PLAY_PING_PONG, 3, 6);
+    PN_CHECK_CMPSTR (text, ==, "0 1 2 1 0 1 2");
+    g_free (text);
+
+    text = steps (PN_FIGURE_PLAY_PING_PONG, 2, 3);
+    PN_CHECK_CMPSTR (text, ==, "0 1 0 1");
+    g_free (text);
+
+    /* A still never moves and never asks for another tick. */
+    text = steps (PN_FIGURE_PLAY_LOOP, 1, 2);
+    PN_CHECK_CMPSTR (text, ==, "0 0| 0|");
+    g_free (text);
+}
+
+static void
+test_a_frame_past_the_end_steps_from_inside (void)
+{
+    guint frame     = 7;
+    gint  direction = 1;
+
+    /* A shorter film arrived under a running index: brought inside
+     * first, then stepped. */
+    PN_CHECK (pn_figure_step_frame (PN_FIGURE_PLAY_LOOP, 3, &frame,
+                                    &direction));
+    PN_CHECK_CMPINT (frame, ==, 0);
+}
+
+static void
+on_repaint_count (PnNode *node, gpointer user_data)
+{
+    (void) node;
+    *(gint *) user_data += 1;
+}
+
+/* Deliver a vector on input 0. */
+static void
+send_vector (PnNode *self, const gdouble *numbers, gsize n)
+{
+    PnMessage *message = pn_message_new (NULL, NULL);
+    PnVector  *vec     = pn_vector_new_copy (numbers, n);
+
+    pn_message_set_vector (message, "value", vec);
+    pn_node_receive_message_on_input (self, message, 0);
+    g_object_unref (vec);
+    g_object_unref (message);
+}
+
+/* Run the default main context until @done says so or a second has
+ * passed.  Returns what @done said last. */
+static gboolean
+pump_until (gboolean (*done) (PnFigure *), PnFigure *figure)
+{
+    gint64 end = g_get_monotonic_time () + G_TIME_SPAN_SECOND;
+
+    while (!done (figure) && g_get_monotonic_time () < end)
+    {
+        g_main_context_iteration (NULL, FALSE);
+        g_usleep (500);
+    }
+
+    return done (figure);
+}
+
+static gboolean
+at_last_frame (PnFigure *figure)
+{
+    return pn_figure_get_frame (figure) == 2;
+}
+
+static gboolean
+stopped (PnFigure *figure)
+{
+    return !pn_figure_is_playing (figure);
+}
+
+static void
+test_a_headless_film_does_not_tick (void)
+{
+    PnNode        *self      = node ("line 0, 0, value1, 0", 1);
+    const gdouble  numbers[] = { 10.0, 20.0, 30.0 };
+
+    /* Nothing connected to repaint-needed: no painter, no timer
+     * (80.17c) -- the check g_signal_has_handler_pending() makes. */
+    send_vector (self, numbers, 3);
+    PN_CHECK_CMPINT (pn_figure_get_frame_count (PN_FIGURE (self)), ==, 3);
+    PN_CHECK (!pn_figure_is_playing (PN_FIGURE (self)));
+
+    g_object_unref (self);
+}
+
+static void
+test_a_watched_film_plays_and_stops_when_unwatched (void)
+{
+    PnNode        *self      = node ("line 0, 0, value1, 0", 1);
+    const gdouble  numbers[] = { 10.0, 20.0, 30.0 };
+    gint           repaints  = 0;
+    gulong         handler;
+
+    handler = g_signal_connect (self, "repaint-needed",
+                                G_CALLBACK (on_repaint_count), &repaints);
+
+    send_vector (self, numbers, 3);
+    PN_CHECK (pn_figure_is_playing (PN_FIGURE (self)));
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
+
+    /* The timer turns the frames and asks for a repaint each time. */
+    PN_CHECK (pump_until (at_last_frame, PN_FIGURE (self)));
+    PN_CHECK_CMPINT (repaints, >=, 2);
+
+    /* New data restarts the film at frame 0 (80.17b). */
+    send_vector (self, numbers, 3);
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
+
+    /* The listener goes -- a node lifted out of its worksheet -- and
+     * the next tick stops the timer rather than ticking on. */
+    g_signal_handler_disconnect (self, handler);
+    PN_CHECK (pump_until (stopped, PN_FIGURE (self)));
+
+    g_object_unref (self);
+}
+
+static void
+test_a_still_does_not_tick_even_when_watched (void)
+{
+    PnNode *self     = node ("circle 50, 50, value1", 1);
+    gint    repaints = 0;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+
+    /* Never started when the frame count is 1 (80.17b). */
+    send (self, 0, "value", 5.0);
+    PN_CHECK (!pn_figure_is_playing (PN_FIGURE (self)));
+
+    g_object_unref (self);
+}
+
+static void
+test_a_late_watcher_starts_the_film_on_paint (void)
+{
+    PnNode        *self      = node ("line 0, 0, value1, 0", 1);
+    const gdouble  numbers[] = { 10.0, 20.0, 30.0 };
+    gint           repaints  = 0;
+    GPtrArray     *ops;
+
+    /* Data first, worksheet later -- the order a loaded sheet sees.
+     * The painter's first render is what starts the film. */
+    send_vector (self, numbers, 3);
+    PN_CHECK (!pn_figure_is_playing (PN_FIGURE (self)));
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+    ops = pn_figure_render (PN_FIGURE (self), 0, 0, 100, 100);
+    g_ptr_array_unref (ops);
+    PN_CHECK (pn_figure_is_playing (PN_FIGURE (self)));
+
+    /* Disposing a playing figure removes its timer (80.17b); pumping
+     * afterwards must not tick into freed memory. */
+    g_object_unref (self);
+    g_main_context_iteration (NULL, FALSE);
+    g_usleep (60 * 1000);
+    g_main_context_iteration (NULL, FALSE);
+    PN_CHECK (TRUE);
+}
+
 static void
 test_the_error_property_reads_back (void)
 {
@@ -3018,6 +3220,12 @@ main (int argc, char **argv)
     pn_test_add ("node_error_clears",   test_the_error_clears_on_a_good_program);
     pn_test_add ("node_value_problem",  test_a_value_problem_does_not_redden_the_node);
     pn_test_add ("node_vector_input",   test_a_vector_input_is_a_film);
+    pn_test_add ("timer_play_modes",    test_the_play_modes_step);
+    pn_test_add ("timer_past_the_end",  test_a_frame_past_the_end_steps_from_inside);
+    pn_test_add ("timer_headless",      test_a_headless_film_does_not_tick);
+    pn_test_add ("timer_watched",       test_a_watched_film_plays_and_stops_when_unwatched);
+    pn_test_add ("timer_still",         test_a_still_does_not_tick_even_when_watched);
+    pn_test_add ("timer_late_watcher",  test_a_late_watcher_starts_the_film_on_paint);
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     return pn_test_run ();
