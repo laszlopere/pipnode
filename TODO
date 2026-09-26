@@ -3044,7 +3044,7 @@
              pn_flow_load_from_data). The figure test binary passed
              128 cases, so tests/unit/pntest.c's PN_TEST_MAX went
              from 128 to 256 in a commit of its own.
-       [ ] 82.5 `frame` AND `t` AS VECTORS (80.17d, 80.17e): bind
+       [x] 82.5 `frame` AND `t` AS VECTORS (80.17d, 80.17e): bind
              `frame` as [0..N-1] and `t` as [0..1] so they animate
              through the same indexing as everything else, with no
              re-evaluation and no special case in the painter. The
@@ -3062,6 +3062,37 @@
              The free-identifier check is still worth keeping, to skip
              building the two vectors for programs that never read
              them.
+             DONE (2026-09-26), as the 82.1 note said: ONE
+             evaluation. bind_frame() computes the frame count from the
+             snapshot and `frames`, then binds `frame` and `t` between
+             the inputs and the zero-fill (80.3c's order), and only
+             when the program reads them (the free-name check).
+             (a) `t` DEPENDS ON THE PLAY MODE -- chosen by the user on
+                 2026-09-26 over "always k/(N-1)" and "always k/N":
+                 LOOP takes k/N, so the frame after the last is t = 1 =
+                 t = 0 and sin(2 pi t) wraps with no repeated pose;
+                 ONCE and PING-PONG take k/(N-1), so the held or turned
+                 end frame is exactly t = 1. Consequence: changing
+                 play-mode changes the picture, so that setter now
+                 repaints.
+             (b) AN INPUT NAMED `t` OR `frame` WINS, as it does over the
+                 zero-fill: an input is a wire somebody named. An
+                 assignment runs after everything and wins over both.
+             (c) A STILL binds both as plain 0, not one-element
+                 vectors. An empty-vector film binds neither; the
+                 zero-fill makes them 0 and the empty input is
+                 reported where it lands (82.2b).
+             (d) pn_figure_resolve() now takes a nullable
+                 `const PnFigureFilm *` { index, frames, mode } in
+                 place of the bare index -- the resolver needs the
+                 film's length and mode to build `t`, and twelve
+                 positional parameters was one too many. NULL = still.
+                 The play-mode enum moved up the header to sit before
+                 it. Names: PN_FIGURE_FRAME_NAME, PN_FIGURE_TIME_NAME.
+             The `program` blurb now mentions films, `frame` and `t`.
+             Tests: film_frame_and_t, film_t_ends_on_one,
+             film_t_from_data, film_still_t, film_input_t_wins,
+             film_assign_t_wins, anim_node_t; valgrind clean.
        [ ] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
              pixel-free, asserting the frame count, the index-to-value
              mapping and the timer's no-listener rule in

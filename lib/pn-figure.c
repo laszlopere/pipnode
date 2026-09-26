@@ -1674,18 +1674,103 @@ snapshot_apply_one (
  * that getting it wrong makes `pi` silently 0: a figure that still
  * draws, just wrongly.  Assignments bind themselves as they execute,
  * which is why they come last and are not this function's business. */
+/* TRUE when @name is in the sorted, NULL-safe @free_names. */
+static gboolean
+names_contain (
+        GPtrArray   *free_names,
+        const gchar *name)
+{
+    guint n;
+
+    for (n = 0; free_names != NULL && n < free_names->len; n++)
+        if (g_strcmp0 (g_ptr_array_index (free_names, n), name) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/* Binds one animation variable, unless the program does not read it --
+ * the free-name check 80.17(e) promised, which spares a still program
+ * two vectors it would never look at -- or an input already supplies
+ * it: an input is a wire somebody named, and wins as it does over the
+ * zero-fill (80.3c).  A film of one frame binds a plain 0.  A film of
+ * none binds nothing, and the zero-fill makes it 0: the empty vector
+ * that made it so is reported where it lands (82.1e).
+ *
+ * Returns %TRUE when it bound @name, so the zero-fill leaves it be. */
+static gboolean
+bind_animation (
+        PnVarStore             *store,
+        const PnFigureSnapshot *snapshot,
+        GPtrArray              *free_names,
+        const gchar            *name,
+        guint                   count,
+        gdouble                 step)
+{
+    gdouble  *values;
+    PnVector *vec;
+    guint     k;
+
+    if (!names_contain (free_names, name))
+        return FALSE;
+    if (snapshot != NULL && g_hash_table_contains (snapshot->values, name))
+        return FALSE;
+    if (count == 0)
+        return FALSE;
+
+    if (count == 1)
+    {
+        pn_var_store_set (store, name, 0.0);
+        return TRUE;
+    }
+
+    values = g_new (gdouble, count);
+    for (k = 0; k < count; k++)
+        values[k] = (gdouble) k * step;
+
+    vec = pn_vector_new_take (values, count);
+    pn_var_store_set_vector (store, name, vec);
+    g_object_unref (vec);
+    return TRUE;
+}
+
 static void
 bind_frame (
         PnVarStore             *store,
         const PnFigureSnapshot *snapshot,
-        GPtrArray              *free_names)
+        GPtrArray              *free_names,
+        const PnFigureFilm     *film)
 {
-    guint n;
+    gboolean bound_frame;
+    gboolean bound_time;
+    guint    count;
+    guint    n;
 
     pn_var_store_clear (store);
 
     if (snapshot != NULL)
         g_hash_table_foreach (snapshot->values, snapshot_apply_one, store);
+
+    /* After the inputs, before the zero-fill: 80.3(c)'s order. */
+    count = pn_figure_frame_count (free_names, snapshot,
+                                   film != NULL ? film->frames : 0);
+    bound_frame = bind_animation (store, snapshot, free_names,
+                                  PN_FIGURE_FRAME_NAME, count, 1.0);
+    if (count > 1)
+    {
+        /* 82.5: a loop's frame after the last is t = 1 = t = 0, so it
+         * steps by 1/N and never shows the seam twice; once and
+         * ping-pong step by 1/(N-1) and end exactly on 1. */
+        gboolean loop = film == NULL || film->mode == PN_FIGURE_PLAY_LOOP;
+
+        bound_time = bind_animation (store, snapshot, free_names,
+                                     PN_FIGURE_TIME_NAME, count,
+                                     1.0 / (gdouble) (loop ? count
+                                                           : count - 1));
+    }
+    else
+        bound_time = bind_animation (store, snapshot, free_names,
+                                     PN_FIGURE_TIME_NAME, count, 0.0);
 
     for (n = 0; free_names != NULL && n < free_names->len; n++)
     {
@@ -1695,6 +1780,9 @@ bind_frame (
             continue;
         if (snapshot != NULL
             && g_hash_table_contains (snapshot->values, name))
+            continue;
+        if ((bound_frame && strcmp (name, PN_FIGURE_FRAME_NAME) == 0)
+            || (bound_time && strcmp (name, PN_FIGURE_TIME_NAME) == 0))
             continue;
 
         pn_var_store_set (store, name, 0.0);
@@ -2748,7 +2836,7 @@ pn_figure_resolve (
         GPtrArray              *statements,
         GPtrArray              *free_names,
         const PnFigureSnapshot *snapshot,
-        guint                   index,
+        const PnFigureFilm     *film,
         gdouble                 x,
         gdouble                 y,
         gdouble                 w,
@@ -2762,6 +2850,7 @@ pn_figure_resolve (
     Frame       frame;
     Pen         pen;
     gboolean    failed = FALSE;
+    guint       index;
     guint       i;
 
     if (out_error != NULL)
@@ -2783,7 +2872,8 @@ pn_figure_resolve (
     /* A store per frame IS 80.2 rule 13's clear: last frame's
      * assignments cannot leak into this one if they were never here. */
     store = pn_var_store_new ();
-    bind_frame (store, snapshot, free_names);
+    bind_frame (store, snapshot, free_names, film);
+    index = film != NULL ? film->index : 0;
 
     pen_init (&pen, &frame);
     emit_view (ops, &pen, 0);
@@ -3484,8 +3574,9 @@ figure_render_frame (
         gdouble   w,
         gdouble   h)
 {
-    GPtrArray *ops;
-    gchar     *error = NULL;
+    GPtrArray    *ops;
+    PnFigureFilm  film;
+    gchar        *error = NULL;
 
     /* A program error draws nothing at all (80.10a) — not the good
      * statements either, because half a figure is a worse lie than
@@ -3496,8 +3587,12 @@ figure_render_frame (
     /* An empty vector is not special-cased here: the resolver reaches
      * it at an argument and names the line and column, which is more
      * than a frame count of 0 could say (82.1e). */
+    film.index  = frame;
+    film.frames = self->frames;
+    film.mode   = self->play_mode;
+
     ops = pn_figure_resolve (self->statements, self->names, self->snapshot,
-                             frame, x, y, w, h, self->stretch, &error);
+                             &film, x, y, w, h, self->stretch, &error);
 
     g_free (self->runtime_error);
     self->runtime_error = error;   /* transferred; %NULL when all is well */
@@ -3810,8 +3905,11 @@ pn_figure_set_property (
                 self->direction = 1;
                 g_object_notify_by_pspec (object, props[PROP_PLAY_MODE]);
                 /* Keep the frame; a ONCE film that had finished starts
-                 * moving again if the new mode has somewhere to go. */
+                 * moving again if the new mode has somewhere to go.
+                 * Repaint as well: the mode decides where `t` ends
+                 * (82.5), so the frame on screen may have moved. */
                 figure_retime_film (self);
+                pn_node_request_repaint (PN_NODE (self));
             }
         }
         break;
@@ -3925,7 +4023,11 @@ pn_figure_class_init (
             "whatever the inputs are renamed to); a name the program reads "
             "and nothing supplies is 0, so a figure draws even unwired.  "
             "`#` starts a comment; a line ending in a comma continues onto "
-            "the next.",
+            "the next.  An input that is a vector makes the figure a film: "
+            "frame k draws element k of every vector, and `frame` (0, 1, "
+            "2 …) and `t` (0 towards 1 over the film) animate the same "
+            "way, so a figure with nothing wired plays when the Animation "
+            "tab gives it a frame count.",
             PN_FIGURE_DEF_PROGRAM,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     pn_param_spec_set_multiline (props[PROP_PROGRAM]);

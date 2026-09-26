@@ -705,6 +705,44 @@ typedef struct
  * out loud, and a silently shortened loop draws a lie. */
 #define PN_FIGURE_MAX_REPEAT 1000
 
+/* How a film plays (80.17a).  ONCE stops on the last frame and holds
+ * it, which is why there is no fourth "hold last" mode. */
+typedef enum
+{
+    PN_FIGURE_PLAY_ONCE,
+    PN_FIGURE_PLAY_LOOP,
+    PN_FIGURE_PLAY_PING_PONG,
+} PnFigurePlayMode;
+
+#define PN_TYPE_FIGURE_PLAY_MODE (pn_figure_play_mode_get_type ())
+GType pn_figure_play_mode_get_type (void) G_GNUC_CONST;
+
+/* Frames per second when nothing says otherwise, and the most anyone
+ * may ask for (80.17a). */
+#define PN_FIGURE_DEFAULT_FPS 25
+#define PN_FIGURE_MAX_FPS     60
+
+/* The largest explicit `frames` count: 400 seconds at the default rate.
+ * A bound because 82.5 builds `t` and `frame` as vectors this long. */
+#define PN_FIGURE_MAX_FRAMES  10000
+
+/* A frame of a film, as the resolver needs it (TODO #82.5): which frame,
+ * and enough about the film to bind `frame` and `t` for it.  A %NULL
+ * film is a still -- frame 0 of 1. */
+typedef struct
+{
+    guint            index;  /* the frame drawn, 0-based               */
+    guint            frames; /* the `frames` property, 0 = from data   */
+    PnFigurePlayMode mode;   /* decides where `t` ends (82.5)          */
+} PnFigureFilm;
+
+/* The two animation variables (80.17d).  Bound as VECTORS over the whole
+ * film -- `frame` = 0 .. N-1 and `t` from 0 to 1 -- so they animate
+ * through the same indexing as an input and need no re-evaluation.  An
+ * input of the same name wins, as it does over the zero-fill. */
+#define PN_FIGURE_FRAME_NAME "frame"
+#define PN_FIGURE_TIME_NAME  "t"
+
 /**
  * pn_figure_resolve:
  * @statements: (element-type PnFigureStatement): the parsed program,
@@ -713,9 +751,10 @@ typedef struct
  *              from pn_figure_free_names(); anything the snapshot does
  *              not supply is bound to 0 (80.2 rule 12)
  * @snapshot:   (nullable): the latched inputs (80.8e)
- * @index:      the frame, 0-based: a vector argument contributes this
- *              element of itself, a scalar the same value in every
- *              frame (80.16, 82.2).  0 for a still.
+ * @film:       (nullable): the frame to resolve and the film it is
+ *              from; a vector argument contributes element
+ *              @film->index of itself, a scalar the same value in
+ *              every frame (80.16, 82.2).  %NULL for a still.
  * @x:          device rectangle: left
  * @y:          ... top
  * @w:          ... width
@@ -726,12 +765,19 @@ typedef struct
  *              could not be resolved at all, %NULL when it could
  *
  * Runs one frame: a store cleared to the language's constants and the
- * snapshot, then every statement in order, into a device-space display
- * list.
+ * snapshot, then `frame` and `t` when the program reads them and no
+ * input supplies them, then every statement in order, into a
+ * device-space display list.
+ *
+ * `t` runs over the film from 0 to 1, and the play mode decides the
+ * end: a LOOP film takes k / N, so the frame after the last is t = 1 =
+ * t = 0 again and a periodic figure wraps with no repeated pose; ONCE
+ * and PING-PONG take k / (N - 1), so the last frame is exactly 1 and a
+ * held or turned end state is the true one.  In a still both are 0.
  *
  * The program is NOT re-run with each vector replaced by its element:
  * the store is elementwise, so evaluating it with the vectors in place
- * already computes the whole film, and @index only chooses which
+ * already computes the whole film, and the index only chooses which
  * element of each argument is drawn (80.16a).
  *
  * The three error classes of 80.10 are three different things here.  A
@@ -739,8 +785,8 @@ typedef struct
  * statement out.  A runtime VALUE problem, which is what a knob winding
  * through zero produces, skips its statement, leaves a
  * %PN_FIGURE_OP_SKIP marker saying why, and lets the rest of the figure
- * draw.  A runtime TYPE problem -- a vector argument with no element
- * @index, empty or shorter than pn_figure_frame_count() promised -- is
+ * draw.  A runtime TYPE problem -- a vector argument with no element at
+ * the index, empty or shorter than pn_figure_frame_count() promised -- is
  * none of those: winding a knob will not cure it, so it empties the
  * list and sets @out_error, and the node paints red.
  *
@@ -754,7 +800,7 @@ typedef struct
 GPtrArray *pn_figure_resolve (GPtrArray              *statements,
                               GPtrArray              *free_names,
                               const PnFigureSnapshot *snapshot,
-                              guint                   index,
+                              const PnFigureFilm     *film,
                               gdouble                 x,
                               gdouble                 y,
                               gdouble                 w,
@@ -807,27 +853,6 @@ gchar *pn_figure_display_to_string (GPtrArray *ops);
 #define PN_FIGURE_TOTAL_HEIGHT   (PN_FIGURE_HEADER_HEIGHT + \
                                   PN_FIGURE_GAP +           \
                                   PN_FIGURE_CLIENT_HEIGHT)
-
-/* How a film plays (80.17a).  ONCE stops on the last frame and holds
- * it, which is why there is no fourth "hold last" mode. */
-typedef enum
-{
-    PN_FIGURE_PLAY_ONCE,
-    PN_FIGURE_PLAY_LOOP,
-    PN_FIGURE_PLAY_PING_PONG,
-} PnFigurePlayMode;
-
-#define PN_TYPE_FIGURE_PLAY_MODE (pn_figure_play_mode_get_type ())
-GType pn_figure_play_mode_get_type (void) G_GNUC_CONST;
-
-/* Frames per second when nothing says otherwise, and the most anyone
- * may ask for (80.17a). */
-#define PN_FIGURE_DEFAULT_FPS 25
-#define PN_FIGURE_MAX_FPS     60
-
-/* The largest explicit `frames` count: 400 seconds at the default rate.
- * A bound because 82.5 builds `t` and `frame` as vectors this long. */
-#define PN_FIGURE_MAX_FRAMES  10000
 
 /**
  * pn_figure_step_frame:

@@ -1479,6 +1479,25 @@ figure_free (Figure *self)
 }
 
 static gchar *
+figure_dump_film (Figure             *self,
+                  PnFigureSnapshot   *snapshot,
+                  const PnFigureFilm *film,
+                  gdouble             w,
+                  gdouble             h,
+                  gboolean            stretch,
+                  gchar             **out_error)
+{
+    GPtrArray *ops  = pn_figure_resolve (self->parse.statements, self->names,
+                                         snapshot, film, 0, 0, w, h, stretch,
+                                         out_error);
+    gchar     *text = pn_figure_display_to_string (ops);
+
+    g_ptr_array_unref (ops);
+    return text;
+}
+
+/* Frame @index of a film whose length comes from the data, looping. */
+static gchar *
 figure_dump_frame (Figure           *self,
                    PnFigureSnapshot *snapshot,
                    guint             index,
@@ -1487,13 +1506,9 @@ figure_dump_frame (Figure           *self,
                    gboolean          stretch,
                    gchar           **out_error)
 {
-    GPtrArray *ops  = pn_figure_resolve (self->parse.statements, self->names,
-                                         snapshot, index, 0, 0, w, h, stretch,
-                                         out_error);
-    gchar     *text = pn_figure_display_to_string (ops);
+    PnFigureFilm film = { index, 0, PN_FIGURE_PLAY_LOOP };
 
-    g_ptr_array_unref (ops);
-    return text;
+    return figure_dump_film (self, snapshot, &film, w, h, stretch, out_error);
 }
 
 /* Frame 0, which for a figure with no vector in it is the only one. */
@@ -2210,6 +2225,123 @@ test_an_empty_vector_leaves_no_frame (void)
 
     figure_free (&f);
     pn_figure_snapshot_free (snapshot);
+}
+
+/* Frame @index of an explicit @frames-long film played in @mode, in the
+ * 100x100 rectangle. */
+static gchar *
+dump_film (const gchar      *program,
+           PnFigureSnapshot *snapshot,
+           guint             index,
+           guint             frames,
+           PnFigurePlayMode  mode)
+{
+    Figure        f    = figure (program);
+    PnFigureFilm  film = { index, frames, mode };
+    gchar        *text = figure_dump_film (&f, snapshot, &film, 100, 100,
+                                           FALSE, NULL);
+
+    figure_free (&f);
+    return text;
+}
+
+static void
+test_frame_and_t_are_bound_as_the_film (void)
+{
+    gchar *text;
+
+    /* 80.17(d): `frame` counts the frames and `t` runs from 0 towards
+     * 1; a loop of four steps by 1/4, so frame 1 is t = 0.25 -- and a
+     * figure with nothing wired animates at all (80.17e). */
+    text = dump_film ("line 0, 0, t * 100, frame", NULL, 1, 4,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 25.00 99.00\n");
+    g_free (text);
+
+    /* The loop's last frame stops short of 1: the frame after it is
+     * t = 1 = t = 0 again, so sin(2 pi t) never shows its seam twice. */
+    text = dump_film ("line 0, 0, t * 100, frame", NULL, 3, 4,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 75.00 97.00\n");
+    g_free (text);
+}
+
+static void
+test_t_ends_on_one_when_the_film_ends (void)
+{
+    gchar *text;
+
+    /* Once holds its last frame and ping-pong turns on it, so both end
+     * exactly at t = 1: the held or turned pose is the true end (82.5). */
+    text = dump_film ("line 0, 0, t * 100, 0", NULL, 3, 4,
+                      PN_FIGURE_PLAY_ONCE);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 100.00 100.00\n");
+    g_free (text);
+
+    text = dump_film ("line 0, 0, t * 100, 0", NULL, 1, 4,
+                      PN_FIGURE_PLAY_PING_PONG);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 33.33 100.00\n");
+    g_free (text);
+}
+
+static void
+test_t_follows_a_film_from_the_data (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    gchar            *text;
+
+    /* No `frames`: the film is the three-element input, and `t` is
+     * built to its length. */
+    snapshot_ramp (snapshot, "v", 3);
+    text = dump_film ("line 0, v, t * 90, 0", snapshot, 2, 0,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 98.00 60.00 100.00\n");
+    g_free (text);
+
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_still_reads_t_as_zero (void)
+{
+    gchar *text;
+
+    /* One frame: `t` and `frame` are plain zeros, not one-element
+     * vectors, and a still is still a still. */
+    text = dump_film ("line 0, 0, 10 + t, 10 + frame", NULL, 0, 0,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 10.00 90.00\n");
+    g_free (text);
+}
+
+static void
+test_an_input_named_t_wins (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    gchar            *text;
+
+    /* An input is a wire somebody named: it beats the animation
+     * variable exactly as it beats the zero-fill (80.3c). */
+    pn_figure_snapshot_set (snapshot, "t", 0.5);
+    text = dump_film ("line 0, 0, t * 100, frame", snapshot, 2, 4,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 50.00 98.00\n");
+    g_free (text);
+
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_assignment_to_t_still_wins (void)
+{
+    gchar *text;
+
+    /* An assignment runs after every binding, so it overrides `t` like
+     * any other name. */
+    text = dump_film ("t = 0.1\nline 0, 0, t * 100, 0", NULL, 2, 4,
+                      PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 10.00 100.00\n");
+    g_free (text);
 }
 
 static void
@@ -3169,6 +3301,28 @@ test_the_animation_properties_round_trip (void)
 }
 
 static void
+test_a_node_with_no_input_animates_on_t (void)
+{
+    PnNode *self = node ("line 0, 0, t * 100, 0", 1);
+    gchar  *text;
+
+    /* The turning wheel end to end: `frames` alone makes the film, and
+     * `t` is what moves in it. */
+    g_object_set (self, "frames", 5, "play-mode", PN_FIGURE_PLAY_ONCE, NULL);
+    text = pn_figure_dump (PN_FIGURE (self), 4, 0, 0, 100, 100);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 100.00 100.00\n");
+    g_free (text);
+
+    /* The mode moves where `t` ends: a loop of five stops at 4/5. */
+    g_object_set (self, "play-mode", PN_FIGURE_PLAY_LOOP, NULL);
+    text = pn_figure_dump (PN_FIGURE (self), 4, 0, 0, 100, 100);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 0.00 100.00 80.00 100.00\n");
+    g_free (text);
+
+    g_object_unref (self);
+}
+
+static void
 test_the_error_property_reads_back (void)
 {
     PnNode *self = node ("circle 0, 0", 1);
@@ -3300,6 +3454,12 @@ main (int argc, char **argv)
     pn_test_add ("film_unread",         test_an_unread_vector_does_not_count);
     pn_test_add ("film_explicit",       test_an_explicit_count_joins_the_minimum);
     pn_test_add ("film_empty",          test_an_empty_vector_leaves_no_frame);
+    pn_test_add ("film_frame_and_t",    test_frame_and_t_are_bound_as_the_film);
+    pn_test_add ("film_t_ends_on_one",  test_t_ends_on_one_when_the_film_ends);
+    pn_test_add ("film_t_from_data",    test_t_follows_a_film_from_the_data);
+    pn_test_add ("film_still_t",        test_a_still_reads_t_as_zero);
+    pn_test_add ("film_input_t_wins",   test_an_input_named_t_wins);
+    pn_test_add ("film_assign_t_wins",  test_an_assignment_to_t_still_wins);
     pn_test_add ("back_text_format",    test_the_text_format_is_filled_in);
     pn_test_add ("back_locale",         test_the_dump_is_locale_independent);
     pn_test_add ("back_specimen",       test_the_specimen_draws);
@@ -3338,6 +3498,7 @@ main (int argc, char **argv)
     pn_test_add ("anim_frames",         test_an_explicit_frame_count_needs_no_input);
     pn_test_add ("anim_once",           test_a_once_film_stops_on_its_last_frame);
     pn_test_add ("anim_round_trip",     test_the_animation_properties_round_trip);
+    pn_test_add ("anim_node_t",         test_a_node_with_no_input_animates_on_t);
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     return pn_test_run ();
