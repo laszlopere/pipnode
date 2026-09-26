@@ -3393,6 +3393,11 @@
              the `error` property, 80.10f): ~90 ms for the pendulum, so a
              knob spun fast over it is sluggish. Deferring the walk to
              the next paint would need the error judged there instead.
-       [ ] 87.7 THE DOUBLE-PENDULUM EXAMPLE itself, in examples/displays/,
-             and a sentence in PnFigure.html that a heavy program costs
-             once per change, not once per frame.
+       [x] 87.7 THE DOUBLE-PENDULUM EXAMPLE, examples/displays/double-
+             pendulum.json: two knobs set the arms' starting angles, a
+             `repeat 1000` loop steps the equations (semi-implicit Euler,
+             dt 0.01 s, four steps a frame, 250 frames = 10 s, loop), the
+             lower bob leaves a fading three-second track, and a grey
+             ghost started 0.01 deg further out shows the chaos. ~190 ms
+             per knob change (two pendulums), 0.8 ms per frame.
+             PnFigure.html's Animation section grew "What it costs".

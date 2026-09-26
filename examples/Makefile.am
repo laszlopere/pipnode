@@ -77,6 +77,7 @@ displaysdir = $(pkgdatadir)/examples/displays
 displays_DATA = \
 	displays/LED-displays.json \
 	displays/bar-magnet.json \
+	displays/double-pendulum.json \
 	displays/pendulum.json \
 	displays/refraction.json \
 	displays/swinging-pendulum.json

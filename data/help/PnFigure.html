@@ -345,6 +345,19 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       film of a different length starts again from its first frame. The film plays only while an
       editor has its worksheet open; run without one, a figure uses no
       timer.</li>
+  <li><strong>What it costs.</strong> The whole film is worked out
+      once, when the program or an input changes, and each frame is
+      then only read from it. So a film can afford a lot of arithmetic:
+      a <code>repeat</code> loop can step a motion that has no formula
+      forward in time, with a mask such as
+      <code>m = step(i, 4 * frame - 1)</code> freezing each frame's copy
+      of the state once it has taken its own share of steps. The
+      <em>double-pendulum</em> example does this with a thousand steps.
+      The price is paid on every change instead: turning a knob on such
+      a figure works the whole film out again, which takes a
+      moment. A <code>repeat</code> count that is itself a vector is
+      the one exception &mdash; it gives each frame a different loop,
+      so that film is worked out frame by frame.</li>
   <li><strong>No per-frame conditions.</strong> A comparison reduces a
       vector to a single 0 or 1 &mdash; true only if it holds for every
       element &mdash; so <code>hot = s &gt; 0</code> cannot vary from
