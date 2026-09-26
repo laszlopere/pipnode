@@ -3465,17 +3465,26 @@
              ghost keeps the asked-for reach, the counterweight rests on
              a red stop and the lamp turns red.  No `if`: the red marks
              divide a coordinate by `limited` or (rmax < rtip).
-             (a) ONE WIRE, NOT THREE: the knobs deliberately do NOT also
-                 go to the figure.  The Figure clears its snapshot per
-                 message and binds a message's sibling members only from
-                 that message (pn_expr_bind_collated rule 2), so a knob
-                 arriving on its own input would drop the controller's
-                 reach1/rmax1/... until the next controller message --
-                 and which arrives last depends on wire order.  Every
-                 assignment in the controller rides its message, so one
-                 wire carries request and answer together; the figure
-                 reads them as m1, reach1, ... (single input named x =
-                 the headline, the counterweight position).
+             (a) FIVE INPUTS, ONE PER DECISION (reworked 2026-09-26 at
+                 the user's request, so the figure no longer reads like
+                 the display of one big calculator).  The controller is
+                 three small nodes: LOAD CHART (a Calculator, m -> rmax),
+                 REACH LIMITER (Calculator 2, r and rmax -> reach) and
+                 COUNTERWEIGHT (Calculator 2, m and reach -> x).  The
+                 figure takes m, r, rmax, reach, x on five named inputs
+                 and works out `limited` and the two moments itself, so
+                 the equal moments are its own check on the controller.
+                 WHY EACH NUMBER IS A HEADLINE VALUE: the first build
+                 sent everything as sibling members of one controller
+                 message (read as m1, reach1, ...).  That only works on
+                 one wire -- the Figure clears its snapshot per message
+                 and binds siblings only from the message that just
+                 arrived (pn_expr_bind_collated rule 2), whereas the
+                 core latches each input's data.value.  One value per
+                 wire is what makes a multi-input figure robust.  The
+                 cost: the crane data (M, mt, Wj, Wc, track) is repeated
+                 in the calculators and the figure, because the
+                 calculator language cannot read document globals yet.
              (b) THE CALCULATOR LANGUAGE HAS NO `#` COMMENTS -- only the
                  Figure's scanner strips them.  The first draft of the
                  controller was commented and failed with "unexpected
