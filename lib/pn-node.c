@@ -348,16 +348,16 @@ pn_node_default_get_client_area (
         double *out_w,
         double *out_h)
 {
-    double w, h, hh, body_h;
+    double w, h, hh, ports_h, body_h;
 
     pn_node_get_size          (self, &w, &h);
-    hh     = pn_node_get_header_height (self);
+    hh      = pn_node_get_header_height (self);
+    ports_h = pn_node_get_port_section_height (self);
     /* The stacked input-section of a multi-input node is part of the
      * node's solid body, not a paint_plot "client area" — subtract it so
      * a header-only multi-input node (comparator, image blends) keeps
      * reporting no client area, exactly as it did when single-height. */
-    body_h = h - hh - PN_NODE_PLOT_GAP
-           - pn_node_get_port_section_height (self);
+    body_h = h - hh - PN_NODE_PLOT_GAP - ports_h;
 
     /* A node has a client area when its footprint extends below the
      * header — the body it fills with its own content (a table's grid,
@@ -377,10 +377,11 @@ pn_node_default_get_client_area (
         return FALSE;
     }
 
-    /* Node-local: the region under the header, past the header→body
-     * gap — exactly the rectangle the worksheet hands paint_plot. */
+    /* Node-local: the region under the header and any stacked port
+     * rows, past the body gap — exactly the rectangle the worksheet
+     * hands paint_plot. */
     if (out_x != NULL) *out_x = 0.0;
-    if (out_y != NULL) *out_y = hh + PN_NODE_PLOT_GAP;
+    if (out_y != NULL) *out_y = hh + ports_h + PN_NODE_PLOT_GAP;
     if (out_w != NULL) *out_w = w;
     if (out_h != NULL) *out_h = body_h;
     return TRUE;

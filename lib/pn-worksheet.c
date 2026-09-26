@@ -1646,8 +1646,12 @@ draw_node (
         if (klass->paint_plot != NULL &&
             (self == NULL || self->zoomed_node != node))
         {
-            const double plot_y = y + header_h + 4.0;
-            const double plot_h = full_h - header_h - 4.0;
+            /* Below the solid body — the header plus, on a multi-port
+             * node, its stacked port rows — so the client area never
+             * paints over the input names. */
+            const double body_h = node_body_height (node);
+            const double plot_y = y + body_h + 4.0;
+            const double plot_h = full_h - body_h - 4.0;
 
             /* The processing halo (TODO #42) glows only behind the node
              * rectangle (the header body, painted above); the client-area

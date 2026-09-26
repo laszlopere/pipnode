@@ -3403,6 +3403,29 @@ test_the_client_area_is_the_body (void)
     g_object_unref (self);
 }
 
+/* With 2+ inputs the named input rows stack under the header; the
+ * drawing moves down below them instead of painting over them, and it
+ * keeps its full height. */
+static void
+test_the_client_area_clears_the_input_rows (void)
+{
+    PnNode  *self = node (NULL, 2);
+    double   x = -1, y = -1, w = -1, h = -1;
+    double   width = 0, height = 0;
+    double   ports = pn_node_get_port_section_height (self);
+
+    PN_CHECK      (ports > 0.0);
+    pn_node_get_size (self, &width, &height);
+    PN_CHECK_NEAR (height, PN_FIGURE_TOTAL_HEIGHT + ports, 1e-9);
+
+    PN_CHECK      (pn_node_get_client_area (self, &x, &y, &w, &h));
+    PN_CHECK      (y >= PN_FIGURE_HEADER_HEIGHT + ports);
+    PN_CHECK_NEAR (y + h, height, 1e-9);
+    PN_CHECK_NEAR (h, PN_FIGURE_CLIENT_HEIGHT, 1e-9);
+
+    g_object_unref (self);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -3545,5 +3568,6 @@ main (int argc, char **argv)
     pn_test_add ("anim_node_t",         test_a_node_with_no_input_animates_on_t);
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
+    pn_test_add ("node_client_inputs",  test_the_client_area_clears_the_input_rows);
     return pn_test_run ();
 }

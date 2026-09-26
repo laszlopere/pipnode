@@ -3755,9 +3755,14 @@ pn_figure_get_size (
         double *out_width,
         double *out_height)
 {
-    (void) node;
     if (out_width  != NULL) *out_width  = PN_FIGURE_WIDTH;
-    if (out_height != NULL) *out_height = PN_FIGURE_TOTAL_HEIGHT;
+    /* A figure with 2+ inputs stacks one named row per input under the
+     * header; the drawing goes below those rows, not over them, so the
+     * footprint grows by the port section and the client area keeps its
+     * fixed height. */
+    if (out_height != NULL)
+        *out_height = PN_FIGURE_TOTAL_HEIGHT
+                    + pn_node_get_port_section_height (node);
 }
 
 static double
@@ -3769,7 +3774,7 @@ pn_figure_get_header_height (
 }
 
 /* No get_client_area override: the figure's body IS the rectangle under
- * the header, which is exactly what PnNode's geometric default reports
+ * the header and its input rows, which is exactly what PnNode's geometric default reports
  * and exactly what the worksheet hands paint_plot. */
 
 /* ------------------------------------------------------------------ */
