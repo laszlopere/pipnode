@@ -1,0 +1,88 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "6a3903e9-d91c-4daf-98fa-bdd1be59093e",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "THE BLOCK AND TACKLE -- a physics plate drawn by one Figure node.  Spin the wheel over the two knobs: SUPPORTING STRANDS n threads the rope around more sheaves, and the red effort arrow at the hand shrinks to 1/n of the blue weight arrow on the 100 kg load; ROPE PULLED p draws the hand down, and the load rises only p/n -- the two brackets, p beside the hand and h beside the lower block, show how unequal those distances are.  What the tackle saves in force it charges in rope: the two works at the bottom of the readout, F·p in and W·h out, are always the same number.  The rope's dead end is tied to the upper block when n is even and to the lower one when n is odd, picked by n % 2 in the program -- nothing on the plate is a picture.",
+        "width": 900.0,
+        "height": 112.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "936fec06-443f-4b76-b337-e0e13409ce72",
+      "name": "Supporting strands n",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 220.0
+      },
+      "properties": {
+        "min": 1.0,
+        "max": 6.0,
+        "value": 4.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "f96c332c-87b5-4c83-9bfe-01221f0faa0f",
+      "name": "Rope pulled p (m)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 300.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 2.0,
+        "value": 0.8
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "a4f49e86-d732-446f-8c8f-7fb2dd70459a",
+      "name": "Block and tackle",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 200.0
+      },
+      "properties": {
+        "program": "# THE BLOCK AND TACKLE\n#\n# Two knobs: how many strands of rope hold the lower block (n), and\n# how much rope the hand has pulled through (p).  The load is a fixed\n# 100 kg.  Add strands and the red effort arrow shrinks; pull the\n# rope and the load rises only p/n -- the rope you save in force you\n# pay back in length, and the two works printed at the bottom are\n# always the same number.\n\nview -86, -81, 86, 48\nalign \"centre\", \"middle\"\n\n# --- the physics ------------------------------------------------------\nN  = clamp(round(n), 1, 6)\ng  = 9.80665\nm  = 100\nW  = m * g\nF  = W / N\nh  = p / N\n\n# --- the geometry -----------------------------------------------------\n# 15 units to the metre; the strands stand dx apart, which makes each\n# sheave dx wide, so a rope around one runs straight down both sides.\ns   = 15\ndx  = 10\nr   = dx / 2\nx0  = -72\nYc  = 44\nYu  = 34\nYl  = -14 + s * h\nYh  = -20 - s * p\nxf  = x0 + N * dx\nxl  = x0 + (N - 1) * dx / 2\nlw  = 14\nlh  = 13\nyb  = Yl - r - 7 - lh\n\n# --- the ceiling, hatched ---------------------------------------------\ncolor \"#202020\"\nwidth 1.2\nline -80, Yc, -8, Yc\nwidth 0.5\nrepeat 12\n  line -78 + 6 * i, Yc, -74 + 6 * i, Yc + 4\nend\n\n# --- the two blocks, cheek plates behind their sheaves -----------------\ncolor \"#606060\"\nwidth 0.6\nline x0 + N * dx / 2, Yc, x0 + N * dx / 2, Yu + r + 2\nfill \"#e2e2dc\"\nrect x0 - 3, Yu - r - 2, N * dx + 6, 2 * r + 4\nrect x0 - 3, Yl - r - 2, (N - 1) * dx + 6, 2 * r + 4\nnofill\n\n# the load, hanging from the lower block, with its rest position ghosted\nline xl, Yl - r - 2, xl, yb + lh\ncolor \"#9aa6ab\"\nwidth 0.45\ndash \"dot\"\nrect xl - lw / 2, -14 - r - 7 - lh, lw, lh\ndash \"solid\"\ncolor \"#202020\"\nwidth 0.6\nfill \"#5b4a3a\"\nrect xl - lw / 2, yb, lw, lh\nnofill\ncolor \"#f4efe6\"\nfont 4.4\ntext xl, yb + lh / 2, \"%.0f kg\", m\n\n# --- the sheaves ------------------------------------------------------\ncolor \"#606060\"\nwidth 0.5\nfill \"#b8b8b0\"\nrepeat ceil(N / 2)\n  circle x0 + (N - 0.5 - 2 * i) * dx, Yu, r - 0.6\nend\nrepeat floor(N / 2)\n  circle x0 + (N - 1.5 - 2 * i) * dx, Yl, r - 0.6\nend\nnofill\nfill \"#606060\"\nrepeat ceil(N / 2)\n  circle x0 + (N - 0.5 - 2 * i) * dx, Yu, 0.7\nend\nrepeat floor(N / 2)\n  circle x0 + (N - 1.5 - 2 * i) * dx, Yl, 0.7\nend\nnofill\n\n# --- the rope ---------------------------------------------------------\n# Every supporting strand runs straight between the blocks; the rope\n# goes over the top of each upper sheave and under each lower one.\n# Its dead end is tied to the upper block when n is even and to the\n# lower one when n is odd -- (N % 2) picks which, no `if`.\ncolor \"#8a5a2b\"\nwidth 0.9\nrepeat N\n  line x0 + i * dx, Yu, x0 + i * dx, Yl\nend\nrepeat ceil(N / 2)\n  arc x0 + (N - 0.5 - 2 * i) * dx, Yu, r, 0, 180\nend\nrepeat floor(N / 2)\n  arc x0 + (N - 1.5 - 2 * i) * dx, Yl, r, 180, 360\nend\nline xf, Yu, xf, Yh\nfill \"#8a5a2b\"\ncircle x0, Yu + (Yl - Yu) * (N % 2), 1.1\nnofill\n\n# --- the hand, and its rest position ------------------------------------\ncolor \"#9aa6ab\"\nwidth 0.45\ndash \"dot\"\ncircle xf, -20, 2.4\ndash \"solid\"\ncolor \"#202020\"\nwidth 0.5\nfill \"#e0b48c\"\ncircle xf, Yh, 2.4\nnofill\n\n# --- the two forces, drawn to one scale ---------------------------------\n# 26 units for the whole weight, so the effort arrow is visibly 1/n\n# of the weight arrow.\nah = 2.6\naw = 1.3\nfs = 26 / W\n\ncolor \"#3a5a9b\"\nfill  \"#3a5a9b\"\nwidth 0.9\nline xl, yb - 1, xl, yb - 1 - fs * W + ah\npoly xl, yb - 1 - fs * W, xl - aw, yb - 1 - fs * W + ah, xl + aw, yb - 1 - fs * W + ah\nnofill\nfont 4.6\nalign \"left\", \"middle\"\ntext xl + 2.5, yb - 1 - fs * W / 2, \"W\"\n\ncolor \"#b03a2e\"\nfill  \"#b03a2e\"\nline xf, Yh - 3, xf, Yh - 3 - fs * F + ah\npoly xf, Yh - 3 - fs * F, xf - aw, Yh - 3 - fs * F + ah, xf + aw, Yh - 3 - fs * F + ah\nnofill\ntext xf + 2.5, Yh - 3 - fs * F / 2, \"F\"\n\n# --- how far each end moved, side by side -------------------------------\ncolor \"#202020\"\nwidth 0.4\n# nothing to measure before the rope moves: the brackets divide by\n# (p > 0), so at rest they are infinite and simply not drawn\nxd = (xf + 12) / (p > 0.001)\nline xd - 1.5, -20, xd + 1.5, -20\nline xd - 1.5, Yh,  xd + 1.5, Yh\nline xd, -20, xd, Yh\nxe = (x0 - 8) / (p > 0.001)\nline xe - 1.5, -14, xe + 1.5, -14\nline xe - 1.5, Yl,  xe + 1.5, Yl\nline xe, -14, xe, Yl\nfont 4.4\nalign \"left\", \"middle\"\ntext xd + 2, (Yh - 20) / 2, \"p\"\nalign \"right\", \"middle\"\ntext xe - 2, (Yl - 14) / 2, \"h\"\n\n# ======================================================================\n#  THE READOUT\n# ======================================================================\ncolor \"#202020\"\nfont 6.6\nalign \"right\", \"top\"\ntext 84, 46, \"Block and tackle\"\n\nfont 5.4\nalign \"left\", \"top\"\ntext 12, 30,   \"supporting strands  n = %.0f\", N\ncolor \"#3a5a9b\"\ntext 12, 22.5, \"W = mg = %.0f N\", W\ncolor \"#b03a2e\"\ntext 12, 15,   \"F = W / n = %.0f N\", F\ncolor \"#202020\"\ntext 12, 5,    \"rope pulled  p = %.2f m\", p\ntext 12, -2.5, \"load rises  h = p / n = %.2f m\", h\ntext 12, -12.5, \"work in   F·p = %.0f J\", F * p\ntext 12, -20,   \"work out  W·h = %.0f J\", W * h\n",
+        "inputs": 2,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "n",
+        "1": "p"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "936fec06-443f-4b76-b337-e0e13409ce72",
+      "target_id": "a4f49e86-d732-446f-8c8f-7fb2dd70459a"
+    },
+    {
+      "source_id": "f96c332c-87b5-4c83-9bfe-01221f0faa0f",
+      "target_id": "a4f49e86-d732-446f-8c8f-7fb2dd70459a",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}

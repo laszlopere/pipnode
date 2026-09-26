@@ -2135,7 +2135,7 @@
              enough to paste and watch draw. Cross-link PnPlot,
              PnGraph and PnOscilloscope as the "you wanted a chart, not
              a figure" escape hatch, and have them link back.
-       [ ] 80.15 PLACEMENT SETTLED (2026-09-21), sheets STILL TO BUILD:
+       [x] 80.15 PLACEMENT SETTLED (2026-09-21), sheets BUILT (2026-09-26):
              example worksheets, the reason the node exists -- and
              they go in examples/displays/, deliberately. CHECKED:
              examples/Makefile.am installs image, networking, crypto,
@@ -2147,38 +2147,49 @@
              ship into a directory that already installs; #79.2 stays
              worth doing on its own.
              Two sheets, both one Figure and a knob column:
-             [ ] 80.15.1 displays/lever.json -- a balance beam on a
-                   fulcrum, arms tilting with an angle knob, a weight
-                   box on each end whose size follows a mass knob, and
-                   the moment m*l printed under each arm. It is the
-                   sub-point 80 header's specimen grown up, and it
-                   proves the boring half: expressions driving
-                   geometry, live.
-                   (a) ONE ATTEMPT WRITTEN AND THROWN AWAY
-                       (2026-09-22), which is why this stays open. It
-                       dropped the angle knob for four -- mass A, arm
-                       A, mass B, arm B -- and DERIVED the tilt from
-                       the imbalance of the two moments, clamped to 16
-                       degrees, on the reasoning that a hand-wound
-                       angle next to a printed m*l invites "why does
-                       the beam not care?". Rejected on sight as NOT
-                       INTUITIVE. Whatever the second attempt is, the
-                       lesson is that a knob the reader cannot feel in
-                       the drawing is worse than the contradiction it
-                       was meant to remove: each knob must move one
-                       visible thing.
-                   (b) IT DID ITS OTHER JOB, though, as a manual
-                       end-to-end test of 80.22-80.25: a four-input
-                       figure with its ports renamed to the program's
-                       variable names bound correctly (80.8b, 80.24.5),
-                       `error` read empty in a real editor, and
-                       value-driven colour -- `color 0.72 - 0.60*bal,
-                       ...` with `bal = abs(Mb - Ma) < 0.05` -- worked
-                       exactly as 80.5 and 80.3 promised, with no new
-                       language anywhere.
-                   (c) POSTPONED AGAIN (2026-09-26): ray optics was
-                       built on its own and the lever left for a later
-                       design pass.
+             [x] 80.15.1 DONE (2026-09-26): displays/block-and-tackle.json
+                   -- REPLACES THE LEVER, which is dropped. A fixed
+                   upper block and a moving lower one, the rope
+                   threaded around side-by-side sheaves, a 100 kg load
+                   and a hand on the free end.
+                   (a) THE LEVER'S LESSON, KEPT: one attempt at it
+                       (2026-09-22) dropped the planned angle knob for
+                       four -- mass A, arm A, mass B, arm B -- and
+                       derived the tilt from the imbalance of the
+                       moments; rejected on sight as NOT INTUITIVE. A
+                       knob the reader cannot feel in the drawing is
+                       worse than the contradiction it was meant to
+                       remove: each knob must move one visible thing.
+                       The lever itself was then dropped (2026-09-26)
+                       rather than designed a third time.
+                   (b) THE KNOBS, one visible thing each: SUPPORTING
+                       STRANDS n, 1..6 (rounded), rethreads the rope
+                       and shrinks the red effort arrow to 1/n of the
+                       blue weight arrow, both drawn to one scale;
+                       ROPE PULLED p, 0..2 m, draws the hand down p and
+                       lifts the load p/n, each against a dotted ghost
+                       of its rest position and a bracket. Ports
+                       renamed n and p. The readout ends with F*p in
+                       and W*h out -- always the same number, which is
+                       the lesson.
+                   (c) DONE WITH `repeat` AND ARITHMETIC: strands,
+                       upper and lower sheaves and their rope arcs are
+                       four loops (ceil(n/2) above, floor(n/2) below);
+                       the dead end is tied to the upper block for even
+                       n and the lower for odd, at Yu + (Yl - Yu)*(n%2);
+                       the brackets divide by (p > 0) so at rest they
+                       are not drawn.
+                   (d) IT FOUND A PAINTER BUG: pango_cairo_show_layout
+                       leaves a current point, and cairo_arc joins
+                       itself to one -- so every circle, arc or point
+                       drawn after a `text` grew a stray line back to
+                       the text's anchor. Fixed in pn-figure-gui.c
+                       (cairo_new_path after the text). Earlier plates
+                       dodged it only because their texts came last.
+                   (e) CHECKED: tools/figure-preview at eight (n, p)
+                       settings; pipnode-run -t 3 under
+                       G_DEBUG=fatal-warnings exits 0; installs via
+                       make -C examples install DESTDIR=...
              [x] 80.15.2 DONE (2026-09-26): displays/ray-optics.json --
                    a thin lens on an axis, object distance and focal
                    length as knobs, and the three construction rays
@@ -2215,11 +2226,10 @@
                        G_DEBUG=fatal-warnings exits 0 with no warnings;
                        `make -C examples install DESTDIR=...` installs
                        it.
-             [-] 80.15.3 Both get their line in examples/Makefile.am's
-                   displays_DATA, and then `automake &&
-                   ./config.status` (80.9b) or they will not install.
-                   ray-optics.json DONE (2026-09-26); the lever's line
-                   waits for the lever.
+             [x] 80.15.3 DONE (2026-09-26): Both get their line in
+                   examples/Makefile.am's displays_DATA, and then
+                   `automake && ./config.status` (80.9b) or they will
+                   not install.
        [x] 80.16 DECIDED (2026-09-21): ANIMATION -- when an argument
              resolves to a VECTOR the figure becomes a film. Frame i
              takes element i of every vector; scalars broadcast
@@ -2972,7 +2982,7 @@
        nothing more. #80's own header says the point is "worksheets
        that look like the plates in a 19th-century physics book", and
        #80.15 ships exactly two sheets to prove the engine works
-       (lever, ray-optics). This entry is the other thing: a dozen
+       (block and tackle, ray-optics). This entry is the other thing: a dozen
        sheets that are worth opening because of what they TEACH, not
        because of what they test.
        DELIBERATELY NOT DESIGNED YET. Each line below is a subject and

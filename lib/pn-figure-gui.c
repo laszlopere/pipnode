@@ -295,6 +295,12 @@ draw_text (
         g_object_unref (layout);
     }
 
+    /* show_layout leaves a current point behind, and cairo_arc joins
+     * itself to one with a straight line -- so without this every
+     * circle, arc or point after a text grew a stray segment back to
+     * where the text was anchored. */
+    cairo_new_path (cr);
+
     g_strfreev (lines);
 }
 
