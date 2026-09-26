@@ -1,0 +1,109 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "8c56ebf3-eecf-45d4-b815-631cc8061c1b",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "THE TOWER CRANE AND ITS LOAD-MOMENT CONTROLLER -- a Figure that does no physics, drawing what a Calculator 2 decides.  The two knobs are the operator: LOAD m puts tonnes on the hook, REACH r asks for the trolley to run out along the jib.  They do not go to the figure; they go to the controller, which works out where the 12 t counterweight must stand on its 4..15 m track behind the mast so that the moments about the mast cancel (its first lines are the crane's data: trolley and hook 0.5 t, jib steel 3 t at 22 m, counter-jib steel 1.5 t at 7 m).  Every name it assigns leaves on its message beside the answer, so ONE wire carries the request and the answer together and the drawing can never pair a load with a counterweight meant for another; the figure reads them as m1, reach1, ... because a message's members arrive with the input's number appended.  Wind either knob and the counterweight slides to meet it: the two moments in the readout stay equal and the cab lamp stays green.  Until the counterweight reaches its stop -- then the controller refuses the rest of the reach.  The trolley halts at the red mark on the jib (the furthest this load may go, which walks in as the load grows), the reach asked for stays behind as a dotted ghost, and the lamp turns red.  The crane is never out of balance; only the operator's wish is.",
+        "width": 1000.0,
+        "height": 150.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "b27cca18-e117-4fc4-8973-0b3c1c3f7e60",
+      "name": "Load m (t)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 220.0
+      },
+      "properties": {
+        "min": 0.0,
+        "max": 10.0,
+        "value": 3.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "4a1f7c9d-b754-4120-a200-bcec103da067",
+      "name": "Reach r (m)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 300.0
+      },
+      "properties": {
+        "min": 6.0,
+        "max": 42.0,
+        "value": 24.0
+      }
+    },
+    {
+      "type": "PnExpression2",
+      "uuid": "d1a197ca-8618-499f-bb8d-9396565f36b0",
+      "name": "Load-moment controller",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 300.0,
+        "y": 250.0
+      },
+      "properties": {
+        "inputs": 2,
+        "expression": "M = 12\nmt = 0.5\nWj = 3\nWc = 1.5\nxmin = 4\nxmax = 15\nrmin = 6\nrtip = 42\n\nrmax = (M * xmax + Wc * 7 - Wj * 22) / (m + mt)\nreach = clamp(r, rmin, min(rmax, rtip))\nlimited = r > reach + 0.01\n\nx = clamp(((m + mt) * reach + Wj * 22 - Wc * 7) / M, xmin, xmax)\nMfront = (m + mt) * reach + Wj * 22\nMback = M * x + Wc * 7\n\nx\n"
+      },
+      "input-names": {
+        "0": "m",
+        "1": "r"
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "1b7711b1-e10e-4d24-aed6-c7c59f1d64a5",
+      "name": "Tower crane",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 560.0,
+        "y": 200.0
+      },
+      "properties": {
+        "program": "# THE TOWER CRANE AND ITS LOAD-MOMENT CONTROLLER\n#\n# This figure does no physics.  Everything it draws arrives on its one\n# wire from the controller (the Calculator 2 on the left): what the\n# operator asked for, m and r, and what the controller answered -- the\n# reach it allowed and where it put the counterweight.  They travel in\n# ONE message so that the drawing can never show a request next to an\n# answer to a different one.  A message's members arrive named with the\n# input's number appended, hence the 1s; the input itself is named x and\n# carries the controller's headline value, the counterweight position.\n\nm       = m1\nr       = r1\nreach   = reach1\nrmax    = rmax1\nlimited = limited1\nM       = M1\nxmin    = xmin1\nxmax    = xmax1\nrtip    = rtip1\nMfront  = Mfront1\nMback   = Mback1\n\nview -20, -3, 46, 46.5\nalign \"centre\", \"middle\"\n\n# --- the geometry, in metres ----------------------------------------------\nJ  = 24        # the jib's top chord\nB  = J - 2     # its bottom chord, where the trolley runs, at the mast\nH  = 14.5       # the hook's height\nT  = 0.6       # arrows: units per tonne, one scale for both weights\n\n# --- the ground and the footing ------------------------------------------\ncolor \"#202020\"\nwidth 0.5\nline -20, 0, 46, 0\nwidth 0.25\nrepeat 22\n  line -19 + 3 * i, 0, -20 + 3 * i, -1.2\nend\nfill \"#d8d4cc\"\nrect -4, -2, 8, 2\nnofill\n\n# --- the mast, a lattice of panels ---------------------------------------\ncolor \"#b8860b\"\nwidth 0.45\nline -1.2, 0, -1.2, B\nline  1.2, 0,  1.2, B\nwidth 0.25\nrepeat 8\n  line -1.2, B / 8 * i, 1.2, B / 8 * (i + 1)\nend\n\n# --- the jib and the counter-jib, and the apex that ties them -------------\nwidth 0.45\nline 0, J, rtip + 1, J\nline 0, B, rtip + 2, B + 0.8\nline rtip + 1, J, rtip + 2, B + 0.8\nline -17, J, 0, J\nline -17, J - 1.5, 0, J - 1.5\nline -17, J, -17, J - 1.5\nwidth 0.25\nrepeat 21\n  line 2 * i, B + 0.8 * i / 21, 2 * i + 2, J\nend\nrepeat 8\n  line -2 * i, J - 1.5, -2 * i - 2, J\nend\nwidth 0.45\nline -1.2, B, -1.2, J + 6\nline  1.2, B,  1.2, J + 6\nline -1.2, J + 6, 1.2, J + 6\nwidth 0.3\nline 0, J + 6, 30, J\nline 0, J + 6, -16, J\n\n# the cab, and its lamp: green while the crane balances as asked, red\n# when the controller had to refuse part of the reach\ncolor \"#202020\"\nwidth 0.3\nfill \"#e8e4da\"\nrect 1.2, B - 2.6, 3.2, 2.6\nfill \"#2e8b57\"\ncircle 2.8, B - 1.3, 0.6\nfill \"#c0392b\"\ncircle 2.8 / limited, B - 1.3, 0.6\nnofill\n\n# --- the counterweight's track, and the stop at its far end ---------------\ncolor \"#606060\"\nwidth 0.35\nline -xmin, J - 2.2, -xmax, J - 2.2\nfill \"#606060\"\nrect -xmax - 0.8, J - 2.8, 0.6, 1.3\nfill \"#c0392b\"\nrect (-xmax - 0.8) / limited, J - 2.8, 0.6, 1.3\nnofill\n\n# --- the counterweight, hanging from its trolley under the counter-jib ----\ncolor \"#202020\"\nwidth 0.3\nline -x, J - 1.5, -x, J - 2.6\nfill \"#9c9a94\"\nrect -x - 2, J - 8, 4, 5.4\nnofill\ncolor \"#f4efe6\"\nfont 1.9\ntext -x, J - 5.3, \"%.0f t\", M\n\n# --- the ghost of the reach the operator asked for, when it was refused ---\nrg = r / limited\ncolor \"#c0392b\"\nwidth 0.3\ndash \"dot\"\nline rg, B, rg, H\ncircle rg, H - 0.6, 0.6\ndash \"solid\"\n\n# --- the load trolley, the hook and the load --------------------------------\nyt = B + 0.8 * reach / (rtip + 2)\ncolor \"#202020\"\nwidth 0.3\nfill \"#606060\"\nrect reach - 1, yt - 0.8, 2, 0.8\nnofill\nline reach, yt - 0.8, reach, H\nfill \"#606060\"\ncircle reach, H - 0.6, 0.6\nnofill\ns = 2.2 * cbrt(m)\nline reach, H - 1.2, reach, H - 2\nfill \"#5b4a3a\"\nrect reach - s / 2, H - 2 - s, s, s\nnofill\n\n# the furthest this load may go, marked on the jib in the readout's red\nrf = rmax / (rmax < rtip)\ncolor \"#c0392b\"\nwidth 0.6\nline rf, B - 1, rf, J + 1\n\n# --- the two weights, drawn to one scale ------------------------------------\nah = 1.2\naw = 0.7\nyl = H - 2.6 - s\nyc = J - 8.6\ncolor \"#3a5a9b\"\nfill  \"#3a5a9b\"\nwidth 0.45\nline reach, yl, reach, yl - T * (m + 0.5) + ah\npoly reach, yl - T * (m + 0.5), reach - aw, yl - T * (m + 0.5) + ah,\n     reach + aw, yl - T * (m + 0.5) + ah\nline -x, yc, -x, yc - T * M + ah\npoly -x, yc - T * M, -x - aw, yc - T * M + ah, -x + aw, yc - T * M + ah\nnofill\n\n# ======================================================================\n#  THE READOUT\n# ======================================================================\ncolor \"#202020\"\nfont 2.4\nalign \"right\", \"top\"\ntext 45, 45.5, \"load  m = %.1f t     reach = %.1f m\", m, reach\ntext 45, 42.5, \"counterweight  x = %.1f m back\", x\ntext 45, 39.5, \"moments  %.0f t·m = %.0f t·m\", Mfront, Mback\ncolor \"#c0392b\"\ntext 45 / (rmax < rtip), 36.5, \"most reach for this load  %.1f m\", rmax\ntext 45 / limited, 33.5, \"asked for %.1f m -- refused\", r\n",
+        "inputs": 1,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "x"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "b27cca18-e117-4fc4-8973-0b3c1c3f7e60",
+      "target_id": "d1a197ca-8618-499f-bb8d-9396565f36b0"
+    },
+    {
+      "source_id": "4a1f7c9d-b754-4120-a200-bcec103da067",
+      "target_id": "d1a197ca-8618-499f-bb8d-9396565f36b0",
+      "target_input": 1
+    },
+    {
+      "source_id": "d1a197ca-8618-499f-bb8d-9396565f36b0",
+      "target_id": "1b7711b1-e10e-4d24-aed6-c7c59f1d64a5"
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
