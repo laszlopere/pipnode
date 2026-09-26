@@ -3529,6 +3529,25 @@ figure_restart_film (
     figure_ensure_film (self);
 }
 
+/* After new data or a new program: a film of a DIFFERENT LENGTH is a
+ * new film and starts at the beginning (80.17b); one of the same length
+ * is the same film with new values, and carries on from the frame it
+ * was on.  That is what lets a knob reshape a swinging pendulum without
+ * snapping it back to frame 0 on every step (82.3d, amended). */
+static void
+figure_continue_film (
+        PnFigure *self,
+        guint     old_count)
+{
+    if (pn_figure_get_frame_count (self) != old_count)
+    {
+        figure_restart_film (self);
+        return;
+    }
+
+    figure_ensure_film (self);
+}
+
 gboolean
 pn_figure_is_playing (
         PnFigure *self)
@@ -3698,6 +3717,7 @@ pn_figure_receive (
 {
     PnFigure  *self = PN_FIGURE (node);
     GPtrArray *ops;
+    guint      old_count = pn_figure_get_frame_count (self);
 
     /* Re-latch: clear and refill, which is 80.8(e)'s answer to the fact
      * that a figure repaints long after the message.  The core has
@@ -3707,9 +3727,9 @@ pn_figure_receive (
     pn_expr_bind_collated (node, message, figure_bind_into_snapshot,
                            self->snapshot);
 
-    /* New data is a new film (80.17b) -- before the render below, so
-     * the error state is judged on frame 0 and not a stale index. */
-    figure_restart_film (self);
+    /* Before the render below, so the error state is judged on the
+     * frame that will actually be shown. */
+    figure_continue_film (self, old_count);
 
     /* Resolve once at the at-rest client rectangle, purely so the
      * `error` property is right straight away (80.10f) — a headless
@@ -3816,11 +3836,14 @@ pn_figure_set_property (
 
             if (g_strcmp0 (self->program, s) != 0)
             {
+                guint old_count = pn_figure_get_frame_count (self);
+
                 g_free (self->program);
                 self->program = g_strdup (s != NULL ? s : "");
                 figure_recompile (self);
-                /* A different program is a different film. */
-                figure_restart_film (self);
+                /* An edit keeps a swinging figure swinging, unless it
+                 * changed how long the film is. */
+                figure_continue_film (self, old_count);
                 g_object_notify_by_pspec (object, props[PROP_PROGRAM]);
                 /* Straight through, not throttled: this is somebody
                  * typing, and the whole point of the code editor is

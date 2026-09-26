@@ -339,8 +339,10 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       Inside a <code>repeat</code> a vector is still a film, never a
       loop: <code>a</code> above is a vector over the film on every
       pass, while <code>i</code> is always a plain number.</li>
-  <li><strong>Playing.</strong> New data, or a changed program, starts
-      the film again from its first frame. The film plays only while an
+  <li><strong>Playing.</strong> New data, or an edited program, keeps
+      the film playing from the frame it is on, so a knob on a
+      pendulum's length changes the swing without restarting it. Only a
+      film of a different length starts again from its first frame. The film plays only while an
       editor has its worksheet open; run without one, a figure uses no
       timer.</li>
   <li><strong>No per-frame conditions.</strong> A comparison reduces a

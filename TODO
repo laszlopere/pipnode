@@ -3008,6 +3008,15 @@
                  restart a ONCE film sitting on its last frame.
              (d) THE INDEX RESETS TO 0 on new data AND on a program
                  edit -- a different program is a different film.
+                 AMENDED (2026-09-26), after the first GUI run with
+                 knobs on the pendulum: every knob step snapped the
+                 swing back to frame 0, so turning a knob froze it. Now
+                 figure_continue_film() rewinds ONLY WHEN THE FRAME
+                 COUNT CHANGES; the same length with new values (a
+                 knob, a same-length vector, an edit) keeps the frame.
+                 Consequence worth knowing: a finished ONCE film is not
+                 replayed by same-length data any more. Test:
+                 timer_knob; timer_watched now asserts both halves.
              (e) KNOWN AND ACCEPTED: the long-lived engine
                  (--gapplication-service) keeps worksheets in a hidden
                  window, so they are listeners and a film there ticks

@@ -3138,14 +3138,57 @@ test_a_watched_film_plays_and_stops_when_unwatched (void)
     PN_CHECK (pump_until (at_last_frame, PN_FIGURE (self)));
     PN_CHECK_CMPINT (repaints, >=, 2);
 
-    /* New data restarts the film at frame 0 (80.17b). */
-    send_vector (self, numbers, 3);
-    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
+    /* New data of the same length is the same film with new values:
+     * it carries on from where it stands.  A different length is a new
+     * film and starts again at frame 0 (80.17b, 82.3d amended). */
+    {
+        const gdouble longer[] = { 1.0, 2.0, 3.0, 4.0 };
+        guint         before   = pn_figure_get_frame (PN_FIGURE (self));
+
+        send_vector (self, numbers, 3);
+        PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, before);
+
+        send_vector (self, longer, 4);
+        PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
+    }
 
     /* The listener goes -- a node lifted out of its worksheet -- and
      * the next tick stops the timer rather than ticking on. */
     g_signal_handler_disconnect (self, handler);
     PN_CHECK (pump_until (stopped, PN_FIGURE (self)));
+
+    g_object_unref (self);
+}
+
+static gboolean
+past_frame_five (PnFigure *figure)
+{
+    return pn_figure_get_frame (figure) > 5;
+}
+
+static void
+test_a_knob_does_not_rewind_the_film (void)
+{
+    PnNode *self     = node ("circle 50, 50, value1 * (1 + t)", 1);
+    gint    repaints = 0;
+    guint   before;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+    g_object_set (self, "frames", 50, "fps", 60, NULL);
+    PN_CHECK (pump_until (past_frame_five, PN_FIGURE (self)));
+
+    /* A scalar input turning -- a knob on a pendulum's length -- is
+     * the same fifty-frame film with a new value: the swing carries on
+     * instead of snapping back to frame 0 on every step. */
+    before = pn_figure_get_frame (PN_FIGURE (self));
+    send (self, 0, "value", 3.0);
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, before);
+    PN_CHECK (pn_figure_is_playing (PN_FIGURE (self)));
+
+    /* So does an edit that leaves the length alone. */
+    g_object_set (self, "program", "circle 50, 50, value1 * (2 - t)", NULL);
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, before);
 
     g_object_unref (self);
 }
@@ -3492,6 +3535,7 @@ main (int argc, char **argv)
     pn_test_add ("timer_past_the_end",  test_a_frame_past_the_end_steps_from_inside);
     pn_test_add ("timer_headless",      test_a_headless_film_does_not_tick);
     pn_test_add ("timer_watched",       test_a_watched_film_plays_and_stops_when_unwatched);
+    pn_test_add ("timer_knob",          test_a_knob_does_not_rewind_the_film);
     pn_test_add ("timer_still",         test_a_still_does_not_tick_even_when_watched);
     pn_test_add ("timer_late_watcher",  test_a_late_watcher_starts_the_film_on_paint);
     pn_test_add ("anim_defaults",       test_the_animation_properties_default);
