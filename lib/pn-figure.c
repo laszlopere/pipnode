@@ -1605,6 +1605,44 @@ pn_figure_snapshot_set_vector (
     g_hash_table_insert (self->values, g_strdup (name), slot);
 }
 
+/* The shortest input, not the longest, although vector OP vector takes
+ * the LONGER length with the tail passing through verbatim (80.3f).
+ * That tail is arithmetic's way of saying something rather than
+ * failing; a figure would say it as a picture in which, from some frame
+ * on, a lever is still swinging on data it no longer has.  Every frame
+ * of the shortest film is drawn from real values of every input.  The
+ * film therefore does not match the arithmetic exactly, and cannot:
+ * `a * b` of a 2-vector and a 3-vector is two frames here, and the
+ * third element of the product is never shown. */
+guint
+pn_figure_frame_count (
+        GPtrArray              *free_names,
+        const PnFigureSnapshot *snapshot,
+        guint                   frames)
+{
+    guint count = frames;
+    guint n;
+
+    for (n = 0; snapshot != NULL && free_names != NULL
+                && n < free_names->len; n++)
+    {
+        const PnExprValue *value;
+
+        value = g_hash_table_lookup (snapshot->values,
+                                     g_ptr_array_index (free_names, n));
+        if (value == NULL || value->vec == NULL)
+            continue;
+
+        if (count == 0 || pn_vector_get_len (value->vec) < count)
+            count = pn_vector_get_len (value->vec);
+
+        if (count == 0)
+            return 0;
+    }
+
+    return count == 0 ? 1 : count;
+}
+
 /* Puts one snapshot entry into the store the frame will run against. */
 static void
 snapshot_apply_one (

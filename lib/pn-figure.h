@@ -577,6 +577,31 @@ void pn_figure_snapshot_set_vector (PnFigureSnapshot *self,
                                     const gchar      *name,
                                     PnVector         *vec);
 
+/**
+ * pn_figure_frame_count:
+ * @free_names: (nullable) (element-type utf8): what the program reads,
+ *              from pn_figure_free_names()
+ * @snapshot:   (nullable): the latched inputs
+ * @frames:     the explicit count, 0 to take it from the data (80.17a)
+ *
+ * How many frames the film has (TODO #82.1): the SHORTEST of every
+ * vector input the program reads and of @frames when it is non-zero.
+ * A vector input the program never reads does not count.
+ *
+ * Measured at the inputs, because the inputs are the only place a
+ * vector can come from -- every operator and function is elementwise,
+ * a comparison collapses to a scalar, and the tail rule only ever
+ * LENGTHENS -- so every vector argument is at least this long and the
+ * frame indexer never runs off an end.  And it is known before the
+ * program runs, which is what lets `t` and `frame` be bound up front.
+ *
+ * Returns: 1 for a still figure; 0 when a vector the program reads is
+ *   EMPTY, so there is no frame to draw.
+ */
+guint pn_figure_frame_count (GPtrArray              *free_names,
+                             const PnFigureSnapshot *snapshot,
+                             guint                   frames);
+
 /* ------------------------------------------------------------------ */
 /*  The resolved display list                                          */
 /*                                                                     */

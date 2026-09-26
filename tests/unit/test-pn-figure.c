@@ -1956,6 +1956,110 @@ test_a_vector_argument_is_an_error (void)
     pn_figure_snapshot_free (snapshot);
 }
 
+/* Binds @name to a vector of @len elements 0, 1, 2, ... */
+static void
+snapshot_ramp (PnFigureSnapshot *snapshot,
+               const gchar      *name,
+               gsize             len)
+{
+    gdouble  *numbers = g_new0 (gdouble, MAX (len, 1));
+    PnVector *vec;
+    gsize     i;
+
+    for (i = 0; i < len; i++)
+        numbers[i] = (gdouble) i;
+
+    vec = pn_vector_new_copy (numbers, len);
+    pn_figure_snapshot_set_vector (snapshot, name, vec);
+    g_object_unref (vec);
+    g_free (numbers);
+}
+
+static void
+test_a_still_figure_is_one_frame (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("circle 50, 50, r");
+
+    /* No vector anywhere is a still: one frame, not zero -- and a
+     * scalar input changes nothing. */
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, NULL, 0), ==, 1);
+    pn_figure_snapshot_set (snapshot, "r", 5.0);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 0), ==, 1);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_the_shortest_vector_sets_the_frame_count (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, a * b, c");
+
+    /* The arithmetic would make `a * b` three elements long with a
+     * pass-through tail; the film stops at two, where every input
+     * still has a real value (TODO #82.1). */
+    snapshot_ramp (snapshot, "a", 2);
+    snapshot_ramp (snapshot, "b", 3);
+    pn_figure_snapshot_set (snapshot, "c", 1.0);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 0), ==, 2);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_unread_vector_does_not_count (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("circle 50, 50, a");
+
+    /* A wire the program ignores must not cut the film short. */
+    snapshot_ramp (snapshot, "a", 10);
+    snapshot_ramp (snapshot, "unused", 3);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 0), ==, 10);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_explicit_count_joins_the_minimum (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("circle 50, 50, a");
+
+    /* With no vector input `frames` IS the film -- a wheel that turns
+     * with nothing wired to it (80.17e).  With one, it is just another
+     * length in the minimum: it can shorten the film, never stretch it
+     * past the data. */
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, NULL, 40), ==, 40);
+    snapshot_ramp (snapshot, "a", 10);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 4), ==, 4);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 40), ==, 10);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_empty_vector_leaves_no_frame (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, a, b");
+
+    /* Zero, not one: there is no element 0 to draw, whatever `frames`
+     * asks for. */
+    snapshot_ramp (snapshot, "a", 5);
+    snapshot_ramp (snapshot, "b", 0);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 0), ==, 0);
+    PN_CHECK_CMPINT (pn_figure_frame_count (f.names, snapshot, 8), ==, 0);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
 static void
 test_the_text_format_is_filled_in (void)
 {
@@ -2718,6 +2822,11 @@ main (int argc, char **argv)
     pn_test_add ("back_skip_non_finite", test_a_non_finite_value_skips_its_statement);
     pn_test_add ("back_skip_degenerate", test_a_zero_radius_skips_its_statement);
     pn_test_add ("back_vector",         test_a_vector_argument_is_an_error);
+    pn_test_add ("film_still",          test_a_still_figure_is_one_frame);
+    pn_test_add ("film_shortest",       test_the_shortest_vector_sets_the_frame_count);
+    pn_test_add ("film_unread",         test_an_unread_vector_does_not_count);
+    pn_test_add ("film_explicit",       test_an_explicit_count_joins_the_minimum);
+    pn_test_add ("film_empty",          test_an_empty_vector_leaves_no_frame);
     pn_test_add ("back_text_format",    test_the_text_format_is_filled_in);
     pn_test_add ("back_locale",         test_the_dump_is_locale_independent);
     pn_test_add ("back_specimen",       test_the_specimen_draws);

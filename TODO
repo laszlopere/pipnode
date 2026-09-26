@@ -1441,9 +1441,10 @@
                  map element by element; and a COMPARISON REDUCES a
                  vector operand to a single 0/1 scalar. Two consequences
                  for the animation work, written down now instead of
-                 being discovered in a debugger: the frame count must be
-                 the SHORTEST vector argument, not the longest, or the
-                 figure disagrees with its own arithmetic; and a
+                 being discovered in a debugger: the frame count is the
+                 SHORTEST vector input (re-decided on its own grounds
+                 in TODO #82.1 -- the "disagrees with its arithmetic"
+                 reason that stood here was wrong); and a
                  per-frame conditional cannot be written as a comparison
                  against a vector, because the comparison collapses
                  before the frame indexer ever sees it.
@@ -2188,16 +2189,16 @@
        [x] 80.16 DECIDED (2026-09-21): ANIMATION -- when an argument
              resolves to a VECTOR the figure becomes a film. Frame i
              takes element i of every vector; scalars broadcast
-             unchanged; the frame count is the SHORTEST vector (see
-             80.3f -- vector OP vector already truncates to the shorter
-             operand, and the figure must not disagree with its own
-             arithmetic).
-             REOPENED (2026-09-22): that parenthesis rests on a reading
-             of PnVarStore that turned out to be wrong -- the real rule
-             is the LONGER length with a pass-through tail, see the
-             correction in 80.3(f). The frame count is therefore an
-             open choice again and TODO #82.1 has to make it; shortest
-             may well still win, but not for the reason written here.
+             unchanged; the frame count is the SHORTEST vector INPUT
+             the program reads, and that is on purpose, NOT because
+             the arithmetic truncates -- it does not (80.3f). Every
+             frame is drawn from real values of every input; the
+             reasoning is in TODO #82.1.
+             REOPENED (2026-09-22) and RE-DECIDED (2026-09-26, TODO
+             #82.1): the original parenthesis claimed vector OP vector
+             truncates to the shorter operand, which was a misreading
+             of PnVarStore -- see the correction in 80.3(f). Shortest
+             won again, for the reason now given above.
              The whole animation strand left this entry with it: #80
              closes on the still figure, and #82 is where the film is
              built.
@@ -2887,20 +2888,50 @@
        are done and a still figure draws -- so this is buildable now,
        not blocked.
 
-       [ ] 82.1 THE FRAME COUNT, and it goes first because everything
-             else indexes with it. 80.16 chose "the shortest vector"
-             on the reasoning that vector OP vector truncates to the
-             shorter operand; 80.3(f) was CORRECTED on 2026-09-22 after
-             reading pn-var-store.c rather than its prose, and the real
-             rule is the LONGER length with the surviving tail passing
-             through verbatim -- [2,3] * [3,4,5] = [6,12,5]. So the
-             figure cannot match its own arithmetic exactly whichever
-             way it goes: under the tail rule a 2-vector times a
-             3-vector is three frames whose last frame used no first
-             operand at all. Shortest may well still be the right
-             answer -- it just needs a new reason. Whatever is chosen,
-             fix 80.16's parenthesis to match instead of leaving the
-             two entries contradicting each other.
+       [x] 82.1 DECIDED AND BUILT (2026-09-26): THE FRAME COUNT IS THE
+             SHORTEST VECTOR INPUT THE PROGRAM READS, with `frames`,
+             when non-zero, as one more length in that minimum.
+             pn_figure_frame_count() in lib/pn-figure.c. The new
+             reason, since the old one did not survive 80.3(f)'s
+             correction:
+             (a) MEASURED AT THE INPUTS, NOT AT THE ARGUMENTS. Read
+                 out of pn-expr-funcs.c and pn-var-store.c: every
+                 operator and every function is elementwise, a
+                 comparison collapses to a scalar, and nothing builds
+                 a vector from scalars. So a vector can only ENTER a
+                 program through a bound variable, and since the tail
+                 rule only ever lengthens, every vector argument is at
+                 least as long as the shortest input it depends on.
+                 The frame indexer (82.2) therefore never runs off an
+                 end and needs no rule for "past the end".
+             (b) SHORTEST, because every frame of that film is drawn
+                 from REAL values of every input. The tail rule is
+                 arithmetic's way of answering instead of failing; as
+                 a picture it would be a lever still swinging on data
+                 it no longer has. The figure deliberately does not
+                 match the arithmetic: `a * b` of a 2-vector and a
+                 3-vector is two frames, and the product's third
+                 element is never shown. Say so in the help (82.6).
+             (c) ONLY INPUTS THE PROGRAM READS count (the free-name
+                 list of 80.2 rule 12), so a wire the program ignores
+                 cannot cut the film short. Known limit: an input the
+                 program shadows with an assignment still counts,
+                 because free_names includes assigned-and-read names
+                 on purpose.
+             (d) `frames` > 0 JOINS THE MINIMUM rather than overriding
+                 it: with no vector input it IS the film (the turning
+                 wheel of 80.17e); with one it can shorten the film,
+                 never stretch it past the data -- the same "every
+                 frame is real" rule, applied once more.
+             (e) AN EMPTY VECTOR the program reads gives 0 frames,
+                 whatever `frames` says -- there is no element 0 to
+                 draw. How the node SHOWS a zero-frame film is 82.2's
+                 to decide (likely the 80.10c message path: nothing
+                 drawn, a line saying which input is empty).
+             (f) KNOWN BEFORE THE PROGRAM RUNS -- the real dividend:
+                 see the note added to 82.5.
+             Tests: film_still, film_shortest, film_unread,
+             film_explicit, film_empty in tests/unit/test-pn-figure.c.
        [ ] 82.2 THE FRAME INDEX AT PAINT TIME (80.16a): evaluate the
              program ONCE for the whole film and take element i of
              every vector when painting frame i, scalars broadcasting
@@ -2934,6 +2965,13 @@
              a second evaluation pass learns N first, run only for the
              programs that actually mention `t` or `frame`. At most two
              evaluations, only on input change.
+             NOTE FROM 82.1 (2026-09-26): the second pass is NO LONGER
+             NEEDED. The frame count is measured from the snapshot
+             before anything is evaluated, so `t` and `frame` can be
+             bound up front in every case and one evaluation does it.
+             The free-identifier check is still worth keeping, to skip
+             building the two vectors for programs that never read
+             them.
        [ ] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
              pixel-free, asserting the frame count, the index-to-value
              mapping and the timer's no-listener rule in
