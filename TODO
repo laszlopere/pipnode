@@ -3334,3 +3334,31 @@
              ghost started 0.01 deg further out shows the chaos. ~190 ms
              per knob change (two pendulums), 0.8 ms per frame.
              PnFigure.html's Animation section grew "What it costs".
+
+[ ] 89 FIGURES THE USER BALANCES BY HAND -- the other side of #88
+       (archived): there a controller held the plate in equilibrium; here
+       the USER is the controller, turning knobs while watching the
+       figure until it balances.
+       [x] 89.1 DONE (2026-09-26): displays/beam-balance.json -- a
+             two-beam laboratory balance.  An AutoRandom (period 30 s,
+             uniform 5..500 g) puts an anonymous sample on the pan; knobs
+             RIDER A (0..480 g, 24 detents = one 20 g notch each) and
+             RIDER B (0..24 g, one gram a detent) slide the riders.  The
+             figure (inputs sample, A, B) rounds the sample to whole
+             grams, tips the beam by 8 deg * tanh(net / 3) -- a gram is
+             visible, twenty put it on its stop -- and says which way to
+             go.  At net = 0 the pointer sits on the green zero mark and
+             only then is the sample's mass printed; until then the block
+             carries a "?".  Every point on the beam is rotated by hand,
+             (px + u c - v s, py + u s + v c), notches and scale numbers
+             included, the numbers staying upright (80.7h).
+             NO CALCULATOR ON PURPOSE: the knobs' detents ARE the
+             instrument's notches, chosen so that range / 24 is exactly
+             one notch, which is what makes every whole-gram sample
+             reachable.
+             CHECKED: tools/figure-preview at eight (sample, A, B)
+             settings, balanced / either side / unwired; pipnode-run -t 3
+             under G_DEBUG=fatal-warnings exits 0; in a throwaway editor
+             the first sample arrives about a second after load
+             (PN_AUTO_TRIGGER_FIRST_DELAY) and the figure's `error` stays
+             empty; installs via make -C examples install DESTDIR=...

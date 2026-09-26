@@ -1,0 +1,112 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnComment",
+      "uuid" : "fad69cd1-c950-46da-9e27-2299e4b2690d",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 20.0
+      },
+      "properties" : {
+        "text" : "THE BEAM BALANCE -- a weighing you do yourself.  Every 30 seconds the AutoRandom puts a new sample on the pan, somewhere between 5 and 500 g, and the plate never tells you what it weighs.  You are the controller this time.  Spin the wheel over the two knobs to slide the riders along the beams: RIDER A is the heavy one, 0..480 g in notches of 20; RIDER B is the light one, 0..24 g in single grams.  The beam tips towards whichever side is heavier -- a gram moves it visibly, twenty grams put it on its stop -- and the readout tells you which way to go.  Bring the pointer onto the green zero mark and the riders ARE the sample: only then does the plate say how much it weighs.  Then the next one lands.  Coarse first, then fine: find the notch on A where the beam flips, back off one, and finish with B.",
+        "width" : 1000.0,
+        "height" : 130.0,
+        "text-size" : 13.0
+      }
+    },
+    {
+      "type" : "PnAutoRandom",
+      "uuid" : "a30bd07d-2db6-453d-98d6-7743623bdaa7",
+      "name" : "New sample every 30 s",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 190.0
+      },
+      "properties" : {
+        "period" : 30,
+        "output" : "A new sample on the pan.",
+        "min" : 5.0,
+        "max" : 500.0,
+        "distribution" : "uniform",
+        "success" : true
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "2dda832e-4993-4d13-ab28-41322a28f3a9",
+      "name" : "Rider A (g)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 480.0,
+        "value" : 240.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "f24a64ee-25df-4fe2-8421-0d774ea24da0",
+      "name" : "Rider B (g)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 360.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 24.0,
+        "value" : 12.0
+      }
+    },
+    {
+      "type" : "PnFigure",
+      "uuid" : "d9624a4f-dcb8-4a79-a074-7b4e5278518e",
+      "name" : "Beam balance",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 340.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "program" : "# THE BEAM BALANCE -- a weighing you do yourself\n#\n# Every 30 seconds a new sample lands on the pan: `sample`, from the\n# AutoRandom, somewhere between 5 and 500 g.  The plate never prints it.\n# You slide the two riders with the knobs -- A, the heavy one, 0..480 g\n# in notches of 20; B, the light one, 0..24 g in single grams -- and the\n# beam tips towards whichever side is heavier.  When the pointer sits on\n# the zero mark the riders ARE the sample, and only then does the plate\n# say so.\n\nm  = round(sample)\nAr = round(A / 20) * 20\nBr = round(B)\nnet = m - Ar - Br\n\n# the beam tips a little per gram and then rests on its stops\nth = radians(8 * tanh(net / 3))\nc  = cos(th)\ns  = sin(th)\nok = abs(net) < 0.5\nhas = m > 0\n\nview -66, -49.5, 66, 49.5\nalign \"centre\", \"middle\"\n\n# --- where the beam turns ---------------------------------------------------\npx = -30\npy = 12\n\n# --- the base and the pillar ------------------------------------------------\ncolor \"#202020\"\nwidth 0.5\nfill \"#d8d4cc\"\nrect -62, -14, 124, 4\nnofill\nfill \"#9c9a94\"\npoly px - 3, -10, px + 3, -10, px + 1.2, py - 1, px - 1.2, py - 1\npoly px, py, px - 2, py - 3, px + 2, py - 3\nnofill\n\n# the post at the far end, with the zero mark the pointer must find\npx2 = 62\nwidth 0.5\nline px2, -10, px2, py + 10\nwidth 0.3\nrepeat 9\n  line px2 - 1.5 - (i == 4), py - 1.5 + 2 * (i - 4), px2, py - 1.5 + 2 * (i - 4)\nend\ncolor \"#2e8b57\"\nwidth 0.6\nline px2 - 3, py - 1.5, px2, py - 1.5\n\n# --- the beams: two bars, turned with the beam --------------------------------\n# a point (u, v) in the beam's own frame is (px + u c - v s, py + u s + v c)\ncolor \"#202020\"\nwidth 0.4\nfill \"#c9b27c\"\npoly px - 24 * c, py - 24 * s,\n     px + 86 * c, py + 86 * s,\n     px + 86 * c - 3 * s, py + 86 * s + 3 * c,\n     px - 24 * c - 3 * s, py - 24 * s + 3 * c\npoly px + 4 * c + 4 * s, py + 4 * s - 4 * c,\n     px + 86 * c + 4 * s, py + 86 * s - 4 * c,\n     px + 86 * c + 7 * s, py + 86 * s - 7 * c,\n     px + 4 * c + 7 * s, py + 4 * s - 7 * c\nnofill\n# the pointer, off the end of the beam\nwidth 0.5\nline px + 86 * c + 1.5 * s, py + 86 * s - 1.5 * c,\n     px + 91 * c + 1.5 * s, py + 91 * s - 1.5 * c\n\n# notches: beam A every 20 g (3 units), beam B every gram (3 units)\nwidth 0.25\nrepeat 25\n  line px + (8 + 3 * i) * c - 3 * s, py + (8 + 3 * i) * s + 3 * c,\n       px + (8 + 3 * i) * c - (3 - 1 - (i % 5 == 0)) * s,\n       py + (8 + 3 * i) * s + (3 - 1 - (i % 5 == 0)) * c\nend\nrepeat 25\n  line px + (8 + 3 * i) * c + 4 * s, py + (8 + 3 * i) * s - 4 * c,\n       px + (8 + 3 * i) * c + (4 + 1 + (i % 5 == 0)) * s,\n       py + (8 + 3 * i) * s - (4 + 1 + (i % 5 == 0)) * c\nend\nfont 2.6\ncolor \"#606060\"\nrepeat 5\n  text px + (8 + 15 * i) * c - 6 * s, py + (8 + 15 * i) * s + 6 * c, \"%.0f\", 100 * i\nend\nrepeat 5\n  text px + (8 + 15 * i) * c + 10 * s, py + (8 + 15 * i) * s - 10 * c, \"%.0f\", 5 * i\nend\n\n# --- the riders -------------------------------------------------------------\nua = 8 + 3 * Ar / 20\nub = 8 + 3 * Br\ncolor \"#202020\"\nwidth 0.35\nfill \"#3a5a9b\"\npoly px + (ua - 1.4) * c - 3 * s, py + (ua - 1.4) * s + 3 * c,\n     px + (ua + 1.4) * c - 3 * s, py + (ua + 1.4) * s + 3 * c,\n     px + (ua + 1.4) * c - 5.5 * s, py + (ua + 1.4) * s + 5.5 * c,\n     px + (ua - 1.4) * c - 5.5 * s, py + (ua - 1.4) * s + 5.5 * c\nfill \"#8a5a2b\"\npoly px + (ub - 1) * c + 4 * s, py + (ub - 1) * s - 4 * c,\n     px + (ub + 1) * c + 4 * s, py + (ub + 1) * s - 4 * c,\n     px + (ub + 1) * c + 2 * s, py + (ub + 1) * s - 2 * c,\n     px + (ub - 1) * c + 2 * s, py + (ub - 1) * s - 2 * c\nnofill\n\n# --- the pan, which stays level while its stem rides the beam ----------------\nxs = px - 20 * c\nys = py - 20 * s\ncolor \"#202020\"\nwidth 0.5\nline xs, ys + 3, xs, ys + 12\nfill \"#b8b8b0\"\nrect xs - 12, ys + 12, 24, 1.2\nnofill\n\n# the sample: a block as big as its mass, anonymous until you find it\nk = 3 * cbrt(m / 10) / has\nfill \"#5b4a3a\"\nrect xs - k / 2, ys + 13.2, k, k\nnofill\ncolor \"#f4efe6\"\nfont 3.4\ntext xs / (has * (ok == 0)), ys + 13.2 + k / 2, \"?\"\n\n# ========================================================================\n#  THE READOUT\n# ========================================================================\ncolor \"#202020\"\nfont 4.2\nalign \"left\", \"top\"\ntext -62, -18, \"riders  %.0f g + %.0f g = %.0f g\", Ar, Br, Ar + Br\ncolor \"#b03a2e\"\ntext -62 / (has * (net > 0.5)), -24, \"the pan is heavier -- add weight\"\ntext -62 / (has * (net < -0.5)), -24, \"the riders are heavier -- take some off\"\ncolor \"#2e8b57\"\nfont 5\ntext -62 / (has * ok), -24, \"balanced: the sample is %.0f g\", m\ncolor \"#202020\"\nfont 5\nalign \"right\", \"top\"\ntext 64, 47, \"The beam balance\"\ncolor \"#606060\"\nfont 3.6\ntext 64, 41, \"a new sample every 30 s\"\ntext 64 / (has == 0), 36.5, \"waiting for the first one...\"\n",
+        "inputs" : 3,
+        "background-color" : "rgb(250,249,245)",
+        "font-family" : "",
+        "stretch" : false
+      },
+      "input-names" : {
+        "0" : "sample",
+        "1" : "A",
+        "2" : "B"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "a30bd07d-2db6-453d-98d6-7743623bdaa7",
+      "target_id" : "d9624a4f-dcb8-4a79-a074-7b4e5278518e"
+    },
+    {
+      "source_id" : "2dda832e-4993-4d13-ab28-41322a28f3a9",
+      "target_id" : "d9624a4f-dcb8-4a79-a074-7b4e5278518e",
+      "target_input" : 1
+    },
+    {
+      "source_id" : "f24a64ee-25df-4fe2-8421-0d774ea24da0",
+      "target_id" : "d9624a4f-dcb8-4a79-a074-7b4e5278518e",
+      "target_input" : 2
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
