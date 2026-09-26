@@ -521,10 +521,9 @@ gchar *pn_figure_errors_to_string (GPtrArray *errors);
 /*  name -> value table the node refills when a message arrives and    */
 /*  the resolver re-applies to a cleared store before every frame.     */
 /*                                                                     */
-/*  A value may be a vector, because an input may be one.  Nothing     */
-/*  here objects: a vector is an error only where it reaches an        */
-/*  ARGUMENT, which is the one place a message can name the line it    */
-/*  went wrong on (80.10c).                                            */
+/*  A value may be a vector, because an input may be one, and a vector */
+/*  is what makes a figure a film (80.16): the resolver picks one      */
+/*  element of it per frame, at the ARGUMENT where it lands.           */
 /* ------------------------------------------------------------------ */
 
 typedef struct _PnFigureSnapshot PnFigureSnapshot;
@@ -714,6 +713,9 @@ typedef struct
  *              from pn_figure_free_names(); anything the snapshot does
  *              not supply is bound to 0 (80.2 rule 12)
  * @snapshot:   (nullable): the latched inputs (80.8e)
+ * @index:      the frame, 0-based: a vector argument contributes this
+ *              element of itself, a scalar the same value in every
+ *              frame (80.16, 82.2).  0 for a still.
  * @x:          device rectangle: left
  * @y:          ... top
  * @w:          ... width
@@ -727,13 +729,19 @@ typedef struct
  * snapshot, then every statement in order, into a device-space display
  * list.
  *
+ * The program is NOT re-run with each vector replaced by its element:
+ * the store is elementwise, so evaluating it with the vectors in place
+ * already computes the whole film, and @index only chooses which
+ * element of each argument is drawn (80.16a).
+ *
  * The three error classes of 80.10 are three different things here.  A
  * PROGRAM error never reaches this function -- the front end kept the
  * statement out.  A runtime VALUE problem, which is what a knob winding
  * through zero produces, skips its statement, leaves a
  * %PN_FIGURE_OP_SKIP marker saying why, and lets the rest of the figure
- * draw.  A runtime TYPE problem -- a vector where a scalar is wanted --
- * is none of those: winding a knob will not cure it, so it empties the
+ * draw.  A runtime TYPE problem -- a vector argument with no element
+ * @index, empty or shorter than pn_figure_frame_count() promised -- is
+ * none of those: winding a knob will not cure it, so it empties the
  * list and sets @out_error, and the node paints red.
  *
  * Nothing is drawn until everything is resolved (80.10d), which is what
@@ -746,6 +754,7 @@ typedef struct
 GPtrArray *pn_figure_resolve (GPtrArray              *statements,
                               GPtrArray              *free_names,
                               const PnFigureSnapshot *snapshot,
+                              guint                   index,
                               gdouble                 x,
                               gdouble                 y,
                               gdouble                 w,
@@ -812,6 +821,28 @@ G_DECLARE_FINAL_TYPE (PnFigure, pn_figure, PN, FIGURE, PnNode)
 PnFigure *pn_figure_new (void);
 
 /**
+ * pn_figure_get_frame_count:
+ * @self: the figure
+ *
+ * pn_figure_frame_count() for the current program and latched inputs.
+ *
+ * Returns: 1 for a still, 0 when an input the program reads is an
+ *   empty vector.
+ */
+guint pn_figure_get_frame_count (PnFigure *self);
+
+/**
+ * pn_figure_get_frame:
+ * @self: the figure
+ *
+ * The frame pn_figure_render() draws: the node's current frame, already
+ * brought inside the film when a new message shortened it.
+ *
+ * Returns: the 0-based frame index.
+ */
+guint pn_figure_get_frame (PnFigure *self);
+
+/**
  * pn_figure_render:
  * @self: the figure
  * @x:    device rectangle: left
@@ -819,7 +850,8 @@ PnFigure *pn_figure_new (void);
  * @w:    ... width
  * @h:    ... height
  *
- * Resolves one frame into @self's device rectangle and updates the
+ * Resolves the current frame (pn_figure_get_frame()) into @self's
+ * device rectangle and updates the
  * node's error state — the `error` property and, for the two classes
  * that deserve it, pn_node_set_has_error() (80.10).
  *
@@ -839,13 +871,18 @@ GPtrArray *pn_figure_render (PnFigure *self,
 
 /**
  * pn_figure_dump:
- * @self: the figure
+ * @self:  the figure
+ * @frame: the frame to dump, 0-based; one past the film is an error in
+ *         the dump rather than a quiet clamp, so a test that miscounts
+ *         the film finds out (80.16f)
  * @x:    device rectangle: left
  * @y:    ... top
  * @w:    ... width
  * @h:    ... height
  *
- * pn_figure_render() rendered as text by pn_figure_display_to_string().
+ * pn_figure_render() of @frame, rendered as text by
+ * pn_figure_display_to_string().  The node's own current frame is left
+ * where it was.
  * Not a test-only hack (80.12a): it is the debugging tool and the D-Bus
  * automation surface as well — a figure that draws the wrong thing is
  * one call away from saying why.
@@ -853,6 +890,7 @@ GPtrArray *pn_figure_render (PnFigure *self,
  * Returns: (transfer full): the dump, "" when nothing was drawn.
  */
 gchar *pn_figure_dump (PnFigure *self,
+                       guint     frame,
                        gdouble   x,
                        gdouble   y,
                        gdouble   w,

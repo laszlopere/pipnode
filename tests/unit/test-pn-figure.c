@@ -1477,6 +1477,25 @@ figure_free (Figure *self)
 }
 
 static gchar *
+figure_dump_frame (Figure           *self,
+                   PnFigureSnapshot *snapshot,
+                   guint             index,
+                   gdouble           w,
+                   gdouble           h,
+                   gboolean          stretch,
+                   gchar           **out_error)
+{
+    GPtrArray *ops  = pn_figure_resolve (self->parse.statements, self->names,
+                                         snapshot, index, 0, 0, w, h, stretch,
+                                         out_error);
+    gchar     *text = pn_figure_display_to_string (ops);
+
+    g_ptr_array_unref (ops);
+    return text;
+}
+
+/* Frame 0, which for a figure with no vector in it is the only one. */
+static gchar *
 figure_dump (Figure           *self,
              PnFigureSnapshot *snapshot,
              gdouble           w,
@@ -1484,13 +1503,7 @@ figure_dump (Figure           *self,
              gboolean          stretch,
              gchar           **out_error)
 {
-    GPtrArray *ops  = pn_figure_resolve (self->parse.statements, self->names,
-                                         snapshot, 0, 0, w, h, stretch,
-                                         out_error);
-    gchar     *text = pn_figure_display_to_string (ops);
-
-    g_ptr_array_unref (ops);
-    return text;
+    return figure_dump_frame (self, snapshot, 0, w, h, stretch, out_error);
 }
 
 /* One program, one frame, in the 100x100 rectangle where the scale is 1
@@ -1925,30 +1938,167 @@ test_a_zero_radius_skips_its_statement (void)
     g_free (text);
 }
 
+/* Binds @name to the @n numbers in @numbers. */
 static void
-test_a_vector_argument_is_an_error (void)
+snapshot_vector (PnFigureSnapshot *snapshot,
+                 const gchar      *name,
+                 const gdouble    *numbers,
+                 gsize             n)
+{
+    PnVector *vec = pn_vector_new_copy (numbers, n);
+
+    pn_figure_snapshot_set_vector (snapshot, name, vec);
+    g_object_unref (vec);
+}
+
+static void
+test_a_vector_argument_is_a_film (void)
 {
     PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
     Figure            f        = figure ("line 0, 0, v, 0\ncircle 5, 5, 5");
-    gdouble           numbers[3] = { 1.0, 2.0, 3.0 };
-    PnVector         *vec = pn_vector_new_copy (numbers, 3);
+    const gdouble     numbers[3] = { 10.0, 20.0, 30.0 };
     gchar            *error = NULL;
     gchar            *text;
 
-    pn_figure_snapshot_set_vector (snapshot, "v", vec);
-    g_object_unref (vec);
+    snapshot_vector (snapshot, "v", numbers, 3);
 
-    text = figure_dump (&f, snapshot, 100, 100, FALSE, &error);
+    /* What used to be 80.10(c)'s error is the frame indexer (80.16d):
+     * frame i takes element i of the vector, and the scalar circle is
+     * the same in every frame. */
+    text = figure_dump_frame (&f, snapshot, 0, 100, 100, FALSE, &error);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 10.00 100.00\n"
+                     "circle 5.00 95.00 5.00\n");
+    PN_CHECK_CMPSTR (error, ==, NULL);
+    g_free (text);
 
-    /* Unlike a NaN this never cures itself: someone wired a vector into
-     * a figure that cannot animate yet.  So it is treated as a program
-     * error -- nothing drawn, the node red -- with a message that names
-     * the cause and the fix (80.10c).  Nothing at all is drawn, not
-     * even the circle that came after it (80.10d). */
+    text = figure_dump_frame (&f, snapshot, 2, 100, 100, FALSE, &error);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 30.00 100.00\n"
+                     "circle 5.00 95.00 5.00\n");
+    PN_CHECK_CMPSTR (error, ==, NULL);
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_vector_survives_assignment_and_arithmetic (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("x = 2 * v + 1\nline 0, 0, x, 0");
+    const gdouble     numbers[2] = { 10.0, 20.0 };
+    gchar            *text;
+
+    snapshot_vector (snapshot, "v", numbers, 2);
+
+    /* Evaluated once, indexed where it lands (80.16a): the assignment
+     * binds a whole vector, and only the argument picks an element. */
+    text = figure_dump_frame (&f, snapshot, 1, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 41.00 100.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_vector_pen_state_animates (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("width w\nline 0, 0, 10, 0");
+    const gdouble     numbers[2] = { 2.0, 4.0 };
+    gchar            *text;
+
+    snapshot_vector (snapshot, "w", numbers, 2);
+
+    /* 80.16(c): pen state goes through the same indexing, no special
+     * case. */
+    text = figure_dump_frame (&f, snapshot, 1, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 4.00\n"
+                     "line 0.00 100.00 10.00 100.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_vector_repeat_count_animates (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("repeat n\n"
+                                         "line i * 10, 0, i * 10, 10\n"
+                                         "end");
+    const gdouble     numbers[2] = { 1.0, 2.0 };
+    gchar            *text;
+
+    snapshot_vector (snapshot, "n", numbers, 2);
+
+    /* Inside or around a block a vector is still a frame, never an
+     * iteration (80.18b): frame 1 runs the block twice because the
+     * count's element 1 is 2. */
+    text = figure_dump_frame (&f, snapshot, 0, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 0.00 90.00\n");
+    g_free (text);
+
+    text = figure_dump_frame (&f, snapshot, 1, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 0.00 90.00\n"
+                     "line 10.00 100.00 10.00 90.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_frame_past_the_end_is_an_error (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, v, 0\ncircle 5, 5, 5");
+    const gdouble     numbers[3] = { 10.0, 20.0, 30.0 };
+    gchar            *error = NULL;
+    gchar            *text;
+
+    snapshot_vector (snapshot, "v", numbers, 3);
+
+    /* A caller that miscounted the film.  Not clamped: a quiet clamp
+     * would hide the miscount behind a plausible picture.  Nothing is
+     * drawn, not even the circle after it (80.10d). */
+    text = figure_dump_frame (&f, snapshot, 3, 100, 100, FALSE, &error);
     PN_CHECK_CMPSTR (text, ==, "");
     PN_CHECK_CMPSTR (error, ==,
-                     "line 1, column 12: vector argument;"
-                     " animation is TODO 80.16");
+                     "line 1, column 12: frame 3 is past the end of"
+                     " a 3-element vector");
+
+    g_free (error);
+    g_free (text);
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_an_empty_vector_argument_is_an_error (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("line 0, 0, v, 0");
+    gchar            *error = NULL;
+    gchar            *text;
+
+    snapshot_vector (snapshot, "v", NULL, 0);
+
+    /* The film has no frame at all (82.1e); the argument it lands on
+     * is where the message can say which input it was. */
+    text = figure_dump_frame (&f, snapshot, 0, 100, 100, FALSE, &error);
+    PN_CHECK_CMPSTR (text, ==, "");
+    PN_CHECK_CMPSTR (error, ==,
+                     "line 1, column 12: empty vector argument;"
+                     " nothing to draw");
 
     g_free (error);
     g_free (text);
@@ -2201,7 +2351,7 @@ node (const gchar *program, gint inputs)
 static gchar *
 node_dump (PnNode *self)
 {
-    return pn_figure_dump (PN_FIGURE (self), 0, 0, 100, 100);
+    return pn_figure_dump (PN_FIGURE (self), 0, 0, 0, 100, 100);
 }
 
 /* Deliver a value on @input, the way the worksheet delivers one. */
@@ -2444,7 +2594,7 @@ test_a_structural_error_draws_nothing (void)
     g_object_set (figure, "program",
                   "line 0, 0, 10, 10\nrepeat 2\npoint 0, 0", NULL);
 
-    text = pn_figure_dump (figure, 0, 0, 100, 100);
+    text = pn_figure_dump (figure, 0, 0, 0, 100, 100);
     PN_CHECK_CMPSTR (text, ==, "");
     PN_CHECK_CMPSTR (pn_figure_get_error (figure), ==,
                      "line 2, column 1: repeat without an end");
@@ -2672,31 +2822,39 @@ test_a_value_problem_does_not_redden_the_node (void)
 }
 
 static void
-test_a_vector_input_reddens_the_node (void)
+test_a_vector_input_is_a_film (void)
 {
     PnNode     *self    = node ("line 0, 0, value1, 0", 1);
     PnMessage  *message = pn_message_new (NULL, NULL);
-    gdouble     numbers[3] = { 1.0, 2.0, 3.0 };
+    gdouble     numbers[3] = { 10.0, 20.0, 30.0 };
     PnVector   *vec     = pn_vector_new_copy (numbers, 3);
     gchar      *text;
 
-    /* Class (c): someone wired a vector source into a figure that
-     * cannot animate yet, and no amount of winding a knob will cure it
-     * -- so it is reported like a program error (80.10c). */
+    /* A vector source wired in is a film now, not class (c): nothing
+     * red, three frames, and the node shows the first until 82.3's
+     * timer moves it. */
     pn_message_set_vector (message, "value", vec);
     pn_node_receive_message_on_input (self, message, 0);
     g_object_unref (vec);
     g_object_unref (message);
 
-    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
-                     "line 1, column 12: vector argument;"
-                     " animation is TODO 80.16");
-    PN_CHECK (pn_node_get_has_error (self));
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+    PN_CHECK (!pn_node_get_has_error (self));
+    PN_CHECK_CMPINT (pn_figure_get_frame_count (PN_FIGURE (self)), ==, 3);
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
 
     text = node_dump (self);
-    PN_CHECK_CMPSTR (text, ==, "");
-
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 10.00 100.00\n");
     g_free (text);
+
+    /* Any frame can be dumped (80.16f) without moving the one shown. */
+    text = pn_figure_dump (PN_FIGURE (self), 2, 0, 0, 100, 100);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 100.00 30.00 100.00\n");
+    g_free (text);
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 0);
+
     g_object_unref (self);
 }
 
@@ -2821,7 +2979,12 @@ main (int argc, char **argv)
     pn_test_add ("back_hairline",       test_width_zero_is_a_hairline);
     pn_test_add ("back_skip_non_finite", test_a_non_finite_value_skips_its_statement);
     pn_test_add ("back_skip_degenerate", test_a_zero_radius_skips_its_statement);
-    pn_test_add ("back_vector",         test_a_vector_argument_is_an_error);
+    pn_test_add ("film_indexes",        test_a_vector_argument_is_a_film);
+    pn_test_add ("film_assignment",     test_a_vector_survives_assignment_and_arithmetic);
+    pn_test_add ("film_pen_state",      test_a_vector_pen_state_animates);
+    pn_test_add ("film_repeat_count",   test_a_vector_repeat_count_animates);
+    pn_test_add ("film_past_the_end",   test_a_frame_past_the_end_is_an_error);
+    pn_test_add ("film_empty_argument", test_an_empty_vector_argument_is_an_error);
     pn_test_add ("film_still",          test_a_still_figure_is_one_frame);
     pn_test_add ("film_shortest",       test_the_shortest_vector_sets_the_frame_count);
     pn_test_add ("film_unread",         test_an_unread_vector_does_not_count);
@@ -2854,7 +3017,7 @@ main (int argc, char **argv)
     pn_test_add ("node_program_error",  test_a_program_error_reaches_the_property);
     pn_test_add ("node_error_clears",   test_the_error_clears_on_a_good_program);
     pn_test_add ("node_value_problem",  test_a_value_problem_does_not_redden_the_node);
-    pn_test_add ("node_vector_input",   test_a_vector_input_reddens_the_node);
+    pn_test_add ("node_vector_input",   test_a_vector_input_is_a_film);
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     return pn_test_run ();

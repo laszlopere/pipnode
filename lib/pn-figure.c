@@ -2138,13 +2138,22 @@ format_text (
 /* Evaluates every expression argument into @values, which the caller
  * sized to the argument count.  A string argument leaves its slot at 0.
  *
- * The one failure here is 80.10's class (c): a vector where a scalar is
- * wanted, or an evaluation that could not be done at all.  Unlike a
- * NaN, winding a knob will not cure either, so both stop the frame. */
+ * A vector argument is the film (80.16): it contributes its element
+ * @index, which is how frame i of a film is drawn without running the
+ * program per frame -- the store is elementwise, so the whole film was
+ * already computed, and this is the one place that picks a frame out of
+ * it (82.2).
+ *
+ * The one failure here is 80.10's class (c): an evaluation that could
+ * not be done at all, or a vector with no element @index -- an empty
+ * one, or a caller asking for a frame past the count
+ * pn_figure_frame_count() gave it.  Winding a knob cures neither, so
+ * both stop the frame. */
 static gboolean
 eval_args (
         const PnFigureStatement *statement,
         PnVarStore              *store,
+        guint                    index,
         gdouble                 *values,
         GPtrArray               *errors)
 {
@@ -2177,10 +2186,25 @@ eval_args (
 
         if (value.vec != NULL)
         {
+            gsize len = pn_vector_get_len (value.vec);
+
+            if (index >= len)
+            {
+                pn_expr_value_clear (&value);
+                if (len == 0)
+                    report_at (errors, statement->source, arg->offset,
+                               "empty vector argument; nothing to draw");
+                else
+                    report_at (errors, statement->source, arg->offset,
+                               "frame %u is past the end of a %"
+                               G_GSIZE_FORMAT "-element vector",
+                               index, len);
+                return FALSE;
+            }
+
+            values[i] = pn_vector_get_data (value.vec)[index];
             pn_expr_value_clear (&value);
-            report_at (errors, statement->source, arg->offset,
-                       "vector argument; animation is TODO 80.16");
-            return FALSE;
+            continue;
         }
 
         values[i] = value.scalar;
@@ -2255,6 +2279,7 @@ static gboolean
 resolve_statement (
         PnFigureStatement *statement,
         PnVarStore        *store,
+        guint              index,
         Pen               *pen,
         const Frame       *frame,
         GPtrArray         *ops,
@@ -2290,7 +2315,7 @@ resolve_statement (
 
     values = g_new0 (gdouble, n + 1);
 
-    if (!eval_args (statement, store, values, errors))
+    if (!eval_args (statement, store, index, values, errors))
     {
         g_free (values);
         return FALSE;
@@ -2609,6 +2634,7 @@ static gboolean
 repeat_count (
         PnFigureStatement *statement,
         PnVarStore        *store,
+        guint              index,
         GPtrArray         *ops,
         GPtrArray         *errors,
         guint             *out_n)
@@ -2618,7 +2644,7 @@ repeat_count (
 
     *out_n = 0;
 
-    if (!eval_args (statement, store, values, errors))
+    if (!eval_args (statement, store, index, values, errors))
         return FALSE;
 
     count = trunc (values[0]);
@@ -2640,6 +2666,7 @@ pn_figure_resolve (
         GPtrArray              *statements,
         GPtrArray              *free_names,
         const PnFigureSnapshot *snapshot,
+        guint                   index,
         gdouble                 x,
         gdouble                 y,
         gdouble                 w,
@@ -2693,7 +2720,7 @@ pn_figure_resolve (
         if (statement->kind != PN_FIGURE_STATEMENT_VERB
             || statement->verb != PN_FIGURE_VERB_REPEAT)
         {
-            if (!resolve_statement (statement, store, &pen, &frame,
+            if (!resolve_statement (statement, store, index, &pen, &frame,
                                     ops, errors))
                 failed = TRUE;
             i++;
@@ -2706,7 +2733,7 @@ pn_figure_resolve (
          * before each pass (#86.4). */
         end = block_end_index (statements, i);
 
-        if (!repeat_count (statement, store, ops, errors, &pass))
+        if (!repeat_count (statement, store, index, ops, errors, &pass))
         {
             failed = TRUE;
             break;
@@ -2723,7 +2750,8 @@ pn_figure_resolve (
 
             for (body = i + 1; body < end; body++)
                 if (!resolve_statement (g_ptr_array_index (statements, body),
-                                        store, &pen, &frame, ops, errors))
+                                        store, index, &pen, &frame,
+                                        ops, errors))
                 {
                     failed = TRUE;
                     break;
@@ -3064,6 +3092,11 @@ struct _PnFigure
      * repaints long after the message that last changed it. */
     PnFigureSnapshot *snapshot;
 
+    /* The frame of the film being shown (82.2).  Nothing moves it yet --
+     * the timer is 82.3 -- so it stays 0 and a film shows its first
+     * frame; pn_figure_get_frame() keeps it inside the film anyway. */
+    guint frame;
+
     /* The last pn_figure_render()'s verdict: a runtime TYPE problem,
      * or %NULL.  A runtime VALUE problem is not here — it left a skip
      * marker in the list and is deliberately not an error (80.10b). */
@@ -3204,9 +3237,33 @@ figure_recompile (
 /*  Rendering                                                          */
 /* ------------------------------------------------------------------ */
 
-GPtrArray *
-pn_figure_render (
+guint
+pn_figure_get_frame_count (
+        PnFigure *self)
+{
+    g_return_val_if_fail (PN_IS_FIGURE (self), 1);
+
+    return pn_figure_frame_count (self->names, self->snapshot, 0);
+}
+
+guint
+pn_figure_get_frame (
+        PnFigure *self)
+{
+    guint count;
+
+    g_return_val_if_fail (PN_IS_FIGURE (self), 0);
+
+    count = pn_figure_get_frame_count (self);
+    return count == 0 ? 0 : MIN (self->frame, count - 1);
+}
+
+/* pn_figure_render() of a given frame, which is what lets the dump ask
+ * for any frame of the film without moving the one on screen. */
+static GPtrArray *
+figure_render_frame (
         PnFigure *self,
+        guint     frame,
         gdouble   x,
         gdouble   y,
         gdouble   w,
@@ -3215,16 +3272,17 @@ pn_figure_render (
     GPtrArray *ops;
     gchar     *error = NULL;
 
-    g_return_val_if_fail (PN_IS_FIGURE (self), figure_ops_new ());
-
     /* A program error draws nothing at all (80.10a) — not the good
      * statements either, because half a figure is a worse lie than
      * none. */
     if (self->program_error != NULL)
         return figure_ops_new ();
 
+    /* An empty vector is not special-cased here: the resolver reaches
+     * it at an argument and names the line and column, which is more
+     * than a frame count of 0 could say (82.1e). */
     ops = pn_figure_resolve (self->statements, self->names, self->snapshot,
-                             x, y, w, h, self->stretch, &error);
+                             frame, x, y, w, h, self->stretch, &error);
 
     g_free (self->runtime_error);
     self->runtime_error = error;   /* transferred; %NULL when all is well */
@@ -3233,16 +3291,36 @@ pn_figure_render (
     return ops;
 }
 
-gchar *
-pn_figure_dump (
+GPtrArray *
+pn_figure_render (
         PnFigure *self,
         gdouble   x,
         gdouble   y,
         gdouble   w,
         gdouble   h)
 {
-    GPtrArray *ops  = pn_figure_render (self, x, y, w, h);
-    gchar     *text = pn_figure_display_to_string (ops);
+    g_return_val_if_fail (PN_IS_FIGURE (self), figure_ops_new ());
+
+    return figure_render_frame (self, pn_figure_get_frame (self),
+                                x, y, w, h);
+}
+
+gchar *
+pn_figure_dump (
+        PnFigure *self,
+        guint     frame,
+        gdouble   x,
+        gdouble   y,
+        gdouble   w,
+        gdouble   h)
+{
+    GPtrArray *ops;
+    gchar     *text;
+
+    g_return_val_if_fail (PN_IS_FIGURE (self), g_strdup (""));
+
+    ops  = figure_render_frame (self, frame, x, y, w, h);
+    text = pn_figure_display_to_string (ops);
 
     g_ptr_array_unref (ops);
     return text;

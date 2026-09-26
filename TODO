@@ -2932,12 +2932,49 @@
                  see the note added to 82.5.
              Tests: film_still, film_shortest, film_unread,
              film_explicit, film_empty in tests/unit/test-pn-figure.c.
-       [ ] 82.2 THE FRAME INDEX AT PAINT TIME (80.16a): evaluate the
-             program ONCE for the whole film and take element i of
-             every vector when painting frame i, scalars broadcasting
-             unchanged. Not a re-run per frame -- PnVarStore is already
-             elementwise, so the per-frame re-evaluation is both slower
-             and further from what the language means.
+       [x] 82.2 DONE (2026-09-26): THE FRAME INDEX AT PAINT TIME
+             (80.16a). eval_args() takes element i of a vector
+             argument instead of raising the old "animation is TODO
+             80.16" error; scalars broadcast unchanged. The index is
+             threaded through pn_figure_resolve() (new `index`
+             parameter), resolve_statement() and repeat_count(), so a
+             vector pen-state argument (80.16c) and a vector `repeat`
+             count (80.18b) animate with no special case.
+             (a) WHAT "EVALUATE ONCE" CAME TO. The program is never
+                 re-run with vectors swapped for their elements, which
+                 is the part 80.16(a) was about. It IS still evaluated
+                 once per PAINT, as a still always has been, and the
+                 index is applied where the value reaches an argument.
+                 A cached user-space film was not built: `repeat`
+                 bodies evaluate once per pass with a different `i`,
+                 so a per-statement cache would need a whole
+                 intermediate display list keyed by (statement, pass).
+                 The cost of not caching is O(film length) per vector
+                 op per paint, which is nothing at 25 fps. Revisit only
+                 if a real sheet stutters.
+             (b) THE ONE REMAINING TYPE ERROR is a vector argument with
+                 no element i: "empty vector argument; nothing to draw"
+                 (82.1e, now decided: located, red) or "frame N is past
+                 the end of a K-element vector" (a caller that
+                 miscounted the film). Deliberately not clamped: a
+                 quiet clamp hides a miscount behind a plausible
+                 picture.
+             (c) THE NODE keeps a `frame` field (0 until 82.3 moves
+                 it). pn_figure_get_frame() clamps it into the current
+                 film, so a new message with a shorter vector cannot
+                 leave it past the end. pn_figure_get_frame_count()
+                 wraps pn_figure_frame_count() and still passes 0 for
+                 `frames`; 82.4 wires the property in.
+                 pn_figure_render() draws the current frame;
+                 pn_figure_dump() grows the frame argument of 80.16(f)
+                 and does not move the frame on screen. Known side
+                 effect: dumping a frame past the end sets the node's
+                 runtime error until the next render, like any other
+                 render would.
+             Tests: film_indexes, film_assignment, film_pen_state,
+             film_repeat_count, film_past_the_end, film_empty_argument,
+             and node_vector_input rewritten from "reddens the node" to
+             "is a film".
        [ ] 82.3 THE TIMER, in the CORE half so the behaviour belongs to
              the node and not to the painter (80.17b): a g_timeout at
              1000/fps advances the index and calls

@@ -297,7 +297,7 @@ Size **280 × 254** (40 header + 4 gap + 210 client, `lib/pn-figure.h:769`); `pa
 **Gotchas**
 - Serialised: `program`, `inputs`, `background-color`, `font-family`, `stretch`, plus the core's input-name map. **Not** serialised: `error` and the latched input snapshot.
 - `figure_refresh_error` (`:3103`) sets `pn_node_set_has_error()` and paints the error text **instead of** the figure: a program error draws **nothing at all**, deliberately — half a figure is a worse lie than none. A *skipped* statement, by contrast, never reddens the node.
-- A **vector argument is a hard error** (`:2144`, "animation is TODO 80.16").
+- **A vector argument is a film frame** (TODO #82.2, `eval_args`): frame *i* draws element *i* of every vector argument, and scalars stay the same in every frame. The program is evaluated with the vectors in place (the store is elementwise) and indexed at the argument, so it is **never re-run per frame**. This applies to pen state and `repeat` counts too. The frame count is the **shortest vector input the program reads** (`pn_figure_frame_count`, #82.1), not the arithmetic's longer-with-tail length. An empty vector, or a frame past a vector's end, is a located red error. **No timer yet (#82.3)**: the node shows frame 0 (`pn_figure_get_frame`), and `pn_figure_dump (self, frame, …)` dumps any frame. A comparison still collapses a vector to one scalar, so `s > 0` cannot vary per frame.
 - Errors are collected and shown as e.g. "3 errors, first on line 7".
 - Repaint throttle 100 ms, but a `program` set goes through **unthrottled** (`:3379`) so the editor follows keystrokes.
 - `receive` resolves once at the at-rest rect purely so `error` is correct headless (`:3281`); that display list is thrown away.
