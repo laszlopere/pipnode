@@ -79,6 +79,7 @@ displays_DATA = \
 	displays/bar-magnet.json \
 	displays/double-pendulum.json \
 	displays/pendulum.json \
+	displays/ray-optics.json \
 	displays/refraction.json \
 	displays/swinging-pendulum.json
 

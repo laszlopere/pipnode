@@ -1,0 +1,88 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "8c0aa544-ba31-4bf7-b44c-2e64fced2558",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "THE THIN LENS -- a physics plate drawn by one Figure node.  Spin the wheel over the two knobs: OBJECT DISTANCE u slides the black arrow along the axis; FOCAL LENGTH f moves the two focal points F and F′ and the 2F marks.  The three rays every textbook draws leave the tip of the object -- red parallel to the axis and then through F′, green straight through the centre, blue through F and then parallel -- and the purple image is drawn where they actually cross, from 1/u + 1/v = 1/f worked out in the program's own lines.  Wind u in from the far left: past 2F the image is smaller than the object (a camera), between 2F and F it is larger (a projector), at F the rays leave parallel and there is no image at all (a searchlight), and inside F they spread apart and only their dashed extensions back through the lens meet -- a virtual, upright image on the object's own side (a magnifying glass).  One lens, and the lower-right line of the readout says which instrument it is.",
+        "width": 900.0,
+        "height": 130.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "2efeb0a1-3e1b-445e-bba7-24337fcba5ef",
+      "name": "Object distance u (cm)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 240.0
+      },
+      "properties": {
+        "min": 4.0,
+        "max": 60.0,
+        "value": 30.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "1f3e61e0-8a12-4b64-83b6-b70bfb1bb6d9",
+      "name": "Focal length f (cm)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 320.0
+      },
+      "properties": {
+        "min": 6.0,
+        "max": 24.0,
+        "value": 12.0
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "c248ffec-36e8-4526-9b71-16d746a30891",
+      "name": "The thin lens",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 220.0
+      },
+      "properties": {
+        "program": "# THE THIN LENS\n#\n# Two knobs: how far the OBJECT stands from the lens (u) and the\n# lens's FOCAL LENGTH (f).  The three construction rays every\n# textbook draws leave the tip of the object, and the image is\n# drawn where they actually cross.  Wind u in through 2f and f and\n# the image grows, runs off to infinity, and comes back on the\n# wrong side the right way up -- a camera, a projector and a\n# magnifying glass, one lens.\n\nview -86, -81, 86, 48\nalign \"centre\", \"middle\"\n\n# The plate, in centimetres; the readout lives in the band below it.\nXL = -84\nXR =  84\nYT =  46\nYB = -50\nh  =  10\n\n# ==================================================================\n#  THE PHYSICS, in two lines: 1/u + 1/v = 1/f, and m = -v/u.\n#  v > 0 is a real image behind the lens, v < 0 a virtual one in\n#  front of it.  At u = f exactly v is infinite and everything that\n#  mentions it is simply not drawn (80.10).\n# ==================================================================\nv  = u * f / (u - f)\nm  = -v / u\nhi = m * h\n\n# --- the axis, the focal points and the lens plane ----------------\ncolor \"#202020\"\nwidth 0.6\nline XL, 0, XR, 0\n\ncolor \"#9aa6ab\"\nwidth 0.45\ndash \"dot\"\nline 0, YB, 0, YT\ndash \"solid\"\n\n# A biconvex lens, 60 tall; the construction treats it as the thin\n# plane through its middle, which is why the dotted line goes on\n# past its ends -- a ray may meet the plane higher than the glass.\ncolor \"#6f8f9c\"\nfill  \"#dbe6ea\"\nwidth 0.5\npoly  0, 30,   0.57, 27,   1.08, 24,   1.92, 18,   2.52, 12,\n      2.88, 6,   3, 0,   2.88, -6,   2.52, -12,   1.92, -18,\n      1.08, -24,   0.57, -27,   0, -30,   -0.57, -27,   -1.08, -24,\n      -1.92, -18,   -2.52, -12,   -2.88, -6,   -3, 0,   -2.88, 6,\n      -2.52, 12,   -1.92, 18,   -1.08, 24,   -0.57, 27\nnofill\n\ncolor \"#202020\"\nfill  \"#202020\"\ncircle -f, 0, 0.9\ncircle  f, 0, 0.9\nnofill\nwidth 0.5\nline -2 * f, -1.4, -2 * f, 1.4\nline  2 * f, -1.4,  2 * f, 1.4\nwidth 0.25\nline -2 * f, -1.4, -2 * f, -7.6\nline  2 * f, -1.4,  2 * f, -7.6\n\nfont 5\nalign \"centre\", \"top\"\ntext -f,     -2.3, \"F\"\ntext  f,     -2.5, \"F′\"\ntext -2 * f, -8.2, \"2F\"\ntext  2 * f, -8.2, \"2F′\"\n\n# ==================================================================\n#  THE THREE RAYS, each from the tip of the object (-u, h).\n#  Every segment is cut where it would leave the plate, so a ray\n#  that runs off the top never paints across the readout.\n# ==================================================================\nwr = 0.7\nah = 2.6\naw = 1.2\n\n# (1) PARALLEL to the axis, then bent through F'.\ncolor \"#b03a2e\"\nfill  \"#b03a2e\"\nwidth wr\nline -u, h, 0, h\npoly -0.5 * u + ah / 2, h, -0.5 * u - ah / 2, h + aw, -0.5 * u - ah / 2, h - aw\ns1 = -h / f\nx1 = min(XR, (YB - h) / s1)\nline 0, h, x1, h + s1 * x1\nnofill\n\n# (2) through the CENTRE, undeviated.\ncolor \"#2e7d4f\"\nfill  \"#2e7d4f\"\ns2 = -h / u\nx2 = min(XR, YB / s2)\nline -u, h, x2, s2 * x2\nc2 = 1 / sqrt(1 + s2 * s2)\nd2 = s2 * c2\npoly -0.5 * u + ah / 2 * c2,           0.5 * h + ah / 2 * d2,\n     -0.5 * u - ah / 2 * c2 - aw * d2, 0.5 * h - ah / 2 * d2 + aw * c2,\n     -0.5 * u - ah / 2 * c2 + aw * d2, 0.5 * h - ah / 2 * d2 - aw * c2\nnofill\n\n# (3) through F, then leaving PARALLEL.  With the object inside the\n# focal length the ray cannot pass F on its way to the tip, so it\n# starts there instead: the start is whichever is further out.\ncolor \"#3a5a9b\"\nfill  \"#3a5a9b\"\ny3 = -h * f / (u - f)\ns3 = (y3 - h) / u\nxs = -max(u, f)\nY3 = YB + (YT - YB) * (s3 > 0)\nxe = min(0, -u + (Y3 - h) / s3)\nline xs, h + s3 * (xs + u), xe, h + s3 * (xe + u)\nc3 = 1 / sqrt(1 + s3 * s3)\nd3 = s3 * c3\nxm = 0.5 * (xs + xe)\nym = h + s3 * (xm + u)\npoly xm + ah / 2 * c3,           ym + ah / 2 * d3,\n     xm - ah / 2 * c3 - aw * d3, ym - ah / 2 * d3 + aw * c3,\n     xm - ah / 2 * c3 + aw * d3, ym - ah / 2 * d3 - aw * c3\nnofill\ny3p = y3 / ((y3 < YT) * (y3 > YB))\nline 0, y3p, XR, y3p\n\n# --- a virtual image: the rays diverge, and only their dashed\n# extensions BACK through the lens meet.  vx is v where the image is\n# virtual and infinite where it is real, so these three lines exist\n# only on the magnifying-glass side of f.\nvx = v / (v < 0)\nwidth 0.45\ndash \"dash\", 0.6\ncolor \"#b03a2e\"\nxb = max(vx, max(XL, f * (1 - YT / h)))\nline 0, h, xb, h + s1 * xb\ncolor \"#2e7d4f\"\nxb = max(vx, max(XL, YT / s2))\nline -u, h, xb, s2 * xb\ncolor \"#3a5a9b\"\nxb = max(vx, XL)\nline 0, y3p, xb, y3p\ndash \"solid\"\n\n# ==================================================================\n#  THE OBJECT AND ITS IMAGE\n# ==================================================================\ncolor \"#202020\"\nfill  \"#202020\"\nwidth 1.3\nline -u, 0, -u, h - ah\npoly -u, h, -u - aw * 1.3, h - ah * 1.2, -u + aw * 1.3, h - ah * 1.2\nnofill\n\n# The image arrow only where it fits on the plate; the readout still\n# gives the number when it does not.\nonp = (v > XL) * (v < XR) * (hi > YB) * (hi < YT)\nsg  = sign(hi)\nvr  = v / (onp * (v > 0))\nvv  = v / (onp * (v < 0))\n\ncolor \"#7a3d8c\"\nfill  \"#7a3d8c\"\nwidth 1.3\nline vr, 0, vr, hi - sg * ah\npoly vr, hi, vr - aw * 1.3, hi - sg * ah * 1.2, vr + aw * 1.3, hi - sg * ah * 1.2\nnofill\n\n# the virtual image is a ghost: outlined, dashed, no ink behind it\nwidth 0.8\ndash \"dash\", 0.6\nline vv, 0, vv, hi - sg * ah\ndash \"solid\"\nwidth 0.6\npoly vv, hi, vv - aw * 1.3, hi - sg * ah * 1.2, vv + aw * 1.3, hi - sg * ah * 1.2\n\n# ==================================================================\n#  THE READOUT, in the band below the plate\n# ==================================================================\ncolor \"#9aa6ab\"\nwidth 0.4\nline XL + 2, -54, XR - 2, -54\n\ncolor \"#202020\"\nfont 6.6\nalign \"right\", \"top\"\ntext 82, 46, \"The thin lens\"\n\nfont 5.4\nalign \"left\", \"top\"\ntext -82, -57,   \"u = %.1f cm    f = %.1f cm\", u, f\ntext -82, -64.5, \"1/v = 1/f − 1/u → v = %.1f cm\", v / (abs(u / f - 1) > 0.02)\ntext -82, -64.5, \"1/v = 1/f − 1/u = %.0f → v → ∞\", abs(1 / f - 1 / u) / (abs(u / f - 1) <= 0.02)\ntext -82, -72,   \"m = −v/u = %.2f\", m / (abs(u / f - 1) > 0.02)\n\n# What kind of image, and what the lens is FOR at that distance --\n# each line is masked by dividing its number by the condition, so\n# exactly one of them is finite (80.10) and no line says \"if\".\nr = u / f\ncolor \"#7a3d8c\"\ntext 0, -57, \"u = %.2f f: CAMERA\", r / (r > 2.05)\ntext 0, -57, \"u = %.2f f: COPIER\", r / (abs(r - 2) <= 0.05)\ntext 0, -57, \"u = %.2f f: PROJECTOR\", r / ((r > 1.02) * (r < 1.95))\ntext 0, -57, \"u = %.2f f: SEARCHLIGHT\", r / (abs(r - 1) <= 0.02)\ntext 0, -57, \"u = %.2f f: MAGNIFYING GLASS\", r / (r < 0.98)\n\ncolor \"#202020\"\ntext 0, -64.5, \"real, inverted, %.2f× as tall\",   -m / ((v > 0) * (abs(r - 1) > 0.02))\ntext 0, -64.5, \"virtual, upright, %.2f× as tall\",  m / ((v < 0) * (abs(r - 1) > 0.02))\ntext 0, -64.5, \"no image: rays leave at %.1f°\", degrees(atan(h / u)) / (abs(r - 1) <= 0.02)\n",
+        "inputs": 2,
+        "background-color": "rgb(250,249,245)",
+        "font-family": "",
+        "stretch": false
+      },
+      "input-names": {
+        "0": "u",
+        "1": "f"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "2efeb0a1-3e1b-445e-bba7-24337fcba5ef",
+      "target_id": "c248ffec-36e8-4526-9b71-16d746a30891"
+    },
+    {
+      "source_id": "1f3e61e0-8a12-4b64-83b6-b70bfb1bb6d9",
+      "target_id": "c248ffec-36e8-4526-9b71-16d746a30891",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}

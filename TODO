@@ -2176,17 +2176,50 @@
                        ...` with `bal = abs(Mb - Ma) < 0.05` -- worked
                        exactly as 80.5 and 80.3 promised, with no new
                        language anywhere.
-             [ ] 80.15.2 displays/ray-optics.json -- a thin lens on an
-                   axis, object distance and focal length as knobs, and
-                   the three construction rays drawn to where they
-                   actually cross, with the image arrow at the
-                   crossing. 1/u + 1/v = 1/f done in the program's own
-                   assignment lines. This is the one that shows why the
-                   node exists: nothing else in pipnode can draw it,
-                   and winding u through f is a physics lesson.
-             [ ] 80.15.3 Both get their line in examples/Makefile.am's
+                   (c) POSTPONED AGAIN (2026-09-26): ray optics was
+                       built on its own and the lever left for a later
+                       design pass.
+             [x] 80.15.2 DONE (2026-09-26): displays/ray-optics.json --
+                   a thin lens on an axis, object distance and focal
+                   length as knobs, and the three construction rays
+                   drawn to where they actually cross, with the image
+                   arrow at the crossing. 1/u + 1/v = 1/f done in the
+                   program's own assignment lines. This is the one that
+                   shows why the node exists: nothing else in pipnode
+                   can draw it, and winding u through f is a physics
+                   lesson.
+                   (a) THE KNOBS, one visible thing each (80.15.1a):
+                       u, 4..60 cm, slides the object arrow; f,
+                       6..24 cm, moves F, F′ and the 2F marks. Ports
+                       renamed u and f.
+                   (b) ALL FOUR REGIMES, NO `if`: v = u*f/(u - f) is
+                       negative inside f, and the dashed back-
+                       extensions and the ghost image arrow are masked
+                       by dividing a coordinate by (v < 0), so they are
+                       infinite -- and skipped (80.10) -- on the real
+                       side. At u = f v is infinite and ray 3 and the
+                       image go out by themselves. The readout's
+                       "which instrument" line (camera / copier /
+                       projector / searchlight / magnifying glass) is
+                       five text lines, each with its number divided
+                       by its band's condition, so exactly one prints.
+                   (c) EVERY RAY IS CUT AT THE PLATE EDGE by
+                       arithmetic, not by the card clip, so a ray
+                       running off the top never paints across the
+                       readout band, and the image arrow is drawn only
+                       when it fits (the readout keeps the number).
+                   (d) CHECKED: written against tools/figure-preview
+                       at eight (u, f) settings covering every regime,
+                       and at the node's own 280x210;
+                       `./src/pipnode-run -t 3` under
+                       G_DEBUG=fatal-warnings exits 0 with no warnings;
+                       `make -C examples install DESTDIR=...` installs
+                       it.
+             [-] 80.15.3 Both get their line in examples/Makefile.am's
                    displays_DATA, and then `automake &&
                    ./config.status` (80.9b) or they will not install.
+                   ray-optics.json DONE (2026-09-26); the lever's line
+                   waits for the lever.
        [x] 80.16 DECIDED (2026-09-21): ANIMATION -- when an argument
              resolves to a VECTOR the figure becomes a film. Frame i
              takes element i of every vector; scalars broadcast
