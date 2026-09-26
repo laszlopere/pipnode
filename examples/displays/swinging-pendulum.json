@@ -1,0 +1,94 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFigure",
+      "uuid" : "0307e945-e6f0-4276-9cfe-ff1ed3a089ff",
+      "name" : "Swinging pendulum",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "program" : "# Animation tab: frames 50, play-mode loop\n# inputs: amp (swing, radians), len (string length)\nview -65, -75, 65, 10\n\na = amp * sin(2 * pi * t)\nx =  len * sin(a)\ny = -len * cos(a)\n\nfill \"grey\"\nrect -15, 0, 30, 3\nnofill\n\nwidth 0.5\ndash \"dash\"\nline 0, 0, 0, -len - 8\ndash \"solid\"\n\nwidth 1\nline 0, 0, x, y\nfill \"orange\"\ncircle x, y, 5\nnofill\n\nfont 4\ntext 0, -72, \"amp %.2f rad   len %.0f\", amp, len\n",
+        "inputs" : 2,
+        "background-color" : "rgb(255,255,255)",
+        "font-family" : "",
+        "stretch" : false,
+        "fps" : 25,
+        "play-mode" : "loop",
+        "frames" : 50
+      },
+      "input-names" : {
+        "0" : "amp",
+        "1" : "len"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "39683c3d-84b0-4d1c-b203-1178b1cdb603",
+      "name" : "Amplitude (rad)",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 0.0,
+        "max" : 1.2,
+        "value" : 1.2
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "e943ed73-afa4-42a2-90e2-3b53654ce710",
+      "name" : "Length",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 10.0,
+        "max" : 60.0,
+        "value" : 33.333333333333314
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "92c8a91b-3cea-4aff-b1b2-c15d50ea36d4",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "THE SWINGING PENDULUM -- a Figure node that animates on its own.  Nothing feeds it a time signal: the Figure's Animation tab gives it 50 frames played in a loop at 25 fps, and the program swings the bob with the built-in variable t, which runs from 0 towards 1 over the film.  Spin the wheel over the two knobs while it swings: AMPLITUDE sets how far it swings (radians), LENGTH sets the string.  The swing carries on through every change instead of starting over -- a new value of the same film keeps its frame.  Open the Figure (double-click) to see the program and the Animation tab; the help page explains frame and t.",
+        "width" : 900.0,
+        "height" : 92.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "39683c3d-84b0-4d1c-b203-1178b1cdb603",
+      "target_id" : "0307e945-e6f0-4276-9cfe-ff1ed3a089ff"
+    },
+    {
+      "source_id" : "e943ed73-afa4-42a2-90e2-3b53654ce710",
+      "target_id" : "0307e945-e6f0-4276-9cfe-ff1ed3a089ff",
+      "target_input" : 1
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
