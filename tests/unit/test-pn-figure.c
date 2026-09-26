@@ -24,9 +24,11 @@
 
 #include "pntest.h"
 #include "pn-figure.h"
+#include "pn-flow.h"
 
 #include <math.h>
 #include <locale.h>
+#include <string.h>
 
 /* Borrowed text of logical line @n, or NULL past the end. */
 static const gchar *
@@ -3061,6 +3063,112 @@ test_a_late_watcher_starts_the_film_on_paint (void)
 }
 
 static void
+test_the_animation_properties_default (void)
+{
+    PnNode           *self = node (NULL, 1);
+    gint              fps = 0, frames = -1;
+    PnFigurePlayMode  mode = PN_FIGURE_PLAY_ONCE;
+
+    /* 25 fps, loop, and the length taken from the data (80.17a) --
+     * loop because a film that plays once is over before anybody
+     * looks at the card (82.4). */
+    g_object_get (self, "fps", &fps, "play-mode", &mode,
+                  "frames", &frames, NULL);
+    PN_CHECK_CMPINT (fps,    ==, 25);
+    PN_CHECK_CMPINT (mode,   ==, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPINT (frames, ==, 0);
+
+    g_object_unref (self);
+}
+
+static void
+test_an_explicit_frame_count_needs_no_input (void)
+{
+    PnNode *self     = node ("circle 50, 50, 10", 1);
+    gint    repaints = 0;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+
+    /* The turning wheel of 80.17(e): nothing wired, and still a film
+     * that plays -- the property alone starts it for a watcher. */
+    g_object_set (self, "frames", 40, NULL);
+    PN_CHECK_CMPINT (pn_figure_get_frame_count (PN_FIGURE (self)), ==, 40);
+    PN_CHECK (pn_figure_is_playing (PN_FIGURE (self)));
+
+    g_object_set (self, "frames", 0, NULL);
+    PN_CHECK_CMPINT (pn_figure_get_frame_count (PN_FIGURE (self)), ==, 1);
+    PN_CHECK (!pn_figure_is_playing (PN_FIGURE (self)));
+
+    g_object_unref (self);
+}
+
+static void
+test_a_once_film_stops_on_its_last_frame (void)
+{
+    PnNode        *self      = node ("line 0, 0, value1, 0", 1);
+    const gdouble  numbers[] = { 10.0, 20.0, 30.0 };
+    gint           repaints  = 0;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+    g_object_set (self, "play-mode", PN_FIGURE_PLAY_ONCE, "fps", 60, NULL);
+
+    send_vector (self, numbers, 3);
+    PN_CHECK (pump_until (stopped, PN_FIGURE (self)));
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 2);
+
+    /* A finished film stays finished across a repaint... */
+    g_ptr_array_unref (pn_figure_render (PN_FIGURE (self), 0, 0, 100, 100));
+    PN_CHECK (!pn_figure_is_playing (PN_FIGURE (self)));
+
+    /* ... until a mode with somewhere to go picks it up where it
+     * stands, without rewinding. */
+    g_object_set (self, "play-mode", PN_FIGURE_PLAY_LOOP, NULL);
+    PN_CHECK (pn_figure_is_playing (PN_FIGURE (self)));
+    PN_CHECK_CMPINT (pn_figure_get_frame (PN_FIGURE (self)), ==, 2);
+
+    g_object_unref (self);
+}
+
+static void
+test_the_animation_properties_round_trip (void)
+{
+    PnFlow  *flow  = pn_flow_new ();
+    PnFlow  *flow2 = pn_flow_new ();
+    PnNode  *self  = node ("circle 50, 50, 10", 1);
+    PnNode  *loaded;
+    GError  *error = NULL;
+    gchar   *json;
+    gint     fps = 0, frames = 0;
+    PnFigurePlayMode mode = PN_FIGURE_PLAY_LOOP;
+
+    /* Plain properties, so the save format picks them up with no code
+     * of its own; the mode is saved by its nick. */
+    g_object_set (self, "fps", 12, "play-mode", PN_FIGURE_PLAY_PING_PONG,
+                  "frames", 90, NULL);
+    pn_flow_add_node (flow, self);
+    g_object_unref (self);
+
+    json = pn_flow_to_string (flow);
+    PN_CHECK (strstr (json, "\"ping-pong\"") != NULL);
+    PN_CHECK (pn_flow_load_from_data (flow2, json, &error));
+
+    loaded = pn_node_store_get_node (pn_flow_get_nodes (flow2), 0);
+    PN_CHECK (PN_IS_FIGURE (loaded));
+    g_object_get (loaded, "fps", &fps, "play-mode", &mode,
+                  "frames", &frames, NULL);
+    PN_CHECK_CMPINT (fps,    ==, 12);
+    PN_CHECK_CMPINT (mode,   ==, PN_FIGURE_PLAY_PING_PONG);
+    PN_CHECK_CMPINT (frames, ==, 90);
+
+    g_clear_error (&error);
+    g_free (json);
+    g_object_unref (flow2);
+    g_object_unref (flow);
+}
+
+static void
 test_the_error_property_reads_back (void)
 {
     PnNode *self = node ("circle 0, 0", 1);
@@ -3226,6 +3334,10 @@ main (int argc, char **argv)
     pn_test_add ("timer_watched",       test_a_watched_film_plays_and_stops_when_unwatched);
     pn_test_add ("timer_still",         test_a_still_does_not_tick_even_when_watched);
     pn_test_add ("timer_late_watcher",  test_a_late_watcher_starts_the_film_on_paint);
+    pn_test_add ("anim_defaults",       test_the_animation_properties_default);
+    pn_test_add ("anim_frames",         test_an_explicit_frame_count_needs_no_input);
+    pn_test_add ("anim_once",           test_a_once_film_stops_on_its_last_frame);
+    pn_test_add ("anim_round_trip",     test_the_animation_properties_round_trip);
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     return pn_test_run ();

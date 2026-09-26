@@ -2661,6 +2661,30 @@ repeat_count (
     return TRUE;
 }
 
+GType
+pn_figure_play_mode_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_FIGURE_PLAY_ONCE,
+              "PN_FIGURE_PLAY_ONCE",      "once"      },
+            { PN_FIGURE_PLAY_LOOP,
+              "PN_FIGURE_PLAY_LOOP",      "loop"      },
+            { PN_FIGURE_PLAY_PING_PONG,
+              "PN_FIGURE_PLAY_PING_PONG", "ping-pong" },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnFigurePlayMode", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
+
 gboolean
 pn_figure_step_frame (
         PnFigurePlayMode  mode,
@@ -3155,10 +3179,10 @@ struct _PnFigure
     guint frame;
     gint  direction;           /* +1 / -1, for ping-pong               */
 
-    /* How the film plays.  Fixed defaults until 82.4 makes them
-     * properties. */
+    /* How the film plays (82.4). */
     PnFigurePlayMode play_mode;
     guint            fps;
+    guint            frames;   /* explicit count, 0 = from the data    */
 
     guint anim_id;             /* the film timer, 0 when stopped       */
 
@@ -3185,6 +3209,9 @@ enum {
     PROP_BACKGROUND_COLOR,
     PROP_FONT_FAMILY,
     PROP_STRETCH,
+    PROP_FPS,
+    PROP_PLAY_MODE,
+    PROP_FRAMES,
     PROP_ERROR,
     N_PROPS,
 };
@@ -3391,6 +3418,16 @@ figure_ensure_film (
     self->anim_id = g_timeout_add (1000 / fps, on_film_tick, self);
 }
 
+/* The timer again from where the film stands, for a change of pace or
+ * of mode -- the frame is kept, only the ticking is redone. */
+static void
+figure_retime_film (
+        PnFigure *self)
+{
+    figure_stop_film (self);
+    figure_ensure_film (self);
+}
+
 /* A new film starts at the beginning (80.17b). */
 static void
 figure_restart_film (
@@ -3420,7 +3457,8 @@ pn_figure_get_frame_count (
 {
     g_return_val_if_fail (PN_IS_FIGURE (self), 1);
 
-    return pn_figure_frame_count (self->names, self->snapshot, 0);
+    return pn_figure_frame_count (self->names, self->snapshot,
+                                  self->frames);
 }
 
 guint
@@ -3649,6 +3687,15 @@ pn_figure_get_property (
     case PROP_STRETCH:
         g_value_set_boolean (value, self->stretch);
         break;
+    case PROP_FPS:
+        g_value_set_int (value, (gint) self->fps);
+        break;
+    case PROP_PLAY_MODE:
+        g_value_set_enum (value, self->play_mode);
+        break;
+    case PROP_FRAMES:
+        g_value_set_int (value, (gint) self->frames);
+        break;
     case PROP_ERROR:
         g_value_set_string (value, pn_figure_get_error (self));
         break;
@@ -3736,6 +3783,48 @@ pn_figure_set_property (
             {
                 self->stretch = v;
                 g_object_notify_by_pspec (object, props[PROP_STRETCH]);
+                pn_node_request_repaint (PN_NODE (self));
+            }
+        }
+        break;
+    case PROP_FPS:
+        {
+            guint v = (guint) g_value_get_int (value);
+
+            if (self->fps != v)
+            {
+                self->fps = v;
+                g_object_notify_by_pspec (object, props[PROP_FPS]);
+                /* Same film, new pace: retime without rewinding. */
+                figure_retime_film (self);
+            }
+        }
+        break;
+    case PROP_PLAY_MODE:
+        {
+            PnFigurePlayMode v = g_value_get_enum (value);
+
+            if (self->play_mode != v)
+            {
+                self->play_mode = v;
+                self->direction = 1;
+                g_object_notify_by_pspec (object, props[PROP_PLAY_MODE]);
+                /* Keep the frame; a ONCE film that had finished starts
+                 * moving again if the new mode has somewhere to go. */
+                figure_retime_film (self);
+            }
+        }
+        break;
+    case PROP_FRAMES:
+        {
+            guint v = (guint) g_value_get_int (value);
+
+            if (self->frames != v)
+            {
+                self->frames = v;
+                g_object_notify_by_pspec (object, props[PROP_FRAMES]);
+                /* A different length is a different film. */
+                figure_restart_film (self);
                 pn_node_request_repaint (PN_NODE (self));
             }
         }
@@ -3876,6 +3965,33 @@ pn_figure_class_init (
             FALSE,
             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+    props[PROP_FPS] = g_param_spec_int (
+            "fps", "Frames per second",
+            "How fast a film plays.  A figure becomes a film when an "
+            "input it reads is a vector: frame i draws element i of it.",
+            1, PN_FIGURE_MAX_FPS, PN_FIGURE_DEFAULT_FPS,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    /* LOOP by default (82.4): a figure is a readout on a card, and a
+     * film that plays once and freezes is over before anybody looks. */
+    props[PROP_PLAY_MODE] = g_param_spec_enum (
+            "play-mode", "Play mode",
+            "What a film does at its last frame: once stops there and "
+            "holds it, loop starts again from the first, ping-pong plays "
+            "back to the first and turns again.",
+            PN_TYPE_FIGURE_PLAY_MODE,
+            PN_FIGURE_PLAY_LOOP,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+    props[PROP_FRAMES] = g_param_spec_int (
+            "frames", "Frames",
+            "How many frames the film has.  0 takes it from the data: "
+            "the shortest vector input the program reads.  A number here "
+            "makes a film with no vector input at all, and with one it "
+            "can shorten the film but never stretch it past the data.",
+            0, PN_FIGURE_MAX_FRAMES, 0,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     /* Read-only on purpose (80.10f): the client area is this node's only
      * error channel, and a readable-but-not-writable property is one
      * pn-flow.c leaves out of the saved worksheet. */
@@ -3913,6 +4029,11 @@ pn_figure_class_init (
         pn_settings_schema_row (schema, "background-color", PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "font-family",      PN_EDITOR_AUTO);
         pn_settings_schema_row (schema, "stretch",          PN_EDITOR_AUTO);
+
+        pn_settings_schema_tab (schema, "Animation");
+        pn_settings_schema_row (schema, "play-mode", PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "fps",       PN_EDITOR_AUTO);
+        pn_settings_schema_row (schema, "frames",    PN_EDITOR_AUTO);
 
         pn_settings_schema_row       (schema, "topic", PN_EDITOR_AUTO);
         pn_settings_schema_row_flags (schema, "topic", PN_ROW_FLAG_HIDDEN);

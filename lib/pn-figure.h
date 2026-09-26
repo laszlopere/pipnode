@@ -817,10 +817,17 @@ typedef enum
     PN_FIGURE_PLAY_PING_PONG,
 } PnFigurePlayMode;
 
+#define PN_TYPE_FIGURE_PLAY_MODE (pn_figure_play_mode_get_type ())
+GType pn_figure_play_mode_get_type (void) G_GNUC_CONST;
+
 /* Frames per second when nothing says otherwise, and the most anyone
  * may ask for (80.17a). */
 #define PN_FIGURE_DEFAULT_FPS 25
 #define PN_FIGURE_MAX_FPS     60
+
+/* The largest explicit `frames` count: 400 seconds at the default rate.
+ * A bound because 82.5 builds `t` and `frame` as vectors this long. */
+#define PN_FIGURE_MAX_FRAMES  10000
 
 /**
  * pn_figure_step_frame:

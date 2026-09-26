@@ -3019,12 +3019,31 @@
              stops when the listener goes), timer_still,
              timer_late_watcher (starts on paint, dispose removes the
              timer); test-pn-figure clean under valgrind.
-       [ ] 82.4 THE PROPERTIES (80.17a): `fps` (default 25, capped at
-             60), `play-mode` (once / loop / ping-pong) and `frames`,
-             an explicit count where 0 means "take it from the data".
-             Plain GObject properties like the rest, so the save format
-             picks them up, and rows in the node's existing settings
-             schema.
+       [x] 82.4 DONE (2026-09-26): THE PROPERTIES (80.17a), plain
+             GObject properties on a new "Animation" tab of the
+             settings schema (PN_EDITOR_AUTO rows):
+             - `play-mode`: enum PnFigurePlayMode, nicks once / loop /
+               ping-pong, saved by nick like every other enum in
+               pn-flow.c. DEFAULT LOOP, confirming 82.3(a): a figure
+               is a readout on a card, and a film that plays once and
+               freezes is over before anybody looks.
+             - `fps`: int 1..60, default 25; the cap is the
+               GParamSpec's maximum.
+             - `frames`: int 0..PN_FIGURE_MAX_FRAMES (10000, 400 s at
+               25 fps), 0 = from the data. Bounded because 82.5 builds
+               `t` and `frame` as vectors of this length.
+             What a change does to a running film: `fps` retimes it
+             without rewinding; `play-mode` keeps the frame, resets the
+             ping-pong direction, and restarts a finished ONCE film
+             that now has somewhere to go; `frames` is a different
+             film and rewinds to 0. pn_figure_get_frame_count() now
+             passes `frames` through, so `frames` > 0 with nothing
+             wired plays (identical frames until 82.5 binds `t`).
+             Tests: anim_defaults, anim_frames, anim_once,
+             anim_round_trip (pn_flow_to_string ->
+             pn_flow_load_from_data). The figure test binary passed
+             128 cases, so tests/unit/pntest.c's PN_TEST_MAX went
+             from 128 to 256 in a commit of its own.
        [ ] 82.5 `frame` AND `t` AS VECTORS (80.17d, 80.17e): bind
              `frame` as [0..N-1] and `t` as [0..1] so they animate
              through the same indexing as everything else, with no
