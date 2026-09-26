@@ -3394,7 +3394,9 @@
              knob spun fast over it is sluggish. Deferring the walk to
              the next paint would need the error judged there instead.
        [x] 87.7 THE DOUBLE-PENDULUM EXAMPLE, examples/displays/double-
-             pendulum.json: two knobs set the arms' starting angles, a
+             pendulum.json: two knobs set the arms' LENGTHS (0.3-1.5;
+             they started as the starting angles, but lengths change the
+             motion more visibly), both arms start at 120/150 deg, a
              `repeat 1000` loop steps the equations (semi-implicit Euler,
              dt 0.01 s, four steps a frame, 250 frames = 10 s, loop), the
              lower bob leaves a fading three-second track, and a grey
