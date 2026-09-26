@@ -185,7 +185,7 @@ which makes it useless across a multi-step edit.
 | `DeleteNode` | `(s uuid)` | Also drops every wire touching the node. |
 | `MoveNode` | `(s uuid, d x, d y)` | |
 | `RenameNode` | `(s uuid, s name)` | |
-| `SetNodeInputCount` | `(s uuid, i count)` | For multi-input nodes (Calculator, etc.). `count < 1` → `BadPropertyValue`. |
+| `SetNodeInputCount` | `(s uuid, i count)` | For multi-input nodes (Calculator, etc.). `count < 1` → `BadPropertyValue`. A node whose count is a property (Calculator 2's and Figure's `inputs`) is resized **through that property**, so the saved count follows; a count outside the property's range → `BadPropertyValue`. |
 | `SetNodeInputName` | `(s uuid, i index, s name)` | `index` outside `[0, count)` → `BadPropertyValue`. |
 
 ### Properties

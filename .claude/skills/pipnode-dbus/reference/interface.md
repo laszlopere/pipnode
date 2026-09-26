@@ -71,7 +71,7 @@ session-only (not serialized).
 | `DeleteNode` | `(s uuid)` | Also drops every wire touching the node. |
 | `MoveNode` | `(s uuid, d x, d y)` | |
 | `RenameNode` | `(s uuid, s name)` | |
-| `SetNodeInputCount` | `(s uuid, i count)` | Multi-input nodes (Calculator, …). `count < 1` → `BadPropertyValue`. |
+| `SetNodeInputCount` | `(s uuid, i count)` | Multi-input nodes (Calculator, …). `count < 1` → `BadPropertyValue`. Nodes with an `inputs` property (Calculator 2, Figure) are resized through it, so the count is saved; out of the property's range → `BadPropertyValue`. |
 | `SetNodeInputName` | `(s uuid, i index, s name)` | `index` outside `[0,count)` → `BadPropertyValue`. |
 
 ### Properties

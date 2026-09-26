@@ -231,6 +231,25 @@ def run_test() -> None:
                GLib.Variant("(sis)", (BOGUS, 0, "x")), None,
                ERR + "NodeNotFound")
 
+        # A node whose input count IS a property (Figure, Calculator 2)
+        # is resized through that property, so the count that gets saved
+        # follows.  It used to resize only the ports: the file kept the
+        # old count and a reload dropped the wires to the lost inputs.
+        fig = add_node(bus, "PnFigure", 80.0, 400.0)
+        call(bus, "SetNodeInputCount", GLib.Variant("(si)", (fig, 2)), None)
+        got = call(bus, "GetNodePropertyByUuid",
+                   GLib.Variant("(ss)", (fig, "inputs")), "(s)")[0]
+        if got != "2":
+            fail(f"after SetNodeInputCount on a Figure, its 'inputs' "
+                 f"property reads {got!r}, want '2'")
+        call(bus, "SetNodeInputName",
+             GLib.Variant("(sis)", (fig, 1, "len")), None)
+        # ... and the property's own range is the limit (Figure: 1..8).
+        expect(bus, "SetNodeInputCount",
+               GLib.Variant("(si)", (fig, 9)), None,
+               ERR + "BadPropertyValue")
+        call(bus, "DeleteNode", GLib.Variant("(s)", (fig,)), None)
+
         # --- 5. DELETE (drops incident wires) ------------------------
         if not call(bus, "ConnectNodesByUuid",
                     GLib.Variant("(ss)", (src, dst)), "(b)").unpack()[0]:

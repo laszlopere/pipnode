@@ -1740,7 +1740,38 @@ handle_worksheet_method_call (
             return;
         }
 
-        pn_node_set_n_inputs (node, count);
+        /* A node whose count is a property (Calculator 2, Figure) must be
+         * set THROUGH that property: its setter resizes the ports and it
+         * is what gets saved.  Resizing the ports behind its back leaves
+         * the property stale, the file saves the old count, and a reload
+         * drops every wire to the inputs it no longer has. */
+        {
+            const gchar *prop = pn_node_get_input_count_property (node);
+            GParamSpec  *pspec = prop != NULL
+                ? g_object_class_find_property (G_OBJECT_GET_CLASS (node),
+                                                prop)
+                : NULL;
+
+            if (pspec != NULL && G_IS_PARAM_SPEC_INT (pspec))
+            {
+                GParamSpecInt *ispec = G_PARAM_SPEC_INT (pspec);
+
+                if (count < ispec->minimum || count > ispec->maximum)
+                {
+                    g_dbus_method_invocation_return_error (
+                            invocation,
+                            PN_WORKSHEET_ERROR,
+                            PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                            "Input count must be %d..%d, got %d",
+                            ispec->minimum, ispec->maximum, count);
+                    return;
+                }
+
+                g_object_set (node, prop, count, NULL);
+            }
+            else
+                pn_node_set_n_inputs (node, count);
+        }
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "SetNodeInputName") == 0)
