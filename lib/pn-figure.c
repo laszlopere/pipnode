@@ -2223,26 +2223,22 @@ format_text (
     return g_string_free (out, FALSE);
 }
 
-/* Evaluates every expression argument into @values, which the caller
- * sized to the argument count.  A string argument leaves its slot at 0.
+/* Evaluates every expression argument of @statement into @out, which
+ * the caller sized to the argument count: a vector stays a vector, the
+ * whole film at once, and a string argument leaves its slot empty.
+ * This is the half of the old per-frame evaluation that does not depend
+ * on the frame, which is why the film can keep it (#87).
  *
- * A vector argument is the film (80.16): it contributes its element
- * @index, which is how frame i of a film is drawn without running the
- * program per frame -- the store is elementwise, so the whole film was
- * already computed, and this is the one place that picks a frame out of
- * it (82.2).
- *
- * The one failure here is 80.10's class (c): an evaluation that could
- * not be done at all, or a vector with no element @index -- an empty
- * one, or a caller asking for a frame past the count
- * pn_figure_frame_count() gave it.  Winding a knob cures neither, so
- * both stop the frame. */
+ * The one failure is an evaluation that could not be done at all
+ * (80.10's class c).  @out_done says how many slots were filled before
+ * it, so the frame-picking half can still check those first and report
+ * what the per-frame walk used to report first. */
 static gboolean
-eval_args (
+eval_arg_values (
         const PnFigureStatement *statement,
         PnVarStore              *store,
-        guint                    index,
-        gdouble                 *values,
+        PnExprValue             *out,
+        guint                   *out_done,
         GPtrArray               *errors)
 {
     guint i;
@@ -2250,52 +2246,99 @@ eval_args (
     for (i = 0; i < statement->args->len; i++)
     {
         PnFigureArg *arg   = g_ptr_array_index (statement->args, i);
-        PnExprValue  value = { NULL, 0.0 };
         GError      *error = NULL;
 
-        values[i] = 0.0;
+        *out_done = i;
+        out[i].vec    = NULL;
+        out[i].scalar = 0.0;
 
         if (arg->kind != PN_FIGURE_ARG_EXPRESSION)
             continue;
 
         if (arg->folded)
         {
-            values[i] = arg->value;
+            out[i].scalar = arg->value;
             continue;
         }
 
-        if (!pn_var_store_evaluate_value (store, arg->ast, &value, &error))
+        if (!pn_var_store_evaluate_value (store, arg->ast, &out[i], &error))
         {
             report_at (errors, statement->source, arg->offset,
                        "%s", error->message);
             g_error_free (error);
             return FALSE;
         }
+    }
 
-        if (value.vec != NULL)
-        {
-            gsize len = pn_vector_get_len (value.vec);
+    *out_done = statement->args->len;
+    return TRUE;
+}
 
-            if (index >= len)
-            {
-                pn_expr_value_clear (&value);
-                if (len == 0)
-                    report_at (errors, statement->source, arg->offset,
-                               "empty vector argument; nothing to draw");
-                else
-                    report_at (errors, statement->source, arg->offset,
-                               "frame %u is past the end of a %"
-                               G_GSIZE_FORMAT "-element vector",
-                               index, len);
-                return FALSE;
-            }
+/* One evaluated argument's value in frame @index.  A vector argument is
+ * the film (80.16): it contributes its element @index, which is how
+ * frame i of a film is drawn without running the program per frame --
+ * the store is elementwise, so the whole film was already computed, and
+ * this is the one place that picks a frame out of it (82.2).
+ *
+ * A vector with no element @index -- an empty one, or a caller asking
+ * for a frame past the count pn_figure_frame_count() gave it -- is
+ * 80.10's class (c): winding a knob will not cure it, so it stops the
+ * frame. */
+static gboolean
+pick_value (
+        const PnFigureStatement *statement,
+        const PnFigureArg       *arg,
+        const PnExprValue       *value,
+        guint                    index,
+        gdouble                 *out,
+        GPtrArray               *errors)
+{
+    gsize len;
 
-            values[i] = pn_vector_get_data (value.vec)[index];
-            pn_expr_value_clear (&value);
-            continue;
-        }
+    if (value->vec == NULL)
+    {
+        *out = value->scalar;
+        return TRUE;
+    }
 
-        values[i] = value.scalar;
+    len = pn_vector_get_len (value->vec);
+
+    if (index >= len)
+    {
+        if (len == 0)
+            report_at (errors, statement->source, arg->offset,
+                       "empty vector argument; nothing to draw");
+        else
+            report_at (errors, statement->source, arg->offset,
+                       "frame %u is past the end of a %"
+                       G_GSIZE_FORMAT "-element vector",
+                       index, len);
+        return FALSE;
+    }
+
+    *out = pn_vector_get_data (value->vec)[index];
+    return TRUE;
+}
+
+/* Frame @index of the first @n evaluated arguments, into @values. */
+static gboolean
+pick_values (
+        const PnFigureStatement *statement,
+        const PnExprValue       *args,
+        guint                    n,
+        guint                    index,
+        gdouble                 *values,
+        GPtrArray               *errors)
+{
+    guint i;
+
+    for (i = 0; i < n; i++)
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, i);
+
+        if (!pick_value (statement, arg, &args[i], index, &values[i],
+                         errors))
+            return FALSE;
     }
 
     return TRUE;
@@ -2360,59 +2403,26 @@ statement_colour (
     return color;
 }
 
-/* Runs one statement.  Returns %FALSE only for 80.10's class (c), the
- * error that empties the whole figure; a skipped statement is a %TRUE
- * that drew nothing. */
+/* Draws one statement from its values for the frame.  Returns %FALSE
+ * only for a statement no verb could name, which the front end never
+ * lets through; a skipped statement is a %TRUE that drew nothing. */
 static gboolean
-resolve_statement (
+draw_statement (
         PnFigureStatement *statement,
-        PnVarStore        *store,
-        guint              index,
+        const gdouble     *values,
         Pen               *pen,
         const Frame       *frame,
-        GPtrArray         *ops,
-        GPtrArray         *errors)
+        GPtrArray         *ops)
 {
     guint      n = statement->args->len;
-    gdouble   *values;
     gint       line = 0;
     gboolean   ok   = TRUE;
 
     pn_figure_line_locate (statement->source, 0, &line, NULL);
 
-    if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
-    {
-        PnExprValue value = { NULL, 0.0 };
-        GError     *error = NULL;
-
-        /* An assignment leaves no operation: it binds a name, and its
-         * effect is already in the numbers of what follows.  A vector
-         * binding is fine here and only becomes an error where it
-         * reaches an argument. */
-        if (!pn_var_store_evaluate_value (store, statement->ast,
-                                          &value, &error))
-        {
-            report_at (errors, statement->source, 0, "%s", error->message);
-            g_error_free (error);
-            return FALSE;
-        }
-
-        pn_expr_value_clear (&value);
-        return TRUE;
-    }
-
-    values = g_new0 (gdouble, n + 1);
-
-    if (!eval_args (statement, store, index, values, errors))
-    {
-        g_free (values);
-        return FALSE;
-    }
-
     if (!args_are_finite (statement, values))
     {
         emit_skip (ops, statement, "non-finite");
-        g_free (values);
         return TRUE;
     }
 
@@ -2684,7 +2694,6 @@ resolve_statement (
         break;
     }
 
-    g_free (values);
     return ok;
 }
 
@@ -2709,44 +2718,6 @@ block_end_index (
     }
 
     return statements->len;
-}
-
-/* How many times the block at @statement runs.  A count is a VALUE and
- * not a program (#86.5): anything unusable skips the block whole, with
- * the marker that says why, and leaves the rest of the figure to draw.
- *
- * Returns %FALSE only for 80.10's class (c) — a vector count, or an
- * evaluation that could not be done — which empties the figure like any
- * other type error. */
-static gboolean
-repeat_count (
-        PnFigureStatement *statement,
-        PnVarStore        *store,
-        guint              index,
-        GPtrArray         *ops,
-        GPtrArray         *errors,
-        guint             *out_n)
-{
-    gdouble values[2] = { 0.0, 0.0 };
-    gdouble count;
-
-    *out_n = 0;
-
-    if (!eval_args (statement, store, index, values, errors))
-        return FALSE;
-
-    count = trunc (values[0]);
-
-    if (!isfinite (values[0]))
-        emit_skip (ops, statement, "non-finite");
-    else if (count < 1.0)
-        emit_skip (ops, statement, "degenerate");
-    else if (count > (gdouble) PN_FIGURE_MAX_REPEAT)
-        emit_skip (ops, statement, "too-many");
-    else
-        *out_n = (guint) count;
-
-    return TRUE;
 }
 
 GType
@@ -2831,6 +2802,328 @@ pn_figure_step_frame (
     }
 }
 
+/* ================================================================== */
+/*  The film, evaluated once and drawn frame by frame (#87)           */
+/* ================================================================== */
+
+/* One statement of the walk as it ran: which statement, and its
+ * arguments evaluated over the whole film.  The walk is written out
+ * here -- a `repeat` block's body once per pass, assignments not at all,
+ * because their effect is already in the numbers that follow -- so
+ * drawing a frame is a straight read of this list that picks element k
+ * of every vector, with no expression evaluated at all.  What a frame
+ * costs no longer depends on how much arithmetic the program did to
+ * get there, which is what lets a figure integrate a double pendulum in
+ * a loop and still play at 25 frames a second. */
+typedef struct
+{
+    PnFigureStatement *statement;
+    PnExprValue       *args;    /* one per argument, NULL for a skip     */
+    guint              n_args;  /* slots filled (all, unless @cut)       */
+    gboolean           cut;     /* evaluation failed after @n_args slots */
+    const gchar       *skip;    /* a repeat count's marker, or NULL      */
+} TraceEntry;
+
+struct _PnFigureTrace
+{
+    GArray    *entries;   /* TraceEntry, in the order the walk ran      */
+    GPtrArray *errors;    /* the evaluation's own failure, at most one  */
+
+    /* A repeat count that is a vector runs a different number of passes
+     * in different frames, so the walk itself depends on the frame: the
+     * trace is then good for @index only. */
+    gboolean   per_frame;
+    guint      index;
+};
+
+static void
+trace_entry_clear (
+        gpointer data)
+{
+    TraceEntry *entry = data;
+    guint       i;
+
+    for (i = 0; entry->args != NULL && i < entry->n_args; i++)
+        pn_expr_value_clear (&entry->args[i]);
+    g_free (entry->args);
+}
+
+void
+pn_figure_trace_free (
+        PnFigureTrace *self)
+{
+    if (self == NULL)
+        return;
+
+    g_array_unref     (self->entries);
+    g_ptr_array_unref (self->errors);
+    g_free (self);
+}
+
+gboolean
+pn_figure_trace_is_for (
+        const PnFigureTrace *self,
+        guint                index)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    return !self->per_frame || self->index == index;
+}
+
+/* Records one statement.  An assignment leaves no entry: it binds a
+ * name, and its effect is already in the numbers of what follows.  A
+ * vector binding is fine and only becomes an error where it reaches an
+ * argument.  Returns %FALSE on an evaluation that could not be done. */
+static gboolean
+trace_statement (
+        PnFigureTrace     *self,
+        PnFigureStatement *statement,
+        PnVarStore        *store)
+{
+    TraceEntry entry = { statement, NULL, 0, FALSE, NULL };
+
+    if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
+    {
+        PnExprValue value = { NULL, 0.0 };
+        GError     *error = NULL;
+
+        if (!pn_var_store_evaluate_value (store, statement->ast,
+                                          &value, &error))
+        {
+            report_at (self->errors, statement->source, 0,
+                       "%s", error->message);
+            g_error_free (error);
+            return FALSE;
+        }
+
+        pn_expr_value_clear (&value);
+        return TRUE;
+    }
+
+    entry.args = g_new0 (PnExprValue, statement->args->len + 1);
+    entry.cut  = !eval_arg_values (statement, store, entry.args,
+                                   &entry.n_args, self->errors);
+    g_array_append_val (self->entries, entry);
+
+    return !entry.cut;
+}
+
+/* How many times the block at @statement runs.  A count is a VALUE and
+ * not a program (#86.5): anything unusable skips the block whole, with
+ * the marker that says why, and leaves the rest of the figure to draw.
+ * A vector count animates like any other argument, which makes the
+ * trace good for frame @index only.
+ *
+ * Returns %FALSE only for 80.10's class (c) -- an evaluation that could
+ * not be done, or a vector count with no element @index -- which
+ * empties the figure like any other type error. */
+static gboolean
+trace_repeat_count (
+        PnFigureTrace     *self,
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        guint              index,
+        guint             *out_n)
+{
+    PnExprValue  args[2] = { { NULL, 0.0 }, { NULL, 0.0 } };
+    TraceEntry   entry   = { statement, NULL, 0, FALSE, NULL };
+    guint        done    = 0;
+    gdouble      value   = 0.0;
+    gdouble      count;
+    gboolean     ok;
+
+    *out_n = 0;
+
+    if (!eval_arg_values (statement, store, args, &done, self->errors))
+        return FALSE;
+
+    if (args[0].vec != NULL)
+    {
+        self->per_frame = TRUE;
+        self->index     = index;
+    }
+
+    ok = pick_value (statement, g_ptr_array_index (statement->args, 0),
+                     &args[0], index, &value, self->errors);
+    pn_expr_value_clear (&args[0]);
+    if (!ok)
+        return FALSE;
+
+    count = trunc (value);
+
+    if (!isfinite (value))
+        entry.skip = "non-finite";
+    else if (count < 1.0)
+        entry.skip = "degenerate";
+    else if (count > (gdouble) PN_FIGURE_MAX_REPEAT)
+        entry.skip = "too-many";
+    else
+        *out_n = (guint) count;
+
+    if (entry.skip != NULL)
+        g_array_append_val (self->entries, entry);
+
+    return TRUE;
+}
+
+PnFigureTrace *
+pn_figure_trace_new (
+        GPtrArray              *statements,
+        GPtrArray              *free_names,
+        const PnFigureSnapshot *snapshot,
+        const PnFigureFilm     *film)
+{
+    PnFigureTrace *self = g_new0 (PnFigureTrace, 1);
+    PnVarStore    *store;
+    gboolean       failed = FALSE;
+    guint          index;
+    guint          i;
+
+    self->entries = g_array_new (FALSE, FALSE, sizeof (TraceEntry));
+    g_array_set_clear_func (self->entries, trace_entry_clear);
+    self->errors  = pn_figure_errors_new ();
+
+    g_return_val_if_fail (statements != NULL, self);
+
+    /* A store per walk IS 80.2 rule 13's clear: a previous walk's
+     * assignments cannot leak into this one if they were never here. */
+    store = pn_var_store_new ();
+    bind_frame (store, snapshot, free_names, film);
+    index = film != NULL ? film->index : 0;
+
+    i = 0;
+    while (i < statements->len && !failed)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+        guint              end;
+        guint              pass;
+        guint              k;
+
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB
+            || statement->verb != PN_FIGURE_VERB_REPEAT)
+        {
+            failed = !trace_statement (self, statement, store);
+            i++;
+            continue;
+        }
+
+        /* A block is shorthand for writing its statements out n times
+         * (#86.6): the same pen, the same store, no scope of any kind
+         * — only `i` changes, and it changes because the loop binds it
+         * before each pass (#86.4). */
+        end = block_end_index (statements, i);
+
+        if (!trace_repeat_count (self, statement, store, index, &pass))
+            break;
+
+        for (k = 0; k < pass && !failed; k++)
+        {
+            guint body;
+
+            /* The index is an ordinary binding, which is why it beats
+             * rule 12's zero-fill without anything being told about
+             * it, and why it is rebound rather than saved (#86.4). */
+            pn_var_store_set (store, PN_FIGURE_INDEX_NAME, (gdouble) k);
+
+            for (body = i + 1; body < end && !failed; body++)
+                failed = !trace_statement (
+                        self, g_ptr_array_index (statements, body), store);
+        }
+
+        i = end + 1;
+    }
+
+    g_object_unref (store);
+    return self;
+}
+
+GPtrArray *
+pn_figure_trace_draw (
+        const PnFigureTrace *self,
+        guint                index,
+        gdouble              x,
+        gdouble              y,
+        gdouble              w,
+        gdouble              h,
+        gboolean             stretch,
+        gchar              **out_error)
+{
+    GPtrArray  *ops = figure_ops_new ();
+    GPtrArray  *errors;
+    Frame       frame;
+    Pen         pen;
+    gboolean    failed = FALSE;
+    guint       i;
+
+    if (out_error != NULL)
+        *out_error = NULL;
+
+    g_return_val_if_fail (self != NULL, ops);
+
+    /* A client area with no room in it maps nothing, and dividing by
+     * its extent would hand every coordinate an infinity. */
+    if (!(w > 0.0) || !(h > 0.0))
+        return ops;
+
+    frame.x       = x;
+    frame.y       = y;
+    frame.w       = w;
+    frame.h       = h;
+    frame.stretch = stretch;
+
+    pen_init (&pen, &frame);
+    emit_view (ops, &pen, 0);
+    emit_pen (ops, &pen, 0);
+
+    errors = pn_figure_errors_new ();
+
+    for (i = 0; i < self->entries->len && !failed; i++)
+    {
+        const TraceEntry *entry = &g_array_index (self->entries,
+                                                  TraceEntry, i);
+        gdouble          *values;
+
+        if (entry->skip != NULL)
+        {
+            emit_skip (ops, entry->statement, entry->skip);
+            continue;
+        }
+
+        values = g_new0 (gdouble, entry->statement->args->len + 1);
+
+        /* A cut entry is the statement whose evaluation failed: the
+         * arguments before the failing one are still checked first, as
+         * the per-frame walk checked them, and then it draws nothing. */
+        if (!pick_values (entry->statement, entry->args, entry->n_args,
+                          index, values, errors)
+            || entry->cut
+            || !draw_statement (entry->statement, values, &pen, &frame,
+                                ops))
+            failed = TRUE;
+
+        g_free (values);
+    }
+
+    /* Evaluate fully, then paint (80.10d): "nothing is drawn" is only
+     * honest if the whole list is resolved before a single stroke goes
+     * down, so a failure takes the list with it.  A frame's own error
+     * comes first in the walk; failing that, the evaluation's. */
+    if (errors->len == 0 && self->errors->len > 0)
+        failed = TRUE;
+
+    if (failed)
+    {
+        if (out_error != NULL)
+            *out_error = pn_figure_errors_to_string (
+                    errors->len > 0 ? errors : self->errors);
+
+        g_ptr_array_set_size (ops, 0);
+    }
+
+    g_ptr_array_unref (errors);
+    return ops;
+}
+
 GPtrArray *
 pn_figure_resolve (
         GPtrArray              *statements,
@@ -2844,108 +3137,23 @@ pn_figure_resolve (
         gboolean                stretch,
         gchar                 **out_error)
 {
-    GPtrArray  *ops = figure_ops_new ();
-    GPtrArray  *errors;
-    PnVarStore *store;
-    Frame       frame;
-    Pen         pen;
-    gboolean    failed = FALSE;
-    guint       index;
-    guint       i;
+    PnFigureTrace *trace;
+    GPtrArray     *ops;
 
     if (out_error != NULL)
         *out_error = NULL;
 
-    g_return_val_if_fail (statements != NULL, ops);
+    g_return_val_if_fail (statements != NULL, figure_ops_new ());
 
-    /* A client area with no room in it maps nothing, and dividing by
-     * its extent would hand every coordinate an infinity. */
+    /* Checked here as well as in the draw, so a card with no room in
+     * it does not pay for a walk it will never draw. */
     if (!(w > 0.0) || !(h > 0.0))
-        return ops;
+        return figure_ops_new ();
 
-    frame.x       = x;
-    frame.y       = y;
-    frame.w       = w;
-    frame.h       = h;
-    frame.stretch = stretch;
-
-    /* A store per frame IS 80.2 rule 13's clear: last frame's
-     * assignments cannot leak into this one if they were never here. */
-    store = pn_var_store_new ();
-    bind_frame (store, snapshot, free_names, film);
-    index = film != NULL ? film->index : 0;
-
-    pen_init (&pen, &frame);
-    emit_view (ops, &pen, 0);
-    emit_pen (ops, &pen, 0);
-
-    errors = pn_figure_errors_new ();
-
-    i = 0;
-    while (i < statements->len && !failed)
-    {
-        PnFigureStatement *statement = g_ptr_array_index (statements, i);
-        guint              end;
-        guint              pass;
-        guint              k;
-
-        if (statement->kind != PN_FIGURE_STATEMENT_VERB
-            || statement->verb != PN_FIGURE_VERB_REPEAT)
-        {
-            if (!resolve_statement (statement, store, index, &pen, &frame,
-                                    ops, errors))
-                failed = TRUE;
-            i++;
-            continue;
-        }
-
-        /* A block is shorthand for writing its statements out n times
-         * (#86.6): the same pen, the same store, no scope of any kind
-         * — only `i` changes, and it changes because the loop binds it
-         * before each pass (#86.4). */
-        end = block_end_index (statements, i);
-
-        if (!repeat_count (statement, store, index, ops, errors, &pass))
-        {
-            failed = TRUE;
-            break;
-        }
-
-        for (k = 0; k < pass && !failed; k++)
-        {
-            guint body;
-
-            /* The index is an ordinary binding, which is why it beats
-             * rule 12's zero-fill without anything being told about
-             * it, and why it is rebound rather than saved (#86.4). */
-            pn_var_store_set (store, PN_FIGURE_INDEX_NAME, (gdouble) k);
-
-            for (body = i + 1; body < end; body++)
-                if (!resolve_statement (g_ptr_array_index (statements, body),
-                                        store, index, &pen, &frame,
-                                        ops, errors))
-                {
-                    failed = TRUE;
-                    break;
-                }
-        }
-
-        i = end + 1;
-    }
-
-    /* Evaluate fully, then paint (80.10d): "nothing is drawn" is only
-     * honest if the whole list is resolved before a single stroke goes
-     * down, so a failure takes the list with it. */
-    if (failed || errors->len > 0)
-    {
-        if (out_error != NULL)
-            *out_error = pn_figure_errors_to_string (errors);
-
-        g_ptr_array_set_size (ops, 0);
-    }
-
-    g_ptr_array_unref (errors);
-    g_object_unref (store);
+    trace = pn_figure_trace_new (statements, free_names, snapshot, film);
+    ops   = pn_figure_trace_draw (trace, film != NULL ? film->index : 0,
+                                  x, y, w, h, stretch, out_error);
+    pn_figure_trace_free (trace);
     return ops;
 }
 
@@ -3264,6 +3472,12 @@ struct _PnFigure
      * repaints long after the message that last changed it. */
     PnFigureSnapshot *snapshot;
 
+    /* The film as last evaluated (#87): every frame is drawn from it
+     * until the program, the inputs or the film's shape change, so a
+     * frame costs a read, not the program's arithmetic.  %NULL until the
+     * next paint needs it. */
+    PnFigureTrace *trace;
+
     /* The frame of the film being shown (82.2), moved by the timer
      * (82.3); pn_figure_get_frame() keeps it inside the film. */
     guint frame;
@@ -3380,6 +3594,15 @@ figure_refresh_error (
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_ERROR]);
 }
 
+/* The evaluated film is stale: the program, the inputs, or how many
+ * frames there are and where `t` ends have changed. */
+static void
+figure_forget_trace (
+        PnFigure *self)
+{
+    g_clear_pointer (&self->trace, pn_figure_trace_free);
+}
+
 /* ------------------------------------------------------------------ */
 /*  The front end, once per `program` set                              */
 /* ------------------------------------------------------------------ */
@@ -3411,6 +3634,7 @@ figure_recompile (
     g_ptr_array_unref (errors);
 
     /* A new program makes the old frame's verdict meaningless. */
+    figure_forget_trace (self);
     g_clear_pointer (&self->runtime_error, g_free);
     figure_refresh_error (self);
 }
@@ -3610,8 +3834,14 @@ figure_render_frame (
     film.frames = self->frames;
     film.mode   = self->play_mode;
 
-    ops = pn_figure_resolve (self->statements, self->names, self->snapshot,
-                             &film, x, y, w, h, self->stretch, &error);
+    if (self->trace != NULL && !pn_figure_trace_is_for (self->trace, frame))
+        figure_forget_trace (self);
+    if (self->trace == NULL)
+        self->trace = pn_figure_trace_new (self->statements, self->names,
+                                           self->snapshot, &film);
+
+    ops = pn_figure_trace_draw (self->trace, frame, x, y, w, h,
+                                self->stretch, &error);
 
     g_free (self->runtime_error);
     self->runtime_error = error;   /* transferred; %NULL when all is well */
@@ -3726,6 +3956,7 @@ pn_figure_receive (
     pn_figure_snapshot_clear (self->snapshot);
     pn_expr_bind_collated (node, message, figure_bind_into_snapshot,
                            self->snapshot);
+    figure_forget_trace (self);
 
     /* Before the render below, so the error state is judged on the
      * frame that will actually be shown. */
@@ -3931,6 +4162,7 @@ pn_figure_set_property (
             {
                 self->play_mode = v;
                 self->direction = 1;
+                figure_forget_trace (self);
                 g_object_notify_by_pspec (object, props[PROP_PLAY_MODE]);
                 /* Keep the frame; a ONCE film that had finished starts
                  * moving again if the new mode has somewhere to go.
@@ -3948,6 +4180,7 @@ pn_figure_set_property (
             if (self->frames != v)
             {
                 self->frames = v;
+                figure_forget_trace (self);
                 g_object_notify_by_pspec (object, props[PROP_FRAMES]);
                 /* A different length is a different film. */
                 figure_restart_film (self);
@@ -3995,6 +4228,7 @@ pn_figure_finalize (
     g_clear_pointer (&self->error,         g_free);
     g_clear_pointer (&self->program,       g_free);
     g_clear_pointer (&self->font_family,   g_free);
+    g_clear_pointer (&self->trace,         pn_figure_trace_free);
     g_clear_pointer (&self->snapshot,      pn_figure_snapshot_free);
 
     G_OBJECT_CLASS (pn_figure_parent_class)->finalize (object);

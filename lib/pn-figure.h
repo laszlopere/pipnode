@@ -808,6 +808,68 @@ GPtrArray *pn_figure_resolve (GPtrArray              *statements,
                               gboolean                stretch,
                               gchar                 **out_error);
 
+/* ------------------------------------------------------------------ */
+/*  PnFigureTrace (#87)                                                */
+/*                                                                     */
+/*  pn_figure_resolve() in two halves, so a node can keep the first.   */
+/*  pn_figure_trace_new() walks the program once over the whole film,  */
+/*  evaluating every argument as the vector it is; pn_figure_trace_    */
+/*  draw() turns frame k of that walk into a display list without      */
+/*  evaluating anything.  The trace does not depend on the rectangle,  */
+/*  so the zoom overlay reuses it too.  It is stale the moment the     */
+/*  statements, the snapshot or the film's frames and play mode change */
+/*  -- the owner throws it away then.                                  */
+/* ------------------------------------------------------------------ */
+
+typedef struct _PnFigureTrace PnFigureTrace;
+
+/**
+ * pn_figure_trace_new:
+ * @statements: (element-type PnFigureStatement): the parsed program
+ * @free_names: (nullable) (element-type utf8): from pn_figure_free_names()
+ * @snapshot: (nullable): the latched inputs
+ * @film: (nullable): the film; its @index matters only to a program
+ *        whose `repeat` count is a vector (see pn_figure_trace_is_for())
+ *
+ * Returns: (transfer full): the walk, never %NULL; an evaluation that
+ *   failed is kept in it and reported by pn_figure_trace_draw().
+ */
+PnFigureTrace *pn_figure_trace_new (GPtrArray              *statements,
+                                    GPtrArray              *free_names,
+                                    const PnFigureSnapshot *snapshot,
+                                    const PnFigureFilm     *film);
+
+/**
+ * pn_figure_trace_is_for:
+ * @self: a trace
+ * @index: a frame
+ *
+ * Returns: %TRUE when @self can draw frame @index -- always, unless a
+ *   vector `repeat` count made the walk itself depend on the frame.
+ */
+gboolean pn_figure_trace_is_for (const PnFigureTrace *self,
+                                 guint                index);
+
+/**
+ * pn_figure_trace_draw:
+ *
+ * Frame @index of @self as a display list, exactly what
+ * pn_figure_resolve() returns for the same program, inputs and film.
+ *
+ * Returns: (transfer full) (element-type PnFigureOp): never %NULL,
+ *   empty when @out_error was set.
+ */
+GPtrArray *pn_figure_trace_draw (const PnFigureTrace *self,
+                                 guint                index,
+                                 gdouble              x,
+                                 gdouble              y,
+                                 gdouble              w,
+                                 gdouble              h,
+                                 gboolean             stretch,
+                                 gchar              **out_error);
+
+void pn_figure_trace_free (PnFigureTrace *self);
+
 /**
  * pn_figure_display_to_string:
  * @ops: (nullable) (element-type PnFigureOp): a resolved display list

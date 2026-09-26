@@ -3356,3 +3356,43 @@
              page, which still does not exist -- so 80.14's contents
              list grows the repeat paragraph and 80.18(b)'s invariant
              rather than this entry inventing a second home for them.
+
+[ ] 87 The Figure KEEPS ITS EVALUATED FILM between frames -- asked for by a
+       double-pendulum example, which integrates the motion in a
+       `repeat 1000` loop and cost ~95 ms a frame, because every paint
+       re-ran the whole program over the whole film only to pick out one
+       element of each argument.
+       [x] 87.1 pn_figure_resolve() SPLIT IN TWO: pn_figure_trace_new()
+             walks the program once with the vectors in place and records
+             every drawing statement with its evaluated arguments (a
+             `repeat` body once per pass, assignments not at all);
+             pn_figure_trace_draw() turns frame k of that walk into a
+             display list without evaluating anything. pn_figure_resolve()
+             is now the two back to back, so every existing test still
+             asserts the same output.
+       [x] 87.2 THE NODE KEEPS THE TRACE and throws it away on the four
+             things that change it: a program edit (whose statements the
+             trace points into), a new message (the snapshot), `frames`
+             and `play-mode` (the layout of `t`). It does NOT depend on
+             the rectangle, so the zoom overlay draws from it too.
+       [x] 87.3 A VECTOR `repeat` COUNT walks a different number of passes
+             in each frame, so a trace that met one is good for that one
+             frame only and is re-walked per frame -- the old cost, for
+             the programs that need it and no others.
+       [x] 87.4 ERROR ORDER KEPT: a frame's own error (an empty vector, a
+             frame past a vector's end) comes before a later evaluation
+             failure, as it did when the walk stopped at the first one.
+       [x] 87.5 VERIFIED: the double pendulum's 250 frames dump byte-for-
+             byte the same before and after; a frame now costs 0.7 ms
+             instead of ~95 ms. Tests (kept_film_*) build the final state
+             on a fresh node and compare, for input, program, frames,
+             play-mode, a vector repeat count and a second rectangle.
+             Dropping the program-edit invalidation is a use-after-free
+             that the plain test can miss by luck; valgrind catches it.
+       [ ] 87.6 A NEW MESSAGE STILL COSTS ONE FULL WALK, on receive (for
+             the `error` property, 80.10f): ~90 ms for the pendulum, so a
+             knob spun fast over it is sluggish. Deferring the walk to
+             the next paint would need the error judged there instead.
+       [ ] 87.7 THE DOUBLE-PENDULUM EXAMPLE itself, in examples/displays/,
+             and a sentence in PnFigure.html that a heavy program costs
+             once per change, not once per frame.

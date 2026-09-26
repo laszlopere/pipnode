@@ -3426,6 +3426,183 @@ test_the_client_area_clears_the_input_rows (void)
     g_object_unref (self);
 }
 
+/* ------------------------------------------------------------------ */
+/*  The evaluated film is kept between frames (#87)                     */
+/*                                                                      */
+/*  Each check drives one node through a change and then compares its   */
+/*  frame with the same frame of a FRESH node built straight into the   */
+/*  final state: a kept film that went stale would draw the old one.    */
+/* ------------------------------------------------------------------ */
+
+static gchar *
+frame_dump (PnNode *self, guint frame)
+{
+    return pn_figure_dump (PN_FIGURE (self), frame, 0, 0, 100, 100);
+}
+
+static guint
+count_ops (const gchar *dump, const gchar *op)
+{
+    gchar       *needle = g_strdup_printf ("\n%s ", op);
+    const gchar *at     = dump;
+    guint        n      = 0;
+
+    while ((at = strstr (at, needle)) != NULL)
+    {
+        n++;
+        at++;
+    }
+
+    g_free (needle);
+    return n;
+}
+
+static void
+test_the_kept_film_follows_new_input (void)
+{
+    const gchar *program = "line 0, 0, value1 * (1 + frame), 0";
+    PnNode      *self    = node (program, 1);
+    PnNode      *fresh   = node (program, 1);
+    gchar       *before, *after, *expect;
+
+    g_object_set (self,  "frames", 3, NULL);
+    g_object_set (fresh, "frames", 3, NULL);
+
+    send (self, 0, "value", 10.0);
+    before = frame_dump (self, 1);
+    send (self, 0, "value", 20.0);
+    after  = frame_dump (self, 1);
+
+    send (fresh, 0, "value", 20.0);
+    expect = frame_dump (fresh, 1);
+
+    PN_CHECK_CMPSTR (after, !=, before);
+    PN_CHECK_CMPSTR (after, ==, expect);
+
+    g_free (before);
+    g_free (after);
+    g_free (expect);
+    g_object_unref (self);
+    g_object_unref (fresh);
+}
+
+static void
+test_the_kept_film_follows_a_program_edit (void)
+{
+    PnNode *self  = node ("line 0, 0, 10 * frame, 0", 1);
+    PnNode *fresh = node ("line 0, 0, 20 * frame, 0", 1);
+    gchar  *before, *after, *expect;
+
+    g_object_set (self,  "frames", 3, NULL);
+    g_object_set (fresh, "frames", 3, NULL);
+
+    before = frame_dump (self, 2);
+    g_object_set (self, "program", "line 0, 0, 20 * frame, 0", NULL);
+    after  = frame_dump (self, 2);
+    expect = frame_dump (fresh, 2);
+
+    PN_CHECK_CMPSTR (after, !=, before);
+    PN_CHECK_CMPSTR (after, ==, expect);
+
+    g_free (before);
+    g_free (after);
+    g_free (expect);
+    g_object_unref (self);
+    g_object_unref (fresh);
+}
+
+/* `t` is laid out by the frame count and the play mode (82.5), so
+ * changing either one changes every frame's `t`. */
+static void
+test_the_kept_film_follows_the_film_shape (void)
+{
+    const gchar *program = "line 0, 0, 100 * t, 0";
+    PnNode      *self    = node (program, 1);
+    PnNode      *fresh   = node (program, 1);
+    gchar       *before, *after, *expect;
+
+    g_object_set (self, "frames", 4, NULL);
+    before = frame_dump (self, 1);                 /* t = 1/4 */
+
+    g_object_set (self,  "frames", 2, NULL);
+    g_object_set (fresh, "frames", 2, NULL);
+    after  = frame_dump (self, 1);                 /* t = 1/2 */
+    expect = frame_dump (fresh, 1);
+    PN_CHECK_CMPSTR (after, !=, before);
+    PN_CHECK_CMPSTR (after, ==, expect);
+    g_free (before);
+    g_free (expect);
+
+    before = after;
+    g_object_set (self,  "play-mode", PN_FIGURE_PLAY_ONCE, NULL);
+    g_object_set (fresh, "play-mode", PN_FIGURE_PLAY_ONCE, NULL);
+    after  = frame_dump (self, 1);                 /* t = 1 */
+    expect = frame_dump (fresh, 1);
+    PN_CHECK_CMPSTR (after, !=, before);
+    PN_CHECK_CMPSTR (after, ==, expect);
+
+    g_free (before);
+    g_free (after);
+    g_free (expect);
+    g_object_unref (self);
+    g_object_unref (fresh);
+}
+
+/* A vector repeat count runs a different walk in every frame, so the
+ * kept film is only good for the frame it was walked for: asking for
+ * the frames out of order must still give each its own pass count. */
+static void
+test_a_vector_repeat_count_is_walked_per_frame (void)
+{
+    PnNode *self = node ("repeat 1 + frame\n"
+                         "  line i, 0, i, 10\n"
+                         "end", 1);
+    gchar  *dump;
+
+    g_object_set (self, "frames", 3, NULL);
+
+    dump = frame_dump (self, 2);
+    PN_CHECK_CMPINT (count_ops (dump, "line"), ==, 3);
+    g_free (dump);
+
+    dump = frame_dump (self, 0);
+    PN_CHECK_CMPINT (count_ops (dump, "line"), ==, 1);
+    g_free (dump);
+
+    dump = frame_dump (self, 1);
+    PN_CHECK_CMPINT (count_ops (dump, "line"), ==, 2);
+    g_free (dump);
+
+    g_object_unref (self);
+}
+
+/* The kept film does not depend on the rectangle: the zoom overlay
+ * draws the same frame bigger from the same walk. */
+static void
+test_the_kept_film_redraws_at_any_size (void)
+{
+    const gchar *program = "line 0, 0, 10 * (1 + frame), 50";
+    PnNode      *self    = node (program, 1);
+    PnNode      *fresh   = node (program, 1);
+    gchar       *small, *big, *expect;
+
+    g_object_set (self,  "frames", 3, NULL);
+    g_object_set (fresh, "frames", 3, NULL);
+
+    small  = frame_dump (self, 1);
+    big    = pn_figure_dump (PN_FIGURE (self),  1, 0, 0, 400, 400);
+    expect = pn_figure_dump (PN_FIGURE (fresh), 1, 0, 0, 400, 400);
+
+    PN_CHECK_CMPSTR (big, !=, small);
+    PN_CHECK_CMPSTR (big, ==, expect);
+
+    g_free (small);
+    g_free (big);
+    g_free (expect);
+    g_object_unref (self);
+    g_object_unref (fresh);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -3569,5 +3746,10 @@ main (int argc, char **argv)
     pn_test_add ("node_error_property", test_the_error_property_reads_back);
     pn_test_add ("node_client_area",    test_the_client_area_is_the_body);
     pn_test_add ("node_client_inputs",  test_the_client_area_clears_the_input_rows);
+    pn_test_add ("kept_film_input",     test_the_kept_film_follows_new_input);
+    pn_test_add ("kept_film_program",   test_the_kept_film_follows_a_program_edit);
+    pn_test_add ("kept_film_shape",     test_the_kept_film_follows_the_film_shape);
+    pn_test_add ("kept_film_repeat",    test_a_vector_repeat_count_is_walked_per_frame);
+    pn_test_add ("kept_film_any_size",  test_the_kept_film_redraws_at_any_size);
     return pn_test_run ();
 }
