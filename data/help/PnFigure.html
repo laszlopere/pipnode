@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Figure (PnFigure) - Pipnode Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+
+<p><a href="help-index.html">&larr; Pipnode help index</a></p>
+
+<h4 id="PnFigure">Figure</h4>
+<p>
+<em>Group:</em> Sinks. <em>Type:</em> <code>PnFigure</code>.
+</p>
+<p>
+Sink that draws a textbook-style figure &mdash; a lever, a lens, a
+pendulum, a field line &mdash; from a small drawing program, one verb
+per line. The program's arguments are expressions in the same language
+the <a href="PnExpression2.html">Calculator&nbsp;2</a> node uses, and
+the node's inputs are variables in it, so the drawing follows the
+values wired into it: turn a knob and the beam tilts. When an input is
+a <em>vector</em>, the figure becomes a film and plays it (see
+<a href="#animation">Animation</a>).
+</p>
+<p>
+If what you want is a chart of numbers rather than a picture of a
+thing, use a <a href="PnGraph.html">Graph</a> (values over time), a
+<a href="PnPlot.html">Plot</a> (one vector as a dataset) or an
+<a href="PnOscilloscope.html">Oscilloscope</a> (a trace) instead: they
+draw axes, scales and legends for you, and a Figure draws only what its
+program says.
+</p>
+<p>
+This page is also the specification of the drawing language; there is
+no other.
+</p>
+
+<h5>A first figure</h5>
+<pre>
+view -60, -25, 60, 35
+color "#202020"
+width 2
+
+# the beam, tilted by the input angle (radians)
+dx = 50 * cos(value1)
+dy = 50 * sin(value1)
+line -dx, -dy, dx, dy
+
+# the fulcrum: grey, outlined in the stroke colour
+fill "grey"
+poly 0, -2, -8, -14, 8, -14
+nofill
+
+text -dx, -dy + 6, "A"
+text  dx,  dy + 6, "B"
+text 0, 27, "%.1f deg", degrees(value1)
+</pre>
+<p>
+Wire a <a href="PnKnob.html">Knob</a> into the node and the lever tilts
+as the knob turns, with the angle printed above it. With nothing wired,
+<code>value1</code> is 0 and the beam lies flat &mdash; an unwired
+figure still draws.
+</p>
+
+<h5>Coordinates</h5>
+<p>
+<strong>Y points up.</strong> This is a physics figure, not a screen:
+<code>view xmin, ymin, xmax, ymax</code> declares the window in your
+own units, with <code>ymin</code> at the bottom. The window is fitted
+into the card preserving its aspect ratio and centred, and the space
+left over (the letterbox bars) is filled with the background colour.
+Without a <code>view</code> statement the window is
+<code>0, 0, 100, 100</code>. The window is fixed and never fitted to
+what is drawn, so a moving drawing does not make the figure zoom.
+Reversed bounds are allowed and flip that axis.
+</p>
+<p>
+Every length &mdash; line widths, radii, dash lengths, font sizes
+&mdash; is in the same units and scales with the drawing, so the zoom
+overlay enlarges a figure like a photograph. A stroke is never thinner
+than about three quarters of a pixel, except <code>width 0</code>,
+which is always a hairline.
+</p>
+
+<h5>The language</h5>
+<ul>
+  <li><strong>One statement per line:</strong> a verb followed by its
+      arguments separated by commas, or an assignment
+      <code>name = expression</code>. Blank lines and indentation are
+      free; indent to group a figure into its parts.</li>
+  <li><strong>Comments</strong> start with <code>#</code> and run to the
+      end of the line. A <code>#</code> inside quotes is a
+      character.</li>
+  <li><strong>Continuation:</strong> a line whose last character (before
+      any comment) is a comma continues on the next line &mdash; which
+      is how a long <code>poly</code> is written.</li>
+  <li><strong>Quoted means literal, unquoted means expression,</strong>
+      in every argument position: <code>color "#202020"</code>,
+      <code>dash "dot"</code>, <code>text x, y, "A"</code>. Strings take
+      <code>\"</code>, <code>\\</code> and <code>\n</code>.</li>
+  <li><strong>Verbs are case-insensitive</strong> (<code>Line</code> is
+      <code>line</code>); variable names are case-sensitive.</li>
+  <li><strong>Assignment:</strong> if the first word is followed by
+      <code>=</code> (and not <code>==</code>), the line is an
+      assignment and binds a variable for the lines below it. A
+      variable may legally be called <code>line</code>; please don't.</li>
+  <li><strong>Every verb takes a fixed number of arguments,</strong>
+      checked before anything is drawn; see the table below.</li>
+</ul>
+
+<h5>Pen state</h5>
+<p>
+Settings persist until changed, as on a pen plotter, and each is reset
+to its default at the start of every frame. <code>&lt;colour&gt;</code>
+is either one quoted literal &mdash; <code>"#rgb"</code>,
+<code>"#rrggbb"</code>, <code>"#rrggbbaa"</code>,
+<code>"rgb(r,&nbsp;g,&nbsp;b)"</code>, <code>"rgba(&hellip;)"</code> or a
+name: <code>black</code>, <code>white</code>, <code>red</code>,
+<code>green</code>, <code>blue</code>, <code>yellow</code>,
+<code>cyan</code>, <code>magenta</code>, <code>grey</code>/<code>gray</code>,
+<code>orange</code>, <code>brown</code>, <code>transparent</code>
+&mdash; or three or four expressions <code>r, g, b [, a]</code> from 0
+to 1, which is how a colour follows a value.
+</p>
+<table>
+  <tr><th>Verb</th><th>Arguments</th><th>Effect (default)</th></tr>
+  <tr><td><code>view</code></td><td>xmin, ymin, xmax, ymax</td>
+      <td>The user-unit window (0, 0, 100, 100). Applies to what follows
+          it.</td></tr>
+  <tr><td><code>color</code></td><td>&lt;colour&gt;</td>
+      <td>Stroke colour (black).</td></tr>
+  <tr><td><code>fill</code></td><td>&lt;colour&gt;</td>
+      <td>Fill colour, and turns filling on (off).</td></tr>
+  <tr><td><code>nofill</code></td><td></td>
+      <td>Turns filling off.</td></tr>
+  <tr><td><code>width</code></td><td>w</td>
+      <td>Stroke width in user units (1); <code>0</code> is a device
+          hairline.</td></tr>
+  <tr><td><code>dash</code></td><td>"style" [, scale]</td>
+      <td><code>"solid"</code> (default), <code>"dot"</code>,
+          <code>"dash"</code> or <code>"dashdot"</code>, lengths
+          multiplied by the optional scale.</td></tr>
+  <tr><td><code>font</code></td><td>size</td>
+      <td>Text size in user units (5).</td></tr>
+  <tr><td><code>align</code></td><td>"h" [, "v"]</td>
+      <td>Text anchoring: <code>"left"</code>, <code>"centre"</code>
+          (or <code>"center"</code>), <code>"right"</code>; and
+          <code>"top"</code>, <code>"middle"</code>,
+          <code>"baseline"</code>, <code>"bottom"</code>. Default centre,
+          middle &mdash; <code>text x, y, "A"</code> labels the
+          point.</td></tr>
+</table>
+<p>
+A shape drawn with filling on is filled and then outlined in the stroke
+colour, which is why <code>color</code> and <code>fill</code> are
+separate: a grey triangle with a dark outline is one of each. Lines have
+round caps and round joins.
+</p>
+
+<h5>Geometry</h5>
+<table>
+  <tr><th>Verb</th><th>Arguments</th><th>Draws</th></tr>
+  <tr><td><code>move</code></td><td>x, y</td>
+      <td>Moves the pen, no ink.</td></tr>
+  <tr><td><code>rmove</code></td><td>dx, dy</td>
+      <td>&hellip; relative to where it is.</td></tr>
+  <tr><td><code>lineto</code></td><td>x, y</td>
+      <td>A line from the pen to here; the pen follows.</td></tr>
+  <tr><td><code>rline</code></td><td>dx, dy</td>
+      <td>&hellip; relative.</td></tr>
+  <tr><td><code>line</code></td><td>x1, y1, x2, y2</td>
+      <td>A segment; leaves the pen at its second point.</td></tr>
+  <tr><td><code>point</code></td><td>x, y</td>
+      <td>A dot in the stroke colour, as wide as the current
+          <code>width</code> &mdash; a hinge, a mass, an
+          intersection.</td></tr>
+  <tr><td><code>circle</code></td><td>x, y, r</td>
+      <td>A circle.</td></tr>
+  <tr><td><code>arc</code></td><td>x, y, r, a0, a1</td>
+      <td>An arc from angle a0 to a1 in <strong>degrees</strong>,
+          counter-clockwise when a1 &gt; a0, so
+          <code>arc 0, 0, 10, 90, 0</code> is a clockwise
+          quarter.</td></tr>
+  <tr><td><code>rect</code></td><td>x, y, w, h</td>
+      <td>A rectangle from its <em>lower-left</em> corner; a negative
+          w or h extends the other way.</td></tr>
+  <tr><td><code>poly</code></td><td>x1, y1, x2, y2, x3, y3, &hellip;</td>
+      <td>A closed polygon, at least three points.</td></tr>
+  <tr><td><code>path</code></td><td>x1, y1, x2, y2, x3, y3, &hellip;</td>
+      <td>An open polyline, at least three points; never filled.</td></tr>
+  <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
+      <td>A label anchored at (x, y) per <code>align</code>. The format
+          takes <code>%%</code> and the numeric conversions
+          <code>%f %e %g %F %E %G</code> with flags, width and precision
+          (<code>"%.2f m"</code>), one expression per conversion; nothing
+          else is allowed. <code>\n</code> starts a new line below.</td></tr>
+</table>
+<p>
+Only <code>move</code>, <code>rmove</code>, <code>lineto</code>,
+<code>rline</code> and <code>line</code> move the pen; it starts every
+frame at (0, 0). The shapes are placed absolutely and leave it where it
+was.
+</p>
+<p>
+<strong>Two angle conventions, on purpose.</strong> Verb arguments
+(<code>arc</code>) are <em>degrees</em>, as in PostScript and on a
+protractor; <code>sin</code>, <code>cos</code>, <code>atan2</code> and
+the rest of the expression functions work in <em>radians</em>. Convert
+with <code>degrees(x)</code> and <code>radians(x)</code>.
+</p>
+
+<h5>Expressions and variables</h5>
+<p>
+Every unquoted argument is an expression in the calculator language
+&mdash; the operators, functions and constants are listed in the
+<a href="PnExpression2.html">Calculator&nbsp;2</a> page, and the Figure
+has exactly the same ones. The constants <code>pi</code> and
+<code>e</code> are there, and so are two-argument functions such as
+<code>atan2(y,&nbsp;x)</code>, <code>hypot</code>, <code>min</code>,
+<code>max</code>, <code>clamp</code> and <code>pow</code>.
+<strong><code>^</code> is exclusive-or, not a power</strong>: square
+with <code>x * x</code> or <code>pow(x,&nbsp;2)</code>.
+</p>
+<p>
+The variables a program can read, in the order they are bound:
+</p>
+<ol>
+  <li>the constants <code>pi</code> and <code>e</code>;</li>
+  <li>each input's last <code>data.value</code>, under the input's name
+      &mdash; <code>value1</code> &hellip; <code>valueN</code> by
+      default, or whatever the inputs are renamed to. Every input is
+      remembered, so all of them are available on every repaint, not
+      only the one that just fired. Other numeric members of the
+      arriving message are bound too, with the input's number appended
+      (<code>data.temp</code> on input&nbsp;1 is <code>temp1</code>).
+      Strings are never bound: a figure draws numbers;</li>
+  <li><code>frame</code> and <code>t</code>, when the figure is a film
+      (<a href="#animation">Animation</a>);</li>
+  <li>anything still unbound is <strong>0</strong>, so an unwired
+      figure draws.</li>
+</ol>
+<p>
+Earlier in that list wins: an input named <code>t</code> beats the
+animation's <code>t</code>, as any input beats the zero. Two more are
+bound while the program runs, and override whatever the name held:
+<code>i</code> inside a <code>repeat</code> block, and assignments, from
+the line that makes them onwards.
+</p>
+
+<h5>Repeating</h5>
+<pre>
+repeat 11
+  line i * 10, 0, i * 10, 3
+end
+</pre>
+<p>
+<code>repeat n</code> &hellip; <code>end</code> runs the lines between
+them <em>n</em> times, with <code>i</code> counting 0, 1, 2 &hellip;
+&mdash; ticks along an axis, the slits of a grating, the teeth of a
+gear. The count is an expression. The block is shorthand for writing
+the lines out: pen settings and assignments carry from one pass to the
+next. Blocks do not nest; a grid is one loop with
+<code>floor(i / cols)</code> and <code>i % cols</code>. A count below
+1 or not a number skips the block, and a count above 1000 skips it
+rather than freezing the editor.
+</p>
+
+<h5 id="animation">Animation</h5>
+<p>
+When an input is a <em>vector</em> &mdash; from a
+<a href="PnRamp.html">Ramp</a>, say &mdash; the figure becomes a film:
+frame <em>k</em> takes element <em>k</em> of every vector, and plain
+numbers are the same in every frame. The program is not rewritten per
+frame: arithmetic on vectors works element by element, so
+<code>dx = 50 * cos(a)</code> with a vector <code>a</code> simply makes
+<code>dx</code> a vector too, and a colour, a width, a
+<code>view</code> or a <code>repeat</code> count animates exactly like
+a coordinate.
+</p>
+<ul>
+  <li><strong>How long.</strong> The film is as long as the
+      <em>shortest</em> vector input the program reads, so every frame
+      is drawn from real values of every input. (The arithmetic itself
+      pads the other way: <code>a * b</code> of a 2-element and a
+      3-element vector is a 3-element vector whose last element is
+      <code>b</code>'s own &mdash; the figure shows two frames and never
+      that third one.) An input the program does not read does not
+      count, and an empty vector is an error.</li>
+  <li><strong><code>frame</code> and <code>t</code>.</strong>
+      <code>frame</code> counts 0, 1, 2 &hellip; and <code>t</code> runs
+      from 0 towards 1 over the film. In a <em>loop</em>, <code>t</code>
+      stops one step short of 1 (with 4 frames: 0, .25, .5, .75), so a
+      periodic figure such as <code>sin(2 * pi * t)</code> comes round
+      without showing the same pose twice. Played <em>once</em> or
+      <em>ping-pong</em>, the last frame is exactly <code>t = 1</code>
+      (0, .333, .667, 1), so the pose it holds or turns on is the true
+      end. In a still both are 0.</li>
+  <li><strong>A film with nothing wired.</strong> Set <em>Frames</em> on
+      the Animation tab and the figure plays with no input at all, moved
+      by <code>t</code>:
+<pre>
+# Animation tab: frames 50, play-mode loop
+view -50, -65, 50, 10
+
+a = 0.6 * sin(2 * pi * t)
+x =  50 * sin(a)
+y = -50 * cos(a)
+
+fill "grey"
+rect -15, 0, 30, 3
+nofill
+
+width 0.5
+dash "dash"
+line 0, 0, 0, -58
+dash "solid"
+
+width 1
+line 0, 0, x, y
+fill "orange"
+circle x, y, 5
+</pre>
+      A turning wheel, with its spokes drawn by a loop:
+<pre>
+# Animation tab: frames 100, play-mode loop
+view -60, -60, 60, 60
+width 1.5
+circle 0, 0, 50
+
+repeat 8
+  a = 2 * pi * (i / 8 + t)
+  line 0, 0, 50 * cos(a), 50 * sin(a)
+end
+
+fill "red"
+circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
+</pre>
+      Inside a <code>repeat</code> a vector is still a film, never a
+      loop: <code>a</code> above is a vector over the film on every
+      pass, while <code>i</code> is always a plain number.</li>
+  <li><strong>Playing.</strong> New data, or a changed program, starts
+      the film again from its first frame. The film plays only while an
+      editor has its worksheet open; run without one, a figure uses no
+      timer.</li>
+  <li><strong>No per-frame conditions.</strong> A comparison reduces a
+      vector to a single 0 or 1 &mdash; true only if it holds for every
+      element &mdash; so <code>hot = s &gt; 0</code> cannot vary from
+      frame to frame. Use arithmetic that stays a vector instead:
+      <code>step(0, s)</code> is 1 in the frames where
+      <code>s &ge; 0</code> and 0 elsewhere, and
+      <code>clamp</code>, <code>min</code> and <code>max</code> work
+      element by element.</li>
+</ul>
+
+<h5>When something is wrong</h5>
+<p>
+The card is the only place a figure can tell you, so it does:
+</p>
+<ul>
+  <li><strong>A mistake in the program</strong> &mdash; an unknown verb,
+      the wrong number of arguments, a bad format string, an
+      unterminated string, a malformed colour or dash word, an
+      expression that does not parse. The whole program is checked and
+      <em>nothing</em> is drawn; the card turns red and shows the first
+      error with its line and column, and how many there are
+      (&ldquo;3 errors, first on line 7&rdquo;). The same text appears
+      under the program editor in the settings dialog.</li>
+  <li><strong>A value that cannot be drawn</strong> &mdash; a coordinate
+      that is not a number or is infinite, a zero radius, a
+      <code>view</code> with no extent. These come and go as a knob
+      turns, so the one statement is skipped, the rest of the figure
+      draws, and the card does <em>not</em> turn red. It is also an
+      idiom: a quantity left as <code>nan</code> makes its line vanish,
+      no <code>if</code> needed.</li>
+  <li><strong>A vector that has no value for the frame</strong> &mdash;
+      an empty vector on an input. The card turns red, names the line,
+      and draws nothing.</li>
+</ul>
+<p>
+The read-only <code>error</code> property holds the same message, empty
+when all is well, and is never saved.
+</p>
+
+<h5>Properties</h5>
+<table>
+  <tr><th>Property</th><th>Description</th></tr>
+  <tr><td><code>program</code></td>
+      <td>The drawing program. A new node carries a small circle-and-value
+          example so it draws the moment it is dropped.</td></tr>
+  <tr><td><code>inputs</code></td>
+      <td>How many inputs the node has, 1&ndash;8 (default 1). Each is
+          a variable under its name.</td></tr>
+  <tr><td><code>background-color</code></td>
+      <td>Fills the card behind the drawing, letterbox bars included
+          (white).</td></tr>
+  <tr><td><code>font-family</code></td>
+      <td>The family every <code>text</code> uses, so one figure is
+          typographically consistent. Empty means the theme
+          default.</td></tr>
+  <tr><td><code>stretch</code></td>
+      <td>Distort the window to fill the card instead of keeping its
+          aspect and centring it; circles become ellipses. Off by
+          default.</td></tr>
+  <tr><td><code>play-mode</code></td>
+      <td>What a film does at its end: <em>once</em> stops and holds the
+          last frame, <em>loop</em> (default) starts again,
+          <em>ping-pong</em> plays back and turns again.</td></tr>
+  <tr><td><code>fps</code></td>
+      <td>Frames per second, 1&ndash;60 (default 25). Changing it does
+          not rewind the film.</td></tr>
+  <tr><td><code>frames</code></td>
+      <td>How many frames the film has. 0 (default) takes it from the
+          data; a number makes a film with no vector input at all, and
+          with one it can shorten the film but never lengthen it past
+          the data. At most 10000.</td></tr>
+  <tr><td><code>error</code></td>
+      <td>Read-only: what is wrong with the program, or empty.</td></tr>
+</table>
+<p>
+In the settings dialog the program has the <strong>Figure</strong> tab
+to itself, in a code editor with line numbers and the error text
+beneath; <strong>Appearance</strong> holds
+<code>background-color</code>, <code>font-family</code> and
+<code>stretch</code>; <strong>Animation</strong> holds
+<code>play-mode</code>, <code>fps</code> and <code>frames</code>; the
+input count and names are on <strong>Inputs</strong>.
+</p>
+
+</body>
+</html>

@@ -2111,7 +2111,8 @@
              calls paint_plot -- which is the half the editor cannot
              test for us, because in the editor the painter always
              runs.
-       [ ] 80.14 CONTENTS SETTLED (2026-09-21), page STILL TO WRITE:
+       [x] 80.14 CONTENTS SETTLED (2026-09-21), page WRITTEN
+             (2026-09-26) as part of TODO #82.6 -- see there:
              data/help/PnFigure.html -- which is not documentation of
              the node, it IS THE LANGUAGE SPECIFICATION, because there
              is nowhere else for one to live. Core node, so the file
@@ -3093,13 +3094,30 @@
              Tests: film_frame_and_t, film_t_ends_on_one,
              film_t_from_data, film_still_t, film_input_t_wins,
              film_assign_t_wins, anim_node_t; valgrind clean.
-       [ ] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
+       [x] 82.6 TESTS AND HELP, in the shape 80.12 set: headless and
              pixel-free, asserting the frame count, the index-to-value
              mapping and the timer's no-listener rule in
              tests/unit/test-pn-figure.c rather than a new binary, and
              ./run-unit-tests.sh green. The help page 80.14 is still to
              write; whoever writes it covers animation from here, and
              if it is already written by then it gains a section.
+             DONE (2026-09-26). The tests landed with each of 82.1-82.5
+             (the film_*, timer_* and anim_* cases, 162 binaries
+             green). The help page did not exist, so it was WRITTEN
+             here, animation section included -- which also closes
+             80.14. data/help/PnFigure.html: the language spec (grammar,
+             quoted-means-literal, pen-state and geometry tables, Y UP
+             in bold, degrees-vs-radians, `^` is XOR, binding order,
+             repeat, animation, the three error classes, properties
+             and tabs). The function list is NOT duplicated: it links
+             to PnExpression2.html's, which is the same table. The
+             three worked figures (lever, pendulum, spoked wheel) were
+             rendered through tools/figure-preview and checked by eye,
+             mid-film frames by prepending `t = 0.3`. Back-links from
+             PnPlot, PnGraph and PnOscilloscope, and a sentence in
+             help-index.html's vectors paragraph. The film section says
+             outright that `a * b` of a 2- and a 3-vector is two frames
+             (82.1b).
 
 [ ] 84 THE DEFERRALS OF FIVE CLOSED ENTRIES, carved out (2026-09-22) so
        they stay visible as work. Each of #57, #59, #60, #62 and #63
