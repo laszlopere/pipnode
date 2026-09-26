@@ -19,7 +19,7 @@
 
 #include "pntest.h"
 
-#define PN_TEST_MAX 128
+#define PN_TEST_MAX 256
 
 typedef struct
 {
