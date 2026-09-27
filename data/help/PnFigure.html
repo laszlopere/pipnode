@@ -154,6 +154,11 @@ to 1, which is how a colour follows a value.
       <td>The head of every <code>arrow</code> and <code>head</code>
           (see <a href="#arrows">Arrows</a>): tip to base, and across
           the base, in user units (3, 2.4).</td></tr>
+  <tr><td><code>angle</code></td><td>a</td>
+      <td>Turns every label that follows by <code>a</code> degrees
+          counter-clockwise about its anchor (0, upright) &mdash; a
+          label along an axis or a ray (see
+          <a href="#rotated-labels">Rotated labels</a>).</td></tr>
 </table>
 <p>
 A shape drawn with filling on is filled and then outlined in the stroke
@@ -314,6 +319,27 @@ for it. A dimension line turns with <code>origin</code> axes and leaves
 the pen where it was; one between two equal points, or with a tick of
 no length, is skipped.
 </p>
+<h5 id="rotated-labels">Rotated labels</h5>
+<pre>
+text 20, 5, "F = %.0f N", F  with angle 30
+text x, y, "ray"  with angle degrees(atan2(dy, dx)), align "left", "bottom"
+</pre>
+<p>
+Labels are upright unless the pen setting <code>angle a</code> turns
+them: each <code>text</code> after it is turned <code>a</code> degrees
+counter-clockwise about its anchor, and the alignment and the
+<code>\n</code> line stacking follow the turned baseline, so
+<code>align "left", "bottom"</code> puts a label just above a ray and
+reading along it. Like any setting it lasts until changed, so it is
+usually scoped with <code>with</code>. The angle is the drawing's, not
+the axes': inside an <code>origin</code> block a label stays upright,
+and one that should lie along the block's axes says so with the same
+angle the block was turned by &mdash; the beam balance's scales are
+printed <code>with angle tilt</code> inside <code>origin px, py,
+tilt</code>. Angles are measured as the plate shows them, so a
+<code>view</code> with reversed bounds does not mirror a label, and a
+stretched one lays it along the same slant as the line it labels.
+</p>
 <p>
 <strong>Two angle conventions, on purpose.</strong> Verb arguments
 (<code>arc</code>) are <em>degrees</em>, as in PostScript and on a
@@ -437,7 +463,9 @@ font size mean the same inside as outside. Circles stay circles and an
 arc's angles turn with the axes; a <code>rect</code> on axes turned by
 anything but a whole quarter is drawn as the tilted four-cornered shape
 it is. A label's <em>anchor</em> moves, but the label itself stays
-upright. <code>origin</code> changes where things are drawn and nothing
+upright; to lay it along the axes, give it the block's own angle with
+<code>with angle</code> (see <a href="#rotated-labels">Rotated
+labels</a>). <code>origin</code> changes where things are drawn and nothing
 else: pen settings made inside it stand after its <code>end</code>, and
 the pen is left where it was drawn to, so a <code>lineto</code> chain
 can run out of the block. The origin is in the window's units, so a

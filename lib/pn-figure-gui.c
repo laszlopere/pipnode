@@ -222,7 +222,11 @@ halign_left (
  *
  * Glyphs come out upright for free, because 80.4(a) keeps the y flip
  * out of the CTM — and they are not stretched either, since the font
- * size is the single length scale and a squashed label helps nobody. */
+ * size is the single length scale and a squashed label helps nobody.
+ * A turned label (the `angle` pen setting) is laid out exactly the same
+ * about an anchor at the origin of a CTM translated to the real anchor
+ * and rotated by @op->angle, so the alignment and the line stacking
+ * happen along the turned baseline. */
 static void
 draw_text (
         cairo_t          *cr,
@@ -237,6 +241,8 @@ draw_text (
     gdouble   top;
     gdouble   first_h = 0.0;
     gdouble   first_baseline = 0.0;
+    gdouble   ax = op->x;
+    gdouble   ay = op->y;
 
     if (op->text == NULL || *op->text == '\0')
         return;
@@ -262,22 +268,31 @@ draw_text (
         g_object_unref (layout);
     }
 
+    if (op->angle != 0.0)
+    {
+        cairo_save (cr);
+        cairo_translate (cr, op->x, op->y);
+        cairo_rotate (cr, op->angle * G_PI / 180.0);
+        ax = 0.0;
+        ay = 0.0;
+    }
+
     switch (pen->valign)
     {
     case PN_FIGURE_VALIGN_TOP:
-        top = op->y;
+        top = ay;
         break;
     case PN_FIGURE_VALIGN_BOTTOM:
-        top = op->y - ((n - 1) * advance + first_h);
+        top = ay - ((n - 1) * advance + first_h);
         break;
     case PN_FIGURE_VALIGN_BASELINE:
         /* The FIRST line's baseline sits on the anchor, which is what
          * "baseline" means everywhere else in typography. */
-        top = op->y - first_baseline;
+        top = ay - first_baseline;
         break;
     case PN_FIGURE_VALIGN_MIDDLE:
     default:
-        top = op->y - ((n - 1) * advance + first_h) / 2.0;
+        top = ay - ((n - 1) * advance + first_h) / 2.0;
         break;
     }
 
@@ -289,7 +304,7 @@ draw_text (
         gint         pw, ph;
 
         pango_layout_get_pixel_size (layout, &pw, &ph);
-        cairo_move_to (cr, halign_left (pen->halign, op->x, pw),
+        cairo_move_to (cr, halign_left (pen->halign, ax, pw),
                        top + i * advance);
         pango_cairo_show_layout (cr, layout);
         g_object_unref (layout);
@@ -300,6 +315,9 @@ draw_text (
      * circle, arc or point after a text grew a stray segment back to
      * where the text was anchored. */
     cairo_new_path (cr);
+
+    if (op->angle != 0.0)
+        cairo_restore (cr);
 
     g_strfreev (lines);
 }

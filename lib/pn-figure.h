@@ -219,6 +219,7 @@ typedef enum
     PN_FIGURE_VERB_FONT,
     PN_FIGURE_VERB_ALIGN,
     PN_FIGURE_VERB_ARROWHEAD,
+    PN_FIGURE_VERB_ANGLE,
 
     /* geometry (80.6) */
     PN_FIGURE_VERB_MOVE,
@@ -322,9 +323,9 @@ void pn_figure_statement_free (PnFigureStatement *self);
  * statement followed by ` with ` and such a list is spread out here
  * into `with`, the settings, the statement and an `end`, so every later
  * stage sees an ordinary block.  In the list, each piece that begins
- * with a pen verb (color, fill, nofill, width, dash, font, align) starts
- * a setting and the pieces after it are that setting's further
- * arguments: `with color 1, 0, 0, width 2` is two settings.  The errors
+ * with a pen verb (color, fill, nofill, width, dash, font, align,
+ * arrowhead, angle) starts a setting and the pieces after it are that
+ * setting's further arguments: `with color 1, 0, 0, width 2` is two settings.  The errors
  * this adds are a list that is empty or does not begin with a pen verb,
  * and a trailing `with` after something that draws nothing -- a call of
  * a shape the program defines anywhere counts as drawing.
@@ -752,6 +753,9 @@ typedef struct
     gdouble         w, h;     /* RECT; VIEW: the device box            */
     gdouble         r;        /* POINT, CIRCLE, ARC                    */
     gdouble         a0, a1;   /* ARC, in device degrees                */
+    gdouble         angle;    /* TEXT: the baseline's turn about the
+                               * anchor, device degrees, clockwise
+                               * positive as cairo_rotate(); 0 = upright */
     gboolean        negative; /* ARC: sweep clockwise in device space  */
     GArray         *points;   /* LINE, POLY, PATH: #gdouble, x,y pairs */
     gchar          *text;     /* TEXT: the label; SKIP: the reason     */

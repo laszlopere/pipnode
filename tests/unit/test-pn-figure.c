@@ -678,11 +678,12 @@ test_every_verb (void)
                        "hatch 1, 2, 3, 4, 1\n"     /* 26 */
                        "hatch 1, 2, 3, 4, 1, -1\n" /* 27 */
                        "dimension 1, 2, 3, 4\n"    /* 28 */
-                       "dimension 1, 2, 3, 4, 1");  /* 29 */
+                       "dimension 1, 2, 3, 4, 1\n" /* 29 */
+                       "angle 30");                 /* 30 */
 
     PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
-    PN_CHECK_CMPINT (s.statements->len, ==, 30);
+    PN_CHECK_CMPINT (s.statements->len, ==, 31);
 
     PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
     PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
@@ -695,6 +696,7 @@ test_every_verb (void)
     PN_CHECK_CMPINT (statement (&s, 25)->verb, ==, PN_FIGURE_VERB_HEAD);
     PN_CHECK_CMPINT (statement (&s, 27)->verb, ==, PN_FIGURE_VERB_HATCH);
     PN_CHECK_CMPINT (statement (&s, 29)->verb, ==, PN_FIGURE_VERB_DIMENSION);
+    PN_CHECK_CMPINT (statement (&s, 30)->verb, ==, PN_FIGURE_VERB_ANGLE);
 
     split_free (&s);
 }
@@ -4159,6 +4161,68 @@ test_a_dimension_that_cannot_be_drawn_is_skipped (void)
 }
 
 static void
+test_the_angle_setting_turns_a_label (void)
+{
+    /* Counter-clockwise on the plate is clockwise-negative on the
+     * device; quarter turns are exact, and a whole turn is upright. */
+    gchar *text = dump100 ("text 50, 50, \"A\"  with angle 30\n"
+                           "text 50, 40, \"B\"\n"
+                           "angle 90\n"
+                           "text 10, 10, \"C\"\n"
+                           "angle 180\n"
+                           "text 10, 10, \"D\"\n"
+                           "angle -450\n"
+                           "text 10, 10, \"E\"\n"
+                           "angle 360\n"
+                           "text 10, 10, \"F\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "text 50.00 50.00 centre middle angle -30.00 \"A\"\n"
+                     "text 50.00 60.00 centre middle \"B\"\n"
+                     "text 10.00 90.00 centre middle angle -90.00 \"C\"\n"
+                     "text 10.00 90.00 centre middle angle 180.00 \"D\"\n"
+                     "text 10.00 90.00 centre middle angle 90.00 \"E\"\n"
+                     "text 10.00 90.00 centre middle \"F\"\n");
+    g_free (text);
+}
+
+static void
+test_a_label_angle_ignores_the_axes (void)
+{
+    /* The axes move the anchor only; the angle is the drawing's. */
+    gchar *turned = dump100 ("origin 50, 50, 90\n"
+                             "    text 10, 0, \"U\"\n"
+                             "    text 10, 0, \"T\"  with angle 30\n"
+                             "end");
+
+    PN_CHECK_CMPSTR (turned, ==, HEAD_100
+                     "text 50.00 40.00 centre middle \"U\"\n"
+                     "text 50.00 40.00 centre middle angle -30.00 \"T\"\n");
+    g_free (turned);
+}
+
+static void
+test_a_label_angle_follows_a_stretch_not_a_mirror (void)
+{
+    /* Stretched twice as wide as high, 45 degrees on the plate lies
+     * along the same line a 45-degree ray is drawn on: atan(1/2). */
+    Figure  f        = figure ("text 50, 50, \"S\"  with angle 45");
+    gchar  *stretch  = figure_dump (&f, NULL, 200, 100, TRUE, NULL);
+    gchar  *mirrored = dump100 ("view 100, 0, 0, 100\n"
+                                "text 50, 50, \"M\"  with angle 30");
+
+    PN_CHECK (strstr (stretch, "angle -26.57 \"S\"") != NULL);
+
+    /* Reversed bounds do not mirror a turn, as they do not mirror an
+     * upright label. */
+    PN_CHECK (strstr (mirrored, "angle -30.00 \"M\"") != NULL);
+
+    g_free (stretch);
+    g_free (mirrored);
+    figure_free (&f);
+}
+
+static void
 test_a_bad_def_is_located (void)
 {
     const struct
@@ -5240,6 +5304,9 @@ main (int argc, char **argv)
     pn_test_add ("dimension_tick",      test_a_dimension_tick_is_3_when_left_out);
     pn_test_add ("dimension_origin",    test_a_dimension_turns_with_its_axes_and_leaves_the_pen);
     pn_test_add ("dimension_degenerate", test_a_dimension_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("angle_turns_text",    test_the_angle_setting_turns_a_label);
+    pn_test_add ("angle_origin",        test_a_label_angle_ignores_the_axes);
+    pn_test_add ("angle_stretch",       test_a_label_angle_follows_a_stretch_not_a_mirror);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

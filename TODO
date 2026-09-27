@@ -1418,7 +1418,7 @@
              programs uses it. wheatstone-bridge draws its battery wire
              as six `line`s, tower-crane has several more chains. Do it
              while rewriting the examples for 91.1-91.5.
-       [ ] 91.9 ROTATED LABELS along an axis or a ray -- deferred out of
+       [x] 91.9 ROTATED LABELS along an axis or a ray -- deferred out of
              80.7(h). Needs a CTM rotation about the anchor; the
              examples avoid rotated text today, so little to save.
        [ ] 91.10 ANGLE-MARK ARCS with a label -- in the examples this is

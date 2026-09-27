@@ -670,7 +670,7 @@ find_with (
 static const gchar *const pen_words[] =
 {
     "color", "fill", "nofill", "width", "dash", "font", "align",
-    "arrowhead",
+    "arrowhead", "angle",
 };
 
 static gboolean
@@ -1178,6 +1178,7 @@ static const VerbInfo verb_table[] =
     { "font",   PN_FIGURE_VERB_FONT,   1, 1,          "",    'e', VERB_PLAIN  },
     { "align",  PN_FIGURE_VERB_ALIGN,  1, 2,          "",    's', VERB_PLAIN  },
     { "arrowhead", PN_FIGURE_VERB_ARROWHEAD, 2, 2,    "",    'e', VERB_PLAIN  },
+    { "angle",  PN_FIGURE_VERB_ANGLE,  1, 1,          "",    'e', VERB_PLAIN  },
 
     /* geometry (80.6) */
     { "move",   PN_FIGURE_VERB_MOVE,   2, 2,          "",    'e', VERB_PLAIN  },
@@ -2936,6 +2937,8 @@ typedef struct
     PnFigureVAlign valign;
     gdouble        head_length; /* an arrow's head, user units: tip to */
     gdouble        head_width;  /* base, and across the base          */
+    gdouble        angle;       /* a label's turn, user degrees CCW;
+                                 * 0 = upright, whatever the axes    */
     gdouble        px, py;     /* the pen, user units                 */
     View           view;
     Place          place;      /* the local axes of `origin`          */
@@ -2984,6 +2987,7 @@ pen_init (
     self->valign     = PN_FIGURE_VALIGN_MIDDLE;
     self->head_length = FIGURE_DEFAULT_HEAD_LENGTH;
     self->head_width  = FIGURE_DEFAULT_HEAD_WIDTH;
+    self->angle       = 0.0;
     self->px         = 0.0;                     /* 80.6a */
     self->py         = 0.0;
 
@@ -3174,6 +3178,10 @@ pen_restore (
      * before the painter sees it -- so it has no operation to emit. */
     pen->head_length = saved->head_length;
     pen->head_width  = saved->head_width;
+
+    /* Likewise the label angle, which rides on each `text` operation
+     * rather than being a state of the painter's. */
+    pen->angle = saved->angle;
 }
 
 static void
@@ -3702,6 +3710,42 @@ draw_dimension (
     return TRUE;
 }
 
+/* The device angle, in degrees, of a label turned @angle degrees
+ * counter-clockwise AS SEEN ON THE PLATE: the device's y runs down, so
+ * that is clockwise-negative for cairo_rotate().  A stretched view bends
+ * it the way it bends the lines it labels; a view with reversed bounds
+ * does not mirror it, just as it does not mirror upright text.  A
+ * multiple of 90 degrees is taken exactly, as place_enter() does, so a
+ * label turned a quarter is not 89.99.  The result is in (-180, 180]. */
+static gdouble
+device_angle (
+        const View *view,
+        gdouble     angle)
+{
+    gdouble turn = fmod (angle, 360.0);
+    gdouble c, s, d;
+
+    if (turn < 0.0)
+        turn += 360.0;
+
+    if (turn == 0.0)
+        return 0.0;
+    else if (turn == 90.0)
+        c = 0.0, s = 1.0;
+    else if (turn == 180.0)
+        c = -1.0, s = 0.0;
+    else if (turn == 270.0)
+        c = 0.0, s = -1.0;
+    else
+    {
+        c = cos (turn * G_PI / 180.0);
+        s = sin (turn * G_PI / 180.0);
+    }
+
+    d = -atan2 (s * fabs (view->sy), c * fabs (view->sx)) * 180.0 / G_PI;
+    return d <= -180.0 ? d + 360.0 : d;
+}
+
 /* Draws one statement from its values for the frame.  Returns %FALSE
  * only for a statement no verb could name, which the front end never
  * lets through; a skipped statement is a %TRUE that drew nothing. */
@@ -3837,6 +3881,10 @@ draw_statement (
         }
         pen->head_length = values[0];
         pen->head_width  = values[1];
+        break;
+
+    case PN_FIGURE_VERB_ANGLE:
+        pen->angle = values[0];
         break;
 
     case PN_FIGURE_VERB_MOVE:
@@ -4033,12 +4081,15 @@ draw_statement (
         gdouble            ux, uy;
 
         /* Only the anchor moves with the axes: a label stays upright
-         * and reads left to right however the axes are turned. */
+         * and reads left to right however the axes are turned, unless
+         * the pen's `angle` turns it -- in the drawing's own degrees,
+         * never the axes'. */
         place_point (&pen->place, values[0], values[1], &ux, &uy);
         op->x      = view_map_x (&pen->view, ux);
         op->y      = view_map_y (&pen->view, uy);
         op->halign = pen->halign;
         op->valign = pen->valign;
+        op->angle  = device_angle (&pen->view, pen->angle);
         op->text   = format_text (arg->text, values + 3, n - 3);
         break;
     }
@@ -5290,6 +5341,8 @@ pn_figure_display_to_string (
             g_string_append_printf (out, " %s %s ",
                                     halign_word (op->halign),
                                     valign_word (op->valign));
+            if (op->angle != 0.0)
+                g_string_append_printf (out, "angle %.2f ", op->angle);
             append_quoted (out, op->text != NULL ? op->text : "");
             break;
 
@@ -6158,7 +6211,7 @@ pn_figure_class_init (
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
             "arrow, head, hatch, dimension, text.  Pen state, which persists until changed: "
-            "color, fill, nofill, width, dash, font, align, arrowhead.  `repeat n` ... `end` draws "
+            "color, fill, nofill, width, dash, font, align, arrowhead, angle.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
             "which is how a grid or a row of ticks is written; a repeat "
             "cannot hold another repeat.  `if c` ... `elseif c` ... `else` "
