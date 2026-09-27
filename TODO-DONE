@@ -4497,3 +4497,46 @@
        [x] 92.6 OUT OF SCOPE unless something asks: drag gestures
              (Oscilloscope cursors and knobs, Sun Path rotation) --
              pointer gestures, not values. Note it in DBUS-API.md.
+
+[x] 93 DONE (2026-09-27): FUNCTIONAL TEST FOR A COMPLEX FIGURE SHEET --
+       the self-balancing Wheatstone bridge, driven through a live
+       editor over D-Bus.
+       Chosen 2026-09-27 as the richest of the eleven Figure examples:
+       the largest program (154 statements), a five-input Figure
+       (input-names T, R1, Rx, R3, Tm), and a deterministic chain whose
+       outputs can be asserted exactly -- Knob T -> Pt100 sensor
+       (PnExpression, Rx = 100 (1 + 0.00385 T)) -> Servo (PnExpression2,
+       R3 = clamp(R1 Rx / 100, 0, 400)) -> Reading (PnExpression2,
+       Tm = (R3 100 / R1 / 100 - 1) / 0.00385); Knob R1 feeds Servo,
+       Reading and the Figure. No randomness, no timers.
+       UNBLOCKED by #92.1: the test turns the knobs with SetControlValue
+       instead of re-stating the wiring by injecting into consumers.
+       [x] 93.1 tests/data/figure-wheatstone-bridge.json, a COPY of
+             examples/displays/wheatstone-bridge.json, in EXTRA_DIST
+             (tests/data/ is new; its purpose is noted in Makefile.am).
+             The test opens a temp copy of it and never saves.
+       [x] 93.2 tests/test_figure_wheatstone_bridge.py on pndbus.py
+             (PipnodeEditor.launch, private --dbus-name), in TESTS.
+             After the knobs' startup announce, the initial state is
+             asserted exactly (T 20, R1 100 -> Rx 107.7, R3 107.7,
+             Tm 20), each calculator's named member AND data.value.
+       [x] 93.3 Operating points by SetControlValue on both knobs, read
+             back through GetLastOutputMessage on Pt100, Servo and
+             Reading, then the Figure's `error` (empty) and has-error
+             (false): balanced (T 0, R1 100 -> 100/100/0); low end
+             (T -50, R1 50 -> 80.75/40.375/-50); off the end of R3
+             (T 450, R1 200 -> 273.25/400 clamped/259.74).
+       [x] 93.4 Negative path: the program's `Ig = ...` line gets its
+             `+` swapped for `$` over D-Bus -> `error` names "line 21,
+             column 18" (computed by the test, not hard-coded) and
+             has-error is true; restoring the program clears both.
+       [x] 93.5 LIMIT, stated in the test's docstring: D-Bus cannot see
+             the Figure's display list, so the drawing itself is not
+             asserted -- tests/unit/test-pn-figure.c owns that. A
+             read-only display-list dump over D-Bus (pn_figure_dump
+             exists) would be its own TODO if a test ever wants it.
+       NOTE for later tests: GetNodesWithUuids / GetNodeByUuid report
+       the node's DISPLAY class name ("Figure", "Calculator 2"), not the
+       GType name.
+       CHECKED: passes directly and under `make check-TESTS`; the data
+       file lands in the distdir.
