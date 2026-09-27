@@ -225,6 +225,11 @@ around <code>if</code> and <code>repeat</code>, and each
       <td>A closed polygon, at least three points.</td></tr>
   <tr><td><code>path</code></td><td>x1, y1, x2, y2, x3, y3, &hellip;</td>
       <td>An open polyline, at least three points; never filled.</td></tr>
+  <tr><td><code>curve</code></td><td>x0, y0, c1x, c1y, c2x, c2y, x1, y1 [, &hellip;]</td>
+      <td>A smooth curve: one or more cubic B&eacute;zier segments,
+          each two control points and an end. Filled like a
+          <code>poly</code> when it ends exactly where it began, open
+          and never filled otherwise (see <a href="#curves">Curves</a>).</td></tr>
   <tr><td><code>arrow</code></td><td>x1, y1, x2, y2</td>
       <td>A line ending in a solid head whose tip is at the second
           point &mdash; a force, a velocity, a pointer.</td></tr>
@@ -240,6 +245,13 @@ around <code>if</code> and <code>repeat</code>, and each
           across each end, <code>tick</code> long (3 when left out)
           &mdash; how far a rope was pulled, how high a load rose (see
           <a href="#dimensions">Dimension lines</a>).</td></tr>
+  <tr><td><code>anglemark</code></td><td>x, y, r, a0, a1 [, "format", expr, &hellip;]</td>
+      <td>The arc that marks an angle, drawn as <code>arc</code> draws
+          it, and a label just outside it on the bisector (see
+          <a href="#angle-marks">Angle marks</a>).</td></tr>
+  <tr><td><code>axes</code></td><td>x, y, xlen, ylen [, "x name" [, "y name"]]</td>
+      <td>A pair of axes crossing at (x, y): an arrow along each, and
+          its name past its tip (see <a href="#axes">Axes</a>).</td></tr>
   <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
       <td>A label anchored at (x, y) per <code>align</code>. The format
           takes <code>%%</code> and the numeric conversions
@@ -318,6 +330,60 @@ its own, since only the program knows which side of the line has room
 for it. A dimension line turns with <code>origin</code> axes and leaves
 the pen where it was; one between two equal points, or with a tick of
 no length, is skipped.
+</p>
+<h5 id="curves">Curves</h5>
+<pre>
+# a biconvex lens, 60 tall and 6 thick, its faces parabolas
+curve 0, 30,   4, 10,   4, -10,   0, -30,
+      -4, -10,   -4, 10,   0, 30
+</pre>
+<p>
+<code>curve</code> starts at its first point and then takes three
+points per segment: two control points and the end, which is where the
+next segment starts. A segment leaves its start heading for the first
+control point and arrives at its end coming from the second, the way a
+PostScript <code>curveto</code> or any drawing program's pen tool does;
+a curve whose control points are two thirds of the way from each end to
+the point where the two end tangents cross is exactly a parabola, which
+is how the lens above is drawn. A curve that ends <em>exactly</em> at
+its first point is an outline, and is filled and stroked like a
+<code>poly</code>; any other is a stroke only, like a
+<code>path</code>. The count of numbers must be 2 plus a multiple of 6.
+A curve turns with <code>origin</code> axes, stretches with the
+<code>view</code> like any other line, and leaves the pen where it was.
+</p>
+<h5 id="angle-marks">Angle marks</h5>
+<pre>
+anglemark 0, 0, 12, -90, -90 + theta, "θ"
+anglemark x, y, 8, 0, a, "%.0f°", a  with font 4
+</pre>
+<p>
+<code>anglemark x, y, r, a0, a1</code> draws the arc
+<code>arc x, y, r, a0, a1</code> would; with a label after it
+&mdash; a format and its values, exactly as a <code>text</code> takes
+them &mdash; it also writes the label on the bisector, just outside the
+arc, aligned so that it grows away from the arc whichever way the
+bisector points. The label is always upright, whatever
+<code>angle</code> and <code>align</code> say. A mark with no radius is
+skipped. Where the label must go somewhere cleverer &mdash; kept off a
+rod, say &mdash; draw the <code>arc</code> and a <code>text</code> of
+your own, as the pendulum plate does.
+</p>
+<h5 id="axes">Axes</h5>
+<pre>
+axes -40, -30, 80, 60, "t", "x"
+</pre>
+<p>
+<code>axes x, y, xlen, ylen, "x name", "y name"</code> draws two
+<code>arrow</code>s from (x, y): one <code>xlen</code> along the x axis
+and one <code>ylen</code> along the y axis, a negative length pointing
+the other way, with heads the size of the <code>arrowhead</code>
+setting. Each name is written just past its arrow's tip, upright and
+aligned away from it, and either may be left out. A name is a label and
+not a format, so a per cent sign is <code>%%</code> as in a
+<code>text</code>. Ticks and scales are the program's to draw, with a
+<code>repeat</code>. Axes turn with <code>origin</code> and leave the pen
+where it was; an axis of no length skips the pair.
 </p>
 <h5 id="rotated-labels">Rotated labels</h5>
 <pre>

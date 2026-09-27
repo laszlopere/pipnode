@@ -237,6 +237,9 @@ typedef enum
     PN_FIGURE_VERB_HEAD,
     PN_FIGURE_VERB_HATCH,
     PN_FIGURE_VERB_DIMENSION,
+    PN_FIGURE_VERB_ANGLEMARK,
+    PN_FIGURE_VERB_CURVE,
+    PN_FIGURE_VERB_AXES,
 
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,
@@ -715,6 +718,8 @@ typedef enum
     PN_FIGURE_OP_RECT,   /* @x, @y, @w, @h, already normalised         */
     PN_FIGURE_OP_POLY,   /* @points, closed                            */
     PN_FIGURE_OP_PATH,   /* @points, open                              */
+    PN_FIGURE_OP_CURVE,  /* @points: a start and 3 per cubic segment;
+                          * closed (and fillable) when @closed         */
     PN_FIGURE_OP_TEXT,   /* @text at (@x, @y), anchored @halign/@valign */
 
     PN_FIGURE_OP_SKIP,   /* a statement that was not run, and why      */
@@ -757,7 +762,9 @@ typedef struct
                                * anchor, device degrees, clockwise
                                * positive as cairo_rotate(); 0 = upright */
     gboolean        negative; /* ARC: sweep clockwise in device space  */
-    GArray         *points;   /* LINE, POLY, PATH: #gdouble, x,y pairs */
+    gboolean        closed;   /* CURVE: ends where it started          */
+    GArray         *points;   /* LINE, POLY, PATH, CURVE: #gdouble, x,y
+                               * pairs                                 */
     gchar          *text;     /* TEXT: the label; SKIP: the reason     */
 
     gdouble         window[4];/* VIEW: xmin, ymin, xmax, ymax, user    */

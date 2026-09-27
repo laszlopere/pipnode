@@ -699,7 +699,8 @@ draws_ink (
     static const gchar *const ink[] =
     {
         "lineto", "rline", "line", "point", "circle", "arc", "rect",
-        "poly", "path", "arrow", "head", "hatch", "dimension", "text",
+        "poly", "path", "curve", "arrow", "head", "hatch", "dimension",
+        "anglemark", "axes", "text",
     };
     gsize i;
 
@@ -1148,6 +1149,7 @@ typedef enum
     VERB_PLAIN  = 0,
     VERB_PAIRS  = 1 << 0, /* an even count: the arguments are x,y points */
     VERB_COLOUR = 1 << 1, /* one quoted literal, or 3-4 expressions      */
+    VERB_CURVE  = 1 << 2, /* a start point, then three points per segment */
 } VerbFlags;
 
 /* One row of the table.  @kinds gives the required kind of each
@@ -1193,6 +1195,10 @@ static const VerbInfo verb_table[] =
     { "poly",   PN_FIGURE_VERB_POLY,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
     { "path",   PN_FIGURE_VERB_PATH,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
 
+    /* cubic Bezier segments: a start, then two control points and an
+     * end for each segment, the end of one the start of the next */
+    { "curve",  PN_FIGURE_VERB_CURVE,  8, G_MAXUINT,  "",    'e', VERB_CURVE  },
+
     /* arrows: from the first point to the tip at the second; `head` is
      * the tip alone, the two points giving only its direction */
     { "arrow",  PN_FIGURE_VERB_ARROW,  4, 4,          "",    'e', VERB_PLAIN  },
@@ -1205,6 +1211,15 @@ static const VerbInfo verb_table[] =
     /* a dimension line: the measured span and the length of the tick
      * across each end, 3 when left out */
     { "dimension", PN_FIGURE_VERB_DIMENSION, 4, 5,    "",    'e', VERB_PLAIN  },
+
+    /* an angle mark: an arc's centre, radius and two angles, then
+     * optionally a label and its values, as a `text` takes them */
+    { "anglemark", PN_FIGURE_VERB_ANGLEMARK, 5, G_MAXUINT, "eeeees", 'e',
+                                                             VERB_PLAIN  },
+
+    /* a pair of axes: where they cross, how long each is, and the
+     * names at their tips, each optional */
+    { "axes",   PN_FIGURE_VERB_AXES,   4, 6,          "eeee", 's', VERB_PLAIN },
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
@@ -1417,8 +1432,10 @@ check_statement (
                        info->name, info->min, n);
         else if (info->min != info->max)
             report_at (errors, statement->source, statement->offset,
-                       "%s takes %u or %u arguments, not %u",
-                       info->name, info->min, info->max, n);
+                       "%s takes %u %s %u arguments, not %u",
+                       info->name, info->min,
+                       info->max - info->min > 1 ? "to" : "or",
+                       info->max, n);
         else
             report_at (errors, statement->source, statement->offset,
                        "%s takes %u argument%s, not %u", info->name,
@@ -1430,6 +1447,14 @@ check_statement (
     {
         report_at (errors, statement->source, statement->offset,
                    "%s takes x and y in pairs", info->name);
+        return FALSE;
+    }
+
+    if ((info->flags & VERB_CURVE) && (n - 2) % 6 != 0)
+    {
+        report_at (errors, statement->source, statement->offset,
+                   "%s takes a start point and then three points per "
+                   "segment, not %u numbers", info->name, n);
         return FALSE;
     }
 
@@ -1812,18 +1837,22 @@ parse_word (
     return FALSE;
 }
 
-/* Validates a `text` format and counts its conversions.  Only "%%" and
- * the numeric conversions are allowed through, with optional flags,
- * width and precision — no "*", which would eat an argument, and no
- * length modifier, which would change the argument's type (80.7c). */
+/* Validates the format at argument @index and counts its conversions,
+ * which must come to @wanted.  Only "%%" and the numeric conversions
+ * are allowed through, with optional flags, width and precision — no
+ * "*", which would eat an argument, and no length modifier, which would
+ * change the argument's type (80.7c).  A `text` has its format at 2 and
+ * its values after it; an `anglemark` at 5; an `axes` name is a format
+ * with no values, so "%%" means the same in every label. */
 static gboolean
 parse_format (
         const PnFigureStatement *statement,
+        guint                    index,
+        guint                    wanted,
         GPtrArray               *errors)
 {
-    PnFigureArg *arg    = g_ptr_array_index (statement->args, 2);
+    PnFigureArg *arg    = g_ptr_array_index (statement->args, index);
     const gchar *format = arg->text;
-    guint        wanted = statement->args->len - 3;
     guint        found  = 0;
     gsize        i;
 
@@ -1926,7 +1955,24 @@ parse_statement_literals (
                            errors);
 
     case PN_FIGURE_VERB_TEXT:
-        return parse_format (statement, errors);
+        return parse_format (statement, 2, statement->args->len - 3,
+                             errors);
+
+    case PN_FIGURE_VERB_ANGLEMARK:
+        if (statement->args->len < 6)
+            return TRUE;
+        return parse_format (statement, 5, statement->args->len - 6,
+                             errors);
+
+    case PN_FIGURE_VERB_AXES:
+    {
+        guint i;
+
+        for (i = 4; i < statement->args->len; i++)
+            if (!parse_format (statement, i, 0, errors))
+                return FALSE;
+        return TRUE;
+    }
 
     default:
         return TRUE;
@@ -3710,6 +3756,198 @@ draw_dimension (
     return TRUE;
 }
 
+/* An `arc` (@sweep) or a `circle` from @values: the centre and the
+ * radius, already known to be positive, and for an arc its two angles
+ * in local degrees. */
+static void
+emit_arc (
+        GPtrArray     *ops,
+        const Pen     *pen,
+        gint           line,
+        const gdouble *values,
+        gboolean       sweep)
+{
+    PnFigureOp *op;
+    gdouble     k, phi;
+    gdouble     ux, uy;
+
+    place_point (&pen->place, values[0], values[1], &ux, &uy);
+    op = op_add (ops, sweep ? PN_FIGURE_OP_ARC : PN_FIGURE_OP_CIRCLE, line);
+    op->x = view_map_x (&pen->view, ux);
+    op->y = view_map_y (&pen->view, uy);
+    op->r = values[2] * pen->view.s;
+
+    if (!sweep)
+        return;
+
+    /* Turned axes turn the sweep with them: a local angle is the
+     * user angle less the turn, so the turn is simply added. */
+    view_angle_map (&pen->view, &k, &phi);
+    op->a0 = k * (values[3] + pen->place.angle) + phi;
+    op->a1 = k * (values[4] + pen->place.angle) + phi;
+
+    /* Which way to travel between the two DEVICE angles, which is
+     * simply which of them is larger — cairo_arc() runs up and
+     * cairo_arc_negative() runs down, and each wraps by 2*pi until
+     * its end lies the right side of its start.  Reading the
+     * direction off the VIEW instead (k < 0) is wrong for a sweep
+     * the user wrote BACKWARDS: 80.6(d)'s own example,
+     * `arc 0,0,10,90,0`, is a clockwise quarter and would come out
+     * as the three quarters going the other way round. */
+    op->negative = op->a1 < op->a0;
+}
+
+/* How far a label placed by a shape (`anglemark`, `axes`) stands off
+ * the point it names, as a fraction of the font size. */
+#define FIGURE_LABEL_GAP 0.4
+
+/* A label that a shape places for itself: @format filled in from
+ * @values, anchored FIGURE_LABEL_GAP of a font size from the local
+ * point (@u, @v) in the local direction (@du, @dv), and aligned so that
+ * it grows AWAY from the point in that direction -- to the right of a
+ * point it names on its right, above one it names from above, off the
+ * corner for a diagonal.  The shape cannot measure the text, so this is
+ * how it keeps a label of any width clear of what it labels.  The
+ * alignment is picked on the plate, after the axes and the view, and
+ * the label is always upright: the pen's `angle` would turn it about a
+ * corner and throw it back onto the ink.  The pen's own alignment is
+ * given back afterwards.  An empty label draws nothing. */
+static void
+emit_label (
+        GPtrArray     *ops,
+        Pen           *pen,
+        gint           line,
+        gdouble        u,
+        gdouble        v,
+        gdouble        du,
+        gdouble        dv,
+        const gchar   *format,
+        const gdouble *values,
+        guint          n)
+{
+    gdouble     d = hypot (du, dv);
+    gdouble     gap = FIGURE_LABEL_GAP * pen->font;
+    gdouble     x, y, dx, dy, ddx, ddy, dd;
+    gchar      *text;
+    Pen         saved;
+    PnFigureOp *op;
+
+    text = format_text (format, values, n);
+    if (*text == '\0' || !(d > 0.0))
+    {
+        g_free (text);
+        return;
+    }
+
+    place_point (&pen->place, u + gap * du / d, v + gap * dv / d, &x, &y);
+    place_vector (&pen->place, du, dv, &dx, &dy);
+
+    /* The direction as the plate shows it: y runs down the device. */
+    ddx = dx * pen->view.sx;
+    ddy = dy * pen->view.sy;
+    dd  = hypot (ddx, ddy);
+
+    saved = *pen;
+
+    /* cos 67.5 degrees: a direction within 22.5 degrees of an axis is
+     * that axis, anything between two axes is the diagonal. */
+    pen->halign = ddx >  0.38 * dd ? PN_FIGURE_HALIGN_LEFT
+                : ddx < -0.38 * dd ? PN_FIGURE_HALIGN_RIGHT
+                :                    PN_FIGURE_HALIGN_CENTRE;
+    pen->valign = ddy < -0.38 * dd ? PN_FIGURE_VALIGN_BOTTOM
+                : ddy >  0.38 * dd ? PN_FIGURE_VALIGN_TOP
+                :                    PN_FIGURE_VALIGN_MIDDLE;
+
+    if (pen->halign != saved.halign || pen->valign != saved.valign)
+    {
+        op         = op_add (ops, PN_FIGURE_OP_ALIGN, line);
+        op->halign = pen->halign;
+        op->valign = pen->valign;
+    }
+
+    op         = op_add (ops, PN_FIGURE_OP_TEXT, line);
+    op->x      = view_map_x (&pen->view, x);
+    op->y      = view_map_y (&pen->view, y);
+    op->halign = pen->halign;
+    op->valign = pen->valign;
+    op->text   = text;
+
+    pen_restore (ops, pen, &saved, line);
+}
+
+/* An `anglemark`: the arc of an angle at (x, y), radius r, from a0 to
+ * a1 degrees, drawn exactly as `arc` draws it, and optionally a label
+ * on the bisector just outside the arc, its format at argument 5 and
+ * its values after it.  Returns %FALSE, drawing nothing, for a radius
+ * that is not positive. */
+static gboolean
+draw_anglemark (
+        GPtrArray               *ops,
+        Pen                     *pen,
+        gint                     line,
+        const PnFigureStatement *statement,
+        const gdouble           *values)
+{
+    const PnFigureArg *arg;
+    gdouble            mid, c, s;
+
+    if (!(values[2] > 0.0))
+        return FALSE;
+
+    emit_arc (ops, pen, line, values, TRUE);
+
+    if (statement->args->len < 6)
+        return TRUE;
+
+    mid = (values[3] + values[4]) / 2.0 * G_PI / 180.0;
+    c   = cos (mid);
+    s   = sin (mid);
+    arg = g_ptr_array_index (statement->args, 5);
+    emit_label (ops, pen, line,
+                values[0] + values[2] * c, values[1] + values[2] * s,
+                c, s, arg->text, values + 6, statement->args->len - 6);
+    return TRUE;
+}
+
+/* An `axes` pair crossing at (x, y): an arrow @values[2] along the x
+ * axis and one @values[3] along the y axis, a negative length pointing
+ * the other way, each head the pen's `arrowhead`, and each name, when
+ * given, just past its tip.  Returns %FALSE, drawing nothing, when
+ * either axis has no length. */
+static gboolean
+draw_axes (
+        GPtrArray               *ops,
+        Pen                     *pen,
+        gint                     line,
+        const PnFigureStatement *statement,
+        const gdouble           *values)
+{
+    gdouble x = values[0];
+    gdouble y = values[1];
+    gdouble ends[2][4] =
+    {
+        { x, y, x + values[2], y             },
+        { x, y, x,             y + values[3] },
+    };
+    guint   k;
+
+    if (values[2] == 0.0 || values[3] == 0.0)
+        return FALSE;
+
+    for (k = 0; k < 2; k++)
+        draw_arrow (ops, pen, line, ends[k], TRUE);
+
+    for (k = 0; k < 2 && 4 + k < statement->args->len; k++)
+    {
+        const PnFigureArg *arg = g_ptr_array_index (statement->args, 4 + k);
+
+        emit_label (ops, pen, line, ends[k][2], ends[k][3],
+                    ends[k][2] - x, ends[k][3] - y, arg->text, NULL, 0);
+    }
+
+    return TRUE;
+}
+
 /* The device angle, in degrees, of a label turned @angle degrees
  * counter-clockwise AS SEEN ON THE PLATE: the device's y runs down, so
  * that is clockwise-negative for cairo_rotate().  A stretched view bends
@@ -3967,44 +4205,15 @@ draw_statement (
 
     case PN_FIGURE_VERB_CIRCLE:
     case PN_FIGURE_VERB_ARC:
-    {
-        PnFigureOp *op;
-        gdouble     k, phi;
-        gdouble     ux, uy;
-
         if (!(values[2] > 0.0))
         {
             emit_skip (ops, statement, "degenerate");
             break;
         }
 
-        place_point (&pen->place, values[0], values[1], &ux, &uy);
-        op = op_add (ops, statement->verb == PN_FIGURE_VERB_ARC
-                          ? PN_FIGURE_OP_ARC : PN_FIGURE_OP_CIRCLE, line);
-        op->x = view_map_x (&pen->view, ux);
-        op->y = view_map_y (&pen->view, uy);
-        op->r = values[2] * pen->view.s;
-
-        if (statement->verb != PN_FIGURE_VERB_ARC)
-            break;
-
-        /* Turned axes turn the sweep with them: a local angle is the
-         * user angle less the turn, so the turn is simply added. */
-        view_angle_map (&pen->view, &k, &phi);
-        op->a0 = k * (values[3] + pen->place.angle) + phi;
-        op->a1 = k * (values[4] + pen->place.angle) + phi;
-
-        /* Which way to travel between the two DEVICE angles, which is
-         * simply which of them is larger — cairo_arc() runs up and
-         * cairo_arc_negative() runs down, and each wraps by 2*pi until
-         * its end lies the right side of its start.  Reading the
-         * direction off the VIEW instead (k < 0) is wrong for a sweep
-         * the user wrote BACKWARDS: 80.6(d)'s own example,
-         * `arc 0,0,10,90,0`, is a clockwise quarter and would come out
-         * as the three quarters going the other way round. */
-        op->negative = op->a1 < op->a0;
+        emit_arc (ops, pen, line, values,
+                  statement->verb == PN_FIGURE_VERB_ARC);
         break;
-    }
 
     case PN_FIGURE_VERB_RECT:
     {
@@ -4053,6 +4262,23 @@ draw_statement (
             = device_points (pen, values, n);
         break;
 
+    case PN_FIGURE_VERB_CURVE:
+    {
+        PnFigureOp *op = op_add (ops, PN_FIGURE_OP_CURVE, line);
+
+        /* The control points go through the axes and the view like any
+         * other point: both are affine, and a Bezier curve's image under
+         * an affine map is the curve of its mapped control points, so
+         * the painter's curve is exactly the one the program meant. */
+        op->points = device_points (pen, values, n);
+
+        /* Closed only when it ends EXACTLY where it began: that is how
+         * the program says "an outline", and it then fills like `poly`.
+         * Anything else is an open stroke, never filled, like `path`. */
+        op->closed = values[n - 2] == values[0] && values[n - 1] == values[1];
+        break;
+    }
+
     case PN_FIGURE_VERB_ARROW:
     case PN_FIGURE_VERB_HEAD:
         if (!draw_arrow (ops, pen, line, values,
@@ -4071,6 +4297,16 @@ draw_statement (
 
     case PN_FIGURE_VERB_DIMENSION:
         if (!draw_dimension (ops, pen, line, values, n))
+            emit_skip (ops, statement, "degenerate");
+        break;
+
+    case PN_FIGURE_VERB_ANGLEMARK:
+        if (!draw_anglemark (ops, pen, line, statement, values))
+            emit_skip (ops, statement, "degenerate");
+        break;
+
+    case PN_FIGURE_VERB_AXES:
+        if (!draw_axes (ops, pen, line, statement, values))
             emit_skip (ops, statement, "degenerate");
         break;
 
@@ -5334,6 +5570,13 @@ pn_figure_display_to_string (
             append_points (out, op->points);
             break;
 
+        case PN_FIGURE_OP_CURVE:
+            g_string_append (out, "curve");
+            append_points (out, op->points);
+            if (op->closed)
+                g_string_append (out, " closed");
+            break;
+
         case PN_FIGURE_OP_TEXT:
             g_string_append (out, "text");
             append_device (out, op->x);
@@ -6210,7 +6453,7 @@ pn_figure_class_init (
             "(0, 0, 100, 100 by default), which is fitted into the card "
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
-            "arrow, head, hatch, dimension, text.  Pen state, which persists until changed: "
+            "curve, arrow, head, hatch, dimension, anglemark, axes, text.  Pen state, which persists until changed: "
             "color, fill, nofill, width, dash, font, align, arrowhead, angle.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
             "which is how a grid or a row of ticks is written; a repeat "

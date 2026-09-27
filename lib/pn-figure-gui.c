@@ -382,6 +382,30 @@ points_path (
     return TRUE;
 }
 
+/* The start and the control-control-end triples of a CURVE as a cairo
+ * path, closed when core says it ends where it began. */
+static gboolean
+curve_path (
+        cairo_t          *cr,
+        const PnFigureOp *op)
+{
+    const gdouble *p;
+    guint          i;
+
+    if (op->points == NULL || op->points->len < 8)
+        return FALSE;
+
+    p = (const gdouble *) op->points->data;
+    cairo_move_to (cr, p[0], p[1]);
+    for (i = 2; i + 5 < op->points->len; i += 6)
+        cairo_curve_to (cr, p[i], p[i + 1], p[i + 2], p[i + 3],
+                            p[i + 4], p[i + 5]);
+
+    if (op->closed)
+        cairo_close_path (cr);
+    return TRUE;
+}
+
 /* ------------------------------------------------------------------ */
 /*  The walk                                                           */
 /* ------------------------------------------------------------------ */
@@ -465,6 +489,22 @@ paint_ops (
         case PN_FIGURE_OP_POLY:
             if (points_path (cr, op, TRUE))
                 fill_and_stroke (cr, &pen);
+            break;
+
+        case PN_FIGURE_OP_CURVE:
+            /* Closed, an outline like a `poly`; open, a stroke like a
+             * `path`, never filled. */
+            if (!curve_path (cr, op))
+                break;
+            if (op->closed)
+            {
+                fill_and_stroke (cr, &pen);
+            }
+            else
+            {
+                apply_stroke (cr, &pen);
+                cairo_stroke (cr);
+            }
             break;
 
         case PN_FIGURE_OP_POINT:

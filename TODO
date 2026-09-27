@@ -1421,12 +1421,12 @@
        [x] 91.9 ROTATED LABELS along an axis or a ray -- deferred out of
              80.7(h). Needs a CTM rotation about the anchor; the
              examples avoid rotated text today, so little to save.
-       [ ] 91.10 ANGLE-MARK ARCS with a label -- in the examples this is
+       [x] 91.10 ANGLE-MARK ARCS with a label -- in the examples this is
              already just an `arc` plus a `text` (pendulum, refraction).
-       [ ] 91.11 BEZIER CURVES -- one use: ray-optics' lens outline is a
+       [x] 91.11 BEZIER CURVES -- one use: ray-optics' lens outline is a
              25-point hard-coded poly. A readability win there, not a
              statement count.
-       [ ] 91.12 An `axes` HELPER that draws a labelled pair of axes in
+       [x] 91.12 An `axes` HELPER that draws a labelled pair of axes in
              one statement -- none of the eleven sheets has x/y axes
              (their scales are single ruled bars).
        [ ] 91.13 A COMPARISON OF A VECTOR COLLAPSES to one scalar

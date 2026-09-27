@@ -679,11 +679,16 @@ test_every_verb (void)
                        "hatch 1, 2, 3, 4, 1, -1\n" /* 27 */
                        "dimension 1, 2, 3, 4\n"    /* 28 */
                        "dimension 1, 2, 3, 4, 1\n" /* 29 */
-                       "angle 30");                 /* 30 */
+                       "angle 30\n"                /* 30 */
+                       "curve 0,0, 1,1, 2,2, 3,3\n" /* 31 */
+                       "anglemark 0, 0, 5, 0, 90\n" /* 32 */
+                       "anglemark 0, 0, 5, 0, 90, \"%.0f\", a\n" /* 33 */
+                       "axes 0, 0, 10, 10\n"        /* 34 */
+                       "axes 0, 0, 10, 10, \"x\", \"y\""); /* 35 */
 
     PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
-    PN_CHECK_CMPINT (s.statements->len, ==, 31);
+    PN_CHECK_CMPINT (s.statements->len, ==, 36);
 
     PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
     PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
@@ -697,6 +702,9 @@ test_every_verb (void)
     PN_CHECK_CMPINT (statement (&s, 27)->verb, ==, PN_FIGURE_VERB_HATCH);
     PN_CHECK_CMPINT (statement (&s, 29)->verb, ==, PN_FIGURE_VERB_DIMENSION);
     PN_CHECK_CMPINT (statement (&s, 30)->verb, ==, PN_FIGURE_VERB_ANGLE);
+    PN_CHECK_CMPINT (statement (&s, 31)->verb, ==, PN_FIGURE_VERB_CURVE);
+    PN_CHECK_CMPINT (statement (&s, 33)->verb, ==, PN_FIGURE_VERB_ANGLEMARK);
+    PN_CHECK_CMPINT (statement (&s, 35)->verb, ==, PN_FIGURE_VERB_AXES);
 
     split_free (&s);
 }
@@ -4161,6 +4169,223 @@ test_a_dimension_that_cannot_be_drawn_is_skipped (void)
 }
 
 static void
+test_an_anglemark_labels_its_bisector (void)
+{
+    /* The arc as `arc` draws it, and the label on the bisector 2 (0.4
+     * of the font) past it, aligned to grow away up and to the right. */
+    gchar *text = dump100 ("anglemark 50, 50, 10, 0, 90, \"%.0f deg\", 90");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "arc 50.00 50.00 10.00 0.00 -90.00 negative\n"
+                     "align left bottom\n"
+                     "text 58.49 41.51 left bottom \"90 deg\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_an_anglemark_label_is_optional (void)
+{
+    gchar *mark = dump100 ("anglemark 50, 50, 10, 30, 60");
+    gchar *arc  = dump100 ("arc 50, 50, 10, 30, 60");
+
+    PN_CHECK_CMPSTR (mark, ==, arc);
+    g_free (mark);
+    g_free (arc);
+}
+
+static void
+test_an_anglemark_label_picks_its_side (void)
+{
+    /* Straight down, straight left, and down-left: the label always
+     * grows away from the arc, whatever the pen's own alignment. */
+    gchar *text = dump100 ("align \"right\", \"top\"\n"
+                           "anglemark 50, 50, 10, -100, -80, \"S\"\n"
+                           "anglemark 50, 50, 10, 170, 190, \"W\"\n"
+                           "anglemark 50, 50, 10, 200, 250, \"SW\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "align right top\n"
+                     "arc 50.00 50.00 10.00 100.00 80.00 negative\n"
+                     "align centre top\n"
+                     "text 50.00 62.00 centre top \"S\"\n"
+                     "align right top\n"
+                     "arc 50.00 50.00 10.00 -170.00 -190.00 negative\n"
+                     "align right middle\n"
+                     "text 38.00 50.00 right middle \"W\"\n"
+                     "align right top\n"
+                     "arc 50.00 50.00 10.00 -200.00 -250.00 negative\n"
+                     "text 41.51 58.49 right top \"SW\"\n");
+    g_free (text);
+}
+
+static void
+test_an_anglemark_turns_with_its_axes (void)
+{
+    /* A quarter turn: the sweep turns, the label moves to the upper
+     * left and stays upright. */
+    gchar *text = dump100 ("origin 50, 50, 90\n"
+                           "    anglemark 0, 0, 10, 0, 90, \"A\"  with angle 45\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "arc 50.00 50.00 10.00 -90.00 -180.00 negative\n"
+                     "align right bottom\n"
+                     "text 41.51 41.51 right bottom \"A\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_an_anglemark_that_cannot_be_drawn_is_skipped (void)
+{
+    gchar *text = dump100 ("anglemark 5, 5, 0, 0, 90, \"A\"\n"
+                           "anglemark 5, 5, -1, 0, 90");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n");
+    g_free (text);
+}
+
+static void
+test_an_anglemark_label_is_a_format (void)
+{
+    Split s = literals ("anglemark 0, 0, 5, 0, 90, \"%.1f\"\n"
+                        "anglemark 0, 0, 5, 0, 90, \"%s\", a\n"
+                        "anglemark 0, 0, 5, 0, 90, 7");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 0);
+    PN_CHECK_CMPINT (s.errors->len, ==, 3);
+    /* The kinds are checked before any format is read. */
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "expected a quoted string");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "format needs 1 value, not 0");
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "unsupported conversion \"%s\"");
+
+    split_free (&s);
+}
+
+static void
+test_a_curve_keeps_its_control_points (void)
+{
+    gchar *text = dump100 ("curve 10, 10, 10, 30, 30, 30, 30, 10,\n"
+                           "      30, -10, 50, -10, 50, 10");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "curve 10.00 90.00 10.00 70.00 30.00 70.00 30.00 90.00"
+                     " 30.00 110.00 50.00 110.00 50.00 90.00\n");
+    g_free (text);
+}
+
+static void
+test_a_curve_that_comes_back_is_closed (void)
+{
+    /* The lens: two segments ending where the first began, drawn on
+     * turned axes so the control points are seen to turn too. */
+    gchar *text = dump100 ("origin 50, 50, 90\n"
+                           "    curve 0, 30, 4, 10, 4, -10, 0, -30,\n"
+                           "          -4, -10, -4, 10, 0, 30\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "curve 20.00 50.00 40.00 46.00 60.00 46.00 80.00 50.00"
+                     " 60.00 54.00 40.00 54.00 20.00 50.00 closed\n");
+    g_free (text);
+}
+
+static void
+test_a_curve_counts_its_points (void)
+{
+    Split s = checked ("curve 0,0, 1,1, 2,2\n"
+                       "curve 0,0, 1,1, 2,2, 3,3, 4,4\n"
+                       "curve 0,0, 1,1, 2,2, 3,3, 4,4, 5,5, 6,6");
+
+    PN_CHECK_CMPINT (s.statements->len, ==, 1);
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "curve takes at least 8 arguments, not 6");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==,
+                     "curve takes a start point and then three points per "
+                     "segment, not 10 numbers");
+
+    split_free (&s);
+}
+
+static void
+test_axes_draw_two_arrows_and_name_them (void)
+{
+    gchar *text = dump100 ("axes 10, 10, 50, 40, \"x\", \"y\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 10.00 90.00 57.00 90.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 60.00 90.00 57.00 88.80 57.00 91.20\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 10.00 90.00 10.00 53.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 10.00 50.00 8.80 53.00 11.20 53.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "align left middle\n"
+                     "text 62.00 90.00 left middle \"x\"\n"
+                     "align centre middle\n"
+                     "align centre bottom\n"
+                     "text 10.00 48.00 centre bottom \"y\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_axes_may_point_the_other_way (void)
+{
+    /* Negative lengths: the arrows point left and down, and the names
+     * follow them.  The name of the y axis is left out. */
+    gchar *text = dump100 ("axes 50, 50, -20, -20, \"t\"  with arrowhead 2, 2");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 50.00 50.00 32.00 50.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 30.00 50.00 32.00 51.00 32.00 49.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 50.00 50.00 50.00 68.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 70.00 51.00 68.00 49.00 68.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "align right middle\n"
+                     "text 28.00 50.00 right middle \"t\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_axes_with_no_length_are_skipped (void)
+{
+    gchar *text = dump100 ("axes 5, 5, 0, 10\n"
+                           "axes 5, 5, 10, 0, \"x\", \"y\"");
+    Split  s    = literals ("axes 0, 0, 10, 10, \"%.1f\"\n"
+                            "axes 0, 0, 10, 10, \"x\", \"y\", \"z\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n");
+    g_free (text);
+
+    /* A name is a label, not a format with values: "%%" is a per cent. */
+    PN_CHECK_CMPINT (s.errors->len, ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "axes takes 4 to 6 arguments, not 7");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "format needs 1 value, not 0");
+    split_free (&s);
+}
+
+static void
 test_the_angle_setting_turns_a_label (void)
 {
     /* Counter-clockwise on the plate is clockwise-negative on the
@@ -5304,6 +5529,18 @@ main (int argc, char **argv)
     pn_test_add ("dimension_tick",      test_a_dimension_tick_is_3_when_left_out);
     pn_test_add ("dimension_origin",    test_a_dimension_turns_with_its_axes_and_leaves_the_pen);
     pn_test_add ("dimension_degenerate", test_a_dimension_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("anglemark_draws",     test_an_anglemark_labels_its_bisector);
+    pn_test_add ("anglemark_no_label",  test_an_anglemark_label_is_optional);
+    pn_test_add ("anglemark_sides",     test_an_anglemark_label_picks_its_side);
+    pn_test_add ("anglemark_origin",    test_an_anglemark_turns_with_its_axes);
+    pn_test_add ("anglemark_degenerate", test_an_anglemark_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("anglemark_format",    test_an_anglemark_label_is_a_format);
+    pn_test_add ("curve_draws",         test_a_curve_keeps_its_control_points);
+    pn_test_add ("curve_closed",        test_a_curve_that_comes_back_is_closed);
+    pn_test_add ("curve_arity",         test_a_curve_counts_its_points);
+    pn_test_add ("axes_draw",           test_axes_draw_two_arrows_and_name_them);
+    pn_test_add ("axes_reversed",       test_axes_may_point_the_other_way);
+    pn_test_add ("axes_degenerate",     test_axes_with_no_length_are_skipped);
     pn_test_add ("angle_turns_text",    test_the_angle_setting_turns_a_label);
     pn_test_add ("angle_origin",        test_a_label_angle_ignores_the_axes);
     pn_test_add ("angle_stretch",       test_a_label_angle_follows_a_stretch_not_a_mirror);
