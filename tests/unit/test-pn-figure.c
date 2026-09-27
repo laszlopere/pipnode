@@ -676,11 +676,13 @@ test_every_verb (void)
                        "arrow 1, 2, 3, 4\n"        /* 24 */
                        "head 1, 2, 3, 4\n"         /* 25 */
                        "hatch 1, 2, 3, 4, 1\n"     /* 26 */
-                       "hatch 1, 2, 3, 4, 1, -1");  /* 27 */
+                       "hatch 1, 2, 3, 4, 1, -1\n" /* 27 */
+                       "dimension 1, 2, 3, 4\n"    /* 28 */
+                       "dimension 1, 2, 3, 4, 1");  /* 29 */
 
     PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
-    PN_CHECK_CMPINT (s.statements->len, ==, 28);
+    PN_CHECK_CMPINT (s.statements->len, ==, 30);
 
     PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
     PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
@@ -692,6 +694,7 @@ test_every_verb (void)
     PN_CHECK_CMPINT (statement (&s, 24)->verb, ==, PN_FIGURE_VERB_ARROW);
     PN_CHECK_CMPINT (statement (&s, 25)->verb, ==, PN_FIGURE_VERB_HEAD);
     PN_CHECK_CMPINT (statement (&s, 27)->verb, ==, PN_FIGURE_VERB_HATCH);
+    PN_CHECK_CMPINT (statement (&s, 29)->verb, ==, PN_FIGURE_VERB_DIMENSION);
 
     split_free (&s);
 }
@@ -4090,6 +4093,72 @@ test_a_hatch_that_cannot_be_drawn_is_skipped (void)
 }
 
 static void
+test_a_dimension_ticks_both_ends (void)
+{
+    /* Upwards, so the left side is towards smaller x: each tick runs
+     * from right to left, 4 long, centred on its end. */
+    gchar *text = dump100 ("dimension 10, 20, 10, 60, 4  with width 2");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 2.00\n"
+                     "line 10.00 80.00 10.00 40.00\n"
+                     "line 12.00 80.00 8.00 80.00\n"
+                     "line 12.00 40.00 8.00 40.00\n"
+                     "width 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_dimension_tick_is_3_when_left_out (void)
+{
+    gchar *text = dump100 ("dimension 20, 50, 60, 50");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 20.00 50.00 60.00 50.00\n"
+                     "line 20.00 51.50 20.00 48.50\n"
+                     "line 60.00 51.50 60.00 48.50\n");
+    g_free (text);
+}
+
+static void
+test_a_dimension_turns_with_its_axes_and_leaves_the_pen (void)
+{
+    gchar *turned = dump100 ("move 5, 5\n"
+                             "origin 50, 50, 90\n"
+                             "    dimension 0, 0, 20, 0, 4\n"
+                             "end\n"
+                             "lineto 10, 10");
+    gchar *plain  = dump100 ("move 5, 5\n"
+                             "dimension 50, 50, 50, 70, 4\n"
+                             "lineto 10, 10");
+
+    PN_CHECK_CMPSTR (turned, ==, plain);
+    PN_CHECK_CMPSTR (plain, ==, HEAD_100
+                     "move 5.00 95.00\n"
+                     "line 50.00 50.00 50.00 30.00\n"
+                     "line 52.00 50.00 48.00 50.00\n"
+                     "line 52.00 30.00 48.00 30.00\n"
+                     "line 5.00 95.00 10.00 90.00\n");
+    g_free (turned);
+    g_free (plain);
+}
+
+static void
+test_a_dimension_that_cannot_be_drawn_is_skipped (void)
+{
+    /* No span to measure, or a tick with no length. */
+    gchar *text = dump100 ("dimension 5, 5, 5, 5\n"
+                           "dimension 0, 0, 10, 0, 0\n"
+                           "dimension 0, 0, 10, 0, -1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n"
+                     "# skip 3 degenerate\n");
+    g_free (text);
+}
+
+static void
 test_a_bad_def_is_located (void)
 {
     const struct
@@ -5167,6 +5236,10 @@ main (int argc, char **argv)
     pn_test_add ("hatch_other_side",    test_a_negative_depth_hatches_the_other_side);
     pn_test_add ("hatch_origin",        test_a_hatch_turns_with_its_axes);
     pn_test_add ("hatch_degenerate",    test_a_hatch_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("dimension_draws",     test_a_dimension_ticks_both_ends);
+    pn_test_add ("dimension_tick",      test_a_dimension_tick_is_3_when_left_out);
+    pn_test_add ("dimension_origin",    test_a_dimension_turns_with_its_axes_and_leaves_the_pen);
+    pn_test_add ("dimension_degenerate", test_a_dimension_that_cannot_be_drawn_is_skipped);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

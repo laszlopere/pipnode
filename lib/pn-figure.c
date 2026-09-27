@@ -699,7 +699,7 @@ draws_ink (
     static const gchar *const ink[] =
     {
         "lineto", "rline", "line", "point", "circle", "arc", "rect",
-        "poly", "path", "arrow", "head", "hatch", "text",
+        "poly", "path", "arrow", "head", "hatch", "dimension", "text",
     };
     gsize i;
 
@@ -1200,6 +1200,10 @@ static const VerbInfo verb_table[] =
     /* a hatched surface: the line, the spacing of its strokes, and how
      * far they stand off it, 3/4 of the spacing when left out */
     { "hatch",  PN_FIGURE_VERB_HATCH,  5, 6,          "",    'e', VERB_PLAIN  },
+
+    /* a dimension line: the measured span and the length of the tick
+     * across each end, 3 when left out */
+    { "dimension", PN_FIGURE_VERB_DIMENSION, 4, 5,    "",    'e', VERB_PLAIN  },
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
@@ -3651,6 +3655,53 @@ draw_hatch (
     return NULL;
 }
 
+/* A `dimension` line: the span from (x1, y1) to (x2, y2), local units,
+ * and a tick square across each end, centred on it, @values[4] long (3
+ * when left out), all at the pen's width -- how a drawing marks a
+ * length it wants read.  Each tick runs from the line's right side to
+ * its left as the line runs from the first point to the second.  The
+ * label is a `text` of its own, since only the program knows which
+ * side has room for it.  Returns %FALSE, drawing nothing, for a span
+ * with no direction or a tick with no length. */
+static gboolean
+draw_dimension (
+        GPtrArray     *ops,
+        Pen           *pen,
+        gint           line,
+        const gdouble *values,
+        guint          n)
+{
+    gdouble dx   = values[2] - values[0];
+    gdouble dy   = values[3] - values[1];
+    gdouble d    = hypot (dx, dy);
+    gdouble half = (n > 4 ? values[4] : 3.0) / 2.0;
+    gdouble nx, ny;
+    gdouble x1, y1, x2, y2;
+    guint   k;
+
+    if (!(d > 0.0) || !isfinite (d) || !(half > 0.0))
+        return FALSE;
+
+    /* half a tick along the left normal of the span */
+    nx = -dy / d * half;
+    ny =  dx / d * half;
+
+    place_point (&pen->place, values[0], values[1], &x1, &y1);
+    place_point (&pen->place, values[2], values[3], &x2, &y2);
+    emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+
+    for (k = 0; k < 4; k += 2)
+    {
+        place_point (&pen->place, values[k] - nx, values[k + 1] - ny,
+                     &x1, &y1);
+        place_point (&pen->place, values[k] + nx, values[k + 1] + ny,
+                     &x2, &y2);
+        emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+    }
+
+    return TRUE;
+}
+
 /* Draws one statement from its values for the frame.  Returns %FALSE
  * only for a statement no verb could name, which the front end never
  * lets through; a skipped statement is a %TRUE that drew nothing. */
@@ -3969,6 +4020,11 @@ draw_statement (
             emit_skip (ops, statement, reason);
         break;
     }
+
+    case PN_FIGURE_VERB_DIMENSION:
+        if (!draw_dimension (ops, pen, line, values, n))
+            emit_skip (ops, statement, "degenerate");
+        break;
 
     case PN_FIGURE_VERB_TEXT:
     {
@@ -6101,7 +6157,7 @@ pn_figure_class_init (
             "(0, 0, 100, 100 by default), which is fitted into the card "
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
-            "arrow, head, hatch, text.  Pen state, which persists until changed: "
+            "arrow, head, hatch, dimension, text.  Pen state, which persists until changed: "
             "color, fill, nofill, width, dash, font, align, arrowhead.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
             "which is how a grid or a row of ticks is written; a repeat "

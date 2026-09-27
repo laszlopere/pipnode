@@ -230,6 +230,11 @@ around <code>if</code> and <code>repeat</code>, and each
       <td>A surface that is solid on one side &mdash; a wall, a ceiling,
           the ground: the line, and short slanted strokes along it (see
           <a href="#hatching">Hatching</a>).</td></tr>
+  <tr><td><code>dimension</code></td><td>x1, y1, x2, y2 [, tick]</td>
+      <td>A dimension line: the span measured, and a tick square
+          across each end, <code>tick</code> long (3 when left out)
+          &mdash; how far a rope was pulled, how high a load rose (see
+          <a href="#dimensions">Dimension lines</a>).</td></tr>
   <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
       <td>A label anchored at (x, y) per <code>align</code>. The format
           takes <code>%%</code> and the numeric conversions
@@ -293,6 +298,21 @@ three quarters of the spacing. Like the other shapes, a hatch turns with
 <code>origin</code> axes and leaves the pen where it was. A hatch with no
 length, no spacing or no depth is skipped, and so is one that would need
 more than 1000 strokes.
+</p>
+<h5 id="dimensions">Dimension lines</h5>
+<pre>
+dimension xd, 0, xd, -h               # how far the hand moved
+text xd + 2, -h / 2, "p"  with align "left", "middle"
+</pre>
+<p>
+<code>dimension x1, y1, x2, y2, tick</code> draws the line between the
+two points and, across each end, a tick <code>tick</code> long, square
+to the line and centred on it; left out, <code>tick</code> is 3. All
+three are drawn in the current pen. The label is a <code>text</code> of
+its own, since only the program knows which side of the line has room
+for it. A dimension line turns with <code>origin</code> axes and leaves
+the pen where it was; one between two equal points, or with a tick of
+no length, is skipped.
 </p>
 <p>
 <strong>Two angle conventions, on purpose.</strong> Verb arguments

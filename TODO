@@ -1411,7 +1411,7 @@
        [x] 91.6 HATCHING for a wall or a ground plane: pendulum's seven
              hand-placed strokes, block-and-tackle's and tower-crane's
              repeat loops.
-       [ ] 91.7 DIMENSION LINES with ticks: block-and-tackle's p and h
+       [x] 91.7 DIMENSION LINES with ticks: block-and-tackle's p and h
              markers are six statements each.
        [ ] 91.8 USE `path` IN THE EXAMPLES -- no language change: the
              open polyline verb already exists and none of the eleven
