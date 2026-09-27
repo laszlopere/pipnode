@@ -208,6 +208,24 @@ gboolean pn_var_store_get (PnVarStore *self, const gchar *name, gdouble *out_val
 void pn_var_store_clear (PnVarStore *self);
 
 /**
+ * pn_var_store_set_elementwise_compare:
+ * @self:        the store
+ * @elementwise: %TRUE for elementwise comparisons
+ *
+ * Chooses what a comparison of a vector gives in
+ * pn_var_store_evaluate_value().  %FALSE, the default and what every
+ * Calculator uses: one scalar, 1.0 only when the comparison holds for
+ * every element.  %TRUE: a vector of 0.0/1.0, one per element, as long
+ * as the longer operand, a scalar broadcasting; where one of two vectors
+ * has run out the element is 0.0.  The Figure uses it, where a vector is
+ * a film and `if frame > 3` must choose frame by frame.  Comparisons of
+ * two scalars are the same either way, and pn_var_store_clear() leaves
+ * the mode alone.
+ */
+void pn_var_store_set_elementwise_compare (PnVarStore *self,
+                                           gboolean    elementwise);
+
+/**
  * pn_var_store_evaluate:
  * @self:      the store providing variable bindings
  * @node:      AST to evaluate
@@ -306,9 +324,10 @@ gboolean pn_var_store_evaluate (PnVarStore       *self,
  *    operators above do — at three operands and more, the index where an
  *    operand has run out takes the first argument that still has an
  *    element, which at two is the same tail rule (TODO #83.19);
- *  - comparisons ALWAYS reduce to a single scalar 0.0/1.0, true iff every
+ *  - comparisons reduce to a single scalar 0.0/1.0, true iff every
  *    compared element passes (all()-semantics; an unequal-length tail is
- *    vacuously true).
+ *    vacuously true) -- unless pn_var_store_set_elementwise_compare()
+ *    asked for a vector of them instead.
  *
  * Returns: %TRUE on success (and writes @out_value); %FALSE with
  *   @error set otherwise (and @out_value left cleared).

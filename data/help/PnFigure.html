@@ -498,10 +498,10 @@ a bad <code>repeat</code> count does.
 </p>
 <p>
 In a film, a condition that is a vector chooses frame by frame:
-<code>if frame</code> skips only frame 0. A <em>comparison</em> of a
-vector does not, yet: it is 1 only when it holds for every element, so
-<code>if frame &gt; 3</code> is false in every frame. Test a vector with
-arithmetic instead &mdash; <code>if max(frame - 3, 0)</code>.
+<code>if frame</code> skips only frame 0, and <code>if frame &gt; 3</code>
+runs from frame 4 on. A comparison of a vector is itself a vector here,
+1 in the frames where it holds and 0 in the others (see
+<a href="#animation">Animation</a>).
 </p>
 
 <h5>Local axes: <code>origin</code></h5>
@@ -675,17 +675,21 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       <em>double-pendulum</em> example does this with a thousand steps.
       The price is paid on every change instead: turning a knob on such
       a figure works the whole film out again, which takes a
-      moment. A <code>repeat</code> count that is itself a vector is
-      the one exception &mdash; it gives each frame a different loop,
-      so that film is worked out frame by frame.</li>
-  <li><strong>No per-frame conditions.</strong> A comparison reduces a
-      vector to a single 0 or 1 &mdash; true only if it holds for every
-      element &mdash; so <code>hot = s &gt; 0</code> cannot vary from
-      frame to frame. Use arithmetic that stays a vector instead:
-      <code>step(0, s)</code> is 1 in the frames where
-      <code>s &ge; 0</code> and 0 elsewhere, and
-      <code>clamp</code>, <code>min</code> and <code>max</code> work
-      element by element.</li>
+      moment. A <code>repeat</code> count or an <code>if</code>
+      condition that is itself a vector is the exception &mdash; it
+      gives each frame a different walk through the program, so that
+      film is worked out frame by frame. A mask used as a number, such as
+      <code>m</code> above, keeps the one walk.</li>
+  <li><strong>Comparisons are per frame.</strong> A comparison of a
+      vector compares element by element, so <code>hot = s &gt; 0</code>
+      is a vector too: 1 in the frames where <code>s</code> is positive,
+      0 in the others, and <code>width 1 + 2 * hot</code> thickens a
+      line only in those frames. Where two vectors of different lengths
+      are compared, the elements past the shorter one are 0. This is the
+      one place the Figure's arithmetic differs from the
+      <a href="PnExpression2.html">Calculator&nbsp;2</a>'s, where a
+      comparison of a vector is a single 1 only when it holds for every
+      element.</li>
 </ul>
 
 <h5>When something is wrong</h5>

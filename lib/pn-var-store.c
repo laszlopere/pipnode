@@ -35,6 +35,12 @@ struct _PnVarStore
      * outputs apart from the inputs it pre-bound.  Same ownership and
      * lifetime as @vars; cleared together by pn_var_store_clear(). */
     GHashTable *assigned;
+
+    /* A comparison of a vector gives a vector of 0/1 instead of one
+     * all()-reduced scalar; see pn_var_store_set_elementwise_compare().
+     * A mode of the store, not of what it holds, so pn_var_store_clear()
+     * leaves it alone. */
+    gboolean    elementwise_compare;
 };
 
 G_DEFINE_TYPE (PnVarStore, pn_var_store, G_TYPE_OBJECT)
@@ -382,13 +388,52 @@ map_value (PnExprUnaryFn fn, const PnExprValue *a, PnExprValue *out)
     (void) zipn_value (&k, a, 1, out);  /* no check on a unary map */
 }
 
-/* out = a CMP b for a comparison operator.  ALWAYS reduces to a scalar
- * 0.0/1.0: true iff every compared element passes (all()-semantics).  A
- * scalar broadcasts over a vector; for two vectors of unequal length the
- * surplus tail has no counterpart and is vacuously true. */
+/* out = a CMP b for a comparison operator, @elementwise: a vector of
+ * 0.0/1.0, one per element, as long as the longer operand.  A scalar
+ * broadcasts; where one of two vectors has run out there is nothing to
+ * compare, and the element is 0.0 -- the comparison does not hold.  Two
+ * operands that are both scalars, or empty vectors, still give a
+ * scalar, as the arithmetic does (zipn_value). */
+static void
+compare_elementwise (gchar op, const PnExprValue *a, const PnExprValue *b,
+                     PnExprValue *out)
+{
+    const gdouble *ad = a->vec ? pn_vector_get_data (a->vec) : NULL;
+    const gdouble *bd = b->vec ? pn_vector_get_data (b->vec) : NULL;
+    gsize          la = a->vec ? pn_vector_get_len  (a->vec) : 0;
+    gsize          lb = b->vec ? pn_vector_get_len  (b->vec) : 0;
+    gsize          len = MAX (la, lb);
+    gdouble       *r;
+    gsize          i;
+
+    if (len == 0)
+    {
+        out->scalar = apply_cmp (op, a->scalar, b->scalar) ? 1.0 : 0.0;
+        return;
+    }
+
+    r = g_new (gdouble, len);
+    for (i = 0; i < len; i++)
+    {
+        if ((ad != NULL && i >= la) || (bd != NULL && i >= lb))
+            r[i] = 0.0;
+        else
+            r[i] = apply_cmp (op, ad != NULL ? ad[i] : a->scalar,
+                                  bd != NULL ? bd[i] : b->scalar)
+                   ? 1.0 : 0.0;
+    }
+
+    value_take_buffer (out, r, len);
+}
+
+/* out = a CMP b for a comparison operator.  Unless @elementwise, ALWAYS
+ * reduces to a scalar 0.0/1.0: true iff every compared element passes
+ * (all()-semantics).  A scalar broadcasts over a vector; for two vectors
+ * of unequal length the surplus tail has no counterpart and is vacuously
+ * true. */
 static void
 compare_value (gchar op, const PnExprValue *a, const PnExprValue *b,
-               PnExprValue *out)
+               gboolean elementwise, PnExprValue *out)
 {
     const gdouble *ad = a->vec ? pn_vector_get_data (a->vec) : NULL;
     const gdouble *bd = b->vec ? pn_vector_get_data (b->vec) : NULL;
@@ -396,6 +441,12 @@ compare_value (gchar op, const PnExprValue *a, const PnExprValue *b,
     gsize          lb = b->vec ? pn_vector_get_len  (b->vec) : 0;
     gboolean       all_true = TRUE;
     gsize          i;
+
+    if (elementwise)
+    {
+        compare_elementwise (op, a, b, out);
+        return;
+    }
 
     if (a->vec == NULL && b->vec == NULL)
     {
@@ -597,6 +648,14 @@ pn_var_store_clear (PnVarStore *self)
     g_hash_table_remove_all (self->assigned);
 }
 
+void
+pn_var_store_set_elementwise_compare (PnVarStore *self,
+                                      gboolean    elementwise)
+{
+    g_return_if_fail (PN_IS_VAR_STORE (self));
+    self->elementwise_compare = elementwise;
+}
+
 /* Recursive value-aware evaluator.  @out is caller-allocated; on success
  * it owns the result (a vector reference if @out->vec is set) and the
  * caller releases it with pn_expr_value_clear().  On failure @out is left
@@ -688,7 +747,8 @@ eval_value (PnVarStore       *self,
                 break;
             case '<': case '>': case 'L':
             case 'G': case '=': case '!':
-                compare_value (node->op, &a, &b, out);
+                compare_value (node->op, &a, &b,
+                               self->elementwise_compare, out);
                 break;
             default:
                 g_set_error (error, PN_VAR_STORE_ERROR,

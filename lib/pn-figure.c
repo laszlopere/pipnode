@@ -2072,6 +2072,19 @@ collect_names (
     collect_names (node->right, names);
 }
 
+/* Every store a figure evaluates in.  Its comparisons are elementwise:
+ * a vector is a film here, so `frame > 3` has to be a 0/1 per frame for
+ * an `if` to choose frame by frame, where a Calculator's all-elements
+ * answer would be one verdict for the whole film. */
+static PnVarStore *
+figure_store_new (void)
+{
+    PnVarStore *store = pn_var_store_new ();
+
+    pn_var_store_set_elementwise_compare (store, TRUE);
+    return store;
+}
+
 /* A store for folding: empty, because the constants a foldable
  * expression can need are the only thing it reads and PnVarStore
  * resolves those itself now.  Kept as a named function anyway — the
@@ -2080,7 +2093,7 @@ collect_names (
 static PnVarStore *
 fold_store_new (void)
 {
-    return pn_var_store_new ();
+    return figure_store_new ();
 }
 
 /* Splits the calculator's " at position N" tail off @message, so the
@@ -4836,7 +4849,7 @@ trace_call (
     /* Read before the body is walked: its entries may move the array. */
     entry = &g_array_index (self->entries, TraceEntry,
                             self->entries->len - 1);
-    local = pn_var_store_new ();
+    local = figure_store_new ();
 
     for (k = at + 1; k < end; k++)
     {
@@ -5062,7 +5075,7 @@ pn_figure_trace_new (
 
     /* A store per walk IS 80.2 rule 13's clear: a previous walk's
      * assignments cannot leak into this one if they were never here. */
-    store = pn_var_store_new ();
+    store = figure_store_new ();
     bind_frame (store, snapshot, free_names, film);
     next  = block_links (statements);
 

@@ -786,6 +786,66 @@ test_vector_comparison_reduces (void)
     g_object_unref (s);
 }
 
+/* In the elementwise mode (the Figure's) a comparison of a vector is a
+ * vector of 0/1: a scalar broadcasts, and past the end of the shorter of
+ * two vectors there is nothing to compare, so the element is 0.  Two
+ * scalars still give a scalar, and a clear keeps the mode. */
+static void
+test_vector_comparison_elementwise (void)
+{
+    PnVarStore *s   = pn_var_store_new ();
+    PnExprValue out = { NULL, 0.0 };
+    gdouble     mix[] = { 1.0, 5.0, 3.0 };
+    gdouble     two[] = { 2.0, 6.0 };
+
+    pn_var_store_set_elementwise_compare (s, TRUE);
+    pn_var_store_clear (s);
+    bind_vec (s, "mix", mix, 3);
+    bind_vec (s, "two", two, 2);
+
+    /* mix > 2 -> [0, 1, 1] */
+    {
+        PnExprNode v = var ("mix"), t = num (2.0);
+        PnExprNode cmp = binary ('>', &v, &t);
+        gdouble    want[] = { 0.0, 1.0, 1.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* 3 <= mix -> [0, 1, 1] */
+    {
+        PnExprNode t = num (3.0), v = var ("mix");
+        PnExprNode cmp = binary ('L', &t, &v);
+        gdouble    want[] = { 0.0, 1.0, 1.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* mix < two -> [1, 1, 0]: the tail has no counterpart */
+    {
+        PnExprNode v = var ("mix"), w = var ("two");
+        PnExprNode cmp = binary ('<', &v, &w);
+        gdouble    want[] = { 1.0, 1.0, 0.0 };
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        check_vec (&out, want, 3);
+        pn_expr_value_clear (&out);
+    }
+
+    /* 2 == 2 -> 1.0, a scalar */
+    {
+        PnExprNode a = num (2.0), b = num (2.0);
+        PnExprNode cmp = binary ('=', &a, &b);
+        PN_CHECK (pn_var_store_evaluate_value (s, &cmp, &out, NULL));
+        PN_CHECK (out.vec == NULL);
+        PN_CHECK_NEAR (out.scalar, 1.0, 1e-9);
+        pn_expr_value_clear (&out);
+    }
+
+    g_object_unref (s);
+}
+
 /* The scalar-only pn_var_store_evaluate() refuses a vector result with
  * PN_VAR_STORE_ERROR_TYPE_MISMATCH rather than crashing or truncating. */
 static void
@@ -2054,6 +2114,7 @@ main (int argc, char **argv)
     pn_test_add ("vector_fns_unary",   test_vector_functions_and_unary);
     pn_test_add ("vector_fn_2arg",     test_vector_two_argument_function);
     pn_test_add ("vector_comparison",  test_vector_comparison_reduces);
+    pn_test_add ("vector_cmp_elementwise", test_vector_comparison_elementwise);
     pn_test_add ("scalar_sink_vector", test_scalar_sink_rejects_vector);
     pn_test_add ("value_to_string",    test_value_to_string);
     pn_test_add ("builtin_functions",  test_builtin_functions);

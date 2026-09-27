@@ -2979,6 +2979,33 @@ test_a_vector_condition_animates (void)
 }
 
 static void
+test_a_comparison_of_a_film_chooses_per_frame (void)
+{
+    /* A comparison of a vector is elementwise in a figure, unlike in a
+     * Calculator: `frame > 1` is 0, 0, 1, 1 and the if follows it --
+     * and so does a coordinate made of one. */
+    const gchar *program = "if frame > 1\n"
+                           "    point 10, 10\n"
+                           "else\n"
+                           "    point 20, 20\n"
+                           "end\n"
+                           "line 0, 0, 0, 10 * (frame >= 2)";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 1, 4, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 20.00 80.00 1.00\n"
+                     "line 0.00 100.00 0.00 100.00\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 2, 4, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 10.00 90.00 1.00\n"
+                     "line 0.00 100.00 0.00 90.00\n");
+    g_free (text);
+}
+
+static void
 test_a_condition_folds_like_any_argument (void)
 {
     Split s = parsed ("if 2 > 1\n"
@@ -5479,6 +5506,7 @@ main (int argc, char **argv)
     pn_test_add ("if_condition_value",  test_a_condition_is_a_value_not_a_program);
     pn_test_add ("if_nests",            test_an_if_nests_inside_anything);
     pn_test_add ("if_vector_animates",  test_a_vector_condition_animates);
+    pn_test_add ("if_film_comparison",  test_a_comparison_of_a_film_chooses_per_frame);
     pn_test_add ("if_folding",          test_a_condition_folds_like_any_argument);
     pn_test_add ("if_arities",          test_the_if_verbs_have_arities);
     pn_test_add ("if_misplaced",        test_misplaced_clauses_are_parse_errors);
