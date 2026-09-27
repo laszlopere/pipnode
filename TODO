@@ -2091,8 +2091,8 @@
                  here: its safety net is the existing Calculator and
                  Calculator 2 tests passing untouched, which is the
                  whole point of calling it a characterization test.
-       [ ] 80.13 SETTLED IN ADVANCE (2026-09-21), but STILL TO DO --
-             the check itself waits on the node existing. Proving it
+       [x] 80.13 DONE (2026-09-27), settled in advance 2026-09-21.
+             Proving it
              runs headless, and the good news is that the build proves
              most of it for us.
              Checked lib/Makefile.am: libpipnode_core_la_CFLAGS carries
@@ -2111,6 +2111,21 @@
              calls paint_plot -- which is the half the editor cannot
              test for us, because in the editor the painter always
              runs.
+             DONE: all eleven examples/displays/ sheets with a Figure
+             run clean under `./src/pipnode-run -t 3` -- exit 0, no
+             CRITICAL, no warning. Silence alone proves nothing (the
+             node logs nothing), so the eval path was checked under gdb
+             with a dprintf at the tail of pn_figure_receive(): the
+             knobs' startup-announce idle fires in the runner's main
+             loop, the Figure receives, resolves headless (80.10f) and
+             its `error` stays empty on ten sheets. Negative control: a
+             copy of pendulum.json with `line 0,0` appended reports
+             "line 135, column 1: line takes 4 arguments, not 2" on the
+             same path, so the probe can see red. The eleventh,
+             soroban-calculator, is fed by a PnKeypad, which has no
+             startup emit, so its Figure never receives headless; its
+             program was checked to compile clean at load
+             (program_error empty) instead.
        [x] 80.14 CONTENTS SETTLED (2026-09-21), page WRITTEN
              (2026-09-26) as part of TODO #82.6 -- see there:
              data/help/PnFigure.html -- which is not documentation of
@@ -2994,7 +3009,7 @@
 
        WHAT THIS DEPENDS ON, so nobody starts on the wrong day:
        (a) #80 IS NOT FINISHED. The engine draws (80.22-80.25 are
-           done), but 80.13, 80.14, 80.15, 80.19 and 80.21 are open.
+           done), but 80.19 and 80.21 are open.
        (b) 80.19'S LATER PRIMITIVES GATE SEVERAL OF THESE. The verbs
            today are view, color, width, fill, nofill, move, line,
            rect, circle, arc, poly, dot, text -- there are NO ARROWS,
