@@ -393,6 +393,7 @@ pn_figure_statement_free (
 
     pn_expr_node_free (self->ast);
     g_free (self->name);
+    g_free (self->shape);
     if (self->args != NULL)
         g_ptr_array_unref (self->args);
     g_free (self);
@@ -708,6 +709,26 @@ draws_ink (
     return FALSE;
 }
 
+/* Where the identifier starting at @from of @text ends, spelled the way
+ * the expression lexer spells one; @from itself when there is none. */
+static gsize
+identifier_end (
+        const gchar *text,
+        gsize        from)
+{
+    gsize end = from;
+
+    if (!g_ascii_isalpha (text[from]) && text[from] != '_')
+        return from;
+
+    while (g_ascii_isalnum (text[end]) || text[end] == '_')
+        end++;
+
+    return end;
+}
+
+static gboolean is_figure_constant (const gchar *name);
+
 /* A verb statement named by the @len characters at @offset of @line,
  * with no arguments yet. */
 static PnFigureStatement *
@@ -805,6 +826,147 @@ split_styles (
     return ok;
 }
 
+/* Reads the rest of a `def` line, from @rest on, into @statement: the
+ * shape's name and then its parameter names.  Returns %FALSE, with every
+ * error reported, when that is not what the line holds. */
+static gboolean
+split_def (
+        const PnFigureLine *line,
+        PnFigureStatement  *statement,
+        gsize               rest,
+        GPtrArray          *errors)
+{
+    const gchar *text = line->text;
+    gsize        stop = strlen (text);
+    gsize        end  = identifier_end (text, rest);
+    gboolean     ok   = TRUE;
+    GArray      *pieces;
+    guint        n;
+
+    if (end == rest)
+    {
+        report_at (errors, line, rest,
+                   "def needs the name of the shape it defines");
+        return FALSE;
+    }
+
+    statement->shape        = g_ascii_strdown (text + rest,
+                                               (gssize) (end - rest));
+    statement->shape_offset = rest;
+
+    rest = end;
+    while (g_ascii_isspace (text[rest]))
+        rest++;
+    while (stop > rest && g_ascii_isspace (text[stop - 1]))
+        stop--;
+
+    /* A shape may take nothing: a hub drawn the same everywhere but
+     * where its `origin` puts it. */
+    if (rest == stop)
+        return TRUE;
+
+    if (rest == end)
+    {
+        report_at (errors, line, rest,
+                   "expected a space after the name of the shape");
+        return FALSE;
+    }
+
+    pieces = split_commas (text, rest, stop);
+
+    for (n = 0; n + 1 < pieces->len; n += 2)
+    {
+        gsize        start = g_array_index (pieces, gsize, n);
+        gsize        last  = g_array_index (pieces, gsize, n + 1);
+        PnFigureArg *param;
+        gchar       *name;
+        guint        k;
+
+        while (start < last && g_ascii_isspace (text[start]))
+            start++;
+        while (last > start && g_ascii_isspace (text[last - 1]))
+            last--;
+
+        if (start == last || identifier_end (text, start) != last)
+        {
+            report_at (errors, line, start, "expected a parameter name");
+            ok = FALSE;
+            continue;
+        }
+
+        name = g_strndup (text + start, last - start);
+
+        /* A folded `pi` would never read the parameter, and a `with`
+         * among the arguments would end them. */
+        if (is_figure_constant (name) || g_ascii_strcasecmp (name, "with") == 0)
+        {
+            report_at (errors, line, start,
+                       "\"%s\" cannot name a parameter", name);
+            g_free (name);
+            ok = FALSE;
+            continue;
+        }
+
+        for (k = 0; k < statement->args->len; k++)
+            if (strcmp (((PnFigureArg *)
+                         g_ptr_array_index (statement->args, k))->text,
+                        name) == 0)
+                break;
+
+        if (k < statement->args->len)
+        {
+            report_at (errors, line, start,
+                       "parameter \"%s\" is named twice", name);
+            g_free (name);
+            ok = FALSE;
+            continue;
+        }
+
+        param         = g_new0 (PnFigureArg, 1);
+        param->kind   = PN_FIGURE_ARG_EXPRESSION;
+        param->text   = name;
+        param->offset = start;
+        g_ptr_array_add (statement->args, param);
+    }
+
+    g_array_unref (pieces);
+    return ok;
+}
+
+/* The shapes @lines define, by folded name.  A trailing `with` may
+ * follow a call of any of them; whether the call comes after its `def`
+ * is the verb table's question, not the splitter's. */
+static GHashTable *
+defined_shapes (
+        GPtrArray *lines)
+{
+    GHashTable *shapes = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                g_free, NULL);
+    guint       i;
+
+    for (i = 0; i < lines->len; i++)
+    {
+        const gchar *text = ((PnFigureLine *) g_ptr_array_index (lines, i))->text;
+        gsize        from;
+        gsize        end;
+
+        if (identifier_end (text, 0) != 3
+            || g_ascii_strncasecmp (text, "def", 3) != 0)
+            continue;
+
+        for (from = 3; g_ascii_isspace (text[from]); from++)
+            ;
+
+        end = identifier_end (text, from);
+        if (end > from)
+            g_hash_table_add (shapes,
+                              g_ascii_strdown (text + from,
+                                               (gssize) (end - from)));
+    }
+
+    return shapes;
+}
+
 /* Splits one logical line, appending what it holds to @statements: one
  * statement, or -- when the line carries a `with` -- the block it
  * stands for (91.2).  Appends nothing, with every error it found
@@ -812,6 +974,7 @@ split_styles (
 static void
 split_line (
         const PnFigureLine *line,
+        GHashTable         *shapes,
         GPtrArray          *statements,
         GPtrArray          *errors)
 {
@@ -858,6 +1021,16 @@ split_line (
     }
 
     statement = statement_new (line, 0, name_end);
+
+    /* A `def` line keeps its head even when it fails, as a `with` line
+     * does, so the `end` that closes it is not a second mistake. */
+    if (g_strcmp0 (statement->name, "def") == 0)
+    {
+        split_def (line, statement, rest, errors);
+        g_ptr_array_add (statements, statement);
+        return;
+    }
+
     styles    = g_ptr_array_new_with_free_func (
                     (GDestroyNotify) pn_figure_statement_free);
 
@@ -897,7 +1070,8 @@ split_line (
         && !split_styles (line, with, styles, errors))
         ok = FALSE;
 
-    if (with > 0 && !draws_ink (statement->name))
+    if (with > 0 && !draws_ink (statement->name)
+        && !g_hash_table_contains (shapes, statement->name))
     {
         report_at (errors, line, with,
                    "with can only follow a statement that draws");
@@ -946,16 +1120,20 @@ pn_figure_split (
         GPtrArray *lines,
         GPtrArray *errors)
 {
-    GPtrArray *statements;
-    guint      i;
+    GPtrArray  *statements;
+    GHashTable *shapes;
+    guint       i;
 
     statements = g_ptr_array_new_with_free_func (
                      (GDestroyNotify) pn_figure_statement_free);
 
     g_return_val_if_fail (lines != NULL, statements);
 
+    shapes = defined_shapes (lines);
     for (i = 0; i < lines->len; i++)
-        split_line (g_ptr_array_index (lines, i), statements, errors);
+        split_line (g_ptr_array_index (lines, i), shapes, statements,
+                    errors);
+    g_hash_table_destroy (shapes);
 
     return statements;
 }
@@ -1033,6 +1211,10 @@ static const VerbInfo verb_table[] =
     /* a local coordinate frame: x and y of its origin, and the angle its
      * axes are turned by, 0 when left out */
     { "origin", PN_FIGURE_VERB_ORIGIN, 2, 3,          "",    'e', VERB_PLAIN  },
+
+    /* a user-defined shape: its arguments are the parameter names, read
+     * by the splitter, which is why any number of them checks out */
+    { "def",    PN_FIGURE_VERB_DEF,    0, G_MAXUINT,  "",    'e', VERB_PLAIN  },
 };
 
 /* The table is small and a program is a few dozen lines, so a linear
@@ -1122,11 +1304,81 @@ check_colour (
     return TRUE;
 }
 
+/* What pn_figure_check_verbs() knows about shapes as it reads down the
+ * program.  A shape becomes callable at the `end` of its `def`, not at
+ * the `def`, which is all it takes to keep a shape from calling itself;
+ * and since only a shape defined ABOVE can be called, no two can call
+ * each other either. */
+typedef struct
+{
+    GHashTable              *shapes;  /* folded name -> its closed `def`  */
+    GHashTable              *anywhere;/* every name a `def` gives, borrowed */
+    const PnFigureStatement *open;    /* the `def` being read, or %NULL   */
+    gboolean                 open_ok; /* ... and it may be registered     */
+    guint                    open_depth; /* blocks open around it         */
+    guint                    depth;   /* blocks open before this statement */
+} ShapeTable;
+
+/* Checks a statement whose verb is not in the table as a call of a
+ * shape.  Its arguments are expressions, one per parameter: a string
+ * would have nowhere to go, since a parameter is a number. */
+static gboolean
+check_call (
+        PnFigureStatement *statement,
+        const ShapeTable  *table,
+        GPtrArray         *errors)
+{
+    const PnFigureStatement *def = g_hash_table_lookup (table->shapes,
+                                                        statement->name);
+    guint                    n   = statement->args->len;
+    guint                    want;
+    guint                    i;
+
+    if (def == NULL)
+    {
+        /* Quote what was typed, not what it folded to. */
+        gchar *typed = g_strndup (
+                statement->source->text + statement->offset,
+                strlen (statement->name));
+
+        if (table->open != NULL
+            && g_strcmp0 (table->open->shape, statement->name) == 0)
+            report_at (errors, statement->source, statement->offset,
+                       "shape \"%s\" cannot use itself", typed);
+        else if (g_hash_table_contains (table->anywhere, statement->name))
+            report_at (errors, statement->source, statement->offset,
+                       "shape \"%s\" is used before its def", typed);
+        else
+            report_at (errors, statement->source, statement->offset,
+                       "unknown verb \"%s\"", typed);
+        g_free (typed);
+        return FALSE;
+    }
+
+    statement->verb = PN_FIGURE_VERB_CALL;
+    want            = def->args->len;
+
+    if (n != want)
+    {
+        report_at (errors, statement->source, statement->offset,
+                   "%s takes %u argument%s, not %u", statement->name,
+                   want, want == 1 ? "" : "s", n);
+        return FALSE;
+    }
+
+    for (i = 0; i < n; i++)
+        if (!check_kind (statement, i, 'e', errors))
+            return FALSE;
+
+    return TRUE;
+}
+
 /* Measures one statement against its row.  Reports at the verb for a
  * count that is wrong and at the argument for a kind that is. */
 static gboolean
 check_statement (
         PnFigureStatement *statement,
+        const ShapeTable  *table,
         GPtrArray         *errors)
 {
     const VerbInfo *info = verb_lookup (statement->name);
@@ -1134,17 +1386,7 @@ check_statement (
     guint           i;
 
     if (info == NULL)
-    {
-        /* Quote what was typed, not what it folded to. */
-        gchar *typed = g_strndup (
-                statement->source->text + statement->offset,
-                strlen (statement->name));
-
-        report_at (errors, statement->source, statement->offset,
-                   "unknown verb \"%s\"", typed);
-        g_free (typed);
-        return FALSE;
-    }
+        return check_call (statement, table, errors);
 
     statement->verb = info->verb;
 
@@ -1182,23 +1424,127 @@ check_statement (
     return TRUE;
 }
 
+/* A `def` that checked out: its name is looked at, and it becomes the
+ * shape being read. */
+static gboolean
+open_shape (
+        const PnFigureStatement *def,
+        ShapeTable              *table,
+        GPtrArray               *errors)
+{
+    gchar *typed;
+
+    table->open       = def;
+    table->open_ok    = FALSE;
+    table->open_depth = table->depth;
+
+    /* The splitter has already said why a `def` has no name. */
+    if (def->shape == NULL)
+        return FALSE;
+
+    typed = g_strndup (def->source->text + def->shape_offset,
+                       strlen (def->shape));
+
+    if (verb_lookup (def->shape) != NULL)
+    {
+        report_at (errors, def->source, def->shape_offset,
+                   "\"%s\" is a verb and cannot name a shape", typed);
+        g_free (typed);
+        return FALSE;
+    }
+
+    if (g_hash_table_contains (table->shapes, def->shape))
+    {
+        report_at (errors, def->source, def->shape_offset,
+                   "shape \"%s\" is already defined", typed);
+        g_free (typed);
+        return FALSE;
+    }
+
+    g_free (typed);
+    table->open_ok = TRUE;
+    return TRUE;
+}
+
+/* Keeps the block depth, and registers the open shape at the `end` that
+ * closes its `def`.  The depth is only as good as the program's blocks,
+ * but a program whose blocks do not match fails pn_figure_check_blocks()
+ * anyway. */
+static void
+track_blocks (
+        const PnFigureStatement *statement,
+        ShapeTable              *table)
+{
+    switch (statement->verb)
+    {
+    case PN_FIGURE_VERB_REPEAT:
+    case PN_FIGURE_VERB_IF:
+    case PN_FIGURE_VERB_WITH:
+    case PN_FIGURE_VERB_ORIGIN:
+    case PN_FIGURE_VERB_DEF:
+        table->depth++;
+        break;
+
+    case PN_FIGURE_VERB_END:
+        if (table->depth > 0)
+            table->depth--;
+        if (table->open != NULL && table->depth == table->open_depth)
+        {
+            if (table->open_ok)
+                g_hash_table_insert (table->shapes, table->open->shape,
+                                     (gpointer) table->open);
+            table->open = NULL;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
 gboolean
 pn_figure_check_verbs (
         GPtrArray *statements,
         GPtrArray *errors)
 {
-    gboolean ok = TRUE;
-    guint    i  = 0;
+    ShapeTable table = { NULL, NULL, NULL, FALSE, 0, 0 };
+    gboolean   ok    = TRUE;
+    guint      i     = 0;
 
     g_return_val_if_fail (statements != NULL, FALSE);
 
+    /* Keys are borrowed from the `def` statements, which this stage
+     * never removes: a `def` takes any number of arguments. */
+    table.shapes   = g_hash_table_new (g_str_hash, g_str_equal);
+    table.anywhere = g_hash_table_new (g_str_hash, g_str_equal);
+
+    for (i = 0; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_VERB
+            && statement->shape != NULL)
+            g_hash_table_add (table.anywhere, statement->shape);
+    }
+
+    i = 0;
     while (i < statements->len)
     {
         PnFigureStatement *statement = g_ptr_array_index (statements, i);
 
-        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT
-            || check_statement (statement, errors))
+        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
         {
+            i++;
+            continue;
+        }
+
+        if (check_statement (statement, &table, errors))
+        {
+            if (statement->verb == PN_FIGURE_VERB_DEF
+                && !open_shape (statement, &table, errors))
+                ok = FALSE;
+
+            track_blocks (statement, &table);
             i++;
             continue;
         }
@@ -1209,6 +1555,8 @@ pn_figure_check_verbs (
         ok = FALSE;
     }
 
+    g_hash_table_destroy (table.shapes);
+    g_hash_table_destroy (table.anywhere);
     return ok;
 }
 
@@ -1217,11 +1565,27 @@ pn_figure_check_verbs (
 /* ================================================================== */
 
 /* One block still open while pn_figure_check_blocks() reads on. */
-typedef struct
+typedef struct _OpenBlock OpenBlock;
+struct _OpenBlock
 {
     const PnFigureStatement *opener;    /* the `repeat` or the `if`      */
     gboolean                 has_else;  /* an `if` that reached `else`   */
-} OpenBlock;
+};
+
+/* TRUE when one of the blocks open in @open is a `def`. */
+static gboolean
+inside_def (
+        GArray *open)
+{
+    guint i;
+
+    for (i = 0; i < open->len; i++)
+        if (g_array_index (open, OpenBlock, i).opener->verb
+            == PN_FIGURE_VERB_DEF)
+            return TRUE;
+
+    return FALSE;
+}
 
 gboolean
 pn_figure_check_blocks (
@@ -1275,6 +1639,30 @@ pn_figure_check_blocks (
             g_array_append_val (open, block);
             break;
 
+        case PN_FIGURE_VERB_DEF:
+            /* A shape is a name for the whole program to use, so it is
+             * given where the whole program can see it: never inside a
+             * branch, a loop or another shape. */
+            if (open->len > 0)
+            {
+                report_at (errors, statement->source, statement->offset,
+                           "def must stand outside every block");
+                ok = FALSE;
+            }
+            g_array_append_val (open, block);
+            break;
+
+        case PN_FIGURE_VERB_VIEW:
+            /* The window is the figure's: a shape drawn into it cannot
+             * move it for everything that follows the call. */
+            if (inside_def (open))
+            {
+                report_at (errors, statement->source, statement->offset,
+                           "a shape cannot set the view");
+                ok = FALSE;
+            }
+            break;
+
         case PN_FIGURE_VERB_ELSEIF:
         case PN_FIGURE_VERB_ELSE:
         {
@@ -1308,8 +1696,8 @@ pn_figure_check_blocks (
             if (top == NULL)
             {
                 report_at (errors, statement->source, statement->offset,
-                           "end without a repeat, an if, a with or "
-                           "an origin");
+                           "end without a repeat, an if, a with, "
+                           "an origin or a def");
                 ok = FALSE;
                 break;
             }
@@ -1697,6 +2085,10 @@ parse_statement_expressions (
 {
     guint i;
 
+    /* A `def`'s arguments are the names it binds, not expressions. */
+    if (statement->verb == PN_FIGURE_VERB_DEF)
+        return TRUE;
+
     if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
     {
         /* The whole line, which is what already returns an ASSIGN node
@@ -1744,6 +2136,134 @@ parse_statement_expressions (
     return TRUE;
 }
 
+static guint *block_links (GPtrArray *statements);
+
+/* The first name @node reads that a shape's body may not: not in
+ * @known, not a constant, and not the index unless @looping.  Walked
+ * left before right, so it is the first one written. */
+static const gchar *
+first_foreign_name (
+        const PnExprNode *node,
+        GHashTable       *known,
+        gboolean          looping)
+{
+    const gchar *name;
+
+    if (node == NULL)
+        return NULL;
+
+    if (node->type == PN_EXPR_NODE_VARIABLE)
+    {
+        if (is_figure_constant (node->name)
+            || g_hash_table_contains (known, node->name)
+            || (looping && strcmp (node->name, PN_FIGURE_INDEX_NAME) == 0))
+            return NULL;
+        return node->name;
+    }
+
+    name = first_foreign_name (node->left, known, looping);
+    return name != NULL ? name : first_foreign_name (node->right, known,
+                                                     looping);
+}
+
+/* Holds every shape's body, statements @def to @end, to the names it may
+ * read: its parameters, what it assigns anywhere in itself -- a read
+ * before the assignment finds 0, as it does at the top of a program --
+ * and `i` inside its own loop.  Each argument reports its first foreign
+ * name, at the argument. */
+static gboolean
+check_shape_body (
+        GPtrArray *statements,
+        guint     *next,
+        guint      def,
+        guint      end,
+        GPtrArray *errors)
+{
+    const PnFigureStatement *head  = g_ptr_array_index (statements, def);
+    GHashTable              *known = g_hash_table_new (g_str_hash,
+                                                       g_str_equal);
+    gboolean                 ok    = TRUE;
+    guint                    loop  = 0;   /* the end of the loop we are in */
+    guint                    k;
+
+    for (k = 0; k < head->args->len; k++)
+        g_hash_table_add (known, ((PnFigureArg *)
+                                  g_ptr_array_index (head->args, k))->text);
+
+    for (k = def + 1; k < end; k++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, k);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
+            g_hash_table_add (known, statement->name);
+    }
+
+    for (k = def + 1; k < end; k++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, k);
+        const gchar             *name;
+        guint                    n;
+
+        /* `repeat` does not nest, so one loop end is all there is. */
+        if (statement->verb == PN_FIGURE_VERB_REPEAT)
+            loop = next[k];
+
+        name = first_foreign_name (statement->ast, known, k < loop);
+        if (name != NULL)
+        {
+            report_at (errors, statement->source, 0,
+                       "shape \"%s\" cannot read \"%s\": pass it in as "
+                       "a parameter", head->shape, name);
+            ok = FALSE;
+        }
+
+        for (n = 0; n < statement->args->len; n++)
+        {
+            const PnFigureArg *arg = g_ptr_array_index (statement->args, n);
+
+            name = first_foreign_name (arg->ast, known, k < loop);
+            if (name == NULL)
+                continue;
+
+            report_at (errors, statement->source, arg->offset,
+                       "shape \"%s\" cannot read \"%s\": pass it in as "
+                       "a parameter", head->shape, name);
+            ok = FALSE;
+        }
+    }
+
+    g_hash_table_destroy (known);
+    return ok;
+}
+
+/* Every shape's body, through check_shape_body(). */
+static gboolean
+check_shape_reads (
+        GPtrArray *statements,
+        GPtrArray *errors)
+{
+    guint    *next = block_links (statements);
+    gboolean  ok   = TRUE;
+    guint     i;
+
+    for (i = 0; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB
+            || statement->verb != PN_FIGURE_VERB_DEF
+            || statement->shape == NULL)
+            continue;
+
+        if (!check_shape_body (statements, next, i, next[i], errors))
+            ok = FALSE;
+        i = MAX (i, next[i]);
+    }
+
+    g_free (next);
+    return ok;
+}
+
 gboolean
 pn_figure_parse_expressions (
         GPtrArray *statements,
@@ -1773,6 +2293,9 @@ pn_figure_parse_expressions (
         ok = FALSE;
     }
 
+    if (!check_shape_reads (statements, errors))
+        ok = FALSE;
+
     g_object_unref (folder);
     g_object_unref (parser);
     return ok;
@@ -1796,17 +2319,27 @@ pn_figure_free_names (
     GPtrArray      *names;
     GHashTableIter  iter;
     gpointer        key;
+    guint          *next;
     guint           i;
 
     names = g_ptr_array_new_with_free_func (g_free);
     g_return_val_if_fail (statements != NULL, names);
 
     seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    next = block_links (statements);
 
     for (i = 0; i < statements->len; i++)
     {
         const PnFigureStatement *statement = g_ptr_array_index (statements, i);
         guint                    n;
+
+        /* A shape's names are bound by its call, in a store of its own. */
+        if (statement->kind == PN_FIGURE_STATEMENT_VERB
+            && statement->verb == PN_FIGURE_VERB_DEF)
+        {
+            i = MAX (i, next[i]);
+            continue;
+        }
 
         collect_names (statement->ast, seen);
 
@@ -1824,6 +2357,7 @@ pn_figure_free_names (
 
     g_ptr_array_sort (names, name_sort_cmp);
     g_hash_table_destroy (seen);
+    g_free (next);
     return names;
 }
 
@@ -3309,6 +3843,7 @@ block_links (
         case PN_FIGURE_VERB_IF:
         case PN_FIGURE_VERB_WITH:
         case PN_FIGURE_VERB_ORIGIN:
+        case PN_FIGURE_VERB_DEF:
             g_array_append_val (open, i);
             break;
 
@@ -3480,7 +4015,17 @@ struct _PnFigureTrace
      * trace is then good for @index only. */
     gboolean   per_frame;
     guint      index;
+
+    /* The walk's own bookkeeping, of no use once it is done. */
+    GHashTable *shapes;   /* folded name -> index of its `def`, borrowed */
+    guint       steps;    /* statements run, against PN_FIGURE_MAX_STEPS */
+    guint       depth;    /* calls open                                 */
 };
+
+/* How deep calls may go.  The front end already makes a shape callable
+ * only below its own `def`, which bounds the depth by the number of
+ * shapes; this is for a program it never checked. */
+#define FIGURE_MAX_CALL_DEPTH 32
 
 static void
 trace_entry_clear (
@@ -3527,6 +4072,14 @@ trace_statement (
         PnVarStore        *store)
 {
     TraceEntry entry = { statement, NULL, 0, FALSE, NULL };
+
+    if (++self->steps > PN_FIGURE_MAX_STEPS)
+    {
+        report_at (self->errors, statement->source, statement->offset,
+                   "the figure runs more than %d statements",
+                   PN_FIGURE_MAX_STEPS);
+        return FALSE;
+    }
 
     if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
     {
@@ -3672,6 +4225,99 @@ trace_condition (
     return value != 0.0 ? CONDITION_TRUE : CONDITION_FALSE;
 }
 
+static gboolean trace_range (PnFigureTrace *self,
+                             GPtrArray     *statements,
+                             const guint   *next,
+                             guint          from,
+                             guint          to,
+                             PnVarStore    *store,
+                             guint          index);
+
+/* Runs the shape that @call names.  The arguments are evaluated in the
+ * caller's store and recorded like any statement's, so the draw picks
+ * them per frame and opens a pen scope there (a call gives the pen back
+ * as a `with` does).  The body is then walked in a store of its OWN,
+ * holding the parameters and, zeroed, the names the body assigns --
+ * nothing of the caller's leaks in and nothing of the shape's leaks out
+ * -- and the `def`'s `end` is recorded to close the scope. */
+static gboolean
+trace_call (
+        PnFigureTrace     *self,
+        GPtrArray         *statements,
+        const guint       *next,
+        PnFigureStatement *call,
+        PnVarStore        *store,
+        guint              index)
+{
+    const PnFigureStatement *def;
+    const TraceEntry        *entry;
+    PnVarStore              *local;
+    gpointer                 found;
+    gboolean                 ok;
+    guint                    at;
+    guint                    end;
+    guint                    k;
+
+    /* A call of a shape nobody defined is in a program the front end
+     * never checked, and draws nothing. */
+    if (!g_hash_table_lookup_extended (self->shapes, call->name, NULL,
+                                       &found))
+        return TRUE;
+
+    at  = GPOINTER_TO_UINT (found);
+    def = g_ptr_array_index (statements, at);
+    end = MIN (next[at], statements->len);
+
+    if (self->depth >= FIGURE_MAX_CALL_DEPTH)
+    {
+        report_at (self->errors, call->source, call->offset,
+                   "shapes call each other more than %d deep",
+                   FIGURE_MAX_CALL_DEPTH);
+        return FALSE;
+    }
+
+    if (!trace_statement (self, call, store))
+        return FALSE;
+
+    /* Read before the body is walked: its entries may move the array. */
+    entry = &g_array_index (self->entries, TraceEntry,
+                            self->entries->len - 1);
+    local = pn_var_store_new ();
+
+    for (k = at + 1; k < end; k++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, k);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_ASSIGNMENT)
+            pn_var_store_set (local, statement->name, 0.0);
+    }
+
+    for (k = 0; k < def->args->len; k++)
+    {
+        const gchar       *name  = ((PnFigureArg *)
+                                    g_ptr_array_index (def->args, k))->text;
+        const PnExprValue *value = k < entry->n_args ? &entry->args[k]
+                                                     : NULL;
+
+        if (value != NULL && value->vec != NULL)
+            pn_var_store_set_vector (local, name, value->vec);
+        else
+            pn_var_store_set (local, name,
+                              value != NULL ? value->scalar : 0.0);
+    }
+
+    self->depth++;
+    ok = trace_range (self, statements, next, at + 1, end, local, index);
+    self->depth--;
+
+    if (ok && end < statements->len)
+        ok = trace_statement (self, g_ptr_array_index (statements, end),
+                              local);
+
+    g_object_unref (local);
+    return ok;
+}
+
 /* Walks statements @from up to @to: the whole program, or one pass of a
  * `repeat` body.  An `if` chain is walked in place: the first clause
  * whose condition holds carries on into its branch, and meeting the
@@ -3788,6 +4434,19 @@ trace_range (
             i = chain_end (statements, next, i) + 1;
             break;
 
+        case PN_FIGURE_VERB_DEF:
+            /* A definition draws nothing where it stands: its body is
+             * walked by each call, and only then. */
+            i = MIN (next[i], to) + 1;
+            break;
+
+        case PN_FIGURE_VERB_CALL:
+            if (!trace_call (self, statements, next, statement, store,
+                             index))
+                return FALSE;
+            i++;
+            break;
+
         case PN_FIGURE_VERB_WITH:
         case PN_FIGURE_VERB_ORIGIN:
             /* Recorded, so that the draw saves the pen here (91.2) or
@@ -3839,6 +4498,7 @@ pn_figure_trace_new (
     PnFigureTrace *self = g_new0 (PnFigureTrace, 1);
     PnVarStore    *store;
     guint         *next;
+    guint          i;
 
     self->entries = g_array_new (FALSE, FALSE, sizeof (TraceEntry));
     g_array_set_clear_func (self->entries, trace_entry_clear);
@@ -3852,17 +4512,33 @@ pn_figure_trace_new (
     bind_frame (store, snapshot, free_names, film);
     next  = block_links (statements);
 
+    /* The first `def` of a name is the one a call runs, as it is the
+     * only one the front end lets through. */
+    self->shapes = g_hash_table_new (g_str_hash, g_str_equal);
+    for (i = 0; i < statements->len; i++)
+    {
+        const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind == PN_FIGURE_STATEMENT_VERB
+            && statement->verb == PN_FIGURE_VERB_DEF
+            && statement->shape != NULL
+            && !g_hash_table_contains (self->shapes, statement->shape))
+            g_hash_table_insert (self->shapes, statement->shape,
+                                 GUINT_TO_POINTER (i));
+    }
+
     trace_range (self, statements, next, 0, statements->len, store,
                  film != NULL ? film->index : 0);
 
+    g_clear_pointer (&self->shapes, g_hash_table_destroy);
     g_free (next);
     g_object_unref (store);
     return self;
 }
 
-/* A `with` or an `origin` the draw is inside of, and the pen as it
- * stood when the block began: a `with` gives back its settings, an
- * `origin` its axes. */
+/* A `with`, an `origin` or a call the draw is inside of, and the pen as
+ * it stood when the block began: a `with` or a call gives back its
+ * settings, an `origin` its axes. */
 typedef struct
 {
     PnFigureVerb head;
@@ -3870,8 +4546,9 @@ typedef struct
 } Scope;
 
 /* The recorded `end` that closes the block whose head is entry @at, or
- * the entry count.  Only a `with`'s or an `origin`'s `end` is recorded,
- * so counting those two heads against every `end` pairs them up. */
+ * the entry count.  Only the `end` of a `with`, of an `origin` and of a
+ * called shape's `def` is recorded, so counting those three heads
+ * against every `end` pairs them up. */
 static guint
 trace_block_end (
         const PnFigureTrace *self,
@@ -3889,7 +4566,8 @@ trace_block_end (
             continue;
 
         if (entry->statement->verb == PN_FIGURE_VERB_WITH
-            || entry->statement->verb == PN_FIGURE_VERB_ORIGIN)
+            || entry->statement->verb == PN_FIGURE_VERB_ORIGIN
+            || entry->statement->verb == PN_FIGURE_VERB_CALL)
             depth++;
         else if (entry->statement->verb == PN_FIGURE_VERB_END
                  && --depth == 0)
@@ -4023,6 +4701,17 @@ pn_figure_trace_draw (
                              entry->statement->args->len > 2
                              ? values[2] : 0.0);
             }
+        }
+        else if (entry->statement->verb == PN_FIGURE_VERB_CALL)
+        {
+            /* The body is already in the entries that follow, drawn with
+             * what the walk bound; its values were picked here only so a
+             * vector argument with no element for this frame stops the
+             * frame, as it would anywhere else.  A call gives back the
+             * pen settings its shape makes, as a `with` does. */
+            Scope scope = { PN_FIGURE_VERB_CALL, pen };
+
+            g_array_append_val (saved, scope);
         }
         else if (!draw_statement (entry->statement, values, &pen, &frame,
                                   ops))

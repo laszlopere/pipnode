@@ -247,6 +247,11 @@ typedef enum
 
     /* a local coordinate frame: `end` gives the axes back */
     PN_FIGURE_VERB_ORIGIN,
+
+    /* user-defined shapes: `def` opens one, and a statement naming it
+     * is a CALL; its @name is the shape's */
+    PN_FIGURE_VERB_DEF,
+    PN_FIGURE_VERB_CALL,
 } PnFigureVerb;
 
 /* A statement borrows the logical line it came from, for
@@ -266,7 +271,12 @@ typedef enum
  * `with` list is split into (TODO #91.2): `circle 0, 0, 5 with fill
  * "red"` is four statements -- `with`, `fill "red"`, the `circle`, and
  * an `end` -- and the `fill` and the `with`/`end` pair locate at their
- * own words. */
+ * own words.
+ *
+ * A `def` line keeps the shape it names in @shape, folded like a verb
+ * because a call is spelled like one, and @shape_offset says where that
+ * name was typed; its arguments are the parameter NAMES, one expression
+ * argument each whose @text is the name and which is never parsed. */
 typedef struct
 {
     PnFigureStatementKind  kind;
@@ -276,6 +286,8 @@ typedef struct
     const PnFigureLine    *source; /* borrowed                          */
     PnExprNode            *ast;    /* owned: an assignment's whole line */
     gsize                  offset; /* where the verb starts in @source  */
+    gchar                 *shape;  /* owned: a `def`'s shape, else %NULL */
+    gsize                  shape_offset; /* where @shape starts in @source */
 } PnFigureStatement;
 
 /**
@@ -309,7 +321,13 @@ void pn_figure_statement_free (PnFigureStatement *self);
  * a setting and the pieces after it are that setting's further
  * arguments: `with color 1, 0, 0, width 2` is two settings.  The errors
  * this adds are a list that is empty or does not begin with a pen verb,
- * and a trailing `with` after something that draws nothing.
+ * and a trailing `with` after something that draws nothing -- a call of
+ * a shape the program defines anywhere counts as drawing.
+ *
+ * `def` is read here too, since its line is not a verb and a list: the
+ * shape's name follows it, then the parameter names, comma-separated.
+ * A name missing or not an identifier is reported here, and so is the
+ * same parameter named twice or one named after a constant.
  *
  * A line that fails is left out of the result and the scan goes on, so
  * one broken line does not hide the errors on the next (80.2 rule 9).
@@ -354,6 +372,13 @@ GPtrArray *pn_figure_split (GPtrArray *lines,
  * real; the rest are still checked, so one typo does not hide the next
  * (80.2 rule 9).
  *
+ * A statement whose verb is not in the table may call a shape: a `def`
+ * CLOSED above it named it, so a shape is used only after it is defined
+ * and never from inside itself, which is what rules out recursion
+ * without a check at run time.  The call gets %PN_FIGURE_VERB_CALL, and
+ * must pass exactly one expression per parameter.  A `def` that names a
+ * verb, or a shape already defined, is refused.
+ *
  * Returns: %TRUE when every statement checked out.
  */
 gboolean pn_figure_check_verbs (GPtrArray *statements,
@@ -380,14 +405,16 @@ gboolean pn_figure_check_verbs (GPtrArray *statements,
  *              through pn_figure_check_verbs()
  * @errors:     (nullable) (element-type PnFigureError): collector
  *
- * Matches every `repeat`, `if`, `with` and `origin` with an `end`, and
+ * Matches every `repeat`, `if`, `with`, `origin` and `def` with an `end`, and
  * every `elseif` and `else` with the `if` they belong to, reporting: an `end`
  * with no block open; a block still open at the end of the program; an
  * `elseif` or `else` whose innermost open block is not an `if`, or that
  * follows that `if`'s `else`; and a `repeat` inside a `repeat`, at any
  * depth — that nesting is refused (86.2), so a grid is one loop and the
  * floor/mod arithmetic its index affords.  An `if` nests anywhere, and a
- * `repeat` may sit inside an `if` (91.1).
+ * `repeat` may sit inside an `if` (91.1).  A `def` must stand outside
+ * every block, and a shape's body may not set the `view`: the window is
+ * the figure's, not a shape's.
  *
  * Every failure is reported with its line and the scan goes on, so a
  * program with two structural mistakes still says how many there were.
@@ -498,6 +525,12 @@ gboolean pn_figure_parse_literals (GPtrArray *statements,
  *
  * A statement that fails is removed, the rest still parsed.
  *
+ * Last, every shape's body is held to what it may read: its parameters,
+ * the names it assigns itself, `i` inside a `repeat` of its own, and the
+ * constants.  Anything else -- an input, `t`, a program variable -- is
+ * reported where it is read, because a shape is meant to be copied from
+ * one figure to another and must mean the same thing in both.
+ *
  * Returns: %TRUE when everything parsed.
  */
 gboolean pn_figure_parse_expressions (GPtrArray *statements,
@@ -510,7 +543,8 @@ gboolean pn_figure_parse_expressions (GPtrArray *statements,
  * Every variable name the program READS, sorted and without repeats —
  * which is what has to be bound before a frame runs, whether from an
  * input, from an assignment the program makes on the way, or from the
- * zero-fill that keeps an unwired figure drawing.
+ * zero-fill that keeps an unwired figure drawing.  A shape's body is left
+ * out: it reads only its own names, bound by the call.
  *
  * A name the program assigns is included when the program also reads
  * it, deliberately: the read may come FIRST, and a figure that draws
@@ -734,6 +768,14 @@ typedef struct
  * the editor for a mistyped exponent is worse than one that refuses
  * out loud, and a silently shortened loop draws a lie. */
 #define PN_FIGURE_MAX_REPEAT 1000
+
+/* How many statements one walk of the program may run, counting every
+ * pass of every loop and every statement of every call.  `repeat` does
+ * not nest, but a shape with a loop in it called from a loop does, and
+ * a few such shapes deep the walk would outgrow any figure worth
+ * drawing.  Over it the figure empties with an error, like any other
+ * program the frame cannot be drawn from. */
+#define PN_FIGURE_MAX_STEPS 200000
 
 /* How a film plays (80.17a).  ONCE stops on the last frame and holds
  * it, which is why there is no fourth "hold last" mode. */

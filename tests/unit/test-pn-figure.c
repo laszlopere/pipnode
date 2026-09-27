@@ -2692,8 +2692,8 @@ test_an_end_without_a_repeat_is_a_parse_error (void)
 
     PN_CHECK_CMPINT (s.errors->len, ==, 1);
     PN_CHECK_CMPSTR (error_text (&s, 0), ==,
-                     "end without a repeat, an if, a with or "
-                     "an origin");
+                     "end without a repeat, an if, a with, "
+                     "an origin or a def");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     split_free (&s);
 }
@@ -2715,8 +2715,8 @@ test_blocks_do_not_nest (void)
                      "repeat cannot be nested inside another repeat");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     PN_CHECK_CMPSTR (error_text (&s, 1), ==,
-                     "end without a repeat, an if, a with or "
-                     "an origin");
+                     "end without a repeat, an if, a with, "
+                     "an origin or a def");
     PN_CHECK_CMPINT (error_line (&s, 1), ==, 6);
     split_free (&s);
 }
@@ -3070,6 +3070,10 @@ test_an_unchecked_program_cannot_run_away (void)
         "end\norigin 1, 2\nelse\npoint 0, 0\nend\nend",
         "origin 0 / 0, 0\nwith width 2\npoint 0, 0",
         "origin 1, 2, 30\nwith width 2\nend\nend\nend\npoint 0, 0",
+        "def a x\npoint x, 0\na 1\nend\na 2",
+        "a 1\ndef a x\nend\nend\na 1, 2\na",
+        "def a\nwith width 2\nend\nend\ndef b\na\nend\nb\nend\nb",
+        "if 1\ndef a\nelse\npoint 0, 0\nend\na",
     };
     guint n;
 
@@ -3576,6 +3580,314 @@ test_a_bad_origin_is_located (void)
     split_free (&kind);
     split_free (&open);
     split_free (&in_orig);
+}
+
+/* ------------------------------------------------------------------ */
+/*  User-defined shapes: def                                           */
+/* ------------------------------------------------------------------ */
+
+static void
+test_a_shape_draws_where_it_is_called (void)
+{
+    /* A def draws nothing where it stands; each call draws the body
+     * with its own arguments, exactly as if it were written out. */
+    gchar *shape = dump100 ("def box x, y, w\n"
+                            "    rect x, y, w, w / 2\n"
+                            "    point x, y\n"
+                            "end\n"
+                            "box 10, 20, 8\n"
+                            "box 50, 60, 4");
+    gchar *plain = dump100 ("rect 10, 20, 8, 4\n"
+                            "point 10, 20\n"
+                            "rect 50, 60, 4, 2\n"
+                            "point 50, 60");
+
+    PN_CHECK_CMPSTR (shape, ==, plain);
+    g_free (shape);
+    g_free (plain);
+}
+
+static void
+test_a_shape_may_take_nothing (void)
+{
+    /* A hub, drawn wherever an origin puts it. */
+    gchar *shape = dump100 ("def hub\n"
+                            "    circle 0, 0, 3\n"
+                            "end\n"
+                            "origin 20, 30\n"
+                            "    hub\n"
+                            "end\n"
+                            "HUB");
+
+    PN_CHECK_CMPSTR (shape, ==, HEAD_100
+                     "circle 20.00 70.00 3.00\n"
+                     "circle 0.00 100.00 3.00\n");
+    g_free (shape);
+}
+
+static void
+test_a_shape_has_a_store_of_its_own (void)
+{
+    /* A parameter shadows a program variable of the same name, a name
+     * the body assigns is its own -- read before the assignment, it is
+     * 0 -- and neither leaks out: after the calls, x is still 5 and y
+     * is still unbound, so zero-filled. */
+    gchar *text = dump100 ("x = 5\n"
+                           "def s x\n"
+                           "    point y, x\n"
+                           "    y = x + 1\n"
+                           "    point y, x\n"
+                           "end\n"
+                           "s 10\n"
+                           "s 20\n"
+                           "point x, y");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 0.00 90.00 1.00\n"
+                     "point 11.00 90.00 1.00\n"
+                     "point 0.00 80.00 1.00\n"
+                     "point 21.00 80.00 1.00\n"
+                     "point 5.00 100.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_call_gives_the_pen_back (void)
+{
+    /* Like a `with`: what the shape sets is given back at its end, and
+     * only what differs.  The pen position carries on. */
+    gchar *shape = dump100 ("def dot x, y\n"
+                            "    color \"red\"\n"
+                            "    width 3\n"
+                            "    move x, y\n"
+                            "end\n"
+                            "width 3\n"
+                            "dot 10, 10\n"
+                            "lineto 20, 20");
+    gchar *with  = dump100 ("width 3\n"
+                            "with color \"red\"\n"
+                            "    width 3\n"
+                            "    move 10, 10\n"
+                            "end\n"
+                            "lineto 20, 20");
+
+    PN_CHECK_CMPSTR (shape, ==, with);
+    g_free (shape);
+    g_free (with);
+}
+
+static void
+test_a_call_takes_a_trailing_with (void)
+{
+    /* A call draws, so it may carry a list -- even when its def comes
+     * further down, where the verb table then refuses the call for
+     * coming first rather than the list for following it. */
+    gchar *shape = dump100 ("def dot x, y\n"
+                            "    point x, y\n"
+                            "end\n"
+                            "dot 10, 10 with color \"red\"\n"
+                            "dot 20, 20");
+    gchar *plain = dump100 ("point 10, 10 with color \"red\"\n"
+                            "point 20, 20");
+    Split  early = parsed ("dot 1, 1 with width 2\n"
+                           "def dot x, y\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (shape, ==, plain);
+    PN_CHECK_CMPINT (early.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&early, 0), ==,
+                     "shape \"dot\" is used before its def");
+    g_free (shape);
+    g_free (plain);
+    split_free (&early);
+}
+
+static void
+test_shapes_use_the_shapes_above_them (void)
+{
+    /* A pulley is a disc and a hub; the calls nest, each in its own
+     * store, and each call gives back its own pen. */
+    gchar *shape = dump100 ("def hub x, y\n"
+                            "    point x, y with width 2\n"
+                            "end\n"
+                            "def pulley x, y, r\n"
+                            "    circle x, y, r\n"
+                            "    hub x, y\n"
+                            "end\n"
+                            "pulley 30, 30, 10\n"
+                            "pulley 70, 30, 5");
+    gchar *plain = dump100 ("circle 30, 30, 10\n"
+                            "point 30, 30 with width 2\n"
+                            "circle 70, 30, 5\n"
+                            "point 70, 30 with width 2");
+
+    PN_CHECK_CMPSTR (shape, ==, plain);
+    g_free (shape);
+    g_free (plain);
+}
+
+static void
+test_a_shape_loops_inside_a_loop (void)
+{
+    /* `repeat` does not nest, but a shape with a loop of its own may be
+     * called from one: its `i` is in its own store, so the caller's is
+     * left alone. */
+    gchar *text = dump100 ("def ticks x\n"
+                           "    repeat 3\n"
+                           "        point x, i\n"
+                           "    end\n"
+                           "end\n"
+                           "repeat 2\n"
+                           "    ticks 10 * i\n"
+                           "    point 50, 10 * i\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 0.00 100.00 1.00\n"
+                     "point 0.00 99.00 1.00\n"
+                     "point 0.00 98.00 1.00\n"
+                     "point 50.00 100.00 1.00\n"
+                     "point 10.00 100.00 1.00\n"
+                     "point 10.00 99.00 1.00\n"
+                     "point 10.00 98.00 1.00\n"
+                     "point 50.00 90.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_runaway_walk_empties_the_figure (void)
+{
+    /* A thousand calls of a thousand-step loop is a million statements:
+     * over the bound, the frame is an error, not a frozen editor. */
+    Figure  f     = figure ("def row\n"
+                            "    repeat 1000\n"
+                            "        point i, 0\n"
+                            "    end\n"
+                            "end\n"
+                            "repeat 1000\n"
+                            "    row\n"
+                            "end");
+    gchar  *error = NULL;
+    gchar  *text  = figure_dump (&f, NULL, 100, 100, FALSE, &error);
+
+    PN_CHECK_CMPSTR (text, ==, "");
+    PN_CHECK_CMPSTR (error, ==,
+                     "line 3, column 9: the figure runs more than 200000 "
+                     "statements");
+    g_free (text);
+    g_free (error);
+    figure_free (&f);
+}
+
+static void
+test_a_vector_argument_animates_the_shape (void)
+{
+    /* An argument is evaluated in the caller as the vector it is, and
+     * the body computes the whole film from it, like any statement. */
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("def dot x\n"
+                                         "    point x * 2, 0\n"
+                                         "end\n"
+                                         "dot a");
+    const gdouble     xs[2]    = { 1.0, 5.0 };
+    gchar            *text;
+
+    snapshot_vector (snapshot, "a", xs, 2);
+
+    text = figure_dump_frame (&f, snapshot, 1, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "point 10.00 100.00 1.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_shape_reads_only_what_it_is_given (void)
+{
+    /* The body's names are not the program's: they are neither free
+     * names to zero-fill nor allowed to be. */
+    Figure f   = figure ("def s x\n"
+                         "    y = x * k\n"
+                         "    point y, t\n"
+                         "end\n"
+                         "s 1\n"
+                         "point a, 0");
+    Split  ok  = parsed ("def s x\n"
+                         "    repeat x\n"
+                         "        point i, pi\n"
+                         "    end\n"
+                         "    z = 1\n"
+                         "end");
+    Split  idx = parsed ("def s x\n"
+                         "    point i, x\n"
+                         "end");
+
+    PN_CHECK_CMPINT (f.parse.errors->len, ==, 2);
+    PN_CHECK_CMPSTR (error_text (&f.parse, 0), ==,
+                     "shape \"s\" cannot read \"k\": pass it in as a "
+                     "parameter");
+    PN_CHECK_CMPINT (error_line (&f.parse, 0), ==, 2);
+    PN_CHECK_CMPSTR (error_text (&f.parse, 1), ==,
+                     "shape \"s\" cannot read \"t\": pass it in as a "
+                     "parameter");
+    PN_CHECK_CMPINT (error_column (&f.parse, 1), ==, 14);
+    PN_CHECK_CMPINT (f.names->len, ==, 1);
+    PN_CHECK_CMPSTR (g_ptr_array_index (f.names, 0), ==, "a");
+
+    PN_CHECK_CMPINT (ok.errors->len, ==, 0);
+
+    /* Outside a loop of its own, `i` is nobody's. */
+    PN_CHECK_CMPSTR (error_text (&idx, 0), ==,
+                     "shape \"s\" cannot read \"i\": pass it in as a "
+                     "parameter");
+
+    figure_free (&f);
+    split_free (&ok);
+    split_free (&idx);
+}
+
+static void
+test_a_bad_def_is_located (void)
+{
+    const struct
+    {
+        const gchar *program;
+        const gchar *message;
+        gint         line;
+        gint         column;
+    } cases[] = {
+        { "def\nend",                  "def needs the name of the shape it defines", 1, 4 },
+        { "def 3x\nend",               "def needs the name of the shape it defines", 1, 5 },
+        { "def a, x\nend",             "expected a space after the name of the shape", 1, 6 },
+        { "def a x, 2\nend",           "expected a parameter name", 1, 10 },
+        { "def a x, , y\nend",         "expected a parameter name", 1, 10 },
+        { "def a x, y, x\nend",        "parameter \"x\" is named twice", 1, 13 },
+        { "def a pi\nend",             "\"pi\" cannot name a parameter", 1, 7 },
+        { "def Circle x\nend",         "\"Circle\" is a verb and cannot name a shape", 1, 5 },
+        { "def a\nend\ndef A\nend",    "shape \"A\" is already defined", 3, 5 },
+        { "def a\n    a\nend",         "shape \"a\" cannot use itself", 2, 5 },
+        { "b\ndef b\nend",             "shape \"b\" is used before its def", 1, 1 },
+        { "def a\n    b\nend\ndef b\nend", "shape \"b\" is used before its def", 2, 5 },
+        { "arrow 1, 2",                "unknown verb \"arrow\"", 1, 1 },
+        { "def a x, y\nend\na 1",      "a takes 2 arguments, not 1", 3, 1 },
+        { "def a x\nend\na \"red\"",   "expected an expression, not a string", 3, 3 },
+        { "if 1\n    def a\n    end\nend", "def must stand outside every block", 2, 5 },
+        { "def a\n    view 0, 0, 1, 1\nend", "a shape cannot set the view", 2, 5 },
+        { "def a\n    point 0, 0",     "def without an end", 1, 1 },
+    };
+    guint n;
+
+    for (n = 0; n < G_N_ELEMENTS (cases); n++)
+    {
+        Split s = parsed (cases[n].program);
+
+        PN_CHECK_CMPINT (s.errors->len, ==, 1);
+        PN_CHECK_CMPSTR (error_text (&s, 0), ==, cases[n].message);
+        PN_CHECK_CMPINT (error_line (&s, 0), ==, cases[n].line);
+        PN_CHECK_CMPINT (error_column (&s, 0), ==, cases[n].column);
+        split_free (&s);
+    }
 }
 
 static void
@@ -4592,6 +4904,17 @@ main (int argc, char **argv)
     pn_test_add ("origin_non_finite",   test_axes_that_cannot_be_placed_skip_the_block);
     pn_test_add ("origin_animates",     test_turning_axes_animate_without_a_walk_per_frame);
     pn_test_add ("origin_errors",       test_a_bad_origin_is_located);
+    pn_test_add ("def_calls",           test_a_shape_draws_where_it_is_called);
+    pn_test_add ("def_no_parameters",   test_a_shape_may_take_nothing);
+    pn_test_add ("def_own_store",       test_a_shape_has_a_store_of_its_own);
+    pn_test_add ("def_pen_scope",       test_a_call_gives_the_pen_back);
+    pn_test_add ("def_trailing_with",   test_a_call_takes_a_trailing_with);
+    pn_test_add ("def_nested_calls",    test_shapes_use_the_shapes_above_them);
+    pn_test_add ("def_loop_in_a_loop",  test_a_shape_loops_inside_a_loop);
+    pn_test_add ("def_step_bound",      test_a_runaway_walk_empties_the_figure);
+    pn_test_add ("def_animates",        test_a_vector_argument_animates_the_shape);
+    pn_test_add ("def_reads",           test_a_shape_reads_only_what_it_is_given);
+    pn_test_add ("def_errors",          test_a_bad_def_is_located);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

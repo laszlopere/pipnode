@@ -360,6 +360,52 @@ can run out of the block. The origin is in the window's units, so a
 origin. An angle or position that is not a number skips the block.
 </p>
 
+<h5>Shapes of your own: <code>def</code></h5>
+<pre>
+def pulley x, y, r
+  circle x, y, r
+  point x, y with width 2
+end
+
+pulley 30, 60, 8
+pulley 30, 20, 5 with color "grey"
+</pre>
+<p>
+<code>def name p1, p2, &hellip;</code> &hellip; <code>end</code> gives
+the lines between them a name, and from then on a line that starts with
+that name draws them, with the numbers after it as <code>p1</code>,
+<code>p2</code> and the rest. A shape may take no parameters at all.
+Its name is spelled like a verb, so capitals do not matter, and cannot
+be a verb the language already has. A <code>def</code> draws nothing
+where it stands.
+</p>
+<p>
+A shape reads <em>only</em> what it is given: its parameters, the names
+it assigns itself, and <code>i</code> inside a <code>repeat</code> of
+its own. An input, <code>t</code>, <code>frame</code> or a variable of
+the program is an error inside a shape &mdash; pass it in as a
+parameter. That is what lets a shape be copied from one figure into
+another and mean the same thing there. What a shape assigns stays in
+the shape: a variable of the same name outside it is left alone, and
+so is the <code>i</code> of a loop the shape is called from, which is
+why a shape with a loop in it may be called from a loop.
+</p>
+<p>
+A call works like a <code>with</code>: pen settings the shape makes are
+given back at its end, and a call may carry a <code>with</code> list of
+its own. The pen position and the view carry on. Inside an
+<code>origin</code> block the shape is drawn on its axes, which is the
+way to turn one. A shape can use the shapes defined above it but not
+itself, a <code>def</code> must stand outside every block, and a shape
+cannot set the <code>view</code>. A parameter may be a vector: the
+shape then animates like anything else.
+</p>
+<p>
+One walk of a program may run at most 200,000 statements, counting
+every pass of every loop and every line of every call; a figure that
+needs more shows an error instead of drawing.
+</p>
+
 <h5 id="animation">Animation</h5>
 <p>
 When an input is a <em>vector</em> &mdash; from a

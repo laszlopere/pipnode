@@ -1394,7 +1394,7 @@
              become plain `rect`s; double-pendulum's arm positions.
              Settle how it composes with `view` (80.4) and with text,
              which stays upright unless 91.9 says otherwise.
-       [ ] 91.4 USER-DEFINED SHAPES -- `def arrow x1, y1, x2, y2 ... end`
+       [x] 91.4 USER-DEFINED SHAPES -- `def arrow x1, y1, x2, y2 ... end`
              and a call by name. Covers the repeated hand-built
              shapes: arrowheads, pulleys drawn twice (disc + hub), the
              boxes on the bridge's wires. Arrows, hatching, dimension
