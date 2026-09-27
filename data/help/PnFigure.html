@@ -711,8 +711,9 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       then only read from it. So a film can afford a lot of arithmetic:
       a <code>repeat</code> loop can step a motion that has no formula
       forward in time, with a mask such as
-      <code>m = step(i, 4 * frame - 1)</code> freezing each frame's copy
-      of the state once it has taken its own share of steps. The
+      <code>m = i &lt; 4 * frame</code> &mdash; 1 in the frames that still
+      need pass <code>i</code>, 0 in the others &mdash; freezing each
+      frame's copy of the state once it has taken its own share of steps. The
       <em>double-pendulum</em> example does this with a thousand steps.
       The price is paid on every change instead: turning a knob on such
       a figure works the whole film out again, which takes a

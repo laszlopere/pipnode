@@ -12,7 +12,7 @@
         "y" : 180.0
       },
       "properties" : {
-        "program" : "# Animation tab: frames 50, play-mode loop\n# inputs: amp (swing, radians), len (string length)\nview -65, -75, 65, 10\n\na = amp * sin(2 * pi * t)\nx =  len * sin(a)\ny = -len * cos(a)\n\nrect -15, 0, 30, 3  with fill \"grey\"\n\nline 0, 0, 0, -len - 8  with width 0.5, dash \"dash\"\n\nwidth 1\nline 0, 0, x, y\ncircle x, y, 5  with fill \"orange\"\n\nfont 4\ntext 0, -72, \"amp %.2f rad   len %.0f\", amp, len\n",
+        "program" : "# Animation tab: frames 50, play-mode loop\n# inputs: amp (swing, radians), len (string length)\nview -65, -75, 65, 10\n\nrect -15, 0, 30, 3  with fill \"grey\"\n\nline 0, 0, 0, -len - 8  with width 0.5, dash \"dash\"\n\n# the string and bob hang straight down on axes swung by the angle\norigin 0, 0, degrees(amp * sin(2 * pi * t))\n    line 0, 0, 0, -len\n    circle 0, -len, 5  with fill \"orange\"\nend\n\ntext 0, -72, \"amp %.2f rad   len %.0f\", amp, len  with font 4\n",
         "inputs" : 2,
         "background-color" : "rgb(255,255,255)",
         "font-family" : "",
