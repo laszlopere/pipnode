@@ -1374,3 +1374,94 @@
        [ ] 91.12 An `axes` HELPER that draws a labelled pair of axes in
              one statement -- none of the eleven sheets has x/y axes
              (their scales are single ruled bars).
+
+[ ] 92 OPERATE CONTROLS OVER D-BUS -- the editor's Worksheet interface
+       can BUILD a sheet but cannot PLAY it: nothing turns a knob,
+       flips a switch, fires an Inject or presses a keypad key the way
+       the user's hand does. Found 2026-09-27 while planning #93, and
+       a real hole for both the functional tests and an AI driving a
+       live editor.
+       WHY IT IS SO, so the fix does not break the part that is right:
+       a control's PROPERTY write is silent on purpose -- property
+       writes also happen on file load, undo/redo (pn_flow_load_from_
+       data restores in place) and in the settings dialog, and none of
+       those may fire messages down the wires. pn_knob_set_value()'s
+       header says so. The EMITTING paths exist in the GTK-free core
+       (pn_knob_scroll, pn_switch_toggle, pn_inject_fire,
+       pn_keypad_press_code) but their only callers are the GTK event
+       handlers in lib/pn-worksheet.c (the knob's at the scroll handler,
+       ~5287). The Worksheet interface (#40) was designed around
+       authoring; "operate a control" was never part of it. The
+       Engine interface grew ActivateWidget (src/pn-application.c)
+       for the panel/desktop viewers, Switch and Inject only.
+       DBUS-API.md's own worked example works around the gap: it adds
+       a Knob and then injects into the Topic node beside it.
+       THE WORKAROUND TODAY is to inject into every consumer of the
+       control -- which means the test re-states the sheet's wiring
+       and never exercises the control or its wires.
+       SHAPE: dispatch on node type inside pn-application.c, as
+       ActivateWidget does -- no PnNodeClass vfunc, so no plugin ABI
+       bump; a node that cannot be operated that way answers
+       NotSupported. Behave EXACTLY as the user's hand would, so a
+       test through D-Bus proves what a user would see.
+       [ ] 92.1 `SetControlValue(s uuid, d value)` -- Knob: clamp to
+             [min, max], repaint, notify, emit, as a wheel turn does.
+             Needs a core entry point beside the silent setter, e.g.
+             pn_knob_turn_to(), sharing pn_knob_scroll()'s tail. Decide
+             whether a value equal to the current one still emits (the
+             wheel at an end stop does not; a test wants determinism).
+       [ ] 92.2 `ActivateNode(s uuid)` -- Switch toggles, Inject fires;
+             mirrors the Engine's ActivateWidget. Share the dispatch
+             with it rather than copying it.
+       [ ] 92.3 `PressKey(s uuid, s code)` -- Keypad, through the
+             existing pn_keypad_press_code(); an unknown code ->
+             BadPropertyValue.
+       [ ] 92.4 pndbus.py wrappers (set_control_value, activate_node,
+             press_key) and DBUS-API.md rows; FIX the worked example to
+             turn the knob instead of injecting beside it.
+       [ ] 92.5 Functional tests, one per control, through a live
+             --dbus-name editor: the emitted message comes out of the
+             control itself and reaches a wired consumer; a property
+             write still does NOT emit (the silent contract kept); an
+             unsupported node -> NotSupported.
+       [ ] 92.6 OUT OF SCOPE unless something asks: drag gestures
+             (Oscilloscope cursors and knobs, Sun Path rotation) --
+             pointer gestures, not values. Note it in DBUS-API.md.
+
+[ ] 93 FUNCTIONAL TEST FOR A COMPLEX FIGURE SHEET -- the self-balancing
+       Wheatstone bridge, driven through a live editor over D-Bus.
+       Chosen 2026-09-27 as the richest of the eleven Figure examples:
+       the largest program (154 statements), a five-input Figure
+       (input-names T, R1, Rx, R3, Tm), and a deterministic chain whose
+       outputs can be asserted exactly -- Knob T -> Pt100 sensor
+       (PnExpression, Rx = 100 (1 + 0.00385 T)) -> Servo (PnExpression2,
+       R3 = clamp(R1 Rx / 100, 0, 400)) -> Reading (PnExpression2,
+       Tm = (R3 100 / R1 / 100 - 1) / 0.00385); Knob R1 feeds Servo,
+       Reading and the Figure. No randomness, no timers.
+       WAITS ON #92.1: without SetControlValue the test would have to
+       inject into the knobs' consumers itself, restating the wiring
+       it is meant to test.
+       [ ] 93.1 A COPY of examples/displays/wheatstone-bridge.json as
+             test data (e.g. tests/data/figure-wheatstone-bridge.json,
+             added to EXTRA_DIST), so editing the example never breaks
+             the test. The test opens a temp copy of it, never saves.
+       [ ] 93.2 tests/test_figure_wheatstone_bridge.py on pndbus.py
+             (PipnodeEditor.launch, private --dbus-name), in TESTS.
+             Wait for the knobs' startup announce, then assert the
+             initial state (T 20, R1 100 -> Rx 107.7, R3 107.7, Tm 20).
+       [ ] 93.3 Operating points, each by turning the two knobs
+             (#92.1) and reading GetLastOutputMessage on Pt100, Servo
+             and Reading, then the Figure's `error` (must stay empty):
+             a balanced point (T 0, R1 100: galvanometer at zero, the
+             masked red needle skipped, 80.10b); the low end (T -50,
+             R1 50); the rheostat off its end (T 450, R1 200: R3
+             clamps at 400, Tm reads ~259.7, the "off the end of R3"
+             branch drawn).
+       [ ] 93.4 Negative path: set a broken `program` over D-Bus ->
+             `error` names the line and column and has-error is true;
+             restore it -> both clear.
+       [ ] 93.5 LIMIT, stated in the test's docstring: D-Bus cannot see
+             the Figure's display list, so the drawing itself is not
+             asserted -- tests/unit/test-pn-figure.c owns that. If the
+             test wants more, a read-only display-list dump over D-Bus
+             (pn_figure_dump already exists) is its own sub-item.
