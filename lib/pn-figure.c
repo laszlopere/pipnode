@@ -754,6 +754,12 @@ static const VerbInfo verb_table[] =
      * other argument, so `repeat cols * rows` needs no new syntax */
     { "repeat", PN_FIGURE_VERB_REPEAT, 1, 1,          "",    'e', VERB_PLAIN  },
     { "end",    PN_FIGURE_VERB_END,    0, 0,          "",    0,   VERB_PLAIN  },
+
+    /* the condition (91.1): one word for `elseif`, as `nofill` and
+     * `lineto` are, so a statement is still a verb and its arguments */
+    { "if",     PN_FIGURE_VERB_IF,     1, 1,          "",    'e', VERB_PLAIN  },
+    { "elseif", PN_FIGURE_VERB_ELSEIF, 1, 1,          "",    'e', VERB_PLAIN  },
+    { "else",   PN_FIGURE_VERB_ELSE,   0, 0,          "",    0,   VERB_PLAIN  },
 };
 
 /* The table is small and a program is a few dozen lines, so a linear
@@ -935,66 +941,123 @@ pn_figure_check_verbs (
 /*  Blocks                                                            */
 /* ================================================================== */
 
+/* One block still open while pn_figure_check_blocks() reads on. */
+typedef struct
+{
+    const PnFigureStatement *opener;    /* the `repeat` or the `if`      */
+    gboolean                 has_else;  /* an `if` that reached `else`   */
+} OpenBlock;
+
 gboolean
 pn_figure_check_blocks (
         GPtrArray *statements,
         GPtrArray *errors)
 {
-    const PnFigureStatement *open  = NULL; /* the outermost open block */
-    gint                     depth = 0;
-    gboolean                 ok    = TRUE;
-    guint                    i;
+    GArray   *open    = g_array_new (FALSE, FALSE, sizeof (OpenBlock));
+    guint     repeats = 0;    /* `repeat`s among the open blocks */
+    gboolean  ok      = TRUE;
+    guint     i;
 
     g_return_val_if_fail (statements != NULL, FALSE);
 
-    /* Counting DEPTH rather than holding one flag is what keeps a
-     * nested block from cascading: the inner `repeat` is reported once
-     * and still counted, so the `end` that closes it is not then
-     * reported a second time as an `end` with nothing open. */
+    /* A STACK of open blocks rather than one flag is what keeps a
+     * mistake from cascading: a refused inner `repeat` is reported once
+     * and still pushed, so the `end` that closes it is not then reported
+     * a second time as an `end` with nothing open. */
     for (i = 0; i < statements->len; i++)
     {
         const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+        OpenBlock               *top;
+        OpenBlock                block = { statement, FALSE };
 
         if (statement->kind != PN_FIGURE_STATEMENT_VERB)
             continue;
 
-        if (statement->verb == PN_FIGURE_VERB_REPEAT)
+        top = open->len > 0
+              ? &g_array_index (open, OpenBlock, open->len - 1) : NULL;
+
+        switch (statement->verb)
         {
-            /* One level, deliberately (86.2): a grid is one loop and
-             * the floor/mod arithmetic its index affords, and refusing
-             * nesting is what lets the index be a single fixed name. */
-            if (depth > 0)
+        case PN_FIGURE_VERB_REPEAT:
+            /* One level of LOOP, deliberately (86.2): a grid is one loop
+             * and the floor/mod arithmetic its index affords, and
+             * refusing nesting is what lets the index be a single fixed
+             * name.  An `if` in between does not change that -- the
+             * inner loop would still rebind the outer one's `i`. */
+            if (repeats > 0)
             {
                 report_at (errors, statement->source, 0,
                            "repeat cannot be nested inside another repeat");
                 ok = FALSE;
             }
-            else
-            {
-                open = statement;
-            }
-            depth++;
-        }
-        else if (statement->verb == PN_FIGURE_VERB_END)
+            repeats++;
+            g_array_append_val (open, block);
+            break;
+
+        case PN_FIGURE_VERB_IF:
+            g_array_append_val (open, block);
+            break;
+
+        case PN_FIGURE_VERB_ELSEIF:
+        case PN_FIGURE_VERB_ELSE:
         {
-            if (depth == 0)
+            const gchar *word = statement->verb == PN_FIGURE_VERB_ELSE
+                                ? "else" : "elseif";
+
+            /* Only the INNERMOST block can own it: an `else` inside a
+             * `repeat` inside an `if` would otherwise quietly close the
+             * loop, which is not what anyone reading the indentation
+             * meant. */
+            if (top == NULL || top->opener->verb != PN_FIGURE_VERB_IF)
             {
                 report_at (errors, statement->source, 0,
-                           "end without a repeat");
+                           "%s without an if", word);
                 ok = FALSE;
-                continue;
             }
-            if (--depth == 0)
-                open = NULL;
+            else if (top->has_else)
+            {
+                report_at (errors, statement->source, 0,
+                           "%s after else", word);
+                ok = FALSE;
+            }
+            else if (statement->verb == PN_FIGURE_VERB_ELSE)
+            {
+                top->has_else = TRUE;
+            }
+            break;
+        }
+
+        case PN_FIGURE_VERB_END:
+            if (top == NULL)
+            {
+                report_at (errors, statement->source, 0,
+                           "end without a repeat or an if");
+                ok = FALSE;
+                break;
+            }
+            if (top->opener->verb == PN_FIGURE_VERB_REPEAT)
+                repeats--;
+            g_array_set_size (open, open->len - 1);
+            break;
+
+        default:
+            break;
         }
     }
 
-    if (depth > 0 && open != NULL)
+    /* Every block still open is its own mistake, reported at the line
+     * that opened it, outermost first -- the order they were written. */
+    for (i = 0; i < open->len; i++)
     {
-        report_at (errors, open->source, 0, "repeat without an end");
+        const PnFigureStatement *opener =
+                g_array_index (open, OpenBlock, i).opener;
+
+        report_at (errors, opener->source, 0, "%s without an end",
+                   opener->verb == PN_FIGURE_VERB_REPEAT ? "repeat" : "if");
         ok = FALSE;
     }
 
+    g_array_unref (open);
     return ok;
 }
 
@@ -2680,8 +2743,11 @@ draw_statement (
 
     case PN_FIGURE_VERB_REPEAT:
     case PN_FIGURE_VERB_END:
+    case PN_FIGURE_VERB_IF:
+    case PN_FIGURE_VERB_ELSEIF:
+    case PN_FIGURE_VERB_ELSE:
         /* Control flow is not ink (#86.7), and the walk in
-         * pn_figure_resolve() has already dealt with the pair: what
+         * pn_figure_trace_new() has already dealt with the block: what
          * reaches here is a block the front end never checked, which
          * is nothing to draw and nothing to complain about either. */
         break;
@@ -2697,27 +2763,93 @@ draw_statement (
     return ok;
 }
 
-/* The index of the `end` that closes the `repeat` at @start, or the
- * statement count when the program has none.  Nesting is a parse error
- * (#86.2), so the first `end` is always the right one and the scan is
- * a single pass. */
-static guint
-block_end_index (
-        GPtrArray *statements,
-        guint      start)
+/* Where the walk goes next from each block statement, worked out once
+ * per walk with a stack: a `repeat` links to its `end`; an `if`,
+ * `elseif` or `else` links to the next clause of the same chain -- the
+ * following `elseif` or `else`, or the `end`.  Anything unclosed links
+ * to the statement count.
+ *
+ * The walk asks this rather than scanning for the first `end`, as it
+ * could while `repeat` was the only block: with `if` nesting inside
+ * anything, the right `end` is the one at the right depth.  Nothing here
+ * trusts pn_figure_check_blocks() to have passed -- a stray `end` or
+ * `else` is simply not linked -- because the resolver can be handed a
+ * program the front end never checked, and must not run off the end of
+ * it; every link points FORWARD, so no program makes the walk loop. */
+static guint *
+block_links (
+        GPtrArray *statements)
 {
-    guint i;
+    guint  *next = g_new (guint, statements->len + 1);
+    GArray *open = g_array_new (FALSE, FALSE, sizeof (guint));
+    guint   i;
 
-    for (i = start + 1; i < statements->len; i++)
+    for (i = 0; i < statements->len; i++)
     {
         const PnFigureStatement *statement = g_ptr_array_index (statements, i);
+        guint                   *top;
 
-        if (statement->kind == PN_FIGURE_STATEMENT_VERB
-            && statement->verb == PN_FIGURE_VERB_END)
-            return i;
+        next[i] = statements->len;
+
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB)
+            continue;
+
+        top = open->len > 0 ? &g_array_index (open, guint, open->len - 1)
+                            : NULL;
+
+        switch (statement->verb)
+        {
+        case PN_FIGURE_VERB_REPEAT:
+        case PN_FIGURE_VERB_IF:
+            g_array_append_val (open, i);
+            break;
+
+        case PN_FIGURE_VERB_ELSEIF:
+        case PN_FIGURE_VERB_ELSE:
+            /* The chain's newest clause now stands for the whole block,
+             * so the next clause (or the `end`) is linked from it. */
+            if (top != NULL
+                && ((const PnFigureStatement *)
+                    g_ptr_array_index (statements, *top))->verb
+                   != PN_FIGURE_VERB_REPEAT)
+            {
+                next[*top] = i;
+                *top       = i;
+            }
+            break;
+
+        case PN_FIGURE_VERB_END:
+            if (top != NULL)
+            {
+                next[*top] = i;
+                g_array_set_size (open, open->len - 1);
+            }
+            break;
+
+        default:
+            break;
+        }
     }
 
-    return statements->len;
+    g_array_unref (open);
+    return next;
+}
+
+/* The `end` of the chain that @clause belongs to, or the statement
+ * count when it has none. */
+static guint
+chain_end (
+        GPtrArray   *statements,
+        const guint *next,
+        guint        clause)
+{
+    while (clause < statements->len
+           && ((const PnFigureStatement *)
+               g_ptr_array_index (statements, clause))->verb
+              != PN_FIGURE_VERB_END)
+        clause = next[clause];
+
+    return clause;
 }
 
 GType
@@ -2908,31 +3040,26 @@ trace_statement (
     return !entry.cut;
 }
 
-/* How many times the block at @statement runs.  A count is a VALUE and
- * not a program (#86.5): anything unusable skips the block whole, with
- * the marker that says why, and leaves the rest of the figure to draw.
- * A vector count animates like any other argument, which makes the
+/* The one argument of a `repeat` or an `if`, as a number for frame
+ * @index.  A vector animates like any other argument, which makes the
  * trace good for frame @index only.
  *
  * Returns %FALSE only for 80.10's class (c) -- an evaluation that could
- * not be done, or a vector count with no element @index -- which
- * empties the figure like any other type error. */
+ * not be done, or a vector with no element @index -- which empties the
+ * figure like any other type error. */
 static gboolean
-trace_repeat_count (
+trace_block_value (
         PnFigureTrace     *self,
         PnFigureStatement *statement,
         PnVarStore        *store,
         guint              index,
-        guint             *out_n)
+        gdouble           *out_value)
 {
     PnExprValue  args[2] = { { NULL, 0.0 }, { NULL, 0.0 } };
-    TraceEntry   entry   = { statement, NULL, 0, FALSE, NULL };
     guint        done    = 0;
-    gdouble      value   = 0.0;
-    gdouble      count;
     gboolean     ok;
 
-    *out_n = 0;
+    *out_value = 0.0;
 
     if (!eval_arg_values (statement, store, args, &done, self->errors))
         return FALSE;
@@ -2944,24 +3071,221 @@ trace_repeat_count (
     }
 
     ok = pick_value (statement, g_ptr_array_index (statement->args, 0),
-                     &args[0], index, &value, self->errors);
+                     &args[0], index, out_value, self->errors);
     pn_expr_value_clear (&args[0]);
-    if (!ok)
+    return ok;
+}
+
+/* Records that the block at @statement was skipped, and why. */
+static void
+trace_skip (
+        PnFigureTrace     *self,
+        PnFigureStatement *statement,
+        const gchar       *reason)
+{
+    TraceEntry entry = { statement, NULL, 0, FALSE, reason };
+
+    g_array_append_val (self->entries, entry);
+}
+
+/* How many times the `repeat` at @statement runs.  A count is a VALUE
+ * and not a program (#86.5): anything unusable skips the block whole,
+ * with the marker that says why, and leaves the rest of the figure to
+ * draw.  Returns %FALSE as trace_block_value() does. */
+static gboolean
+trace_repeat_count (
+        PnFigureTrace     *self,
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        guint              index,
+        guint             *out_n)
+{
+    gdouble value;
+    gdouble count;
+
+    *out_n = 0;
+
+    if (!trace_block_value (self, statement, store, index, &value))
         return FALSE;
 
     count = trunc (value);
 
     if (!isfinite (value))
-        entry.skip = "non-finite";
+        trace_skip (self, statement, "non-finite");
     else if (count < 1.0)
-        entry.skip = "degenerate";
+        trace_skip (self, statement, "degenerate");
     else if (count > (gdouble) PN_FIGURE_MAX_REPEAT)
-        entry.skip = "too-many";
+        trace_skip (self, statement, "too-many");
     else
         *out_n = (guint) count;
 
-    if (entry.skip != NULL)
-        g_array_append_val (self->entries, entry);
+    return TRUE;
+}
+
+/* What the condition of the `if` or `elseif` at @statement says. */
+typedef enum
+{
+    CONDITION_FAILED,   /* 80.10 (c): the figure empties              */
+    CONDITION_SKIP,     /* non-finite: no branch of the chain runs    */
+    CONDITION_FALSE,
+    CONDITION_TRUE,
+} Condition;
+
+/* Any finite number but zero is true, which is what the comparisons
+ * (1 or 0) and a 0.0/1.0 boolean input both already are.  A condition
+ * that is NOT a number -- NaN, or the infinity of a division by zero --
+ * is 80.10(b)'s value, not a program error, and like a `repeat` count
+ * it skips the block whole: not even the `else` runs, because "the
+ * test was not false" is not what it said. */
+static Condition
+trace_condition (
+        PnFigureTrace     *self,
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        guint              index)
+{
+    gdouble value;
+
+    if (!trace_block_value (self, statement, store, index, &value))
+        return CONDITION_FAILED;
+
+    if (!isfinite (value))
+    {
+        trace_skip (self, statement, "non-finite");
+        return CONDITION_SKIP;
+    }
+
+    return value != 0.0 ? CONDITION_TRUE : CONDITION_FALSE;
+}
+
+/* Walks statements @from up to @to: the whole program, or one pass of a
+ * `repeat` body.  An `if` chain is walked in place: the first clause
+ * whose condition holds carries on into its branch, and meeting the
+ * next clause of the SAME chain there means the branch is done, so the
+ * walk jumps to that chain's `end`.  Nested `if`s need no recursion for
+ * that reason; only a `repeat` body is walked by calling back in, and
+ * a `repeat` cannot nest (86.2), so the depth is at most two.
+ *
+ * Returns %FALSE when the walk has to stop: an evaluation failed. */
+static gboolean
+trace_range (
+        PnFigureTrace *self,
+        GPtrArray     *statements,
+        const guint   *next,
+        guint          from,
+        guint          to,
+        PnVarStore    *store,
+        guint          index)
+{
+    guint i = from;
+
+    while (i < to)
+    {
+        PnFigureStatement *statement = g_ptr_array_index (statements, i);
+
+        if (statement->kind != PN_FIGURE_STATEMENT_VERB)
+        {
+            if (!trace_statement (self, statement, store))
+                return FALSE;
+            i++;
+            continue;
+        }
+
+        switch (statement->verb)
+        {
+        case PN_FIGURE_VERB_REPEAT:
+        {
+            /* A block is shorthand for writing its statements out n
+             * times (#86.6): the same pen, the same store, no scope of
+             * any kind -- only `i` changes, and it changes because the
+             * loop binds it before each pass (#86.4). */
+            guint end = MIN (next[i], to);
+            guint pass;
+            guint k;
+
+            if (!trace_repeat_count (self, statement, store, index, &pass))
+                return FALSE;
+
+            for (k = 0; k < pass; k++)
+            {
+                /* The index is an ordinary binding, which is why it
+                 * beats rule 12's zero-fill without anything being told
+                 * about it, and why it is rebound rather than saved
+                 * (#86.4). */
+                pn_var_store_set (store, PN_FIGURE_INDEX_NAME, (gdouble) k);
+
+                if (!trace_range (self, statements, next, i + 1, end,
+                                  store, index))
+                    return FALSE;
+            }
+
+            i = end + 1;
+            break;
+        }
+
+        case PN_FIGURE_VERB_IF:
+        {
+            /* Try each clause in turn until one is taken.  Falling off
+             * the chain (every condition false, no `else`) lands on its
+             * `end`, which the walk then steps over like any other. */
+            guint clause = i;
+
+            for (;;)
+            {
+                PnFigureStatement *at = g_ptr_array_index (statements,
+                                                           clause);
+                Condition          c  = at->verb == PN_FIGURE_VERB_ELSE
+                                        ? CONDITION_TRUE
+                                        : trace_condition (self, at, store,
+                                                           index);
+
+                if (c == CONDITION_FAILED)
+                    return FALSE;
+
+                if (c == CONDITION_TRUE)
+                {
+                    i = clause + 1;
+                    break;
+                }
+
+                if (c == CONDITION_SKIP)
+                {
+                    i = chain_end (statements, next, clause) + 1;
+                    break;
+                }
+
+                clause = next[clause];
+                if (clause >= to
+                    || ((PnFigureStatement *)
+                        g_ptr_array_index (statements, clause))->verb
+                       == PN_FIGURE_VERB_END)
+                {
+                    i = clause + 1;
+                    break;
+                }
+            }
+            break;
+        }
+
+        case PN_FIGURE_VERB_ELSEIF:
+        case PN_FIGURE_VERB_ELSE:
+            /* Reached only by walking off the end of a branch that was
+             * taken: the rest of the chain is not for this frame. */
+            i = chain_end (statements, next, i) + 1;
+            break;
+
+        case PN_FIGURE_VERB_END:
+            /* The close of an `if` whose branch ran: nothing to do. */
+            i++;
+            break;
+
+        default:
+            if (!trace_statement (self, statement, store))
+                return FALSE;
+            i++;
+            break;
+        }
+    }
 
     return TRUE;
 }
@@ -2975,9 +3299,7 @@ pn_figure_trace_new (
 {
     PnFigureTrace *self = g_new0 (PnFigureTrace, 1);
     PnVarStore    *store;
-    gboolean       failed = FALSE;
-    guint          index;
-    guint          i;
+    guint         *next;
 
     self->entries = g_array_new (FALSE, FALSE, sizeof (TraceEntry));
     g_array_set_clear_func (self->entries, trace_entry_clear);
@@ -2989,50 +3311,12 @@ pn_figure_trace_new (
      * assignments cannot leak into this one if they were never here. */
     store = pn_var_store_new ();
     bind_frame (store, snapshot, free_names, film);
-    index = film != NULL ? film->index : 0;
+    next  = block_links (statements);
 
-    i = 0;
-    while (i < statements->len && !failed)
-    {
-        PnFigureStatement *statement = g_ptr_array_index (statements, i);
-        guint              end;
-        guint              pass;
-        guint              k;
+    trace_range (self, statements, next, 0, statements->len, store,
+                 film != NULL ? film->index : 0);
 
-        if (statement->kind != PN_FIGURE_STATEMENT_VERB
-            || statement->verb != PN_FIGURE_VERB_REPEAT)
-        {
-            failed = !trace_statement (self, statement, store);
-            i++;
-            continue;
-        }
-
-        /* A block is shorthand for writing its statements out n times
-         * (#86.6): the same pen, the same store, no scope of any kind
-         * — only `i` changes, and it changes because the loop binds it
-         * before each pass (#86.4). */
-        end = block_end_index (statements, i);
-
-        if (!trace_repeat_count (self, statement, store, index, &pass))
-            break;
-
-        for (k = 0; k < pass && !failed; k++)
-        {
-            guint body;
-
-            /* The index is an ordinary binding, which is why it beats
-             * rule 12's zero-fill without anything being told about
-             * it, and why it is rebound rather than saved (#86.4). */
-            pn_var_store_set (store, PN_FIGURE_INDEX_NAME, (gdouble) k);
-
-            for (body = i + 1; body < end && !failed; body++)
-                failed = !trace_statement (
-                        self, g_ptr_array_index (statements, body), store);
-        }
-
-        i = end + 1;
-    }
-
+    g_free (next);
     g_object_unref (store);
     return self;
 }
@@ -4274,8 +4558,10 @@ pn_figure_class_init (
             "text.  Pen state, which persists until changed: color, fill, "
             "nofill, width, dash, font, align.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
-            "which is how a grid or a row of ticks is written; blocks do "
-            "not nest.  Every coordinate and every "
+            "which is how a grid or a row of ticks is written; a repeat "
+            "cannot hold another repeat.  `if c` ... `elseif c` ... `else` "
+            "... `end` draws the first branch whose condition is not zero; "
+            "an if nests anywhere.  Every coordinate and every "
             "length is in user units and scales with the drawing.  "
             "Arguments are expressions in the calculator language, so "
             "`circle 0, 0, 10 * sin(t)` works; a quoted argument is a "

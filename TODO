@@ -1314,16 +1314,45 @@
        Sub-items are ORDERED BY IMPACT on those programs, most first.
        No new example sheets are planned (#85 closed with its unbuilt
        plates dropped); the payoff is rewriting the existing eleven.
-       [ ] 91.1 `if <condition> ... end` -- a block, shaped like
-             `repeat`. Today a condition is written by dividing a
-             coordinate by it so the statement is skipped (80.10b):
-             `text 45 / limited, ...`, `m / (abs(u / f - 1) > 0.02)`.
-             About 33 statements do this; ray-optics alone has ~15,
-             including eight `text` lines that each blank themselves
-             unless they are the right one. The least readable idiom in
-             the set, and the cheapest fix per line of engine code.
-             Decide `else`, and whether `if` may nest inside `repeat`
-             (repeat itself cannot nest, #86).
+       [x] 91.1 DONE (2026-09-27): `if c` ... [`elseif c` ...]* [`else`
+             ...] `end`. Replaces the division idiom (80.10b), `text
+             45 / limited, ...`, which blanked a statement by making a
+             coordinate infinite.
+             DECIDED: `else` yes, and `elseif` as ONE word (like `nofill`,
+             `lineto`), so ray-optics' five-way regime label is a flat
+             chain, not five nested ifs. First clause whose condition is
+             finite and non-zero runs, and no other. A NaN/inf condition
+             skips the WHOLE chain, `else` included, with one "# skip N
+             non-finite" marker, the way a bad repeat count does; a false
+             condition leaves no marker. Not a scope (86.6). `if` nests
+             anywhere -- in `if`, in `repeat`, around `repeat`; only
+             repeat-in-repeat stays refused, EVEN THROUGH an `if` (it
+             would rebind the outer `i`). `elseif`/`else` belong to the
+             innermost open block only. A vector condition animates
+             per frame, like a vector repeat count.
+             ENGINE: pn_figure_check_blocks() keeps a stack of open
+             blocks (messages: "end without a repeat or an if", "<kw>
+             without an if", "<kw> after else", "if without an end");
+             the trace walk (trace_range) links clauses once per walk
+             (block_links: a stack pass that never trusts the block
+             check, every link forward) and walks if-chains in place,
+             recursing only into a repeat body.
+             EXAMPLES REWRITTEN: ray-optics, wheatstone-bridge,
+             tower-crane, beam-balance, soroban-calculator,
+             block-and-tackle -- 43 skip markers at the first test
+             input down to 3 (block-and-tackle's zero-length strokes at
+             p = 0, which are geometry, not masks).
+             Each verified by display-list diff (ink ops + the pen state
+             in effect) against the old program over 300-1500 input sets
+             including every boundary: identical. double-pendulum is
+             DELIBERATELY kept: its mask m = step(i, 4 * frame - 1) is a
+             per-frame VECTOR, and `if m` would make the trace per-frame
+             -- the 1000-step integration re-run for every frame instead
+             of once per knob turn.
+             CHECKED: tests/unit/test-pn-figure.c +12 tests (582 checks,
+             valgrind clean); pipnode-run -t 3 under
+             G_DEBUG=fatal-warnings exits 0 on all six sheets.
+             LIMIT found on the way -> 91.13.
        [ ] 91.2 SCOPED OR NAMED STYLES -- the 40%. Options, to be
              decided: style arguments on the drawing statement itself;
              a `style name ...` definition applied by name; or a
@@ -1374,3 +1403,12 @@
        [ ] 91.12 An `axes` HELPER that draws a labelled pair of axes in
              one statement -- none of the eleven sheets has x/y axes
              (their scales are single ruled bars).
+       [ ] 91.13 A COMPARISON OF A VECTOR COLLAPSES to one scalar
+             (compare_value in lib/pn-var-store.c: all-elements
+             semantics, deliberate for the calculator nodes), so in a
+             film `if frame > 3` is false in EVERY frame while `if
+             frame` animates. Documented in PnFigure.html with the
+             workaround `if max(frame - 3, 0)`. Decide whether the
+             Figure wants elementwise comparisons (a figure-only mode
+             of the evaluator?) -- changing compare_value itself would
+             change every Calculator.

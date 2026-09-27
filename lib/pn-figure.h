@@ -235,9 +235,12 @@ typedef enum
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,
 
-    /* the one block the language has (80.18a, TODO #86) */
+    /* the blocks (80.18a, TODO #86; TODO #91.1): `end` closes both */
     PN_FIGURE_VERB_REPEAT,
     PN_FIGURE_VERB_END,
+    PN_FIGURE_VERB_IF,
+    PN_FIGURE_VERB_ELSEIF,
+    PN_FIGURE_VERB_ELSE,
 } PnFigureVerb;
 
 /* A statement borrows the logical line it came from, for
@@ -337,9 +340,10 @@ gboolean pn_figure_check_verbs (GPtrArray *statements,
 /*  Blocks                                                             */
 /*                                                                     */
 /*  A stage of its own between the verb table and the literals, and    */
-/*  the only one that looks at a statement's NEIGHBOURS: `repeat` and  */
-/*  `end` are ordinary verbs to every other stage, and it is here that */
-/*  they are read as a pair (TODO #86.3).                              */
+/*  the only one that looks at a statement's NEIGHBOURS: `repeat`,    */
+/*  `if`, `elseif`, `else` and `end` are ordinary verbs to every other */
+/*  stage, and it is here that they are read as blocks (TODO #86.3,    */
+/*  #91.1).                                                            */
 /*                                                                     */
 /*  It runs after the verb table because the structure cannot be read  */
 /*  until the verbs are known, and before everything after it because  */
@@ -353,11 +357,14 @@ gboolean pn_figure_check_verbs (GPtrArray *statements,
  *              through pn_figure_check_verbs()
  * @errors:     (nullable) (element-type PnFigureError): collector
  *
- * Matches every `repeat` with an `end`, reporting the three ways that
- * can fail: an `end` with no `repeat` open, a `repeat` still open at
- * the end of the program, and a `repeat` inside a `repeat` — nesting
- * is refused for now (86.2), so a grid is one loop and the floor/mod
- * arithmetic its index affords.
+ * Matches every `repeat` and every `if` with an `end`, and every
+ * `elseif` and `else` with the `if` they belong to, reporting: an `end`
+ * with no block open; a block still open at the end of the program; an
+ * `elseif` or `else` whose innermost open block is not an `if`, or that
+ * follows that `if`'s `else`; and a `repeat` inside a `repeat`, at any
+ * depth — that nesting is refused (86.2), so a grid is one loop and the
+ * floor/mod arithmetic its index affords.  An `if` nests anywhere, and a
+ * `repeat` may sit inside an `if` (91.1).
  *
  * Every failure is reported with its line and the scan goes on, so a
  * program with two structural mistakes still says how many there were.

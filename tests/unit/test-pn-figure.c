@@ -2691,7 +2691,7 @@ test_an_end_without_a_repeat_is_a_parse_error (void)
     Split s = checked ("line 0, 0, 10, 10\nend");
 
     PN_CHECK_CMPINT (s.errors->len, ==, 1);
-    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "end without a repeat");
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "end without a repeat or an if");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     split_free (&s);
 }
@@ -2712,7 +2712,7 @@ test_blocks_do_not_nest (void)
     PN_CHECK_CMPSTR (error_text (&s, 0), ==,
                      "repeat cannot be nested inside another repeat");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
-    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "end without a repeat");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "end without a repeat or an if");
     PN_CHECK_CMPINT (error_line (&s, 1), ==, 6);
     split_free (&s);
 }
@@ -2735,6 +2735,349 @@ test_a_structural_error_draws_nothing (void)
 
     g_free (text);
     g_object_unref (figure);
+}
+
+/* ------------------------------------------------------------------ */
+/*  The if block (TODO #91.1)                                          */
+/* ------------------------------------------------------------------ */
+
+static void
+test_an_if_runs_its_body_only_when_true (void)
+{
+    /* The replacement for 80.10(b)'s division idiom, `point 10 / c, 10`:
+     * the statement is simply not reached, and there is no skip marker
+     * for it, because nothing went wrong. */
+    gchar *text = dump100 ("if 1\n"
+                           "    point 10, 10\n"
+                           "end\n"
+                           "if 0\n"
+                           "    point 20, 20\n"
+                           "end\n"
+                           "if 2 > 1\n"
+                           "    point 30, 30\n"
+                           "end\n"
+                           "point 40, 40");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 10.00 90.00 1.00\n"
+                     "point 30.00 70.00 1.00\n"
+                     "point 40.00 60.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_an_if_leaves_no_operation_of_its_own (void)
+{
+    /* Control flow is not ink (#86.7), for `if` as for `repeat`. */
+    gchar *with    = dump100 ("if 1\nline 0, 0, 10, 10\nelse\npoint 0, 0\n"
+                              "end");
+    gchar *without = dump100 ("line 0, 0, 10, 10");
+
+    PN_CHECK_CMPSTR (with, ==, without);
+    g_free (with);
+    g_free (without);
+}
+
+/* The chain ray-optics needs for its five regimes: the FIRST clause
+ * whose condition holds runs, and only that one. */
+static gchar *
+regime (gint tenths)
+{
+    gchar *program = g_strdup_printf (
+            "r = %d / 10\n"
+            "if r < 1\n"
+            "    point 10, 10\n"
+            "elseif r < 2\n"
+            "    point 20, 20\n"
+            "elseif r < 3\n"
+            "    point 30, 30\n"
+            "else\n"
+            "    point 40, 40\n"
+            "end\n"
+            "point 50, 50", tenths);
+    gchar *text    = dump100 (program);
+
+    g_free (program);
+    return text;
+}
+
+static void
+test_the_first_true_clause_wins (void)
+{
+    gchar *a = regime (5);
+    gchar *b = regime (15);    /* r < 3 holds as well: b, not c */
+    gchar *c = regime (25);
+    gchar *d = regime (90);
+
+    PN_CHECK_CMPSTR (a, ==, HEAD_100 "point 10.00 90.00 1.00\n"
+                                     "point 50.00 50.00 1.00\n");
+    PN_CHECK_CMPSTR (b, ==, HEAD_100 "point 20.00 80.00 1.00\n"
+                                     "point 50.00 50.00 1.00\n");
+    PN_CHECK_CMPSTR (c, ==, HEAD_100 "point 30.00 70.00 1.00\n"
+                                     "point 50.00 50.00 1.00\n");
+    PN_CHECK_CMPSTR (d, ==, HEAD_100 "point 40.00 60.00 1.00\n"
+                                     "point 50.00 50.00 1.00\n");
+    g_free (a);
+    g_free (b);
+    g_free (c);
+    g_free (d);
+}
+
+static void
+test_an_if_is_not_a_scope (void)
+{
+    /* Like `repeat` (86.6), the block is not a scope: an assignment or a
+     * pen change inside a branch that ran stands after the `end`, and
+     * one inside a branch that did not run never happened. */
+    gchar *text = dump100 ("x = 1\n"
+                           "if 1\n"
+                           "    x = 5\n"
+                           "    width 3\n"
+                           "else\n"
+                           "    x = 7\n"
+                           "    width 9\n"
+                           "end\n"
+                           "point x, 0");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 3.00\n"
+                     "point 5.00 100.00 3.00\n");
+    g_free (text);
+}
+
+static void
+test_a_condition_is_a_value_not_a_program (void)
+{
+    /* 80.10(b) once more: a condition that is not a number skips the
+     * whole chain and says so at the clause that could not decide --
+     * not even the `else` runs, because the test was not false.  The
+     * figure after it still draws. */
+    gchar *nan  = dump100 ("if 0 / 0\n"
+                           "    point 10, 10\n"
+                           "else\n"
+                           "    point 20, 20\n"
+                           "end\n"
+                           "point 50, 50");
+    gchar *late = dump100 ("if 0\n"
+                           "    point 10, 10\n"
+                           "elseif 1 / 0\n"
+                           "    point 20, 20\n"
+                           "else\n"
+                           "    point 30, 30\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (nan, ==, HEAD_100
+                     "# skip 1 non-finite\n"
+                     "point 50.00 50.00 1.00\n");
+    PN_CHECK_CMPSTR (late, ==, HEAD_100 "# skip 3 non-finite\n");
+    g_free (nan);
+    g_free (late);
+}
+
+static void
+test_an_if_nests_inside_anything (void)
+{
+    /* An `if` inside a `repeat` picks per pass; a `repeat` inside an
+     * `if` runs or does not; an `if` inside an `if` closes on its own
+     * `end`, and the outer chain's `else` is still the outer one's. */
+    gchar *in_loop  = dump100 ("repeat 4\n"
+                               "    if i - 2 * floor(i / 2)\n"
+                               "        point 10 * i, 0\n"
+                               "    else\n"
+                               "        point 10 * i, 50\n"
+                               "    end\n"
+                               "end");
+    gchar *loop_in  = dump100 ("if 1\n"
+                               "    repeat 2\n"
+                               "        point i, 0\n"
+                               "    end\n"
+                               "end\n"
+                               "if 0\n"
+                               "    repeat 2\n"
+                               "        point i, 50\n"
+                               "    end\n"
+                               "end");
+    gchar *if_in_if = dump100 ("if 1\n"
+                               "    if 0\n"
+                               "        point 10, 10\n"
+                               "    else\n"
+                               "        point 20, 20\n"
+                               "    end\n"
+                               "    point 30, 30\n"
+                               "else\n"
+                               "    point 40, 40\n"
+                               "end\n"
+                               "point 50, 50");
+
+    PN_CHECK_CMPSTR (in_loop, ==, HEAD_100
+                     "point 0.00 50.00 1.00\n"
+                     "point 10.00 100.00 1.00\n"
+                     "point 20.00 50.00 1.00\n"
+                     "point 30.00 100.00 1.00\n");
+    PN_CHECK_CMPSTR (loop_in, ==, HEAD_100
+                     "point 0.00 100.00 1.00\n"
+                     "point 1.00 100.00 1.00\n");
+    PN_CHECK_CMPSTR (if_in_if, ==, HEAD_100
+                     "point 20.00 80.00 1.00\n"
+                     "point 30.00 70.00 1.00\n"
+                     "point 50.00 50.00 1.00\n");
+    g_free (in_loop);
+    g_free (loop_in);
+    g_free (if_in_if);
+}
+
+static void
+test_a_vector_condition_animates (void)
+{
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("if c\n"
+                                         "    point 10, 10\n"
+                                         "else\n"
+                                         "    point 20, 20\n"
+                                         "end");
+    const gdouble     numbers[2] = { 0.0, 1.0 };
+    gchar            *text;
+
+    snapshot_vector (snapshot, "c", numbers, 2);
+
+    text = figure_dump_frame (&f, snapshot, 0, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "point 20.00 80.00 1.00\n");
+    g_free (text);
+
+    text = figure_dump_frame (&f, snapshot, 1, 100, 100, FALSE, NULL);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "point 10.00 90.00 1.00\n");
+    g_free (text);
+
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_condition_folds_like_any_argument (void)
+{
+    Split s = parsed ("if 2 > 1\n"
+                      "    point 0, 0\n"
+                      "elseif v\n"
+                      "end");
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 0);
+    PN_CHECK_CMPINT (statement (&s, 0)->verb, ==, PN_FIGURE_VERB_IF);
+    PN_CHECK_CMPINT (statement (&s, 2)->verb, ==, PN_FIGURE_VERB_ELSEIF);
+    PN_CHECK (arg (statement (&s, 0), 0)->folded);
+    PN_CHECK_NEAR (arg (statement (&s, 0), 0)->value, 1.0, 1e-12);
+    PN_CHECK (!arg (statement (&s, 2), 0)->folded);
+    split_free (&s);
+}
+
+static void
+test_the_if_verbs_have_arities (void)
+{
+    Split none = checked ("if\nend");
+    Split more = checked ("if 1\nelse 2\nend");
+
+    PN_CHECK_CMPINT (none.errors->len, >=, 1);
+    PN_CHECK_CMPSTR (error_text (&none, 0), ==,
+                     "if takes 1 argument, not 0");
+    PN_CHECK_CMPINT (more.errors->len, >=, 1);
+    PN_CHECK_CMPSTR (error_text (&more, 0), ==,
+                     "else takes 0 arguments, not 1");
+    split_free (&none);
+    split_free (&more);
+}
+
+static void
+test_misplaced_clauses_are_parse_errors (void)
+{
+    /* Every mistake on its own line, and the scan keeps going.  The
+     * `else` on line 7 is inside a `repeat` inside an `if`: only the
+     * innermost block can own it, so it is refused rather than quietly
+     * closing the loop. */
+    Split s = checked ("else\n"                /* 1: no if           */
+                       "elseif 1\n"            /* 2: no if           */
+                       "if 1\n"
+                       "else\n"
+                       "else\n"                /* 5: after else      */
+                       "elseif 1\n"            /* 6: after else      */
+                       "    repeat 2\n"
+                       "    else\n"            /* 8: the loop's      */
+                       "    end\n"
+                       "end\n"
+                       "if 1");                /* 11: no end         */
+
+    PN_CHECK_CMPINT (s.errors->len, ==, 6);
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "else without an if");
+    PN_CHECK_CMPINT (error_line (&s, 0), ==, 1);
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "elseif without an if");
+    PN_CHECK_CMPINT (error_line (&s, 1), ==, 2);
+    PN_CHECK_CMPSTR (error_text (&s, 2), ==, "else after else");
+    PN_CHECK_CMPINT (error_line (&s, 2), ==, 5);
+    PN_CHECK_CMPSTR (error_text (&s, 3), ==, "elseif after else");
+    PN_CHECK_CMPINT (error_line (&s, 3), ==, 6);
+    PN_CHECK_CMPSTR (error_text (&s, 4), ==, "else without an if");
+    PN_CHECK_CMPINT (error_line (&s, 4), ==, 8);
+    PN_CHECK_CMPSTR (error_text (&s, 5), ==, "if without an end");
+    PN_CHECK_CMPINT (error_line (&s, 5), ==, 11);
+    split_free (&s);
+}
+
+static void
+test_an_if_does_not_launder_a_nested_repeat (void)
+{
+    /* 86.2 is about the index: a `repeat` inside an `if` inside a
+     * `repeat` would still rebind the outer loop's `i`.  A `repeat`
+     * inside an `if` on its own is fine. */
+    Split bad  = checked ("repeat 2\n"
+                          "    if 1\n"
+                          "        repeat 3\n"
+                          "        end\n"
+                          "    end\n"
+                          "end");
+    Split fine = checked ("if 1\n"
+                          "    repeat 3\n"
+                          "    end\n"
+                          "end\n"
+                          "repeat 2\n"
+                          "end");
+
+    PN_CHECK_CMPINT (bad.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&bad, 0), ==,
+                     "repeat cannot be nested inside another repeat");
+    PN_CHECK_CMPINT (error_line (&bad, 0), ==, 3);
+    PN_CHECK_CMPINT (fine.errors->len, ==, 0);
+    split_free (&bad);
+    split_free (&fine);
+}
+
+static void
+test_an_unchecked_program_cannot_run_away (void)
+{
+    /* The resolver never trusts the block check (block_links): stray
+     * clauses and missing ends are walked without reading past the
+     * program or looping.  What it draws is not the point -- that it
+     * returns is. */
+    const gchar *programs[] = {
+        "end\nelse\nelseif 1\npoint 0, 0",
+        "if 0\npoint 0, 0\nelse",
+        "if 1\nrepeat 2\nelse\npoint i, 0\nend",
+        "repeat 2\nif 0\nend\npoint i, 0",
+        "else\nif 1\nend\nend\nend",
+    };
+    guint n;
+
+    for (n = 0; n < G_N_ELEMENTS (programs); n++)
+    {
+        Split      s   = split (programs[n]);
+        GPtrArray *ops;
+
+        pn_figure_check_verbs (s.statements, NULL);
+        pn_figure_parse_literals (s.statements, NULL);
+        pn_figure_parse_expressions (s.statements, NULL);
+        ops = pn_figure_resolve (s.statements, NULL, NULL, NULL,
+                                 0, 0, 100, 100, FALSE, NULL);
+        PN_CHECK (ops != NULL);
+        g_ptr_array_unref (ops);
+        split_free (&s);
+    }
 }
 
 static void
@@ -3719,6 +4062,18 @@ main (int argc, char **argv)
     pn_test_add ("block_stray_end",     test_an_end_without_a_repeat_is_a_parse_error);
     pn_test_add ("block_no_nesting",    test_blocks_do_not_nest);
     pn_test_add ("block_error_draws_nothing", test_a_structural_error_draws_nothing);
+    pn_test_add ("if_runs_when_true",   test_an_if_runs_its_body_only_when_true);
+    pn_test_add ("if_no_op",            test_an_if_leaves_no_operation_of_its_own);
+    pn_test_add ("if_first_true_wins",  test_the_first_true_clause_wins);
+    pn_test_add ("if_not_a_scope",      test_an_if_is_not_a_scope);
+    pn_test_add ("if_condition_value",  test_a_condition_is_a_value_not_a_program);
+    pn_test_add ("if_nests",            test_an_if_nests_inside_anything);
+    pn_test_add ("if_vector_animates",  test_a_vector_condition_animates);
+    pn_test_add ("if_folding",          test_a_condition_folds_like_any_argument);
+    pn_test_add ("if_arities",          test_the_if_verbs_have_arities);
+    pn_test_add ("if_misplaced",        test_misplaced_clauses_are_parse_errors);
+    pn_test_add ("if_no_nested_repeat", test_an_if_does_not_launder_a_nested_repeat);
+    pn_test_add ("if_unchecked_safe",   test_an_unchecked_program_cannot_run_away);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

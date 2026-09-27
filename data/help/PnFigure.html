@@ -260,10 +260,44 @@ them <em>n</em> times, with <code>i</code> counting 0, 1, 2 &hellip;
 &mdash; ticks along an axis, the slits of a grating, the teeth of a
 gear. The count is an expression. The block is shorthand for writing
 the lines out: pen settings and assignments carry from one pass to the
-next. Blocks do not nest; a grid is one loop with
+next. A <code>repeat</code> cannot hold another <code>repeat</code>,
+not even through an <code>if</code>; a grid is one loop with
 <code>floor(i / cols)</code> and <code>i % cols</code>. A count below
 1 or not a number skips the block, and a count above 1000 skips it
 rather than freezing the editor.
+</p>
+
+<h5>Choosing</h5>
+<pre>
+if r &gt; 2.05
+  text 0, -57, "CAMERA"
+elseif abs(r - 2) &lt;= 0.05
+  text 0, -57, "COPIER"
+else
+  text 0, -57, "PROJECTOR"
+end
+</pre>
+<p>
+<code>if c</code> &hellip; <code>end</code> runs the lines between them
+only when <code>c</code> is not zero; a comparison is 1 when it holds
+and 0 when it does not, and an input carrying an on/off value (0 or 1)
+works as it is. Any number of <code>elseif c</code> clauses and one
+closing <code>else</code> may follow: the <em>first</em> clause whose
+condition holds runs, and no other. Like <code>repeat</code>, the block
+is not a scope &mdash; an assignment or a pen setting made in the branch
+that ran still stands after the <code>end</code>. An <code>if</code>
+nests anywhere: inside another <code>if</code>, inside a
+<code>repeat</code> (choosing per pass by <code>i</code>), or around
+one. A condition that is not a number (<code>0 / 0</code>, a division
+by zero) skips the whole block, the <code>else</code> too, the same way
+a bad <code>repeat</code> count does.
+</p>
+<p>
+In a film, a condition that is a vector chooses frame by frame:
+<code>if frame</code> skips only frame 0. A <em>comparison</em> of a
+vector does not, yet: it is 1 only when it holds for every element, so
+<code>if frame &gt; 3</code> is false in every frame. Test a vector with
+arithmetic instead &mdash; <code>if max(frame - 3, 0)</code>.
 </p>
 
 <h5 id="animation">Animation</h5>
@@ -275,7 +309,8 @@ numbers are the same in every frame. The program is not rewritten per
 frame: arithmetic on vectors works element by element, so
 <code>dx = 50 * cos(a)</code> with a vector <code>a</code> simply makes
 <code>dx</code> a vector too, and a colour, a width, a
-<code>view</code> or a <code>repeat</code> count animates exactly like
+<code>view</code>, a <code>repeat</code> count or an <code>if</code>
+condition (see <em>Choosing</em>) animates exactly like
 a coordinate.
 </p>
 <ul>
@@ -385,9 +420,10 @@ The card is the only place a figure can tell you, so it does:
       that is not a number or is infinite, a zero radius, a
       <code>view</code> with no extent. These come and go as a knob
       turns, so the one statement is skipped, the rest of the figure
-      draws, and the card does <em>not</em> turn red. It is also an
-      idiom: a quantity left as <code>nan</code> makes its line vanish,
-      no <code>if</code> needed.</li>
+      draws, and the card does <em>not</em> turn red. A quantity left
+      as <code>nan</code> therefore makes its line vanish, but a line
+      that should only sometimes be drawn reads better inside an
+      <code>if</code>.</li>
   <li><strong>A vector that has no value for the frame</strong> &mdash;
       an empty vector on an input. The card turns red, names the line,
       and draws nothing.</li>
