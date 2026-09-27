@@ -1353,12 +1353,38 @@
              valgrind clean); pipnode-run -t 3 under
              G_DEBUG=fatal-warnings exits 0 on all six sheets.
              LIMIT found on the way -> 91.13.
-       [ ] 91.2 SCOPED OR NAMED STYLES -- the 40%. Options, to be
-             decided: style arguments on the drawing statement itself;
-             a `style name ...` definition applied by name; or a
-             save/restore of the pen state. Even a partial answer
-             removes the fill ... nofill brackets and the color/font/
-             align runs in front of every label.
+       [x] 91.2 DONE (2026-09-27): SCOPED PEN SETTINGS, `with`.
+             SURVEY that decided it (the eleven programs): 169 of 376
+             settings served exactly ONE drawing statement, 92 more only
+             put a setting back, and identical setting bundles almost
+             never repeat (named styles would save 1 line in the whole
+             set). So, chosen with the user: one keyword, two reaches --
+             `circle x, y, r  with fill "red", width 2` scopes the list
+             to one statement; a line `with <list>` ... `end` scopes it
+             to a block. No named styles, no bare save/restore.
+             The list holds the pen verbs only (color fill nofill width
+             dash font align, NOT view); a comma piece starting with a
+             pen verb starts a setting, so `with color 1, 0, 0, width 2`
+             is two. The trailing form is expanded at split time into
+             `with` / settings / statement / `end`, so every later stage
+             sees ordinary statements; PnFigureStatement.offset locates
+             each setting's errors at its own word. At draw time `with`
+             pushes the pen, its `end` pops it and emits only what
+             differs. The view and the pen position carry on. `with` is
+             a keyword; a trailing one may only follow a statement that
+             draws.
+             EXAMPLES: all eleven rewritten -- 1107 -> 899 statements,
+             pen-state lines 425 -> 183. Verified per sheet by display-
+             list diff over 300-1300 input sets: identical ink under the
+             pen state each op kind actually READS in pn-figure-gui.c
+             (a line never reads fill, text never width) -- the strict
+             whole-pen comparison would flag a `fill` moved off an
+             arrow's shaft onto its head. pipnode-run -t 3 under
+             G_DEBUG=fatal-warnings exits 0 on every sheet.
+             CHECKED: 9 new unit tests + 2 malformed programs in the
+             run-away test (608 checks), no invalid accesses under
+             valgrind. The suite's pre-existing leak reports through
+             parse_fragment are unrelated and unchanged in kind.
        [ ] 91.3 A LOCAL COORDINATE FRAME -- `frame x, y, angle ... end`,
              a block that translates and rotates what it contains.
              About 55 statements rotate points by hand: beam-balance
