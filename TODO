@@ -1413,7 +1413,7 @@
              repeat loops.
        [x] 91.7 DIMENSION LINES with ticks: block-and-tackle's p and h
              markers are six statements each.
-       [ ] 91.8 USE `path` IN THE EXAMPLES -- no language change: the
+       [x] 91.8 USE `path` IN THE EXAMPLES -- no language change: the
              open polyline verb already exists and none of the eleven
              programs uses it. wheatstone-bridge draws its battery wire
              as six `line`s, tower-crane has several more chains. Do it
