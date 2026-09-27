@@ -2692,7 +2692,8 @@ test_an_end_without_a_repeat_is_a_parse_error (void)
 
     PN_CHECK_CMPINT (s.errors->len, ==, 1);
     PN_CHECK_CMPSTR (error_text (&s, 0), ==,
-                     "end without a repeat, an if or a with");
+                     "end without a repeat, an if, a with or "
+                     "an origin");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     split_free (&s);
 }
@@ -2714,7 +2715,8 @@ test_blocks_do_not_nest (void)
                      "repeat cannot be nested inside another repeat");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     PN_CHECK_CMPSTR (error_text (&s, 1), ==,
-                     "end without a repeat, an if or a with");
+                     "end without a repeat, an if, a with or "
+                     "an origin");
     PN_CHECK_CMPINT (error_line (&s, 1), ==, 6);
     split_free (&s);
 }
@@ -3065,6 +3067,9 @@ test_an_unchecked_program_cannot_run_away (void)
         "else\nif 1\nend\nend\nend",
         "end\nwith color \"red\"\nelse\npoint 0, 0\nend\nend",
         "with width 2\nrepeat 2\nend\npoint i, 0",
+        "end\norigin 1, 2\nelse\npoint 0, 0\nend\nend",
+        "origin 0 / 0, 0\nwith width 2\npoint 0, 0",
+        "origin 1, 2, 30\nwith width 2\nend\nend\nend\npoint 0, 0",
     };
     guint n;
 
@@ -3304,6 +3309,273 @@ test_a_bad_with_list_is_located (void)
     split_free (&colour);
     split_free (&open);
     split_free (&in_with);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Local axes: origin                                                 */
+/* ------------------------------------------------------------------ */
+
+static void
+test_an_origin_shifts_what_it_holds (void)
+{
+    /* Everything inside is drawn from the new origin; after `end` the
+     * window's own axes are back. */
+    gchar *text = dump100 ("origin 10, 20\n"
+                           "    line 0, 0, 5, 0\n"
+                           "    point 1, 1\n"
+                           "end\n"
+                           "point 1, 1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 10.00 80.00 15.00 80.00\n"
+                     "point 11.00 79.00 1.00\n"
+                     "point 1.00 99.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_an_origin_turns_its_axes (void)
+{
+    /* A quarter turn counter-clockwise: local x runs up the window,
+     * local y runs left.  A rectangle turned by a whole quarter is
+     * still a `rect`, normalised to its device corner. */
+    gchar *text = dump100 ("origin 50, 50, 90\n"
+                           "    line 0, 0, 10, 0\n"
+                           "    rect 0, 0, 10, 5\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 50.00 50.00 50.00 40.00\n"
+                     "rect 45.00 40.00 5.00 10.00\n");
+    g_free (text);
+}
+
+static void
+test_a_tilted_rect_is_a_polygon (void)
+{
+    /* Anything but a whole quarter tilts the rectangle, and the only
+     * shape that can draw it is its four corners, closed. */
+    gchar *text = dump100 ("origin 50, 50, 30\n"
+                           "    rect 0, 0, 10, 0\n"
+                           "end");
+    gchar *poly = dump100 ("poly 50, 50, 50 + 10 * cos (pi / 6), "
+                           "50 + 10 * sin (pi / 6), "
+                           "50 + 10 * cos (pi / 6), "
+                           "50 + 10 * sin (pi / 6), 50, 50");
+
+    PN_CHECK_CMPSTR (text, ==, poly);
+    g_free (text);
+    g_free (poly);
+}
+
+static void
+test_circles_arcs_and_labels_under_turned_axes (void)
+{
+    /* A circle keeps its radius; an arc's sweep turns with the axes; a
+     * label's anchor moves and the label itself stays upright, so its
+     * alignment is the pen's and not turned. */
+    gchar *turned = dump100 ("origin 50, 50, 90\n"
+                             "    circle 10, 0, 3\n"
+                             "    arc 0, 0, 10, 0, 90\n"
+                             "    text 10, 0, \"x\"\n"
+                             "end");
+    gchar *plain  = dump100 ("circle 50, 60, 3\n"
+                             "arc 50, 50, 10, 90, 180\n"
+                             "text 50, 60, \"x\"");
+
+    PN_CHECK_CMPSTR (turned, ==, plain);
+    g_free (turned);
+    g_free (plain);
+}
+
+static void
+test_origins_nest (void)
+{
+    /* Each block is placed in the axes of the one around it, and the
+     * turns add up: two quarter turns are a half turn, exactly. */
+    gchar *text = dump100 ("origin 10, 0, 90\n"
+                           "    origin 10, 0, 90\n"
+                           "        point 10, 0\n"
+                           "        rect 0, 0, 10, 5\n"
+                           "    end\n"
+                           "    point 10, 0\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 0.00 90.00 1.00\n"
+                     "rect 0.00 90.00 10.00 5.00\n"
+                     "point 10.00 90.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_the_pen_leaves_an_origin_where_it_was (void)
+{
+    /* The pen is kept in the window's units, so a chain can run out of
+     * a block; a relative step inside is turned with the axes. */
+    gchar *chain = dump100 ("origin 10, 10\n"
+                            "    move 0, 0\n"
+                            "end\n"
+                            "lineto 20, 20");
+    gchar *step  = dump100 ("origin 50, 50, 90\n"
+                            "    move 10, 0\n"
+                            "    rline 10, 0\n"
+                            "    rmove 0, 10\n"
+                            "end\n"
+                            "rline 5, 0");
+
+    PN_CHECK_CMPSTR (chain, ==, HEAD_100
+                     "move 10.00 90.00\n"
+                     "line 10.00 90.00 20.00 80.00\n");
+    PN_CHECK_CMPSTR (step, ==, HEAD_100
+                     "move 50.00 40.00\n"
+                     "line 50.00 40.00 50.00 30.00\n"
+                     "move 40.00 30.00\n"
+                     "line 40.00 30.00 45.00 30.00\n");
+    g_free (chain);
+    g_free (step);
+}
+
+static void
+test_an_origin_is_not_a_pen_scope (void)
+{
+    /* It moves the axes and nothing else: a setting made inside stands
+     * after it, a `with` inside it is its own scope, and a `view`
+     * inside changes the window the axes are measured in -- the origin
+     * is in user units, so it stays at user (10, 10). */
+    gchar *pen  = dump100 ("origin 10, 10\n"
+                           "    color \"red\"\n"
+                           "    point 0, 0 with width 3\n"
+                           "end\n"
+                           "point 0, 0");
+    gchar *view = dump100 ("origin 10, 10\n"
+                           "    view 0, 0, 50, 50\n"
+                           "    point 0, 0\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (pen, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "width 3.00\n"
+                     "point 10.00 90.00 3.00\n"
+                     "width 1.00\n"
+                     "point 0.00 100.00 1.00\n");
+    PN_CHECK_CMPSTR (view, ==, HEAD_100
+                     "# view 0 0 50 50 scale 2.00 rect 0.00 0.00 100.00 "
+                     "100.00\n"
+                     "width 2.00\n"
+                     "dash solid\n"
+                     "font 10.00\n"
+                     "point 20.00 80.00 2.00\n");
+    g_free (pen);
+    g_free (view);
+}
+
+static void
+test_an_origin_inside_a_loop (void)
+{
+    /* The spokes of a wheel: one statement turned by the index. */
+    gchar *text = dump100 ("repeat 4\n"
+                           "    origin 50, 50, 90 * i\n"
+                           "        line 0, 0, 10, 0\n"
+                           "    end\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 50.00 50.00 60.00 50.00\n"
+                     "line 50.00 50.00 50.00 40.00\n"
+                     "line 50.00 50.00 40.00 50.00\n"
+                     "line 50.00 50.00 50.00 60.00\n");
+    g_free (text);
+}
+
+static void
+test_axes_that_cannot_be_placed_skip_the_block (void)
+{
+    /* 80.10(b): one marker at the `origin`, nothing of the block -- not
+     * even the `with` inside it, whose `end` must not give back a pen
+     * it never took -- and the figure carries on after it. */
+    gchar *text = dump100 ("origin 0 / 0, 0\n"
+                           "    point 1, 1\n"
+                           "    with width 2\n"
+                           "        point 2, 2\n"
+                           "    end\n"
+                           "end\n"
+                           "point 3, 3");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 non-finite\n"
+                     "point 3.00 97.00 1.00\n");
+    g_free (text);
+}
+
+static void
+test_turning_axes_animate_without_a_walk_per_frame (void)
+{
+    /* The angle is a film: each frame turns the axes by its element,
+     * but the walk is done once -- unlike an `if` on a vector, which
+     * has to be decided per frame. */
+    PnFigureSnapshot *snapshot = pn_figure_snapshot_new ();
+    Figure            f        = figure ("origin 50, 50, a\n"
+                                         "    line 0, 0, 10, 0\n"
+                                         "end");
+    const gdouble     angles[2] = { 0.0, 90.0 };
+    PnFigureFilm      film      = { 0, 0, PN_FIGURE_PLAY_LOOP };
+    PnFigureTrace    *trace;
+    GPtrArray        *ops;
+    gchar            *text;
+
+    snapshot_vector (snapshot, "a", angles, 2);
+
+    trace = pn_figure_trace_new (f.parse.statements, f.names, snapshot,
+                                 &film);
+    PN_CHECK (pn_figure_trace_is_for (trace, 1));
+
+    ops  = pn_figure_trace_draw (trace, 0, 0, 0, 100, 100, FALSE, NULL);
+    text = pn_figure_display_to_string (ops);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 50.00 50.00 60.00 50.00\n");
+    g_free (text);
+    g_ptr_array_unref (ops);
+
+    ops  = pn_figure_trace_draw (trace, 1, 0, 0, 100, 100, FALSE, NULL);
+    text = pn_figure_display_to_string (ops);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "line 50.00 50.00 50.00 40.00\n");
+    g_free (text);
+    g_ptr_array_unref (ops);
+
+    pn_figure_trace_free (trace);
+    figure_free (&f);
+    pn_figure_snapshot_free (snapshot);
+}
+
+static void
+test_a_bad_origin_is_located (void)
+{
+    Split arity   = checked ("origin 1\nend");
+    Split kind    = checked ("origin 1, 2, \"x\"\nend");
+    Split open    = checked ("origin 1, 2\npoint 0, 0");
+    Split in_orig = checked ("if 1\n"
+                             "    origin 1, 2\n"
+                             "    else\n"
+                             "    end\n"
+                             "end");
+
+    PN_CHECK_CMPSTR (error_text (&arity, 0), ==,
+                     "origin takes 2 or 3 arguments, not 1");
+    PN_CHECK_CMPSTR (error_text (&kind, 0), ==,
+                     "expected an expression, not a string");
+    PN_CHECK_CMPINT (error_column (&kind, 0), ==, 14);
+
+    PN_CHECK_CMPINT (open.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&open, 0), ==, "origin without an end");
+
+    PN_CHECK_CMPINT (in_orig.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&in_orig, 0), ==, "else without an if");
+    PN_CHECK_CMPINT (error_line (&in_orig, 0), ==, 3);
+
+    split_free (&arity);
+    split_free (&kind);
+    split_free (&open);
+    split_free (&in_orig);
 }
 
 static void
@@ -4309,6 +4581,17 @@ main (int argc, char **argv)
     pn_test_add ("with_bad_setting",    test_a_setting_that_cannot_be_drawn_is_skipped);
     pn_test_add ("with_keyword",        test_with_is_a_keyword_only_outside_strings);
     pn_test_add ("with_errors",         test_a_bad_with_list_is_located);
+    pn_test_add ("origin_shifts",       test_an_origin_shifts_what_it_holds);
+    pn_test_add ("origin_turns",        test_an_origin_turns_its_axes);
+    pn_test_add ("origin_tilted_rect",  test_a_tilted_rect_is_a_polygon);
+    pn_test_add ("origin_round_shapes", test_circles_arcs_and_labels_under_turned_axes);
+    pn_test_add ("origin_nests",        test_origins_nest);
+    pn_test_add ("origin_pen_position", test_the_pen_leaves_an_origin_where_it_was);
+    pn_test_add ("origin_no_pen_scope", test_an_origin_is_not_a_pen_scope);
+    pn_test_add ("origin_in_a_loop",    test_an_origin_inside_a_loop);
+    pn_test_add ("origin_non_finite",   test_axes_that_cannot_be_placed_skip_the_block);
+    pn_test_add ("origin_animates",     test_turning_axes_animate_without_a_walk_per_frame);
+    pn_test_add ("origin_errors",       test_a_bad_origin_is_located);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

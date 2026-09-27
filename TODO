@@ -1385,7 +1385,7 @@
              run-away test (608 checks), no invalid accesses under
              valgrind. The suite's pre-existing leak reports through
              parse_fragment are unrelated and unchanged in kind.
-       [ ] 91.3 A LOCAL COORDINATE FRAME -- `frame x, y, angle ... end`,
+       [x] 91.3 A LOCAL COORDINATE FRAME -- `origin x, y, angle ... end`,
              a block that translates and rotates what it contains.
              About 55 statements rotate points by hand: beam-balance
              writes every beam point as (px + u c - v s, py + u s + v c),

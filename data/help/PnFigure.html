@@ -327,6 +327,39 @@ vector does not, yet: it is 1 only when it holds for every element, so
 arithmetic instead &mdash; <code>if max(frame - 3, 0)</code>.
 </p>
 
+<h5>Local axes: <code>origin</code></h5>
+<pre>
+origin px, py, tilt
+  line -40, 0, 40, 0
+  rect -3, -2, 6, 2
+  circle 40, 0, 1.5
+end
+</pre>
+<p>
+<code>origin x, y, angle</code> &hellip; <code>end</code> draws the lines
+between them on axes of their own: the point <code>0, 0</code> is at
+<code>x, y</code>, and the axes are turned counter-clockwise by
+<code>angle</code> degrees (0 when left out). A beam that tilts, a
+resistor on a slanting wire or a pendulum's arm is then drawn level, in
+its own numbers, instead of turning every point by hand with
+<code>cos</code> and <code>sin</code>. Blocks nest, each placed on the
+axes of the one around it, so the turns add up. The angle may be a
+vector: the axes turn frame by frame at no extra cost.
+</p>
+<p>
+The axes are turned and moved, never scaled, so a radius, a width and a
+font size mean the same inside as outside. Circles stay circles and an
+arc's angles turn with the axes; a <code>rect</code> on axes turned by
+anything but a whole quarter is drawn as the tilted four-cornered shape
+it is. A label's <em>anchor</em> moves, but the label itself stays
+upright. <code>origin</code> changes where things are drawn and nothing
+else: pen settings made inside it stand after its <code>end</code>, and
+the pen is left where it was drawn to, so a <code>lineto</code> chain
+can run out of the block. The origin is in the window's units, so a
+<code>view</code> inside a block changes the window without moving the
+origin. An angle or position that is not a number skips the block.
+</p>
+
 <h5 id="animation">Animation</h5>
 <p>
 When an input is a <em>vector</em> &mdash; from a

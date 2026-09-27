@@ -244,6 +244,9 @@ typedef enum
 
     /* scoped pen settings (TODO #91.2): `end` restores the pen */
     PN_FIGURE_VERB_WITH,
+
+    /* a local coordinate frame: `end` gives the axes back */
+    PN_FIGURE_VERB_ORIGIN,
 } PnFigureVerb;
 
 /* A statement borrows the logical line it came from, for
@@ -377,8 +380,8 @@ gboolean pn_figure_check_verbs (GPtrArray *statements,
  *              through pn_figure_check_verbs()
  * @errors:     (nullable) (element-type PnFigureError): collector
  *
- * Matches every `repeat`, `if` and `with` with an `end`, and every
- * `elseif` and `else` with the `if` they belong to, reporting: an `end`
+ * Matches every `repeat`, `if`, `with` and `origin` with an `end`, and
+ * every `elseif` and `else` with the `if` they belong to, reporting: an `end`
  * with no block open; a block still open at the end of the program; an
  * `elseif` or `else` whose innermost open block is not an `if`, or that
  * follows that `if`'s `else`; and a `repeat` inside a `repeat`, at any

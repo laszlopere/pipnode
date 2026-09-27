@@ -1029,6 +1029,10 @@ static const VerbInfo verb_table[] =
     /* scoped pen settings (91.2): the settings themselves are split off
      * as statements of their own, so the head takes no arguments */
     { "with",   PN_FIGURE_VERB_WITH,   0, 0,          "",    0,   VERB_PLAIN  },
+
+    /* a local coordinate frame: x and y of its origin, and the angle its
+     * axes are turned by, 0 when left out */
+    { "origin", PN_FIGURE_VERB_ORIGIN, 2, 3,          "",    'e', VERB_PLAIN  },
 };
 
 /* The table is small and a program is a few dozen lines, so a linear
@@ -1267,6 +1271,7 @@ pn_figure_check_blocks (
 
         case PN_FIGURE_VERB_IF:
         case PN_FIGURE_VERB_WITH:
+        case PN_FIGURE_VERB_ORIGIN:
             g_array_append_val (open, block);
             break;
 
@@ -1303,7 +1308,8 @@ pn_figure_check_blocks (
             if (top == NULL)
             {
                 report_at (errors, statement->source, statement->offset,
-                           "end without a repeat, an if or a with");
+                           "end without a repeat, an if, a with or "
+                           "an origin");
                 ok = FALSE;
                 break;
             }
@@ -2246,6 +2252,117 @@ view_angle_map (
 }
 
 /* ================================================================== */
+/*  Local axes                                                        */
+/* ================================================================== */
+
+/* Where an `origin` block has put the axes: a local point (u, v) lands
+ * at user (x0 + u c - v s, y0 + u s + v c).  A turn and a shift and
+ * never a scale, so a radius, a width, a dash and a font size mean the
+ * same number of user units inside a block as outside it, and a circle
+ * stays a circle.  The whole program starts in the identity. */
+typedef struct
+{
+    gdouble x0, y0; /* the local origin, user units                    */
+    gdouble angle;  /* degrees, counter-clockwise, summed over blocks  */
+    gdouble c, s;   /* its cosine and sine                             */
+} Place;
+
+static void
+place_init (
+        Place *self)
+{
+    self->x0    = 0.0;
+    self->y0    = 0.0;
+    self->angle = 0.0;
+    self->c     = 1.0;
+    self->s     = 0.0;
+}
+
+/* Local (@u, @v) in user units. */
+static void
+place_point (
+        const Place *self,
+        gdouble      u,
+        gdouble      v,
+        gdouble     *out_x,
+        gdouble     *out_y)
+{
+    *out_x = self->x0 + u * self->c - v * self->s;
+    *out_y = self->y0 + u * self->s + v * self->c;
+}
+
+/* A local displacement in user units: turned, not shifted. */
+static void
+place_vector (
+        const Place *self,
+        gdouble      du,
+        gdouble      dv,
+        gdouble     *out_x,
+        gdouble     *out_y)
+{
+    *out_x = du * self->c - dv * self->s;
+    *out_y = du * self->s + dv * self->c;
+}
+
+/* Moves the axes to local (@x, @y) and turns them by @angle degrees more.
+ * The cosine and sine come from the SUMMED angle, not from multiplying
+ * rotations, and a multiple of 90 degrees is taken exactly: cos (pi / 2)
+ * is 6e-17 and not 0, and a quarter turn that leaves a rectangle a hair
+ * off square would make it a polygon in the display list. */
+static void
+place_enter (
+        Place   *self,
+        gdouble  x,
+        gdouble  y,
+        gdouble  angle)
+{
+    gdouble turn;
+
+    place_point (self, x, y, &self->x0, &self->y0);
+    self->angle += angle;
+
+    turn = fmod (self->angle, 360.0);
+    if (turn < 0.0)
+        turn += 360.0;
+
+    if (turn == 0.0)
+    {
+        self->c = 1.0;
+        self->s = 0.0;
+    }
+    else if (turn == 90.0)
+    {
+        self->c = 0.0;
+        self->s = 1.0;
+    }
+    else if (turn == 180.0)
+    {
+        self->c = -1.0;
+        self->s = 0.0;
+    }
+    else if (turn == 270.0)
+    {
+        self->c = 0.0;
+        self->s = -1.0;
+    }
+    else
+    {
+        self->c = cos (turn * G_PI / 180.0);
+        self->s = sin (turn * G_PI / 180.0);
+    }
+}
+
+/* TRUE while the local axes are parallel to the window's, turned by a
+ * whole number of quarters or not at all: a `rect` is then still a
+ * rectangle the painter can draw as one. */
+static gboolean
+place_is_square (
+        const Place *self)
+{
+    return self->c == 0.0 || self->s == 0.0;
+}
+
+/* ================================================================== */
 /*  The pen state machine                                             */
 /* ================================================================== */
 
@@ -2270,6 +2387,7 @@ typedef struct
     PnFigureVAlign valign;
     gdouble        px, py;     /* the pen, user units                 */
     View           view;
+    Place          place;      /* the local axes of `origin`          */
 } Pen;
 
 /* The dash patterns of 80.5(d), in user units before the scale. */
@@ -2310,6 +2428,7 @@ pen_init (
     self->px         = 0.0;                     /* 80.6a */
     self->py         = 0.0;
 
+    place_init (&self->place);
     view_set (&self->view, frame, FIGURE_VIEW_XMIN, FIGURE_VIEW_YMIN,
               FIGURE_VIEW_XMAX, FIGURE_VIEW_YMAX);
 }
@@ -2514,10 +2633,11 @@ emit_view (
     op->scale_y   = fabs (pen->view.sy) / pen->view.s;
 }
 
-/* A point list in device units, from @n user pairs. */
+/* A point list in device units, from @n local pairs: through the axes
+ * of the `origin` blocks the pen is in, then through the view. */
 static GArray *
 device_points (
-        const View    *view,
+        const Pen     *pen,
         const gdouble *values,
         guint          n)
 {
@@ -2528,14 +2648,17 @@ device_points (
     {
         gdouble xy[2];
 
-        xy[0] = view_map_x (view, values[i]);
-        xy[1] = view_map_y (view, values[i + 1]);
+        place_point (&pen->place, values[i], values[i + 1], &xy[0], &xy[1]);
+        xy[0] = view_map_x (&pen->view, xy[0]);
+        xy[1] = view_map_y (&pen->view, xy[1]);
         g_array_append_vals (points, xy, 2);
     }
 
     return points;
 }
 
+/* One segment between two USER points -- the pen's own coordinates,
+ * which are past the local axes already. */
 static void
 emit_segment (
         GPtrArray  *ops,
@@ -2549,11 +2672,12 @@ emit_segment (
     PnFigureOp *op     = op_add (ops, PN_FIGURE_OP_LINE, line);
     gdouble     ends[4];
 
-    ends[0] = x1;
-    ends[1] = y1;
-    ends[2] = x2;
-    ends[3] = y2;
-    op->points = device_points (view, ends, 4);
+    ends[0] = view_map_x (view, x1);
+    ends[1] = view_map_y (view, y1);
+    ends[2] = view_map_x (view, x2);
+    ends[3] = view_map_y (view, y2);
+    op->points = g_array_sized_new (FALSE, FALSE, sizeof (gdouble), 4);
+    g_array_append_vals (op->points, ends, 4);
 }
 
 /* ================================================================== */
@@ -2940,15 +3064,20 @@ draw_statement (
     {
         PnFigureOp *op;
 
+        /* The pen is kept in user units, past the local axes, so it
+         * stands where it was drawn to when an `origin` block ends. */
         if (statement->verb == PN_FIGURE_VERB_MOVE)
         {
-            pen->px = values[0];
-            pen->py = values[1];
+            place_point (&pen->place, values[0], values[1],
+                         &pen->px, &pen->py);
         }
         else
         {
-            pen->px += values[0];
-            pen->py += values[1];
+            gdouble dx, dy;
+
+            place_vector (&pen->place, values[0], values[1], &dx, &dy);
+            pen->px += dx;
+            pen->py += dy;
         }
 
         op    = op_add (ops, PN_FIGURE_OP_MOVE, line);
@@ -2967,20 +3096,18 @@ draw_statement (
 
         if (statement->verb == PN_FIGURE_VERB_LINE)
         {
-            x1 = values[0];
-            y1 = values[1];
-            x2 = values[2];
-            y2 = values[3];
+            place_point (&pen->place, values[0], values[1], &x1, &y1);
+            place_point (&pen->place, values[2], values[3], &x2, &y2);
         }
         else if (statement->verb == PN_FIGURE_VERB_LINETO)
         {
-            x2 = values[0];
-            y2 = values[1];
+            place_point (&pen->place, values[0], values[1], &x2, &y2);
         }
         else
         {
-            x2 = pen->px + values[0];
-            y2 = pen->py + values[1];
+            place_vector (&pen->place, values[0], values[1], &x2, &y2);
+            x2 += pen->px;
+            y2 += pen->py;
         }
 
         emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
@@ -2995,9 +3122,11 @@ draw_statement (
     case PN_FIGURE_VERB_POINT:
     {
         PnFigureOp *op = op_add (ops, PN_FIGURE_OP_POINT, line);
+        gdouble     ux, uy;
 
-        op->x = view_map_x (&pen->view, values[0]);
-        op->y = view_map_y (&pen->view, values[1]);
+        place_point (&pen->place, values[0], values[1], &ux, &uy);
+        op->x = view_map_x (&pen->view, ux);
+        op->y = view_map_y (&pen->view, uy);
 
         /* A disc of radius = the current line width, in the stroke
          * colour, so `width` sizes the dots and no new state appears
@@ -3013,6 +3142,7 @@ draw_statement (
     {
         PnFigureOp *op;
         gdouble     k, phi;
+        gdouble     ux, uy;
 
         if (!(values[2] > 0.0))
         {
@@ -3020,18 +3150,21 @@ draw_statement (
             break;
         }
 
+        place_point (&pen->place, values[0], values[1], &ux, &uy);
         op = op_add (ops, statement->verb == PN_FIGURE_VERB_ARC
                           ? PN_FIGURE_OP_ARC : PN_FIGURE_OP_CIRCLE, line);
-        op->x = view_map_x (&pen->view, values[0]);
-        op->y = view_map_y (&pen->view, values[1]);
+        op->x = view_map_x (&pen->view, ux);
+        op->y = view_map_y (&pen->view, uy);
         op->r = values[2] * pen->view.s;
 
         if (statement->verb != PN_FIGURE_VERB_ARC)
             break;
 
+        /* Turned axes turn the sweep with them: a local angle is the
+         * user angle less the turn, so the turn is simply added. */
         view_angle_map (&pen->view, &k, &phi);
-        op->a0 = k * values[3] + phi;
-        op->a1 = k * values[4] + phi;
+        op->a0 = k * (values[3] + pen->place.angle) + phi;
+        op->a1 = k * (values[4] + pen->place.angle) + phi;
 
         /* Which way to travel between the two DEVICE angles, which is
          * simply which of them is larger — cairo_arc() runs up and
@@ -3047,15 +3180,37 @@ draw_statement (
 
     case PN_FIGURE_VERB_RECT:
     {
-        PnFigureOp *op = op_add (ops, PN_FIGURE_OP_RECT, line);
-        gdouble     x1 = view_map_x (&pen->view, values[0]);
-        gdouble     x2 = view_map_x (&pen->view, values[0] + values[2]);
-        gdouble     y1 = view_map_y (&pen->view, values[1]);
-        gdouble     y2 = view_map_y (&pen->view, values[1] + values[3]);
+        PnFigureOp *op;
+        GArray     *corners;
+        gdouble     local[8];
+        gdouble     x1, y1, x2, y2;
+
+        local[0] = values[0];             local[1] = values[1];
+        local[2] = values[0] + values[2]; local[3] = values[1];
+        local[4] = values[0] + values[2]; local[5] = values[1] + values[3];
+        local[6] = values[0];             local[7] = values[1] + values[3];
+        corners  = device_points (pen, local, 8);
+
+        /* Axes turned by anything but a whole quarter make the rectangle
+         * a tilted one, which only a closed polygon can draw -- filled
+         * and stroked exactly as a `rect` is. */
+        if (!place_is_square (&pen->place))
+        {
+            op_add (ops, PN_FIGURE_OP_POLY, line)->points = corners;
+            break;
+        }
 
         /* `rect` takes the LOWER-LEFT corner because y points up
-         * (80.6f); which device corner that is depends on the view, and
-         * a negative width extends the other way, so normalise. */
+         * (80.6f); which device corner that is depends on the view and
+         * on the turn, and a negative width extends the other way, so
+         * normalise over opposite corners. */
+        x1 = g_array_index (corners, gdouble, 0);
+        y1 = g_array_index (corners, gdouble, 1);
+        x2 = g_array_index (corners, gdouble, 4);
+        y2 = g_array_index (corners, gdouble, 5);
+        g_array_unref (corners);
+
+        op    = op_add (ops, PN_FIGURE_OP_RECT, line);
         op->x = MIN (x1, x2);
         op->y = MIN (y1, y2);
         op->w = fabs (x2 - x1);
@@ -3067,16 +3222,20 @@ draw_statement (
     case PN_FIGURE_VERB_PATH:
         op_add (ops, statement->verb == PN_FIGURE_VERB_POLY
                      ? PN_FIGURE_OP_POLY : PN_FIGURE_OP_PATH, line)->points
-            = device_points (&pen->view, values, n);
+            = device_points (pen, values, n);
         break;
 
     case PN_FIGURE_VERB_TEXT:
     {
         const PnFigureArg *arg = g_ptr_array_index (statement->args, 2);
         PnFigureOp        *op  = op_add (ops, PN_FIGURE_OP_TEXT, line);
+        gdouble            ux, uy;
 
-        op->x      = view_map_x (&pen->view, values[0]);
-        op->y      = view_map_y (&pen->view, values[1]);
+        /* Only the anchor moves with the axes: a label stays upright
+         * and reads left to right however the axes are turned. */
+        place_point (&pen->place, values[0], values[1], &ux, &uy);
+        op->x      = view_map_x (&pen->view, ux);
+        op->y      = view_map_y (&pen->view, uy);
         op->halign = pen->halign;
         op->valign = pen->valign;
         op->text   = format_text (arg->text, values + 3, n - 3);
@@ -3089,6 +3248,7 @@ draw_statement (
     case PN_FIGURE_VERB_ELSEIF:
     case PN_FIGURE_VERB_ELSE:
     case PN_FIGURE_VERB_WITH:
+    case PN_FIGURE_VERB_ORIGIN:
         /* Control flow is not ink (#86.7), and the walk in
          * pn_figure_trace_new() has already dealt with the block: what
          * reaches here is a block the front end never checked, which
@@ -3107,13 +3267,13 @@ draw_statement (
 }
 
 /* Where the walk goes next from each block statement, worked out once
- * per walk with a stack: a `repeat` or a `with` links to its `end`; an
- * `if`, `elseif` or `else` links to the next clause of the same chain --
- * the following `elseif` or `else`, or the `end`.  Anything unclosed
- * links to the statement count.  An `end` links BACK, to the head of the
- * block it closes, which is how the walk knows that this `end` gives
- * the pen back; it is the one backward link, and nothing ever jumps
- * along it.
+ * per walk with a stack: a `repeat`, a `with` or an `origin` links to its
+ * `end`; an `if`, `elseif` or `else` links to the next clause of the same
+ * chain -- the following `elseif` or `else`, or the `end`.  Anything
+ * unclosed links to the statement count.  An `end` links BACK, to the
+ * head of the block it closes, which is how the walk knows that this
+ * `end` gives the pen or the axes back; it is the one backward link, and
+ * nothing ever jumps along it.
  *
  * The walk asks this rather than scanning for the first `end`, as it
  * could while `repeat` was the only block: with `if` nesting inside
@@ -3148,6 +3308,7 @@ block_links (
         case PN_FIGURE_VERB_REPEAT:
         case PN_FIGURE_VERB_IF:
         case PN_FIGURE_VERB_WITH:
+        case PN_FIGURE_VERB_ORIGIN:
             g_array_append_val (open, i);
             break;
 
@@ -3628,25 +3789,34 @@ trace_range (
             break;
 
         case PN_FIGURE_VERB_WITH:
-            /* Recorded, so that the draw saves the pen here (91.2); the
-             * settings after it are ordinary statements. */
+        case PN_FIGURE_VERB_ORIGIN:
+            /* Recorded, so that the draw saves the pen here (91.2) or
+             * moves the axes; what follows is ordinary statements.  An
+             * `origin` is NOT decided here, unlike an `if`: its numbers
+             * are recorded as the vectors they may be and picked per
+             * frame, so turning axes animate at the price of any other
+             * argument, not of a walk per frame. */
             if (!trace_statement (self, statement, store))
                 return FALSE;
             i++;
             break;
 
         case PN_FIGURE_VERB_END:
-            /* The close of a `with` gives the pen back, so the draw has
-             * to see it; the close of an `if` whose branch ran is
-             * nothing at all. */
-            if (next[i] < statements->len
-                && ((PnFigureStatement *)
-                    g_ptr_array_index (statements, next[i]))->verb
-                   == PN_FIGURE_VERB_WITH
+        {
+            /* The close of a `with` or an `origin` gives the pen or the
+             * axes back, so the draw has to see it; the close of an `if`
+             * whose branch ran is nothing at all. */
+            PnFigureVerb head = next[i] < statements->len
+                    ? ((PnFigureStatement *)
+                       g_ptr_array_index (statements, next[i]))->verb
+                    : PN_FIGURE_VERB_NONE;
+
+            if ((head == PN_FIGURE_VERB_WITH || head == PN_FIGURE_VERB_ORIGIN)
                 && !trace_statement (self, statement, store))
                 return FALSE;
             i++;
             break;
+        }
 
         default:
             if (!trace_statement (self, statement, store))
@@ -3690,6 +3860,45 @@ pn_figure_trace_new (
     return self;
 }
 
+/* A `with` or an `origin` the draw is inside of, and the pen as it
+ * stood when the block began: a `with` gives back its settings, an
+ * `origin` its axes. */
+typedef struct
+{
+    PnFigureVerb head;
+    Pen          pen;
+} Scope;
+
+/* The recorded `end` that closes the block whose head is entry @at, or
+ * the entry count.  Only a `with`'s or an `origin`'s `end` is recorded,
+ * so counting those two heads against every `end` pairs them up. */
+static guint
+trace_block_end (
+        const PnFigureTrace *self,
+        guint                at)
+{
+    guint depth = 0;
+    guint i;
+
+    for (i = at; i < self->entries->len; i++)
+    {
+        const TraceEntry *entry = &g_array_index (self->entries,
+                                                  TraceEntry, i);
+
+        if (entry->skip != NULL)
+            continue;
+
+        if (entry->statement->verb == PN_FIGURE_VERB_WITH
+            || entry->statement->verb == PN_FIGURE_VERB_ORIGIN)
+            depth++;
+        else if (entry->statement->verb == PN_FIGURE_VERB_END
+                 && --depth == 0)
+            return i;
+    }
+
+    return self->entries->len;
+}
+
 GPtrArray *
 pn_figure_trace_draw (
         const PnFigureTrace *self,
@@ -3730,7 +3939,7 @@ pn_figure_trace_draw (
     emit_pen (ops, &pen, 0);
 
     errors = pn_figure_errors_new ();
-    saved  = g_array_new (FALSE, FALSE, sizeof (Pen));
+    saved  = g_array_new (FALSE, FALSE, sizeof (Scope));
 
     for (i = 0; i < self->entries->len && !failed; i++)
     {
@@ -3744,25 +3953,41 @@ pn_figure_trace_draw (
             continue;
         }
 
-        /* A `with` saves the pen and its `end` -- the only `end` the
-         * walk records -- gives it back (91.2).  A stray `end` in a
-         * program the front end never checked has nothing to pop. */
+        /* A `with` saves the pen and its `end` -- one of the two kinds
+         * of `end` the walk records -- gives it back (91.2).  A stray
+         * `end` in a program the front end never checked has nothing to
+         * pop. */
         if (entry->statement->verb == PN_FIGURE_VERB_WITH)
         {
-            g_array_append_val (saved, pen);
+            Scope scope = { PN_FIGURE_VERB_WITH, pen };
+
+            g_array_append_val (saved, scope);
             continue;
         }
         if (entry->statement->verb == PN_FIGURE_VERB_END)
         {
-            gint line = 0;
+            const Scope *scope;
+            gint         line = 0;
 
             if (saved->len == 0)
                 continue;
 
-            pn_figure_line_locate (entry->statement->source,
-                                   entry->statement->offset, &line, NULL);
-            pen_restore (ops, &pen,
-                         &g_array_index (saved, Pen, saved->len - 1), line);
+            scope = &g_array_index (saved, Scope, saved->len - 1);
+
+            /* An `origin` gives back its axes and nothing else: the pen
+             * settings made inside it stand, as they do after an `if`,
+             * and the pen position is already in user units. */
+            if (scope->head == PN_FIGURE_VERB_ORIGIN)
+            {
+                pen.place = scope->pen.place;
+            }
+            else
+            {
+                pn_figure_line_locate (entry->statement->source,
+                                       entry->statement->offset, &line,
+                                       NULL);
+                pen_restore (ops, &pen, &scope->pen, line);
+            }
             g_array_set_size (saved, saved->len - 1);
             continue;
         }
@@ -3774,10 +3999,36 @@ pn_figure_trace_draw (
          * the per-frame walk checked them, and then it draws nothing. */
         if (!pick_values (entry->statement, entry->args, entry->n_args,
                           index, values, errors)
-            || entry->cut
-            || !draw_statement (entry->statement, values, &pen, &frame,
-                                ops))
+            || entry->cut)
+        {
             failed = TRUE;
+        }
+        else if (entry->statement->verb == PN_FIGURE_VERB_ORIGIN)
+        {
+            /* Axes that cannot be placed are a VALUE, like a `repeat`
+             * count (80.10b): drawing the block on the axes outside it
+             * would put every shape in the wrong place, so the block is
+             * skipped whole and says so once. */
+            if (!args_are_finite (entry->statement, values))
+            {
+                emit_skip (ops, entry->statement, "non-finite");
+                i = trace_block_end (self, i);
+            }
+            else
+            {
+                Scope scope = { PN_FIGURE_VERB_ORIGIN, pen };
+
+                g_array_append_val (saved, scope);
+                place_enter (&pen.place, values[0], values[1],
+                             entry->statement->args->len > 2
+                             ? values[2] : 0.0);
+            }
+        }
+        else if (!draw_statement (entry->statement, values, &pen, &frame,
+                                  ops))
+        {
+            failed = TRUE;
+        }
 
         g_free (values);
     }
