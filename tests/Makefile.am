@@ -45,7 +45,8 @@ TESTS = \
 EXTRA_DIST = $(TESTS) pndbus.py \
 	test_panel_engine_run.py \
 	test_desktop_engine_run.py \
-	data/figure-wheatstone-bridge.json
+	data/figure-wheatstone-bridge.json \
+	data/figure-wheatstone-bridge-blocks.json
 
 # Point the test at the in-tree binary regardless of where automake's
 # test driver runs us from (in-tree vs VPATH builds).

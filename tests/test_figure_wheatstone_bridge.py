@@ -3,16 +3,28 @@
 
 The sheet is the self-balancing Wheatstone bridge -- the richest of the
 Figure examples: a five-input PnFigure (T, R1, Rx, R3, Tm) whose program
-runs to some 150 statements, fed by a deterministic chain:
+runs to some hundred statements, fed by a deterministic chain:
 
   Knob T  -> Pt100 sensor  Rx = 100 (1 + 0.00385 T)
           -> Servo         R3 = clamp(R1 Rx / 100, 0, 400)
           -> Reading       Tm = (R3 100 / R1 / 100 - 1) / 0.00385
   Knob R1 -> Servo, Reading and the Figure.
 
-The test opens a temporary copy of tests/data/figure-wheatstone-bridge.json
-(itself a copy of examples/displays/wheatstone-bridge.json, so editing the
-example never breaks the test) in a private editor, never saves, and plays
+The sheet is played twice, from two copies of the example kept in
+tests/data (so editing the example never breaks the test):
+
+  figure-wheatstone-bridge.json         the program as first written, in
+                                        the plain language -- masks made by
+                                        dividing by a flag, pen settings set
+                                        and reset by hand -- kept so a
+                                        program in that style is proved to
+                                        keep running;
+  figure-wheatstone-bridge-blocks.json  the same drawing in the block
+                                        language: `if`, `with`, `origin`,
+                                        a `def` shape, `arrow` and `path`.
+
+Both have the same nodes and the same `Ig = ...` line.  Each is opened
+from a temporary copy in a private editor, never saved, and played
 it the way the user's hand does: SetControlValue turns the two knobs
 (#92), GetLastOutputMessage reads back what the three calculators emitted,
 and the Figure's `error` property must stay empty at every operating
@@ -45,7 +57,9 @@ sys.path.insert(0, HERE)
 
 from pndbus import PipnodeEditor  # noqa: E402
 
-SHEET = os.path.join(HERE, "data", "figure-wheatstone-bridge.json")
+SHEETS = [os.path.join(HERE, "data", name) for name in
+          ("figure-wheatstone-bridge.json",
+           "figure-wheatstone-bridge-blocks.json")]
 
 KNOB_T   = "2f640d41-3c43-4c8a-9527-285d0cd999d7"
 KNOB_R1  = "c03b5bd7-1242-4d10-9229-a357b37494a7"
@@ -103,9 +117,20 @@ def operating_point(ed: PipnodeEditor, t: float, r1: float, rx: float,
 
 
 def run_test() -> None:
+    for sheet in SHEETS:
+        print(f"-- {os.path.basename(sheet)}")
+        run_sheet(sheet)
+
+    print("PASS: Figure Wheatstone bridge (TODO #93) — in both sheets the "
+          "knobs drive the sensor/servo/reading chain exactly at four "
+          "operating points, the figure evaluates cleanly, and a broken "
+          "program is reported by line and column and cleared on restore")
+
+
+def run_sheet(sheet: str) -> None:
     tmpdir = tempfile.mkdtemp(prefix="pn-figure-test-")
     path = os.path.join(tmpdir, "wheatstone-bridge.json")
-    shutil.copyfile(SHEET, path)
+    shutil.copyfile(sheet, path)
     try:
         with PipnodeEditor.launch() as ed:
             ed.open(path)
@@ -122,7 +147,7 @@ def run_test() -> None:
 
             # --- operating points ----------------------------------------
             # Balanced at 0 degC: Rx = R2 = R3 = 100, the galvanometer at
-            # zero and the red needle masked (80.10b).
+            # zero and the red needle not drawn.
             operating_point(ed, 0.0, 100.0, 100.0, 100.0, 0.0, "balanced")
             # The low end of both knobs: R3 = 50 * 80.75 / 100.
             operating_point(ed, -50.0, 50.0, 80.75, 40.375, -50.0,
@@ -158,11 +183,6 @@ def run_test() -> None:
             expect_figure_clean(ed, "restored program")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-
-    print("PASS: Figure Wheatstone bridge (TODO #93) — knobs drive the "
-          "sensor/servo/reading chain exactly at four operating points, "
-          "the figure evaluates cleanly, and a broken program is "
-          "reported by line and column and cleared on restore")
 
 
 if __name__ == "__main__":
