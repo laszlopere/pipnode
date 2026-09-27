@@ -670,6 +670,7 @@ find_with (
 static const gchar *const pen_words[] =
 {
     "color", "fill", "nofill", "width", "dash", "font", "align",
+    "arrowhead",
 };
 
 static gboolean
@@ -698,7 +699,7 @@ draws_ink (
     static const gchar *const ink[] =
     {
         "lineto", "rline", "line", "point", "circle", "arc", "rect",
-        "poly", "path", "text",
+        "poly", "path", "arrow", "head", "text",
     };
     gsize i;
 
@@ -1176,6 +1177,7 @@ static const VerbInfo verb_table[] =
     { "dash",   PN_FIGURE_VERB_DASH,   1, 2,          "se",  0,   VERB_PLAIN  },
     { "font",   PN_FIGURE_VERB_FONT,   1, 1,          "",    'e', VERB_PLAIN  },
     { "align",  PN_FIGURE_VERB_ALIGN,  1, 2,          "",    's', VERB_PLAIN  },
+    { "arrowhead", PN_FIGURE_VERB_ARROWHEAD, 2, 2,    "",    'e', VERB_PLAIN  },
 
     /* geometry (80.6) */
     { "move",   PN_FIGURE_VERB_MOVE,   2, 2,          "",    'e', VERB_PLAIN  },
@@ -1189,6 +1191,11 @@ static const VerbInfo verb_table[] =
     { "rect",   PN_FIGURE_VERB_RECT,   4, 4,          "",    'e', VERB_PLAIN  },
     { "poly",   PN_FIGURE_VERB_POLY,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
     { "path",   PN_FIGURE_VERB_PATH,   6, G_MAXUINT,  "",    'e', VERB_PAIRS  },
+
+    /* arrows: from the first point to the tip at the second; `head` is
+     * the tip alone, the two points giving only its direction */
+    { "arrow",  PN_FIGURE_VERB_ARROW,  4, 4,          "",    'e', VERB_PLAIN  },
+    { "head",   PN_FIGURE_VERB_HEAD,   4, 4,          "",    'e', VERB_PLAIN  },
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
@@ -2919,6 +2926,8 @@ typedef struct
     gdouble        font;       /* user units                          */
     PnFigureHAlign halign;
     PnFigureVAlign valign;
+    gdouble        head_length; /* an arrow's head, user units: tip to */
+    gdouble        head_width;  /* base, and across the base          */
     gdouble        px, py;     /* the pen, user units                 */
     View           view;
     Place          place;      /* the local axes of `origin`          */
@@ -2943,6 +2952,12 @@ dash_patterns[] =
  * a twentieth of the plate high, which is what a plate's labels are. */
 #define FIGURE_DEFAULT_FONT 5.0
 
+/* The default arrowhead, in user units, by the same taste: about the
+ * size the example plates built by hand before `arrow` existed, a head
+ * a little longer than it is wide. */
+#define FIGURE_DEFAULT_HEAD_LENGTH 3.0
+#define FIGURE_DEFAULT_HEAD_WIDTH  2.4
+
 static void
 pen_init (
         Pen         *self,
@@ -2959,6 +2974,8 @@ pen_init (
     self->font       = FIGURE_DEFAULT_FONT;
     self->halign     = PN_FIGURE_HALIGN_CENTRE; /* 80.7g */
     self->valign     = PN_FIGURE_VALIGN_MIDDLE;
+    self->head_length = FIGURE_DEFAULT_HEAD_LENGTH;
+    self->head_width  = FIGURE_DEFAULT_HEAD_WIDTH;
     self->px         = 0.0;                     /* 80.6a */
     self->py         = 0.0;
 
@@ -3085,7 +3102,7 @@ colour_equal (
            && a->blue == b->blue && a->alpha == b->alpha;
 }
 
-/* Gives the pen back the settings @saved had (91.2): the seven that
+/* Gives the pen back the settings @saved had (91.2): the eight that
  * `with` can scope.  The view and the pen's position are where the pen
  * draws, not how, and carry on -- a `lineto` chain may go on out of the
  * block.  Only what differs is emitted, so a `with` whose settings all
@@ -3144,6 +3161,11 @@ pen_restore (
         op->halign = pen->halign;
         op->valign = pen->valign;
     }
+
+    /* The arrowhead is the resolver's alone -- it becomes a `poly`
+     * before the painter sees it -- so it has no operation to emit. */
+    pen->head_length = saved->head_length;
+    pen->head_width  = saved->head_width;
 }
 
 static void
@@ -3466,6 +3488,95 @@ statement_colour (
     return color;
 }
 
+/* An `arrow` or a `head` from (x1, y1) to its tip at (x2, y2), local
+ * units.  The head is a closed triangle painted solid in the STROKE
+ * colour, with a hairline outline and no dash, whatever the pen says:
+ * a textbook head is never hollow, never dashed and never blunted by a
+ * thick outline, so a dashed shaft still ends in a sharp head.  The pen
+ * gets back exactly what it had afterwards.
+ *
+ * An arrow shorter than its head shrinks the head to fit, keeping its
+ * proportions, so an arrow drawn to scale never reaches back past its
+ * start; a `head` never shrinks, because its first point only gives the
+ * direction.  The shaft stops at the head's base, so a wide one does not
+ * poke through the tip.  Neither moves the pen: they are shapes, placed
+ * absolutely.  Returns %FALSE, drawing nothing, when the two points
+ * coincide and there is no direction to point in. */
+static gboolean
+draw_arrow (
+        GPtrArray     *ops,
+        Pen           *pen,
+        gint           line,
+        const gdouble *values,
+        gboolean       shaft)
+{
+    gdouble     dx     = values[2] - values[0];
+    gdouble     dy     = values[3] - values[1];
+    gdouble     d      = hypot (dx, dy);
+    gdouble     length = pen->head_length;
+    gdouble     half   = pen->head_width / 2.0;
+    gdouble     ux, uy, bx, by;
+    gdouble     head[6];
+    Pen         saved;
+    PnFigureOp *op;
+
+    if (!(d > 0.0) || !isfinite (d))
+        return FALSE;
+
+    ux = dx / d;
+    uy = dy / d;
+
+    if (shaft && d < length)
+    {
+        half   *= d / length;
+        length  = d;
+    }
+
+    bx = values[2] - length * ux;
+    by = values[3] - length * uy;
+
+    if (shaft && d > length)
+    {
+        gdouble x1, y1, x2, y2;
+
+        place_point (&pen->place, values[0], values[1], &x1, &y1);
+        place_point (&pen->place, bx, by, &x2, &y2);
+        emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+    }
+
+    head[0] = values[2];      head[1] = values[3];
+    head[2] = bx - half * uy; head[3] = by + half * ux;
+    head[4] = bx + half * uy; head[5] = by - half * ux;
+
+    saved = *pen;
+
+    if (pen->dash != PN_FIGURE_DASH_SOLID)
+    {
+        pen->dash       = PN_FIGURE_DASH_SOLID;
+        pen->dash_scale = 1.0;
+        emit_dash (ops, pen, line);
+    }
+
+    if (pen->width != 0.0)
+    {
+        pen->width = 0.0;
+        emit_width (ops, pen, line);
+    }
+
+    if (!pen->filling || !colour_equal (&pen->fill, &pen->stroke))
+    {
+        pen->fill    = pen->stroke;
+        pen->filling = TRUE;
+        op_add (ops, PN_FIGURE_OP_FILL, line)->color = pen->fill;
+    }
+
+    op         = op_add (ops, PN_FIGURE_OP_POLY, line);
+    op->points = device_points (pen, head, 6);
+
+    pen_restore (ops, pen, &saved, line);
+    return TRUE;
+}
+
 /* Draws one statement from its values for the frame.  Returns %FALSE
  * only for a statement no verb could name, which the front end never
  * lets through; a skipped statement is a %TRUE that drew nothing. */
@@ -3592,6 +3703,16 @@ draw_statement (
         op->valign = pen->valign;
         break;
     }
+
+    case PN_FIGURE_VERB_ARROWHEAD:
+        if (!(values[0] > 0.0) || !(values[1] > 0.0))
+        {
+            emit_skip (ops, statement, "degenerate");
+            break;
+        }
+        pen->head_length = values[0];
+        pen->head_width  = values[1];
+        break;
 
     case PN_FIGURE_VERB_MOVE:
     case PN_FIGURE_VERB_RMOVE:
@@ -3757,6 +3878,13 @@ draw_statement (
         op_add (ops, statement->verb == PN_FIGURE_VERB_POLY
                      ? PN_FIGURE_OP_POLY : PN_FIGURE_OP_PATH, line)->points
             = device_points (pen, values, n);
+        break;
+
+    case PN_FIGURE_VERB_ARROW:
+    case PN_FIGURE_VERB_HEAD:
+        if (!draw_arrow (ops, pen, line, values,
+                         statement->verb == PN_FIGURE_VERB_ARROW))
+            emit_skip (ops, statement, "degenerate");
         break;
 
     case PN_FIGURE_VERB_TEXT:
@@ -5890,8 +6018,8 @@ pn_figure_class_init (
             "(0, 0, 100, 100 by default), which is fitted into the card "
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
-            "text.  Pen state, which persists until changed: color, fill, "
-            "nofill, width, dash, font, align.  `repeat n` ... `end` draws "
+            "arrow, head, text.  Pen state, which persists until changed: "
+            "color, fill, nofill, width, dash, font, align, arrowhead.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
             "which is how a grid or a row of ticks is written; a repeat "
             "cannot hold another repeat.  `if c` ... `elseif c` ... `else` "

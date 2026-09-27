@@ -1401,7 +1401,7 @@
              lines and axes (91.5-91.7, 91.12) could then ship as a
              small library of shapes rather than as engine verbs. The largest engine change on this list (parameters,
              scope, recursion guard); do it after 91.1-91.3.
-       [ ] 91.5 ARROWS -- a figure of forces without arrowheads is not a
+       [x] 91.5 ARROWS -- a figure of forces without arrowheads is not a
              figure of forces. 13 hand-built arrowhead polys across five
              sheets (ray-optics, refraction, block-and-tackle,
              tower-crane, the wheatstone rheostat), each with a line

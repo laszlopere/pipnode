@@ -150,6 +150,10 @@ to 1, which is how a colour follows a value.
           <code>"baseline"</code>, <code>"bottom"</code>. Default centre,
           middle &mdash; <code>text x, y, "A"</code> labels the
           point.</td></tr>
+  <tr><td><code>arrowhead</code></td><td>length, width</td>
+      <td>The head of every <code>arrow</code> and <code>head</code>
+          (see <a href="#arrows">Arrows</a>): tip to base, and across
+          the base, in user units (3, 2.4).</td></tr>
 </table>
 <p>
 A shape drawn with filling on is filled and then outlined in the stroke
@@ -216,6 +220,12 @@ around <code>if</code> and <code>repeat</code>, and each
       <td>A closed polygon, at least three points.</td></tr>
   <tr><td><code>path</code></td><td>x1, y1, x2, y2, x3, y3, &hellip;</td>
       <td>An open polyline, at least three points; never filled.</td></tr>
+  <tr><td><code>arrow</code></td><td>x1, y1, x2, y2</td>
+      <td>A line ending in a solid head whose tip is at the second
+          point &mdash; a force, a velocity, a pointer.</td></tr>
+  <tr><td><code>head</code></td><td>x1, y1, x2, y2</td>
+      <td>The head alone, tip at the second point, pointing away from
+          the first &mdash; the direction mark on a ray.</td></tr>
   <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
       <td>A label anchored at (x, y) per <code>align</code>. The format
           takes <code>%%</code> and the numeric conversions
@@ -228,6 +238,37 @@ Only <code>move</code>, <code>rmove</code>, <code>lineto</code>,
 <code>rline</code> and <code>line</code> move the pen; it starts every
 frame at (0, 0). The shapes are placed absolutely and leave it where it
 was.
+</p>
+<h5 id="arrows">Arrows</h5>
+<pre>
+arrowhead 3.4, 3.4
+arrow 0, 0, 0, -26 * m / mmax  with color "#3a5a9b"
+
+line xi, yi, 0, 0
+head xi, yi, xi / 2, yi / 2
+</pre>
+<p>
+<code>arrow x1, y1, x2, y2</code> draws a line from the first point
+with a head on the second, the tip exactly on the point, and the line
+stops at the head's base so a thick one cannot poke through the tip.
+<code>head</code> draws the head alone: the first point only tells it
+which way to point, so a direction mark halfway along a ray is the ray's
+own start and its middle. Neither moves the pen.
+</p>
+<p>
+A head is always a solid triangle in the <em>stroke</em> colour: it
+ignores <code>fill</code> and <code>nofill</code>, is never dashed (a
+dashed arrow is a dashed line with a solid head) and is not outlined in
+the line's width, so a thick arrow keeps a sharp tip. Its size is the
+<code>arrowhead</code> setting, a pen setting like the others: set it
+once for the figure, or for one arrow with
+<code>arrow &hellip; with arrowhead 5, 4</code>. Being an expression,
+it can follow the line: <code>with arrowhead 3 + w, 3 + w</code>.
+An arrow shorter than its head shrinks the head to fit, keeping its
+shape, so an arrow drawn to scale never reaches back past its start
+&mdash; a force of nothing is nothing. A <code>head</code> never
+shrinks. An arrow whose two points are the same has no direction and
+is skipped, like a circle of radius zero.
 </p>
 <p>
 <strong>Two angle conventions, on purpose.</strong> Verb arguments

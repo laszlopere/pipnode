@@ -218,6 +218,7 @@ typedef enum
     PN_FIGURE_VERB_DASH,
     PN_FIGURE_VERB_FONT,
     PN_FIGURE_VERB_ALIGN,
+    PN_FIGURE_VERB_ARROWHEAD,
 
     /* geometry (80.6) */
     PN_FIGURE_VERB_MOVE,
@@ -231,6 +232,8 @@ typedef enum
     PN_FIGURE_VERB_RECT,
     PN_FIGURE_VERB_POLY,
     PN_FIGURE_VERB_PATH,
+    PN_FIGURE_VERB_ARROW,
+    PN_FIGURE_VERB_HEAD,
 
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,

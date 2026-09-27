@@ -671,11 +671,14 @@ test_every_verb (void)
                        "poly 0,0, 1,0, 1,1\n"       /* 19 */
                        "path 0,0, 1,0, 1,1\n"       /* 20 */
                        "text 50, 50, \"%.1f\", v\n" /* 21 */
-                       "color 1, 0, 0, 0.5");       /* 22 */
+                       "color 1, 0, 0, 0.5\n"      /* 22 */
+                       "arrowhead 3, 2\n"          /* 23 */
+                       "arrow 1, 2, 3, 4\n"        /* 24 */
+                       "head 1, 2, 3, 4");          /* 25 */
 
     PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
-    PN_CHECK_CMPINT (s.statements->len, ==, 23);
+    PN_CHECK_CMPINT (s.statements->len, ==, 26);
 
     PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
     PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
@@ -683,6 +686,9 @@ test_every_verb (void)
     PN_CHECK_CMPINT (statement (&s, 19)->verb, ==, PN_FIGURE_VERB_POLY);
     PN_CHECK_CMPINT (statement (&s, 21)->verb, ==, PN_FIGURE_VERB_TEXT);
     PN_CHECK_CMPINT (statement (&s, 22)->verb, ==, PN_FIGURE_VERB_COLOR);
+    PN_CHECK_CMPINT (statement (&s, 23)->verb, ==, PN_FIGURE_VERB_ARROWHEAD);
+    PN_CHECK_CMPINT (statement (&s, 24)->verb, ==, PN_FIGURE_VERB_ARROW);
+    PN_CHECK_CMPINT (statement (&s, 25)->verb, ==, PN_FIGURE_VERB_HEAD);
 
     split_free (&s);
 }
@@ -3848,6 +3854,149 @@ test_a_shape_reads_only_what_it_is_given (void)
 }
 
 static void
+test_an_arrow_ends_in_a_solid_head (void)
+{
+    /* The shaft stops at the head's base, and the head is a triangle
+     * filled in the stroke colour with a hairline outline, the tip on
+     * the second point; the pen gets its fill and width straight back. */
+    gchar *text = dump100 ("arrow 10, 10, 50, 10\n"
+                           "line 0, 0, 1, 1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 10.00 90.00 47.00 90.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 90.00 47.00 88.80 47.00 91.20\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 0.00 100.00 1.00 99.00\n");
+    g_free (text);
+}
+
+static void
+test_an_arrowhead_is_never_dashed_or_hollow (void)
+{
+    /* A dashed shaft, a fill of another colour: the head is still solid
+     * and still the stroke's colour, and everything is given back. */
+    gchar *text = dump100 ("color \"red\"\n"
+                           "fill \"blue\"\n"
+                           "dash \"dash\"\n"
+                           "arrow 50, 10, 50, 50");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "fill rgb(0,0,255)\n"
+                     "dash 3.00 2.00\n"
+                     "line 50.00 90.00 50.00 53.00\n"
+                     "dash solid\n"
+                     "width 0.00\n"
+                     "fill rgb(255,0,0)\n"
+                     "poly 50.00 50.00 48.80 53.00 51.20 53.00\n"
+                     "fill rgb(0,0,255)\n"
+                     "width 1.00\n"
+                     "dash 3.00 2.00\n");
+    g_free (text);
+}
+
+static void
+test_a_short_arrow_shrinks_its_head (void)
+{
+    /* Half as long as the head: no shaft, and a head half the size, so
+     * the arrow never reaches back past its first point.  A `head`
+     * never shrinks -- its first point only gives the direction. */
+    gchar *arrow = dump100 ("arrow 10, 10, 11.5, 10");
+    gchar *head  = dump100 ("head 10, 10, 11.5, 10");
+
+    PN_CHECK_CMPSTR (arrow, ==, HEAD_100
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 11.50 90.00 10.00 89.40 10.00 90.60\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    PN_CHECK_CMPSTR (head, ==, HEAD_100
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 11.50 90.00 8.50 88.80 8.50 91.20\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    g_free (arrow);
+    g_free (head);
+}
+
+static void
+test_the_arrowhead_setting_sizes_the_head (void)
+{
+    /* A pen setting like any other: it holds until changed, a `with`
+     * scopes it, and it emits nothing of its own. */
+    gchar *text = dump100 ("arrowhead 4, 2\n"
+                           "head 0, 50, 50, 50\n"
+                           "head 0, 50, 50, 50 with arrowhead 10, 6\n"
+                           "head 0, 50, 50, 50");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 50.00 46.00 49.00 46.00 51.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 50.00 40.00 47.00 40.00 53.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 50.00 46.00 49.00 46.00 51.00\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    g_free (text);
+}
+
+static void
+test_an_arrow_with_no_direction_is_skipped (void)
+{
+    /* Two equal points point nowhere, and a head of no size is no head:
+     * both are values, skipped as a zero radius is. */
+    gchar *text = dump100 ("arrow 5, 5, 5, 5\n"
+                           "head 5, 5, 5, 5\n"
+                           "arrowhead 0, 2\n"
+                           "arrowhead 2, -1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n"
+                     "# skip 3 degenerate\n"
+                     "# skip 4 degenerate\n");
+    g_free (text);
+}
+
+static void
+test_an_arrow_turns_with_its_axes_and_leaves_the_pen (void)
+{
+    /* On axes turned a quarter the arrow points up, and like the other
+     * shapes it is placed absolutely: the `lineto` after it starts from
+     * where the pen was, the frame's origin. */
+    gchar *turned = dump100 ("origin 50, 50, 90\n"
+                             "    arrow 0, 0, 20, 0\n"
+                             "end\n"
+                             "lineto 10, 10");
+    gchar *plain  = dump100 ("arrow 50, 50, 50, 70\n"
+                             "lineto 10, 10");
+
+    PN_CHECK_CMPSTR (turned, ==, plain);
+    PN_CHECK_CMPSTR (plain, ==, HEAD_100
+                     "line 50.00 50.00 50.00 33.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 30.00 48.80 33.00 51.20 33.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 0.00 100.00 10.00 90.00\n");
+    g_free (turned);
+    g_free (plain);
+}
+
+static void
 test_a_bad_def_is_located (void)
 {
     const struct
@@ -3869,7 +4018,7 @@ test_a_bad_def_is_located (void)
         { "def a\n    a\nend",         "shape \"a\" cannot use itself", 2, 5 },
         { "b\ndef b\nend",             "shape \"b\" is used before its def", 1, 1 },
         { "def a\n    b\nend\ndef b\nend", "shape \"b\" is used before its def", 2, 5 },
-        { "arrow 1, 2",                "unknown verb \"arrow\"", 1, 1 },
+        { "sprocket 1, 2",             "unknown verb \"sprocket\"", 1, 1 },
         { "def a x, y\nend\na 1",      "a takes 2 arguments, not 1", 3, 1 },
         { "def a x\nend\na \"red\"",   "expected an expression, not a string", 3, 3 },
         { "if 1\n    def a\n    end\nend", "def must stand outside every block", 2, 5 },
@@ -4915,6 +5064,12 @@ main (int argc, char **argv)
     pn_test_add ("def_animates",        test_a_vector_argument_animates_the_shape);
     pn_test_add ("def_reads",           test_a_shape_reads_only_what_it_is_given);
     pn_test_add ("def_errors",          test_a_bad_def_is_located);
+    pn_test_add ("arrow_draws",         test_an_arrow_ends_in_a_solid_head);
+    pn_test_add ("arrow_solid_head",    test_an_arrowhead_is_never_dashed_or_hollow);
+    pn_test_add ("arrow_short",         test_a_short_arrow_shrinks_its_head);
+    pn_test_add ("arrow_head_size",     test_the_arrowhead_setting_sizes_the_head);
+    pn_test_add ("arrow_degenerate",    test_an_arrow_with_no_direction_is_skipped);
+    pn_test_add ("arrow_origin",        test_an_arrow_turns_with_its_axes_and_leaves_the_pen);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);
