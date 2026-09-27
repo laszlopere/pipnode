@@ -79,10 +79,11 @@ with PipnodeEditor.launch() as ed:
     debug = ed.add_node("PnDebug", 620, 100)
 
     ed.set_node_properties(topic, {"topic": "demo/volume"})
-    wire = ed.connect(topic, debug)             # topic -> debug, input 0
+    ed.connect(knob, topic)                     # knob -> topic, input 0
+    wire = ed.connect(topic, debug)             # topic -> debug
 
-    # exercise the flow without a Debug wire
-    ed.inject_message(topic, {"value": 0.5})
+    # play the flow: turn the knob, it emits down its wire
+    ed.set_control_value(knob, 0.5)             # also activate_node / press_key
     print(ed.get_last_output_message(topic))    # -> emitted envelope dict
 
     ed.pump()                                   # drain queued signals

@@ -116,14 +116,16 @@ assuming a version:
 | `GetApiVersion` | `() → (u major, u minor)` | The automation API version. |
 | `Version` (property) | `u` (read-only) | The major version, for clients that prefer a property read. |
 
-The version is **`1.2`** at the time of writing. The major bumps only on a
+The version is **`1.3`** at the time of writing. The major bumps only on a
 breaking change to either interface; the minor bumps on back-compatible
 additions. `GetApiVersion` is the one method that works before a document
 exists.
 
 History: `1.0` = the addressed/typed/discoverable core; `1.1` added the
 whole-document operations (Phase D); `1.2` added interactivity — selection,
-view, message inject/readback, and the live signals (Phase E).
+view, message inject/readback, and the live signals (Phase E); `1.3` added
+operating controls — `SetControlValue`, `ActivateNode`, `PressKey` and the
+`NotSupported` error (TODO #92).
 
 ---
 
@@ -151,6 +153,7 @@ org.pipas.pipnode.Worksheet.Error.<Code>
 | `IllegalConnection` | A wire would be illegal: self-loop, source with no output, target with no input, input index out of range, or a duplicate of an existing wire. |
 | `SheetNotFound` | A sheet name does not exist. |
 | `GlobalNotFound` | A document-global name does not exist. |
+| `NotSupported` | The node cannot be operated that way (e.g. `SetControlValue` on a node that is not a Knob). |
 | `Failed` | A generic I/O / load failure (e.g. `Open`/`Save`/`SetDocumentJson`). |
 
 In PyGObject, read the name with
@@ -249,6 +252,32 @@ result — without wiring up a Debug node.
 | `InjectMessage` | `(s uuid, s json)` | Delivers a message to the node's input 0 as if a wire carried it. See [Message JSON](#message-json-envelope). Malformed/non-object JSON → `BadPropertyValue`. |
 | `InjectMessageOnInput` | `(s uuid, i input, s json)` | As above, on a specific input. `input` out of range → `BadPropertyValue`. |
 | `GetLastOutputMessage` | `(s uuid) → (s json)` | The last message the node emitted, as the compact envelope JSON. `""` before any emission. |
+
+### Operating controls
+
+Play the sheet the way the user's hand does: turn a knob, flip a switch,
+fire an Inject, press a keypad key. The message comes **out of the control
+itself** and travels its wires, so a test through these methods proves what
+a user would see.
+
+This is deliberately separate from the property surface. A property write
+(`SetNodeProperties {"value": …}` on a Knob, `"on"` on a Switch) is **silent**:
+it updates the node without emitting, because loads, undo/redo and the
+settings dialog all write properties and none of them may fire messages. Use
+these methods when you want the emission.
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `SetControlValue` | `(s uuid, d value)` | Knob: clamps `value` to `[min, max]`, repaints, and emits a `value` message. Emits on **every** call, even when the value is unchanged, so one call is always one message. A non-finite value → `BadPropertyValue`. |
+| `ActivateNode` | `(s uuid)` | Switch: toggles and emits its new state. Inject: fires its message once (a no-op while its text is empty, as a click is). |
+| `PressKey` | `(s uuid, s code)` | Keypad: presses the key whose emitted code is `code` (`"7"`, `"+"`, `"CE"`, …). A code the pad does not carry → `BadPropertyValue`. |
+
+A node that cannot be operated that way (e.g. `SetControlValue` on a Debug
+node) answers `NotSupported`; an unknown UUID answers `NodeNotFound`.
+
+Pointer gestures are out of scope: dragging an Oscilloscope's cursors or
+knobs and rotating a Sun Path are gestures, not values, and have no D-Bus
+form.
 
 ### Legacy / test-only forms
 
@@ -483,10 +512,11 @@ with PipnodeEditor.launch() as ed:        # own throwaway instance
     debug = ed.add_node("PnDebug", 620, 100)
 
     ed.set_node_properties(topic, {"topic": "demo/volume"})
-    wire = ed.connect(topic, debug)       # topic -> debug, input 0
+    ed.connect(knob, topic)               # knob -> topic, input 0
+    wire = ed.connect(topic, debug)       # topic -> debug
 
-    ed.inject_message(topic, {"value": 0.5})
-    print(ed.get_last_output_message(topic))   # -> the emitted envelope
+    ed.set_control_value(knob, 0.5)       # turn the knob: it emits
+    print(ed.get_last_output_message(topic))   # -> the envelope, via the wire
 
     ed.pump()
     assert ed.seen("NodeAdded")
@@ -526,6 +556,7 @@ Key surface:
 * `subscribe()` / `pump()` / `seen()` / `events` — signal collection.
 * Typed convenience wrappers for the whole surface: `add_node`, `connect`,
   `set_node_properties`, `inject_message`, `get_last_output_message`,
+  `set_control_value`, `activate_node`, `press_key`,
   `list_node_types`, `add_sheet`, `set_global`, `save_as`, … (one per
   documented method, named after it).
 

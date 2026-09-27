@@ -222,6 +222,17 @@ pn_knob_hit_knob (
     return (dx * dx + dy * dy) <= rr * rr;
 }
 
+/* Store an already-clamped value and refresh the dial.  Shared by the
+ * silent setter and the two emitting operations; emitting is left to
+ * the caller. */
+static void
+apply_value (PnKnob *self, gdouble clamped)
+{
+    self->value = clamped;
+    pn_node_request_repaint (PN_NODE (self));
+    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_VALUE]);
+}
+
 void
 pn_knob_scroll (
         PnKnob *self,
@@ -245,10 +256,25 @@ pn_knob_scroll (
     if (next == self->value)
         return;   /* already parked at the end stop */
 
-    self->value = next;
-    pn_node_request_repaint (PN_NODE (self));
-    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_VALUE]);
+    apply_value (self, next);
+    emit_value_message (self);
+}
 
+void
+pn_knob_turn_to (
+        PnKnob  *self,
+        gdouble  value)
+{
+    gdouble clamped;
+
+    g_return_if_fail (PN_IS_KNOB (self));
+
+    clamped = clamp_to_range (self, value);
+    if (clamped != self->value)
+        apply_value (self, clamped);
+
+    /* Unlike the wheel, emit even when the value did not move: one
+     * call is one message, so a caller can always wait for it. */
     emit_value_message (self);
 }
 
@@ -499,7 +525,5 @@ pn_knob_set_value (PnKnob *self, gdouble value)
     if (clamped == self->value)
         return;
 
-    self->value = clamped;
-    pn_node_request_repaint (PN_NODE (self));
-    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_VALUE]);
+    apply_value (self, clamped);
 }

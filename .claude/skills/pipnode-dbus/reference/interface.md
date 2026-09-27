@@ -20,10 +20,11 @@ Bus name ↔ object path mirror each other (`org.pipas.pipnode.work` →
 | `Editor.GetApiVersion` | `() → (u major, u minor)` | API version. The one method that works before a document exists. |
 | `Editor.Version` (property) | `u` read-only | Major version. |
 
-Current **1.2**. Major bumps on a breaking change; minor on back-compatible
+Current **1.3**. Major bumps on a breaking change; minor on back-compatible
 additions. History: `1.0` addressed/typed/discoverable core; `1.1` whole-document
 ops (Phase D); `1.2` interactivity — selection, view, message inject/readback,
-live signals (Phase E).
+live signals (Phase E); `1.3` operating controls — `SetControlValue`,
+`ActivateNode`, `PressKey`, `NotSupported` (TODO #92).
 
 ## Error contract
 
@@ -44,6 +45,7 @@ it). Match on the trailing code. In PyGObject:
 | `IllegalConnection` | Illegal wire: self-loop, no-output source, no-input target, input index out of range, duplicate. |
 | `SheetNotFound` | Sheet name does not exist. |
 | `GlobalNotFound` | Document-global name does not exist. |
+| `NotSupported` | Node cannot be operated that way (e.g. `SetControlValue` on a non-Knob). |
 | `Failed` | Generic I/O / load failure (`Open`/`Save`/`SetDocumentJson`). |
 
 ---
@@ -123,6 +125,21 @@ session-only (not serialized).
 | `InjectMessage` | `(s uuid, s json)` | Delivers to input 0 as if a wire carried it. Malformed/non-object JSON → `BadPropertyValue`. |
 | `InjectMessageOnInput` | `(s uuid, i input, s json)` | On a specific input; out of range → `BadPropertyValue`. |
 | `GetLastOutputMessage` | `(s uuid) → (s json)` | Last emitted message as compact envelope; `""` before any emission. |
+
+### Operating controls (1.3, TODO #92)
+
+Emit from the control itself, as the user's hand does, so the message travels
+its wires. Property writes stay **silent** (loads/undo/dialog rely on that) —
+use these when you want the emission.
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `SetControlValue` | `(s uuid, d value)` | Knob: clamp to `[min, max]`, repaint, emit. Emits on EVERY call, even unchanged. Non-finite → `BadPropertyValue`. |
+| `ActivateNode` | `(s uuid)` | Switch toggles + emits; Inject fires (no-op while its text is empty). |
+| `PressKey` | `(s uuid, s code)` | Keypad key by emitted code (`"7"`, `"+"`, `"CE"`). Unknown code → `BadPropertyValue`. |
+
+Wrong node kind → `NotSupported`. Drag gestures (Oscilloscope cursors/knobs,
+Sun Path rotation) have no D-Bus form.
 
 ### Legacy / test-only (ignore in new clients)
 

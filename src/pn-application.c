@@ -33,6 +33,8 @@
 #include "pn-countdown.h"
 #include "pn-digital-clock.h"
 #include "pn-inject.h"
+#include "pn-keypad.h"
+#include "pn-knob.h"
 #include "pn-label.h"
 #include "pn-led.h"
 #include "pn-matrix57.h"
@@ -43,6 +45,7 @@
 #include "pn-desktop-geometry.h"
 
 #include <gio/gio.h>
+#include <math.h>
 #include <json-glib/json-glib.h>
 
 struct _PnApplication
@@ -124,7 +127,8 @@ typedef enum
     PN_WORKSHEET_ERROR_ILLEGAL_CONNECTION,
     PN_WORKSHEET_ERROR_SHEET_NOT_FOUND,
     PN_WORKSHEET_ERROR_FAILED,              /* generic fallback (I/O etc.) */
-    PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND     /* document global by name (40.11) */
+    PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND,    /* document global by name (40.11) */
+    PN_WORKSHEET_ERROR_NOT_SUPPORTED        /* node cannot be operated that way (#92) */
 } PnWorksheetError;
 
 #define PN_WORKSHEET_ERROR (pn_worksheet_error_quark ())
@@ -154,6 +158,8 @@ static const GDBusErrorEntry pn_worksheet_error_entries[] = {
       "org.pipas.pipnode.Worksheet.Error.Failed" },
     { PN_WORKSHEET_ERROR_GLOBAL_NOT_FOUND,
       "org.pipas.pipnode.Worksheet.Error.GlobalNotFound" },
+    { PN_WORKSHEET_ERROR_NOT_SUPPORTED,
+      "org.pipas.pipnode.Worksheet.Error.NotSupported" },
 };
 
 /** The Worksheet automation error domain, lazily registered with GDBus
@@ -454,6 +460,18 @@ static const gchar worksheet_introspection_xml[] =
     "      <arg type='s' name='uuid' direction='in'/>"
     "      <arg type='s' name='json' direction='out'/>"
     "    </method>"
+    /* --- TODO #92 operate controls as the user's hand does ----------- */
+    "    <method name='SetControlValue'>"
+    "      <arg type='s' name='uuid'  direction='in'/>"
+    "      <arg type='d' name='value' direction='in'/>"
+    "    </method>"
+    "    <method name='ActivateNode'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "    </method>"
+    "    <method name='PressKey'>"
+    "      <arg type='s' name='uuid' direction='in'/>"
+    "      <arg type='s' name='code' direction='in'/>"
+    "    </method>"
     /* --- 40.14 live-observation signals (Worksheet) ------------------ */
     "    <signal name='NodeAdded'>"
     "      <arg type='s' name='uuid'/>"
@@ -599,6 +617,23 @@ node_by_uuid (PnNodeStore *nodes, const gchar *uuid)
             return node;
     }
     return NULL;
+}
+
+/** Operate @node the way a click on it does (TODO #92.2): a switch
+ *  toggles and emits its new state, an injector fires its message once.
+ *  Returns %FALSE, doing nothing, for any other node.  Shared by the
+ *  Worksheet's ActivateNode and the Engine's ActivateWidget so the two
+ *  surfaces cannot drift apart. */
+static gboolean
+operate_activate (PnNode *node)
+{
+    if (PN_IS_SWITCH (node))
+        pn_switch_toggle (PN_SWITCH (node));
+    else if (PN_IS_INJECT (node))
+        pn_inject_fire (PN_INJECT (node));
+    else
+        return FALSE;
+    return TRUE;
 }
 
 /** The wire in @wires whose session handle equals @uuid, or %NULL.  The
@@ -2596,6 +2631,88 @@ handle_worksheet_method_call (
                 invocation, g_variant_new ("(s)", json));
         g_free (json);
     }
+    else if (g_strcmp0 (method_name, "SetControlValue") == 0 ||
+             g_strcmp0 (method_name, "ActivateNode") == 0 ||
+             g_strcmp0 (method_name, "PressKey") == 0)
+    {
+        /* Operate a control through the same emitting path the GTK
+         * handler takes (TODO #92), so a message leaves the control and
+         * travels its wires.  Property writes stay silent; these don't. */
+        const gchar *uuid  = NULL;
+        const gchar *code  = NULL;
+        gdouble      value = 0.0;
+        PnNode      *node;
+
+        if (g_strcmp0 (method_name, "SetControlValue") == 0)
+            g_variant_get (parameters, "(&sd)", &uuid, &value);
+        else if (g_strcmp0 (method_name, "PressKey") == 0)
+            g_variant_get (parameters, "(&s&s)", &uuid, &code);
+        else
+            g_variant_get (parameters, "(&s)", &uuid);
+
+        node = node_by_uuid (nodes, uuid);
+        if (!node)
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NODE_NOT_FOUND,
+                    "No node with uuid '%s'", uuid ? uuid : "");
+            return;
+        }
+
+        if (g_strcmp0 (method_name, "SetControlValue") == 0)
+        {
+            if (!PN_IS_KNOB (node))
+            {
+                g_dbus_method_invocation_return_error (
+                        invocation, PN_WORKSHEET_ERROR,
+                        PN_WORKSHEET_ERROR_NOT_SUPPORTED,
+                        "%s has no control value to set",
+                        G_OBJECT_TYPE_NAME (node));
+                return;
+            }
+            if (!isfinite (value))
+            {
+                g_dbus_method_invocation_return_error (
+                        invocation, PN_WORKSHEET_ERROR,
+                        PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                        "Control value must be a finite number");
+                return;
+            }
+            pn_knob_turn_to (PN_KNOB (node), value);
+        }
+        else if (g_strcmp0 (method_name, "PressKey") == 0)
+        {
+            if (!PN_IS_KEYPAD (node))
+            {
+                g_dbus_method_invocation_return_error (
+                        invocation, PN_WORKSHEET_ERROR,
+                        PN_WORKSHEET_ERROR_NOT_SUPPORTED,
+                        "%s has no keys to press",
+                        G_OBJECT_TYPE_NAME (node));
+                return;
+            }
+            if (!pn_keypad_press_code (PN_KEYPAD (node), code))
+            {
+                g_dbus_method_invocation_return_error (
+                        invocation, PN_WORKSHEET_ERROR,
+                        PN_WORKSHEET_ERROR_BAD_PROPERTY_VALUE,
+                        "No key '%s' on this pad", code ? code : "");
+                return;
+            }
+        }
+        else if (!operate_activate (node))
+        {
+            g_dbus_method_invocation_return_error (
+                    invocation, PN_WORKSHEET_ERROR,
+                    PN_WORKSHEET_ERROR_NOT_SUPPORTED,
+                    "%s cannot be activated", G_OBJECT_TYPE_NAME (node));
+            return;
+        }
+
+        gtk_widget_queue_draw (GTK_WIDGET (worksheet));
+        g_dbus_method_invocation_return_value (invocation, NULL);
+    }
     else if (g_strcmp0 (method_name, "GetDeviceProviders") == 0)
     {
         /* Snapshot the Devices-menu provider registry (TODO #34 Phase D).
@@ -2654,7 +2771,7 @@ static GDBusNodeInfo *worksheet_introspection_data = NULL;
 /* ================================================================== */
 
 #define PN_AUTOMATION_API_VERSION_MAJOR 1u
-#define PN_AUTOMATION_API_VERSION_MINOR 2u
+#define PN_AUTOMATION_API_VERSION_MINOR 3u
 
 static const gchar editor_introspection_xml[] =
     "<node>"
@@ -4821,11 +4938,10 @@ handle_engine_method_call (
         node = engine_find_node_by_uuid (win, uuid);
         /* The two interactive kinds.  A switch toggle flips and re-emits a
          * repaint-needed → WidgetChanged carrying the new "on" state; an
-         * injector fires its message once (no state to mirror back). */
-        if (PN_IS_SWITCH (node))
-            pn_switch_toggle (PN_SWITCH (node));
-        else if (PN_IS_INJECT (node))
-            pn_inject_fire (PN_INJECT (node));
+         * injector fires its message once (no state to mirror back).
+         * Anything else is ignored here, as before. */
+        if (node != NULL)
+            operate_activate (node);
         g_dbus_method_invocation_return_value (invocation, NULL);
     }
     else if (g_strcmp0 (method_name, "PresentEditor") == 0)

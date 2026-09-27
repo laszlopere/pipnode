@@ -75,11 +75,11 @@ Both live on the same object path; pick by scope:
 
 | Interface | Scope |
 |-----------|-------|
-| `org.pipas.pipnode.Worksheet` | The **active sheet**: nodes, wires, properties, discovery, selection/view, message inject/readback, live graph signals. |
+| `org.pipas.pipnode.Worksheet` | The **active sheet**: nodes, wires, properties, discovery, selection/view, message inject/readback, operating controls (knob/switch/inject/keypad), live graph signals. |
 | `org.pipas.pipnode.Editor` | The **document**: API-version handshake, whole-file / active-sheet JSON, sheets, file lifecycle (New/Open/Save/SaveAs), document globals, document signals. |
 
 Always feature-detect: `Editor.GetApiVersion() → (u major, u minor)` (the one
-method that works before a document exists). Current: **1.2**.
+method that works before a document exists). Current: **1.3**.
 
 ## The core authoring loop
 
@@ -123,7 +123,7 @@ method that works before a document exists). Current: **1.2**.
 - **Every failure is a real D-Bus error**, never a silent false. Domain
   `org.pipas.pipnode.Worksheet.Error.<Code>` (e.g. `NodeNotFound`,
   `UnknownNodeType`, `UnknownProperty`, `BadPropertyValue`, `IllegalConnection`,
-  `SheetNotFound`, `GlobalNotFound`, `NoActiveSheet`, `Failed`). Match on the
+  `SheetNotFound`, `GlobalNotFound`, `NotSupported`, `NoActiveSheet`, `Failed`). Match on the
   trailing code. Full list in `reference/interface.md`.
 - **`.Worksheet` calls need an active worksheet.** If the panel-editor tab is
   selected (not a flow sheet) they raise `NoActiveSheet`.

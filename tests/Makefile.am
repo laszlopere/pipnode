@@ -12,6 +12,7 @@ TESTS = \
 	test_dbus_error_contract.py \
 	test_dbus_interactivity.py \
 	test_dbus_node_lifecycle.py \
+	test_dbus_operate_controls.py \
 	test_dbus_port_wiring.py \
 	test_dbus_uuid_addressing.py \
 	test_debug_view_toggle.py \

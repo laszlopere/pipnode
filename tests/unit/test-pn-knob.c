@@ -17,7 +17,9 @@
  * clamps to [min, max] and updates the value silently; pn_knob_scroll()
  * moves the value by a fixed fraction of the range per detent and emits
  * a message carrying the new data.value.  Scrolling against an end stop
- * (or across a zero-width range) emits nothing. */
+ * (or across a zero-width range) emits nothing.  pn_knob_turn_to() is
+ * the programmatic twin of a turn (D-Bus SetControlValue): it clamps and
+ * emits on every call, even when the value does not move. */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -162,6 +164,50 @@ test_zero_width_range_does_not_rotate (void)
     g_object_unref (node);
 }
 
+static void
+on_notify_value (GObject *obj, GParamSpec *pspec, gpointer user_data)
+{
+    (void) obj;
+    (void) pspec;
+    (*(guint *) user_data)++;
+}
+
+static void
+test_turn_to_clamps_and_always_emits (void)
+{
+    Capture cap;
+    guint   notifies = 0;
+    PnKnob *node = make_node (&cap);     /* default range [0, 1], value 0 */
+
+    g_signal_connect (node, "notify::value",
+                      G_CALLBACK (on_notify_value), &notifies);
+
+    pn_knob_turn_to (node, 0.25);
+    PN_CHECK_CMPINT (cap.count, ==, 1);
+    PN_CHECK_CMPINT (notifies,  ==, 1);
+    PN_CHECK_NEAR   (pn_knob_get_value (node),        0.25, 1e-9);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 0.25, 1e-9);
+
+    /* Out of range clamps to max, and the message carries the clamp. */
+    pn_knob_turn_to (node, 7.0);
+    PN_CHECK_CMPINT (cap.count, ==, 2);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 1.0, 1e-9);
+
+    /* Same value again: no notify (nothing moved) but still one
+     * message -- unlike the wheel at an end stop. */
+    pn_knob_turn_to (node, 1.0);
+    PN_CHECK_CMPINT (cap.count, ==, 3);
+    PN_CHECK_CMPINT (notifies,  ==, 2);
+    PN_CHECK_NEAR   (pn_test_num (cap.last, "value"), 1.0, 1e-9);
+
+    /* The silent setter stays silent beside it. */
+    pn_knob_set_value (node, 0.5);
+    PN_CHECK_CMPINT (cap.count, ==, 3);
+
+    g_clear_object (&cap.last);
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -171,5 +217,6 @@ main (int argc, char **argv)
     pn_test_add ("scroll_end_stop_silent", test_scroll_at_end_stop_is_silent);
     pn_test_add ("startup_announce",       test_announces_value_once_on_startup);
     pn_test_add ("zero_width_no_rotate",   test_zero_width_range_does_not_rotate);
+    pn_test_add ("turn_to_always_emits",   test_turn_to_clamps_and_always_emits);
     return pn_test_run ();
 }

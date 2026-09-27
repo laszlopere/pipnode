@@ -1404,27 +1404,27 @@
        bump; a node that cannot be operated that way answers
        NotSupported. Behave EXACTLY as the user's hand would, so a
        test through D-Bus proves what a user would see.
-       [ ] 92.1 `SetControlValue(s uuid, d value)` -- Knob: clamp to
+       [x] 92.1 `SetControlValue(s uuid, d value)` -- Knob: clamp to
              [min, max], repaint, notify, emit, as a wheel turn does.
              Needs a core entry point beside the silent setter, e.g.
              pn_knob_turn_to(), sharing pn_knob_scroll()'s tail. Decide
              whether a value equal to the current one still emits (the
              wheel at an end stop does not; a test wants determinism).
-       [ ] 92.2 `ActivateNode(s uuid)` -- Switch toggles, Inject fires;
+       [x] 92.2 `ActivateNode(s uuid)` -- Switch toggles, Inject fires;
              mirrors the Engine's ActivateWidget. Share the dispatch
              with it rather than copying it.
-       [ ] 92.3 `PressKey(s uuid, s code)` -- Keypad, through the
+       [x] 92.3 `PressKey(s uuid, s code)` -- Keypad, through the
              existing pn_keypad_press_code(); an unknown code ->
              BadPropertyValue.
-       [ ] 92.4 pndbus.py wrappers (set_control_value, activate_node,
+       [x] 92.4 pndbus.py wrappers (set_control_value, activate_node,
              press_key) and DBUS-API.md rows; FIX the worked example to
              turn the knob instead of injecting beside it.
-       [ ] 92.5 Functional tests, one per control, through a live
+       [x] 92.5 Functional tests, one per control, through a live
              --dbus-name editor: the emitted message comes out of the
              control itself and reaches a wired consumer; a property
              write still does NOT emit (the silent contract kept); an
              unsupported node -> NotSupported.
-       [ ] 92.6 OUT OF SCOPE unless something asks: drag gestures
+       [x] 92.6 OUT OF SCOPE unless something asks: drag gestures
              (Oscilloscope cursors and knobs, Sun Path rotation) --
              pointer gestures, not values. Note it in DBUS-API.md.
 
@@ -1438,7 +1438,7 @@
        R3 = clamp(R1 Rx / 100, 0, 400)) -> Reading (PnExpression2,
        Tm = (R3 100 / R1 / 100 - 1) / 0.00385); Knob R1 feeds Servo,
        Reading and the Figure. No randomness, no timers.
-       WAITS ON #92.1: without SetControlValue the test would have to
+       UNBLOCKED by #92.1: without SetControlValue the test would have to
        inject into the knobs' consumers itself, restating the wiring
        it is meant to test.
        [ ] 93.1 A COPY of examples/displays/wheatstone-bridge.json as

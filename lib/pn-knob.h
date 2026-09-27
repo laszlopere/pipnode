@@ -93,6 +93,20 @@ gboolean pn_knob_hit_knob (PnKnob *self, double px, double py);
  */
 void pn_knob_scroll (PnKnob *self, double dy);
 
+/**
+ * pn_knob_turn_to:
+ * @self:  the knob node
+ * @value: the value to turn the knob to
+ *
+ * The programmatic twin of a wheel turn: clamps @value into [min, max],
+ * refreshes the dial when the value changes, and emits a message
+ * carrying the new "value".  Unlike pn_knob_scroll() at an end stop it
+ * emits on EVERY call, even when the clamped value equals the current
+ * one, so each call yields exactly one message.  Used by the D-Bus
+ * SetControlValue method; pn_knob_set_value() stays silent.
+ */
+void pn_knob_turn_to (PnKnob *self, gdouble value);
+
 /* ------------------------------------------------------------------ */
 /*  GUI read seam (GTK-free)                                           */
 /*                                                                     */

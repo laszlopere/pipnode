@@ -499,6 +499,22 @@ class PipnodeEditor:
                       "(s)").unpack()[0]
         return json.loads(raw) if raw else None
 
+    # ---- operating controls (TODO #92) --------------------------------
+    # Unlike a property write (silent), these emit from the control
+    # exactly as the user's hand does, so the message travels its wires.
+
+    def set_control_value(self, uuid: str, value: float) -> None:
+        """Turn a Knob to @value (clamped); always emits one message."""
+        self.ws("SetControlValue", GLib.Variant("(sd)", (uuid, value)))
+
+    def activate_node(self, uuid: str) -> None:
+        """Click a Switch (toggles) or an Inject (fires)."""
+        self.ws("ActivateNode", GLib.Variant("(s)", (uuid,)))
+
+    def press_key(self, uuid: str, code: str) -> None:
+        """Press the Keypad key whose code is @code ("7", "+", "CE", …)."""
+        self.ws("PressKey", GLib.Variant("(ss)", (uuid, code)))
+
 
 # A tiny smoke test when run directly: launch an instance, build a 3-node
 # flow, exercise the round-trip, and print a one-line summary.
