@@ -569,31 +569,270 @@ add_argument (
     return TRUE;
 }
 
-/* Splits one logical line.  Returns %NULL, with every error it found
- * reported, when the line is not a statement. */
+/* One step of the scan every piece of a line is cut with: quotes and
+ * parentheses are tracked so that a comma, or the keyword `with`,
+ * counts only at paren depth 0 and outside a string.  Returns %TRUE
+ * when the character at @c leaves the scan at the top level. */
+typedef struct
+{
+    gboolean in_string;
+    gboolean escaped;
+    gint     depth;
+} Nesting;
+
+static gboolean
+nesting_step (
+        Nesting *self,
+        gchar    c)
+{
+    gboolean top = !self->in_string && self->depth == 0;
+
+    if (self->escaped)
+        self->escaped = FALSE;
+    else if (self->in_string)
+    {
+        if (c == '\\')
+            self->escaped = TRUE;
+        else if (c == '"')
+            self->in_string = FALSE;
+    }
+    else if (c == '"')
+        self->in_string = TRUE;
+    else if (c == '(')
+        self->depth++;
+    else if (c == ')' && self->depth > 0)
+        self->depth--;
+
+    return top;
+}
+
+/* The slices of [@from, @to) between the commas at the top level, as
+ * (start, end) pairs.  Rule 3: a slice with nothing in it is still a
+ * slice, so a dangling comma reaches add_argument() and is reported. */
+static GArray *
+split_commas (
+        const gchar *text,
+        gsize        from,
+        gsize        to)
+{
+    GArray  *pieces = g_array_new (FALSE, FALSE, sizeof (gsize));
+    Nesting  nest   = { FALSE, FALSE, 0 };
+    gsize    start  = from;
+    gsize    i;
+
+    for (i = from; i <= to; i++)
+    {
+        if (i == to || (nesting_step (&nest, text[i]) && text[i] == ','))
+        {
+            g_array_append_val (pieces, start);
+            g_array_append_val (pieces, i);
+            start = i + 1;
+        }
+    }
+
+    return pieces;
+}
+
+/* TRUE when the word at @i of @text is the keyword `with`: a whole word,
+ * with whitespace before it -- which is also why it can never be the
+ * verb it follows, nor the inside of a longer name. */
+static gboolean
+is_with_at (
+        const gchar *text,
+        gsize        i)
+{
+    return i > 0 && g_ascii_isspace (text[i - 1])
+           && g_ascii_strncasecmp (text + i, "with", 4) == 0
+           && (text[i + 4] == '\0' || g_ascii_isspace (text[i + 4]));
+}
+
+/* Where the `with` of a trailing list stands in @text, looking from
+ * @from on, or 0 when there is none. */
+static gsize
+find_with (
+        const gchar *text,
+        gsize        from)
+{
+    Nesting nest = { FALSE, FALSE, 0 };
+    gsize   i;
+
+    for (i = from; text[i] != '\0'; i++)
+        if (nesting_step (&nest, text[i]) && is_with_at (text, i))
+            return i;
+
+    return 0;
+}
+
+/* The pen verbs (80.5), the only ones a `with` list may hold (91.2):
+ * the settings a scope can save and give back.  `view` is not one --
+ * a window is where the pen draws, not how. */
+static const gchar *const pen_words[] =
+{
+    "color", "fill", "nofill", "width", "dash", "font", "align",
+};
+
+static gboolean
+is_pen_word (
+        const gchar *word,
+        gsize        len)
+{
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS (pen_words); i++)
+        if (strlen (pen_words[i]) == len
+            && g_ascii_strncasecmp (word, pen_words[i], len) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/* The verbs that put ink down, the only ones a trailing `with` may
+ * follow; @name is folded.  A trailing `with` on anything else -- a pen
+ * setting, a `move`, the head of a block -- would scope nothing, or
+ * worse, scope a block's head and not its body. */
+static gboolean
+draws_ink (
+        const gchar *name)
+{
+    static const gchar *const ink[] =
+    {
+        "lineto", "rline", "line", "point", "circle", "arc", "rect",
+        "poly", "path", "text",
+    };
+    gsize i;
+
+    for (i = 0; i < G_N_ELEMENTS (ink); i++)
+        if (g_strcmp0 (ink[i], name) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/* A verb statement named by the @len characters at @offset of @line,
+ * with no arguments yet. */
 static PnFigureStatement *
+statement_new (
+        const PnFigureLine *line,
+        gsize               offset,
+        gsize               len)
+{
+    PnFigureStatement *statement = g_new0 (PnFigureStatement, 1);
+
+    statement->kind   = PN_FIGURE_STATEMENT_VERB;
+    statement->name   = g_ascii_strdown (line->text + offset, (gssize) len);
+    statement->args   = g_ptr_array_new_with_free_func (
+                            (GDestroyNotify) pn_figure_arg_free);
+    statement->source = line;
+    statement->offset = offset;
+    return statement;
+}
+
+/* Splits the list after the `with` at @at into pen settings, appending
+ * one statement per setting to @out.  A piece that begins with a pen
+ * verb starts a setting, and whatever follows that word in the piece is
+ * its first argument; a piece that does not is the current setting's
+ * next argument -- which is how `with color 1, 0, 0, width 2` comes out
+ * as two settings.  Returns %FALSE, with every error reported, when the
+ * list is not one. */
+static gboolean
+split_styles (
+        const PnFigureLine *line,
+        gsize               at,
+        GPtrArray          *out,
+        GPtrArray          *errors)
+{
+    const gchar       *text    = line->text;
+    PnFigureStatement *current = NULL;
+    GArray            *pieces;
+    gboolean           ok      = TRUE;
+    gsize              from    = at + 4;
+    guint              n;
+
+    while (g_ascii_isspace (text[from]))
+        from++;
+
+    if (text[from] == '\0')
+    {
+        report_at (errors, line, at, "with needs a pen setting: color, "
+                   "fill, nofill, width, dash, font or align");
+        return FALSE;
+    }
+
+    pieces = split_commas (text, from, strlen (text));
+
+    for (n = 0; n + 1 < pieces->len; n += 2)
+    {
+        gsize start = g_array_index (pieces, gsize, n);
+        gsize end   = g_array_index (pieces, gsize, n + 1);
+        gsize word;
+
+        while (start < end && g_ascii_isspace (text[start]))
+            start++;
+
+        for (word = start;
+             word < end && (g_ascii_isalnum (text[word]) || text[word] == '_');
+             word++)
+            ;
+
+        if (word > start && !g_ascii_isdigit (text[start])
+            && is_pen_word (text + start, word - start)
+            && (word == end || g_ascii_isspace (text[word])))
+        {
+            current = statement_new (line, start, word - start);
+            g_ptr_array_add (out, current);
+
+            while (word < end && g_ascii_isspace (text[word]))
+                word++;
+            if (word < end
+                && !add_argument (current->args, line, word, end, errors))
+                ok = FALSE;
+            continue;
+        }
+
+        if (current == NULL)
+        {
+            report_at (errors, line, start, "expected a pen setting: color, "
+                       "fill, nofill, width, dash, font or align");
+            ok = FALSE;
+            break;
+        }
+
+        if (!add_argument (current->args, line, start, end, errors))
+            ok = FALSE;
+    }
+
+    g_array_unref (pieces);
+    return ok;
+}
+
+/* Splits one logical line, appending what it holds to @statements: one
+ * statement, or -- when the line carries a `with` -- the block it
+ * stands for (91.2).  Appends nothing, with every error it found
+ * reported, when the line is not a statement. */
+static void
 split_line (
         const PnFigureLine *line,
+        GPtrArray          *statements,
         GPtrArray          *errors)
 {
     const gchar       *text = line->text;
     PnFigureStatement *statement;
-    GPtrArray         *args;
-    gboolean           ok      = TRUE;
-    gboolean           in_string = FALSE;
-    gboolean           escaped = FALSE;
-    gint               depth   = 0;
+    GPtrArray         *styles;
+    GArray            *pieces;
+    gboolean           ok = TRUE;
+    gboolean           block;
     gsize              name_end;
     gsize              rest;
-    gsize              start;
-    gsize              i;
+    gsize              with;
+    gsize              stop;
+    guint              n;
 
     /* Rule 1: a statement begins with an identifier, spelled the way
      * the expression lexer spells one. */
     if (!g_ascii_isalpha (text[0]) && text[0] != '_')
     {
         report_at (errors, line, 0, "expected a verb or an assignment");
-        return NULL;
+        return;
     }
 
     for (name_end = 0;
@@ -614,60 +853,92 @@ split_line (
         statement->args   = g_ptr_array_new_with_free_func (
                                 (GDestroyNotify) pn_figure_arg_free);
         statement->source = line;
-        return statement;
+        g_ptr_array_add (statements, statement);
+        return;
     }
 
-    args = g_ptr_array_new_with_free_func ((GDestroyNotify) pn_figure_arg_free);
+    statement = statement_new (line, 0, name_end);
+    styles    = g_ptr_array_new_with_free_func (
+                    (GDestroyNotify) pn_figure_statement_free);
+
+    /* A line that begins with `with` opens a block, and the whole rest
+     * of it is the list; anywhere else, a `with` ends the arguments. */
+    block = g_strcmp0 (statement->name, "with") == 0;
+    if (block)
+    {
+        with = 0;
+        stop = rest;
+    }
+    else
+    {
+        with = find_with (text, rest);
+        stop = with > 0 ? with : strlen (text);
+    }
 
     /* Rule 3: split on the commas at paren depth 0, outside quotes.
      * A verb with nothing after it has no arguments, as against one
      * empty argument. */
-    if (text[rest] != '\0')
+    while (stop > rest && g_ascii_isspace (text[stop - 1]))
+        stop--;
+
+    if (stop > rest)
     {
-        for (i = start = rest; ; i++)
-        {
-            gchar c = text[i];
+        pieces = split_commas (text, rest, stop);
+        for (n = 0; n + 1 < pieces->len; n += 2)
+            if (!add_argument (statement->args, line,
+                               g_array_index (pieces, gsize, n),
+                               g_array_index (pieces, gsize, n + 1),
+                               errors))
+                ok = FALSE;
+        g_array_unref (pieces);
+    }
 
-            if (c == '\0' || (!in_string && depth == 0 && c == ','))
-            {
-                if (!add_argument (args, line, start, i, errors))
-                    ok = FALSE;
-                if (c == '\0')
-                    break;
-                start = i + 1;
-                continue;
-            }
+    if ((with > 0 || block)
+        && !split_styles (line, with, styles, errors))
+        ok = FALSE;
 
-            if (escaped)
-                escaped = FALSE;
-            else if (in_string)
-            {
-                if (c == '\\')
-                    escaped = TRUE;
-                else if (c == '"')
-                    in_string = FALSE;
-            }
-            else if (c == '"')
-                in_string = TRUE;
-            else if (c == '(')
-                depth++;
-            else if (c == ')' && depth > 0)
-                depth--;
-        }
+    if (with > 0 && !draws_ink (statement->name))
+    {
+        report_at (errors, line, with,
+                   "with can only follow a statement that draws");
+        ok = FALSE;
     }
 
     if (!ok)
     {
-        g_ptr_array_unref (args);
-        return NULL;
+        /* A `with` line keeps its head, so the `end` that closes it is
+         * not then reported as a second mistake. */
+        if (block)
+            g_ptr_array_add (statements, statement);
+        else
+            pn_figure_statement_free (statement);
+        g_ptr_array_unref (styles);
+        return;
     }
 
-    statement         = g_new0 (PnFigureStatement, 1);
-    statement->kind   = PN_FIGURE_STATEMENT_VERB;
-    statement->name   = g_ascii_strdown (text, (gssize) name_end);
-    statement->args   = args;
-    statement->source = line;
-    return statement;
+    /* The two spellings come out as the same block: a trailing list is
+     * `with`, the settings, the statement and an `end`, the three added
+     * ones locating at the `with` or at their own words, so that nothing
+     * after this stage has to know there was ever a second spelling. */
+    if (with > 0)
+        g_ptr_array_add (statements, statement_new (line, with, 4));
+    else
+        g_ptr_array_add (statements, statement);
+
+    for (n = 0; n < styles->len; n++)
+        g_ptr_array_add (statements, g_ptr_array_index (styles, n));
+    g_ptr_array_set_free_func (styles, NULL);
+    g_ptr_array_unref (styles);
+
+    if (with > 0)
+    {
+        g_ptr_array_add (statements, statement);
+
+        statement = statement_new (line, with, 4);
+        g_free (statement->name);
+        statement->name = g_strdup ("end");
+        g_ptr_array_add (statements, statement);
+    }
 }
 
 GPtrArray *
@@ -684,13 +955,7 @@ pn_figure_split (
     g_return_val_if_fail (lines != NULL, statements);
 
     for (i = 0; i < lines->len; i++)
-    {
-        const PnFigureLine *line = g_ptr_array_index (lines, i);
-        PnFigureStatement  *statement = split_line (line, errors);
-
-        if (statement != NULL)
-            g_ptr_array_add (statements, statement);
-    }
+        split_line (g_ptr_array_index (lines, i), statements, errors);
 
     return statements;
 }
@@ -760,6 +1025,10 @@ static const VerbInfo verb_table[] =
     { "if",     PN_FIGURE_VERB_IF,     1, 1,          "",    'e', VERB_PLAIN  },
     { "elseif", PN_FIGURE_VERB_ELSEIF, 1, 1,          "",    'e', VERB_PLAIN  },
     { "else",   PN_FIGURE_VERB_ELSE,   0, 0,          "",    0,   VERB_PLAIN  },
+
+    /* scoped pen settings (91.2): the settings themselves are split off
+     * as statements of their own, so the head takes no arguments */
+    { "with",   PN_FIGURE_VERB_WITH,   0, 0,          "",    0,   VERB_PLAIN  },
 };
 
 /* The table is small and a program is a few dozen lines, so a linear
@@ -836,7 +1105,7 @@ check_colour (
 
     if (n < 3 || n > 4)
     {
-        report_at (errors, statement->source, 0,
+        report_at (errors, statement->source, statement->offset,
                    "%s takes a quoted colour or 3 or 4 numbers, not %u",
                    info->name, n);
         return FALSE;
@@ -863,10 +1132,12 @@ check_statement (
     if (info == NULL)
     {
         /* Quote what was typed, not what it folded to. */
-        gchar *typed = g_strndup (statement->source->text,
-                                  strlen (statement->name));
+        gchar *typed = g_strndup (
+                statement->source->text + statement->offset,
+                strlen (statement->name));
 
-        report_at (errors, statement->source, 0, "unknown verb \"%s\"", typed);
+        report_at (errors, statement->source, statement->offset,
+                   "unknown verb \"%s\"", typed);
         g_free (typed);
         return FALSE;
     }
@@ -879,15 +1150,15 @@ check_statement (
     if (n < info->min || n > info->max)
     {
         if (info->max == G_MAXUINT)
-            report_at (errors, statement->source, 0,
+            report_at (errors, statement->source, statement->offset,
                        "%s takes at least %u arguments, not %u",
                        info->name, info->min, n);
         else if (info->min != info->max)
-            report_at (errors, statement->source, 0,
+            report_at (errors, statement->source, statement->offset,
                        "%s takes %u or %u arguments, not %u",
                        info->name, info->min, info->max, n);
         else
-            report_at (errors, statement->source, 0,
+            report_at (errors, statement->source, statement->offset,
                        "%s takes %u argument%s, not %u", info->name,
                        info->min, info->min == 1 ? "" : "s", n);
         return FALSE;
@@ -895,7 +1166,7 @@ check_statement (
 
     if ((info->flags & VERB_PAIRS) && (n % 2) != 0)
     {
-        report_at (errors, statement->source, 0,
+        report_at (errors, statement->source, statement->offset,
                    "%s takes x and y in pairs", info->name);
         return FALSE;
     }
@@ -986,7 +1257,7 @@ pn_figure_check_blocks (
              * inner loop would still rebind the outer one's `i`. */
             if (repeats > 0)
             {
-                report_at (errors, statement->source, 0,
+                report_at (errors, statement->source, statement->offset,
                            "repeat cannot be nested inside another repeat");
                 ok = FALSE;
             }
@@ -995,6 +1266,7 @@ pn_figure_check_blocks (
             break;
 
         case PN_FIGURE_VERB_IF:
+        case PN_FIGURE_VERB_WITH:
             g_array_append_val (open, block);
             break;
 
@@ -1010,13 +1282,13 @@ pn_figure_check_blocks (
              * meant. */
             if (top == NULL || top->opener->verb != PN_FIGURE_VERB_IF)
             {
-                report_at (errors, statement->source, 0,
+                report_at (errors, statement->source, statement->offset,
                            "%s without an if", word);
                 ok = FALSE;
             }
             else if (top->has_else)
             {
-                report_at (errors, statement->source, 0,
+                report_at (errors, statement->source, statement->offset,
                            "%s after else", word);
                 ok = FALSE;
             }
@@ -1030,8 +1302,8 @@ pn_figure_check_blocks (
         case PN_FIGURE_VERB_END:
             if (top == NULL)
             {
-                report_at (errors, statement->source, 0,
-                           "end without a repeat or an if");
+                report_at (errors, statement->source, statement->offset,
+                           "end without a repeat, an if or a with");
                 ok = FALSE;
                 break;
             }
@@ -1052,8 +1324,8 @@ pn_figure_check_blocks (
         const PnFigureStatement *opener =
                 g_array_index (open, OpenBlock, i).opener;
 
-        report_at (errors, opener->source, 0, "%s without an end",
-                   opener->verb == PN_FIGURE_VERB_REPEAT ? "repeat" : "if");
+        report_at (errors, opener->source, opener->offset,
+                   "%s without an end", opener->name);
         ok = FALSE;
     }
 
@@ -2151,6 +2423,76 @@ emit_pen (
     op->valign = pen->valign;
 }
 
+static gboolean
+colour_equal (
+        const PnColor *a,
+        const PnColor *b)
+{
+    return a->red == b->red && a->green == b->green
+           && a->blue == b->blue && a->alpha == b->alpha;
+}
+
+/* Gives the pen back the settings @saved had (91.2): the seven that
+ * `with` can scope.  The view and the pen's position are where the pen
+ * draws, not how, and carry on -- a `lineto` chain may go on out of the
+ * block.  Only what differs is emitted, so a `with` whose settings all
+ * matched costs the display list nothing, and the painter is told
+ * exactly what changed back, in the device units of the CURRENT view. */
+static void
+pen_restore (
+        GPtrArray *ops,
+        Pen       *pen,
+        const Pen *saved,
+        gint       line)
+{
+    PnFigureOp *op;
+
+    if (!colour_equal (&pen->stroke, &saved->stroke))
+    {
+        pen->stroke = saved->stroke;
+        op_add (ops, PN_FIGURE_OP_COLOR, line)->color = pen->stroke;
+    }
+
+    if (pen->filling != saved->filling
+        || (saved->filling && !colour_equal (&pen->fill, &saved->fill)))
+    {
+        if (saved->filling)
+            op_add (ops, PN_FIGURE_OP_FILL, line)->color = saved->fill;
+        else
+            op_add (ops, PN_FIGURE_OP_NOFILL, line);
+    }
+    pen->fill    = saved->fill;
+    pen->filling = saved->filling;
+
+    if (pen->width != saved->width)
+    {
+        pen->width = saved->width;
+        emit_width (ops, pen, line);
+    }
+
+    if (pen->dash != saved->dash || pen->dash_scale != saved->dash_scale)
+    {
+        pen->dash       = saved->dash;
+        pen->dash_scale = saved->dash_scale;
+        emit_dash (ops, pen, line);
+    }
+
+    if (pen->font != saved->font)
+    {
+        pen->font = saved->font;
+        emit_font (ops, pen, line);
+    }
+
+    if (pen->halign != saved->halign || pen->valign != saved->valign)
+    {
+        pen->halign = saved->halign;
+        pen->valign = saved->valign;
+        op         = op_add (ops, PN_FIGURE_OP_ALIGN, line);
+        op->halign = pen->halign;
+        op->valign = pen->valign;
+    }
+}
+
 static void
 emit_view (
         GPtrArray *ops,
@@ -2437,7 +2779,7 @@ emit_skip (
     gint        line = 0;
     PnFigureOp *op;
 
-    pn_figure_line_locate (statement->source, 0, &line, NULL);
+    pn_figure_line_locate (statement->source, statement->offset, &line, NULL);
     op       = op_add (ops, PN_FIGURE_OP_SKIP, line);
     op->text = g_strdup (reason);
 }
@@ -2481,7 +2823,7 @@ draw_statement (
     gint       line = 0;
     gboolean   ok   = TRUE;
 
-    pn_figure_line_locate (statement->source, 0, &line, NULL);
+    pn_figure_line_locate (statement->source, statement->offset, &line, NULL);
 
     if (!args_are_finite (statement, values))
     {
@@ -2746,6 +3088,7 @@ draw_statement (
     case PN_FIGURE_VERB_IF:
     case PN_FIGURE_VERB_ELSEIF:
     case PN_FIGURE_VERB_ELSE:
+    case PN_FIGURE_VERB_WITH:
         /* Control flow is not ink (#86.7), and the walk in
          * pn_figure_trace_new() has already dealt with the block: what
          * reaches here is a block the front end never checked, which
@@ -2764,10 +3107,13 @@ draw_statement (
 }
 
 /* Where the walk goes next from each block statement, worked out once
- * per walk with a stack: a `repeat` links to its `end`; an `if`,
- * `elseif` or `else` links to the next clause of the same chain -- the
- * following `elseif` or `else`, or the `end`.  Anything unclosed links
- * to the statement count.
+ * per walk with a stack: a `repeat` or a `with` links to its `end`; an
+ * `if`, `elseif` or `else` links to the next clause of the same chain --
+ * the following `elseif` or `else`, or the `end`.  Anything unclosed
+ * links to the statement count.  An `end` links BACK, to the head of the
+ * block it closes, which is how the walk knows that this `end` gives
+ * the pen back; it is the one backward link, and nothing ever jumps
+ * along it.
  *
  * The walk asks this rather than scanning for the first `end`, as it
  * could while `repeat` was the only block: with `if` nesting inside
@@ -2801,27 +3147,34 @@ block_links (
         {
         case PN_FIGURE_VERB_REPEAT:
         case PN_FIGURE_VERB_IF:
+        case PN_FIGURE_VERB_WITH:
             g_array_append_val (open, i);
             break;
 
         case PN_FIGURE_VERB_ELSEIF:
         case PN_FIGURE_VERB_ELSE:
+        {
+            PnFigureVerb head = top == NULL
+                    ? PN_FIGURE_VERB_NONE
+                    : ((const PnFigureStatement *)
+                       g_ptr_array_index (statements, *top))->verb;
+
             /* The chain's newest clause now stands for the whole block,
              * so the next clause (or the `end`) is linked from it. */
-            if (top != NULL
-                && ((const PnFigureStatement *)
-                    g_ptr_array_index (statements, *top))->verb
-                   != PN_FIGURE_VERB_REPEAT)
+            if (head == PN_FIGURE_VERB_IF || head == PN_FIGURE_VERB_ELSEIF
+                || head == PN_FIGURE_VERB_ELSE)
             {
                 next[*top] = i;
                 *top       = i;
             }
             break;
+        }
 
         case PN_FIGURE_VERB_END:
             if (top != NULL)
             {
                 next[*top] = i;
+                next[i]    = *top;
                 g_array_set_size (open, open->len - 1);
             }
             break;
@@ -3274,8 +3627,24 @@ trace_range (
             i = chain_end (statements, next, i) + 1;
             break;
 
+        case PN_FIGURE_VERB_WITH:
+            /* Recorded, so that the draw saves the pen here (91.2); the
+             * settings after it are ordinary statements. */
+            if (!trace_statement (self, statement, store))
+                return FALSE;
+            i++;
+            break;
+
         case PN_FIGURE_VERB_END:
-            /* The close of an `if` whose branch ran: nothing to do. */
+            /* The close of a `with` gives the pen back, so the draw has
+             * to see it; the close of an `if` whose branch ran is
+             * nothing at all. */
+            if (next[i] < statements->len
+                && ((PnFigureStatement *)
+                    g_ptr_array_index (statements, next[i]))->verb
+                   == PN_FIGURE_VERB_WITH
+                && !trace_statement (self, statement, store))
+                return FALSE;
             i++;
             break;
 
@@ -3334,6 +3703,7 @@ pn_figure_trace_draw (
 {
     GPtrArray  *ops = figure_ops_new ();
     GPtrArray  *errors;
+    GArray     *saved;
     Frame       frame;
     Pen         pen;
     gboolean    failed = FALSE;
@@ -3360,6 +3730,7 @@ pn_figure_trace_draw (
     emit_pen (ops, &pen, 0);
 
     errors = pn_figure_errors_new ();
+    saved  = g_array_new (FALSE, FALSE, sizeof (Pen));
 
     for (i = 0; i < self->entries->len && !failed; i++)
     {
@@ -3370,6 +3741,29 @@ pn_figure_trace_draw (
         if (entry->skip != NULL)
         {
             emit_skip (ops, entry->statement, entry->skip);
+            continue;
+        }
+
+        /* A `with` saves the pen and its `end` -- the only `end` the
+         * walk records -- gives it back (91.2).  A stray `end` in a
+         * program the front end never checked has nothing to pop. */
+        if (entry->statement->verb == PN_FIGURE_VERB_WITH)
+        {
+            g_array_append_val (saved, pen);
+            continue;
+        }
+        if (entry->statement->verb == PN_FIGURE_VERB_END)
+        {
+            gint line = 0;
+
+            if (saved->len == 0)
+                continue;
+
+            pn_figure_line_locate (entry->statement->source,
+                                   entry->statement->offset, &line, NULL);
+            pen_restore (ops, &pen,
+                         &g_array_index (saved, Pen, saved->len - 1), line);
+            g_array_set_size (saved, saved->len - 1);
             continue;
         }
 
@@ -3405,6 +3799,7 @@ pn_figure_trace_draw (
     }
 
     g_ptr_array_unref (errors);
+    g_array_unref (saved);
     return ops;
 }
 
@@ -4561,8 +4956,12 @@ pn_figure_class_init (
             "which is how a grid or a row of ticks is written; a repeat "
             "cannot hold another repeat.  `if c` ... `elseif c` ... `else` "
             "... `end` draws the first branch whose condition is not zero; "
-            "an if nests anywhere.  Every coordinate and every "
-            "length is in user units and scales with the drawing.  "
+            "an if nests anywhere.  A drawing statement followed by "
+            "`with fill \"red\", width 2` is drawn with those settings and "
+            "the pen gets its own back after it; a line that begins with "
+            "`with` does the same down to its `end`.  Every coordinate "
+            "and every length is in user units and scales with the "
+            "drawing.  "
             "Arguments are expressions in the calculator language, so "
             "`circle 0, 0, 10 * sin(t)` works; a quoted argument is a "
             "literal.  `name = expr` on a line of its own binds a variable "

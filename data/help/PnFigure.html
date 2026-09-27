@@ -158,6 +158,33 @@ separate: a grey triangle with a dark outline is one of each. Lines have
 round caps and round joins.
 </p>
 
+<h5>Settings for a moment: <code>with</code></h5>
+<pre>
+circle 2.8, 22, 0.6  with fill "#2e8b57"
+text 45, 36.5, "refused"  with color "#c0392b", font 3.8
+
+with color "#c0392b", width 0.3, dash "dot"
+  line r, 22, r, 14.5
+  circle r, 13.9, 0.6
+end
+</pre>
+<p>
+A drawing statement followed by <code>with</code> and a list of pen
+settings is drawn with those settings, and the pen gets back what it had
+straight after it: no <code>nofill</code>, no second <code>color</code>
+to put things back. A line that <em>begins</em> with <code>with</code>
+does the same for every line down to its <code>end</code>. The list is
+the pen verbs above, separated by commas and written as they are on a
+line of their own: <code>with color 1, 0, 0, width 2</code> is two
+settings, because each new one starts with its verb. <code>view</code>
+is not a pen setting, and neither is the pen's position: a
+<code>view</code> set inside a block stays, and a
+<code>lineto</code> chain runs on out of one. Blocks nest, inside and
+around <code>if</code> and <code>repeat</code>, and each
+<code>end</code> gives back what its own <code>with</code> found.
+<code>with</code> is a keyword, so it cannot name a variable.
+</p>
+
 <h5>Geometry</h5>
 <table>
   <tr><th>Verb</th><th>Arguments</th><th>Draws</th></tr>

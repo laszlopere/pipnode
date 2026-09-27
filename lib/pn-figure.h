@@ -241,6 +241,9 @@ typedef enum
     PN_FIGURE_VERB_IF,
     PN_FIGURE_VERB_ELSEIF,
     PN_FIGURE_VERB_ELSE,
+
+    /* scoped pen settings (TODO #91.2): `end` restores the pen */
+    PN_FIGURE_VERB_WITH,
 } PnFigureVerb;
 
 /* A statement borrows the logical line it came from, for
@@ -253,9 +256,14 @@ typedef enum
  * typed because variable names are case-sensitive; a verb's @name is
  * folded to lower case because verbs are not (rule 2).
  *
- * The verb itself always starts at offset 0 of @source->text, the
- * scanner having trimmed the line, so an error about the verb — an
- * unknown one, or the wrong number of arguments — locates there. */
+ * The verb starts at @offset of @source->text, and an error about the
+ * verb — an unknown one, or the wrong number of arguments — locates
+ * there.  It is 0 for every statement a line begins with, the scanner
+ * having trimmed the line; it is further in only for the statements a
+ * `with` list is split into (TODO #91.2): `circle 0, 0, 5 with fill
+ * "red"` is four statements -- `with`, `fill "red"`, the `circle`, and
+ * an `end` -- and the `fill` and the `with`/`end` pair locate at their
+ * own words. */
 typedef struct
 {
     PnFigureStatementKind  kind;
@@ -264,6 +272,7 @@ typedef struct
     GPtrArray             *args;   /* #PnFigureArg, empty for an assignment */
     const PnFigureLine    *source; /* borrowed                          */
     PnExprNode            *ast;    /* owned: an assignment's whole line */
+    gsize                  offset; /* where the verb starts in @source  */
 } PnFigureStatement;
 
 /**
@@ -287,6 +296,17 @@ void pn_figure_statement_free (PnFigureStatement *self);
  * defines are `\"`, `\\` and `\n`, the last because 80.7(d) makes a
  * newline split a label into lines; anything else is a mistake worth
  * saying out loud rather than drawing as a backslash.
+ *
+ * `with` is a keyword (TODO #91.2).  A line that begins with it opens a
+ * block, and what follows it is a list of pen settings; a drawing
+ * statement followed by ` with ` and such a list is spread out here
+ * into `with`, the settings, the statement and an `end`, so every later
+ * stage sees an ordinary block.  In the list, each piece that begins
+ * with a pen verb (color, fill, nofill, width, dash, font, align) starts
+ * a setting and the pieces after it are that setting's further
+ * arguments: `with color 1, 0, 0, width 2` is two settings.  The errors
+ * this adds are a list that is empty or does not begin with a pen verb,
+ * and a trailing `with` after something that draws nothing.
  *
  * A line that fails is left out of the result and the scan goes on, so
  * one broken line does not hide the errors on the next (80.2 rule 9).
@@ -357,7 +377,7 @@ gboolean pn_figure_check_verbs (GPtrArray *statements,
  *              through pn_figure_check_verbs()
  * @errors:     (nullable) (element-type PnFigureError): collector
  *
- * Matches every `repeat` and every `if` with an `end`, and every
+ * Matches every `repeat`, `if` and `with` with an `end`, and every
  * `elseif` and `else` with the `if` they belong to, reporting: an `end`
  * with no block open; a block still open at the end of the program; an
  * `elseif` or `else` whose innermost open block is not an `if`, or that

@@ -2691,7 +2691,8 @@ test_an_end_without_a_repeat_is_a_parse_error (void)
     Split s = checked ("line 0, 0, 10, 10\nend");
 
     PN_CHECK_CMPINT (s.errors->len, ==, 1);
-    PN_CHECK_CMPSTR (error_text (&s, 0), ==, "end without a repeat or an if");
+    PN_CHECK_CMPSTR (error_text (&s, 0), ==,
+                     "end without a repeat, an if or a with");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
     split_free (&s);
 }
@@ -2712,7 +2713,8 @@ test_blocks_do_not_nest (void)
     PN_CHECK_CMPSTR (error_text (&s, 0), ==,
                      "repeat cannot be nested inside another repeat");
     PN_CHECK_CMPINT (error_line (&s, 0), ==, 2);
-    PN_CHECK_CMPSTR (error_text (&s, 1), ==, "end without a repeat or an if");
+    PN_CHECK_CMPSTR (error_text (&s, 1), ==,
+                     "end without a repeat, an if or a with");
     PN_CHECK_CMPINT (error_line (&s, 1), ==, 6);
     split_free (&s);
 }
@@ -3061,6 +3063,8 @@ test_an_unchecked_program_cannot_run_away (void)
         "if 1\nrepeat 2\nelse\npoint i, 0\nend",
         "repeat 2\nif 0\nend\npoint i, 0",
         "else\nif 1\nend\nend\nend",
+        "end\nwith color \"red\"\nelse\npoint 0, 0\nend\nend",
+        "with width 2\nrepeat 2\nend\npoint i, 0",
     };
     guint n;
 
@@ -3078,6 +3082,228 @@ test_an_unchecked_program_cannot_run_away (void)
         g_ptr_array_unref (ops);
         split_free (&s);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scoped pen settings: with (TODO #91.2)                              */
+/* ------------------------------------------------------------------ */
+
+/* The column error @n was reported at, or -1. */
+static gint
+error_column (Split *self, guint n)
+{
+    return n < self->errors->len
+           ? ((PnFigureError *) g_ptr_array_index (self->errors, n))->column
+           : -1;
+}
+
+static void
+test_a_trailing_with_scopes_one_statement (void)
+{
+    /* The fill ... nofill bracket, gone: the setting holds for the one
+     * statement and the pen is given back straight after it. */
+    gchar *text = dump100 ("circle 50, 50, 10 with fill \"red\"\n"
+                           "circle 20, 20, 5");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "fill rgb(255,0,0)\n"
+                     "circle 50.00 50.00 10.00\n"
+                     "nofill\n"
+                     "circle 20.00 80.00 5.00\n");
+    g_free (text);
+}
+
+static void
+test_a_with_list_takes_every_spelling (void)
+{
+    /* A piece that starts with a pen verb starts a setting; the pieces
+     * after it are that setting's further arguments -- the three-number
+     * colour and the two-argument dash both survive the commas. */
+    gchar *text = dump100 ("line 0, 0, 10, 10 with color 1, 0, 0, "
+                           "width 2, dash \"dot\", 0.5\n"
+                           "line 0, 0, 20, 20");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "width 2.00\n"
+                     "dash 0.25 0.75\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "color rgb(0,0,0)\n"
+                     "width 1.00\n"
+                     "dash solid\n"
+                     "line 0.00 100.00 20.00 80.00\n");
+    g_free (text);
+}
+
+static void
+test_only_what_changed_is_given_back (void)
+{
+    /* A setting the pen already had costs no restore. */
+    gchar *text = dump100 ("color \"red\"\n"
+                           "line 0, 0, 10, 10 with color \"red\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "color rgb(255,0,0)\n"
+                     "line 0.00 100.00 10.00 90.00\n");
+    g_free (text);
+}
+
+static void
+test_a_with_block_nests (void)
+{
+    /* The block form, and one inside another: each `end` gives back
+     * what its own `with` found, not the frame's defaults. */
+    gchar *text = dump100 ("with color \"blue\", width 3\n"
+                           "    line 0, 0, 10, 10\n"
+                           "    with width 5, align \"left\"\n"
+                           "        text 50, 50, \"x\"\n"
+                           "    end\n"
+                           "    line 0, 0, 20, 20\n"
+                           "end\n"
+                           "line 0, 0, 30, 30");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(0,0,255)\n"
+                     "width 3.00\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "width 5.00\n"
+                     "align left middle\n"
+                     "text 50.00 50.00 left middle \"x\"\n"
+                     "width 3.00\n"
+                     "align centre middle\n"
+                     "line 0.00 100.00 20.00 80.00\n"
+                     "color rgb(0,0,0)\n"
+                     "width 1.00\n"
+                     "line 0.00 100.00 30.00 70.00\n");
+    g_free (text);
+}
+
+static void
+test_the_pen_position_and_the_view_carry_on (void)
+{
+    /* `with` scopes HOW the pen draws, not WHERE: a lineto chain runs
+     * on out of it, and a view set inside stays -- the width it gives
+     * back is one user unit in the new view's device units. */
+    gchar *chain = dump100 ("move 10, 10\n"
+                            "lineto 20, 20 with color \"red\"\n"
+                            "lineto 30, 30");
+    gchar *view  = dump100 ("with width 2\n"
+                            "    view 0, 0, 50, 50\n"
+                            "end\n"
+                            "line 0, 0, 10, 10");
+
+    PN_CHECK_CMPSTR (chain, ==, HEAD_100
+                     "move 10.00 90.00\n"
+                     "color rgb(255,0,0)\n"
+                     "line 10.00 90.00 20.00 80.00\n"
+                     "color rgb(0,0,0)\n"
+                     "line 20.00 80.00 30.00 70.00\n");
+    PN_CHECK_CMPSTR (view, ==, HEAD_100
+                     "width 2.00\n"
+                     "# view 0 0 50 50 scale 2.00 rect 0.00 0.00 100.00 "
+                     "100.00\n"
+                     "width 4.00\n"
+                     "dash solid\n"
+                     "font 10.00\n"
+                     "width 2.00\n"
+                     "line 0.00 100.00 20.00 80.00\n");
+    g_free (chain);
+    g_free (view);
+}
+
+static void
+test_a_with_inside_a_loop_scopes_each_pass (void)
+{
+    gchar *text = dump100 ("repeat 2\n"
+                           "    point 10 * i, 10 with width 3\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 3.00\n"
+                     "point 0.00 90.00 3.00\n"
+                     "width 1.00\n"
+                     "width 3.00\n"
+                     "point 10.00 90.00 3.00\n"
+                     "width 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_setting_that_cannot_be_drawn_is_skipped (void)
+{
+    /* 80.10(b) inside a list: the one setting is skipped, the statement
+     * still draws with the pen it had, and there is nothing to give
+     * back. */
+    gchar *text = dump100 ("line 0, 0, 10, 10 with width 0 / 0");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 non-finite\n"
+                     "line 0.00 100.00 10.00 90.00\n");
+    g_free (text);
+}
+
+static void
+test_with_is_a_keyword_only_outside_strings (void)
+{
+    gchar *text = dump100 ("text 0, 0, \"a with b\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "text 0.00 100.00 centre middle \"a with b\"\n");
+    g_free (text);
+}
+
+static void
+test_a_bad_with_list_is_located (void)
+{
+    /* Every mistake at its own word, and each exactly once: the empty
+     * `with` keeps its head so its `end` is not a second message. */
+    Split empty   = checked ("with\nend");
+    Split no_pen  = checked ("circle 1, 2, 3 with view 0, 0, 1, 1");
+    Split no_ink  = checked ("move 1, 2 with color \"red\"");
+    Split arity   = checked ("circle 1, 2, 3 with fill 1, 2");
+    Split colour  = parsed  ("circle 1, 2, 3 with fill \"nocolour\"");
+    Split open    = checked ("with color \"red\"\nline 0, 0, 1, 1");
+    Split in_with = checked ("if 1\n"
+                             "    with color \"red\"\n"
+                             "    else\n"
+                             "    end\n"
+                             "end");
+
+    PN_CHECK_CMPINT (empty.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&empty, 0), ==, "with needs a pen setting: "
+                     "color, fill, nofill, width, dash, font or align");
+
+    PN_CHECK_CMPSTR (error_text (&no_pen, 0), ==, "expected a pen setting: "
+                     "color, fill, nofill, width, dash, font or align");
+    PN_CHECK_CMPINT (error_column (&no_pen, 0), ==, 21);
+
+    PN_CHECK_CMPSTR (error_text (&no_ink, 0), ==,
+                     "with can only follow a statement that draws");
+    PN_CHECK_CMPINT (error_column (&no_ink, 0), ==, 11);
+
+    PN_CHECK_CMPSTR (error_text (&arity, 0), ==,
+                     "fill takes a quoted colour or 3 or 4 numbers, not 2");
+    PN_CHECK_CMPINT (error_column (&arity, 0), ==, 21);
+
+    PN_CHECK_CMPSTR (error_text (&colour, 0), ==,
+                     "unknown colour \"nocolour\"");
+    PN_CHECK_CMPINT (error_column (&colour, 0), ==, 26);
+
+    PN_CHECK_CMPINT (open.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&open, 0), ==, "with without an end");
+
+    PN_CHECK_CMPINT (in_with.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&in_with, 0), ==, "else without an if");
+    PN_CHECK_CMPINT (error_line (&in_with, 0), ==, 3);
+
+    split_free (&empty);
+    split_free (&no_pen);
+    split_free (&no_ink);
+    split_free (&arity);
+    split_free (&colour);
+    split_free (&open);
+    split_free (&in_with);
 }
 
 static void
@@ -4074,6 +4300,15 @@ main (int argc, char **argv)
     pn_test_add ("if_misplaced",        test_misplaced_clauses_are_parse_errors);
     pn_test_add ("if_no_nested_repeat", test_an_if_does_not_launder_a_nested_repeat);
     pn_test_add ("if_unchecked_safe",   test_an_unchecked_program_cannot_run_away);
+    pn_test_add ("with_one_statement",  test_a_trailing_with_scopes_one_statement);
+    pn_test_add ("with_every_spelling", test_a_with_list_takes_every_spelling);
+    pn_test_add ("with_only_changes",   test_only_what_changed_is_given_back);
+    pn_test_add ("with_block_nests",    test_a_with_block_nests);
+    pn_test_add ("with_position_view",  test_the_pen_position_and_the_view_carry_on);
+    pn_test_add ("with_in_a_loop",      test_a_with_inside_a_loop_scopes_each_pass);
+    pn_test_add ("with_bad_setting",    test_a_setting_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("with_keyword",        test_with_is_a_keyword_only_outside_strings);
+    pn_test_add ("with_errors",         test_a_bad_with_list_is_located);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);
