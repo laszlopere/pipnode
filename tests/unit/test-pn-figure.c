@@ -13,10 +13,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Unit tests for PnFigure.  So far the line scanner: comment stripping
- * that knows about strings, comma continuation, blank lines and free
- * leading whitespace, plus the source position a joined line maps back
- * to. */
+/* Unit tests for PnFigure: the front end (the line scanner, the
+ * statement splitter, the verb table, literals and expressions), the
+ * resolver and the display list it dumps, the blocks (repeat, if, with,
+ * origin, def), the drawing verbs, animation, and the node itself. */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -449,8 +449,8 @@ test_equality_is_not_an_assignment (void)
 static void
 test_commas_inside_parens (void)
 {
-    /* Depth 0 only — the day atan2/min/max lands this must already
-     * work (80.2 rule 3). */
+    /* Depth 0 only: the commas of a call such as max(1, 2) belong to
+     * the call, not to the verb (80.2 rule 3). */
     Split              s = split ("circle max(1, (2)), 5, 5");
     PnFigureStatement *st = statement (&s, 0);
 
@@ -646,9 +646,10 @@ error_text (Split *self, guint n)
 static void
 test_every_verb (void)
 {
-    /* One of everything the language has, at an arity the table
-     * accepts.  What the literals MEAN is 80.22.4's business, so
-     * "black" and "dot" are just strings here. */
+    /* One of every pen and drawing verb, at an arity the table
+     * accepts; the block keywords have tests of their own.  What the
+     * literals MEAN is 80.22.4's business, so "black" and "dot" are just
+     * strings here. */
     Split s = checked ("view 0, 0, 100, 100\n"      /*  0 */
                        "color \"black\"\n"          /*  1 */
                        "fill 1, 0, 0\n"             /*  2 */
@@ -1026,7 +1027,7 @@ static void
 test_format_conversions (void)
 {
     Split s = literals ("text 0, 0, \"A\"\n"
-                        "text 0, 0, \"%.1f deg\", a * 57.2958\n"
+                        "text 0, 0, \"%.1f deg\", degrees(a)\n"
                         "text 0, 0, \"100%%\"\n"
                         "text 0, 0, \"%-8.3e and %+G\", u, v\n"
                         "text 0, 0, \"%f\", a");
@@ -1212,7 +1213,7 @@ test_free_names (void)
     Split      s = parsed ("dx = 50 * cos(a)\n"
                            "dy = 50 * sin(a)\n"
                            "line -dx, -dy, dx, dy\n"
-                           "text 0, 0, \"%.1f\", a * 57.2958");
+                           "text 0, 0, \"%.1f\", degrees(a)");
     GPtrArray *names = pn_figure_free_names (s.statements);
 
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
@@ -2654,12 +2655,12 @@ test_the_cap_is_the_last_count_that_runs (void)
 static void
 test_a_grid_is_one_loop (void)
 {
-    /* The arithmetic 85.12 stands on, and the reason nesting is not
-     * missed (#86.2): floor and the modulo it makes turn one index
-     * into a row and a column. */
+    /* The arithmetic 85.12 stands on, and the reason a repeat inside a
+     * repeat is not missed (#86.2): i % cols and floor(i / cols) turn
+     * one index into a column and a row. */
     gchar *text = dump100 ("cols = 3\n"
                            "repeat 6\n"
-                           "    cx = i - cols * floor(i / cols)\n"
+                           "    cx = i % cols\n"
                            "    cy = floor(i / cols)\n"
                            "    point 20 + 30 * cx, 30 + 30 * cy\n"
                            "end");
@@ -2708,7 +2709,7 @@ test_an_unclosed_block_is_a_parse_error (void)
 }
 
 static void
-test_an_end_without_a_repeat_is_a_parse_error (void)
+test_an_end_without_a_block_is_a_parse_error (void)
 {
     Split s = checked ("line 0, 0, 10, 10\nend");
 
@@ -2721,7 +2722,7 @@ test_an_end_without_a_repeat_is_a_parse_error (void)
 }
 
 static void
-test_blocks_do_not_nest (void)
+test_a_repeat_does_not_nest_in_a_repeat (void)
 {
     /* 86.2, and the scan keeps going: a second structural mistake is
      * still reported, so the count in the message is honest. */
@@ -2907,7 +2908,7 @@ test_an_if_nests_inside_anything (void)
      * `if` runs or does not; an `if` inside an `if` closes on its own
      * `end`, and the outer chain's `else` is still the outer one's. */
     gchar *in_loop  = dump100 ("repeat 4\n"
-                               "    if i - 2 * floor(i / 2)\n"
+                               "    if i % 2\n"
                                "        point 10 * i, 0\n"
                                "    else\n"
                                "        point 10 * i, 50\n"
@@ -3288,6 +3289,36 @@ test_a_with_inside_a_loop_scopes_each_pass (void)
 }
 
 static void
+test_a_with_value_that_is_a_film_gives_back_per_frame (void)
+{
+    /* The setting is a vector, so what the `with` changes -- and so what
+     * it has to give back -- is decided frame by frame: in frame 0 the
+     * colour is the red the pen already had and nothing is restored, in
+     * frame 1 it is yellow and the red comes back after the line. */
+    const gchar *program = "color \"red\"\n"
+                           "line 0, 0, 10, 10  with color 1, frame, 0\n"
+                           "line 0, 0, 20, 20";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 0, 2, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "color rgb(255,0,0)\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "line 0.00 100.00 20.00 80.00\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 1, 2, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "color rgb(255,255,0)\n"
+                     "line 0.00 100.00 10.00 90.00\n"
+                     "color rgb(255,0,0)\n"
+                     "line 0.00 100.00 20.00 80.00\n");
+    g_free (text);
+}
+
+static void
 test_a_setting_that_cannot_be_drawn_is_skipped (void)
 {
     /* 80.10(b) inside a list: the one setting is skipped, the statement
@@ -3330,10 +3361,12 @@ test_a_bad_with_list_is_located (void)
 
     PN_CHECK_CMPINT (empty.errors->len, ==, 1);
     PN_CHECK_CMPSTR (error_text (&empty, 0), ==, "with needs a pen setting: "
-                     "color, fill, nofill, width, dash, font or align");
+                     "color, fill, nofill, width, dash, font, align, "
+                     "arrowhead or angle");
 
     PN_CHECK_CMPSTR (error_text (&no_pen, 0), ==, "expected a pen setting: "
-                     "color, fill, nofill, width, dash, font or align");
+                     "color, fill, nofill, width, dash, font, align, "
+                     "arrowhead or angle");
     PN_CHECK_CMPINT (error_column (&no_pen, 0), ==, 21);
 
     PN_CHECK_CMPSTR (error_text (&no_ink, 0), ==,
@@ -3542,7 +3575,7 @@ test_an_origin_inside_a_loop (void)
 }
 
 static void
-test_axes_that_cannot_be_placed_skip_the_block (void)
+test_an_origin_that_cannot_be_placed_skips_the_block (void)
 {
     /* 80.10(b): one marker at the `origin`, nothing of the block -- not
      * even the `with` inside it, whose `end` must not give back a pen
@@ -3852,6 +3885,39 @@ test_a_vector_argument_animates_the_shape (void)
 }
 
 static void
+test_a_comparison_in_a_shape_is_per_frame (void)
+{
+    /* A shape evaluates in a store of its own, and that store compares
+     * elementwise like the program's: `frame` passed in as `v` makes
+     * `v > 1` a 0, 0, 1, 1 film that the `if` follows, and `v >= 2` a
+     * coordinate that moves only from frame 2 on.  A store that fell back
+     * to the Calculator's all-elements answer would give 0 in every
+     * frame. */
+    const gchar *program = "def d v\n"
+                           "    if v > 1\n"
+                           "        point 10, 10\n"
+                           "    else\n"
+                           "        point 20, 20\n"
+                           "    end\n"
+                           "    point 30, 30 * (v >= 2)\n"
+                           "end\n"
+                           "d frame";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 1, 4, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 20.00 80.00 1.00\n"
+                     "point 30.00 100.00 1.00\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 2, 4, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "point 10.00 90.00 1.00\n"
+                     "point 30.00 70.00 1.00\n");
+    g_free (text);
+}
+
+static void
 test_a_shape_reads_only_what_it_is_given (void)
 {
     /* The body's names are not the program's: they are neither free
@@ -4040,6 +4106,86 @@ test_an_arrow_turns_with_its_axes_and_leaves_the_pen (void)
 }
 
 static void
+test_a_trailing_with_scopes_the_whole_arrow (void)
+{
+    /* Two scopes, one inside the other: the head takes its hairline and
+     * solid fill from the `with` colour and gives back the shaft's pen
+     * (nofill, width 2), and then the `with` gives back the figure's
+     * (black, width 1) -- the line after it is drawn in neither. */
+    gchar *text = dump100 ("arrow 10, 10, 50, 10  with color \"red\", width 2\n"
+                           "line 0, 0, 1, 1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "width 2.00\n"
+                     "line 10.00 90.00 47.00 90.00\n"
+                     "width 0.00\n"
+                     "fill rgb(255,0,0)\n"
+                     "poly 50.00 90.00 47.00 88.80 47.00 91.20\n"
+                     "nofill\n"
+                     "width 2.00\n"
+                     "color rgb(0,0,0)\n"
+                     "width 1.00\n"
+                     "line 0.00 100.00 1.00 99.00\n");
+    g_free (text);
+}
+
+static void
+test_an_arrow_in_a_film_is_sized_per_frame (void)
+{
+    /* One walk, three frames, three different arrows: of no length it
+     * is skipped, 2 long it is a head shrunk to 2/3 with no shaft, 4
+     * long it is a full head (3 by 2.4) on a shaft of 1. */
+    const gchar *program = "arrow 10, 10, 10 + 2 * frame, 10";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 0, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100 "# skip 1 degenerate\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 1, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 12.00 90.00 10.00 89.20 10.00 90.80\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 2, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 10.00 90.00 11.00 90.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 14.00 90.00 11.00 88.80 11.00 91.20\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    g_free (text);
+}
+
+static void
+test_an_arrow_stretches_with_the_view (void)
+{
+    /* The head is part of the drawing, built in user units, so a
+     * stretched window stretches it like any line: 3 long along x at
+     * scale 1, and 2.4 across it along y at scale 2 -- 4.8 pixels. */
+    Figure  f    = figure ("view 0, 0, 100, 50\narrow 10, 10, 50, 10");
+    gchar  *text = figure_dump (&f, NULL, 100, 100, TRUE, NULL);
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 0 0 100 50 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00 stretch 1.00 2.00\n"
+                     "line 10.00 80.00 47.00 80.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 80.00 47.00 77.60 47.00 82.40\n"
+                     "nofill\n"
+                     "width 1.00\n");
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
 test_a_hatch_strokes_its_left_side (void)
 {
     /* A ceiling drawn left to right: the line at the pen's width, then
@@ -4126,6 +4272,66 @@ test_a_hatch_that_cannot_be_drawn_is_skipped (void)
                      "width 0.75\n"
                      "line 0.05 100.00 0.80 99.25\n"
                      "width 1.00\n");
+    g_free (text);
+}
+
+static void
+test_a_trailing_with_scopes_the_whole_hatch (void)
+{
+    /* The strokes take half the `with` width, not half the figure's,
+     * and the hatch's own restore (width 2) comes before the `with`'s
+     * (black, width 1). */
+    gchar *text = dump100 ("hatch 10, 50, 30, 50, 10, 4  "
+                           "with color \"red\", width 2\n"
+                           "line 0, 0, 1, 1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "width 2.00\n"
+                     "line 10.00 50.00 30.00 50.00\n"
+                     "width 1.00\n"
+                     "line 15.00 50.00 19.00 46.00\n"
+                     "line 25.00 50.00 29.00 46.00\n"
+                     "width 2.00\n"
+                     "color rgb(0,0,0)\n"
+                     "width 1.00\n"
+                     "line 0.00 100.00 1.00 99.00\n");
+    g_free (text);
+}
+
+static void
+test_a_hatch_in_a_film_counts_its_strokes_per_frame (void)
+{
+    /* The number of strokes depends on the length, and the length is a
+     * film: 10, 30 and 50 long take 1, 3 and 5 strokes, 10 apart and
+     * centred, from the one walk the whole film shares. */
+    const gchar *program = "hatch 0, 50, 10 + 20 * frame, 50, 10";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 0, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 50.00 10.00 50.00\n"
+                     "width 0.75\n"
+                     "line 5.00 50.00 12.50 42.50\n"
+                     "width 1.00\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 2, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 0.00 50.00 50.00 50.00\n"
+                     "width 0.75\n"
+                     "line 5.00 50.00 12.50 42.50\n"
+                     "line 15.00 50.00 22.50 42.50\n"
+                     "line 25.00 50.00 32.50 42.50\n"
+                     "line 35.00 50.00 42.50 42.50\n"
+                     "line 45.00 50.00 52.50 42.50\n"
+                     "width 1.00\n");
+    g_free (text);
+
+    /* And the middle frame, counted: the line, three strokes and
+     * the two width changes around them. */
+    text = dump_film (program, NULL, 1, 3, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPINT (count_lines (text), ==, 6 + head_lines (HEAD_100));
     g_free (text);
 }
 
@@ -4293,6 +4499,78 @@ test_an_anglemark_label_is_a_format (void)
 }
 
 static void
+test_an_anglemark_in_a_film_follows_its_angle (void)
+{
+    /* The sweep, the label's value and the side it grows to all come
+     * from the frame: at 30 degrees the bisector is at 15, nearly level,
+     * so the label hangs off the arc's right, and at 90 the bisector is
+     * at 45 and the label grows up and to the right. */
+    const gchar *program = "anglemark 50, 50, 10, 0, 30 + 60 * frame, "
+                           "\"%.0f\", 30 + 60 * frame";
+    gchar       *text;
+
+    text = dump_film (program, NULL, 0, 2, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "arc 50.00 50.00 10.00 0.00 -30.00 negative\n"
+                     "align left middle\n"
+                     "text 61.59 46.89 left middle \"30\"\n"
+                     "align centre middle\n");
+    g_free (text);
+
+    text = dump_film (program, NULL, 1, 2, PN_FIGURE_PLAY_LOOP);
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "arc 50.00 50.00 10.00 0.00 -90.00 negative\n"
+                     "align left bottom\n"
+                     "text 58.49 41.51 left bottom \"90\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_an_anglemark_in_a_shape (void)
+{
+    /* The format's value is a parameter like any other argument, and a
+     * call's `with` covers the arc and the label alike. */
+    gchar *shape = dump100 ("def mark a\n"
+                            "    anglemark 50, 50, 10, 0, a, \"%.0f\", a\n"
+                            "end\n"
+                            "mark 90  with color \"red\"");
+    gchar *plain = dump100 ("anglemark 50, 50, 10, 0, 90, \"%.0f\", 90  "
+                            "with color \"red\"");
+
+    PN_CHECK_CMPSTR (shape, ==, plain);
+    PN_CHECK_CMPSTR (plain, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "arc 50.00 50.00 10.00 0.00 -90.00 negative\n"
+                     "align left bottom\n"
+                     "text 58.49 41.51 left bottom \"90\"\n"
+                     "align centre middle\n"
+                     "color rgb(0,0,0)\n");
+    g_free (shape);
+    g_free (plain);
+}
+
+static void
+test_an_anglemark_label_follows_a_mirror (void)
+{
+    /* With x increasing leftwards the bisector points up and to the
+     * LEFT on the card, so the label goes there and grows away from
+     * the arc that way, right-aligned -- the arc itself is mirrored as
+     * `arc` mirrors it. */
+    gchar *text = dump100 ("view 100, 0, 0, 100\n"
+                           "anglemark 50, 50, 10, 0, 90, \"A\"");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 100 0 0 100 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00\n"
+                     "arc 50.00 50.00 10.00 180.00 270.00 positive\n"
+                     "align right bottom\n"
+                     "text 41.51 41.51 right bottom \"A\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
 test_a_curve_keeps_its_control_points (void)
 {
     gchar *text = dump100 ("curve 10, 10, 10, 30, 30, 30, 30, 10,\n"
@@ -4336,6 +4614,41 @@ test_a_curve_counts_its_points (void)
                      "segment, not 10 numbers");
 
     split_free (&s);
+}
+
+static void
+test_a_curve_stretches_with_the_view (void)
+{
+    /* Every point, control points included, goes through the per-axis
+     * scale, so the stretched curve is the same curve twice as tall. */
+    Figure  f    = figure ("view 0, 0, 100, 50\n"
+                           "curve 10, 10, 10, 30, 30, 30, 30, 10");
+    gchar  *text = figure_dump (&f, NULL, 100, 100, TRUE, NULL);
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# view 0 0 100 50 scale 1.00"
+                     " rect 0.00 0.00 100.00 100.00 stretch 1.00 2.00\n"
+                     "curve 10.00 80.00 10.00 40.00 30.00 40.00 30.00 80.00\n");
+    g_free (text);
+    figure_free (&f);
+}
+
+static void
+test_a_trailing_with_fills_a_closed_curve (void)
+{
+    /* A closed curve is filled like a poly, so `with fill` fills this
+     * one alone and the circle after it is an outline again. */
+    gchar *text = dump100 ("curve 10, 10, 10, 30, 30, 30, 10, 10  "
+                           "with fill \"red\"\n"
+                           "circle 50, 50, 5");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "fill rgb(255,0,0)\n"
+                     "curve 10.00 90.00 10.00 70.00 30.00 70.00 10.00 90.00"
+                     " closed\n"
+                     "nofill\n"
+                     "circle 50.00 50.00 5.00\n");
+    g_free (text);
 }
 
 static void
@@ -4410,6 +4723,75 @@ test_axes_with_no_length_are_skipped (void)
                      "axes takes 4 to 6 arguments, not 7");
     PN_CHECK_CMPSTR (error_text (&s, 1), ==, "format needs 1 value, not 0");
     split_free (&s);
+}
+
+static void
+test_axes_turn_with_an_origin (void)
+{
+    /* A quarter turn: the x axis points up the card and the y axis to
+     * the left, and each name still sits just past its own tip, upright
+     * and aligned away from it -- "x" above, "y" to the left. */
+    gchar *text = dump100 ("origin 50, 50, 90\n"
+                           "    axes 0, 0, 20, 10, \"x\", \"y\"\n"
+                           "end");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 50.00 50.00 50.00 33.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 50.00 30.00 48.80 33.00 51.20 33.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 50.00 50.00 43.00 50.00\n"
+                     "width 0.00\n"
+                     "fill rgb(0,0,0)\n"
+                     "poly 40.00 50.00 43.00 51.20 43.00 48.80\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "align centre bottom\n"
+                     "text 50.00 28.00 centre bottom \"x\"\n"
+                     "align centre middle\n"
+                     "align right middle\n"
+                     "text 38.00 50.00 right middle \"y\"\n"
+                     "align centre middle\n");
+    g_free (text);
+}
+
+static void
+test_axes_in_a_shape_take_the_pen_of_the_call (void)
+{
+    /* A call's `with color` reaches the shafts, the solid heads (which
+     * fill in the stroke colour) and the names, and is given back once,
+     * after the whole pair. */
+    gchar *shape = dump100 ("def ax x, y\n"
+                            "    axes x, y, 20, 10, \"x\", \"y\"\n"
+                            "end\n"
+                            "ax 10, 10  with color \"red\"\n"
+                            "line 0, 0, 1, 1");
+
+    PN_CHECK_CMPSTR (shape, ==, HEAD_100
+                     "color rgb(255,0,0)\n"
+                     "line 10.00 90.00 27.00 90.00\n"
+                     "width 0.00\n"
+                     "fill rgb(255,0,0)\n"
+                     "poly 30.00 90.00 27.00 88.80 27.00 91.20\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "line 10.00 90.00 10.00 83.00\n"
+                     "width 0.00\n"
+                     "fill rgb(255,0,0)\n"
+                     "poly 10.00 80.00 8.80 83.00 11.20 83.00\n"
+                     "nofill\n"
+                     "width 1.00\n"
+                     "align left middle\n"
+                     "text 32.00 90.00 left middle \"x\"\n"
+                     "align centre middle\n"
+                     "align centre bottom\n"
+                     "text 10.00 78.00 centre bottom \"y\"\n"
+                     "align centre middle\n"
+                     "color rgb(0,0,0)\n"
+                     "line 0.00 100.00 1.00 99.00\n");
+    g_free (shape);
 }
 
 static void
@@ -5356,6 +5738,46 @@ test_a_vector_repeat_count_is_walked_per_frame (void)
     g_object_unref (self);
 }
 
+/* The same for an `if` whose condition is a comparison of a film: the
+ * branch taken differs by frame, so the kept walk is good for one frame
+ * only and must be redone when a different one is asked for -- here out
+ * of order, so a walk kept from the previous frame would pick the wrong
+ * branch every time. */
+static void
+test_a_film_condition_is_walked_per_frame (void)
+{
+    PnNode *self = node ("if frame > 1\n"
+                         "  point 10, 10\n"
+                         "else\n"
+                         "  point 20, 20\n"
+                         "end", 1);
+    const struct
+    {
+        guint        frame;
+        const gchar *point;
+    } steps[] = {
+        { 3, "point 10.00 90.00 1.00" },
+        { 0, "point 20.00 80.00 1.00" },
+        { 2, "point 10.00 90.00 1.00" },
+        { 1, "point 20.00 80.00 1.00" },
+    };
+    guint n;
+
+    g_object_set (self, "frames", 4, NULL);
+
+    for (n = 0; n < G_N_ELEMENTS (steps); n++)
+    {
+        gchar *dump = frame_dump (self, steps[n].frame);
+        gchar *want = g_strconcat (HEAD_100, steps[n].point, "\n", NULL);
+
+        PN_CHECK_CMPSTR (dump, ==, want);
+        g_free (want);
+        g_free (dump);
+    }
+
+    g_object_unref (self);
+}
+
 /* The kept film does not depend on the rectangle: the zoom overlay
  * draws the same frame bigger from the same walk. */
 static void
@@ -5496,8 +5918,8 @@ main (int argc, char **argv)
     pn_test_add ("block_grid",          test_a_grid_is_one_loop);
     pn_test_add ("block_folding",       test_a_constant_inside_a_block_still_folds);
     pn_test_add ("block_unclosed",      test_an_unclosed_block_is_a_parse_error);
-    pn_test_add ("block_stray_end",     test_an_end_without_a_repeat_is_a_parse_error);
-    pn_test_add ("block_no_nesting",    test_blocks_do_not_nest);
+    pn_test_add ("block_stray_end",     test_an_end_without_a_block_is_a_parse_error);
+    pn_test_add ("block_no_nested_rep", test_a_repeat_does_not_nest_in_a_repeat);
     pn_test_add ("block_error_draws_nothing", test_a_structural_error_draws_nothing);
     pn_test_add ("if_runs_when_true",   test_an_if_runs_its_body_only_when_true);
     pn_test_add ("if_no_op",            test_an_if_leaves_no_operation_of_its_own);
@@ -5518,6 +5940,7 @@ main (int argc, char **argv)
     pn_test_add ("with_block_nests",    test_a_with_block_nests);
     pn_test_add ("with_position_view",  test_the_pen_position_and_the_view_carry_on);
     pn_test_add ("with_in_a_loop",      test_a_with_inside_a_loop_scopes_each_pass);
+    pn_test_add ("with_film",           test_a_with_value_that_is_a_film_gives_back_per_frame);
     pn_test_add ("with_bad_setting",    test_a_setting_that_cannot_be_drawn_is_skipped);
     pn_test_add ("with_keyword",        test_with_is_a_keyword_only_outside_strings);
     pn_test_add ("with_errors",         test_a_bad_with_list_is_located);
@@ -5529,7 +5952,7 @@ main (int argc, char **argv)
     pn_test_add ("origin_pen_position", test_the_pen_leaves_an_origin_where_it_was);
     pn_test_add ("origin_no_pen_scope", test_an_origin_is_not_a_pen_scope);
     pn_test_add ("origin_in_a_loop",    test_an_origin_inside_a_loop);
-    pn_test_add ("origin_non_finite",   test_axes_that_cannot_be_placed_skip_the_block);
+    pn_test_add ("origin_non_finite",   test_an_origin_that_cannot_be_placed_skips_the_block);
     pn_test_add ("origin_animates",     test_turning_axes_animate_without_a_walk_per_frame);
     pn_test_add ("origin_errors",       test_a_bad_origin_is_located);
     pn_test_add ("def_calls",           test_a_shape_draws_where_it_is_called);
@@ -5541,6 +5964,7 @@ main (int argc, char **argv)
     pn_test_add ("def_loop_in_a_loop",  test_a_shape_loops_inside_a_loop);
     pn_test_add ("def_step_bound",      test_a_runaway_walk_empties_the_figure);
     pn_test_add ("def_animates",        test_a_vector_argument_animates_the_shape);
+    pn_test_add ("def_compares_frames", test_a_comparison_in_a_shape_is_per_frame);
     pn_test_add ("def_reads",           test_a_shape_reads_only_what_it_is_given);
     pn_test_add ("def_errors",          test_a_bad_def_is_located);
     pn_test_add ("arrow_draws",         test_an_arrow_ends_in_a_solid_head);
@@ -5549,10 +5973,15 @@ main (int argc, char **argv)
     pn_test_add ("arrow_head_size",     test_the_arrowhead_setting_sizes_the_head);
     pn_test_add ("arrow_degenerate",    test_an_arrow_with_no_direction_is_skipped);
     pn_test_add ("arrow_origin",        test_an_arrow_turns_with_its_axes_and_leaves_the_pen);
+    pn_test_add ("arrow_with",          test_a_trailing_with_scopes_the_whole_arrow);
+    pn_test_add ("arrow_film",          test_an_arrow_in_a_film_is_sized_per_frame);
+    pn_test_add ("arrow_stretch",       test_an_arrow_stretches_with_the_view);
     pn_test_add ("hatch_draws",         test_a_hatch_strokes_its_left_side);
     pn_test_add ("hatch_other_side",    test_a_negative_depth_hatches_the_other_side);
     pn_test_add ("hatch_origin",        test_a_hatch_turns_with_its_axes);
     pn_test_add ("hatch_degenerate",    test_a_hatch_that_cannot_be_drawn_is_skipped);
+    pn_test_add ("hatch_with",          test_a_trailing_with_scopes_the_whole_hatch);
+    pn_test_add ("hatch_film",          test_a_hatch_in_a_film_counts_its_strokes_per_frame);
     pn_test_add ("dimension_draws",     test_a_dimension_ticks_both_ends);
     pn_test_add ("dimension_tick",      test_a_dimension_tick_is_3_when_left_out);
     pn_test_add ("dimension_origin",    test_a_dimension_turns_with_its_axes_and_leaves_the_pen);
@@ -5563,12 +5992,19 @@ main (int argc, char **argv)
     pn_test_add ("anglemark_origin",    test_an_anglemark_turns_with_its_axes);
     pn_test_add ("anglemark_degenerate", test_an_anglemark_that_cannot_be_drawn_is_skipped);
     pn_test_add ("anglemark_format",    test_an_anglemark_label_is_a_format);
+    pn_test_add ("anglemark_film",      test_an_anglemark_in_a_film_follows_its_angle);
+    pn_test_add ("anglemark_def",       test_an_anglemark_in_a_shape);
+    pn_test_add ("anglemark_mirror",    test_an_anglemark_label_follows_a_mirror);
     pn_test_add ("curve_draws",         test_a_curve_keeps_its_control_points);
     pn_test_add ("curve_closed",        test_a_curve_that_comes_back_is_closed);
     pn_test_add ("curve_arity",         test_a_curve_counts_its_points);
+    pn_test_add ("curve_stretch",       test_a_curve_stretches_with_the_view);
+    pn_test_add ("curve_with",          test_a_trailing_with_fills_a_closed_curve);
     pn_test_add ("axes_draw",           test_axes_draw_two_arrows_and_name_them);
     pn_test_add ("axes_reversed",       test_axes_may_point_the_other_way);
     pn_test_add ("axes_degenerate",     test_axes_with_no_length_are_skipped);
+    pn_test_add ("axes_origin",         test_axes_turn_with_an_origin);
+    pn_test_add ("axes_def",            test_axes_in_a_shape_take_the_pen_of_the_call);
     pn_test_add ("angle_turns_text",    test_the_angle_setting_turns_a_label);
     pn_test_add ("angle_origin",        test_a_label_angle_ignores_the_axes);
     pn_test_add ("angle_stretch",       test_a_label_angle_follows_a_stretch_not_a_mirror);
@@ -5603,6 +6039,7 @@ main (int argc, char **argv)
     pn_test_add ("kept_film_program",   test_the_kept_film_follows_a_program_edit);
     pn_test_add ("kept_film_shape",     test_the_kept_film_follows_the_film_shape);
     pn_test_add ("kept_film_repeat",    test_a_vector_repeat_count_is_walked_per_frame);
+    pn_test_add ("kept_film_if",        test_a_film_condition_is_walked_per_frame);
     pn_test_add ("kept_film_any_size",  test_the_kept_film_redraws_at_any_size);
     return pn_test_run ();
 }

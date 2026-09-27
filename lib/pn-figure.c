@@ -777,7 +777,8 @@ split_styles (
     if (text[from] == '\0')
     {
         report_at (errors, line, at, "with needs a pen setting: color, "
-                   "fill, nofill, width, dash, font or align");
+                   "fill, nofill, width, dash, font, align, arrowhead "
+                   "or angle");
         return FALSE;
     }
 
@@ -815,7 +816,8 @@ split_styles (
         if (current == NULL)
         {
             report_at (errors, line, start, "expected a pen setting: color, "
-                       "fill, nofill, width, dash, font or align");
+                       "fill, nofill, width, dash, font, align, "
+                       "arrowhead or angle");
             ok = FALSE;
             break;
         }
