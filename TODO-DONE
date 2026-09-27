@@ -2033,6 +2033,11 @@
                  making everyone hand-roll a loop. A gear's teeth would
                  genuinely want the block; when something real asks for
                  it, build (a).
+       [-] 80.19 Deferred, and CARVED OUT (2026-09-27) as TODO #91 when
+             this entry was archived: the later primitives -- arrows,
+             rotated labels, angle marks, dimension lines, hatching,
+             bezier curves and an `axes` helper. The list lives in #91,
+             one sub-item per verb.
        [x] 80.21 DONE (2026-09-27), checked by hand in the editor: wind
              the input knobs and watch the figure track them; drag a
              Figure into the zoom overlay and confirm it scales cleanly
