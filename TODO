@@ -1302,20 +1302,75 @@
              per knob change (two pendulums), 0.8 ms per frame.
              PnFigure.html's Animation section grew "What it costs".
 
-[ ] 91 MORE FIGURE VERBS -- carved out of #80.19 (2026-09-27) when #80
-       closed. Later drawing primitives for the Figure node (#80,
-       archived), in the order a physics plate wants them. Each one is a
-       verb plus a paragraph in data/help/PnFigure.html; none of them
-       changes the engine. No new example sheets are planned (#85 closed
-       with its unbuilt plates dropped), so nothing is waiting on these.
-       [ ] 91.1 Arrows -- a figure of forces without arrowheads is not a
-             figure of forces.
-       [ ] 91.2 ROTATED LABELS along an axis or a ray -- deferred out of
-             80.7(h), and the first of these anyone will miss. Needs a
-             CTM rotation about the anchor.
-       [ ] 91.3 Angle-mark arcs with a label.
-       [ ] 91.4 Dimension lines with ticks.
-       [ ] 91.5 Hatching for a wall or a ground plane.
-       [ ] 91.6 Bezier curves.
-       [ ] 91.7 An `axes` helper that draws a labelled pair of axes in
-             one statement.
+[ ] 91 SIMPLER FIGURE PROGRAMS -- language changes that shorten the
+       Figure node's (#80, archived) programs. Started as 80.19's list of
+       later drawing verbs, carved out on 2026-09-27 when #80 closed; widened
+       the same day after a survey of the eleven Figure programs in
+       examples/displays/ (1051 statements) showed where their length
+       actually comes from: 40% pen-state changes (color, fill/nofill,
+       width, font, align, dash -- 424 statements), 23% assignments,
+       only 30% drawing. The original verb list moves about 5-10% of
+       that; the four new items at the top move most of the rest.
+       Sub-items are ORDERED BY IMPACT on those programs, most first.
+       No new example sheets are planned (#85 closed with its unbuilt
+       plates dropped); the payoff is rewriting the existing eleven.
+       [ ] 91.1 `if <condition> ... end` -- a block, shaped like
+             `repeat`. Today a condition is written by dividing a
+             coordinate by it so the statement is skipped (80.10b):
+             `text 45 / limited, ...`, `m / (abs(u / f - 1) > 0.02)`.
+             About 33 statements do this; ray-optics alone has ~15,
+             including eight `text` lines that each blank themselves
+             unless they are the right one. The least readable idiom in
+             the set, and the cheapest fix per line of engine code.
+             Decide `else`, and whether `if` may nest inside `repeat`
+             (repeat itself cannot nest, #86).
+       [ ] 91.2 SCOPED OR NAMED STYLES -- the 40%. Options, to be
+             decided: style arguments on the drawing statement itself;
+             a `style name ...` definition applied by name; or a
+             save/restore of the pen state. Even a partial answer
+             removes the fill ... nofill brackets and the color/font/
+             align runs in front of every label.
+       [ ] 91.3 A LOCAL COORDINATE FRAME -- `frame x, y, angle ... end`,
+             a block that translates and rotates what it contains.
+             About 55 statements rotate points by hand: beam-balance
+             writes every beam point as (px + u c - v s, py + u s + v c),
+             inside four repeat loops too, and would shrink by about
+             half; wheatstone-bridge's resistor boxes on 45-degree wires
+             become plain `rect`s; double-pendulum's arm positions.
+             Settle how it composes with `view` (80.4) and with text,
+             which stays upright unless 91.9 says otherwise.
+       [ ] 91.4 USER-DEFINED SHAPES -- `def arrow x1, y1, x2, y2 ... end`
+             and a call by name. Covers the repeated hand-built
+             shapes: arrowheads, pulleys drawn twice (disc + hub), the
+             boxes on the bridge's wires. Arrows, hatching, dimension
+             lines and axes (91.5-91.7, 91.12) could then ship as a
+             small library of shapes rather than as engine verbs. The largest engine change on this list (parameters,
+             scope, recursion guard); do it after 91.1-91.3.
+       [ ] 91.5 ARROWS -- a figure of forces without arrowheads is not a
+             figure of forces. 13 hand-built arrowhead polys across five
+             sheets (ray-optics, refraction, block-and-tackle,
+             tower-crane, the wheatstone rheostat), each with a line
+             shortened by `ah` and `aw` sizes; ray-optics adds direction
+             math (c2, d2, c3, d3) for the tilted ones. A verb, or a
+             shape from 91.4.
+       [ ] 91.6 HATCHING for a wall or a ground plane: pendulum's seven
+             hand-placed strokes, block-and-tackle's and tower-crane's
+             repeat loops.
+       [ ] 91.7 DIMENSION LINES with ticks: block-and-tackle's p and h
+             markers are six statements each.
+       [ ] 91.8 USE `path` IN THE EXAMPLES -- no language change: the
+             open polyline verb already exists and none of the eleven
+             programs uses it. wheatstone-bridge draws its battery wire
+             as six `line`s, tower-crane has several more chains. Do it
+             while rewriting the examples for 91.1-91.5.
+       [ ] 91.9 ROTATED LABELS along an axis or a ray -- deferred out of
+             80.7(h). Needs a CTM rotation about the anchor; the
+             examples avoid rotated text today, so little to save.
+       [ ] 91.10 ANGLE-MARK ARCS with a label -- in the examples this is
+             already just an `arc` plus a `text` (pendulum, refraction).
+       [ ] 91.11 BEZIER CURVES -- one use: ray-optics' lens outline is a
+             25-point hard-coded poly. A readability win there, not a
+             statement count.
+       [ ] 91.12 An `axes` HELPER that draws a labelled pair of axes in
+             one statement -- none of the eleven sheets has x/y axes
+             (their scales are single ruled bars).
