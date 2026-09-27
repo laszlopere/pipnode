@@ -36,7 +36,37 @@ This page is also the specification of the drawing language; there is
 no other.
 </p>
 
-<h5>A first figure</h5>
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+  <li><a href="#first">A first figure</a></li>
+  <li><a href="#coordinates">Coordinates</a></li>
+  <li><a href="#language">The language</a></li>
+  <li><a href="#pen">Pen state</a></li>
+  <li><a href="#with">Settings for a moment: <code>with</code></a></li>
+  <li><a href="#geometry">Geometry</a>
+    <ul>
+      <li><a href="#arrows">Arrows</a></li>
+      <li><a href="#hatching">Hatching</a></li>
+      <li><a href="#dimensions">Dimension lines</a></li>
+      <li><a href="#curves">Curves</a></li>
+      <li><a href="#angle-marks">Angle marks</a></li>
+      <li><a href="#axes">Axes</a></li>
+      <li><a href="#rotated-labels">Rotated labels</a></li>
+    </ul>
+  </li>
+  <li><a href="#expressions">Expressions and variables</a></li>
+  <li><a href="#repeat">Repeating: <code>repeat</code></a></li>
+  <li><a href="#if">Choosing: <code>if</code></a></li>
+  <li><a href="#origin">Local axes: <code>origin</code></a></li>
+  <li><a href="#def">Shapes of your own: <code>def</code></a></li>
+  <li><a href="#animation">Animation</a></li>
+  <li><a href="#errors">When something is wrong</a></li>
+  <li><a href="#properties">Properties</a></li>
+</ul>
+</div>
+
+<h5 id="first">A first figure</h5>
 <pre>
 view -60, -25, 60, 35
 color "#202020"
@@ -63,7 +93,7 @@ as the knob turns, with the angle printed above it. With nothing wired,
 figure still draws.
 </p>
 
-<h5>Coordinates</h5>
+<h5 id="coordinates">Coordinates</h5>
 <p>
 <strong>Y points up.</strong> This is a physics figure, not a screen:
 <code>view xmin, ymin, xmax, ymax</code> declares the window in your
@@ -83,7 +113,7 @@ than about three quarters of a pixel, except <code>width 0</code>,
 which is always a hairline.
 </p>
 
-<h5>The language</h5>
+<h5 id="language">The language</h5>
 <ul>
   <li><strong>One statement per line:</strong> a verb followed by its
       arguments separated by commas, or an assignment
@@ -105,11 +135,18 @@ which is always a hairline.
       <code>=</code> (and not <code>==</code>), the line is an
       assignment and binds a variable for the lines below it. A
       variable may legally be called <code>line</code>; please don't.</li>
-  <li><strong>Every verb takes a fixed number of arguments,</strong>
-      checked before anything is drawn; see the table below.</li>
+  <li><strong>Every verb takes the arguments its table row
+      shows,</strong> a fixed number or a list in pairs, some of them
+      optional ones in brackets; the count is checked before anything is
+      drawn.</li>
+  <li><strong>Blocks</strong> &mdash; <code>repeat</code>,
+      <code>if</code>, <code>with</code>, <code>origin</code> and
+      <code>def</code> &mdash; run to a line of their own that says
+      <code>end</code>, and one <code>end</code> closes the innermost
+      block still open.</li>
 </ul>
 
-<h5>Pen state</h5>
+<h5 id="pen">Pen state</h5>
 <p>
 Settings persist until changed, as on a pen plotter, and each is reset
 to its default at the start of every frame. <code>&lt;colour&gt;</code>
@@ -167,7 +204,7 @@ separate: a grey triangle with a dark outline is one of each. Lines have
 round caps and round joins.
 </p>
 
-<h5>Settings for a moment: <code>with</code></h5>
+<h5 id="with">Settings for a moment: <code>with</code></h5>
 <pre>
 circle 2.8, 22, 0.6  with fill "#2e8b57"
 text 45, 36.5, "refused"  with color "#c0392b", font 3.8
@@ -189,12 +226,12 @@ settings, because each new one starts with its verb. <code>view</code>
 is not a pen setting, and neither is the pen's position: a
 <code>view</code> set inside a block stays, and a
 <code>lineto</code> chain runs on out of one. Blocks nest, inside and
-around <code>if</code> and <code>repeat</code>, and each
-<code>end</code> gives back what its own <code>with</code> found.
+around the other blocks, and each <code>end</code> gives back what its
+own <code>with</code> found.
 <code>with</code> is a keyword, so it cannot name a variable.
 </p>
 
-<h5>Geometry</h5>
+<h5 id="geometry">Geometry</h5>
 <table>
   <tr><th>Verb</th><th>Arguments</th><th>Draws</th></tr>
   <tr><td><code>move</code></td><td>x, y</td>
@@ -408,18 +445,20 @@ stretched one lays it along the same slant as the line it labels.
 </p>
 <p>
 <strong>Two angle conventions, on purpose.</strong> Verb arguments
-(<code>arc</code>) are <em>degrees</em>, as in PostScript and on a
+(<code>arc</code>, <code>anglemark</code>, <code>origin</code>,
+<code>angle</code>) are <em>degrees</em>, as in PostScript and on a
 protractor; <code>sin</code>, <code>cos</code>, <code>atan2</code> and
 the rest of the expression functions work in <em>radians</em>. Convert
 with <code>degrees(x)</code> and <code>radians(x)</code>.
 </p>
 
-<h5>Expressions and variables</h5>
+<h5 id="expressions">Expressions and variables</h5>
 <p>
 Every unquoted argument is an expression in the calculator language
 &mdash; the operators, functions and constants are listed in the
 <a href="PnExpression2.html">Calculator&nbsp;2</a> page, and the Figure
-has exactly the same ones. The constants <code>pi</code> and
+has exactly the same ones; only a comparison of a vector gives a
+different answer here (see <a href="#animation">Animation</a>). The constants <code>pi</code> and
 <code>e</code> are there, and so are two-argument functions such as
 <code>atan2(y,&nbsp;x)</code>, <code>hypot</code>, <code>min</code>,
 <code>max</code>, <code>clamp</code> and <code>pow</code>.
@@ -449,10 +488,12 @@ Earlier in that list wins: an input named <code>t</code> beats the
 animation's <code>t</code>, as any input beats the zero. Two more are
 bound while the program runs, and override whatever the name held:
 <code>i</code> inside a <code>repeat</code> block, and assignments, from
-the line that makes them onwards.
+the line that makes them onwards. Inside a shape
+(<a href="#def"><code>def</code></a>) only its parameters, its own
+assignments and its own <code>i</code> are bound.
 </p>
 
-<h5>Repeating</h5>
+<h5 id="repeat">Repeating</h5>
 <pre>
 repeat 11
   line i * 10, 0, i * 10, 3
@@ -471,7 +512,7 @@ not even through an <code>if</code>; a grid is one loop with
 rather than freezing the editor.
 </p>
 
-<h5>Choosing</h5>
+<h5 id="if">Choosing</h5>
 <pre>
 if r &gt; 2.05
   text 0, -57, "CAMERA"
@@ -504,7 +545,7 @@ runs from frame 4 on. A comparison of a vector is itself a vector here,
 <a href="#animation">Animation</a>).
 </p>
 
-<h5>Local axes: <code>origin</code></h5>
+<h5 id="origin">Local axes: <code>origin</code></h5>
 <pre>
 origin px, py, tilt
   line -40, 0, 40, 0
@@ -539,7 +580,7 @@ can run out of the block. The origin is in the window's units, so a
 origin. An angle or position that is not a number skips the block.
 </p>
 
-<h5>Shapes of your own: <code>def</code></h5>
+<h5 id="def">Shapes of your own: <code>def</code></h5>
 <pre>
 def pulley x, y, r
   circle x, y, r
@@ -595,7 +636,7 @@ frame: arithmetic on vectors works element by element, so
 <code>dx = 50 * cos(a)</code> with a vector <code>a</code> simply makes
 <code>dx</code> a vector too, and a colour, a width, a
 <code>view</code>, a <code>repeat</code> count or an <code>if</code>
-condition (see <em>Choosing</em>) animates exactly like
+condition (see <a href="#if">Choosing</a>) animates exactly like
 a coordinate.
 </p>
 <ul>
@@ -692,15 +733,18 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       element.</li>
 </ul>
 
-<h5>When something is wrong</h5>
+<h5 id="errors">When something is wrong</h5>
 <p>
 The card is the only place a figure can tell you, so it does:
 </p>
 <ul>
-  <li><strong>A mistake in the program</strong> &mdash; an unknown verb,
-      the wrong number of arguments, a bad format string, an
+  <li><strong>A mistake in the program</strong> &mdash; an unknown verb
+      or shape, the wrong number of arguments, a bad format string, an
       unterminated string, a malformed colour or dash word, an
-      expression that does not parse. The whole program is checked and
+      expression that does not parse, a block without its
+      <code>end</code> or an <code>end</code> without a block, a
+      <code>repeat</code> inside a <code>repeat</code>, a shape that
+      reads a name it was not given. The whole program is checked and
       <em>nothing</em> is drawn; the card turns red and shows the first
       error with its line and column, and how many there are
       (&ldquo;3 errors, first on line 7&rdquo;). The same text appears
@@ -722,7 +766,7 @@ The read-only <code>error</code> property holds the same message, empty
 when all is well, and is never saved.
 </p>
 
-<h5>Properties</h5>
+<h5 id="properties">Properties</h5>
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>program</code></td>
