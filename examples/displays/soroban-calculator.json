@@ -14,8 +14,11 @@
       "properties" : {
         "text" : "THE SOROBAN CALCULATOR -- the pocket calculator of calculator.json, with its display counted out in beads.  Click the keys: the Keypad sends one message per key press, the Calculator Engine keeps the sum and emits the whole display on every key, and both the seven-segment readout and the Figure follow it digit by digit.  The Figure is a Japanese soroban.  Each rod holds one digit: the heaven bead above the beam is worth 5, each of the four earth beads below it is worth 1, and a bead counts when it touches the beam -- so 7 is the heaven bead down and two earth beads up.  The UNIT ROD (the blue marker) is fixed: ten rods of whole number end on it, five rods of decimals follow.  The white dots on the beam mark it and every third rod from it, the way a real soroban marks thousands.  What the beads cannot show: a sign (a negative result gets a red note instead), decimals past the fifth (1 / 3 is 0.33333 on the frame) and an error -- the engine sends only 0 when it latches, so after a division by zero the frame simply clears; press C.",
         "width" : 1000.0,
-        "height" : 130.0,
-        "text-size" : 13.0
+        "height" : 140.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
       }
     },
     {
@@ -28,6 +31,7 @@
         "y" : 190.0
       },
       "properties" : {
+        "layout" : "Basic Calculator",
         "background-color" : "rgb(41,41,48)",
         "key-color" : "rgb(77,77,87)",
         "accent-color" : "rgb(204,133,46)",
@@ -78,7 +82,10 @@
         "inputs" : 1,
         "background-color" : "rgb(250,246,238)",
         "font-family" : "",
-        "stretch" : false
+        "stretch" : false,
+        "fps" : 25,
+        "play-mode" : "loop",
+        "frames" : 0
       },
       "input-names" : {
         "0" : "x"
