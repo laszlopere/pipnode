@@ -3105,24 +3105,6 @@
              directory already installs. Twelve sheets still deserve a
              directory of their own -- that is #79.2's fix and it stays
              its own job.
-       [ ] 85.2  MECHANICS -- projectile motion. Launch angle and
-             speed as knobs; the arc, the apex and the range marked.
-       [ ] 85.3  MECHANICS -- the inclined plane. Slope angle as a
-             knob; the weight resolved into its two components. Wants
-             80.19's arrows and angle marks more than any other sheet
-             here.
-       [ ] 85.4  GRAVITATION -- Kepler's equal areas. A planet on an
-             ellipse with the sun at a focus, and the swept sector
-             drawn as the planet moves.
-       [ ] 85.5  WAVES -- the standing wave on a string. Harmonic
-             number as a knob; nodes and antinodes marked.
-       [ ] 85.6  WAVES -- two-source interference, the ripple-tank
-             plate. Source separation and wavelength as knobs.
-       [ ] 85.7  WAVES -- the Doppler effect. A moving source and the
-             wavefronts bunching ahead of it; speed as a knob.
-       [ ] 85.8  OPTICS -- the concave mirror. The ray construction
-             80.15.2 does for a lens, done for a mirror, which is the
-             other half of the same lesson.
        [x] 85.9  DONE (2026-09-22): OPTICS -- refraction and total
              internal reflection. examples/displays/refraction.json,
              one Figure and two knobs, and the plate where the
@@ -3246,14 +3228,6 @@
              two wires and port names that round-trip as theta/n.
              Installs beside pendulum.json and bar-magnet.json in
              examples/displays (85.1's placement answer, unchanged).
-       [ ] 85.10 HEAT -- the Carnot cylinder. Piston position through
-             the four strokes, the state labelled at each corner.
-             Named in #80's own header as a thing the node should be
-             able to draw.
-       [ ] 85.11 ELECTRICITY -- the Wheatstone bridge. Three known
-             resistances as knobs, the galvanometer needle answering,
-             and balance shown rather than asserted. Also named in
-             #80's header.
        [x] 85.12 DONE (2026-09-22): MAGNETISM -- the field of a bar
              magnet. examples/displays/bar-magnet.json, forty compass
              needles placed by ONE `repeat` block, which is the plate
