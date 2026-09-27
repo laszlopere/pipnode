@@ -699,7 +699,7 @@ draws_ink (
     static const gchar *const ink[] =
     {
         "lineto", "rline", "line", "point", "circle", "arc", "rect",
-        "poly", "path", "arrow", "head", "text",
+        "poly", "path", "arrow", "head", "hatch", "text",
     };
     gsize i;
 
@@ -1196,6 +1196,10 @@ static const VerbInfo verb_table[] =
      * the tip alone, the two points giving only its direction */
     { "arrow",  PN_FIGURE_VERB_ARROW,  4, 4,          "",    'e', VERB_PLAIN  },
     { "head",   PN_FIGURE_VERB_HEAD,   4, 4,          "",    'e', VERB_PLAIN  },
+
+    /* a hatched surface: the line, the spacing of its strokes, and how
+     * far they stand off it, 3/4 of the spacing when left out */
+    { "hatch",  PN_FIGURE_VERB_HATCH,  5, 6,          "",    'e', VERB_PLAIN  },
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
@@ -3577,6 +3581,76 @@ draw_arrow (
     return TRUE;
 }
 
+/* A `hatch`: the surface from (x1, y1) to (x2, y2), local units, drawn
+ * at the pen's width, and the short strokes that say which side of it
+ * is solid -- a wall, a ceiling, the ground.  The strokes stand @depth
+ * off the line on its LEFT as it runs from the first point to the
+ * second (a negative @depth: on its right), each leaning 45 degrees
+ * forward along it, @spacing apart and centred on it, as many as fit
+ * with at least a quarter of a spacing clear at either end.  They are
+ * drawn at half the pen's width, which is what every hand-hatched plate
+ * did, and the pen gets its width back afterwards.  Returns the reason
+ * to skip it instead, or %NULL once it is drawn. */
+static const gchar *
+draw_hatch (
+        GPtrArray     *ops,
+        Pen           *pen,
+        gint           line,
+        const gdouble *values,
+        guint          n)
+{
+    gdouble dx      = values[2] - values[0];
+    gdouble dy      = values[3] - values[1];
+    gdouble d       = hypot (dx, dy);
+    gdouble spacing = values[4];
+    gdouble depth   = n > 5 ? values[5] : 0.75 * spacing;
+    gdouble ux, uy, first, count;
+    gdouble x1, y1, x2, y2;
+    Pen     saved;
+    guint   k, strokes;
+
+    if (!(d > 0.0) || !isfinite (d) || !(spacing > 0.0) || depth == 0.0)
+        return "degenerate";
+
+    count = floor (d / spacing + 0.5);
+    if (count > PN_FIGURE_MAX_REPEAT)
+        return "too-many";
+    strokes = MAX ((guint) count, 1);
+
+    ux    = dx / d;
+    uy    = dy / d;
+    first = (d - (strokes - 1) * spacing) / 2.0;
+
+    place_point (&pen->place, values[0], values[1], &x1, &y1);
+    place_point (&pen->place, values[2], values[3], &x2, &y2);
+    emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+
+    saved = *pen;
+    if (pen->width != 0.0)
+    {
+        pen->width /= 2.0;
+        emit_width (ops, pen, line);
+    }
+
+    for (k = 0; k < strokes; k++)
+    {
+        gdouble along = first + k * spacing;
+        gdouble fx    = values[0] + along * ux;
+        gdouble fy    = values[1] + along * uy;
+
+        /* Forward by |depth| and off to the side by depth: the left
+         * normal of (ux, uy) is (-uy, ux). */
+        place_point (&pen->place, fx, fy, &x1, &y1);
+        place_point (&pen->place,
+                     fx + fabs (depth) * ux - depth * uy,
+                     fy + fabs (depth) * uy + depth * ux, &x2, &y2);
+        emit_segment (ops, &pen->view, line, x1, y1, x2, y2);
+    }
+
+    pen_restore (ops, pen, &saved, line);
+    return NULL;
+}
+
 /* Draws one statement from its values for the frame.  Returns %FALSE
  * only for a statement no verb could name, which the front end never
  * lets through; a skipped statement is a %TRUE that drew nothing. */
@@ -3886,6 +3960,15 @@ draw_statement (
                          statement->verb == PN_FIGURE_VERB_ARROW))
             emit_skip (ops, statement, "degenerate");
         break;
+
+    case PN_FIGURE_VERB_HATCH:
+    {
+        const gchar *reason = draw_hatch (ops, pen, line, values, n);
+
+        if (reason != NULL)
+            emit_skip (ops, statement, reason);
+        break;
+    }
 
     case PN_FIGURE_VERB_TEXT:
     {
@@ -6018,7 +6101,7 @@ pn_figure_class_init (
             "(0, 0, 100, 100 by default), which is fitted into the card "
             "preserving aspect and centred.  Geometry: move, rmove, "
             "lineto, rline, line, point, circle, arc, rect, poly, path, "
-            "arrow, head, text.  Pen state, which persists until changed: "
+            "arrow, head, hatch, text.  Pen state, which persists until changed: "
             "color, fill, nofill, width, dash, font, align, arrowhead.  `repeat n` ... `end` draws "
             "the lines between them n times with `i` counting 0, 1, 2 …, "
             "which is how a grid or a row of ticks is written; a repeat "

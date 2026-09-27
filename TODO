@@ -1408,7 +1408,7 @@
              shortened by `ah` and `aw` sizes; ray-optics adds direction
              math (c2, d2, c3, d3) for the tilted ones. A verb, or a
              shape from 91.4.
-       [ ] 91.6 HATCHING for a wall or a ground plane: pendulum's seven
+       [x] 91.6 HATCHING for a wall or a ground plane: pendulum's seven
              hand-placed strokes, block-and-tackle's and tower-crane's
              repeat loops.
        [ ] 91.7 DIMENSION LINES with ticks: block-and-tackle's p and h

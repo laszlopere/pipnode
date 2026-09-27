@@ -226,6 +226,10 @@ around <code>if</code> and <code>repeat</code>, and each
   <tr><td><code>head</code></td><td>x1, y1, x2, y2</td>
       <td>The head alone, tip at the second point, pointing away from
           the first &mdash; the direction mark on a ray.</td></tr>
+  <tr><td><code>hatch</code></td><td>x1, y1, x2, y2, spacing [, depth]</td>
+      <td>A surface that is solid on one side &mdash; a wall, a ceiling,
+          the ground: the line, and short slanted strokes along it (see
+          <a href="#hatching">Hatching</a>).</td></tr>
   <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
       <td>A label anchored at (x, y) per <code>align</code>. The format
           takes <code>%%</code> and the numeric conversions
@@ -269,6 +273,26 @@ shape, so an arrow drawn to scale never reaches back past its start
 &mdash; a force of nothing is nothing. A <code>head</code> never
 shrinks. An arrow whose two points are the same has no direction and
 is skipped, like a circle of radius zero.
+</p>
+<h5 id="hatching">Hatching</h5>
+<pre>
+hatch -26, 0, 26, 0, 8        # a ceiling: strokes above
+hatch 46, 0, -20, 0, 3, 1.2   # the ground: run right to left, strokes below
+</pre>
+<p>
+<code>hatch x1, y1, x2, y2, spacing, depth</code> draws the line from
+the first point to the second at the pen's width, and along it short
+strokes at half that width, <code>spacing</code> apart and centred on
+the line, as many as fit. Each stroke stands <code>depth</code> off the
+line on its <em>left</em> as it runs from the first point to the second
+&mdash; above a line drawn left to right &mdash; and leans 45&deg;
+forward, the way it runs. A negative <code>depth</code> puts the strokes
+on the right instead, so the direction and the sign between them give
+all four ways a hatch can face and lean. Left out, <code>depth</code> is
+three quarters of the spacing. Like the other shapes, a hatch turns with
+<code>origin</code> axes and leaves the pen where it was. A hatch with no
+length, no spacing or no depth is skipped, and so is one that would need
+more than 1000 strokes.
 </p>
 <p>
 <strong>Two angle conventions, on purpose.</strong> Verb arguments

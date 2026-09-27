@@ -674,11 +674,13 @@ test_every_verb (void)
                        "color 1, 0, 0, 0.5\n"      /* 22 */
                        "arrowhead 3, 2\n"          /* 23 */
                        "arrow 1, 2, 3, 4\n"        /* 24 */
-                       "head 1, 2, 3, 4");          /* 25 */
+                       "head 1, 2, 3, 4\n"         /* 25 */
+                       "hatch 1, 2, 3, 4, 1\n"     /* 26 */
+                       "hatch 1, 2, 3, 4, 1, -1");  /* 27 */
 
     PN_CHECK_CMPSTR (error_text (&s, 0), ==, NULL);
     PN_CHECK_CMPINT (s.errors->len, ==, 0);
-    PN_CHECK_CMPINT (s.statements->len, ==, 26);
+    PN_CHECK_CMPINT (s.statements->len, ==, 28);
 
     PN_CHECK_CMPINT (statement (&s, 0)->verb,  ==, PN_FIGURE_VERB_VIEW);
     PN_CHECK_CMPINT (statement (&s, 3)->verb,  ==, PN_FIGURE_VERB_NOFILL);
@@ -689,6 +691,7 @@ test_every_verb (void)
     PN_CHECK_CMPINT (statement (&s, 23)->verb, ==, PN_FIGURE_VERB_ARROWHEAD);
     PN_CHECK_CMPINT (statement (&s, 24)->verb, ==, PN_FIGURE_VERB_ARROW);
     PN_CHECK_CMPINT (statement (&s, 25)->verb, ==, PN_FIGURE_VERB_HEAD);
+    PN_CHECK_CMPINT (statement (&s, 27)->verb, ==, PN_FIGURE_VERB_HATCH);
 
     split_free (&s);
 }
@@ -3997,6 +4000,96 @@ test_an_arrow_turns_with_its_axes_and_leaves_the_pen (void)
 }
 
 static void
+test_a_hatch_strokes_its_left_side (void)
+{
+    /* A ceiling drawn left to right: the line at the pen's width, then
+     * strokes at half of it, above, leaning forward, 10 apart and
+     * centred -- 40 long takes four, 5 clear at each end. */
+    gchar *text = dump100 ("width 2\n"
+                           "hatch 10, 50, 50, 50, 10, 4");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "width 2.00\n"
+                     "line 10.00 50.00 50.00 50.00\n"
+                     "width 1.00\n"
+                     "line 15.00 50.00 19.00 46.00\n"
+                     "line 25.00 50.00 29.00 46.00\n"
+                     "line 35.00 50.00 39.00 46.00\n"
+                     "line 45.00 50.00 49.00 46.00\n"
+                     "width 2.00\n");
+    g_free (text);
+}
+
+static void
+test_a_negative_depth_hatches_the_other_side (void)
+{
+    /* Below the line, and the depth left out is 3/4 of the spacing.
+     * Half of width 1 is below the painter's thinnest stroke, 0.75. */
+    gchar *text = dump100 ("hatch 10, 50, 30, 50, 10, -7.5");
+    gchar *same = dump100 ("hatch 30, 50, 10, 50, 10");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "line 10.00 50.00 30.00 50.00\n"
+                     "width 0.75\n"
+                     "line 15.00 50.00 22.50 57.50\n"
+                     "line 25.00 50.00 32.50 57.50\n"
+                     "width 1.00\n");
+
+    /* Run the other way, the left side is below too, and the strokes
+     * lean the other way. */
+    PN_CHECK_CMPSTR (same, ==, HEAD_100
+                     "line 30.00 50.00 10.00 50.00\n"
+                     "width 0.75\n"
+                     "line 25.00 50.00 17.50 57.50\n"
+                     "line 15.00 50.00 7.50 57.50\n"
+                     "width 1.00\n");
+    g_free (text);
+    g_free (same);
+}
+
+static void
+test_a_hatch_turns_with_its_axes (void)
+{
+    gchar *turned = dump100 ("origin 50, 50, 90\n"
+                             "    hatch 0, 0, 20, 0, 10, 4\n"
+                             "end");
+    gchar *plain  = dump100 ("hatch 50, 50, 50, 70, 10, 4");
+
+    PN_CHECK_CMPSTR (turned, ==, plain);
+    PN_CHECK_CMPSTR (plain, ==, HEAD_100
+                     "line 50.00 50.00 50.00 30.00\n"
+                     "width 0.75\n"
+                     "line 50.00 45.00 46.00 41.00\n"
+                     "line 50.00 35.00 46.00 31.00\n"
+                     "width 1.00\n");
+    g_free (turned);
+    g_free (plain);
+}
+
+static void
+test_a_hatch_that_cannot_be_drawn_is_skipped (void)
+{
+    /* No length, no spacing, no depth, or a spacing that would ask for
+     * more strokes than a repeat may run. */
+    gchar *text = dump100 ("hatch 5, 5, 5, 5, 1\n"
+                           "hatch 0, 0, 10, 0, 0\n"
+                           "hatch 0, 0, 10, 0, 1, 0\n"
+                           "hatch 0, 0, 100, 0, 0.01\n"
+                           "hatch 0, 0, 0.1, 0, 1");
+
+    PN_CHECK_CMPSTR (text, ==, HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n"
+                     "# skip 3 degenerate\n"
+                     "# skip 4 too-many\n"
+                     "line 0.00 100.00 0.10 100.00\n"
+                     "width 0.75\n"
+                     "line 0.05 100.00 0.80 99.25\n"
+                     "width 1.00\n");
+    g_free (text);
+}
+
+static void
 test_a_bad_def_is_located (void)
 {
     const struct
@@ -5070,6 +5163,10 @@ main (int argc, char **argv)
     pn_test_add ("arrow_head_size",     test_the_arrowhead_setting_sizes_the_head);
     pn_test_add ("arrow_degenerate",    test_an_arrow_with_no_direction_is_skipped);
     pn_test_add ("arrow_origin",        test_an_arrow_turns_with_its_axes_and_leaves_the_pen);
+    pn_test_add ("hatch_draws",         test_a_hatch_strokes_its_left_side);
+    pn_test_add ("hatch_other_side",    test_a_negative_depth_hatches_the_other_side);
+    pn_test_add ("hatch_origin",        test_a_hatch_turns_with_its_axes);
+    pn_test_add ("hatch_degenerate",    test_a_hatch_that_cannot_be_drawn_is_skipped);
     pn_test_add ("node_is_a_sink",      test_the_node_is_a_sink);
     pn_test_add ("node_fresh_draws",    test_a_fresh_node_draws);
     pn_test_add ("node_input_variable", test_an_input_becomes_a_variable);

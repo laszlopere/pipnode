@@ -234,6 +234,7 @@ typedef enum
     PN_FIGURE_VERB_PATH,
     PN_FIGURE_VERB_ARROW,
     PN_FIGURE_VERB_HEAD,
+    PN_FIGURE_VERB_HATCH,
 
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,
