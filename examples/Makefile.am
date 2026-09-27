@@ -83,6 +83,7 @@ displays_DATA = \
 	displays/pendulum.json \
 	displays/ray-optics.json \
 	displays/refraction.json \
+	displays/soroban-calculator.json \
 	displays/swinging-pendulum.json \
 	displays/tower-crane.json \
 	displays/wheatstone-bridge.json

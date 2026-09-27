@@ -3362,3 +3362,30 @@
              the first sample arrives about a second after load
              (PN_AUTO_TRIGGER_FIRST_DELAY) and the figure's `error` stays
              empty; installs via make -C examples install DESTDIR=...
+
+[ ] 90 FIGURES DRIVEN FROM A KEYPAD -- the Keypad + Calculator Engine pair
+       as the input device of a Figure, instead of knobs.
+       [x] 90.1 DONE (2026-09-27): displays/soroban-calculator.json -- the
+             four-function calculator (Keypad -> Calculator Engine ->
+             Numeric) with its display also counted out on a 15-rod
+             soroban.  The figure (one input, x) works every digit out
+             of N = round(|x| * 1e5): rod r holds floor(N / 10^(14-r))
+             % 10, heaven bead down for floor(d / 5), the top d % 5
+             earth beads up.  Unit rod fixed (10 whole rods + 5
+             decimals, the Numeric set to match: digits 10, decimal-
+             places 5), white beam dots on it and every third rod,
+             leading zeros faint in the digit row.  repeat cannot nest,
+             so heaven beads are one repeat 15 and earth beads one
+             repeat 60 (rod = floor(i / 4), j = i % 4).  Counted beads
+             darken through `fill r, g, b` with the 0/1 flag.  Red notes
+             for x < 0 (a soroban has no sign) and |x| >= 1e10.
+             LIMIT, stated in the comment: the engine's Error is invisible
+             to a figure -- it emits value 0 with success=false and the
+             figure binds numbers only (pn-expr-bind.c bind_member skips
+             booleans), so the frame just clears.
+             CHECKED: tools/figure-preview for 0, 7, 123.45,
+             1234567890.12345, 1/3, -42.5, +-1e11, 999999999.99999 at
+             280x210, error empty in all; pipnode-run -t 3 under
+             G_DEBUG=fatal-warnings exits 0; in a --dbus-name editor,
+             keys 1 2 3 . 4 5 / 7 = injected into the engine give
+             17.63571429 and the figure's `error` stays empty.
