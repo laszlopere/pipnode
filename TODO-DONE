@@ -4724,3 +4724,19 @@
              ghost started 0.01 deg further out shows the chaos. ~190 ms
              per knob change (two pendulums), 0.8 ms per frame.
              PnFigure.html's Animation section grew "What it costs".
+
+94. [x] Figure `field x, y, w, h, nx, ny, <expression>`: a raster verb that
+       colours an nx-by-ny grid of cells over the rectangle, each cell as
+       dense in the stroke colour as the expression comes to there (0..1),
+       with `x` and `y` bound to the cell's own centre -- the top-down wave,
+       the interference pattern, the heat map, which one `rect` per cell
+       can only draw at a few frames a second.
+   [x] 94.1. Front end: the verb, seven expressions, `x`/`y` shadowed inside
+       the last one only, kept out of the free names and a shape's reads.
+   [x] 94.2. The walk records what the cell expression reads; the draw
+       evaluates it once over the whole grid for the frame, cached per
+       frame in the trace.
+   [x] 94.3. Painter: the grid as an alpha mask through the cell rectangle's
+       device parallelogram, so `origin`, `stretch` and reversed views hold.
+   [x] 94.4. Unit tests, help page, pipnode-nodes skill.
+   [x] 94.5. Example: the double-slit experiment, top-down.

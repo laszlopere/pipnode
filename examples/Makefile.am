@@ -80,6 +80,7 @@ displays_DATA = \
 	displays/beam-balance.json \
 	displays/block-and-tackle.json \
 	displays/double-pendulum.json \
+	displays/double-slit.json \
 	displays/pendulum.json \
 	displays/ray-optics.json \
 	displays/refraction.json \

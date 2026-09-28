@@ -1,0 +1,94 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFigure",
+      "uuid" : "ee3c5965-ce19-45ce-9bd7-c5e727906440",
+      "name" : "Double slit",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "program" : "# Animation tab: frames 40, play-mode loop\n# inputs: lam (wavelength), d (slit separation)\nview 0, -58, 140, 45\nk = 2 * pi / lam\nw = 2 * pi * t\nb = 30\ns = 128\n\n# the wave coming in from the left: straight crests marching right\nfield 0, -45, b, 90, 60, 180, 0.5 + 0.5 * cos(k * x - w)  with color \"#7fdbff\"\n\n# past the barrier: a circular wave from each slit, the two added --\n# cos a + cos b = 2 cos((a + b) / 2) cos((a - b) / 2), so the water\n# swings at the mean path and is calm wherever the paths differ by an\n# odd number of half wavelengths\nfield b, -45, s - b, 90, 196, 180,\n      0.5 + 0.5 * cos(k * (b + (hypot(x - b, y - d / 2) + hypot(x - b, y + d / 2)) / 2) - w) * cos(k * (hypot(x - b, y - d / 2) - hypot(x - b, y + d / 2)) / 2)  with color \"#7fdbff\"\n\n# the screen: how bright each point gets on average, cos^2 of half the\n# phase difference between the two paths\nfield s, -45, 140 - s, 90, 1, 180,\n      pow(cos(k * (hypot(x - b, y - d / 2) - hypot(x - b, y + d / 2)) / 2), 2)  with color \"#ffd700\"\n\n# the barrier, with its two slits 2 wide\nwith fill \"#9a9a9a\", color \"#9a9a9a\"\n    rect b - 1, -45, 2, 45 - d / 2 - 1\n    rect b - 1, -d / 2 + 1, 2, d - 2\n    rect b - 1, d / 2 + 1, 2, 45 - d / 2 - 1\nend\n\nwith color \"#c8d8e8\", font 4.5\n    text 2, -51.5, \"wavelength %.0f\", lam  with align \"left\"\n    text 79, -51.5, \"slits %.0f apart\", d\n    text 138, -51.5, \"screen\"  with align \"right\"\nend\n",
+        "inputs" : 2,
+        "background-color" : "rgb(11,26,42)",
+        "font-family" : "",
+        "stretch" : false,
+        "fps" : 25,
+        "play-mode" : "loop",
+        "frames" : 40
+      },
+      "input-names" : {
+        "0" : "lam",
+        "1" : "d"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "bf6c7fd1-69b0-4090-8f48-2dddf8b8d275",
+      "name" : "Wavelength",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 4.0,
+        "max" : 16.0,
+        "value" : 6.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "a9bd5420-d6e1-45a9-b9be-f09a2f24b48d",
+      "name" : "Slit separation",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 8.0,
+        "max" : 40.0,
+        "value" : 30.0
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "371c75be-4e01-431e-9eb7-f73d07edb1c6",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "THE DOUBLE-SLIT EXPERIMENT, seen from above like a ripple tank.  Straight waves come in from the left and pass through two slits in a barrier; a circular wave spreads from each slit, and where they meet they add.  Where a crest of one meets a trough of the other the water stays calm: those are the still lines fanning out from between the slits.  The gold strip on the right is the screen -- how bright each point of it gets on average -- and its bright bands are the interference fringes.  Spin the wheel over the knobs: a longer WAVELENGTH spreads the fringes apart, a wider SLIT SEPARATION crowds them together (their spacing on the screen is about wavelength x distance / separation).  Every shade is drawn with the Figure's field statement, which colours a grid of cells from an expression of each cell's x and y -- here some 70,000 cells a frame.  Open the Figure (double-click) to see the program.",
+        "width" : 900.0,
+        "height" : 92.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "bf6c7fd1-69b0-4090-8f48-2dddf8b8d275",
+      "target_id" : "ee3c5965-ce19-45ce-9bd7-c5e727906440"
+    },
+    {
+      "source_id" : "a9bd5420-d6e1-45a9-b9be-f09a2f24b48d",
+      "target_id" : "ee3c5965-ce19-45ce-9bd7-c5e727906440",
+      "target_input" : 1
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}
