@@ -1,0 +1,94 @@
+{
+  "format" : "pipnode",
+  "version" : 1,
+  "nodes" : [
+    {
+      "type" : "PnFigure",
+      "uuid" : "52e51405-a448-4b64-8dc6-717a076a5686",
+      "name" : "Travelling wave",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 320.0,
+        "y" : 180.0
+      },
+      "properties" : {
+        "program" : "# Animation tab: frames 50, play-mode loop\n# inputs: lam (wavelength), amp (amplitude)\nview 0, -45, 120, 45\nk = 2 * pi / lam\nw = 2 * pi * t\n\n# the water, filled strip by strip: one thin four-cornered poly per\n# unit of x, stroked in its own colour so the seams do not show\nrepeat 120\n  y0 = amp * sin(k * i - w)\n  y1 = amp * sin(k * (i + 1) - w)\n  poly i, -45, i, y0, i + 1, y1, i + 1, -45  with color \"#4682b4\", fill \"#4682b4\", width 0\nend\n\n# the still-water level\nline 0, 0, 120, 0  with color \"#b0c4de\", width 0.4, dash \"dash\"\n\n# one wavelength, crest to crest, riding along with the wave\nc = lam * (0.25 + t - floor(0.25 + t))\ndimension c, amp + 5, c + lam, amp + 5  with width 0.5\n\n# a cork at x = 60: the wave runs past it, the cork only bobs\ncircle 60, amp * sin(k * 60 - w), 3  with fill \"orange\"\n\ntext 60, -40, \"wavelength %.0f    amplitude %.0f\", lam, amp  with font 4, color \"white\"\n",
+        "inputs" : 2,
+        "background-color" : "rgb(255,255,255)",
+        "font-family" : "",
+        "stretch" : false,
+        "fps" : 25,
+        "play-mode" : "loop",
+        "frames" : 50
+      },
+      "input-names" : {
+        "0" : "lam",
+        "1" : "amp"
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "9b0e3129-4941-42f1-842b-5ffa5d5b232d",
+      "name" : "Wavelength",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 200.0
+      },
+      "properties" : {
+        "min" : 12.0,
+        "max" : 60.0,
+        "value" : 40.0
+      }
+    },
+    {
+      "type" : "PnKnob",
+      "uuid" : "af40ce6d-4126-41df-8974-bf64e93e2aaf",
+      "name" : "Amplitude",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 60.0,
+        "y" : 280.0
+      },
+      "properties" : {
+        "min" : 5.0,
+        "max" : 30.0,
+        "value" : 20.0
+      }
+    },
+    {
+      "type" : "PnComment",
+      "uuid" : "ae7dcf6e-9e31-4ed6-aed1-4eb98340beb6",
+      "name" : "Comment 1",
+      "worksheet" : "Worksheet",
+      "position" : {
+        "x" : 40.0,
+        "y" : 40.0
+      },
+      "properties" : {
+        "text" : "THE TRAVELLING WAVE -- a Figure node that animates on its own and fills an area.  The Animation tab gives it 50 frames played in a loop at 25 fps, and the program shifts the wave by one wavelength over the film with the built-in variable t, so the loop is seamless.  The water is FILLED strip by strip: a repeat loop draws one thin four-cornered poly per unit of x, stroked in its own colour so the seams do not show -- the way to fill under any curve.  Spin the wheel over the knobs while it runs: WAVELENGTH sets the crest-to-crest distance (the bar above the water rides along with a crest), AMPLITUDE the height.  Watch the orange cork: the wave runs past it, but the cork only bobs up and down -- the water does not travel with the wave.  Open the Figure (double-click) to see the program.",
+        "width" : 900.0,
+        "height" : 92.0,
+        "text-size" : 13.0,
+        "background-color" : "rgb(255,255,255)",
+        "frame-color" : "rgb(158,158,158)",
+        "text-color" : "rgb(46,51,59)"
+      }
+    }
+  ],
+  "connections" : [
+    {
+      "source_id" : "9b0e3129-4941-42f1-842b-5ffa5d5b232d",
+      "target_id" : "52e51405-a448-4b64-8dc6-717a076a5686"
+    },
+    {
+      "source_id" : "af40ce6d-4126-41df-8974-bf64e93e2aaf",
+      "target_id" : "52e51405-a448-4b64-8dc6-717a076a5686",
+      "target_input" : 1
+    }
+  ],
+  "sheets" : [
+    "Worksheet"
+  ],
+  "active_sheet" : "Worksheet"
+}

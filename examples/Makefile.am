@@ -86,6 +86,7 @@ displays_DATA = \
 	displays/soroban-calculator.json \
 	displays/swinging-pendulum.json \
 	displays/tower-crane.json \
+	displays/travelling-wave.json \
 	displays/wheatstone-bridge.json
 
 miscdir = $(pkgdatadir)/examples/misc
