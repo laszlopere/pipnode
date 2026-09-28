@@ -240,6 +240,7 @@ typedef enum
     PN_FIGURE_VERB_ANGLEMARK,
     PN_FIGURE_VERB_CURVE,
     PN_FIGURE_VERB_AXES,
+    PN_FIGURE_VERB_FIELD,
 
     /* text (80.7) */
     PN_FIGURE_VERB_TEXT,
@@ -721,6 +722,8 @@ typedef enum
     PN_FIGURE_OP_CURVE,  /* @points: a start and 3 per cubic segment;
                           * closed (and fillable) when @closed         */
     PN_FIGURE_OP_TEXT,   /* @text at (@x, @y), anchored @halign/@valign */
+    PN_FIGURE_OP_FIELD,  /* @cells, @nx by @ny, onto the parallelogram
+                          * @points = corner, x edge end, y edge end   */
 
     PN_FIGURE_OP_SKIP,   /* a statement that was not run, and why      */
 } PnFigureOpKind;
@@ -767,6 +770,12 @@ typedef struct
                                * pairs                                 */
     gchar          *text;     /* TEXT: the label; SKIP: the reason     */
 
+    guint           nx, ny;   /* FIELD: columns and rows               */
+    GBytes         *cells;    /* FIELD: nx * ny opacities 0..255, row by
+                               * row from the row at the rectangle's y,
+                               * each row from its x -- the painter's
+                               * mask for the stroke colour            */
+
     gdouble         window[4];/* VIEW: xmin, ymin, xmax, ymax, user    */
     gdouble         scale;    /* VIEW: device units per user unit      */
     gdouble         scale_x;  /* VIEW: x scale over @scale             */
@@ -778,6 +787,17 @@ typedef struct
  * one form to remember and one paragraph to document.  A program
  * variable or an input called `i` is shadowed inside the block. */
 #define PN_FIGURE_INDEX_NAME "i"
+
+/* The names a `field`'s cell expression reads its cell's centre by, in
+ * user units.  Like `i`, always these: a program variable called `x`
+ * or `y` is shadowed inside that one argument and nowhere else. */
+#define PN_FIGURE_FIELD_X_NAME "x"
+#define PN_FIGURE_FIELD_Y_NAME "y"
+
+/* The most cells one `field` may have.  Four times the card at one cell
+ * a pixel, so the zoom overlay can still go fine; above it the field is
+ * skipped as "too-many", like a `repeat` over its limit. */
+#define PN_FIGURE_MAX_FIELD_CELLS (560 * 420)
 
 /* How many times a `repeat` may run (TODO #86.5).  A count above it
  * skips the block whole rather than clamping: a figure that freezes

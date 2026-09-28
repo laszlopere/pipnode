@@ -700,7 +700,7 @@ draws_ink (
     {
         "lineto", "rline", "line", "point", "circle", "arc", "rect",
         "poly", "path", "curve", "arrow", "head", "hatch", "dimension",
-        "anglemark", "axes", "text",
+        "anglemark", "axes", "text", "field",
     };
     gsize i;
 
@@ -1222,6 +1222,10 @@ static const VerbInfo verb_table[] =
     /* a pair of axes: where they cross, how long each is, and the
      * names at their tips, each optional */
     { "axes",   PN_FIGURE_VERB_AXES,   4, 6,          "eeee", 's', VERB_PLAIN },
+
+    /* a raster: the rectangle, its columns and rows, and the cell
+     * expression, which reads its own cell's centre as x and y */
+    { "field",  PN_FIGURE_VERB_FIELD,  7, 7,          "",    'e', VERB_PLAIN  },
 
     /* text (80.7): x, y, format, then one expression per conversion */
     { "text",   PN_FIGURE_VERB_TEXT,   3, G_MAXUINT,  "ees", 'e', VERB_PLAIN  },
@@ -2052,12 +2056,35 @@ is_foldable (
     }
 }
 
+/* TRUE for argument @n of @statement when it is a `field`'s cell
+ * expression: the one argument in the language where `x` and `y` are
+ * not the program's but the cell's own. */
+static gboolean
+is_cell_argument (
+        const PnFigureStatement *statement,
+        guint                    n)
+{
+    return statement->kind == PN_FIGURE_STATEMENT_VERB
+        && statement->verb == PN_FIGURE_VERB_FIELD
+        && n == 6;
+}
+
+static gboolean
+is_cell_name (
+        const gchar *name)
+{
+    return strcmp (name, PN_FIGURE_FIELD_X_NAME) == 0
+        || strcmp (name, PN_FIGURE_FIELD_Y_NAME) == 0;
+}
+
 /* Adds every variable name @node READS to @names.  A function's name is
  * not a variable, and neither is an assignment's target — only what the
- * assignment's value reads. */
+ * assignment's value reads.  In a cell expression (@cell) the cell's
+ * own `x` and `y` are bound by the field, not read from the program. */
 static void
 collect_names (
         const PnExprNode *node,
+        gboolean          cell,
         GHashTable       *names)
 {
     if (node == NULL)
@@ -2065,13 +2092,14 @@ collect_names (
 
     if (node->type == PN_EXPR_NODE_VARIABLE)
     {
-        if (!is_figure_constant (node->name))
+        if (!is_figure_constant (node->name)
+            && !(cell && is_cell_name (node->name)))
             g_hash_table_add (names, g_strdup (node->name));
         return;
     }
 
-    collect_names (node->left, names);
-    collect_names (node->right, names);
+    collect_names (node->left, cell, names);
+    collect_names (node->right, cell, names);
 }
 
 /* Every store a figure evaluates in.  Its comparisons are elementwise:
@@ -2216,13 +2244,15 @@ parse_statement_expressions (
 static guint *block_links (GPtrArray *statements);
 
 /* The first name @node reads that a shape's body may not: not in
- * @known, not a constant, and not the index unless @looping.  Walked
- * left before right, so it is the first one written. */
+ * @known, not a constant, not the index unless @looping, and not a
+ * cell's own `x` or `y` in a cell expression (@cell).  Walked left
+ * before right, so it is the first one written. */
 static const gchar *
 first_foreign_name (
         const PnExprNode *node,
         GHashTable       *known,
-        gboolean          looping)
+        gboolean          looping,
+        gboolean          cell)
 {
     const gchar *name;
 
@@ -2233,14 +2263,15 @@ first_foreign_name (
     {
         if (is_figure_constant (node->name)
             || g_hash_table_contains (known, node->name)
-            || (looping && strcmp (node->name, PN_FIGURE_INDEX_NAME) == 0))
+            || (looping && strcmp (node->name, PN_FIGURE_INDEX_NAME) == 0)
+            || (cell && is_cell_name (node->name)))
             return NULL;
         return node->name;
     }
 
-    name = first_foreign_name (node->left, known, looping);
+    name = first_foreign_name (node->left, known, looping, cell);
     return name != NULL ? name : first_foreign_name (node->right, known,
-                                                     looping);
+                                                     looping, cell);
 }
 
 /* Holds every shape's body, statements @def to @end, to the names it may
@@ -2285,7 +2316,7 @@ check_shape_body (
         if (statement->verb == PN_FIGURE_VERB_REPEAT)
             loop = next[k];
 
-        name = first_foreign_name (statement->ast, known, k < loop);
+        name = first_foreign_name (statement->ast, known, k < loop, FALSE);
         if (name != NULL)
         {
             report_at (errors, statement->source, 0,
@@ -2298,7 +2329,8 @@ check_shape_body (
         {
             const PnFigureArg *arg = g_ptr_array_index (statement->args, n);
 
-            name = first_foreign_name (arg->ast, known, k < loop);
+            name = first_foreign_name (arg->ast, known, k < loop,
+                                       is_cell_argument (statement, n));
             if (name == NULL)
                 continue;
 
@@ -2418,13 +2450,13 @@ pn_figure_free_names (
             continue;
         }
 
-        collect_names (statement->ast, seen);
+        collect_names (statement->ast, FALSE, seen);
 
         for (n = 0; n < statement->args->len; n++)
         {
             const PnFigureArg *arg = g_ptr_array_index (statement->args, n);
 
-            collect_names (arg->ast, seen);
+            collect_names (arg->ast, is_cell_argument (statement, n), seen);
         }
     }
 
@@ -3072,6 +3104,7 @@ figure_op_free (
 
     if (self->points != NULL)
         g_array_unref (self->points);
+    g_clear_pointer (&self->cells, g_bytes_unref);
     g_free (self->text);
     g_free (self);
 }
@@ -3415,6 +3448,12 @@ eval_arg_values (
         out[i].scalar = 0.0;
 
         if (arg->kind != PN_FIGURE_ARG_EXPRESSION)
+            continue;
+
+        /* A cell expression is not a value of the film: it is worked
+         * out per frame over the cells, from what the walk records of
+         * the names it reads (trace_cell_env()). */
+        if (is_cell_argument (statement, i))
             continue;
 
         if (arg->folded)
@@ -4572,7 +4611,24 @@ typedef struct
     guint              n_args;  /* slots filled (all, unless @cut)       */
     gboolean           cut;     /* evaluation failed after @n_args slots */
     const gchar       *skip;    /* a repeat count's marker, or NULL      */
+    GArray            *cell_env;/* a `field`'s CellBinding, else NULL    */
 } TraceEntry;
+
+/* One name a `field`'s cell expression reads, as the walk found it at
+ * that statement: over the whole film, like any argument.  The cell
+ * expression itself cannot be worked out over the film -- it would be
+ * cells times frames numbers -- so the draw picks frame k of each of
+ * these and evaluates it over the cells then. */
+typedef struct
+{
+    const gchar *name;          /* borrowed from the expression's tree  */
+    PnExprValue  value;
+} CellBinding;
+
+/* How many bytes of worked-out cells one trace keeps, so a film that
+ * has been round once plays on from memory.  Past it a frame's cells
+ * are worked out again at every paint, which is correct, only slower. */
+#define FIGURE_CELL_CACHE_BYTES (64 * 1024 * 1024)
 
 struct _PnFigureTrace
 {
@@ -4584,6 +4640,13 @@ struct _PnFigureTrace
      * trace is then good for @index only. */
     gboolean   per_frame;
     guint      index;
+
+    /* Each `field`'s cells as worked out for a frame: (entry << 32 |
+     * frame) -> GBytes.  Filled by the draw, which is why the draw casts
+     * the trace's const away -- a cache, not a change of what the trace
+     * says. */
+    GHashTable *cells;
+    gsize       cell_bytes;
 
     /* The walk's own bookkeeping, of no use once it is done. */
     GHashTable *shapes;   /* folded name -> index of its `def`, borrowed */
@@ -4606,6 +4669,11 @@ trace_entry_clear (
     for (i = 0; entry->args != NULL && i < entry->n_args; i++)
         pn_expr_value_clear (&entry->args[i]);
     g_free (entry->args);
+
+    for (i = 0; entry->cell_env != NULL && i < entry->cell_env->len; i++)
+        pn_expr_value_clear (&g_array_index (entry->cell_env, CellBinding,
+                                             i).value);
+    g_clear_pointer (&entry->cell_env, g_array_unref);
 }
 
 void
@@ -4617,6 +4685,7 @@ pn_figure_trace_free (
 
     g_array_unref     (self->entries);
     g_ptr_array_unref (self->errors);
+    g_clear_pointer (&self->cells, g_hash_table_destroy);
     g_free (self);
 }
 
@@ -4628,6 +4697,65 @@ pn_figure_trace_is_for (
     g_return_val_if_fail (self != NULL, FALSE);
 
     return !self->per_frame || self->index == index;
+}
+
+/* Adds to @env every name @node reads that the cell does not bind
+ * itself, once, with its value in @store.  Walked left before right,
+ * as the names were written. */
+static gboolean
+cell_env_add (
+        const PnExprNode *node,
+        PnVarStore       *store,
+        GArray           *env,
+        GError          **error)
+{
+    CellBinding binding = { NULL, { NULL, 0.0 } };
+    guint       i;
+
+    if (node == NULL)
+        return TRUE;
+
+    if (node->type != PN_EXPR_NODE_VARIABLE)
+        return cell_env_add (node->left, store, env, error)
+            && cell_env_add (node->right, store, env, error);
+
+    if (is_figure_constant (node->name) || is_cell_name (node->name))
+        return TRUE;
+
+    for (i = 0; i < env->len; i++)
+        if (strcmp (g_array_index (env, CellBinding, i).name,
+                    node->name) == 0)
+            return TRUE;
+
+    /* A variable is an expression of its own, and evaluating it is the
+     * store's one way of handing a binding back, vector and all. */
+    if (!pn_var_store_evaluate_value (store, node, &binding.value, error))
+        return FALSE;
+
+    binding.name = node->name;
+    g_array_append_val (env, binding);
+    return TRUE;
+}
+
+/* What a `field`'s cell expression reads, from the walk's @store as it
+ * stands at the statement: an assignment later in the program, or a
+ * later pass of a loop, must not reach back into this one. */
+static gboolean
+trace_cell_env (
+        PnFigureStatement *statement,
+        PnVarStore        *store,
+        GArray            *env,
+        GPtrArray         *errors)
+{
+    const PnFigureArg *arg   = g_ptr_array_index (statement->args, 6);
+    GError            *error = NULL;
+
+    if (arg->folded || cell_env_add (arg->ast, store, env, &error))
+        return TRUE;
+
+    report_at (errors, statement->source, arg->offset, "%s", error->message);
+    g_error_free (error);
+    return FALSE;
 }
 
 /* Records one statement.  An assignment leaves no entry: it binds a
@@ -4671,6 +4799,12 @@ trace_statement (
     entry.args = g_new0 (PnExprValue, statement->args->len + 1);
     entry.cut  = !eval_arg_values (statement, store, entry.args,
                                    &entry.n_args, self->errors);
+    if (!entry.cut && statement->verb == PN_FIGURE_VERB_FIELD)
+    {
+        entry.cell_env = g_array_new (FALSE, TRUE, sizeof (CellBinding));
+        entry.cut      = !trace_cell_env (statement, store, entry.cell_env,
+                                          self->errors);
+    }
     g_array_append_val (self->entries, entry);
 
     return !entry.cut;
@@ -5146,6 +5280,196 @@ trace_block_end (
     return self->entries->len;
 }
 
+/* Frame @index of a `field`'s cells, worked out now or kept from an
+ * earlier paint: @nx times @ny opacities, row by row from the row at
+ * the rectangle's y.  The cell expression is evaluated ONCE, over
+ * vectors of every cell's centre -- the store is elementwise, so the
+ * whole grid is one pass of the tree -- with each name it reads bound
+ * to that name's frame-@index value.  Returns %NULL, with the error
+ * reported, when a name has no value for the frame or the expression
+ * cannot be evaluated (80.10's class c, as for any argument). */
+static GBytes *
+field_cells (
+        PnFigureTrace     *self,
+        guint              at,
+        const TraceEntry  *entry,
+        const gdouble     *values,
+        guint              nx,
+        guint              ny,
+        guint              index,
+        GPtrArray         *errors)
+{
+    const PnFigureStatement *statement = entry->statement;
+    const PnFigureArg       *arg = g_ptr_array_index (statement->args, 6);
+    guint64                  key = ((guint64) at << 32) | index;
+    gsize                    n   = (gsize) nx * ny;
+    PnExprValue              result = { NULL, 0.0 };
+    PnVarStore              *store;
+    GError                  *error = NULL;
+    const gdouble           *data  = NULL;
+    gsize                    len   = 0;
+    gdouble                 *xs, *ys;
+    guint8                  *alpha;
+    GBytes                  *cells;
+    guint                    i, r, c;
+
+    if (self->cells != NULL)
+    {
+        cells = g_hash_table_lookup (self->cells, &key);
+        if (cells != NULL)
+            return g_bytes_ref (cells);
+    }
+
+    store = figure_store_new ();
+
+    for (i = 0; entry->cell_env != NULL && i < entry->cell_env->len; i++)
+    {
+        const CellBinding *binding = &g_array_index (entry->cell_env,
+                                                     CellBinding, i);
+        gdouble            value;
+
+        if (!pick_value (statement, arg, &binding->value, index, &value,
+                         errors))
+        {
+            g_object_unref (store);
+            return NULL;
+        }
+        pn_var_store_set (store, binding->name, value);
+    }
+
+    /* Each cell's centre, so a grid of any size samples the same curve
+     * and a coarse one does not lean towards a corner. */
+    xs = g_new (gdouble, n);
+    ys = g_new (gdouble, n);
+    for (r = 0; r < ny; r++)
+        for (c = 0; c < nx; c++)
+        {
+            xs[(gsize) r * nx + c] = values[0] + ((gdouble) c + 0.5)
+                                                 * values[2] / nx;
+            ys[(gsize) r * nx + c] = values[1] + ((gdouble) r + 0.5)
+                                                 * values[3] / ny;
+        }
+
+    {
+        PnVector *vx = pn_vector_new_take (xs, n);
+        PnVector *vy = pn_vector_new_take (ys, n);
+
+        pn_var_store_set_vector (store, PN_FIGURE_FIELD_X_NAME, vx);
+        pn_var_store_set_vector (store, PN_FIGURE_FIELD_Y_NAME, vy);
+        g_object_unref (vx);
+        g_object_unref (vy);
+    }
+
+    if (arg->folded)
+        result.scalar = arg->value;
+    else if (!pn_var_store_evaluate_value (store, arg->ast, &result, &error))
+    {
+        report_at (errors, statement->source, arg->offset,
+                   "%s", error->message);
+        g_error_free (error);
+        g_object_unref (store);
+        return NULL;
+    }
+    g_object_unref (store);
+
+    if (result.vec != NULL)
+    {
+        data = pn_vector_get_data (result.vec);
+        len  = pn_vector_get_len (result.vec);
+    }
+
+    /* Clamped into 0..1, and a NaN is an empty cell: a value that has
+     * no reading there, as a skipped statement is (80.10b). */
+    alpha = g_malloc (n);
+    for (i = 0; i < n; i++)
+    {
+        gdouble v = data != NULL ? (i < len ? data[i] : 0.0) : result.scalar;
+
+        alpha[i] = !(v > 0.0) ? 0
+                 : v >= 1.0   ? 255
+                 : (guint8) lround (v * 255.0);
+    }
+    pn_expr_value_clear (&result);
+
+    cells = g_bytes_new_take (alpha, n);
+
+    if (self->cell_bytes + n <= FIGURE_CELL_CACHE_BYTES)
+    {
+        guint64 *k = g_new (guint64, 1);
+
+        if (self->cells == NULL)
+            self->cells = g_hash_table_new_full (g_int64_hash,
+                                                 g_int64_equal, g_free,
+                                                 (GDestroyNotify)
+                                                 g_bytes_unref);
+        *k = key;
+        g_hash_table_insert (self->cells, k, g_bytes_ref (cells));
+        self->cell_bytes += n;
+    }
+
+    return cells;
+}
+
+/* A `field` statement: its rectangle through the axes and the view as
+ * three corners -- the painter's parallelogram, so a turned `origin`,
+ * a stretched view and reversed bounds all come out right -- and its
+ * cells for frame @index.  A rectangle of no area, a grid of no cells
+ * and one past PN_FIGURE_MAX_FIELD_CELLS are VALUES and skipped
+ * (80.10b); %FALSE only for field_cells()'s failures. */
+static gboolean
+draw_field (
+        PnFigureTrace     *self,
+        guint              at,
+        const TraceEntry  *entry,
+        const gdouble     *values,
+        guint              index,
+        const Pen         *pen,
+        GPtrArray         *ops,
+        GPtrArray         *errors)
+{
+    PnFigureStatement *statement = entry->statement;
+    PnFigureOp        *op;
+    GBytes            *cells;
+    gdouble            local[6];
+    gdouble            nx = round (values[4]);
+    gdouble            ny = round (values[5]);
+    gint               line = 0;
+
+    if (!args_are_finite (statement, values))
+    {
+        emit_skip (ops, statement, "non-finite");
+        return TRUE;
+    }
+    if (values[2] == 0.0 || values[3] == 0.0 || nx < 1.0 || ny < 1.0)
+    {
+        emit_skip (ops, statement, "degenerate");
+        return TRUE;
+    }
+    if (nx * ny > (gdouble) PN_FIGURE_MAX_FIELD_CELLS)
+    {
+        emit_skip (ops, statement, "too-many");
+        return TRUE;
+    }
+
+    cells = field_cells (self, at, entry, values, (guint) nx, (guint) ny,
+                         index, errors);
+    if (cells == NULL)
+        return FALSE;
+
+    local[0] = values[0];             local[1] = values[1];
+    local[2] = values[0] + values[2]; local[3] = values[1];
+    local[4] = values[0];             local[5] = values[1] + values[3];
+
+    pn_figure_line_locate (statement->source, statement->offset, &line,
+                           NULL);
+    op         = op_add (ops, PN_FIGURE_OP_FIELD, line);
+    op->points = device_points (pen, local, 6);
+    op->nx     = (guint) nx;
+    op->ny     = (guint) ny;
+    op->cells  = cells;
+    return TRUE;
+}
+
 GPtrArray *
 pn_figure_trace_draw (
         const PnFigureTrace *self,
@@ -5281,6 +5605,12 @@ pn_figure_trace_draw (
             Scope scope = { PN_FIGURE_VERB_CALL, pen };
 
             g_array_append_val (saved, scope);
+        }
+        else if (entry->statement->verb == PN_FIGURE_VERB_FIELD)
+        {
+            if (!draw_field ((PnFigureTrace *) self, i, entry, values,
+                             index, &pen, ops, errors))
+                failed = TRUE;
         }
         else if (!draw_statement (entry->statement, values, &pen, &frame,
                                   ops))
@@ -5452,6 +5782,40 @@ append_points (
         append_device (out, g_array_index (points, gdouble, i));
 }
 
+/* A field's cells: every opacity in hex, rows split by '/', while the
+ * grid is small enough to read -- a test's -- and past that their mean,
+ * which still moves with every cell. */
+static void
+append_cells (
+        GString          *out,
+        const PnFigureOp *op)
+{
+    const guint8 *cells;
+    gsize         size = 0;
+    guint64       sum  = 0;
+    gsize         i;
+
+    cells = op->cells != NULL ? g_bytes_get_data (op->cells, &size) : NULL;
+    if (cells == NULL || size == 0)
+        return;
+
+    if (size <= 64)
+    {
+        g_string_append_c (out, ' ');
+        for (i = 0; i < size; i++)
+        {
+            if (i > 0 && op->nx > 0 && i % op->nx == 0)
+                g_string_append_c (out, '/');
+            g_string_append_printf (out, "%02x", cells[i]);
+        }
+        return;
+    }
+
+    for (i = 0; i < size; i++)
+        sum += cells[i];
+    g_string_append_printf (out, " mean %.2f", (gdouble) sum / size);
+}
+
 gchar *
 pn_figure_display_to_string (
         GPtrArray *ops)
@@ -5602,6 +5966,13 @@ pn_figure_display_to_string (
             if (op->angle != 0.0)
                 g_string_append_printf (out, "angle %.2f ", op->angle);
             append_quoted (out, op->text != NULL ? op->text : "");
+            break;
+
+        case PN_FIGURE_OP_FIELD:
+            g_string_append (out, "field");
+            append_points (out, op->points);
+            g_string_append_printf (out, " %ux%u", op->nx, op->ny);
+            append_cells (out, op);
             break;
 
         case PN_FIGURE_OP_SKIP:

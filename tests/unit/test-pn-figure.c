@@ -5864,6 +5864,255 @@ test_an_unpainted_message_is_judged_when_idle (void)
     g_object_unref (self);
 }
 
+/* ------------------------------------------------------------------ */
+/*  The field (TODO #94)                                               */
+/* ------------------------------------------------------------------ */
+
+/* The one frame of @program in the 100x100 rectangle, from a fresh
+ * node, with its error checked empty. */
+static gchar *
+field_dump (const gchar *program)
+{
+    PnNode *self = node (program, 1);
+    gchar  *text = node_dump (self);
+
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+    g_object_unref (self);
+    return text;
+}
+
+static void
+test_a_field_samples_each_cell_centre (void)
+{
+    gchar *text = field_dump ("field 0, 0, 100, 100, 2, 2, x / 100\n"
+                              "field 0, 0, 100, 100, 2, 2, y / 100");
+
+    /* The centres are at 25 and 75, so 0.25 and 0.75 of full: rows run
+     * from the rectangle's y upwards, each from its x, and the corners
+     * are the device parallelogram -- corner, x edge end, y edge end. */
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 2x2 40bf/40bf\n"
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 2x2 4040/bfbf\n");
+    g_free (text);
+}
+
+static void
+test_a_field_clamps_and_empties_a_nan (void)
+{
+    gchar *text = field_dump ("field 0, 0, 100, 100, 4, 1, (x - 37.5) / 25\n"
+                              "field 0, 0, 100, 100, 2, 1, sqrt(x - 50)");
+
+    /* -1, 0, 1, 2 clamp into 0..1; a cell with no reading is empty, and
+     * is no reason to skip the others (80.10b). */
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 4x1 0000ffff\n"
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 2x1 00ff\n");
+    g_free (text);
+}
+
+static void
+test_a_field_shadows_x_in_its_expression_only (void)
+{
+    gchar *text = field_dump ("x = 7\n"
+                              "field 0, 0, 100, 100, 1, 1, x / 100\n"
+                              "circle x, 50, 5");
+
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 80\n"
+                     "circle 7.00 50.00 5.00\n");
+    g_free (text);
+}
+
+static void
+test_a_field_reads_the_program_and_the_index (void)
+{
+    gchar *text = field_dump ("a = 0.2\n"
+                              "repeat 2\n"
+                              "    field i * 50, 0, 50, 100, 1, 1, a + i * 0.5\n"
+                              "end\n"
+                              "a = 1");
+
+    /* Each pass's `i`, and `a` as it stood at the statement -- not the
+     * value the program gives it afterwards. */
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 50.00 100.00 0.00 0.00 1x1 33\n"
+                     "field 50.00 100.00 100.00 100.00 50.00 0.00 1x1 b3\n");
+    g_free (text);
+}
+
+static void
+test_a_field_is_not_an_input (void)
+{
+    Figure f = figure ("field 0, 0, 1, 1, 2, 2, x * y * k\n"
+                       "point x, 0");
+
+    /* The cell's x and y are the field's; the `point`'s x is the
+     * program's, and k is the program's everywhere. */
+    PN_CHECK_CMPINT (f.parse.errors->len, ==, 0);
+    PN_CHECK_CMPINT (f.names->len, ==, 2);
+    PN_CHECK_CMPSTR (g_ptr_array_index (f.names, 0), ==, "k");
+    PN_CHECK_CMPSTR (g_ptr_array_index (f.names, 1), ==, "x");
+    figure_free (&f);
+}
+
+static void
+test_a_field_animates (void)
+{
+    PnNode *self = node ("field 0, 0, 100, 100, 1, 1, t", 1);
+    gchar  *one, *two, *again;
+
+    g_object_set (self, "frames", 4, "play-mode", PN_FIGURE_PLAY_LOOP, NULL);
+
+    one   = frame_dump (self, 1);
+    two   = frame_dump (self, 2);
+    again = frame_dump (self, 1);
+
+    PN_CHECK_CMPSTR (one, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 40\n");
+    PN_CHECK_CMPSTR (two, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 80\n");
+    /* The kept cells are the same cells. */
+    PN_CHECK_CMPSTR (again, ==, one);
+
+    g_free (one);
+    g_free (two);
+    g_free (again);
+    g_object_unref (self);
+}
+
+static void
+test_a_field_follows_new_input (void)
+{
+    PnNode *self = node ("field 0, 0, 100, 100, 1, 1, value1", 1);
+    gchar  *before, *after;
+
+    send (self, 0, "value", 0.5);
+    before = node_dump (self);
+    send (self, 0, "value", 1.0);
+    after  = node_dump (self);
+
+    PN_CHECK_CMPSTR (before, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 80\n");
+    PN_CHECK_CMPSTR (after, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 ff\n");
+
+    g_free (before);
+    g_free (after);
+    g_object_unref (self);
+}
+
+static void
+test_a_field_turns_with_its_axes (void)
+{
+    gchar *text = field_dump ("origin 50, 50, 90\n"
+                              "    field 0, 0, 10, 20, 1, 1, 1\n"
+                              "end");
+
+    /* Local x points up the card and local y to its left. */
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 50.00 50.00 50.00 40.00 30.00 50.00 1x1 ff\n");
+    g_free (text);
+}
+
+static void
+test_a_field_skips_what_it_cannot_draw (void)
+{
+    gchar *text = field_dump ("field 0, 0, 0, 100, 2, 2, x\n"
+                              "field 0, 0, 100, 100, 0, 2, x\n"
+                              "field 0, 0, 100, 100, 1000, 1000, x\n"
+                              "field 0, 0, 100, 100, 2, 2 / 0, x");
+
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "# skip 1 degenerate\n"
+                     "# skip 2 degenerate\n"
+                     "# skip 3 too-many\n"
+                     "# skip 4 non-finite\n");
+    g_free (text);
+}
+
+static void
+test_a_field_mean_for_a_big_grid (void)
+{
+    gchar *text = field_dump ("field 0, 0, 100, 100, 10, 10, 1");
+
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 10x10"
+                     " mean 255.00\n");
+    g_free (text);
+}
+
+static void
+test_a_field_takes_seven_arguments (void)
+{
+    PnNode *self = node ("field 0, 0, 100, 100, 2, 2", 1);
+
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
+                     "line 1, column 1: field takes 7 arguments, not 6");
+    g_object_unref (self);
+}
+
+static void
+test_a_field_in_a_shape (void)
+{
+    Split  ok  = parsed ("def blob r\n"
+                         "    field -r, -r, 2 * r, 2 * r, 2, 2,"
+                         " x * x + y * y < r * r\n"
+                         "end\n"
+                         "blob 10");
+    Split  bad = parsed ("def blob r\n"
+                         "    field -r, -r, 2 * r, 2 * r, 2, 2, k\n"
+                         "end\n"
+                         "blob 10");
+
+    /* Inside a shape the cell's own x and y are the shape's to read, as
+     * `i` is inside its own loop; anything else still comes in as a
+     * parameter. */
+    PN_CHECK_CMPINT (ok.errors->len, ==, 0);
+    PN_CHECK_CMPINT (bad.errors->len, ==, 1);
+    PN_CHECK_CMPSTR (error_text (&bad, 0), ==,
+                     "shape \"blob\" cannot read \"k\": pass it in as a "
+                     "parameter");
+
+    split_free (&ok);
+    split_free (&bad);
+}
+
+static void
+test_a_field_with_a_vector_past_its_end (void)
+{
+    PnNode        *self      = node ("field 0, 0, 100, 100, 1, 1, value1", 1);
+    const gdouble  numbers[] = { 0.25, 0.5 };
+    gchar         *text;
+
+    send_vector (self, numbers, 2);
+    text = frame_dump (self, 1);
+    PN_CHECK_CMPSTR (text, ==,
+                     HEAD_100
+                     "field 0.00 100.00 100.00 100.00 0.00 0.00 1x1 80\n");
+    g_free (text);
+
+    /* A frame the vector has no element for stops the frame, reported
+     * at the cell expression, as it would be at any argument. */
+    text = frame_dump (self, 2);
+    PN_CHECK_CMPSTR (text, ==, "");
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
+                     "line 1, column 29: frame 2 is past the end of a "
+                     "2-element vector");
+    g_free (text);
+    g_object_unref (self);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -6102,5 +6351,18 @@ main (int argc, char **argv)
     pn_test_add ("kept_film_any_size",  test_the_kept_film_redraws_at_any_size);
     pn_test_add ("judge_on_read",       test_a_watched_message_is_judged_later);
     pn_test_add ("judge_when_idle",     test_an_unpainted_message_is_judged_when_idle);
+    pn_test_add ("field_cell_centres",  test_a_field_samples_each_cell_centre);
+    pn_test_add ("field_clamp_nan",     test_a_field_clamps_and_empties_a_nan);
+    pn_test_add ("field_shadows_x",     test_a_field_shadows_x_in_its_expression_only);
+    pn_test_add ("field_reads_program", test_a_field_reads_the_program_and_the_index);
+    pn_test_add ("field_not_an_input",  test_a_field_is_not_an_input);
+    pn_test_add ("field_animates",      test_a_field_animates);
+    pn_test_add ("field_new_input",     test_a_field_follows_new_input);
+    pn_test_add ("field_turns",         test_a_field_turns_with_its_axes);
+    pn_test_add ("field_skips",         test_a_field_skips_what_it_cannot_draw);
+    pn_test_add ("field_big_grid",      test_a_field_mean_for_a_big_grid);
+    pn_test_add ("field_arity",         test_a_field_takes_seven_arguments);
+    pn_test_add ("field_in_a_shape",    test_a_field_in_a_shape);
+    pn_test_add ("field_vector_end",    test_a_field_with_a_vector_past_its_end);
     return pn_test_run ();
 }

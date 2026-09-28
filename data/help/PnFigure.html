@@ -53,6 +53,7 @@ no other.
       <li><a href="#angle-marks">Angle marks</a></li>
       <li><a href="#axes">Axes</a></li>
       <li><a href="#rotated-labels">Rotated labels</a></li>
+      <li><a href="#fields">Fields</a></li>
     </ul>
   </li>
   <li><a href="#expressions">Expressions and variables</a></li>
@@ -289,6 +290,13 @@ own <code>with</code> found.
   <tr><td><code>axes</code></td><td>x, y, xlen, ylen [, "x name" [, "y name"]]</td>
       <td>A pair of axes crossing at (x, y): an arrow along each, and
           its name past its tip (see <a href="#axes">Axes</a>).</td></tr>
+  <tr><td><code>field</code></td><td>x, y, w, h, nx, ny, expr</td>
+      <td>A rectangle shaded cell by cell: <code>nx</code> by
+          <code>ny</code> cells, each as dense in the stroke colour as
+          <code>expr</code> comes to at the cell's own <code>x</code>
+          and <code>y</code> &mdash; a wave seen from above, an
+          interference pattern, a heat map (see
+          <a href="#fields">Fields</a>).</td></tr>
   <tr><td><code>text</code></td><td>x, y, "format" [, expr, &hellip;]</td>
       <td>A label anchored at (x, y) per <code>align</code>. The format
           takes <code>%%</code> and the numeric conversions
@@ -450,6 +458,50 @@ stretched one lays it along the same slant as the line it labels.
 protractor; <code>sin</code>, <code>cos</code>, <code>atan2</code> and
 the rest of the expression functions work in <em>radians</em>. Convert
 with <code>degrees(x)</code> and <code>radians(x)</code>.
+</p>
+
+<h5 id="fields">Fields</h5>
+<pre>
+# Animation tab: frames 50, play-mode loop
+# ripples spreading from the middle
+view -50, -50, 50, 50
+field -50, -50, 100, 100, 200, 200,
+      0.5 + 0.5 * cos(sqrt(x * x + y * y) / 2 - 2 * pi * t)  with color "#1e90ff"
+</pre>
+<p>
+<code>field x, y, w, h, nx, ny, expr</code> covers the rectangle a
+<code>rect x, y, w, h</code> would with <code>nx</code> columns and
+<code>ny</code> rows of cells, and paints each in the stroke colour, as
+dense as <code>expr</code> comes to there: 0 leaves the cell empty, 1
+paints it solid, a value between lets the background show through, and
+anything outside is clamped. A cell where the value has no reading
+&mdash; <code>sqrt</code> of a negative number, say &mdash; stays
+empty. The cells are blended smoothly into each other, because a field
+is a quantity sampled on a grid rather than a mosaic, so even a coarse
+grid draws a smooth picture. For more than one colour, draw one field
+over another: each one only adds its own colour where it is dense.
+</p>
+<p>
+<strong>Inside <code>expr</code>, <code>x</code> and <code>y</code> are
+the centre of the cell being coloured</strong>, in the same units as
+the rectangle. That one argument is the only place they mean that: a
+program variable called <code>x</code> is shadowed there, as one
+called <code>i</code> is inside a <code>repeat</code>, and means itself
+everywhere else &mdash; including in the field's first six arguments.
+Everything else the expression reads is the program's, as it stands at
+the <code>field</code>: inputs, assignments above it, <code>t</code>,
+<code>frame</code> and a loop's <code>i</code>.
+</p>
+<p>
+A field is fast where the same picture drawn with a <code>rect</code>
+per cell would not be: the expression is worked out for every cell of
+a frame in one pass, and each frame's cells are kept, so a film that
+has played round once plays on from memory. One cell per pixel of the
+card &mdash; 280 by 210 &mdash; costs a few milliseconds a frame the
+first time round. A field turns with <code>origin</code> axes and
+stretches with the <code>view</code>. A rectangle with no area, fewer
+than one cell either way, or more than 235,200 cells (four times the
+card) is skipped, like any other value that cannot be drawn.
 </p>
 
 <h5 id="expressions">Expressions and variables</h5>

@@ -406,6 +406,85 @@ curve_path (
     return TRUE;
 }
 
+/* A FIELD: the stroke colour painted through its cells as a mask, one
+ * mask pixel per cell, mapped onto the parallelogram core worked out --
+ * corner, end of the x edge, end of the y edge -- so the axes and the
+ * view need nothing here.  Blended between cell centres, because a
+ * field is a quantity sampled on a grid and not a mosaic; padded at the
+ * rim and clipped to the parallelogram, so the edge cells are whole. */
+static void
+paint_field (
+        cairo_t          *cr,
+        const Pen        *pen,
+        const PnFigureOp *op)
+{
+    const gdouble   *p;
+    const guint8    *cells;
+    gsize            size = 0;
+    cairo_surface_t *mask;
+    cairo_pattern_t *pattern;
+    cairo_matrix_t   matrix;
+    guint8          *dst;
+    gint             stride;
+    guint            r;
+
+    if (op->points == NULL || op->points->len < 6 || op->cells == NULL
+        || op->nx == 0 || op->ny == 0)
+        return;
+
+    cells = g_bytes_get_data (op->cells, &size);
+    if (size < (gsize) op->nx * op->ny)
+        return;
+
+    p = (const gdouble *) op->points->data;
+
+    /* Cell (u, v) of the mask lands at p0 + u/nx (p1 - p0) + v/ny (p2 -
+     * p0); the pattern wants the other way round. */
+    cairo_matrix_init (&matrix,
+                       (p[2] - p[0]) / op->nx, (p[3] - p[1]) / op->nx,
+                       (p[4] - p[0]) / op->ny, (p[5] - p[1]) / op->ny,
+                       p[0], p[1]);
+    if (cairo_matrix_invert (&matrix) != CAIRO_STATUS_SUCCESS)
+        return;
+
+    mask = cairo_image_surface_create (CAIRO_FORMAT_A8, (gint) op->nx,
+                                       (gint) op->ny);
+    if (cairo_surface_status (mask) != CAIRO_STATUS_SUCCESS)
+    {
+        cairo_surface_destroy (mask);
+        return;
+    }
+
+    cairo_surface_flush (mask);
+    dst    = cairo_image_surface_get_data (mask);
+    stride = cairo_image_surface_get_stride (mask);
+    for (r = 0; r < op->ny; r++)
+        memcpy (dst + (gsize) r * stride, cells + (gsize) r * op->nx,
+                op->nx);
+    cairo_surface_mark_dirty (mask);
+
+    pattern = cairo_pattern_create_for_surface (mask);
+    cairo_pattern_set_matrix (pattern, &matrix);
+    cairo_pattern_set_extend (pattern, CAIRO_EXTEND_PAD);
+    cairo_pattern_set_filter (pattern, CAIRO_FILTER_BILINEAR);
+
+    cairo_save (cr);
+    cairo_new_path (cr);
+    cairo_move_to (cr, p[0], p[1]);
+    cairo_line_to (cr, p[2], p[3]);
+    cairo_line_to (cr, p[2] + p[4] - p[0], p[3] + p[5] - p[1]);
+    cairo_line_to (cr, p[4], p[5]);
+    cairo_close_path (cr);
+    cairo_clip (cr);
+
+    set_source (cr, &pen->stroke);
+    cairo_mask (cr, pattern);
+    cairo_restore (cr);
+
+    cairo_pattern_destroy (pattern);
+    cairo_surface_destroy (mask);
+}
+
 /* ------------------------------------------------------------------ */
 /*  The walk                                                           */
 /* ------------------------------------------------------------------ */
@@ -534,6 +613,10 @@ paint_ops (
 
         case PN_FIGURE_OP_TEXT:
             draw_text (cr, &pen, family, op);
+            break;
+
+        case PN_FIGURE_OP_FIELD:
+            paint_field (cr, &pen, op);
             break;
 
         case PN_FIGURE_OP_SKIP:
