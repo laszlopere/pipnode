@@ -1,0 +1,91 @@
+{
+  "format": "pipnode",
+  "version": 1,
+  "nodes": [
+    {
+      "type": "PnComment",
+      "uuid": "f4fce9ce-f102-4ac6-a033-b20f5f86e058",
+      "name": "Comment 1",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "properties": {
+        "text": "WALKING DROPLETS: AN ORBITING PAIR -- pilot-wave hydrodynamics, the classical experiment that looks like quantum mechanics.  A drop of silicone oil bouncing on a vibrating bath of the same oil never touches it: every bounce lands on a thin film of air and leaves a standing ripple that dies away only slowly.  The drop lands next time on the slope of the ripples left by earlier bounces, is kicked downhill, and walks.  Two drops land on each other's ripples too, and can catch each other in an orbit, going round their common centre face to face.  The plate is lit once per bounce, as in the lab, so the ripples stand still under the drops.  Spin the wheel over the knobs: SEPARATION (in wavelengths of the ripple) and WAVE MEMORY (how many bounces the bath still remembers).  The graph on the right is the push the ripples give each drop along the line between them, for every separation -- worked out in the program from the same sum of Bessel ripples that shades the bath.  Only where it turns from pushing apart to pulling together does the pair hold, at about 0.75, 1.75 and 2.7 wavelengths: a ladder of bound orbits, like the levels of an atom.  The knob's notches land exactly on them; off an orbit, orange arrows show which way the drops are pushed.  Open the Figure (double-click) to see the program.",
+        "width": 900.0,
+        "height": 130.0,
+        "text-size": 13.0
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "8ea7f225-623e-4e01-bbd0-47a43963309a",
+      "name": "Separation (wavelengths)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 240.0
+      },
+      "properties": {
+        "min": 0.41,
+        "max": 3.05,
+        "value": 1.73
+      }
+    },
+    {
+      "type": "PnKnob",
+      "uuid": "9b280014-b83c-4b56-8e35-ef7886d60ca1",
+      "name": "Wave memory (bounces)",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 60.0,
+        "y": 320.0
+      },
+      "properties": {
+        "min": 1.0,
+        "max": 8.0,
+        "value": 6.0
+      }
+    },
+    {
+      "type": "PnFigure",
+      "uuid": "61581939-c986-414e-9877-9b8868e45f27",
+      "name": "Walking droplets: an orbiting pair",
+      "worksheet": "Worksheet",
+      "position": {
+        "x": 320.0,
+        "y": 220.0
+      },
+      "properties": {
+        "program": "# WALKING DROPLETS -- an orbiting pair\n#\n# Animation tab: frames 100, play-mode loop\n# inputs: s (how far apart the two drops are, in Faraday wavelengths),\n#         mem (path memory, in bounces)\n#\n# A drop of oil bouncing on a vibrating bath of the same oil never\n# touches it: each bounce lands on a thin cushion of air and leaves a\n# standing Faraday wave, j0(k r) about the point of impact, that dies\n# away only slowly.  The drop lands next time on the slope of the waves\n# left by earlier bounces -- its own and its neighbour's -- is kicked\n# downhill, and so walks.\n#\n# Two drops side by side each land on the other's waves too, and can\n# catch each other in an orbit: they go round their common centre,\n# face to face, each held by the ripples of the other.  The plate is\n# drawn stroboscopically -- lit once per bounce, as in the lab -- so\n# the waves stand still under the drops.  On the right: the push along\n# the line between them that the waves give each drop, for every\n# separation.  Where it turns from pushing apart to pulling together\n# the pair holds; only those separations are kept, so the pair has a\n# ladder of orbits, like the levels of an atom.  (A crude model: the\n# drops' own inertia is left out, and one remembered bounce stands for\n# a few real ones.)\n\nview -34, -58, 116, 54\n\nlam = 10                   # the Faraday wavelength, in plate units\nk   = 2 * pi / lam\nd   = 3                    # how far a drop walks between remembered bounces\nB   = 30                   # radius of the bath\nRc  = s * lam / 2          # each drop's orbit round the common centre\nD   = d / Rc               # the angle one bounce step covers on it\nm   = mem\n\n# ==================================================================\n#  THE BOUNCES the drops remember, drawn on axes that turn with the\n#  pair: drop A sits at (Rc, 0) heading up, drop B at (-Rc, 0) heading\n#  down, and bounce n of A lies n steps behind it round the circle, at\n#  (Xn, Yn); B's is the same point through the centre, (-Xn, -Yn).\n#  Each wave has faded by exp(-n / mem).\n# ==================================================================\nX0 = Rc\nY0 = 0\nX1 = Rc * cos(1 * D)\nY1 = -Rc * sin(1 * D)\nX2 = Rc * cos(2 * D)\nY2 = -Rc * sin(2 * D)\nX3 = Rc * cos(3 * D)\nY3 = -Rc * sin(3 * D)\nX4 = Rc * cos(4 * D)\nY4 = -Rc * sin(4 * D)\nX5 = Rc * cos(5 * D)\nY5 = -Rc * sin(5 * D)\nX6 = Rc * cos(6 * D)\nY6 = -Rc * sin(6 * D)\nX7 = Rc * cos(7 * D)\nY7 = -Rc * sin(7 * D)\nX8 = Rc * cos(8 * D)\nY8 = -Rc * sin(8 * D)\nX9 = Rc * cos(9 * D)\nY9 = -Rc * sin(9 * D)\nX10 = Rc * cos(10 * D)\nY10 = -Rc * sin(10 * D)\nX11 = Rc * cos(11 * D)\nY11 = -Rc * sin(11 * D)\nX12 = Rc * cos(12 * D)\nY12 = -Rc * sin(12 * D)\nX13 = Rc * cos(13 * D)\nY13 = -Rc * sin(13 * D)\nX14 = Rc * cos(14 * D)\nY14 = -Rc * sin(14 * D)\nX15 = Rc * cos(15 * D)\nY15 = -Rc * sin(15 * D)\n\n# The surface: every remembered wave of both drops added up, in the one\n# expression a field allows (each line break sits after a comma, which\n# is how an expression is continued).  How high the waves stand varies\n# a lot -- on a bound orbit the two trails largely cancel, off one they\n# pile up -- so the shading is scaled by the height under drop A: its\n# own bounce n is 2 Rc sin(n D / 2) behind it and B's 2 Rc cos(n D / 2)\n# away.\nH = 0\nH = H + exp(-0 / m) * (j0(2 * k * Rc * sin(0 * D / 2)) + j0(2 * k * Rc * abs(cos(0 * D / 2))))\nH = H + exp(-1 / m) * (j0(2 * k * Rc * sin(1 * D / 2)) + j0(2 * k * Rc * abs(cos(1 * D / 2))))\nH = H + exp(-2 / m) * (j0(2 * k * Rc * sin(2 * D / 2)) + j0(2 * k * Rc * abs(cos(2 * D / 2))))\nH = H + exp(-3 / m) * (j0(2 * k * Rc * sin(3 * D / 2)) + j0(2 * k * Rc * abs(cos(3 * D / 2))))\nH = H + exp(-4 / m) * (j0(2 * k * Rc * sin(4 * D / 2)) + j0(2 * k * Rc * abs(cos(4 * D / 2))))\nH = H + exp(-5 / m) * (j0(2 * k * Rc * sin(5 * D / 2)) + j0(2 * k * Rc * abs(cos(5 * D / 2))))\nH = H + exp(-6 / m) * (j0(2 * k * Rc * sin(6 * D / 2)) + j0(2 * k * Rc * abs(cos(6 * D / 2))))\nH = H + exp(-7 / m) * (j0(2 * k * Rc * sin(7 * D / 2)) + j0(2 * k * Rc * abs(cos(7 * D / 2))))\nH = H + exp(-8 / m) * (j0(2 * k * Rc * sin(8 * D / 2)) + j0(2 * k * Rc * abs(cos(8 * D / 2))))\nH = H + exp(-9 / m) * (j0(2 * k * Rc * sin(9 * D / 2)) + j0(2 * k * Rc * abs(cos(9 * D / 2))))\nH = H + exp(-10 / m) * (j0(2 * k * Rc * sin(10 * D / 2)) + j0(2 * k * Rc * abs(cos(10 * D / 2))))\nH = H + exp(-11 / m) * (j0(2 * k * Rc * sin(11 * D / 2)) + j0(2 * k * Rc * abs(cos(11 * D / 2))))\nH = H + exp(-12 / m) * (j0(2 * k * Rc * sin(12 * D / 2)) + j0(2 * k * Rc * abs(cos(12 * D / 2))))\nH = H + exp(-13 / m) * (j0(2 * k * Rc * sin(13 * D / 2)) + j0(2 * k * Rc * abs(cos(13 * D / 2))))\nH = H + exp(-14 / m) * (j0(2 * k * Rc * sin(14 * D / 2)) + j0(2 * k * Rc * abs(cos(14 * D / 2))))\nH = H + exp(-15 / m) * (j0(2 * k * Rc * sin(15 * D / 2)) + j0(2 * k * Rc * abs(cos(15 * D / 2))))\ng = 0.4 / max(abs(H), 0.4)\nW = (1 - exp(-16 / m)) / (1 - exp(-1 / m))    # all the weights, summed\n\norigin 0, 0, 360 * t\n    field -B, -B, 2 * B, 2 * B, 160, 160,\n          (hypot(x, y) < B) * (0.5 + g * (j0(k * hypot(x - X0,\n          y - Y0)) + j0(k * hypot(x + X0,\n          y + Y0)) + exp(-1 / m) * (j0(k * hypot(x - X1,\n          y - Y1)) + j0(k * hypot(x + X1,\n          y + Y1))) + exp(-2 / m) * (j0(k * hypot(x - X2,\n          y - Y2)) + j0(k * hypot(x + X2,\n          y + Y2))) + exp(-3 / m) * (j0(k * hypot(x - X3,\n          y - Y3)) + j0(k * hypot(x + X3,\n          y + Y3))) + exp(-4 / m) * (j0(k * hypot(x - X4,\n          y - Y4)) + j0(k * hypot(x + X4,\n          y + Y4))) + exp(-5 / m) * (j0(k * hypot(x - X5,\n          y - Y5)) + j0(k * hypot(x + X5,\n          y + Y5))) + exp(-6 / m) * (j0(k * hypot(x - X6,\n          y - Y6)) + j0(k * hypot(x + X6,\n          y + Y6))) + exp(-7 / m) * (j0(k * hypot(x - X7,\n          y - Y7)) + j0(k * hypot(x + X7,\n          y + Y7))) + exp(-8 / m) * (j0(k * hypot(x - X8,\n          y - Y8)) + j0(k * hypot(x + X8,\n          y + Y8))) + exp(-9 / m) * (j0(k * hypot(x - X9,\n          y - Y9)) + j0(k * hypot(x + X9,\n          y + Y9))) + exp(-10 / m) * (j0(k * hypot(x - X10,\n          y - Y10)) + j0(k * hypot(x + X10,\n          y + Y10))) + exp(-11 / m) * (j0(k * hypot(x - X11,\n          y - Y11)) + j0(k * hypot(x + X11,\n          y + Y11))) + exp(-12 / m) * (j0(k * hypot(x - X12,\n          y - Y12)) + j0(k * hypot(x + X12,\n          y + Y12))) + exp(-13 / m) * (j0(k * hypot(x - X13,\n          y - Y13)) + j0(k * hypot(x + X13,\n          y + Y13))) + exp(-14 / m) * (j0(k * hypot(x - X14,\n          y - Y14)) + j0(k * hypot(x + X14,\n          y + Y14))) + exp(-15 / m) * (j0(k * hypot(x - X15,\n          y - Y15)) + j0(k * hypot(x + X15,\n          y + Y15)))))  with color \"#cfe3ee\"\n\n    # the remembered bounces themselves, fading with their waves\n    with color 0, 0, 0, 0\n        repeat 16\n            p = exp(-i / m)\n            circle  Rc * cos(i * D), -Rc * sin(i * D), 0.45  with fill 1, 0.55, 0.2, p\n            circle -Rc * cos(i * D),  Rc * sin(i * D), 0.45  with fill 1, 0.55, 0.2, p\n        end\n    end\n\n    # the orbit, and the two drops on it\n    circle 0, 0, Rc  with color \"#8aa3b3\", width 0.2, dash \"dot\"\n    with fill \"#ffc640\", color \"#402a00\", width 0.3\n        circle  Rc, 0, 1.3\n        circle -Rc, 0, 1.3\n    end\nend\n\n# the rim of the bath\ncircle 0, 0, B  with color \"#8aa3b3\", width 0.8\n\n# ==================================================================\n#  THE PUSH ALONG THE PAIR, for separations from 0.41 to 3.05\n#  wavelengths.  The slope of a wave a distance r away is k j1(k r),\n#  pointing away from where it was made.  Drop A's own bounce n is a\n#  chord 2 Rc sin(n D / 2) behind it and sin(n D / 2) of its kick points\n#  away from B; drop B's bounce n is 2 Rc cos(n D / 2) away and\n#  cos(n D / 2) of its kick points the same way.  Pass 81 of the loop\n#  works out the push at the separation the knob chose.  The push is\n#  divided by the total weight W, as the shading is, so a long memory\n#  and a short one share the scale.\n# ==================================================================\ngx0 = 44\ngx1 = 106\ngy  = 2\ngs  = 40\nsa  = 0.41\nsb  = 3.05\nFp  = 0\nn1  = 0\nn2  = 0\nn3  = 0\n\nrepeat 82\n    ss = if(i < 81, sa + (sb - sa) * i / 80, s)\n    Rs = ss * lam / 2\n    Ds = d / Rs\n    F  = j1(2 * k * Rs)\n    F = F + exp(-1 / m) * (j1(2 * k * Rs * sin(1 * Ds / 2)) * sin(1 * Ds / 2) + j1(2 * k * Rs * abs(cos(1 * Ds / 2))) * abs(cos(1 * Ds / 2)))\n    F = F + exp(-2 / m) * (j1(2 * k * Rs * sin(2 * Ds / 2)) * sin(2 * Ds / 2) + j1(2 * k * Rs * abs(cos(2 * Ds / 2))) * abs(cos(2 * Ds / 2)))\n    F = F + exp(-3 / m) * (j1(2 * k * Rs * sin(3 * Ds / 2)) * sin(3 * Ds / 2) + j1(2 * k * Rs * abs(cos(3 * Ds / 2))) * abs(cos(3 * Ds / 2)))\n    F = F + exp(-4 / m) * (j1(2 * k * Rs * sin(4 * Ds / 2)) * sin(4 * Ds / 2) + j1(2 * k * Rs * abs(cos(4 * Ds / 2))) * abs(cos(4 * Ds / 2)))\n    F = F + exp(-5 / m) * (j1(2 * k * Rs * sin(5 * Ds / 2)) * sin(5 * Ds / 2) + j1(2 * k * Rs * abs(cos(5 * Ds / 2))) * abs(cos(5 * Ds / 2)))\n    F = F + exp(-6 / m) * (j1(2 * k * Rs * sin(6 * Ds / 2)) * sin(6 * Ds / 2) + j1(2 * k * Rs * abs(cos(6 * Ds / 2))) * abs(cos(6 * Ds / 2)))\n    F = F + exp(-7 / m) * (j1(2 * k * Rs * sin(7 * Ds / 2)) * sin(7 * Ds / 2) + j1(2 * k * Rs * abs(cos(7 * Ds / 2))) * abs(cos(7 * Ds / 2)))\n    F = F + exp(-8 / m) * (j1(2 * k * Rs * sin(8 * Ds / 2)) * sin(8 * Ds / 2) + j1(2 * k * Rs * abs(cos(8 * Ds / 2))) * abs(cos(8 * Ds / 2)))\n    F = F + exp(-9 / m) * (j1(2 * k * Rs * sin(9 * Ds / 2)) * sin(9 * Ds / 2) + j1(2 * k * Rs * abs(cos(9 * Ds / 2))) * abs(cos(9 * Ds / 2)))\n    F = F + exp(-10 / m) * (j1(2 * k * Rs * sin(10 * Ds / 2)) * sin(10 * Ds / 2) + j1(2 * k * Rs * abs(cos(10 * Ds / 2))) * abs(cos(10 * Ds / 2)))\n    F = F + exp(-11 / m) * (j1(2 * k * Rs * sin(11 * Ds / 2)) * sin(11 * Ds / 2) + j1(2 * k * Rs * abs(cos(11 * Ds / 2))) * abs(cos(11 * Ds / 2)))\n    F = F + exp(-12 / m) * (j1(2 * k * Rs * sin(12 * Ds / 2)) * sin(12 * Ds / 2) + j1(2 * k * Rs * abs(cos(12 * Ds / 2))) * abs(cos(12 * Ds / 2)))\n    F = F + exp(-13 / m) * (j1(2 * k * Rs * sin(13 * Ds / 2)) * sin(13 * Ds / 2) + j1(2 * k * Rs * abs(cos(13 * Ds / 2))) * abs(cos(13 * Ds / 2)))\n    F = F + exp(-14 / m) * (j1(2 * k * Rs * sin(14 * Ds / 2)) * sin(14 * Ds / 2) + j1(2 * k * Rs * abs(cos(14 * Ds / 2))) * abs(cos(14 * Ds / 2)))\n    F = F + exp(-15 / m) * (j1(2 * k * Rs * sin(15 * Ds / 2)) * sin(15 * Ds / 2) + j1(2 * k * Rs * abs(cos(15 * Ds / 2))) * abs(cos(15 * Ds / 2)))\n    F  = F / W\n    gx = gx0 + (gx1 - gx0) * (ss - sa) / (sb - sa)\n    if i == 0\n        move gx, gy + gs * clamp(F, -0.42, 0.52)\n    elseif i < 81\n        lineto gx, gy + gs * clamp(F, -0.42, 0.52)  with color \"#e8eef2\", width 0.5\n        # a separation the waves hold: the push turns from apart to together\n        if (Fp > 0) * (F <= 0)\n            sz = ss - (sb - sa) / 80 * F / (F - Fp)\n            circle gx0 + (gx1 - gx0) * (sz - sa) / (sb - sa), gy, 0.9  with fill \"#ffc640\", color \"#ffc640\"\n            n3 = if(n2 * (n3 == 0), sz, n3)\n            n2 = if(n1 * (n2 == 0), sz, n2)\n            n1 = if(n1 == 0, sz, n1)\n        end\n    else\n        Fnow = F\n    end\n    Fp = F\nend\n\n# the graph's axes and scale\nwith color \"#8aa3b3\", width 0.3\n    line gx0, gy, gx1 + 4, gy\n    line gx0, -16, gx0, 23\n    repeat 6\n        gx = gx0 + (gx1 - gx0) * ((i + 1) * 0.5 - sa) / (sb - sa)\n        line gx, gy - 1, gx, gy + 1\n        text gx, gy - 2.2, \"%.1f\", (i + 1) * 0.5  with color \"#a9bcc8\", font 3, align \"centre\", \"top\"\n    end\nend\nwith color \"#a9bcc8\", font 3.4\n    text gx1 + 4, gy + 1.5, \"s / λ\"  with align \"right\", \"bottom\"\n    text 113, 23, \"the waves push\\nthe drops apart\"  with align \"right\", \"top\"\n    text 113, -16, \"the waves pull\\nthem together\"  with align \"right\", \"bottom\"\nend\n\n# where the knob has put the pair on that curve\nxg = gx0 + (gx1 - gx0) * (s - sa) / (sb - sa)\nline xg, -16, xg, 23  with color \"#ffc640\", width 0.25, dash \"dash\", 0.5\ncircle xg, gy + gs * clamp(Fnow, -0.42, 0.52), 1.1  with fill \"#ffc640\", color \"#402a00\", width 0.3\n\n# and on the drops themselves: the same push, as an arrow along the line\n# between them, drawn on the plate where the pair is at this frame\na  = 2 * pi * t\nfa = clamp(30 * Fnow, -6, 6)\nif abs(fa) > 0.4\n    with color \"#ff6a3d\", width 0.6, arrowhead 2.2, 2\n        repeat 2\n            c = cos(a + pi * i)\n            q = sin(a + pi * i)\n            arrow (Rc + 1.8 * sign(fa)) * c, (Rc + 1.8 * sign(fa)) * q,\n                  (Rc + 1.8 * sign(fa) + fa) * c, (Rc + 1.8 * sign(fa) + fa) * q\n        end\n    end\nend\n\n# ==================================================================\n#  THE READOUT\n# ==================================================================\nline -32, -35, 116, -35  with color \"#3d5566\", width 0.3\nwith color \"#dfe8ee\", font 4, align \"left\", \"top\"\n    text -32, -37.5, \"the drops s = %.2f λ apart      wave memory %.1f bounces\", s, m\n    sn = if(abs(s - n1) < abs(s - n2), n1, n2)\n    sn = if(n3 * (abs(s - n3) < abs(s - sn)), n3, sn)\n    if (sn > 0) * (abs(s - sn) < 0.045)\n        text -32, -43, \"a bound orbit: each drop's waves hold the other here\"  with color \"#ffc640\"\n    elseif Fnow > 0\n        text -32, -43, \"the waves push the drops apart, off this orbit\"\n    else\n        text -32, -43, \"the waves pull the drops together, off this orbit\"\n    end\n    with color \"#a9bcc8\"\n        if n1 == 0\n            text -32, -48.5, \"no separation holds the pair\"\n        elseif n2 == 0\n            text -32, -48.5, \"orbits the waves hold:  %.2f λ apart\", n1\n        elseif n3 == 0\n            text -32, -48.5, \"orbits the waves hold:  %.2f λ,  %.2f λ apart\", n1, n2\n        else\n            text -32, -48.5, \"orbits the waves hold:  %.2f λ,  %.2f λ,  %.2f λ apart\", n1, n2, n3\n        end\n    end\nend\nwith align \"left\", \"top\"\n    text -32, 52, \"Walking droplets: an orbiting pair\"  with color \"#dfe8ee\", font 6\n    text -32, 44, \"two drops of oil bouncing on a vibrating bath of oil, lit once per bounce\"  with color \"#a9bcc8\", font 3.6\nend\n",
+        "inputs": 2,
+        "background-color": "rgb(20,28,36)",
+        "font-family": "",
+        "stretch": false,
+        "fps": 25,
+        "play-mode": "loop",
+        "frames": 100
+      },
+      "input-names": {
+        "0": "s",
+        "1": "mem"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "8ea7f225-623e-4e01-bbd0-47a43963309a",
+      "target_id": "61581939-c986-414e-9877-9b8868e45f27"
+    },
+    {
+      "source_id": "9b280014-b83c-4b56-8e35-ef7886d60ca1",
+      "target_id": "61581939-c986-414e-9877-9b8868e45f27",
+      "target_input": 1
+    }
+  ],
+  "sheets": [
+    "Worksheet"
+  ],
+  "active_sheet": "Worksheet"
+}
