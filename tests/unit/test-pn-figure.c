@@ -5805,6 +5805,65 @@ test_the_kept_film_redraws_at_any_size (void)
     g_object_unref (fresh);
 }
 
+static gboolean
+has_error (PnFigure *figure)
+{
+    return pn_node_get_has_error (PN_NODE (figure));
+}
+
+static gboolean
+has_no_error (PnFigure *figure)
+{
+    return !pn_node_get_has_error (PN_NODE (figure));
+}
+
+static void
+test_a_watched_message_is_judged_later (void)
+{
+    PnNode *self    = node ("line 0, 0, value1, 0", 1);
+    gint    repaints = 0;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+
+    /* With a painter the walk waits for it: on receive the node is not
+     * judged yet, so an empty vector has not reddened it. */
+    send_vector (self, NULL, 0);
+    PN_CHECK_FALSE (pn_node_get_has_error (self));
+
+    /* A read of the property judges it there and then. */
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==,
+                     "line 1, column 12: empty vector argument;"
+                     " nothing to draw");
+    PN_CHECK (pn_node_get_has_error (self));
+
+    g_object_unref (self);
+}
+
+static void
+test_an_unpainted_message_is_judged_when_idle (void)
+{
+    PnNode        *self      = node ("line 0, 0, value1, 0", 1);
+    const gdouble  numbers[] = { 10.0 };
+    gint           repaints  = 0;
+
+    g_signal_connect (self, "repaint-needed",
+                      G_CALLBACK (on_repaint_count), &repaints);
+
+    /* Watched, but nothing ever paints -- a node scrolled out of view.
+     * The idle judges it, even behind a throttled repaint: the second
+     * message lands inside the throttle window. */
+    send_vector (self, numbers, 1);
+    send_vector (self, NULL, 0);
+    PN_CHECK (pump_until (has_error, PN_FIGURE (self)));
+
+    send_vector (self, numbers, 1);
+    PN_CHECK (pump_until (has_no_error, PN_FIGURE (self)));
+    PN_CHECK_CMPSTR (pn_figure_get_error (PN_FIGURE (self)), ==, "");
+
+    g_object_unref (self);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -6041,5 +6100,7 @@ main (int argc, char **argv)
     pn_test_add ("kept_film_repeat",    test_a_vector_repeat_count_is_walked_per_frame);
     pn_test_add ("kept_film_if",        test_a_film_condition_is_walked_per_frame);
     pn_test_add ("kept_film_any_size",  test_the_kept_film_redraws_at_any_size);
+    pn_test_add ("judge_on_read",       test_a_watched_message_is_judged_later);
+    pn_test_add ("judge_when_idle",     test_an_unpainted_message_is_judged_when_idle);
     return pn_test_run ();
 }

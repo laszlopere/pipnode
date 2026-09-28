@@ -1135,7 +1135,9 @@ gchar *pn_figure_dump (PnFigure *self,
  * The text the client area shows in place of the figure, and the value
  * of the read-only `error` property (80.10f).  It reflects the LAST
  * pn_figure_render() for the runtime classes, and the current program
- * for the parse class.
+ * for the parse class.  A message that no render has judged yet is
+ * judged here first, on the frame shown, so the text always follows
+ * the latest input.
  *
  * Returns: (transfer none): the message, or "" when all is well.
  */

@@ -717,7 +717,9 @@ circle 50 * cos(2 * pi * t), 50 * sin(2 * pi * t), 4
       <em>double-pendulum</em> example does this with a thousand steps.
       The price is paid on every change instead: turning a knob on such
       a figure works the whole film out again, which takes a
-      moment. A <code>repeat</code> count or an <code>if</code>
+      moment. A knob spun quickly does not pay it for every step,
+      though: the film is worked out when the card is next drawn, at
+      most ten times a second, so the steps in between cost nothing. A <code>repeat</code> count or an <code>if</code>
       condition that is itself a vector is the exception &mdash; it
       gives each frame a different walk through the program, so that
       film is worked out frame by frame. A mask used as a number, such as

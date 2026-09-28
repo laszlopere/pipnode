@@ -5692,6 +5692,14 @@ struct _PnFigure
      * marker in the list and is deliberately not an error (80.10b). */
     gchar *runtime_error;
 
+    /* A message has come in since @runtime_error was last judged.  The
+     * walk that judges it is the expensive part of a message, so it is
+     * left to whoever needs it first: the next paint, a read of the
+     * `error` property, or figure_schedule_judge()'s idle when nothing
+     * paints. */
+    gboolean verdict_stale;
+    guint    judge_id;         /* that idle, 0 when none is queued     */
+
     /* What the `error` property currently reads, so a set that changes
      * nothing does not notify. */
     gchar *error;
@@ -5723,6 +5731,8 @@ static GParamSpec *props[N_PROPS];
 /*  Repaint throttle (mirrors PnPlot / PnOscilloscope)                 */
 /* ------------------------------------------------------------------ */
 
+static void figure_schedule_judge (PnFigure *self);
+
 static gboolean
 on_pending_repaint (gpointer user_data)
 {
@@ -5731,6 +5741,11 @@ on_pending_repaint (gpointer user_data)
     self->pending_repaint_id = 0;
     self->last_repaint_us    = g_get_monotonic_time ();
     pn_node_request_repaint (PN_NODE (self));
+
+    /* The judge idle stood aside for this repaint; queue it behind the
+     * paint, in case the node is off screen and the paint never comes. */
+    if (self->verdict_stale)
+        figure_schedule_judge (self);
 
     return G_SOURCE_REMOVE;
 }
@@ -6018,6 +6033,9 @@ figure_render_frame (
     PnFigureFilm  film;
     gchar        *error = NULL;
 
+    /* Whatever this frame says is the verdict now. */
+    self->verdict_stale = FALSE;
+
     /* A program error draws nothing at all (80.10a) — not the good
      * statements either, because half a figure is a worse lie than
      * none. */
@@ -6045,6 +6063,54 @@ figure_render_frame (
     figure_refresh_error (self);
 
     return ops;
+}
+
+/* Bring the `error` property up to date after a message, on the frame
+ * that is shown, at the at-rest client rectangle.  The list itself is
+ * thrown away: the painter resolves for whatever rectangle it is given,
+ * which differs the moment the node is lifted into the zoom overlay --
+ * but the walk is kept, so the paint that follows only reads it. */
+static void
+figure_judge (
+        PnFigure *self)
+{
+    if (!self->verdict_stale)
+        return;
+
+    g_ptr_array_unref (figure_render_frame (self,
+                                            pn_figure_get_frame (self),
+                                            0.0, 0.0, PN_FIGURE_WIDTH,
+                                            PN_FIGURE_CLIENT_HEIGHT));
+}
+
+static gboolean
+on_judge_idle (
+        gpointer user_data)
+{
+    PnFigure *self = user_data;
+
+    self->judge_id = 0;
+
+    /* A throttled repaint is on its way and will judge as it paints;
+     * on_pending_repaint() queues this again behind it. */
+    if (self->pending_repaint_id == 0)
+        figure_judge (self);
+
+    return G_SOURCE_REMOVE;
+}
+
+/* Judge once the main loop has nothing better to do.  At LOW priority,
+ * below GTK's redraw, so a node on screen is judged by its own paint and
+ * this finds nothing left to do; it only walks for a node that is not
+ * painted -- scrolled out of view, or in a hidden window -- so that
+ * has-error and notify::error still arrive there. */
+static void
+figure_schedule_judge (
+        PnFigure *self)
+{
+    if (self->judge_id == 0)
+        self->judge_id = g_idle_add_full (G_PRIORITY_LOW, on_judge_idle,
+                                          self, NULL);
 }
 
 GPtrArray *
@@ -6094,6 +6160,9 @@ pn_figure_get_error (
         PnFigure *self)
 {
     g_return_val_if_fail (PN_IS_FIGURE (self), "");
+
+    /* Asked before anything has painted since the last message. */
+    figure_judge (self);
     return self->error != NULL ? self->error : "";
 }
 
@@ -6143,7 +6212,6 @@ pn_figure_receive (
         PnMessage *message)
 {
     PnFigure  *self = PN_FIGURE (node);
-    GPtrArray *ops;
     guint      old_count = pn_figure_get_frame_count (self);
 
     /* Re-latch: clear and refill, which is 80.8(e)'s answer to the fact
@@ -6154,23 +6222,26 @@ pn_figure_receive (
     pn_expr_bind_collated (node, message, figure_bind_into_snapshot,
                            self->snapshot);
     figure_forget_trace (self);
+    self->verdict_stale = TRUE;
 
-    /* Before the render below, so the error state is judged on the
+    /* Before the judging below, so the error state is judged on the
      * frame that will actually be shown. */
     figure_continue_film (self, old_count);
 
-    /* Resolve once at the at-rest client rectangle, purely so the
-     * `error` property is right straight away (80.10f) — a headless
-     * worksheet and the D-Bus automation have no painter to do it for
-     * them.  The list itself is thrown away; the painter resolves for
-     * whatever rectangle it is actually given, which differs the moment
-     * the node is lifted into the zoom overlay. */
-    ops = pn_figure_render (self, 0.0, 0.0,
-                            PN_FIGURE_WIDTH, PN_FIGURE_CLIENT_HEIGHT);
-    g_ptr_array_unref (ops);
-
     /* A sink (80.8g): nothing is emitted onward. */
     schedule_repaint (self);
+
+    /* The `error` property must follow the message (80.10f), but the
+     * walk that tells is the whole cost of a message -- a knob spun over
+     * a heavy program sends them faster than it can walk.  With a
+     * painter the walk waits for the next paint, which the throttle
+     * above spaces out, so messages in between cost only the relatch.
+     * Without one (a headless worksheet) nothing would ever paint, so
+     * judge straight away. */
+    if (figure_is_watched (self))
+        figure_schedule_judge (self);
+    else
+        figure_judge (self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -6401,6 +6472,13 @@ pn_figure_dispose (
     /* The timer holds a plain pointer, so it must go before the object
      * does (80.17b). */
     figure_stop_film (PN_FIGURE (object));
+
+    /* So does the judge idle. */
+    if (PN_FIGURE (object)->judge_id != 0)
+    {
+        g_source_remove (PN_FIGURE (object)->judge_id);
+        PN_FIGURE (object)->judge_id = 0;
+    }
 
     G_OBJECT_CLASS (pn_figure_parent_class)->dispose (object);
 }
