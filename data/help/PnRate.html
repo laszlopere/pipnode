@@ -37,10 +37,20 @@ the canvas and surfaces the reason through <code>status</code> and
 the per-node log.
 </p>
 <p>
-The rate is fetched periodically by the inherited auto-trigger,
-defaults to <a href="https://www.coingecko.com/">CoinGecko</a>'s
-<code>simple/price</code> endpoint, and pivots through USD so a
-single request covers any pair the node supports. The fetched
+The rate is fetched periodically by the inherited auto-trigger
+and pivots through USD. Two price providers are available:
+<a href="https://www.coingecko.com/">CoinGecko</a> (the default)
+reports an aggregated market price, and a single request covers
+any pair; <a href="https://www.geckoterminal.com/">GeckoTerminal</a>
+reports the on-chain DEX price of each currency's token &mdash; the
+wrapped native coin where the currency has its own chain (WETH,
+WBNB, WPLS, wrapped SOL, &hellip;), otherwise the most liquid
+bridged copy (e.g. WBTC on Ethereum, Binance-pegged ADA, DOGE and
+XRP on BNB Chain). GeckoTerminal prices one network per request,
+so a pair whose tokens live on two different chains costs two
+requests per refresh. XMR and XLM have no on-chain token there;
+picking either under GeckoTerminal fails with a status saying so.
+The fetched
 rate <em>and</em> the timestamp of the last successful fetch
 round-trip through the worksheet on save/load &mdash; so re-
 opening a flow does <strong>not</strong> fire a fresh request and
@@ -51,10 +61,19 @@ rate-limit log.
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>url</code></td>
-      <td>Endpoint base URL. The node appends
+      <td>Endpoint base URL. For CoinGecko the node appends
           <code>?ids=&hellip;&amp;vs_currencies=usd</code> at
-          request time. Defaults to CoinGecko's free
-          <code>simple/price</code>.</td></tr>
+          request time (default: the free
+          <code>simple/price</code>); for GeckoTerminal it appends
+          <code>/&lt;network&gt;/token_price/&lt;addresses&gt;</code>
+          (default: the free
+          <code>api/v2/simple/networks</code>).</td></tr>
+  <tr><td><code>provider</code></td>
+      <td>Where USD prices come from: <code>CoinGecko</code> or
+          <code>GeckoTerminal</code>. Switching drops the cached
+          rate and fetches afresh, and swaps <code>url</code> to the
+          new provider's stock endpoint &mdash; unless the URL was
+          customised (a proxy, a paid tier), which is kept.</td></tr>
   <tr><td><code>from</code></td>
       <td>Source currency. Pick from a 23-entry alphabetical list:
           <code>ADA</code>, <code>ATOM</code>, <code>AVAX</code>,

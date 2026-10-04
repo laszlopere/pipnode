@@ -308,6 +308,110 @@ test_load_order_clears_error_marker (void)
     g_object_unref (node);
 }
 
+/* Switching the provider follows the stock endpoint along and drops
+ * the cache, since the cached rate is the other provider's answer. */
+static void
+test_provider_switch_swaps_endpoint (void)
+{
+    PnNode *node = PN_NODE (g_object_new (PN_TYPE_RATE,
+                                          "autostart", FALSE, NULL));
+    gchar  *url  = NULL;
+    gchar  *last = NULL;
+
+    g_object_get (node, "url", &url, NULL);
+    PN_CHECK_CMPSTR (url, ==, PN_TEST_RATE_URL);   /* CoinGecko default */
+    g_free (url);
+
+    g_object_set (node, "rate", 3000.0,
+                  "last-update", "2026-06-07T08:00:00+00", NULL);
+    g_object_set (node, "provider", PN_RATE_PROVIDER_GECKOTERMINAL, NULL);
+
+    g_object_get (node, "url", &url, "last-update", &last, NULL);
+    PN_CHECK_CMPSTR (url, ==,
+                     "https://api.geckoterminal.com/api/v2/simple/networks");
+    PN_CHECK_CMPSTR (last, ==, "");                 /* cache dropped */
+    g_free (url);
+    g_free (last);
+
+    g_object_set (node, "provider", PN_RATE_PROVIDER_COINGECKO, NULL);
+    g_object_get (node, "url", &url, NULL);
+    PN_CHECK_CMPSTR (url, ==, PN_TEST_RATE_URL);   /* and back */
+    g_free (url);
+
+    g_object_unref (node);
+}
+
+/* A user-customised endpoint (a proxy, a paid tier) is left alone. */
+static void
+test_provider_switch_keeps_custom_url (void)
+{
+    PnNode *node = PN_NODE (g_object_new (PN_TYPE_RATE,
+                                          "autostart", FALSE,
+                                          "url", "https://proxy.example/p",
+                                          NULL));
+    gchar  *url  = NULL;
+
+    g_object_set (node, "provider", PN_RATE_PROVIDER_GECKOTERMINAL, NULL);
+    g_object_get (node, "url", &url, NULL);
+    PN_CHECK_CMPSTR (url, ==, "https://proxy.example/p");
+    g_free (url);
+
+    g_object_unref (node);
+}
+
+/* A saved GeckoTerminal node reloads with its cache intact: `provider`
+ * is replayed before `rate` / `last-update`, and the saved URL already
+ * is the GeckoTerminal one, so nothing is swapped or dropped. */
+static void
+test_provider_load_order_keeps_cache (void)
+{
+    PnNode *node = PN_NODE (g_object_new (PN_TYPE_RATE,
+                                          "autostart", FALSE, NULL));
+    gchar  *url  = NULL;
+
+    g_object_set (node, "url",
+                  "https://api.geckoterminal.com/api/v2/simple/networks",
+                  NULL);
+    g_object_set (node, "provider", PN_RATE_PROVIDER_GECKOTERMINAL, NULL);
+    g_object_set (node, "from", PN_CURRENCY_PLS, NULL);
+    g_object_set (node, "to", PN_CURRENCY_USD, NULL);
+    g_object_set (node, "rate", 0.00001, NULL);
+    g_object_set (node, "last-update", "2026-06-07T08:00:00+00", NULL);
+
+    g_object_get (node, "url", &url, NULL);
+    PN_CHECK_CMPSTR (url, ==,
+                     "https://api.geckoterminal.com/api/v2/simple/networks");
+    g_free (url);
+    PN_CHECK_FALSE (pn_node_get_has_error (node));
+
+    g_object_unref (node);
+}
+
+/* The CoinGecko reply path: a canned `simple/price` body handed to
+ * emit_message computes from/to through the USD pivot. */
+static void
+test_coingecko_reply_sets_rate (void)
+{
+    PnNode *node = PN_NODE (g_object_new (PN_TYPE_RATE,
+                                          "autostart", FALSE,
+                                          "from", PN_CURRENCY_BTC,
+                                          "to", PN_CURRENCY_ETH, NULL));
+    gdouble rate   = 0.0;
+    gchar  *status = NULL;
+
+    PN_HTTP_GET_CLASS (node)->emit_message (
+            PN_HTTP (node), TRUE, 200,
+            "{\"bitcoin\":{\"usd\":60000},\"ethereum\":{\"usd\":3000}}",
+            NULL);
+
+    g_object_get (node, "rate", &rate, "status", &status, NULL);
+    PN_CHECK_NEAR   (rate, 20.0, 1e-9);
+    PN_CHECK_CMPSTR (status, ==, "OK");
+    g_free (status);
+
+    g_object_unref (node);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -322,5 +426,9 @@ main (int argc, char **argv)
     pn_test_add ("not_deprecated_update",  test_not_deprecated_with_last_update);
     pn_test_add ("pair_change_deprecates", test_pair_change_deprecates);
     pn_test_add ("load_order_no_error",    test_load_order_clears_error_marker);
+    pn_test_add ("provider_swaps_url",     test_provider_switch_swaps_endpoint);
+    pn_test_add ("provider_custom_url",    test_provider_switch_keeps_custom_url);
+    pn_test_add ("provider_load_order",    test_provider_load_order_keeps_cache);
+    pn_test_add ("coingecko_reply",        test_coingecko_reply_sets_rate);
     return pn_test_run ();
 }

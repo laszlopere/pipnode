@@ -60,6 +60,13 @@
 #define PN_RATE_DEFAULT_ENDPOINT \
     "https://api.coingecko.com/api/v3/simple/price"
 
+/* GeckoTerminal's free `simple/networks` endpoint — the node appends
+ * `/<network>/token_price/<addr>[,<addr>]` and gets one USD price per
+ * token contract.  One request covers one network, so a pair whose two
+ * tokens live on different chains costs two requests per refresh. */
+#define PN_RATE_GECKOTERMINAL_ENDPOINT \
+    "https://api.geckoterminal.com/api/v2/simple/networks"
+
 /* ------------------------------------------------------------------ */
 /*  Currency table                                                     */
 /* ------------------------------------------------------------------ */
@@ -71,32 +78,59 @@ typedef struct
     const gchar *coingecko;  /* CoinGecko coin id; NULL for USD pivot */
     const gchar *icon;       /* basename (no extension) of the bundled
                               * 128×128 PNG under $datadir/icons/ */
+    const gchar *gt_network; /* GeckoTerminal network id; NULL when the
+                              * currency has no liquid on-chain token
+                              * (and for the USD pivot) */
+    const gchar *gt_address; /* token contract on @gt_network: the
+                              * wrapped native coin where the currency
+                              * has its own chain, else the most liquid
+                              * bridged/pegged copy */
 } CurrencyInfo;
 
 static const CurrencyInfo currency_table[] = {
-    { PN_CURRENCY_ADA,   "ADA",   "cardano",          "ada"   },
-    { PN_CURRENCY_ATOM,  "ATOM",  "cosmos",           "atom"  },
-    { PN_CURRENCY_AVAX,  "AVAX",  "avalanche-2",      "avax"  },
-    { PN_CURRENCY_BCH,   "BCH",   "bitcoin-cash",     "bch"   },
-    { PN_CURRENCY_BNB,   "BNB",   "binancecoin",      "bnb"   },
-    { PN_CURRENCY_BTC,   "BTC",   "bitcoin",          "btc"   },
-    { PN_CURRENCY_CRO,   "CRO",   "crypto-com-chain", "cro"   },
-    { PN_CURRENCY_DOGE,  "DOGE",  "dogecoin",         "doge"  },
-    { PN_CURRENCY_DOT,   "DOT",   "polkadot",         "dot"   },
-    { PN_CURRENCY_ETH,   "ETH",   "ethereum",         "eth"   },
-    { PN_CURRENCY_LINK,  "LINK",  "chainlink",        "link"  },
-    { PN_CURRENCY_LTC,   "LTC",   "litecoin",         "ltc"   },
-    { PN_CURRENCY_MATIC, "MATIC", "matic-network",    "matic" },
-    { PN_CURRENCY_PLS,   "PLS",   "pulsechain",       "pls"   },
-    { PN_CURRENCY_SOL,   "SOL",   "solana",           "sol"   },
-    { PN_CURRENCY_TRX,   "TRX",   "tron",             "trx"   },
-    { PN_CURRENCY_UNI,   "UNI",   "uniswap",          "uni"   },
-    { PN_CURRENCY_USD,   "USD",   NULL,               "usd"   },
-    { PN_CURRENCY_USDC,  "USDC",  "usd-coin",         "usdc"  },
-    { PN_CURRENCY_USDT,  "USDT",  "tether",           "usdt"  },
-    { PN_CURRENCY_XLM,   "XLM",   "stellar",          "xlm"   },
-    { PN_CURRENCY_XMR,   "XMR",   "monero",           "xmr"   },
-    { PN_CURRENCY_XRP,   "XRP",   "ripple",           "xrp"   },
+    { PN_CURRENCY_ADA,   "ADA",   "cardano",          "ada",   "bsc",
+      "0x3ee2200efb3400fabb9aacf31297cbdd1d435d47" },
+    { PN_CURRENCY_ATOM,  "ATOM",  "cosmos",           "atom",  "bsc",
+      "0x0eb3a705fc54725037cc9e008bdede697f62f335" },
+    { PN_CURRENCY_AVAX,  "AVAX",  "avalanche-2",      "avax",  "avax",
+      "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7" },
+    { PN_CURRENCY_BCH,   "BCH",   "bitcoin-cash",     "bch",   "bsc",
+      "0x8ff795a6f4d97e7887c79bea79aba5cc76444adf" },
+    { PN_CURRENCY_BNB,   "BNB",   "binancecoin",      "bnb",   "bsc",
+      "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c" },
+    { PN_CURRENCY_BTC,   "BTC",   "bitcoin",          "btc",   "eth",
+      "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599" },
+    { PN_CURRENCY_CRO,   "CRO",   "crypto-com-chain", "cro",   "cro",
+      "0x5c7f8a570d578ed84e63fdfa7b1ee72deae1ae23" },
+    { PN_CURRENCY_DOGE,  "DOGE",  "dogecoin",         "doge",  "bsc",
+      "0xba2ae424d960c26247dd6c32edc70b295c744c43" },
+    { PN_CURRENCY_DOT,   "DOT",   "polkadot",         "dot",   "bsc",
+      "0x7083609fce4d1d8dc0c979aab8c869ea2c873402" },
+    { PN_CURRENCY_ETH,   "ETH",   "ethereum",         "eth",   "eth",
+      "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2" },
+    { PN_CURRENCY_LINK,  "LINK",  "chainlink",        "link",  "eth",
+      "0x514910771af9ca656af840dff83e8264ecf986ca" },
+    { PN_CURRENCY_LTC,   "LTC",   "litecoin",         "ltc",   "bsc",
+      "0x4338665cbb7b2485a8855a139b75d5e34ab0db94" },
+    { PN_CURRENCY_MATIC, "MATIC", "matic-network",    "matic", "polygon_pos",
+      "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270" },
+    { PN_CURRENCY_PLS,   "PLS",   "pulsechain",       "pls",   "pulsechain",
+      "0xa1077a294dde1b09bb078844df40758a5d0f9a27" },
+    { PN_CURRENCY_SOL,   "SOL",   "solana",           "sol",   "solana",
+      "So11111111111111111111111111111111111111112" },
+    { PN_CURRENCY_TRX,   "TRX",   "tron",             "trx",   "tron",
+      "TNUC9Qb1rRpS5CbWLmNMxXBjyFoydXjWFR" },
+    { PN_CURRENCY_UNI,   "UNI",   "uniswap",          "uni",   "eth",
+      "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984" },
+    { PN_CURRENCY_USD,   "USD",   NULL,               "usd",   NULL, NULL },
+    { PN_CURRENCY_USDC,  "USDC",  "usd-coin",         "usdc",  "eth",
+      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" },
+    { PN_CURRENCY_USDT,  "USDT",  "tether",           "usdt",  "eth",
+      "0xdac17f958d2ee523a2206206994597c13d831ec7" },
+    { PN_CURRENCY_XLM,   "XLM",   "stellar",          "xlm",   NULL, NULL },
+    { PN_CURRENCY_XMR,   "XMR",   "monero",           "xmr",   NULL, NULL },
+    { PN_CURRENCY_XRP,   "XRP",   "ripple",           "xrp",   "bsc",
+      "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe" },
 };
 
 /** Look up the table entry for @cur.  Falls back to the USD row when
@@ -163,6 +197,37 @@ pn_currency_get_type (void)
     return id;
 }
 
+GType
+pn_rate_provider_get_type (void)
+{
+    static gsize id = 0;
+
+    if (g_once_init_enter (&id))
+    {
+        static const GEnumValue values[] = {
+            { PN_RATE_PROVIDER_COINGECKO,
+              "PN_RATE_PROVIDER_COINGECKO",     "CoinGecko"     },
+            { PN_RATE_PROVIDER_GECKOTERMINAL,
+              "PN_RATE_PROVIDER_GECKOTERMINAL", "GeckoTerminal" },
+            { 0, NULL, NULL }
+        };
+
+        GType type = g_enum_register_static ("PnRateProvider", values);
+        g_once_init_leave (&id, type);
+    }
+
+    return id;
+}
+
+/** The default #PnHttp:url for @provider. */
+static const gchar *
+provider_default_endpoint (PnRateProvider provider)
+{
+    return provider == PN_RATE_PROVIDER_GECKOTERMINAL
+           ? PN_RATE_GECKOTERMINAL_ENDPOINT
+           : PN_RATE_DEFAULT_ENDPOINT;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Instance                                                           */
 /* ------------------------------------------------------------------ */
@@ -176,9 +241,10 @@ struct _PnRate
      * so accesses are guarded by @mutex.  @rate / @last_update are
      * read by the main thread on receive and written by the worker
      * after each successful fetch, so they ride the same mutex. */
-    GMutex      mutex;
-    PnCurrency  from;
-    PnCurrency  to;
+    GMutex          mutex;
+    PnRateProvider  provider;
+    PnCurrency      from;
+    PnCurrency      to;
     gdouble     rate;          /* multiplier from FROM units to TO units */
     gchar      *last_update;   /* ISO-8601 string; NULL until first save */
     gchar      *status;        /* human-readable outcome of the last fetch
@@ -191,12 +257,25 @@ struct _PnRate
      * fires another notify, which we have to ignore to avoid an
      * infinite recursion. */
     gboolean    period_clamping;
+
+    /* GeckoTerminal fetch state.  One GeckoTerminal request prices the
+     * tokens of one network, so pn_rate_trigger drives one PnHttp
+     * request per network ("leg") the pair touches and these fields
+     * carry the pair snapshot and the partial prices across the legs.
+     * Touched only on the fetch worker, so not under @mutex. */
+    PnCurrency   gt_from;
+    PnCurrency   gt_to;
+    const gchar *gt_network;     /* network of the leg in flight */
+    gdouble      gt_price_from;  /* USD price; NaN until a leg finds it */
+    gdouble      gt_price_to;
+    gboolean     gt_failed;      /* a leg recorded a failure: stop */
 };
 
 G_DEFINE_TYPE (PnRate, pn_rate, PN_TYPE_HTTP)
 
 enum {
     PROP_0,
+    PROP_PROVIDER,
     PROP_FROM,
     PROP_TO,
     PROP_RATE,
@@ -217,6 +296,16 @@ static GParamSpec *props[N_PROPS];
 /* ------------------------------------------------------------------ */
 /*  State accessors (thread-safe)                                      */
 /* ------------------------------------------------------------------ */
+
+static PnRateProvider
+rate_get_provider_locked (PnRate *self)
+{
+    PnRateProvider v;
+    g_mutex_lock (&self->mutex);
+    v = self->provider;
+    g_mutex_unlock (&self->mutex);
+    return v;
+}
 
 static PnCurrency
 rate_get_from_locked (PnRate *self)
@@ -409,6 +498,80 @@ rate_cache_is_fresh (PnRate *self,
     return fresh;
 }
 
+/** The USD price @cur starts a GeckoTerminal fetch with: the pivot is
+ *  1.0 by definition, everything else is unknown until a leg finds it. */
+static gdouble
+gt_initial_price (const CurrencyInfo *info)
+{
+    return info->coingecko == NULL ? 1.0 : (gdouble) NAN;
+}
+
+/** One GeckoTerminal refresh.  The pair is snapshotted, then the base
+ *  PnHttp tick runs once per distinct network among the two tokens
+ *  (USD needs none); pn_rate_build_request / pn_rate_emit_message read
+ *  @gt_network to know which leg they serve.  Success is recorded only
+ *  after the last leg, once both prices are known. */
+static void
+rate_fetch_geckoterminal (
+        PnRate             *self,
+        PnAutoTriggerClass *parent)
+{
+    const CurrencyInfo *finfo;
+    const CurrencyInfo *tinfo;
+    const gchar        *legs[2] = { NULL, NULL };
+    guint               i;
+
+    self->gt_from = rate_get_from_locked (self);
+    self->gt_to   = rate_get_to_locked   (self);
+    finfo = currency_info (self->gt_from);
+    tinfo = currency_info (self->gt_to);
+
+    if (finfo->coingecko != NULL && finfo->gt_network == NULL)
+    {
+        rate_record_failure (self, "%s has no on-chain price on GeckoTerminal",
+                             finfo->nick);
+        return;
+    }
+    if (tinfo->coingecko != NULL && tinfo->gt_network == NULL)
+    {
+        rate_record_failure (self, "%s has no on-chain price on GeckoTerminal",
+                             tinfo->nick);
+        return;
+    }
+
+    self->gt_price_from = gt_initial_price (finfo);
+    self->gt_price_to   = gt_initial_price (tinfo);
+    self->gt_failed     = FALSE;
+
+    legs[0] = finfo->gt_network != NULL ? finfo->gt_network
+                                        : tinfo->gt_network;
+    if (tinfo->gt_network != NULL &&
+        g_strcmp0 (tinfo->gt_network, legs[0]) != 0)
+        legs[1] = tinfo->gt_network;
+
+    for (i = 0; i < G_N_ELEMENTS (legs) && legs[i] != NULL; i++)
+    {
+        self->gt_network = legs[i];
+        parent->trigger (PN_AUTO_TRIGGER (self));
+        if (self->gt_failed)
+            break;
+    }
+    self->gt_network = NULL;
+
+    if (self->gt_failed)
+        return;
+
+    if (!isfinite (self->gt_price_from) || !isfinite (self->gt_price_to) ||
+        self->gt_price_to == 0.0)
+    {
+        rate_record_failure (self, "no usable %s/%s price in the reply",
+                             finfo->nick, tinfo->nick);
+        return;
+    }
+
+    rate_record_success (self, self->gt_price_from / self->gt_price_to);
+}
+
 static void
 pn_rate_trigger (PnAutoTrigger *trigger)
 {
@@ -419,7 +582,17 @@ pn_rate_trigger (PnAutoTrigger *trigger)
     if (rate_cache_is_fresh (self, period))
         return;
 
-    if (parent->trigger != NULL)
+    if (parent->trigger == NULL)
+        return;
+
+    /* Unconfigured: the base tick would skip silently, which on the
+     * GeckoTerminal path would read as "no usable price". */
+    if (!PN_HTTP_GET_CLASS (self)->is_configured (PN_HTTP (self)))
+        return;
+
+    if (rate_get_provider_locked (self) == PN_RATE_PROVIDER_GECKOTERMINAL)
+        rate_fetch_geckoterminal (self, parent);
+    else
         parent->trigger (trigger);
 }
 
@@ -475,6 +648,46 @@ pn_rate_is_configured (PnHttp *http)
     return ok;
 }
 
+/** Build the GeckoTerminal request for the leg in flight: every token
+ *  of the snapshotted pair that lives on @gt_network, comma-separated,
+ *  under `<url>/<network>/token_price/`. */
+static SoupMessage *
+rate_build_geckoterminal_request (PnRate *self)
+{
+    gchar              *url   = pn_http_dup_url (PN_HTTP (self));
+    const CurrencyInfo *finfo = currency_info (self->gt_from);
+    const CurrencyInfo *tinfo = currency_info (self->gt_to);
+    GString            *full  = g_string_new (url ? url : "");
+    gboolean            first = TRUE;
+    SoupMessage        *msg;
+
+    while (full->len > 0 && full->str[full->len - 1] == '/')
+        g_string_truncate (full, full->len - 1);
+    g_string_append_printf (full, "/%s/token_price/", self->gt_network);
+
+    if (g_strcmp0 (finfo->gt_network, self->gt_network) == 0)
+    {
+        g_string_append (full, finfo->gt_address);
+        first = FALSE;
+    }
+    if (g_strcmp0 (tinfo->gt_network, self->gt_network) == 0 &&
+        tinfo->id != finfo->id)
+    {
+        if (!first)
+            g_string_append_c (full, ',');
+        g_string_append (full, tinfo->gt_address);
+    }
+
+    msg = soup_message_new (SOUP_METHOD_GET, full->str);
+    if (msg != NULL)
+        soup_message_headers_replace (soup_message_get_request_headers (msg),
+                                      "Accept", "application/json");
+
+    g_string_free (full, TRUE);
+    g_free (url);
+    return msg;
+}
+
 /** Build the request.  CoinGecko's `simple/price` returns one USD
  *  price per requested coin id; we always pivot through USD so a
  *  single request is enough no matter which two of our currencies
@@ -492,6 +705,14 @@ pn_rate_build_request (PnHttp *http)
     GString             *ids   = g_string_new (NULL);
     gchar               *full_url;
     SoupMessage         *msg;
+
+    /* GeckoTerminal legs are driven by rate_fetch_geckoterminal(). */
+    if (self->gt_network != NULL)
+    {
+        g_string_free (ids, TRUE);
+        g_free (url);
+        return rate_build_geckoterminal_request (self);
+    }
 
     if (finfo->coingecko != NULL)
         g_string_append (ids, finfo->coingecko);
@@ -551,14 +772,11 @@ extract_usd_price (
     return json_object_get_double_member (coin, "usd");
 }
 
-/** Parse the reply, recompute the rate, and stash it under the mutex.
- *  We deliberately do not emit a downstream message: the rate update is
- *  internal state, the conversion happens on the receive path, and
- *  emitting a "rate ticked" event each period would surprise downstream
- *  sinks that expect a 1:1 relationship between input and output
- *  messages on this node.
+/** Validate one HTTP reply and parse it into a JSON object.  Returns
+ *  the parser (the caller unrefs it) with the root object in @root, or
+ *  %NULL after recording the failure via rate_record_failure().
  *
- *  Every exit that is not a successful update routes through
+ *  Every exit that is not a usable reply routes through
  *  rate_record_failure(), which both records a human-readable status
  *  (shown in the settings dialog) and logs the reason to the per-node
  *  log dialog.  The earlier version returned silently on a transport
@@ -566,24 +784,18 @@ extract_usd_price (
  *  requested coins — which is exactly how a CoinGecko 403 (missing
  *  User-Agent) used to leave the node frozen on a stale rate with no
  *  visible explanation. */
-static void
-pn_rate_emit_message (
-        PnHttp      *http,
-        gboolean     ok,
-        gint         http_status,
-        const gchar *body,
-        const gchar *error_text)
+static JsonParser *
+rate_parse_reply (
+        PnRate       *self,
+        gboolean      ok,
+        gint          http_status,
+        const gchar  *body,
+        const gchar  *error_text,
+        JsonObject  **root)
 {
-    PnRate     *self = PN_RATE (http);
     JsonParser *parser;
-    JsonNode   *root;
-    JsonObject *obj;
-    GError     *error    = NULL;
-    PnCurrency  from;
-    PnCurrency  to;
-    gdouble     price_from;
-    gdouble     price_to;
-    gdouble     new_rate;
+    JsonNode   *node;
+    GError     *error = NULL;
 
     /* Transport-level failure: no HTTP response at all (DNS, connect,
      * timeout).  pn_http_trigger has already logged the raw error, but
@@ -592,7 +804,7 @@ pn_rate_emit_message (
     {
         rate_record_failure (self, "Request failed: %s",
                              error_text ? error_text : "unknown error");
-        return;
+        return NULL;
     }
 
     /* HTTP-level failure: a non-2xx status.  The body on these is an
@@ -602,13 +814,13 @@ pn_rate_emit_message (
     {
         rate_record_failure (self, "exchange-rate API returned HTTP %d",
                              http_status);
-        return;
+        return NULL;
     }
 
     if (body == NULL || *body == '\0')
     {
         rate_record_failure (self, "empty reply from the exchange-rate API");
-        return;
+        return NULL;
     }
 
     parser = json_parser_new ();
@@ -619,17 +831,159 @@ pn_rate_emit_message (
                              error ? error->message : "(unknown)");
         g_clear_error (&error);
         g_object_unref (parser);
-        return;
+        return NULL;
     }
 
-    root = json_parser_get_root (parser);
-    if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
+    node = json_parser_get_root (parser);
+    if (node == NULL || !JSON_NODE_HOLDS_OBJECT (node))
     {
         rate_record_failure (self, "unexpected shape in the exchange-rate reply");
         g_object_unref (parser);
+        return NULL;
+    }
+
+    *root = json_node_get_object (node);
+    return parser;
+}
+
+/** Pull the USD price of @info's token out of GeckoTerminal's
+ *  `token_prices` object (address → decimal string).  EVM addresses
+ *  come back lower-cased, so 0x addresses match case-insensitively;
+ *  base58 ones (Solana, Tron) are case-significant.  Returns %NaN when
+ *  the token is missing or its price unparseable. */
+static gdouble
+extract_gt_price (
+        JsonObject         *prices,
+        const CurrencyInfo *info)
+{
+    gboolean  evm   = g_str_has_prefix (info->gt_address, "0x");
+    GList    *names = json_object_get_members (prices);
+    GList    *l;
+    gdouble   price = (gdouble) NAN;
+
+    for (l = names; l != NULL; l = l->next)
+    {
+        const gchar *name = l->data;
+        JsonNode    *node;
+
+        if (evm ? g_ascii_strcasecmp (name, info->gt_address) != 0
+                : g_strcmp0 (name, info->gt_address) != 0)
+            continue;
+
+        node = json_object_get_member (prices, name);
+        if (node == NULL || !JSON_NODE_HOLDS_VALUE (node))
+            break;
+
+        if (json_node_get_value_type (node) == G_TYPE_STRING)
+        {
+            const gchar *text = json_node_get_string (node);
+            gchar       *end  = NULL;
+            gdouble      v    = g_ascii_strtod (text, &end);
+
+            if (end != text && *end == '\0')
+                price = v;
+        }
+        else
+        {
+            price = json_node_get_double (node);
+        }
+        break;
+    }
+
+    g_list_free (names);
+    return price;
+}
+
+/** One GeckoTerminal leg's reply: fill in whichever of the pair's
+ *  prices live on this leg's network.  The rate itself is computed by
+ *  rate_fetch_geckoterminal() once every leg is in. */
+static void
+rate_emit_geckoterminal (
+        PnRate      *self,
+        gboolean     ok,
+        gint         http_status,
+        const gchar *body,
+        const gchar *error_text)
+{
+    const CurrencyInfo *finfo = currency_info (self->gt_from);
+    const CurrencyInfo *tinfo = currency_info (self->gt_to);
+    JsonParser         *parser;
+    JsonObject         *root   = NULL;
+    JsonObject         *prices = NULL;
+    JsonNode           *node;
+
+    parser = rate_parse_reply (self, ok, http_status, body, error_text,
+                               &root);
+    if (parser == NULL)
+    {
+        self->gt_failed = TRUE;
         return;
     }
-    obj = json_node_get_object (root);
+
+    /* { "data": { "attributes": { "token_prices": { addr: "1.23" } } } } */
+    node = json_object_get_member (root, "data");
+    if (node != NULL && JSON_NODE_HOLDS_OBJECT (node))
+    {
+        node = json_object_get_member (json_node_get_object (node),
+                                       "attributes");
+        if (node != NULL && JSON_NODE_HOLDS_OBJECT (node))
+        {
+            node = json_object_get_member (json_node_get_object (node),
+                                           "token_prices");
+            if (node != NULL && JSON_NODE_HOLDS_OBJECT (node))
+                prices = json_node_get_object (node);
+        }
+    }
+
+    if (prices == NULL)
+    {
+        rate_record_failure (self, "unexpected shape in the exchange-rate reply");
+        self->gt_failed = TRUE;
+        g_object_unref (parser);
+        return;
+    }
+
+    if (g_strcmp0 (finfo->gt_network, self->gt_network) == 0)
+        self->gt_price_from = extract_gt_price (prices, finfo);
+    if (g_strcmp0 (tinfo->gt_network, self->gt_network) == 0)
+        self->gt_price_to = extract_gt_price (prices, tinfo);
+
+    g_object_unref (parser);
+}
+
+/** Parse the reply, recompute the rate, and stash it under the mutex.
+ *  We deliberately do not emit a downstream message: the rate update is
+ *  internal state, the conversion happens on the receive path, and
+ *  emitting a "rate ticked" event each period would surprise downstream
+ *  sinks that expect a 1:1 relationship between input and output
+ *  messages on this node. */
+static void
+pn_rate_emit_message (
+        PnHttp      *http,
+        gboolean     ok,
+        gint         http_status,
+        const gchar *body,
+        const gchar *error_text)
+{
+    PnRate     *self = PN_RATE (http);
+    JsonParser *parser;
+    JsonObject *obj  = NULL;
+    PnCurrency  from;
+    PnCurrency  to;
+    gdouble     price_from;
+    gdouble     price_to;
+    gdouble     new_rate;
+
+    if (self->gt_network != NULL)
+    {
+        rate_emit_geckoterminal (self, ok, http_status, body, error_text);
+        return;
+    }
+
+    parser = rate_parse_reply (self, ok, http_status, body, error_text,
+                               &obj);
+    if (parser == NULL)
+        return;
 
     from       = rate_get_from_locked (self);
     to         = rate_get_to_locked   (self);
@@ -729,6 +1083,9 @@ pn_rate_get_property (
 
     switch (prop_id)
     {
+    case PROP_PROVIDER:
+        g_value_set_enum (value, rate_get_provider_locked (self));
+        break;
     case PROP_FROM:
         g_value_set_enum (value, rate_get_from_locked (self));
         break;
@@ -766,6 +1123,48 @@ pn_rate_set_property (
 
     switch (prop_id)
     {
+    case PROP_PROVIDER:
+    {
+        PnRateProvider  new_value = (PnRateProvider) g_value_get_enum (value);
+        PnRateProvider  old_value;
+        gboolean        changed;
+
+        g_mutex_lock (&self->mutex);
+        old_value      = self->provider;
+        changed        = (old_value != new_value);
+        self->provider = new_value;
+        if (changed)
+        {
+            /* A rate from the other provider is not this provider's
+             * answer: drop the cache exactly as a pair change does. */
+            g_free (self->last_update);
+            self->last_update = NULL;
+            g_free (self->status);
+            self->status = g_strdup (PN_RATE_STATUS_NEVER);
+        }
+        g_mutex_unlock (&self->mutex);
+
+        if (!changed)
+            break;
+
+        /* Follow the endpoint along unless the user pointed it somewhere
+         * of their own (a proxy, a paid tier): only an empty URL or the
+         * previous provider's stock endpoint is swapped. */
+        {
+            gchar *url = pn_http_dup_url (http);
+
+            if (url == NULL || *url == '\0' ||
+                g_strcmp0 (url, provider_default_endpoint (old_value)) == 0)
+                g_object_set (self, "url",
+                              provider_default_endpoint (new_value), NULL);
+            g_free (url);
+        }
+
+        rate_refresh_visual (self);
+        if (PN_HTTP_GET_CLASS (self)->is_configured (http))
+            pn_auto_trigger_kick (PN_AUTO_TRIGGER (self));
+        break;
+    }
     case PROP_FROM:
     case PROP_TO:
     {
@@ -899,6 +1298,19 @@ pn_rate_class_init (PnRateClass *klass)
     http_class->build_request = pn_rate_build_request;
     http_class->emit_message  = pn_rate_emit_message;
 
+    /* Installed first so it serialises (and is replayed on load) ahead
+     * of `rate` / `last-update`: a provider change drops the cache, so
+     * it must land before the cached rate is restored. */
+    props[PROP_PROVIDER] = g_param_spec_enum (
+            "provider", "Provider",
+            "Where USD prices come from.  CoinGecko reports an "
+            "aggregated market price; GeckoTerminal reports the on-"
+            "chain DEX price of each currency's wrapped or pegged token. "
+            "Switching swaps the URL to the provider's stock endpoint "
+            "unless it was customised.",
+            PN_TYPE_RATE_PROVIDER, PN_RATE_PROVIDER_COINGECKO,
+            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     props[PROP_FROM] = g_param_spec_enum (
             "from", "From",
             "Source currency.  The incoming `data.value` is treated "
@@ -958,6 +1370,7 @@ pn_rate_init (PnRate *self)
     PnNode *node = PN_NODE (self);
 
     g_mutex_init (&self->mutex);
+    self->provider    = PN_RATE_PROVIDER_COINGECKO;
     self->from        = PN_CURRENCY_ETH;
     self->to          = PN_CURRENCY_USD;
     self->rate        = 1.0;

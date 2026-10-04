@@ -92,6 +92,26 @@ typedef enum
 #define PN_TYPE_CURRENCY (pn_currency_get_type ())
 GType pn_currency_get_type (void);
 
+/**
+ * PnRateProvider:
+ * @PN_RATE_PROVIDER_COINGECKO:     CoinGecko's aggregated `simple/price`
+ *                                  market price, looked up by coin id.
+ * @PN_RATE_PROVIDER_GECKOTERMINAL: GeckoTerminal's on-chain DEX price,
+ *                                  looked up by network + token contract
+ *                                  (each currency maps to its wrapped /
+ *                                  canonical token on one network).
+ *
+ * Where #PnRate fetches its USD prices from.
+ */
+typedef enum
+{
+    PN_RATE_PROVIDER_COINGECKO,
+    PN_RATE_PROVIDER_GECKOTERMINAL,
+} PnRateProvider;
+
+#define PN_TYPE_RATE_PROVIDER (pn_rate_provider_get_type ())
+GType pn_rate_provider_get_type (void);
+
 #define PN_TYPE_RATE (pn_rate_get_type ())
 
 G_DECLARE_FINAL_TYPE (PnRate, pn_rate, PN, RATE, PnHttp)
