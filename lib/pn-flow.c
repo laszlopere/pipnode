@@ -1250,6 +1250,11 @@ on_node_removed (
     PnFlow *self = PN_FLOW (user_data);
     (void) store; (void) index;
 
+    /* A clear (close, reload, undo restore) is not a deletion: the
+     * document may come straight back with the same nodes. */
+    if (!self->loading)
+        pn_node_emit_deleted (node);
+
     pn_node_set_flow (node, NULL);
 
     g_signal_handlers_disconnect_by_func (

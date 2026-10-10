@@ -1181,8 +1181,10 @@ void         pn_file_chooser_entry_set_action (PnFileChooserEntry  *self,
 void         pn_file_chooser_entry_add_filter (PnFileChooserEntry *self,
                                                GtkFileFilter      *filter);
 /* property: "text"  (read/write)
- * signal:   "changed" () -- typed, pasted, OR picked via the dialog;
- *           mirrors GtkEntry::changed, so set_text() emits it too. */
+ * signal:   "changed" () -- a committed edit: typed/pasted then Enter
+ *           or focus out, picked via the dialog, the widget unmapped,
+ *           or set_text().  Never per keystroke, so a bound path
+ *           property is not acted on for every prefix being typed. */
 ```
 
 `_set_title` sets the chooser dialog's title (default "Select File");

@@ -55,6 +55,37 @@ GType pn_pipe_format_get_type (void) G_GNUC_CONST;
 gboolean pn_pipe_ensure_fifo (const gchar *path, GError **error);
 
 /**
+ * pn_pipe_claim:
+ * @claimed: (inout): the caller's claimed path, %NULL while it holds none
+ * @path:    the named pipe's path
+ * @error:   (out) (nullable): a G_IO_ERROR on failure
+ *
+ * pn_pipe_ensure_fifo() plus bookkeeping: the caller holds one use of
+ * @path until pn_pipe_release(), and the process remembers whether it
+ * created the FIFO itself.  Calling it again for the claimed path only
+ * re-checks the FIFO; a different path releases the old claim first
+ * (removing a FIFO this process created).  On failure nothing is held.
+ *
+ * Returns: %TRUE when @path is a FIFO on return.
+ */
+gboolean pn_pipe_claim       (gchar **claimed, const gchar *path,
+                              GError **error);
+
+/**
+ * pn_pipe_release:
+ * @claimed: (inout): the caller's claimed path; set to %NULL
+ * @remove:  whether the FIFO may be removed
+ *
+ * Drops the caller's use of *@claimed.  When it was the last use, @remove
+ * is set and this process created the FIFO, the FIFO is unlinked -- only
+ * if the path still holds that same FIFO.  A pipe the user or another
+ * program made is never removed.  Pass @remove = %FALSE when the document
+ * merely goes away (quit, close, reload): outside programs may expect the
+ * pipe to still be there next time.  A no-op when *@claimed is %NULL.
+ */
+void     pn_pipe_release     (gchar **claimed, gboolean remove);
+
+/**
  * pn_pipe_write:
  * @fd:  a non-blocking write descriptor
  * @buf: bytes to write

@@ -30,6 +30,13 @@ red on the worksheet.
 </p>
 
 <p>
+A pipe the node created itself is removed again when you change the
+path or delete the node. It stays when you close the document or quit,
+so outside programs still find it next time. A pipe that already
+existed (made by you or another program) is never removed.
+</p>
+
+<p>
 Reading never blocks pipnode. It does not matter whether a program
 has the other end open, and writers may connect and disconnect as
 often as they like: the node keeps listening. A line is emitted when

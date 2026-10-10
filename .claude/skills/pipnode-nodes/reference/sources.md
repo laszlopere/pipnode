@@ -482,7 +482,13 @@ Pipe Writer. Use MQTT Source instead when the producer is on another host.
 - `pipe-path` (string, file editor, default `""`) — the FIFO; a leading `~`
   is expanded via `pn_path_expand()` (the typed form is saved). Created with
   `mkfifo` (0666 minus umask) when missing; an existing non-FIFO is refused
-  and left untouched (`pn_pipe_ensure_fifo`, `lib/pn-pipe-common.c:55`).
+  and left untouched (`pn_pipe_claim`, `lib/pn-pipe-common.c`).
+  Lifetime: a FIFO the node created (`pn_pipe_claim`, process-wide use
+  count shared by Reader/Writer on one path) is unlinked when the last
+  user changes path or is deleted (`PnNode::deleted`, emitted by PnFlow on
+  a real delete, not on `pn_flow_clear`); kept on dispose (close/quit/
+  reload). Pre-existing FIFOs are never removed. The dialog's file editor
+  commits on Enter/focus-out, not per keystroke.
 - `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*: the
   line → `data.output`, `data.value` = the line's number when the whole
   (blank-trimmed) line is one else `0`, `success = true`, node topic.

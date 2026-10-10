@@ -781,6 +781,12 @@ persist on disk.
   is expanded via `pn_path_expand()` (the typed form is saved). Created from an
   idle as soon as the path is set, so an outside reader can open it before the
   first message; an existing non-FIFO is refused (red) and never written.
+  Lifetime: a FIFO the node created (`pn_pipe_claim`, process-wide use
+  count shared by Reader/Writer on one path) is unlinked when the last
+  user changes path or is deleted (`PnNode::deleted`, emitted by PnFlow on
+  a real delete, not on `pn_flow_clear`); kept on dispose (close/quit/
+  reload). Pre-existing FIFOs are never removed. The dialog's file editor
+  commits on Enter/focus-out, not per keystroke.
 - `format` (enum `PnPipeFormat`, default **Output text**) — *Output text*:
   `data.output` + `\n` (empty line when absent/non-string). *JSON message*:
   `pn_message_serialize (msg, TRUE)` — compact one-line envelope, vector blobs

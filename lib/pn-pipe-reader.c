@@ -39,6 +39,7 @@ struct _PnPipeReader
 
     gchar        *pipe_path;   /* as typed, saved              */
     gchar        *real_path;   /* pipe_path with ~ expanded    */
+    gchar        *claimed;     /* FIFO path held via pn_pipe_claim, or NULL */
     PnPipeFormat  format;
 
     gint     rd_fd;         /* read end, -1 when closed                 */
@@ -287,7 +288,7 @@ reader_open (PnPipeReader *self, gchar **message)
     if (self->pipe_path[0] == '\0')
         return FALSE;                     /* unconfigured, not an event */
 
-    if (!pn_pipe_ensure_fifo (self->real_path, &error))
+    if (!pn_pipe_claim (&self->claimed, self->real_path, &error))
     {
         *message = g_strdup_printf ("Pipe Reader: %s", error->message);
         g_error_free (error);
@@ -394,6 +395,9 @@ pn_pipe_reader_set_property (
                 g_free (self->real_path);
                 self->real_path = pn_path_expand (path);
                 reader_close (self);
+                /* The FIFO at the old path is ours to remove. */
+                if (g_strcmp0 (self->claimed, self->real_path) != 0)
+                    pn_pipe_release (&self->claimed, TRUE);
                 pn_node_set_has_error (PN_NODE (self), *path == '\0');
                 if (*path != '\0')
                     schedule_open (self);
@@ -421,17 +425,33 @@ pn_pipe_reader_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* Stop using the pipe; @remove: also delete a FIFO this node created. */
 static void
-pn_pipe_reader_dispose (GObject *object)
+reader_shutdown (PnPipeReader *self, gboolean remove)
 {
-    PnPipeReader *self = PN_PIPE_READER (object);
-
     if (self->open_idle_id != 0)
     {
         g_source_remove (self->open_idle_id);
         self->open_idle_id = 0;
     }
     reader_close (self);
+    pn_pipe_release (&self->claimed, remove);
+}
+
+static void
+on_deleted (PnNode *node, gpointer user_data)
+{
+    (void) user_data;
+    reader_shutdown (PN_PIPE_READER (node), TRUE);
+}
+
+static void
+pn_pipe_reader_dispose (GObject *object)
+{
+    PnPipeReader *self = PN_PIPE_READER (object);
+
+    /* Quit, close or reload: keep the FIFO for outside programs. */
+    reader_shutdown (self, FALSE);
 
     G_OBJECT_CLASS (pn_pipe_reader_parent_class)->dispose (object);
 }
@@ -514,6 +534,8 @@ pn_pipe_reader_init (PnPipeReader *self)
 
     /* No pipe configured yet. */
     pn_node_set_has_error  (node, TRUE);
+
+    g_signal_connect (self, "deleted", G_CALLBACK (on_deleted), NULL);
 }
 
 /* ------------------------------------------------------------------ */

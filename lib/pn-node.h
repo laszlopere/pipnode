@@ -1169,6 +1169,15 @@ PnFlow         *pn_node_get_flow        (PnNode *self);
 void            pn_node_set_flow        (PnNode *self, PnFlow *flow);
 
 /**
+ * pn_node_emit_deleted: (skip)
+ * @self: the node
+ *
+ * Library-internal: called by #PnFlow when the node is deleted from the
+ * document (not when the whole document is cleared).  Emits #PnNode::deleted.
+ */
+void            pn_node_emit_deleted    (PnNode *self);
+
+/**
  * pn_node_get_size:
  * @self:  the node
  * @out_w: (out): width in worksheet pixels

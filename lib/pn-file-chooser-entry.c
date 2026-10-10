@@ -24,7 +24,8 @@ struct _PnFileChooserEntry
 {
     GtkBox    parent_instance;
 
-    GtkEntry *entry;   /* the path, freely editable + source of truth */
+    GtkEntry *entry;      /* the path, freely editable                  */
+    gchar    *committed;  /* the value last announced via :text/::changed */
 
     gchar               *title;    /* chooser dialog title (owned, or NULL) */
     GtkFileChooserAction action;   /* OPEN (default) / SAVE                  */
@@ -52,16 +53,47 @@ static guint signals[N_SIGNALS];
 
 /* --- widget callbacks ------------------------------------------------- */
 
-/* The inner entry is the single source of truth, so every change — typed,
- * pasted, or written by the browse dialog — funnels through here. */
+/* Announce the entry's text when it differs from what was last
+ * announced.  Edits are committed, not streamed: a bound path property
+ * acts on its value (a Pipe node creates a FIFO there, a Logger opens a
+ * file), so every keystroke prefix of a typed path must not reach it. */
 static void
-on_entry_changed (GtkEntry *entry, gpointer user_data)
+commit (PnFileChooserEntry *self)
 {
-    PnFileChooserEntry *self = PN_FILE_CHOOSER_ENTRY (user_data);
+    const gchar *text = gtk_entry_get_text (self->entry);
 
-    (void) entry;
+    if (g_strcmp0 (text, self->committed) == 0)
+        return;
+
+    g_free (self->committed);
+    self->committed = g_strdup (text);
     g_object_notify_by_pspec (G_OBJECT (self), props[PROP_TEXT]);
     g_signal_emit (self, signals[SIG_CHANGED], 0);
+}
+
+static void
+on_entry_activate (GtkEntry *entry, gpointer user_data)
+{
+    (void) entry;
+    commit (PN_FILE_CHOOSER_ENTRY (user_data));
+}
+
+static gboolean
+on_entry_focus_out (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    (void) widget;
+    (void) event;
+    commit (PN_FILE_CHOOSER_ENTRY (user_data));
+    return GDK_EVENT_PROPAGATE;
+}
+
+/* Closing the dialog with the caret still in the entry does not always
+ * deliver focus-out first; unmap does, while bindings are still alive. */
+static void
+on_unmap (GtkWidget *widget, gpointer user_data)
+{
+    (void) user_data;
+    commit (PN_FILE_CHOOSER_ENTRY (widget));
 }
 
 static void
@@ -110,7 +142,10 @@ on_browse_clicked (GtkButton *btn, gpointer user_data)
         gchar *filename =
                 gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (dialog));
         if (filename != NULL)
-            gtk_entry_set_text (self->entry, filename);   /* fires ::changed */
+        {
+            gtk_entry_set_text (self->entry, filename);
+            commit (self);
+        }
         g_free (filename);
     }
 
@@ -159,6 +194,7 @@ pn_file_chooser_entry_finalize (GObject *object)
     PnFileChooserEntry *self = PN_FILE_CHOOSER_ENTRY (object);
 
     g_free (self->title);
+    g_free (self->committed);
     g_clear_pointer (&self->filters, g_ptr_array_unref);
 
     G_OBJECT_CLASS (pn_file_chooser_entry_parent_class)->finalize (object);
@@ -176,9 +212,10 @@ pn_file_chooser_entry_class_init (PnFileChooserEntryClass *klass)
     /**
      * PnFileChooserEntry:text:
      *
-     * The file path shown in the entry.  Reading and writing it is equivalent
-     * to reading and writing the embedded #GtkEntry; setting it programmatically
-     * still emits #PnFileChooserEntry::changed (as #GtkEntry does).
+     * The file path in the entry.  Reading it returns the entry's current
+     * text.  It is notified only when an edit is committed (Enter, focus
+     * leaving the entry, a pick in the browse dialog, the widget being
+     * unmapped) and when it is set programmatically, never per keystroke.
      */
     props[PROP_TEXT] = g_param_spec_string (
             "text", "Text", "The file path in the entry.",
@@ -189,9 +226,10 @@ pn_file_chooser_entry_class_init (PnFileChooserEntryClass *klass)
      * PnFileChooserEntry::changed:
      * @self: the widget
      *
-     * Emitted whenever the path changes, whether the user typed it, pasted it,
-     * or picked a file through the browse dialog.  Mirrors #GtkEntry::changed;
-     * read the new value from the #PnFileChooserEntry:text property.
+     * Emitted when a changed path is committed: typed or pasted and then
+     * confirmed with Enter or by leaving the entry, picked through the
+     * browse dialog, or set programmatically.  Read the new value from the
+     * #PnFileChooserEntry:text property.
      */
     signals[SIG_CHANGED] = g_signal_new (
             "changed",
@@ -212,7 +250,8 @@ pn_file_chooser_entry_init (PnFileChooserEntry *self)
                                     GTK_ORIENTATION_HORIZONTAL);
     gtk_box_set_spacing (GTK_BOX (self), 4);
 
-    self->action = GTK_FILE_CHOOSER_ACTION_OPEN;
+    self->action    = GTK_FILE_CHOOSER_ACTION_OPEN;
+    self->committed = g_strdup ("");
 
     entry = gtk_entry_new ();
     self->entry = GTK_ENTRY (entry);
@@ -226,8 +265,11 @@ pn_file_chooser_entry_init (PnFileChooserEntry *self)
     gtk_widget_set_tooltip_text (browse, "Browse for a file");
     gtk_box_pack_start (GTK_BOX (self), browse, FALSE, FALSE, 0);
 
-    g_signal_connect (entry, "changed",
-                      G_CALLBACK (on_entry_changed), self);
+    g_signal_connect (entry, "activate",
+                      G_CALLBACK (on_entry_activate), self);
+    g_signal_connect (entry, "focus-out-event",
+                      G_CALLBACK (on_entry_focus_out), self);
+    g_signal_connect (self, "unmap", G_CALLBACK (on_unmap), NULL);
     g_signal_connect (browse, "clicked",
                       G_CALLBACK (on_browse_clicked), self);
 
@@ -253,7 +295,8 @@ pn_file_chooser_entry_set_text (PnFileChooserEntry *self, const gchar *text)
     if (g_strcmp0 (text, gtk_entry_get_text (self->entry)) == 0)
         return;
 
-    gtk_entry_set_text (self->entry, text);   /* fires ::changed via the entry */
+    gtk_entry_set_text (self->entry, text);
+    commit (self);
 }
 
 const gchar *

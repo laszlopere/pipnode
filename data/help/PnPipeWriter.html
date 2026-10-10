@@ -29,6 +29,13 @@ pipe is refused (the file is left alone). Until a usable path is set the
 node shows the error state, painted red on the worksheet.
 </p>
 
+<p>
+A pipe the node created itself is removed again when you change the
+path or delete the node. It stays when you close the document or quit,
+so outside programs still find it next time. A pipe that already
+existed (made by you or another program) is never removed.
+</p>
+
 <table>
   <tr><th>Property</th><th>Description</th></tr>
   <tr><td><code>pipe-path</code></td>

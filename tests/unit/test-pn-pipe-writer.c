@@ -27,6 +27,8 @@
 #include "pntest.h"
 #include "pn-pipe-writer.h"
 #include "pn-pipe-reader.h"
+#include "pn-flow.h"
+#include "pn-node-store.h"
 
 #include <glib/gstdio.h>
 #include <fcntl.h>
@@ -422,6 +424,141 @@ test_round_trip_json (void)
     g_free (dir);
 }
 
+/* ---- FIFO ownership: remove what we created, nothing else ----------- */
+
+static gboolean
+exists (const gchar *path)
+{
+    GStatBuf st;
+    return g_lstat (path, &st) == 0;
+}
+
+/* Re-pointing a node removes the FIFO it created at the old path, the
+ * way typing a path no longer leaves one FIFO per prefix behind. */
+static void
+test_path_change_removes_own_fifo (void)
+{
+    gchar  *dir = g_dir_make_tmp ("pn-pipe-writer-XXXXXX", NULL);
+    gchar  *a   = g_build_filename (dir, "a.fifo", NULL);
+    gchar  *b   = g_build_filename (dir, "b.fifo", NULL);
+    PnNode *node = g_object_new (PN_TYPE_PIPE_WRITER, "pipe-path", a, NULL);
+
+    PN_CHECK (spin_until (is_fifo_cb, a));
+    g_object_set (node, "pipe-path", b, NULL);
+    PN_CHECK_FALSE (exists (a));
+    PN_CHECK (spin_until (is_fifo_cb, b));
+
+    /* Cleared path: nothing of ours left behind. */
+    g_object_set (node, "pipe-path", "", NULL);
+    PN_CHECK_FALSE (exists (b));
+
+    g_object_unref (node);
+    g_rmdir (dir);
+    g_free (a);
+    g_free (b);
+    g_free (dir);
+}
+
+/* A FIFO that was already there belongs to whoever made it. */
+static void
+test_keeps_foreign_fifo (void)
+{
+    gchar  *dir = g_dir_make_tmp ("pn-pipe-writer-XXXXXX", NULL);
+    gchar  *a   = g_build_filename (dir, "theirs.fifo", NULL);
+    PnNode *node;
+
+    PN_CHECK_CMPINT (mkfifo (a, 0600), ==, 0);
+    node = g_object_new (PN_TYPE_PIPE_READER, "pipe-path", a, NULL);
+    PN_CHECK (spin_until (reader_open_cb, node));
+
+    g_object_set (node, "pipe-path", "", NULL);
+    PN_CHECK (is_fifo_cb (a));
+    g_object_unref (node);
+    PN_CHECK (is_fifo_cb (a));
+
+    g_unlink (a);
+    g_rmdir (dir);
+    g_free (a);
+    g_free (dir);
+}
+
+/* Quit / close (the node simply goes away): the FIFO stays for outside
+ * programs; a shell redirect into a missing one would make a plain file. */
+static void
+test_dispose_keeps_fifo (void)
+{
+    gchar  *dir = g_dir_make_tmp ("pn-pipe-writer-XXXXXX", NULL);
+    gchar  *a   = g_build_filename (dir, "kept.fifo", NULL);
+    PnNode *node = g_object_new (PN_TYPE_PIPE_WRITER, "pipe-path", a, NULL);
+
+    PN_CHECK (spin_until (is_fifo_cb, a));
+    g_object_unref (node);
+    PN_CHECK (is_fifo_cb (a));
+
+    g_unlink (a);
+    g_rmdir (dir);
+    g_free (a);
+    g_free (dir);
+}
+
+/* Deleting the node from the document removes its FIFO; clearing the
+ * whole document (close, reload, undo restore) does not. */
+static void
+test_deleted_from_flow (void)
+{
+    gchar  *dir  = g_dir_make_tmp ("pn-pipe-writer-XXXXXX", NULL);
+    gchar  *a    = g_build_filename (dir, "del.fifo", NULL);
+    gchar  *b    = g_build_filename (dir, "clr.fifo", NULL);
+    PnFlow *flow = pn_flow_new ();
+    PnNode *del  = g_object_new (PN_TYPE_PIPE_WRITER, "pipe-path", a, NULL);
+    PnNode *clr  = g_object_new (PN_TYPE_PIPE_READER, "pipe-path", b, NULL);
+
+    pn_node_store_add (pn_flow_get_nodes (flow), del);
+    pn_node_store_add (pn_flow_get_nodes (flow), clr);
+    PN_CHECK (spin_until (is_fifo_cb, a));
+    PN_CHECK (spin_until (is_fifo_cb, b));
+
+    pn_node_store_remove (pn_flow_get_nodes (flow), del);
+    PN_CHECK_FALSE (exists (a));
+
+    pn_flow_clear (flow);
+    PN_CHECK (is_fifo_cb (b));
+
+    g_object_unref (del);
+    g_object_unref (clr);
+    g_object_unref (flow);
+    g_unlink (b);
+    g_rmdir (dir);
+    g_free (a);
+    g_free (b);
+    g_free (dir);
+}
+
+/* Reader and Writer on one path: the FIFO goes only with the last user. */
+static void
+test_shared_fifo_last_user_removes (void)
+{
+    gchar  *dir    = g_dir_make_tmp ("pn-pipe-writer-XXXXXX", NULL);
+    gchar  *a      = g_build_filename (dir, "shared.fifo", NULL);
+    PnNode *writer = g_object_new (PN_TYPE_PIPE_WRITER, "pipe-path", a, NULL);
+    PnNode *reader;
+
+    PN_CHECK (spin_until (is_fifo_cb, a));
+    reader = g_object_new (PN_TYPE_PIPE_READER, "pipe-path", a, NULL);
+    PN_CHECK (spin_until (reader_open_cb, reader));
+
+    g_object_set (writer, "pipe-path", "", NULL);
+    PN_CHECK (is_fifo_cb (a));
+    g_object_set (reader, "pipe-path", "", NULL);
+    PN_CHECK_FALSE (exists (a));
+
+    g_object_unref (reader);
+    g_object_unref (writer);
+    g_rmdir (dir);
+    g_free (a);
+    g_free (dir);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -434,5 +571,10 @@ main (int argc, char **argv)
     pn_test_add ("refuses_regular_file",    test_refuses_regular_file);
     pn_test_add ("error_state_tracks_path", test_error_state_tracks_path);
     pn_test_add ("round_trip_json",         test_round_trip_json);
+    pn_test_add ("path_change_removes_own", test_path_change_removes_own_fifo);
+    pn_test_add ("keeps_foreign_fifo",      test_keeps_foreign_fifo);
+    pn_test_add ("dispose_keeps_fifo",      test_dispose_keeps_fifo);
+    pn_test_add ("deleted_from_flow",       test_deleted_from_flow);
+    pn_test_add ("shared_fifo_last_user",   test_shared_fifo_last_user_removes);
     return pn_test_run ();
 }

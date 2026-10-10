@@ -34,7 +34,9 @@ G_BEGIN_DECLS
  * the host's Credentials dialog uses for %PN_FIELD_FILE fields, and which
  * plugins may drop into their own dialogs.  Read the value through the
  * #PnFileChooserEntry:text property and react to edits via
- * #PnFileChooserEntry::changed.
+ * #PnFileChooserEntry::changed.  Both report committed edits only (Enter,
+ * focus out, a browse pick, unmap), never each keystroke, so a bound path
+ * property is not acted on for every prefix of a path being typed.
  */
 
 #define PN_TYPE_FILE_CHOOSER_ENTRY (pn_file_chooser_entry_get_type ())

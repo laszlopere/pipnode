@@ -36,6 +36,7 @@ struct _PnPipeWriter
 
     gchar        *pipe_path;   /* as typed, saved              */
     gchar        *real_path;   /* pipe_path with ~ expanded    */
+    gchar        *claimed;     /* FIFO path held via pn_pipe_claim, or NULL */
     PnPipeFormat  format;
 
     gint     fd;            /* write end, -1 while no reader            */
@@ -82,7 +83,7 @@ static gboolean
 writer_check_fifo (PnPipeWriter *self)
 {
     GError  *error = NULL;
-    gboolean ok    = pn_pipe_ensure_fifo (self->real_path, &error);
+    gboolean ok    = pn_pipe_claim (&self->claimed, self->real_path, &error);
 
     /* No terminal to print to and no output port to report on: the red
      * node is the diagnostic (its tooltip/help names the causes). */
@@ -308,6 +309,9 @@ pn_pipe_writer_set_property (
                 g_free (self->real_path);
                 self->real_path = pn_path_expand (path);
                 writer_close (self);
+                /* The FIFO at the old path is ours to remove. */
+                if (g_strcmp0 (self->claimed, self->real_path) != 0)
+                    pn_pipe_release (&self->claimed, TRUE);
                 pn_node_set_has_error (PN_NODE (self), *path == '\0');
                 /* Create the FIFO up front, so an outside reader can
                  * open it before the first message is ever sent. */
@@ -337,17 +341,33 @@ pn_pipe_writer_set_property (
 /*  GObject lifecycle                                                  */
 /* ------------------------------------------------------------------ */
 
+/* Stop using the pipe; @remove: also delete a FIFO this node created. */
 static void
-pn_pipe_writer_dispose (GObject *object)
+writer_shutdown (PnPipeWriter *self, gboolean remove)
 {
-    PnPipeWriter *self = PN_PIPE_WRITER (object);
-
     if (self->check_idle_id != 0)
     {
         g_source_remove (self->check_idle_id);
         self->check_idle_id = 0;
     }
     writer_close (self);
+    pn_pipe_release (&self->claimed, remove);
+}
+
+static void
+on_deleted (PnNode *node, gpointer user_data)
+{
+    (void) user_data;
+    writer_shutdown (PN_PIPE_WRITER (node), TRUE);
+}
+
+static void
+pn_pipe_writer_dispose (GObject *object)
+{
+    PnPipeWriter *self = PN_PIPE_WRITER (object);
+
+    /* Quit, close or reload: keep the FIFO for outside programs. */
+    writer_shutdown (self, FALSE);
 
     G_OBJECT_CLASS (pn_pipe_writer_parent_class)->dispose (object);
 }
@@ -431,6 +451,8 @@ pn_pipe_writer_init (PnPipeWriter *self)
 
     /* No pipe configured yet. */
     pn_node_set_has_error  (node, TRUE);
+
+    g_signal_connect (self, "deleted", G_CALLBACK (on_deleted), NULL);
 }
 
 /* ------------------------------------------------------------------ */

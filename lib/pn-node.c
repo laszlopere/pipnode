@@ -288,6 +288,7 @@ enum {
     SIG_INPUT_NAMES_CHANGED,
     SIG_PORT_COUNT_CHANGED,
     SIG_PROCESSING_CHANGED,
+    SIG_DELETED,
     N_SIGNALS,
 };
 
@@ -726,6 +727,21 @@ pn_node_class_init (PnNodeClass *klass)
             G_TYPE_NONE,
             1,
             G_TYPE_BOOLEAN);
+
+    /* Emitted when the node is deleted from its document -- the user
+     * removed it or its sheet -- as opposed to the whole document being
+     * cleared for a close, reload or undo restore.  A node that created
+     * something outside pipnode for its own use (a Pipe node's FIFO)
+     * removes it here.  A signal, not a vfunc: no ABI bump. */
+    signals[SIG_DELETED] = g_signal_new (
+            "deleted",
+            PN_TYPE_NODE,
+            G_SIGNAL_RUN_LAST,
+            0,
+            NULL, NULL,
+            NULL,
+            G_TYPE_NONE,
+            0);
 
     /* Default size vfuncs return the canonical 140×40 footprint;
      * subclasses override for nodes that paint outside that box. */
@@ -2401,6 +2417,14 @@ pn_node_set_flow (PnNode *self, PnFlow *flow)
     /* Atomic: the auto-trigger worker thread reads this while the main
      * thread (flow add/remove) writes it.  Borrowed pointer, no ref. */
     g_atomic_pointer_set (&priv->flow, flow);
+}
+
+void
+pn_node_emit_deleted (PnNode *self)
+{
+    g_return_if_fail (PN_IS_NODE (self));
+
+    g_signal_emit (self, signals[SIG_DELETED], 0);
 }
 
 PnFlow *
